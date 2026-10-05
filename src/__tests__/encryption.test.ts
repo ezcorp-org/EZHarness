@@ -7,8 +7,8 @@ import { join } from "node:path";
 // specifier used elsewhere. A query-string import is a distinct module key,
 // so this suite executes the shipping implementation itself.
 type EncryptionModule = Pick<typeof import("../providers/encryption"),
-  "_resetKeyCache" | "decrypt" | "decryptWithAad" | "encrypt" | "encryptWithAad">;
-const { _resetKeyCache, decrypt, decryptWithAad, encrypt, encryptWithAad } =
+  "_resetKeyCache" | "decrypt" | "decryptWithAad" | "encrypt" | "encryptWithAad" | "getStableInstallationId">;
+const { _resetKeyCache, decrypt, decryptWithAad, encrypt, encryptWithAad, getStableInstallationId } =
   await import(new URL("../providers/encryption.ts?coverage-test", import.meta.url).href) as EncryptionModule;
 
 const originalEnv = process.env.EZCORP_ENCRYPTION_SECRET;
@@ -55,6 +55,16 @@ test("AAD ciphertext needs the same scope to decrypt", () => {
   const ciphertext = encryptWithAad("scoped secret", "extension:project");
   expect(decryptWithAad(ciphertext, "extension:project")).toBe("scoped secret");
   expect(() => decryptWithAad(ciphertext, "other:project")).toThrow();
+});
+
+test("the local installation ID is stable for one key and changes with encryption material", () => {
+  const first = getStableInstallationId();
+  expect(first).toMatch(/^[A-Za-z0-9_-]{32}$/);
+  _resetKeyCache();
+  expect(getStableInstallationId()).toBe(first);
+  process.env.EZCORP_ENCRYPTION_SECRET = "another-test-secret";
+  _resetKeyCache();
+  expect(getStableInstallationId()).not.toBe(first);
 });
 
 test("a first run persists its generated secret and retains legacy salt semantics", () => {

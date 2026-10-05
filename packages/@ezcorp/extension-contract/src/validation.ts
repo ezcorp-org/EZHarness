@@ -16,7 +16,7 @@ export const TOOL_RESULT_SCHEMA = {
   properties: { content: { type: "array", items: { type: "object", required: ["type"], properties: { type: { type: "string" }, text: { type: "string" } }, additionalProperties: true } }, isError: { type: "boolean" } },
   additionalProperties: true,
 };
-export type SandboxProviderGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1";
+export type SandboxProviderGroup = "sandbox.lifecycle.v1" | "sandbox.process.v1" | "sandbox.files.v1" | "sandbox.transfer.v1";
 export type ProviderSchemaDirection = "input" | "result";
 const providerMethodDefinitions = {
   "sandbox.lifecycle.v1": {
@@ -27,6 +27,9 @@ const providerMethodDefinitions = {
   },
   "sandbox.files.v1": {
     stat: ["SandboxFileStatInput", "SandboxFileStatResult"], list: ["SandboxFileListInput", "SandboxFileListResult"], read: ["SandboxFileReadInput", "SandboxFileReadResult"], write: ["SandboxFileWriteInput", "SandboxFileWriteResult"], mkdir: ["SandboxFileMkdirInput", "SandboxFileMkdirResult"], remove: ["SandboxFileRemoveInput", "SandboxFileRemoveResult"], chmod: ["SandboxFileChmodInput", "SandboxFileChmodResult"],
+  },
+  "sandbox.transfer.v1": {
+    beginExport: ["SandboxBeginExportInput", "SandboxBeginExportResult"], readExport: ["SandboxReadExportInput", "SandboxReadExportResult"], endExport: ["SandboxEndExportInput", "SandboxEndExportResult"],
   },
 } as const;
 export type SandboxProviderOperation<Group extends SandboxProviderGroup> = keyof typeof providerMethodDefinitions[Group] & string;
@@ -299,6 +302,13 @@ function validateProviderInput(group: SandboxProviderGroup, operation: string, r
   if (group === "sandbox.lifecycle.v1") validateLifecycleProviderInput(operation, record);
   if (group === "sandbox.process.v1") validateProcessProviderInput(operation, record);
   if (group === "sandbox.files.v1") validateFileProviderInput(operation, record);
+  if (group === "sandbox.transfer.v1") {
+    if (record.snapshotId !== undefined) providerIdentifier(record.snapshotId, "snapshot ID");
+    if (operation === "readExport") {
+      providerInteger(record.offsetBytes, "snapshot offset");
+      providerInteger(record.lengthBytes, "snapshot length", 1, PROVIDER_CHUNK_BYTES);
+    }
+  }
 }
 
 function validateProviderResultObjects(record: ProviderRecord): void {
@@ -350,6 +360,18 @@ function validateProviderResult(group: SandboxProviderGroup, operation: string, 
   validateProviderResultDetails(record);
   if (group === "sandbox.process.v1" && operation === "readOutput") validateProcessOutputResult(record);
   if (group === "sandbox.files.v1" && operation === "read") validateFileReadResult(record);
+  if (group === "sandbox.transfer.v1") {
+    if (record.snapshotId !== undefined) providerIdentifier(record.snapshotId, "snapshot ID");
+    if (operation === "beginExport") {
+      providerInteger(record.byteLength, "snapshot size", 0, 48 * 1024 * 1024);
+      if (typeof record.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(record.sha256)) throw new ContractError("INVALID_PROVIDER_VALUE", "Invalid snapshot digest");
+    }
+    if (operation === "readExport") {
+      providerInteger(record.offsetBytes, "snapshot offset");
+      providerInteger(record.nextOffsetBytes, "next snapshot offset");
+      if (providerEncodedBytes("base64", record.data) > PROVIDER_CHUNK_BYTES) throw new ContractError("DATA_LIMIT", "Snapshot chunk exceeds provider limit");
+    }
+  }
 }
 
 export function validateProviderMethodValue<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, direction: ProviderSchemaDirection, value: unknown): unknown {
@@ -430,6 +452,11 @@ function validateSuccessfulProviderExchange(group: SandboxProviderGroup, operati
   validateProviderProcessIdentity(request, response);
   if (group === "sandbox.process.v1" && operation === "readOutput") validateProcessOutputExchange(request, response);
   if (group === "sandbox.files.v1") validateFilesProviderExchange(operation, request, response);
+  if (group === "sandbox.transfer.v1" && operation === "readExport") {
+    if (request.snapshotId !== response.snapshotId || request.offsetBytes !== response.offsetBytes) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Snapshot read changed identity or offset");
+    const size = providerEncodedBytes("base64", response.data);
+    if (response.nextOffsetBytes !== (request.offsetBytes as number) + size || size > (request.lengthBytes as number) || (!response.eof && size === 0)) throw new ContractError("INVALID_PROVIDER_RECEIPT", "Snapshot read returned an invalid range");
+  }
 }
 
 export function validateProviderMethodExchange<Group extends SandboxProviderGroup>(group: Group, operation: SandboxProviderOperation<Group>, input: unknown, result: unknown): { input: unknown; result: unknown } {

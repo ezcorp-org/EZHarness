@@ -17,12 +17,12 @@ async function fixture(outputBytes = 12, stopFails = false) {
 	const root = await mkdtemp(join(tmpdir(), "ez-supervisor-")); roots.push(root);
 	const processRoot = join(root, "resource", "process"); await mkdir(processRoot, { recursive: true, mode: 0o700 });
 	const runtimeState = join(root, "runtime-state"); await writeFile(runtimeState, "running");
-	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args"); const stopGate = join(root, "stop-gate");
+	const descendantPid = join(root, "descendant-pid"); const execArgs = join(root, "exec-args"); const stopGate = join(root, "stop-gate"); const outputGate = join(root, "output-gate");
 	const podman = join(root, "podman");
 	await writeFile(podman, `#!${bunExecutable}
 import { readFile, writeFile } from "node:fs/promises";
 const args = process.argv.slice(2); const state = ${JSON.stringify(runtimeState)}; const descendantPid = ${JSON.stringify(descendantPid)};
-if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } if (args.includes("identity-check")) process.exit(0); while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
+if (args.includes("exec")) { await writeFile(${JSON.stringify(execArgs)}, JSON.stringify(args)); if (args.includes("utf8")) { while (!(await Bun.file(${JSON.stringify(outputGate)}).exists())) await Bun.sleep(5); if ((await readFile(state, "utf8")) !== "running") process.exit(0); process.stdout.write(new Uint8Array([0xe2])); await Bun.sleep(5); process.stdout.write(new Uint8Array([0x82, 0xac])); } else { process.stdout.write("abcdefghij"); process.stderr.write("KLMNOPQRST"); } if (args.includes("background")) { const child = Bun.spawn(["/bin/sh", "-c", "sleep 30"], { stdout: "inherit", stderr: "inherit" }); await writeFile(descendantPid, String(child.pid)); process.exit(0); } if (args.includes("identity-check")) process.exit(0); while ((await readFile(state, "utf8")) === "running") await Bun.sleep(5); process.exit(0); }
 if (args.includes("stop") || args.includes("kill")) { if (${stopFails}) process.exit(1); while (await Bun.file(${JSON.stringify(stopGate)}).exists()) await Bun.sleep(5); await writeFile(state, "stopped"); try { process.kill(Number(await readFile(descendantPid, "utf8")), "SIGKILL"); } catch { await Promise.resolve(); } process.exit(0); }
 if (args.includes("inspect")) { const running = (await readFile(state, "utf8")) === "running"; console.log(args.some(value => value.includes(".Name")) ? "containerid containername " + running : "containerid " + running); process.exit(0); }
 process.exit(2);
@@ -32,7 +32,7 @@ process.exit(2);
 	const config = { stateRoot: root, podmanPath: podman, supervisorPath: "/trusted/supervisor", maxOutputBytes: outputBytes, workspaceUid: 0, workspaceGid: 0 };
 	const supervisor = new LocalProcessSupervisor(config, async () => resource, argv => { entries.push(runSupervisorEntry(argv[1]!)); });
 	const input: SandboxProcessStartInput = { call, resourceId: "resource", argv: ["tool"], env: { SAFE: "yes" }, cwd: "/", user: "workspace", timeoutMs: 2_000 };
-	return { root, processRoot, runtimeState, execArgs, stopGate, podman, resource, entries, supervisor, input, config };
+	return { root, processRoot, runtimeState, execArgs, stopGate, outputGate, podman, resource, entries, supervisor, input, config };
 }
 
 async function terminal(f: Awaited<ReturnType<typeof fixture>>, identity: { bootId: string; processId: string }) {
@@ -192,8 +192,19 @@ describe("LocalProcessSupervisor", () => {
 	test("preserves UTF-8 bytes split across output chunks", async () => {
 		const f = await fixture(64); const started = await f.supervisor.start({ ...f.input, argv: ["utf8"] }); if (!("process" in started)) throw new Error("missing process");
 		for (let attempt = 0; attempt < 100 && !(await Bun.file(f.execArgs).exists()); attempt += 1) await Bun.sleep(5);
-		await Bun.sleep(20); await writeFile(f.runtimeState, "stopped"); await terminal(f, started.process.identity);
-		const output = await f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 0, maxBytes: 64 }); if (!("chunks" in output)) throw new Error("missing output");
+		await writeFile(f.outputGate, "open");
+		const read = () => f.supervisor.readOutput({ call, resourceId: "resource", identity: started.process.identity, cursor: 0, maxBytes: 64 });
+		let output = await read();
+		while ("chunks" in output && output.cursor < 3) {
+			const inspected = await f.supervisor.inspect({ call, resourceId: "resource", identity: started.process.identity });
+			if ("process" in inspected && inspected.process.state !== "starting" && inspected.process.state !== "running") break;
+			await Bun.sleep(5);
+			output = await read();
+		}
+		if (!("chunks" in output)) throw new Error("missing output");
+		expect(output.cursor).toBe(3);
+		await writeFile(f.runtimeState, "stopped"); await terminal(f, started.process.identity);
+		output = await read(); if (!("chunks" in output)) throw new Error("missing terminal output");
 		const bytes = Buffer.concat(output.chunks.map((chunk) => Buffer.from(chunk.data, "base64"))); expect(bytes.toString("utf8")).toBe("€"); expect(output.cursor).toBe(3);
 	});
 

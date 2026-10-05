@@ -54,6 +54,7 @@ import {
 import {
   ratchetViolation,
 } from "../../scripts/typecheck-tests.ts";
+
 import {
   type AllowlistEntry,
   AuditUnavailableError,
@@ -146,7 +147,38 @@ function gateIntegrityFixture(fixtureRoot: string) {
 // Every test that runs the real gate spawns it ONCE per test case, under this bound. The cause is cause 2 in
 // the "isolated parser dependency" describe below (receipt: tasks/factory/w18-hygiene-GATES.md, GC18).
 const SPAWN_TIMEOUT_MS = 60_000; // 2x the ~30 s worst single spawn measured under host contention (cause 2).
+import { fixtureGitEnv } from "./helpers/git-fixture-env.ts";
 
+test("fixture Git commands ignore a hook's parent repository", () => {
+  const root = mkdtempSync(join(tmpdir(), "gate-git-env-"));
+  const parent = join(root, "parent");
+  const fixture = join(root, "fixture");
+  try {
+    mkdirSync(parent);
+    mkdirSync(fixture);
+    const git = (cwd: string, env: Record<string, string>, ...args: string[]) => Bun.spawnSync(
+      ["git", ...args], { cwd, env, stdout: "pipe", stderr: "pipe" },
+    );
+    const clean = fixtureGitEnv();
+    expect(git(parent, clean, "init", "--quiet").exitCode).toBe(0);
+
+    const poisoned = {
+      ...process.env,
+      GIT_DIR: join(parent, ".git"),
+      GIT_INDEX_FILE: join(parent, ".git", "index"),
+      GIT_PREFIX: "parent/",
+    };
+    const isolated = fixtureGitEnv(poisoned);
+    expect(git(fixture, isolated, "init", "--quiet").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "user.name", "Patch fixture").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "user.email", "patch-fixture@example.test").exitCode).toBe(0);
+    expect(git(fixture, isolated, "config", "--get", "user.name").stdout.toString().trim()).toBe("Patch fixture");
+    expect(git(parent, clean, "config", "--local", "--get", "user.name").exitCode).toBe(1);
+    expect(existsSync(join(fixture, ".git", "config"))).toBe(true);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 // ── gate-integrity: isolated parser dependency ─────────────────────────────
 describe("gate-integrity: isolated parser dependency", () => {
   // This test timed out for TWO separate causes; each has its own fix, and both fixes stay.

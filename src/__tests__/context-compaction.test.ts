@@ -103,6 +103,10 @@ describe("estimateTokens", () => {
     expect(estimateMessageTokens({ kind: "ui-only" } as Msg)).toBe(0);
   });
 
+  test("transcript system messages stay outside the conversation estimate", () => {
+    expect(estimateMessageTokens({ role: "system", content: "instructions" } as Msg)).toBe(0);
+  });
+
   test("monotonic in text length", () => {
     expect(estimateMessageTokens(userMsg("a".repeat(400)))).toBeGreaterThan(
       estimateMessageTokens(userMsg("a".repeat(40))),

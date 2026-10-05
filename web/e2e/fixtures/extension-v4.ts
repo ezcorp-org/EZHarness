@@ -2,7 +2,7 @@ import type { APIRequestContext, Locator, Page } from "@playwright/test";
 import { expect, test } from "./hydration.js";
 import { HarnessClient } from "../../../packages/@ezcorp/harness-client/src/index";
 import type { InstallationState, LifecycleOperation, WorkspaceRecord, InstallationRecord, LifecycleApproval } from "../../../src/extensions/v4/types";
-import { buildElapsedMs, nextBuildClock, type BuildClock } from "./extension-build-clock.js";
+import { buildElapsedMs, nextBuildClock, withinTimeout, type BuildClock } from "./extension-build-clock.js";
 
 export interface CreatedWorkspace { installation: InstallationRecord; workspace: WorkspaceRecord; openUrl: string }
 
@@ -48,18 +48,17 @@ const RUNNER_WAIT_BUDGET_MS = 480_000;
 const INSPECT_WAIT_MS = 1_000;
 /** Leave this much of the test timeout for the fixture message and teardown. */
 const TEST_TIMEOUT_MARGIN_MS = 15_000;
+export const EXTENSION_SETUP_HOOK_TIMEOUT_MS = 300_000;
 
 /** `budgetMs`, or less when the running test's timeout could not hold it. */
-function withinTestTimeout(budgetMs: number): number {
-  const testTimeout = test.info().timeout;
-  if (testTimeout <= 0) return budgetMs;
-  return Math.min(budgetMs, Math.max(testTimeout - TEST_TIMEOUT_MARGIN_MS, 1_000));
+function withinTestTimeout(budgetMs: number, scopeTimeoutMs = test.info().timeout): number {
+  return withinTimeout(budgetMs, scopeTimeoutMs, TEST_TIMEOUT_MARGIN_MS);
 }
 
 /** One allowance for runner parking plus builds, shared by every build wait it is passed to. */
 export interface BuildDeadline { readonly until: number }
-export function buildDeadline(now = Date.now()): BuildDeadline {
-  return { until: now + withinTestTimeout(RUNNER_WAIT_BUDGET_MS) };
+export function buildDeadline(now = Date.now(), scopeTimeoutMs = test.info().timeout): BuildDeadline {
+  return { until: now + withinTestTimeout(RUNNER_WAIT_BUDGET_MS, scopeTimeoutMs) };
 }
 /**
  * Activation is one server call that verifies the candidate, prepares
@@ -104,17 +103,20 @@ export async function requestRelease(client: HarnessClient, state: InstallationS
   return result.approval;
 }
 
-export async function createAndActivateExtension({ page, request, baseURL, name, deadline = buildDeadline() }: {
-  page: Page; request: APIRequestContext; baseURL: string; name: string; deadline?: BuildDeadline;
+/** A `beforeAll` caller passes its own timeout: `test.info().timeout` still
+ * reports the following test's limit, even after the hook calls
+ * `test.setTimeout`. The same scope bounds both build and activation. */
+export async function createAndActivateExtension({ page, request, baseURL, name, hookTimeoutMs, deadline = buildDeadline(Date.now(), hookTimeoutMs ?? test.info().timeout) }: {
+  page: Page; request: APIRequestContext; baseURL: string; name: string; hookTimeoutMs?: number; deadline?: BuildDeadline;
 }): Promise<{ client: HarnessClient; state: InstallationState }> {
   const { client } = await extensionClient(request, baseURL);
   const created = await client.extensionControl<CreatedWorkspace>("extensions_workspace", { action: "create", name });
   const state = await buildWorkspace(client, created, deadline);
   const release = Object.values(state.releases)[0]!;
-  return { client, state: await approveAndActivateWorkspace(page, client, created, state, release.id) };
+  return { client, state: await approveAndActivateWorkspace(page, client, created, state, release.id, hookTimeoutMs) };
 }
 
-export async function approveAndActivateWorkspace(page: Page, client: HarnessClient, created: CreatedWorkspace, state: InstallationState, releaseId: string): Promise<InstallationState> {
+export async function approveAndActivateWorkspace(page: Page, client: HarnessClient, created: CreatedWorkspace, state: InstallationState, releaseId: string, scopeTimeoutMs?: number): Promise<InstallationState> {
   await requestRelease(client, state, releaseId);
   await page.goto(created.openUrl);
   const approve = page.getByRole("button", { name: "Approve exact release", exact: true });
@@ -126,7 +128,7 @@ export async function approveAndActivateWorkspace(page: Page, client: HarnessCli
   const unsandboxed = page.getByLabel("I understand this extension will run without a sandbox.");
   if (await unsandboxed.count()) await unsandboxed.check();
   await approve.click();
-  await activateApprovedRelease(page);
+  await activateApprovedRelease(page, page, scopeTimeoutMs);
   const active = await client.extensionControl<InstallationState>("extensions_inspect", { installationId: created.installation.id });
   expect(active.installation.activeReleaseId).toBe(releaseId);
   expect(active.installation.enabled).toBe(true);
@@ -140,14 +142,14 @@ export async function approveAndActivateWorkspace(page: Page, client: HarnessCli
  * Every spec that activates from the page waits here, so the bound has one
  * home (CI run 34765290249 failed a spec's own inline copy at the 5s default).
  */
-export async function expectInstallationEnabled(page: Page): Promise<void> {
-  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: withinTestTimeout(ACTIVATION_BUDGET_MS) });
+export async function expectInstallationEnabled(page: Page, scopeTimeoutMs?: number): Promise<void> {
+  await expect(page.getByRole("button", { name: "Disable installation", exact: true })).toBeEnabled({ timeout: withinTestTimeout(ACTIVATION_BUDGET_MS, scopeTimeoutMs) });
 }
 
 /** Click "Activate approved release" inside `scope` and wait, bounded, for the installation to report enabled. */
-export async function activateApprovedRelease(page: Page, scope: Page | Locator = page): Promise<void> {
+export async function activateApprovedRelease(page: Page, scope: Page | Locator = page, scopeTimeoutMs?: number): Promise<void> {
   await scope.getByRole("button", { name: "Activate approved release", exact: true }).click();
-  await expectInstallationEnabled(page);
+  await expectInstallationEnabled(page, scopeTimeoutMs);
 }
 
 export async function importAndActivateBundledExtension({ page, request, baseURL, name }: {

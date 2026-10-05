@@ -8,10 +8,12 @@
     "packages/@ezcorp/*"
   ],
   "overrides": {
-    "@earendil-works/pi-ai": "0.85.1",
-    "@earendil-works/pi-telemetry": "0.85.1",
+    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-telemetry": "0.87.1",
+    "esbuild": "0.28.1",
     "zod": "4.5.4",
-    "sharp": "0.35.4"
+    "sharp": "0.35.4",
+    "uuid": "11.1.1"
   },
   "scripts": {
     "postinstall": "bun run build:packages && bash scripts/setup-git-hooks.sh",
@@ -41,7 +43,7 @@
     "verify:docker-upgrade": "bash scripts/verify-docker-upgrade.sh",
     "verify:all": "bun run verify:backup && bun run verify:edges && bun run verify:docker && bun run verify:docker-rollback && bun run verify:docker-upgrade",
     "typecheck": "bash scripts/typecheck.sh",
-    "lint": "bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker docs tests .github index.ts drizzle.config.ts .*.json *.json \"$@\"' --",
+    "lint": "bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker services docs tests .github index.ts drizzle.config.ts .*.json *.json \"$@\"' --",
     "lint:fix": "bun run lint --write",
     "gate:coverage": "bun scripts/check-global-coverage.ts",
     "gate:crap": "bun scripts/crap-score.ts",
@@ -54,8 +56,8 @@
     "@biomejs/biome": "2.5.14",
     "@types/bun": "1.4.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.6.1",
-    "drizzle-kit": "^0.31.9"
+    "@types/node": "^26.6.3",
+    "drizzle-kit": "^0.31.11"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
@@ -64,8 +66,8 @@
     "@aws-sdk/client-kms": "3.1131.0",
     "@aws-sdk/client-s3": "3.1131.0",
     "@balena/dockerignore": "1.0.2",
-    "@earendil-works/pi-agent-core": "0.85.1",
-    "@earendil-works/pi-ai": "0.85.1",
+    "@earendil-works/pi-agent-core": "0.87.1",
+    "@earendil-works/pi-ai": "0.87.1",
     "@electric-sql/pglite": "0.5.8",
     "@electric-sql/pglite-pgvector": "0.0.9",
     "@ezcorp/ai-kit": "workspace:*",
@@ -75,12 +77,12 @@
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
     "@huggingface/transformers": "^4.3.0",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "^1.30.1",
     "@zxing/library": "^0.23.0",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "exceljs": "^4.4.0",
     "fast-png": "^8.0.0",
-    "file-type": "^22.1.0",
+    "file-type": "^22.1.1",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
     "yaml": "^2.9.1",
