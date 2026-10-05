@@ -2757,3 +2757,11 @@ swap, successful startup, unchanged active provider/connection, historical
 cleanup status and empty guest inventory. Exact poststart historical database
 fields are inferred preserved from unchanged startup/controller paths; they
 were not read from a live database. One fresh diagnostic qualification is next.
+
+Diagnostic receipt 68 returned `guest_processes_start_permission_denied`;
+receipts 69–73 confirm guest/probe cleanup and unchanged configuration pins.
+Independent source review found the broker incorrectly requests a lifecycle
+settlement journal for guest mutations under host contract minor 1. The debug
+worker owns a regression-first fix in the broker and its action tests. Keep
+the broad guest mutation dispatch/authorization checks; narrow only the native
+lifecycle observation path. No connection or image change is indicated.

@@ -200,7 +200,18 @@ the live database.
 A real TLS/WebSocket-to-helper process test also passed: 10 tests and 94
 assertions, including a deterministic deadline-race regression. These tests
 did not reproduce the live failure. The fresh diagnostic qualification uses
-`incus-final-014-diagnostic-20261005-1`; its outcome is pending.
+`incus-final-014-diagnostic-20261005-1` returned
+`guest_processes_start_permission_denied`, with confirmed cleanup. Independent
+receipts 68–73 prove successful guest disposal, empty backend inventory and
+supported probe cleanup; the image/helper/connection pins still match.
+
+Source review identified the defect: the host broker reserves a native
+lifecycle observation for every mutation, including guest process and file
+calls. Host contract minor 1 requires a lifecycle settlement scope, which
+those guest calls do not have. This rejects them before guest transport.
+The fix must retain guest authorization and dispatch deduplication while
+restricting the native lifecycle observer to lifecycle operations. Regression
+tests and the next live run are still required before calling this fixed.
 
 The local native-work fixture passed its independent checkout, failing-test,
 repair and retained-commit tests. The Incus transport suite passed 44 tests,
