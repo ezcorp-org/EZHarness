@@ -1,6 +1,6 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
-import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { validateSandboxProviderMethodExchange, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -202,13 +202,29 @@ print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
     const startClock = spyOn(Date, "now").mockReturnValue(processDeadlineMs - 29_999);
     let started: Record<string, any>;
     try {
-      started = await call("processes.start", { argv: ["sh", "-c", "printf guest-stdout; printf guest-stderr >&2"],
+      started = await call("processes.start", { argv: ["python3", "-c", "import pathlib,sys,time; sys.stdout.write('guest-stdout'); sys.stdout.flush();\nwhile not pathlib.Path('release').exists(): time.sleep(0.01)\nsys.stderr.write('guest-stderr')"],
         cwd: ".", user, env: [], processDeadlineMs, requestId: "process-proof", idempotencyKey: "process-proof" });
     } finally { startClock.mockRestore(); }
     expect(started.ok).toBe(true);
     expect(started.processId).toMatch(/^[a-f0-9]{32}$/);
     expect(started.bootId).toMatch(/^[a-f0-9-]{36}$/);
     const identity = { processId: started.processId, bootId: started.bootId };
+    // The helper response must finish while its supervised child stays alive.
+    // A release file proves ordering without measuring the host wall clock.
+    let runningOutput: Record<string, any> | undefined;
+    while (Date.now() < processDeadlineMs) {
+      runningOutput = await call("processes.readOutput", { ...identity,
+        cursor: { ...identity, sandboxId, offsetBytes: 0 }, maxBytes: 65536 });
+      expect(runningOutput.eof).toBe(false);
+      const prefix = runningOutput.chunks.filter((chunk: Record<string, unknown>) => chunk.stream === "stdout")
+        .map((chunk: Record<string, unknown>) => Buffer.from(String(chunk.dataBase64), "base64").toString()).join("");
+      if (prefix === "guest-stdout") break;
+      await Bun.sleep(40);
+    }
+    expect(runningOutput?.chunks.filter((chunk: Record<string, unknown>) => chunk.stream === "stdout")
+      .map((chunk: Record<string, unknown>) => Buffer.from(String(chunk.dataBase64), "base64").toString()).join("")).toBe("guest-stdout");
+    expect(await Bun.file(join(workspace, "release")).exists()).toBe(false);
+    await writeFile(join(workspace, "release"), "release");
     let inspected: Record<string, any> | undefined;
     while (Date.now() < processDeadlineMs) {
       inspected = await call("processes.inspect", identity);
@@ -226,6 +242,7 @@ print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
     }
     expect([...fixture.channels.keys()].sort()).toEqual(["0", "1", "2", "control"]);
   } finally {
+    await writeFile(join(workspace, "release"), "release");
     await fixture.dispose();
     await rm(root, { recursive: true, force: true });
   }
