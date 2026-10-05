@@ -5863,6 +5863,12 @@ evidence and gates.
 - [x] W10c: the C10 contract revision by the user's decision (2026-10-03): factory pin claude-haiku-4-5-20251001 -> openai gpt-6-luna under the
       Codex OAuth credential; R8 journey receipt 1b15abdcad386e5a...; W10 G27, G8c and G8d stay open.
 - [x] wave4i combined run at 98c59f562: green (runner 38 legs, 48893 tests; after-runner and browser part green; final gates vs origin/main green, gate-integrity = the 8 expected lines; extra pass vs 1992630f3 green); receipts f1bee005a.
+- [x] W4H-10 main sync (W-SYNC form): origin/main beaff68c8 merged into the wave head at e6a3a70f2 (9 conflicts resolved at the root; Pi 0.87.1
+      catalog carries gpt-6-luna, the W10c override removed as dead code); validator-5 ACCEPT 6c93600351782b0c; merge 198f5fcac / receipts 1c84df6d5
+      (hook: list-bound ruling 45ba088481f9e09f for the merge commit; EZ_PRECOMMIT_TEST_MAX=62 under the lock; nothing skipped).
+- [x] wave4i-2 combined run at 1c84df6d5 (binding coverage judgement vs beaff68c8): runner part green except gate-integrity (the 8 expected lines);
+      standalone coverage producers shard 30068/0 and extras 1454/0; after-runner re-run green (browser lanes mock-full 1466, evidence 394,
+      fresh-setup 7, real-auth 108, factory-services 13); merged lcov 0ab908e0f9d79cde over 2297 files; final gates green on both passes (vs origin/main: gates.txt 5546a3218bef5bf1, new-file 460 files, patch 517 files, global floor margin 8.08, gate-integrity = the 8 expected lines, findings-match PASS; vs 1992630f3: gates.txt 14d9cb03a1819cda, gate-integrity PASSED); receipts 71838dfa3 (81 receipt files; SHA256SUMS 1995→2076, append-only).
 
 ## Leftover after wave 4i — 2026-10-05
 

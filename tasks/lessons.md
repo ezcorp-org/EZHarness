@@ -2023,6 +2023,10 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   is skipped and the refused attempt is kept.
 - A document that quotes a command it removes is not a command: the prune scan classes a prune subcommand in *.md as "candidate (doc file):
   validator reads" (prune-scan.sh efffa0178530c74a), as it does for test files.
+- A waiter blocks until the last step it starts has ended; never end a waiter by handing work to a detached child. (integrator-4, wave4i-2:
+  the trigger job ended when it launched the detached after-2 stage, so nobody watched it; its green result sat unseen for 3 hours.)
+- A producer that runs legs with coverage on needs its own memory floor (15 GiB available at start, resource-gate.sh / gated-flock.sh), or
+  the gate inside the lock times out (exit 96). The floor is named in the brief, never lowered.
 
 #### Coordinator (team-lead)
 - When a wrapper replaces another, check the files its callers used to write: W4H-5's publish refused because heavy.exit was gone with the
@@ -2031,18 +2035,24 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A carry-over ruling names the exact paths from the real diff, not a guessed directory (W4H-6-M1 amendment).
 - Running bash scripts are replaced with `mv` (atomic), never edited in place, and waiters are restarted to pick up the new text.
 - Commands handed to the user are zsh-safe: literal pid lists; `$P` does not split in zsh.
+- Silence is a signal, not a wait: when a report is overdue, read the exit files and logs (heavy.exit, *.exit, trigger.log) before waiting
+  longer. (2026-10-05: extras and after-2 were green at 18:32Z and 19:22Z; found at 22:15Z.)
 
-#### Validators (validator-5, validator-6; their pending-lesson.md files)
-- Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and exit 75 when it is red; never wait while you hold the lock.
-- Judge a test run by its counts ("N pass", "0 fail", the file's test count), not by "(pass)" lines: Bun 1.4.2 prints none when output is not a terminal.
-- Start nothing under a red gate, not even a 2-second diagnostic run.
-- Count a leg's own disk use (such as an install inside a container, about 6 GB) as its peak in the gate outside the lock, and make a snapshot only when the legs are about to run.
-- Refuse owner evidence whose head differs from the head under review: check the head each log ran at (the W4H-6 shard lists ran at an older head).
-- Keep hold snapshots outside /tmp/factory-platform-evidence (for example /tmp/v6-<pkg>-hold or /run/user/<uid>), copy only logs, lcov and results into the evidence dir, and delete the snapshot the moment the legs end.
-- Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and stop on red; wait for the gate only outside the lock, through gated-flock with its start margin.
-- A type-level change needs a typecheck program that compiles its users: W4H-3b's type-only mutant (WorkflowStep.env dropped) survived because scripts/**/*.test.ts were in no program, until W4H-3c added them.
-- Record a load-sensitive timeout as a flake on the leftover list, with its time, limit and host load; rerun it once only to show the cause, never retry it into green without saying so.
-- A per-file leg counts tests, not exit codes: a file whose run executes zero tests (opt-in, all skipped) is VOID and is named, never counted as a pass.
+#### Validators (validator-5, validator-6; from their pending-lesson.md files, 2026-10-05; the GATE_TRIES=1 line kept once)
+- Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and exit 75 on red; wait for the gate only outside the lock, through
+  gated-flock with its start margin. Start nothing under a red gate, not even a 2-second diagnostic run.
+- Judge a test run by its counts ("N pass", "0 fail", the file's test count), not by "(pass)" lines: Bun 1.4.2 prints none when output is
+  not a terminal. A per-file leg counts tests, not exit codes: a file whose run executes zero tests (opt-in, all skipped) is VOID and is
+  named, never counted as a pass.
+- Count a leg's own disk use (an install inside a container, about 6 GB) as its peak in the gate outside the lock; make a snapshot only when
+  the legs are about to run, keep it outside the evidence dir (/tmp/v6-<pkg>-hold or /run/user/<uid>), copy only logs, lcov and results
+  into the evidence dir, and delete it the moment the legs end.
+- Refuse owner evidence whose head differs from the head under review: check the head each log ran at (the W4H-6 shard lists ran at an
+  older head).
+- A type-level change needs a typecheck program that compiles its users: W4H-3b's type-only mutant (WorkflowStep.env dropped) survived
+  because scripts/**/*.test.ts were in no program, until W4H-3c added them.
+- Record a load-sensitive timeout as a flake on the leftover list, with its time, limit and host load; rerun it once only to show the
+  cause, never retry it into green without saying so.
 
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
