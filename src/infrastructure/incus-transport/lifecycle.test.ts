@@ -16,7 +16,7 @@ import * as schema from "../../db/schema";
 import type { ActiveExtensionRelease } from "../../extensions/release-process";
 import { SandboxAdmissionStore } from "../../sandboxes/admission";
 import { SandboxController } from "../../sandboxes/controller";
-import { IncusSandboxProviderDispatcher } from "../../sandboxes/incus-dispatcher";
+import { IncusSandboxProviderDispatcher, inspectedOutcome } from "../../sandboxes/incus-dispatcher";
 import { ProviderRpcBroker, type ProviderConnectionResolver } from "../provider-rpc-broker";
 import { HostIncusLifecycleTransport, withSession } from "./lifecycle";
 import { makeTestCertificates } from "./test-certificates";
@@ -949,6 +949,46 @@ test("terminal PATCH failure retains its accepted native handle and never dispat
     state: "failed", observedState: "unknown", error: { code: "INTERNAL", retryable: false } } } });
   expect(JSON.stringify(result)).not.toContain("secret provider detail");
   expect(writes).toEqual(["PATCH"]);
+});
+
+test("Incus 6.0.6 delete protection returns an accepted terminal failure instead of an unknown delete", async () => {
+  // Incus v6.0.6 admits DELETE as an async operation. Its container driver
+  // then refuses protection before touching storage: err="Instance is protected".
+  const id = "33333333-3333-4333-8333-333333333333";
+  const writes: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection-a",
+    "user.ezharness.sandbox_id": sandboxId, "user.ezharness.generation": "1", "security.protection.delete": "true" } };
+  const fetcher = async (url: string, init: RequestInit) => {
+    const parsed = new URL(url);
+    if (parsed.pathname.includes("/operations/")) return reply({ id, class: "task", status: "Failure", status_code: 400,
+      err: "Instance is protected", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+    if (init.method === "GET") return Response.json({ type: "sync", status_code: 200, metadata: instance }, { headers: { etag: '"protected-revision"' } });
+    writes.push(init.method!);
+    if (init.method === "PATCH") {
+      Object.assign(instance.config, JSON.parse(String(init.body)).config);
+      return reply({});
+    }
+    expect(init.method).toBe("DELETE");
+    expect(parsed.searchParams.get("project")).toBe("sandbox");
+    expect(parsed.searchParams.has("force")).toBe(false);
+    return Response.json({ type: "async", status: "Operation created", status_code: 100,
+      operation: `/1.0/operations/${id}`, metadata: { id, class: "task", status: "Running", status_code: 103,
+        resources: { instances: [`/1.0/instances/${sandboxName}`] } } }, { status: 202 });
+  };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope, fetcher as never);
+  const result = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
+    action: "instance.destroy", payload: { expectedGeneration: 1 } }) as { receipt: {
+      operationId: string; terminalObservation: Parameters<typeof inspectedOutcome>[2] } };
+  expect(result.receipt.operationId).toBe(`incus-destroy-${id}`);
+  expect(result.receipt.terminalObservation).toMatchObject({ state: "failed", observedState: "unknown",
+    error: { code: "INTERNAL", message: "Incus native lifecycle operation failed", retryable: false } });
+  expect(inspectedOutcome("DESTROY", result.receipt.operationId, result.receipt.terminalObservation)).toMatchObject({
+    outcome: "FAILED", providerOperationId: `incus-destroy-${id}`, errorCode: "INTERNAL" });
+  expect(JSON.stringify(result)).not.toContain("Instance is protected");
+  expect(instance.status).toBe("Stopped");
+  expect(instance.config["security.protection.delete"]).toBe("true");
+  expect(writes).toEqual(["PATCH", "DELETE"]);
 });
 
 test("native wait expiry, pending and transport loss retain one accepted CREATE identity", async () => {

@@ -78,13 +78,14 @@ cleanup obligation intact.
 
 Extend the [native project runbook](2026-10-03-incus-native-project-runbook.md)
 with an independent checkout and Compose in the **same** user project.
-Select a reviewed, accessible fixture repository URL and exact commit before
-the run. It must contain a deterministic test command and a pinned Compose
-image that is available under the approved network policy. The repository,
-commit, Compose file hash and image digest are inputs, not guessed constants.
+The [concrete native fixture](2026-10-05-incus-concrete-native-fixture.md)
+now supplies exact files, a fixed seed commit/tree, a guest-local bare origin,
+deterministic tests and the existing pinned BusyBox image. Use that fixture for
+the first flow. It proves local-origin checkout, not remote authentication.
 Do not copy AMD's working tree into the guest or use a host engine socket.
 
-Ask the normal composer for the following native `shell` operations, using
+For a separately reviewed remote-checkout case, ask the normal composer for
+the following native `shell` operations, using
 recorded literal values in place of `FIXTURE_URL` and `FIXTURE_COMMIT`:
 
 ```sh
@@ -124,7 +125,11 @@ Recoverable cleanup failure needs a controlled **known failed** DESTROY after
 its effect boundary is understood. The existing fixture lost-reply fault uses
 operator authority and qualification fixture identities. It does not supply
 a supported user-project fault injection command. Do not apply it to a user
-binding by inventing IDs. OUTCOME_UNKNOWN is not a known failure and does not
+binding by inventing IDs. The concrete fixture doc now maps target-only Incus
+delete protection to an asynchronous native terminal Failure. This supported
+operator setting avoids a new product injector, but requires the actual
+fresh-target preflight and live response proof before it counts.
+OUTCOME_UNKNOWN is not a known failure and does not
 authorize cleanup replay. For a supported known failure, use the management
 recovery review, preserve exact linked IDs across browser and app restart,
 then prove absence and accounting release independently. A metadata repair
@@ -257,18 +262,19 @@ success from its checks. Offline tests prove coordinator behavior only.
 Every cycle runs negative checks and the full work/retain/restart workflow.
 Ordinary cycles use `destroy`; selected fault cycles use `cleanup_fault` and
 `recover_cleanup`. Both paths then require independent absence and accounting.
-The owner must first supply a supported known-failure capability for a user
-project. The existing qualification lost-reply fault is not that capability.
+The owner must first review and execute the concrete target-only delete
+protection case for a user project. The qualification lost-reply fault is
+not that capability.
 Changing this schedule or hook contract requires review before live use.
 
 ## Remaining executable fixtures
 
 - The coordinator needs concrete reviewed normal API/browser hooks; it is not
   a self-contained live user-project driver.
-- No pinned independent-checkout repository and Compose/test contract is
-  selected by the native runbook.
-- No user-project known-failed-cleanup fault command is provided by that
-  runbook or the management E2E spec.
+- The concrete guest-local fixture selects the checkout and Compose/test
+  contract; guest image-cache availability still needs live proof.
+- The target-only delete-protection plan selects a supported known-failure
+  case; it still needs the guarded live rehearsal and accounting evidence.
 - Independent guest observations, app process restart and final reservation
   audit need reviewed owner capabilities tied to the exact installed release.
 - The coordinator supplies a durable per-cycle journal and verified artifact
