@@ -68,6 +68,13 @@ async function installGhRoutes(
 	page: Page,
 	{ connectCanComment = true as boolean | "omit" } = {},
 ) {
+	// The board owner's avatar is part of this fixture, including offline runs.
+	await page.route("https://github.com/acme.png?size=64", (route) =>
+		route.fulfill({
+			contentType: "image/svg+xml",
+			body: '<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40"><rect width="40" height="40" fill="#4466aa"/><text x="20" y="28" text-anchor="middle" font-size="26" fill="white">A</text></svg>',
+		}),
+	);
 	const state: {
 		links: ReturnType<typeof connectedLink>[];
 		refreshOptions: { id: string; name: string }[];
@@ -258,6 +265,9 @@ test.describe("GitHub Projects connect sub-route", () => {
 		await expect(page.getByTestId("gh-projects-connected-link-2")).toBeVisible();
 		await expect(page.getByTestId("gh-projects-avatar-link-A")).toBeVisible();
 		await expect(page.getByTestId("gh-projects-avatar-link-2")).toBeVisible();
+		for (const linkId of ["link-A", "link-2"]) {
+			await expect(page.getByTestId(`gh-projects-avatar-${linkId}`)).toHaveJSProperty("naturalWidth", 40);
+		}
 
 		await captureEvidence(page, testInfo, "github-projects-two-boards");
 	});
