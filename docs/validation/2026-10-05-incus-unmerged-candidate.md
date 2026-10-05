@@ -185,13 +185,30 @@ step is a tested, bounded diagnostic change followed by one fresh reproduction.
 Full qualification, native feature execution and ten consecutive cycles remain
 unproved.
 
+The bounded diagnostic fix in `b960468cc` passed independent review and 37
+focused tests with 381 assertions. It publishes only finite method/error-code
+pairs from the contract. The isolated app now runs this source with manifest
+`8b7301079d5cc7d90a0fed03fec20a2cc4abe7d5a8045159a7fcae450ab3feb9`.
+Build, bundle verification, startup smoke and comparison of all 11,066 tracked
+source files passed. A guarded stopped-copy/forward-only install preserved the
+database. Independent receipts 59–65 confirm the preinstall historical state,
+poststart active provider and connection, completed cleanup and empty guest
+inventory. Exact historical database fields after restart are inferred
+preserved from unchanged startup/controller code; no second process opened
+the live database.
+
+A real TLS/WebSocket-to-helper process test also passed: 10 tests and 94
+assertions, including a deterministic deadline-race regression. These tests
+did not reproduce the live failure. The fresh diagnostic qualification uses
+`incus-final-014-diagnostic-20261005-1`; its outcome is pending.
+
 The local native-work fixture passed its independent checkout, failing-test,
 repair and retained-commit tests. The Incus transport suite passed 44 tests,
 including the accepted delete-protection failure case. These are offline
 tests. The browser-discovered mobile overflow and ambiguous connection labels
 were fixed in `65f1f3da3`; 24 UI E2E tests and 45 component tests passed, with
-desktop/mobile screenshots reviewed. The live app has not received this UI
-change yet.
+desktop/mobile screenshots reviewed. The verified `b960468cc` bundle includes
+this UI change; a live browser walkthrough remains part of final qualification.
 
 This qualification can run before merge. Required pull-request review, exact
 provider activation approval and live release evidence remain separate gates.

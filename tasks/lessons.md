@@ -616,3 +616,7 @@
   including capacity and owned-neighbor checks. A smaller command count is
   not proof of completeness. Test every required role and every forbidden
   write before replacing a working policy.
+- Check `git ls-files tasks` before copying or editing agent plans. This branch
+  tracks task files despite the general ignored-directory guidance. Keep each
+  validation checkout clean before browser coverage attests its source HEAD;
+  save uncommitted agent notes under `.cache` instead.

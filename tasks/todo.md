@@ -2717,8 +2717,8 @@ fixture tests passed 2/0 and transport lifecycle tests passed 44/0.
 - [x] Apply measured capacity and verify all required read-only gate roles.
 - [x] Prove one real create/start/stop/destroy cycle and actual Btrfs rootfs.
 - [x] Clean failed qualification resources and confirm empty backend inventory.
-- [ ] Preserve safe native method/provider error diagnostics, with tests.
-- [ ] Build and install the tested isolated app bundle through its guarded path.
+- [x] Preserve safe native method/provider error diagnostics, with tests.
+- [x] Build and install the tested isolated app bundle through its guarded path.
 - [ ] Reproduce with a fresh qualification ID; fix the confirmed cause.
 - [ ] Complete full qualification, native feature work and ten-cycle evidence.
 
@@ -2729,3 +2729,31 @@ effect remains from this attempt. Do not repeat its operation ID or infer a
 root cause from the generic error. The Sol debug worker owns a narrow safe
 diagnostic change; the sole live operator prepares a normal bundle update.
 The full repository gate is running on exact `fd84d600e` in a separate tree.
+
+Diagnostic fix `b960468cc` passed independent review and the parent rerun:
+37 tests, zero failures, 381 assertions on Bun 1.3.14. The worker also passed
+typecheck, lint and the existing API suite. It exposes only source-controlled
+method/error-code pairs and preserves generic messages. The isolated bundle
+build and guarded install preparation are in progress; no provider artifact
+or approval changed.
+
+The real TLS/WebSocket-to-helper process test was added in `4f9816b29` and
+its deadline race was fixed in `a83fb8a40`. The old timing formula failed
+under a fixed 1 ms clock advance; the corrected test uses the process deadline.
+Independent review and the parent rerun passed: 10 tests, zero failures,
+94 assertions. It did not reproduce the live guest failure.
+
+Repository validation on `fd84d600e`: all cheap gates and 27,523 backend tests
+passed. The full command exited 1 because an agent's tracked planning note
+invalidated clean-source browser coverage. That note was preserved outside
+tracked files and restored; the required browser and dependent coverage lanes
+are running in order. This is not yet a passing full gate.
+
+The guarded host update passed. Installed source `b960468cc`, manifest
+`8b7301079d5cc7d90a0fed03fec20a2cc4abe7d5a8045159a7fcae450ab3feb9`,
+passed build, verification, smoke and independent source-byte comparison.
+Private receipts 59–65 prove the stopped historical-state copy, forward-only
+swap, successful startup, unchanged active provider/connection, historical
+cleanup status and empty guest inventory. Exact poststart historical database
+fields are inferred preserved from unchanged startup/controller paths; they
+were not read from a live database. One fresh diagnostic qualification is next.
