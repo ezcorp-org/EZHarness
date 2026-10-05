@@ -353,3 +353,24 @@ passed the supported isolated checks. The original failures remain recorded.
 A test tracing efficiency fix is in progress without changing the timeout or
 product coverage requirements. Normal UI/native-agent workflow, ten live lifecycle
 cycles, current qualification and final source gates still block release.
+
+## Verified fixes and isolated-app restoration
+
+Combined source `2cc3552bd` includes normal recovery of a confirmed native
+DELETE failure and the test-fixture efficiency fix. Independent reviews,
+focused source tests, typecheck, lint, and both browser recovery cases passed.
+The Python wrapper passed all four suites with all 222 product statements
+covered. Actual disk-flush checks remain in the dedicated durability test;
+timeouts and coverage requirements did not change.
+
+The c07 update timed out during shared-host resource pressure. Readback found
+the original active build unchanged and a candidate copy only in the staging
+path. The operator preserved the failed attempt and restored the same 508
+app without a database restore or swap replay. Receipts 166–169 confirm
+healthy app/provider state, c7 UNKNOWN/STOPPED and historical cleanup state.
+C07 was not installed, and the prepared next qualification was not dispatched.
+The unrelated heavy typecheck exited on its own; it was not interrupted.
+
+Final combined-source gates, current live qualification, normal user flow,
+ten cycles and preserved-guest cleanup remain required. A screenshot-only
+rerun failed before tests during host pressure; this is not a visual pass.

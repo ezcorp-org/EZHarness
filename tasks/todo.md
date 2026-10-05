@@ -2937,8 +2937,8 @@ its guest is still STOPPED. No cleanup success is claimed.
 
 - [ ] Resolve the existing runner marker's exact metadata in local preparation.
 - [ ] Batch deterministic recovery checks before starting a new bounded lease.
-- [ ] Reproduce and fix normal recovery of a confirmed native failed DELETE.
-- [ ] Expose that bounded recovery through the existing management UI and test it.
+- [x] Reproduce and fix normal recovery of a confirmed native failed DELETE.
+- [x] Expose that bounded recovery through the existing management UI and test it.
 - [ ] Complete full source gates; investigate raw coverage-pool timeouts.
 - [ ] Prove the normal UI/native-agent workflow and ten live lifecycle cycles.
 
@@ -2957,3 +2957,22 @@ coverage passed, including all 1,800 enforced files. Six files timed out in
 the coverage pool; five passed the supported isolated checks. The remaining
 Python supervisor wrapper also timed out in isolation. A tracer-only test
 efficiency fix is in progress, with the same timeout and product-line gate.
+
+### Verified fixes and guarded-update closure
+
+- Native cleanup fix `2cc3552bd` passed independent review, focused service,
+  controller, policy, route and component tests, typecheck, lint, and both
+  browser recovery cases. A screenshot-only rerun failed during build startup
+  under host pressure; no screenshot pass is claimed.
+- Fixture fix `9f54f16de` separates sequencing from disk-flush verification.
+  Its supported wrapper passed all four suites. All 222 product statements
+  remain covered; the dedicated durability test now proves seven real flushes
+  complete before dispatch. No timeout or coverage requirement changed.
+- Diagnostic update 160 timed out under shared-host resource pressure. The
+  original active source `5080f3792` was unchanged; only the staging copy was
+  written. Receipts 166–169 prove healthy restoration, unchanged c7
+  UNKNOWN/STOPPED, and preserved historical cleanup. No database restore,
+  swap replay or new qualification was performed. Candidate c07 is not installed.
+- The user chose to wait for the unrelated heavy typecheck. It exited on its
+  own; no unrelated process was stopped. New heavy tests remain held during
+  recovery preparation. Use the combined source for the next candidate.
