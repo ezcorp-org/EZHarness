@@ -1,0 +1,3 @@
+resource-gate 2026-10-05T07:39:21Z w4h-10-hold-2 outside-lock disk=218G memAvailable=13GiB swapFreeKiB=4576216/17173956 floors disk>=104G swap>=2621440KiB
+gated-flock w4h-10-hold-2: gate green outside the lock, queue for the lock (try 1) 2026-10-05T07:39:21Z
+gated-flock w4h-10-hold-2: command exit 0 2026-10-05T07:52:01Z

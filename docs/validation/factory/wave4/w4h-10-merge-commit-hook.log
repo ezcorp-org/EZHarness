@@ -1,0 +1,384 @@
+Checked 140 files in 66ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: docs/extensions/examples/repo-activity-notify/index.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 30 expect() calls
+Ran 3 tests across 1 file. [21.69s]
+  bun: docs/extensions/examples/sample-loop/index.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 17 expect() calls
+Ran 2 tests across 1 file. [598.00ms]
+  bun: docs/extensions/examples/sample-loop/try-loop.test.ts
+bun test v1.4.2 (744846f84)
+
+docs/extensions/examples/sample-loop/try-loop.test.ts:
+
+┌─ TRY THE LOOP ───────────────────────────────────────────
+    sample-loop: on every run:complete, summarize the chat in one line.
+    ▶  firing  ezcorp/event/run:complete  { conversationId: "conv-demo-1" }
+    
+    ✓  RUN PERSISTED (Storage, per-run key)
+         key      loop:summarize:run:cd46a1c1-b5ca-4874-b510-9a1a2a086dfc
+         index    loop:summarize:index = [cd46a1c1-b5ca-4874-b510-9a1a2a086dfc]
+         status   done
+         events   1
+         summary  "The user asked how to rotate API keys; the assistant walked through the dashboard flow and the 24h grace window."
+    
+    ✓  ARTIFACT MIRRORED (.ezcorp/extension-data — git-legible)
+         .ezcorp/extension-data/summarize/summaries/cd46a1c1-b5ca-4874-b510-9a1a2a086dfc.md
+         │ # Summary
+         │ 
+         │ The user asked how to rotate API keys; the assistant walked through the dashboard flow and the 24h grace window.
+         │ 
+   ✅ loop works end-to-end.
+└──────────────────────────────────────────────────────────
+
+
+ 1 pass
+ 0 fail
+ 8 expect() calls
+Ran 1 test across 1 file. [589.00ms]
+  bun: extensions/local-sandbox/extension.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 55 expect() calls
+Ran 3 tests across 1 file. [635.00ms]
+  bun: packages/@ezcorp/extension-contract/src/providers.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 25 expect() calls
+Ran 4 tests across 1 file. [641.00ms]
+  bun: packages/@ezcorp/extension-contract/src/provider-wire.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 116 expect() calls
+Ran 5 tests across 1 file. [541.00ms]
+  bun: packages/@ezcorp/extension-contract/src/validation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 122 expect() calls
+Ran 7 tests across 1 file. [766.00ms]
+  bun: packages/@ezcorp/extension-runner/tests/browser.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 10 expect() calls
+Ran 3 tests across 1 file. [15.43s]
+  bun: packages/@ezcorp/extension-runner/tests/dependencies.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 50 expect() calls
+Ran 6 tests across 1 file. [662.00ms]
+  bun: packages/@ezcorp/extension-runner/tests/provision.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 20 expect() calls
+Ran 3 tests across 1 file. [7.29s]
+  bun: scripts/verify-factory-reference-code-provider.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 35 expect() calls
+Ran 10 tests across 1 file. [3.10s]
+  bun: src/factory/startup-config.test.ts
+bun test v1.4.2 (744846f84)
+
+ 51 pass
+ 0 fail
+ 267 expect() calls
+Ran 51 tests across 1 file. [405.00ms]
+  bun: src/integrations/github-app-directory/worker.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 139 expect() calls
+Ran 4 tests across 1 file. [350.00ms]
+  bun: src/integrations/github-personal-prs/github-source.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [371.00ms]
+  bun: src/integrations/github-personal-prs/provider-transfer.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 15 expect() calls
+Ran 6 tests across 1 file. [410.00ms]
+  bun: src/integrations/github-personal-prs/publisher.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 10 expect() calls
+Ran 3 tests across 1 file. [357.00ms]
+  bun: src/integrations/github-personal-prs/review-diff.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 14 expect() calls
+Ran 4 tests across 1 file. [363.00ms]
+  bun: src/integrations/github-personal-prs/service.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 94 expect() calls
+Ran 12 tests across 1 file. [3.97s]
+  bun: src/integrations/github-personal-prs/snapshot.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 47 expect() calls
+Ran 4 tests across 1 file. [433.00ms]
+  bun: src/integrations/github-user/__tests__/broker.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 63 expect() calls
+Ran 15 tests across 1 file. [4.92s]
+  bun: src/integrations/github-user/__tests__/device.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 113 expect() calls
+Ran 10 tests across 1 file. [3.47s]
+  bun: src/integrations/github-user/__tests__/refresh-presend.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 8 expect() calls
+Ran 1 test across 1 file. [823.00ms]
+  bun: src/integrations/github-user/__tests__/transport.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 35 expect() calls
+Ran 6 tests across 1 file. [378.00ms]
+  bun: src/providers/factory-broker.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T07:19:37.584Z","level":"warn","msg":"Model \"claude-retired-0-0-19000101\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-retired-0-0-19000101"}
+{"ts":"2026-10-05T07:19:37.662Z","level":"warn","msg":"Model \"gpt-6-lunna\" is pinned for provider \"openai\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to openai, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"openai","modelId":"gpt-6-lunna"}
+
+ 23 pass
+ 0 fail
+ 62 expect() calls
+Ran 23 tests across 1 file. [889.00ms]
+  bun: src/runtime/factory-execution.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 34 expect() calls
+Ran 6 tests across 1 file. [361.00ms]
+  bun: src/runtime/sandbox/local-podman/exports.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 139 expect() calls
+Ran 2 tests across 1 file. [361.00ms]
+  bun: src/__tests__/anthropic-usage-shape-cache.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 20 expect() calls
+Ran 2 tests across 1 file. [370.00ms]
+  bun: src/__tests__/browser-coverage-to-lcov.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 167 expect() calls
+Ran 15 tests across 1 file. [462.00ms]
+  bun: src/__tests__/context-compaction.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T07:19:39.728Z","level":"warn","msg":"unknown compaction strategy; falling back to 'trim'","requested":"does-not-exist"}
+{"ts":"2026-10-05T07:19:39.730Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"test-model","budget":1000,"before":30,"after":10,"droppedCount":21,"droppedTokens":2205}
+{"ts":"2026-10-05T07:19:39.731Z","level":"warn","msg":"context compaction applied","strategy":"xform-test","model":"test-model","budget":10,"before":1,"after":1,"droppedCount":99,"droppedTokens":1}
+{"ts":"2026-10-05T07:19:39.731Z","level":"warn","msg":"compaction strategy threw; passing history through unchanged","strategy":"xform-throws","model":"test-model","error":"Error: strategy boom"}
+{"ts":"2026-10-05T07:19:39.732Z","level":"warn","msg":"context compaction applied","strategy":"xform-records","model":"test-model","budget":10,"before":3,"after":3,"droppedCount":0,"droppedTokens":0}
+{"ts":"2026-10-05T07:19:39.732Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"test-model","budget":1000,"before":18,"after":4,"droppedCount":15,"droppedTokens":2223}
+{"ts":"2026-10-05T07:19:39.732Z","level":"warn","msg":"context compaction applied","strategy":"none","model":"test-model","budget":10,"before":2,"after":2,"droppedCount":0,"droppedTokens":0}
+
+ 53 pass
+ 0 fail
+ 133 expect() calls
+Ran 53 tests across 1 file. [355.00ms]
+  bun: src/__tests__/e2e-lanes.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/e2e-lanes.test.ts:
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun)
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun)
+
+ 32 pass
+ 0 fail
+ 414 expect() calls
+Ran 32 tests across 1 file. [4.82s]
+  bun: src/__tests__/encryption.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 28 expect() calls
+Ran 11 tests across 1 file. [582.00ms]
+  bun: src/__tests__/extension-build-clock.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [364.00ms]
+  bun: src/__tests__/fs-list.test.ts
+bun test v1.4.2 (744846f84)
+
+ 26 pass
+ 0 fail
+ 78 expect() calls
+Ran 26 tests across 1 file. [1117.00ms]
+  bun: src/__tests__/gate-scripts.test.ts
+bun test v1.4.2 (744846f84)
+
+ 249 pass
+ 0 fail
+ 631 expect() calls
+Ran 249 tests across 1 file. [4.71s]
+  bun: src/__tests__/github-personal-migrations.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 16 expect() calls
+Ran 2 tests across 1 file. [2.10s]
+  bun: src/__tests__/hub-private-page-podman.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 38 expect() calls
+Ran 2 tests across 1 file. [12.60s]
+  bun: src/__tests__/installer-core.test.ts
+bun test v1.4.2 (744846f84)
+
+ 76 pass
+ 0 fail
+ 407 expect() calls
+Ran 76 tests across 1 file. [28.89s]
+  bun: src/__tests__/local-podman-driver-journal.test.ts
+bun test v1.4.2 (744846f84)
+
+ 57 pass
+ 0 fail
+ 222 expect() calls
+Ran 57 tests across 1 file. [10.48s]
+  bun: src/__tests__/local-podman-supervisor.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 58 expect() calls
+Ran 13 tests across 1 file. [14.28s]
+  bun: src/__tests__/migrate.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 79 expect() calls
+Ran 8 tests across 1 file. [2.10s]
+  bun: src/__tests__/personal-github-journey.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 49 expect() calls
+Ran 2 tests across 1 file. [2.29s]
+  bun: src/__tests__/production-image-lifecycle-launch.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 44 expect() calls
+Ran 6 tests across 1 file. [13.38s]
+  bun: src/__tests__/registry-oauth-model-resolution.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 34 expect() calls
+Ran 11 tests across 1 file. [344.00ms]
+  bun: src/__tests__/root-dependency-security.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 25 expect() calls
+Ran 7 tests across 1 file. [751.00ms]
+  bun: src/__tests__/sandbox-controller.test.ts
+bun test v1.4.2 (744846f84)
+
+ 99 pass
+ 0 fail
+ 358 expect() calls
+Ran 99 tests across 1 file. [38.08s]
+  bun: web/src/__tests__/dependency-security.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 29 expect() calls
+Ran 7 tests across 1 file. [745.00ms]
+  bun: web/src/__tests__/route-contract.test.ts
+bun test v1.4.2 (744846f84)
+
+ 29 pass
+ 0 fail
+ 70 expect() calls
+Ran 29 tests across 1 file. [442.00ms]
+  vitest: src/lib/components/ChatThread.component.test.ts src/lib/components/DiffSummaryPanel.component.test.ts src/lib/components/GithubSandboxImport.component.test.ts src/lib/components/PanelChatInput.component.test.ts src/lib/components/PersonalPrCard.component.test.ts src/lib/components/ProjectSandboxPanel.component.test.ts src/lib/personal-pr.unit.test.ts src/lib/settings-nav.unit.test.ts src/routes/api/hub/pages/[id]/__tests__/request-timeout.server.test.ts src/routes/(app)/settings/github/page.component.test.ts src/__tests__/api-local-sandbox.server.test.ts src/__tests__/chat-input-logic.unit.test.ts src/__tests__/github-device-routes.server.test.ts src/__tests__/github-personal-routes.server.test.ts src/__tests__/hooks-server-session-refresh.server.test.ts
+
+ RUN  v5.0.2 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+Not implemented: navigation to another Document
+{"ts":"2026-10-05T07:22:03.492Z","level":"warn","msg":"session refresh failed","subsystem":"hooks.server","error":"Error: DB blew up"}
+
+ Test Files  15 passed (15)
+      Tests  283 passed (283)
+   Start at  03:21:59
+   Duration  4.95s (transform 55%, environment 18%, tests 13%, import 8%, setup 6%)
+
+  Transform  transforming modules took 20.10s · 55% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+
+[detached HEAD 198f5fcac] merge: wp/w4h-10-sync e6a3a70f2 into integ/w00 (main sync: origin/main beaff68c8 into the wave head; Pi 0.87.1 and the C10 OAuth-only rule)

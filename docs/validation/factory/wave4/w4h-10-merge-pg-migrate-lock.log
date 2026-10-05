@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T07:40:41.637Z","level":"warn","msg":"waiting for migrate lock held by pid 3153889","subsystem":"db","holderPid":3153889,"waitMs":300}
+
+ 1 pass
+ 0 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [5.43s]
