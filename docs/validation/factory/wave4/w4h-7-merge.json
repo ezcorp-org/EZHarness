@@ -1,0 +1,746 @@
+{
+ "package": "w4h-7",
+ "branch": "wp/w4h-7b",
+ "head": "b4ec15e5cf231c0e5931a33559b25a3259436988",
+ "base": "6ac2458c7f8ce7302599ba13b77d266b0474ee07",
+ "validatorVerdict": "validator-5: ACCEPT at b4ec15e5c (w4g-validation/verdict-validator-5-w4h7.txt sha256 61f8ad386ae0c08f..., copied as w4h-7-validation.txt)",
+ "treeEquality": {
+  "trialTree": "75b6aa4e96a9fe0ecf1e79b92e82649b9de11c47",
+  "mergeTree": "75b6aa4e96a9fe0ecf1e79b92e82649b9de11c47"
+ },
+ "conflicts": {},
+ "appendOnlyCheck": "docs only (tasks/factory/w4h-7-GATES.md new; tasks/lessons.md +9; tasks/todo.md +14): the branch sits on integ/w00 6ac2458c7 (merge-base = 6ac2458c7), so the merge-tree is clean; for tasks/todo.md and tasks/lessons.md the base content is an exact byte prefix of both sides (append-only).",
+ "integrationFixes": "none",
+ "mergeForm": "detached-HEAD merge (--no-ff) at 6ac2458c7, published by the integrator with detached-merge/publish.sh (compare-and-swap 6ac2458c7 -> 8221bec84) after the hold was green, under the user's allow rule",
+ "notes": {
+  "r8": "the hosted R8 'lost update' was W4H-6's worker-channel stall, not a race: the write path is serialised (src/extensions/... index.ts:748 under withLock; lock.ts:46-68; runtime-locks.ts:57-81; task-tracking-host.ts:154-163).",
+  "pins": "regression pins: the E2E spec :107, the isolated suite, and W4H-6's channel-pool test :113.",
+  "validatorRuns": "validator-5's own container (its own image built from the same Containerfile): base red / head 20/20; host pair red / 10/10; E2E base :107 timeout / head 2/2 x 3.",
+  "subsumed": "proof/w4h-7-fix 40875d887 is subsumed by W4H-6's 56c9579d7 (on integ); kept as a receipt ref, not merged.",
+  "disclosures": "validator-5's two disclosures: its first container try failed at start because the W4H-6 runner image tag no longer existed (removed by its owner) and it built its own tag from the same Containerfile inside the lock, no test ran in that try; its snapshots now live outside the evidence tree (/tmp/v5-snaps) and all W4H-7 snapshots are removed.",
+  "ownerEvidence": "owner exit files: e2e-head.exit 0 (e2e-head/summary.txt: 3 passed per run at head 2e529f1bb), ctr-red.exit 1, ctr-green.exit 0, host-green.exit 0.",
+  "ownerReport": "report.txt (final) is pending from the owner at receipt time; it goes in an amendment receipt when the owner confirms the final version (lead: final version only).",
+  "lessonsDry": "W4H-7's 'Gate before the lock' lesson duplicates the integrator lesson for the wave4i docs commit; the docs commit keeps ONE (lead 2026-10-05)."
+ },
+ "holdLegs": "docs only: the hook maps 0 files (SKIP=0, 'no test file maps'); 0 unit and 0 PostgreSQL legs. Guard set 39 files 477/0; web-server lcov; coverage merge; mock pass (passed); CRAP (0 functions); merge-commit-gates (no executable lines: new-file and patch measured 0 files).",
+ "holdAttempts": "hold-w4f.sh sha256 af05645a3f3d0773 via gated-flock.sh sha256 824013cc3cdfd471 with GATED_FLOCK_EXIT_FILE; heavy-lib.sh f5689e5fae60bff1, resource-gate.sh b01ba3ecb55c9a0e, prune-scan.sh a4a59601cec26963. One try, ended 02:20:01Z: HEAVY DONE status=0 dirty=0, heavy.exit=0 written by gated-flock.",
+ "identity": "both commits (2e529f1bb, b4ec15e5c) archy <281643943+EZArchy@users.noreply.github.com> as author and committer",
+ "gateChange": "none: the base leg of gate-integrity is clean; the origin/main leg equals the 8-line expected set (sha256 9ec5cdcbce67c7ac)",
+ "pruneScan": "clean, 0 hits (w4h-7-merge-prune-scan.txt)",
+ "rulings": {
+  "hook": "none needed: the hook maps 0 files"
+ },
+ "crap": {
+  "binding": "--changed against 6ac2458c7: 0 functions in 0 files, PASS"
+ },
+ "configHash": {
+  "rule": "the lead's content rule (2026-10-03): w00/config-check.py at commit, hold start/end and publish",
+  "acceptedBaseline": "888c78b9e94ea660",
+  "note": "no change at this merge"
+ },
+ "receiptsBy": "integrator-3",
+ "mergeSha": "8221bec847c92dc3cfee0390259e18c9e7412a71",
+ "tree": "75b6aa4e96a9fe0ecf1e79b92e82649b9de11c47",
+ "parents": [
+  "6ac2458c7f8ce7302599ba13b77d266b0474ee07",
+  "b4ec15e5cf231c0e5931a33559b25a3259436988"
+ ],
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-10-05T02:05:56Z",
+   "end": "2026-10-05T02:05:56Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "884ffaf2807be10997dcecced33370d07f21c2328038bba8354a5999066d77eb",
+   "tests": {
+    "pass": 16,
+    "fail": 0
+   }
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-10-05T02:05:56Z",
+   "end": "2026-10-05T02:06:39Z",
+   "command": "bun run typecheck",
+   "logSha256": "6bc6c1ed591f587682cea66f7d1602cb6ee4a69967937511061041cc7da40667"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:39Z",
+   "end": "2026-10-05T02:06:41Z",
+   "command": "bun run lint",
+   "logSha256": "068f2f62178d273385e950b846e52f627735b893015d8e42a15aa85002c1bfb3"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:46Z",
+   "end": "2026-10-05T02:06:46Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "check-boundaries",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:46Z",
+   "end": "2026-10-05T02:06:47Z",
+   "command": "bun scripts/check-boundaries.ts",
+   "logSha256": "67e5997e5ea598b0d056b7d10291ee1a8d212228c392fa7c010e4045286b8fa0"
+  },
+  {
+   "name": "guard-docs-extensions-examples-claude-design-index-coverage-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:47Z",
+   "end": "2026-10-05T02:06:47Z",
+   "command": "bun test --timeout 60000 ./docs/extensions/examples/claude-design/index.coverage.test.ts",
+   "logSha256": "f682b086f7b06e08848a17c93eebb27bec8058c361795af904ef18361445ca56",
+   "tests": {
+    "pass": 47,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-docs-extensions-examples-file-refactor-index-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:47Z",
+   "end": "2026-10-05T02:06:48Z",
+   "command": "bun test --timeout 60000 ./docs/extensions/examples/file-refactor/index.test.ts",
+   "logSha256": "c2e03ca9604d980890025147e0641ed8eb2ea6ce11d27aa86875daf8cc3f050a",
+   "tests": {
+    "pass": 27,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-docs-extensions-examples-todo-tracker-index-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:48Z",
+   "end": "2026-10-05T02:06:48Z",
+   "command": "bun test --timeout 60000 ./docs/extensions/examples/todo-tracker/index.test.ts",
+   "logSha256": "ce0100d30ca9b90d534048af2ed83f11e864cde3d13c09e9c45d6474ae38317d",
+   "tests": {
+    "pass": 22,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-check-factory-deployment-locks-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:48Z",
+   "end": "2026-10-05T02:06:48Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-deployment-locks.test.ts",
+   "logSha256": "0a39f179e808cb9aef92811b1dbb4fb7fafead61d5e18d3170921de0d5234dc9",
+   "tests": {
+    "pass": 11,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-container-workspace-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:48Z",
+   "end": "2026-10-05T02:06:49Z",
+   "command": "bun test --timeout 60000 ./scripts/container-workspace-registration.test.ts",
+   "logSha256": "165762ed53db23679936ce8caa313505ac7f0f06fbb3a20f5b4a22430dd75b49",
+   "tests": {
+    "pass": 29,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-attempt-queue-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:49Z",
+   "end": "2026-10-05T02:06:49Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-attempt-queue-registration.test.ts",
+   "logSha256": "6e4069ffccd23ddf9f092df4f86a26efd633dc3dbd23ca295ee2315b2b5ac84a",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-c13-inventory-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:49Z",
+   "end": "2026-10-05T02:06:50Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-c13-inventory.test.ts",
+   "logSha256": "50fc0aa865b4808b57c2f7dffab0ff6f5cb1e6a91fd1da885a44f19e5c5a7eea",
+   "tests": {
+    "pass": 13,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-compute-admissions-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:50Z",
+   "end": "2026-10-05T02:06:50Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-compute-admissions-registration.test.ts",
+   "logSha256": "9d72dcbd0d0ba53fa7cf76ae2a3d78c3334e566e2cb816bb6901b74ba692f305",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-execution-admission-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:50Z",
+   "end": "2026-10-05T02:06:51Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-execution-admission-registration.test.ts",
+   "logSha256": "c6ea59912979145a8875f9a1226355e8f65d180ae781834ce39a14f908c82665",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-orchestrator-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:51Z",
+   "end": "2026-10-05T02:06:51Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-orchestrator-registration.test.ts",
+   "logSha256": "99a65ff10104d49da80922c797186efa3cb43429c4b6682ae0ae76f59e3e7c0f",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-postgres-suite-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:51Z",
+   "end": "2026-10-05T02:06:52Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-postgres-suite-registration.test.ts",
+   "logSha256": "8dd80caddb25d70ff0c64b6586025186d97370b2406801d105ff49128dd3dab6",
+   "tests": {
+    "pass": 6,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-private-root-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:52Z",
+   "end": "2026-10-05T02:06:52Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-private-root-registration.test.ts",
+   "logSha256": "8806e8059a9a0a8a686916c2a2488840cdb465711b44ec35c987abf595dc15a6",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-protected-command-effects-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:52Z",
+   "end": "2026-10-05T02:06:52Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-protected-command-effects-registration.test.ts",
+   "logSha256": "971a7603fbacd95d3c27755521bf07ff51844fe5df2cd5c8a315ff77677e5e10",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-provisioning-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:52Z",
+   "end": "2026-10-05T02:06:53Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-provisioning-registration.test.ts",
+   "logSha256": "839bd7200c6915949eb6078f1e62f50d77051c04cbc56fdd72db08e31b0dc650",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-storage-action-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:53Z",
+   "end": "2026-10-05T02:06:53Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-storage-action-registration.test.ts",
+   "logSha256": "b6c11188a275ed5fc0b50f1bf720047396c9117ff1732a070e088c4748f26bf0",
+   "tests": {
+    "pass": 4,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-task-execution-admission-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:53Z",
+   "end": "2026-10-05T02:06:54Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-task-execution-admission-registration.test.ts",
+   "logSha256": "7e119b481dc69712f5131e1a7c21fa07d3ee627767493cc0bb0253f52fceb90b",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-validator-materials-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:54Z",
+   "end": "2026-10-05T02:06:54Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-validator-materials-registration.test.ts",
+   "logSha256": "8ed770e71019870b5e5487d6ecd5d444de8b4121dd7356759682db67a8419d3c",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-gate-integrity-deps-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:54Z",
+   "end": "2026-10-05T02:06:55Z",
+   "command": "bun test --timeout 60000 ./scripts/gate-integrity-deps-registration.test.ts",
+   "logSha256": "5199792fc9dfeb1aa22f78c55f5f4be00fc5d7efc18653a3769df004b2abd8ee",
+   "tests": {
+    "pass": 3,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-python-quality-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:55Z",
+   "end": "2026-10-05T02:06:55Z",
+   "command": "bun test --timeout 60000 ./scripts/python-quality-registration.test.ts",
+   "logSha256": "85add69d0d562311188f8c5c726804b76956f3d8daa2fba2a539384848b682e8",
+   "tests": {
+    "pass": 9,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-uv-toolchain-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:55Z",
+   "end": "2026-10-05T02:06:55Z",
+   "command": "bun test --timeout 60000 ./scripts/uv-toolchain-registration.test.ts",
+   "logSha256": "43c8b0c843f6513165241dd877847936388f1edae423aaddbe96c5098992d710",
+   "tests": {
+    "pass": 4,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-factory-reference-data-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:55Z",
+   "end": "2026-10-05T02:06:56Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-data/guest.test.ts",
+   "logSha256": "2bb601259876aa307327518af6c88292571b01c5575961ae3961adaebc911d9a",
+   "tests": {
+    "pass": 7,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-ci-test-set-drift-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:56Z",
+   "end": "2026-10-05T02:06:57Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/ci-test-set-drift.test.ts",
+   "logSha256": "21c08f7c12f1fb2f246dfca71c8cd471febb38de26ce3f55732f826ffa4b9a6f",
+   "tests": {
+    "pass": 17,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-compose-podman-masks-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:57Z",
+   "end": "2026-10-05T02:06:58Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/compose-podman-masks.test.ts",
+   "logSha256": "1230c8cc896c8ffd7e6e642749021c1145e020a15785179247f7f3bef26a7df1",
+   "tests": {
+    "pass": 13,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-compose-podman-prod-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:58Z",
+   "end": "2026-10-05T02:06:59Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/compose-podman-prod.test.ts",
+   "logSha256": "679c529323f35b7a39121bbea67221667fb370fc6e4c33990539dc27a5bda3cd",
+   "tests": {
+    "pass": 6,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-compose-projects-root-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:59Z",
+   "end": "2026-10-05T02:06:59Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/compose-projects-root.test.ts",
+   "logSha256": "f2dac8b4ba2eabe09e9d92347b06f170c2d6cb0f6861351e697b2c1ff49c7748",
+   "tests": {
+    "pass": 14,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-dev-image-ownership-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:06:59Z",
+   "end": "2026-10-05T02:07:00Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/dev-image-ownership.test.ts",
+   "logSha256": "931f71d1ac38769331ff500683279c5bb893f55f3d9c9c942416f5c9157155a6",
+   "tests": {
+    "pass": 1,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-dockerignore-heavy-excludes-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:00Z",
+   "end": "2026-10-05T02:07:00Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/dockerignore-heavy-excludes.test.ts",
+   "logSha256": "cfa16c58a4040aaf19ded2f4013b230a0eead9e13c2efea9a8400eab22fbffce",
+   "tests": {
+    "pass": 7,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-file-organizer-applier-reserved-dirs-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:00Z",
+   "end": "2026-10-05T02:07:01Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/file-organizer-applier-reserved-dirs.test.ts",
+   "logSha256": "50470c947b8494a3e72db2c61cff78be175b4c811f2b77091a262c6695f63138",
+   "tests": {
+    "pass": 5,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-fs-reserved-carveout-not-a-violation-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:01Z",
+   "end": "2026-10-05T02:07:02Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/fs-reserved-carveout-not-a-violation.test.ts",
+   "logSha256": "d89444afeb1434e7f18fe5974d550305c759036070f18c64231d5fa6e757ad9c",
+   "tests": {
+    "pass": 16,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-gh-cli-in-images-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:02Z",
+   "end": "2026-10-05T02:07:02Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/gh-cli-in-images.test.ts",
+   "logSha256": "940702736edabeb62762cdc12a991bd459d5b5202b90e3100dbb082ffbf7687a",
+   "tests": {
+    "pass": 9,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-installer-core-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:02Z",
+   "end": "2026-10-05T02:07:12Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/installer-core.test.ts",
+   "logSha256": "f78522e71bdcc33a20f30df07fe9d4e06d8fb1bad396bd1b10517c31f8304de9",
+   "tests": {
+    "pass": 53,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-macos-local-dev-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:12Z",
+   "end": "2026-10-05T02:07:12Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/macos-local-dev.test.ts",
+   "logSha256": "885b884db78a896b647f1c09af3a9e5562dcd267958bac1d4d1adc57713b3668",
+   "tests": {
+    "pass": 11,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-mcp-seccomp-compile-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:12Z",
+   "end": "2026-10-05T02:07:13Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mcp-seccomp-compile.test.ts",
+   "logSha256": "974cd67243d9c517239639951b5c5c48886710998aefe794fbe6320c984bb511",
+   "tests": {
+    "pass": 5,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-mcp-seccomp-profile-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:13Z",
+   "end": "2026-10-05T02:07:13Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mcp-seccomp-profile.test.ts",
+   "logSha256": "4e9e802c8844ffcd244331a1567ba9def7c5821bbb5a5e5baa60c7dfd98df9a0",
+   "tests": {
+    "pass": 9,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-podman-compose-wrapper-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:13Z",
+   "end": "2026-10-05T02:07:51Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/podman-compose-wrapper.test.ts",
+   "logSha256": "88fa0ea32a20bdee9c2bb7696c31874dba5632621f6d2ba51b94ff3499eba614",
+   "tests": {
+    "pass": 63,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-preview-spawn-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:51Z",
+   "end": "2026-10-05T02:07:51Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/preview-spawn.test.ts",
+   "logSha256": "135144d004d5398e36343aefe7747022ad30818fe63f081b0170e446e6c6e7bb",
+   "tests": {
+    "pass": 32,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-prod-image-provenance-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:51Z",
+   "end": "2026-10-05T02:07:51Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/prod-image-provenance.test.ts",
+   "logSha256": "aadd9ff444024c94db9aafe806881cfe742e7105971aeb678161c137d18e2614",
+   "tests": {
+    "pass": 3,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-prune-images-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:51Z",
+   "end": "2026-10-05T02:07:52Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/prune-images.test.ts",
+   "logSha256": "3480c8f85970740c47c352cd7a5957282e40b4d06e3c1b779cfb4281b722c6b4",
+   "tests": {
+    "pass": 9,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-test-image-ignorefile-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:52Z",
+   "end": "2026-10-05T02:07:52Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/test-image-ignorefile.test.ts",
+   "logSha256": "05a4eb92bc67ed3cea94d74800f7e5519b1b90ac231cc42ae9ecae616b07814a",
+   "tests": {
+    "pass": 4,
+    "fail": 0
+   }
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:52Z",
+   "end": "2026-10-05T02:07:56Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:56Z",
+   "end": "2026-10-05T02:07:58Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "c9e4fe261abeac756b7d27d1cda0d7a760096e3df0cd306640b35a0584c7f746",
+   "tests": {
+    "pass": 31,
+    "fail": 0
+   }
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-10-05T02:07:58Z",
+   "end": "2026-10-05T02:08:05Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "bddf5aff9dc21fd27dadf7ee339ea5a390514b8ebd2e18a58526d287d913ba0b"
+  }
+ ],
+ "guardSet": {
+  "files": [
+   "./docs/extensions/examples/claude-design/index.coverage.test.ts",
+   "./docs/extensions/examples/file-refactor/index.test.ts",
+   "./docs/extensions/examples/todo-tracker/index.test.ts",
+   "./scripts/check-factory-deployment-locks.test.ts",
+   "./scripts/container-workspace-registration.test.ts",
+   "./scripts/factory-attempt-queue-registration.test.ts",
+   "./scripts/factory-c13-inventory.test.ts",
+   "./scripts/factory-compute-admissions-registration.test.ts",
+   "./scripts/factory-execution-admission-registration.test.ts",
+   "./scripts/factory-orchestrator-registration.test.ts",
+   "./scripts/factory-postgres-suite-registration.test.ts",
+   "./scripts/factory-private-root-registration.test.ts",
+   "./scripts/factory-protected-command-effects-registration.test.ts",
+   "./scripts/factory-provisioning-registration.test.ts",
+   "./scripts/factory-storage-action-registration.test.ts",
+   "./scripts/factory-task-execution-admission-registration.test.ts",
+   "./scripts/factory-validator-materials-registration.test.ts",
+   "./scripts/gate-integrity-deps-registration.test.ts",
+   "./scripts/python-quality-registration.test.ts",
+   "./scripts/uv-toolchain-registration.test.ts",
+   "./src/factory/reference-data/guest.test.ts",
+   "./src/__tests__/ci-test-set-drift.test.ts",
+   "./src/__tests__/compose-podman-masks.test.ts",
+   "./src/__tests__/compose-podman-prod.test.ts",
+   "./src/__tests__/compose-projects-root.test.ts",
+   "./src/__tests__/dev-image-ownership.test.ts",
+   "./src/__tests__/dockerignore-heavy-excludes.test.ts",
+   "./src/__tests__/file-organizer-applier-reserved-dirs.test.ts",
+   "./src/__tests__/fs-reserved-carveout-not-a-violation.test.ts",
+   "./src/__tests__/gh-cli-in-images.test.ts",
+   "./src/__tests__/installer-core.test.ts",
+   "./src/__tests__/macos-local-dev.test.ts",
+   "./src/__tests__/mcp-seccomp-compile.test.ts",
+   "./src/__tests__/mcp-seccomp-profile.test.ts",
+   "./src/__tests__/podman-compose-wrapper.test.ts",
+   "./src/__tests__/preview-spawn.test.ts",
+   "./src/__tests__/prod-image-provenance.test.ts",
+   "./src/__tests__/prune-images.test.ts",
+   "./src/__tests__/test-image-ignorefile.test.ts"
+  ],
+  "count": 39,
+  "total": {
+   "pass": 477,
+   "fail": 0
+  }
+ },
+ "checkBoundaries": "Dependency boundaries OK \u2014 5996 source files, 0 violations.",
+ "heavy": {
+  "batch": [
+   "=== heavy 2026-10-05T02:16:28Z",
+   "HEAD 8221bec847c92dc3cfee0390259e18c9e7412a71 MERGE_HEAD  index-tree 75b6aa4e96a9fe0ecf1e79b92e82649b9de11c47",
+   "pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1",
+   "resource-gate 2026-10-05T02:16:28Z hold-start disk=151G memAvailable=9GiB swapFreeKiB=4168624/17173956 floors disk>=100G swap>=2097152KiB",
+   "config: 888c78b9e94ea660 = accepted baseline",
+   "shared config hash at hold start: 888c78b9e94ea660 (accepted baseline 888c78b9e94ea660)",
+   "prune scan: exit 0 (prune scan: clean (0 hit(s)))",
+   "resource-gate 2026-10-05T02:16:28Z attestation-check disk=151G memAvailable=9GiB swapFreeKiB=4168628/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START attestation-check 2026-10-05T02:16:28Z",
+   "--- END   attestation-check 2026-10-05T02:16:28Z exit=0 ",
+   "guard set: 39 files from guard-suites.sh",
+   "resource-gate 2026-10-05T02:16:28Z guard-set disk=151G memAvailable=9GiB swapFreeKiB=4168628/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START guard-set 2026-10-05T02:16:28Z",
+   "--- END   guard-set 2026-10-05T02:17:32Z exit=0  477 pass 0 fail ",
+   "resource-gate 2026-10-05T02:17:32Z build-factory-sdk disk=151G memAvailable=11GiB swapFreeKiB=4133516/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START build-factory-sdk 2026-10-05T02:17:32Z",
+   "--- END   build-factory-sdk 2026-10-05T02:17:32Z exit=0 ",
+   "resource-gate 2026-10-05T02:17:32Z build-factory-transport disk=151G memAvailable=12GiB swapFreeKiB=4133324/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START build-factory-transport 2026-10-05T02:17:32Z",
+   "--- END   build-factory-transport 2026-10-05T02:17:32Z exit=0 ",
+   "resource-gate 2026-10-05T02:17:32Z build-factory-orchestrator disk=151G memAvailable=12GiB swapFreeKiB=4128780/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START build-factory-orchestrator 2026-10-05T02:17:32Z",
+   "--- END   build-factory-orchestrator 2026-10-05T02:17:32Z exit=0 ",
+   "resource-gate 2026-10-05T02:17:32Z web-server-lcov disk=151G memAvailable=11GiB swapFreeKiB=4128784/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START web-server-lcov 2026-10-05T02:17:32Z",
+   "--- END   web-server-lcov 2026-10-05T02:17:58Z exit=0  Tests 179 passed (179) ",
+   "resource-gate 2026-10-05T02:17:58Z coverage-merge disk=151G memAvailable=13GiB swapFreeKiB=3987368/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START coverage-merge 2026-10-05T02:17:58Z",
+   "--- END   coverage-merge 2026-10-05T02:17:58Z exit=0 ",
+   "resource-gate 2026-10-05T02:17:58Z web-build disk=151G memAvailable=13GiB swapFreeKiB=3987368/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START web-build 2026-10-05T02:17:59Z",
+   "--- END   web-build 2026-10-05T02:18:57Z exit=0 ",
+   "resource-gate 2026-10-05T02:18:57Z graph-mock-pass disk=151G memAvailable=13GiB swapFreeKiB=3485388/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START graph-mock-pass 2026-10-05T02:18:57Z",
+   "--- END   graph-mock-pass 2026-10-05T02:19:55Z exit=0 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/w4h-merge/w4h-7b/graph/w4h-7b-mock.json; nothing to dump",
+   "mock pass w4h-7b-mock outcome: passed",
+   "resource-gate 2026-10-05T02:19:55Z crap-changed-base disk=151G memAvailable=8GiB swapFreeKiB=3637940/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START crap-changed-base 2026-10-05T02:19:55Z",
+   "--- END   crap-changed-base 2026-10-05T02:19:55Z exit=0 ",
+   "resource-gate 2026-10-05T02:19:55Z merge-commit-gates disk=151G memAvailable=10GiB swapFreeKiB=3642668/17173956 floors disk>=100G swap>=2097152KiB",
+   "--- START merge-commit-gates 2026-10-05T02:19:55Z",
+   "--- END   merge-commit-gates 2026-10-05T02:20:01Z exit=0 ",
+   "config: 888c78b9e94ea660 = accepted baseline",
+   "shared config hash at hold end: 888c78b9e94ea660 (accepted baseline 888c78b9e94ea660)",
+   "HEAVY DONE status=0 dirty=0 2026-10-05T02:20:01Z"
+  ],
+  "legs": {
+   "attestation-check": {
+    "exit": 0
+   },
+   "guard-set": {
+    "exit": 0,
+    "tests": {
+     "pass": 477,
+     "fail": 0
+    }
+   },
+   "build-factory-sdk": {
+    "exit": 0
+   },
+   "build-factory-transport": {
+    "exit": 0
+   },
+   "build-factory-orchestrator": {
+    "exit": 0
+   },
+   "web-server-lcov": {
+    "exit": 0,
+    "tests": {
+     "pass": 179,
+     "fail": 0
+    }
+   },
+   "coverage-merge": {
+    "exit": 0
+   },
+   "web-build": {
+    "exit": 0
+   },
+   "graph-mock-pass": {
+    "exit": 0
+   },
+   "crap-changed-base": {
+    "exit": 0
+   },
+   "merge-commit-gates": {
+    "exit": 0
+   }
+  },
+  "exit": 0
+ },
+ "coverageGates": {
+  "where": "merge-commit-gates.sh at the merge commit 8221bec84",
+  "gate-integrity-base": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected.",
+  "gate-integrity-origin-main": "If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+  "new-file": "New-file coverage gate PASSED: no new source files in this diff.",
+  "patch": "Patch coverage gate PASSED: all changed executable lines covered (0 file(s))."
+ },
+ "commitHookOutput": [
+  "  no test file maps to the staged changes \u2014 skipping"
+ ],
+ "stagedPin": [
+  "pinned bun 1.4.2 / bunx 1.4.2 from the staged tree; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1"
+ ]
+}
