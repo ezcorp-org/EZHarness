@@ -1590,5 +1590,157 @@ class AdmittedRestorationTests(unittest.TestCase):
         self.assertTrue(self.supervisor.recovery_hold_path.exists())
         with self.assertRaises(ValueError):self.supervisor.restore_admitted(self.message)
 
+
+RESTORATION_BOUNDARY_CONSUMER = r'''
+"""Disposable command-boundary verifier; no DB, server or service effects."""
+import base64
+import json
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+root = Path(sys.argv[1])
+expected = json.loads((root / 'expected.json').read_bytes())
+value = json.loads(sys.stdin.buffer.read())
+phase = value['phase']
+mode = (root / 'consumer-mode').read_text() if (root / 'consumer-mode').exists() else ''
+with (root / 'command-phases').open('a') as output:
+    output.write(phase + '\n')
+authority = {key: expected['history'][key] for key in (
+    'originalReceiptSha256', 'currentSourceCommit', 'currentManifestSha256')}
+if phase == 'inspect-admitted-restoration':
+    assert value == {'phase': phase, **expected}
+    if mode == 'malformed':
+        print('not JSON')
+        sys.exit(0)
+    if mode == 'nonzero':
+        sys.exit(7)
+    if mode == 'wrong-authority':
+        authority['currentSourceCommit'] = '0' * 40
+    print(json.dumps({'admitted': True, **expected['request'], **authority}))
+elif phase == 'restore-admitted':
+    assert set(value) == {'phase', 'receipt'}
+    receipt = value['receipt']
+    payload = receipt['payload']
+    assert set(payload) == {*expected['history'], 'restoration', 'issuedAtMs', 'expiresAtMs'}
+    assert {key: payload[key] for key in expected['history']} == expected['history']
+    assert payload['restoration'] == expected['request']
+    now = int(time.time() * 1000)
+    assert payload['issuedAtMs'] <= now < payload['expiresAtMs']
+    assert 0 < payload['expiresAtMs'] - payload['issuedAtMs'] <= 30000
+    data = json.dumps(payload, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
+    (root / 'verify-data').write_bytes(data)
+    (root / 'verify-signature').write_bytes(base64.b64decode(receipt['signature'], validate=True))
+    subprocess.run(['openssl', 'pkeyutl', '-verify', '-rawin', '-pubin', '-inkey',
+                    str(root / 'public.pem'), '-in', str(root / 'verify-data'),
+                    '-sigfile', str(root / 'verify-signature')], check=True, capture_output=True)
+    # A local record of the command effect, not a claim about real transport.
+    (root / 'restoration-verified').write_text(payload['restoration']['cleanupOperationId'])
+    response = {'transportReady': True, **expected['request']}
+    if mode == 'extra-ready':
+        response['extra'] = True
+    print(json.dumps(response))
+else:
+    raise AssertionError('No admission or other command phase is permitted')
+'''
+
+
+class RestorationCommandBoundary(unittest.TestCase):
+    write_config = FencedCleanupSignerTest.write_config
+
+    def setUp(self):
+        AdmittedRestorationTests.setUp(self)
+        self.supervisor.restoration_stage = MODULE.Supervisor.restoration_stage.__get__(self.supervisor)
+        self.supervisor.recovery_restore_command = [sys.executable, '-c', RESTORATION_BOUNDARY_CONSUMER, str(self.root)]
+        self.expected = {'request': json.loads(self.journal.read_bytes())['request'], 'history': self.message}
+        (self.root / 'expected.json').write_bytes(MODULE.canonical(self.expected))
+
+    def test_expired_history_real_signature_and_exact_existing_cleanup(self):
+        original = self.saved.read_bytes()
+        with mock.patch.object(self.supervisor, 'start_child') as start:
+            result = self.supervisor.restore_admitted(self.message)
+        self.assertTrue(result['holdArchived'])
+        self.assertEqual((self.root / 'command-phases').read_text().splitlines(),
+                         ['inspect-admitted-restoration', 'restore-admitted'])
+
+        self.assertEqual((self.root / 'restoration-verified').read_text(), self.message['cleanupOperationId'])
+        self.assertEqual(self.saved.read_bytes(), original)
+        self.assertEqual(self.request['deadlineMs'], 1)
+        start.assert_not_called()
+        with self.assertRaises((ValueError, OSError)):
+            self.supervisor.restore_admitted(self.message)
+
+    def test_bad_hash_refuses_before_command_or_signature(self):
+        self.message['journalSha256'] = '0' * 64
+        with mock.patch.object(self.supervisor, 'sign_payload') as sign:
+            with self.assertRaises(ValueError):
+                self.supervisor.restore_admitted(self.message)
+        sign.assert_not_called()
+        self.assertFalse((self.root / 'command-phases').exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+
+    def test_target_mismatch_refuses_before_command(self):
+        self.message['originalRequest'] = {**self.request, 'bindingId': 'different'}
+        with self.assertRaises(ValueError):
+            self.supervisor.restore_admitted(self.message)
+        self.assertFalse((self.root / 'command-phases').exists())
+
+    def test_valid_signature_with_expired_new_authority_refuses_effect(self):
+        signer = self.supervisor.sign_payload
+        def stale(payload):
+            return signer({**payload, 'issuedAtMs': 1, 'expiresAtMs': 30001})
+        with mock.patch.object(self.supervisor, 'sign_payload', side_effect=stale):
+            with self.assertRaises(ValueError):
+                self.supervisor.restore_admitted(self.message)
+        self.assertFalse((self.root / 'restoration-verified').exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual((self.root / 'command-phases').read_text().splitlines(),
+                         ['inspect-admitted-restoration', 'restore-admitted'])
+
+    def test_inspection_protocol_failures_never_sign_or_restore(self):
+        for mode in ('malformed', 'nonzero', 'wrong-authority'):
+            with self.subTest(mode=mode):
+                (self.root / 'consumer-mode').write_text(mode)
+                with mock.patch.object(self.supervisor, 'sign_payload') as sign:
+                    with self.assertRaises(ValueError):
+                        self.supervisor.restore_admitted(self.message)
+                sign.assert_not_called()
+                self.assertTrue(self.supervisor.recovery_hold_path.exists())
+                self.assertFalse((self.root / 'restoration-verified').exists())
+
+    def test_future_signed_authority_refuses_effect(self):
+        signer = self.supervisor.sign_payload
+        def future(payload):
+            return signer({**payload, 'issuedAtMs': 9999999999999, 'expiresAtMs': 10000000029999})
+        with mock.patch.object(self.supervisor, 'sign_payload', side_effect=future):
+            with self.assertRaises(ValueError):
+                self.supervisor.restore_admitted(self.message)
+        self.assertFalse((self.root / 'restoration-verified').exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+
+    def test_bad_signature_refuses_effect(self):
+        signer = self.supervisor.sign_payload
+        def altered(payload):
+            receipt = signer(payload)
+            receipt['payload'] = {**payload, 'currentSourceCommit': '0' * 40}
+            return receipt
+        with mock.patch.object(self.supervisor, 'sign_payload', side_effect=altered):
+            with self.assertRaises(ValueError):
+                self.supervisor.restore_admitted(self.message)
+        self.assertFalse((self.root / 'restoration-verified').exists())
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+
+    def test_extra_ready_field_keeps_hold_and_forbids_replay(self):
+        (self.root / 'consumer-mode').write_text('extra-ready')
+        with self.assertRaises(ValueError):
+            self.supervisor.restore_admitted(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        phases = (self.root / 'command-phases').read_bytes()
+        with self.assertRaises(ValueError):
+            self.supervisor.restore_admitted(self.message)
+        self.assertEqual((self.root / 'command-phases').read_bytes(), phases)
+
+
 if __name__ == "__main__":
     unittest.main()
