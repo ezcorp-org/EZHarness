@@ -1,0 +1,13 @@
+wave4i-2 wrapper start 2026-10-05T08:54:55Z head 1c84df6d5d5aba0703ee433ae711450728d16d66 prev-combined 98c59f562 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 98c59f562: exit 0 (prune scan: clean (25 hit(s)))
+driver exit=0 2026-10-05T08:54:55Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i-2 wrapper end 2026-10-05T08:54:55Z head 1c84df6d5d5aba0703ee433ae711450728d16d66 (start head 1c84df6d5d5aba0703ee433ae711450728d16d66) dirty=0
+wave4i-2 wrapper start 2026-10-05T08:55:03Z head 1c84df6d5d5aba0703ee433ae711450728d16d66 prev-combined 98c59f562 dry=0
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 98c59f562: exit 0 (prune scan: clean (25 hit(s)))
+resource-gate 2026-10-05T08:55:03Z wave4i-2-start disk=249G memAvailable=14GiB swapFreeKiB=3116280/17173956 floors disk>=104G swap>=2621440KiB
+driver exit=0 2026-10-05T11:36:32Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i-2 wrapper end 2026-10-05T11:36:32Z head 1c84df6d5d5aba0703ee433ae711450728d16d66 (start head 1c84df6d5d5aba0703ee433ae711450728d16d66) dirty=0

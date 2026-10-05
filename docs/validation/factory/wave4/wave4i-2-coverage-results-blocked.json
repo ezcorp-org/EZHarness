@@ -1,0 +1,12 @@
+{
+ "head": "1c84df6d5d5aba0703ee433ae711450728d16d66",
+ "producers": [],
+ "checks": [],
+ "mergeBlockedBy": [
+  "manifest-cov-shard",
+  "manifest-cov-extras"
+ ],
+ "redLegsNotBlockingMerge": [
+  "gate-integrity"
+ ]
+}

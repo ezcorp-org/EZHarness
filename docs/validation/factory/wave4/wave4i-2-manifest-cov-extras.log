@@ -1,0 +1,363 @@
+== coverage legs-only mode ==
+
+── leg output: sdk ──
+bun test v1.4.2 (744846f84)
+
+ 1030 pass
+ 0 fail
+ 2289 expect() calls
+Ran 1030 tests across 55 files. [9.08s]
+
+── leg output: hc ──
+bun test v1.4.2 (744846f84)
+
+ 94 pass
+ 0 fail
+ 325 expect() calls
+Ran 94 tests across 1 file. [749.00ms]
+
+── leg output: suggest ──
+bun test v1.4.2 (744846f84)
+
+ 104 pass
+ 0 fail
+ 190 expect() calls
+Ran 104 tests across 8 files. [8.79s]
+
+── leg output: aikit ──
+bun test v1.4.2 (744846f84)
+
+packages/@ezcorp/ai-kit/test/e2e/doctor.test.ts:
+─────────────────────────────────────
+CHECK                 STATUS   DETAIL
+─────────────────────────────────────
+backend /api/health    FAIL    TypeError: Unable to connect. Is the computer able to access the url?
+auth /api/auth/me       ok     EZCORP_API_KEY not set — skipped
+mcp tools registered    ok     list_projects, list_agents, search_mentions, list_models, list_extensions, extension_search, register, start_chat, send_message, get_messages, stream_run, cancel_run, register, create_agent, generate_agent, get_agent, register, list_sub_conversations, assign_task, start_assignment, spawn_chats, spawn_agents, spawn_team, register
+─────────────────────────────────────
+
+One or more checks failed. Fix the issues above and re-run `ai-kit doctor`.
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-QsOunv/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-QsOunv/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-QsOunv/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-QsOunv/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-QsOunv/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-QsOunv/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-fPY15M/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-fPY15M/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-fPY15M/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-fPY15M/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-fPY15M/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-fPY15M/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-0xN5tB/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-sjPzQE/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-WfvUNv/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-lkqVAd/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-lkqVAd)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-lkqVAd/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-L9mUfH/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-L9mUfH)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-L9mUfH/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-L9mUfH/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-L9mUfH)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-L9mUfH/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-Cz3oCI/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+ai-kit: data directory initialized at /tmp/ai-kit-test-hdNLPA/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-hdNLPA)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-hdNLPA/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-JYQpAN/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-JYQpAN)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-JYQpAN/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-qgnrR7/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-qgnrR7)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-qgnrR7/.ezcorp/extensions/ai-kit
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+
+ 226 pass
+ 27 skip
+ 0 fail
+ 549 expect() calls
+Ran 253 tests across 25 files. [4.69s]
+
+── leg output: providers ──
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 28 expect() calls
+Ran 11 tests across 1 file. [747.00ms]
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 8 expect() calls
+Ran 7 tests across 1 file. [531.00ms]
+bun test v1.4.2 (744846f84)
+
+ 41 pass
+ 0 fail
+ 75 expect() calls
+Ran 41 tests across 1 file. [511.00ms]
+bun test v1.4.2 (744846f84)
+
+ 20 pass
+ 0 fail
+ 42 expect() calls
+Ran 20 tests across 1 file. [506.00ms]
+bun test v1.4.2 (744846f84)
+
+ 34 pass
+ 0 fail
+ 72 expect() calls
+Ran 34 tests across 1 file. [495.00ms]
+bun test v1.4.2 (744846f84)
+
+ 60 pass
+ 0 fail
+ 99 expect() calls
+Ran 60 tests across 1 file. [544.00ms]
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 9717 expect() calls
+Ran 13 tests across 1 file. [523.00ms]
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 3017 expect() calls
+Ran 8 tests across 1 file. [543.00ms]
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 34 expect() calls
+Ran 11 tests across 1 file. [501.00ms]
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 9 expect() calls
+Ran 5 tests across 1 file. [492.00ms]
+bun test v1.4.2 (744846f84)
+
+ 41 pass
+ 0 fail
+ 87 expect() calls
+Ran 41 tests across 1 file. [535.00ms]
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T18:32:30.924Z","level":"warn","msg":"Model \"claude-sonnet-4-20250514\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-sonnet-4-20250514"}
+
+ 52 pass
+ 0 fail
+ 102 expect() calls
+Ran 52 tests across 1 file. [485.00ms]
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 96 expect() calls
+Ran 14 tests across 1 file. [512.00ms]
+bun test v1.4.2 (744846f84)
+
+ 42 pass
+ 0 fail
+ 100 expect() calls
+Ran 42 tests across 1 file. [491.00ms]
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 24 expect() calls
+Ran 15 tests across 1 file. [922.00ms]
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 11 expect() calls
+Ran 10 tests across 1 file. [458.00ms]
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 16 expect() calls
+Ran 8 tests across 1 file. [583.00ms]
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 26 expect() calls
+Ran 16 tests across 1 file. [461.00ms]
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 35 expect() calls
+Ran 12 tests across 1 file. [446.00ms]
+bun test v1.4.2 (744846f84)
+
+ 22 pass
+ 0 fail
+ 43 expect() calls
+Ran 22 tests across 1 file. [452.00ms]
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [460.00ms]
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 21 expect() calls
+Ran 9 tests across 1 file. [451.00ms]
+merged 524 source files → /tmp/tmp.S37GcB8ilJ/merged.lcov
+kept 15 requested LCOV source records → /tmp/tmp.kDZo4cvFw5/cov_providers/lcov.info
+wrote 15 provider source records → /tmp/tmp.kDZo4cvFw5/cov_providers/lcov.info
+
+── leg output: api-client ──
+bun test v1.4.2 (744846f84)
+
+ 95 pass
+ 0 fail
+ 348 expect() calls
+Ran 95 tests across 2 files. [530.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.kDZo4cvFw5/cov_api_client/lcov.info
+
+── leg output: empty-node-shim ──
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [506.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.kDZo4cvFw5/cov_empty_node_shim/lcov.info
+
+── leg output: worker ──
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 61 expect() calls
+Ran 11 tests across 1 file. [643.00ms]
+kept 1 requested LCOV source records → /tmp/tmp.kDZo4cvFw5/cov_worker/lcov.info
+wrote canonical worker source record → /tmp/tmp.kDZo4cvFw5/cov_worker/lcov.info
+
+── leg output: web-utility ──
+Running 29 direct web utility suites under Bun coverage (3 parallel)...
+merged 29 source files → /tmp/tmp.n8DL57FTlh/merged.lcov
+kept 26 requested LCOV source records → /tmp/tmp.kDZo4cvFw5/cov_web_utility/lcov.info
+wrote 26 web utility source records → /tmp/tmp.kDZo4cvFw5/cov_web_utility/lcov.info
+tolerated leg exit code (not gated here): suggest=0
+emitted 9 lcov shard(s) → /tmp/factory-platform-evidence/wave4i-2-manifest-cov-extras-coverage
+  1454 pass | 0 fail | legs

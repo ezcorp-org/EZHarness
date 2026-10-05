@@ -1,0 +1,6 @@
+auto-extra excluded (node --test packages, covered by their own leg): ['./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts', './packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts', './packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts', './packages/@ezcorp/factory-orchestrator/test/process.test.ts', './packages/@ezcorp/factory-orchestrator/test/validation.test.ts']
+focused files: 106 auto-extra files (own leg, one process each): 368
+{"mergeOnly": "/tmp/factory-platform-evidence/w00/wave4i-2/mo-case.json", "mergeBlockedBy": []}
+{"name": "global-floor", "base": null, "exitCode": 1, "blocking": false}
+{"name": "crap-changed", "base": "origin/main", "exitCode": 1, "blocking": false}
+DONE failed=True
