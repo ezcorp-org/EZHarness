@@ -1,0 +1,27 @@
+VERDICT (validator-6, 2026-10-05) — W4H-9 R3d (the full historical-upgrade lane) at c49f4b727: CLOSED LOCALLY (read-only judgement, no rerun)
+Evidence: /tmp/factory-platform-evidence/w4h-9/r3d-full-3/ (owner w4h-1): exit file 0; controller.log sha256 9d8deb15ce48f96c; the run
+log /tmp/factory-platform-evidence/w4h-9/r3d-full-3.log; script /tmp/factory-platform-evidence/w4h-9/upgrade-full.sh.
+
+FULL LANE, not the semantic subset:
+  - upgrade-full.sh calls scripts/verify-docker-upgrade.sh with VERIFY_UPGRADE_SKIP_BUILD=1, the candidate image and source, and does
+    not set VERIFY_UPGRADE_SEMANTIC_ONLY (its env line, line 29; the name occurs only in the header comment). The log below proves the
+    full lane independently of the script text.
+  - In scripts/verify-docker-upgrade.sh at c49f4b727 the semantic-only mode exits at line 238, after the three semantic stages
+    (lines 221, 226, 231) and before "Phase 1" (line 241). The script has Phases 1-5 (lines 241, 256, 260, 293, 306) and no others.
+  - controller.log shows all of them in order: the semantic seed on the previous image (UPGRADE_STATE_SEEDED), the candidate assert
+    and the separate restore assert (UPGRADE_STATE_ASSERTED twice); Phase 1 (A booted, /api/ready=200, previous-image version, 23 DB
+    entries); Phase 2 (stop A); Phase 3 (B against A's volume: ready, /api/version ci-c49f4b727799, no circuit-breaker, DB 23 -> 23, a
+    fresh pre-boot snapshot); Phase 4 (a stopped candidate backup restored into a separate owned instance, ready); Phase 5 (downgrade
+    B -> A: version 1.3.0, ready, 23 entries); then "UPGRADE VERIFIED" and `upgrade_command_exit=0 upgrade_cleanup_exit=0`. The
+    "curl: (56) Recv failure" lines are readiness polls before each boot completes.
+REVISIONS: candidate image localhost/w4h1-img-production:c49f4b727799 from a clean `git archive` of c49f4b7277994feeeb72bdca5617a1c9c67c2f2c
+  (the version string and VERIFY_UPGRADE_CANDIDATE_SOURCE name it); previous release 3ec53eaa66409a39d66b502f79d74139ec94dcf2
+  (localhost/ezcorp-extension-v4:audit-final-3ec53eaa). The script requires its checkout (which runs the runner service on the host)
+  to be at the same revision and clean before it builds; the run log has no "not clean" stop, so the host side ran at c49f4b727 too.
+GATES: the run started at load1 6.15 (under 10) after re-queues at higher load (r3d-full-3.log: hold-start 14.51, 4.84, 11.03, 9.56;
+  before-upgrade 22.60 then 6.15); the build at 00:11:54Z exited 0; the upgrade ran 00:13:38Z-00:17:10Z.
+DEFECT (comment only, in an evidence script, not in the package): at the time of the run, upgrade-full.sh's header comment said
+  "semantic-only mode" while its command ran the full lane (its echo says "full historical-upgrade lane"). The owner corrected the
+  comment at 2026-10-05T00:27:14Z, after the run (controller.log last written 00:17:10Z); it now says "FULL mode … Phases 1-5". The
+  behaviour was the full lane throughout.
+RESULT: R3d is closed locally at c49f4b727. The W4H-9 verdict at c49f4b727 (addendum sha256 b320bf4063ac6118) stands with no open item.
