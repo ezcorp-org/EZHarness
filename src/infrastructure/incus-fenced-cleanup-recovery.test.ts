@@ -32,7 +32,7 @@ import { SandboxController, operationPayloadHash } from "../sandboxes/controller
 import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { incusLifecycleOperationId, resourceName } from "./incus-transport/lifecycle";
 import { canonicalRecoveryJson } from "./incus-create-noeffect-recovery";
-import { applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, verifyFencedCleanupReceipt, type FencedCleanupAbortPayload, type FencedCleanupAbortReceipt, type FencedCleanupPayload, type FencedCleanupReceipt } from "./incus-fenced-cleanup-recovery";
+import { applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, verifyFencedCleanupReceipt, type FencedCleanupAbortPayload, type FencedCleanupAbortReceipt, type StableStartCleanupPayload, type StableStartCleanupPins, type FencedCleanupPayload, type FencedCleanupReceipt } from "./incus-fenced-cleanup-recovery";
 const clients: PGlite[] = [];
 const fixtureOperationId = "live-fixture-20260924";
 const bindingId = "binding-recovery";
@@ -79,6 +79,21 @@ function receipt(overrides: Partial<FencedCleanupPayload> = {}): FencedCleanupRe
     second: { observedAtMs: now - 9_000, instanceState: "stopped", nativeOperationAbsent: true, activeOperations: [], providerGeneration: 2 },
     ...overrides };
   return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+}
+
+function stableReceipt(overrides: Partial<StableStartCleanupPayload> = {}): FencedCleanupReceipt<StableStartCleanupPayload> {
+  const { nativeOperationId: _native, version: _version, first, second, ...base } = receipt().payload;
+  const payload: StableStartCleanupPayload = { ...base, version: 2, operationHandleKind: "stable-start-intent",
+    expectedProviderGeneration: 2, providerOperationId: base.operationTag,
+    first: { observedAtMs: first.observedAtMs, instanceState: "stopped", noActiveOperations: true, providerGeneration: 2 },
+    second: { observedAtMs: second.observedAtMs, instanceState: "stopped", noActiveOperations: true, providerGeneration: 2 }, ...overrides };
+  return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+}
+
+async function stableSetup(path?: string) {
+  const result = await setup(path);
+  await result.db.update(schema.sandboxOperations).set({ providerOperationId: stableReceipt().payload.providerOperationId }).where(eq(schema.sandboxOperations.id, operationId));
+  return result;
 }
 
 async function setup(path?: string) {
@@ -156,15 +171,16 @@ afterEach(async () => {
   await Promise.all(clients.splice(0).map(client => client.close().catch(() => {})));
 });
 
-test("signed recovery journals one real DESTROY without changing the uncertain START", async () => {
-  const { db } = await setup();
+for (const mode of ["native", "stable"] as const) test(`signed ${mode} recovery journals one real DESTROY without changing the uncertain START`, async () => {
+  const { db } = await (mode === "stable" ? stableSetup() : setup());
+  const signed = mode === "stable" ? stableReceipt() : receipt();
   const original = (await db.select().from(schema.sandboxOperations))[0]!;
   const visibleOriginal = async () => (await db.select({ id: schema.sandboxOperations.id })
     .from(schema.sandboxOperations).where(not(compensatedCleanupOriginal)))
     .some(row => row.id === operationId);
   expect(await visibleOriginal()).toBe(true);
   expect(await hasUnfinishedProviderSandboxes(db, scope.installationId)).toBe(true);
-  const cleanupId = await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now);
+  const cleanupId = await applyFencedCleanupRecovery(db, signed, publicKeyPem, now);
   const dispatches: string[] = [];
   const controller = new SandboxController(db, {
     dispatch: async request => { dispatches.push(request.operationId); expect(request.generation).toBe(1);
@@ -173,7 +189,7 @@ test("signed recovery journals one real DESTROY without changing the uncertain S
   });
   expect((await db.select().from(schema.sandboxReservations))[0]?.diskState).toBe("RESERVED");
   expect((await controller.getOperation(cleanupId))?.state).toBe("JOURNALED");
-  expect(await applyFencedCleanupRecovery(db, receipt(), publicKeyPem, now)).toBe(cleanupId);
+  expect(await applyFencedCleanupRecovery(db, signed, publicKeyPem, now)).toBe(cleanupId);
   await controller.executeOperation(cleanupId);
   expect(dispatches).toEqual([cleanupId]);
   expect(await controller.getOperation(operationId)).toEqual(original);
@@ -569,12 +585,14 @@ test("inspection observes the exact old abort that commits between lookup and bi
 });
 
 
-test("actual Python abort signer and hold archive compose with production Bun CLI", async () => {
+for (const mode of ["native", "stable"] as const) test(`actual Python ${mode} abort signer and hold archive compose with production Bun CLI`, async () => {
   const root = mkdtempSync(join(tmpdir(), "incus-abort-python-cli-"));
   const path = join(root, "db");
-  const { client } = await setup(path);
+  const { client } = await (mode === "stable" ? stableSetup(path) : setup(path));
   await client.close(); clients.splice(clients.indexOf(client), 1);
-  const { originalRequest, pins } = abortReceipt({}, receipt({ fenceEvidence: "operator stopped clients — café 🧪" }).payload).payload;
+  const { originalRequest, pins } = (mode === "stable"
+    ? stableAbortReceipt({}, stableReceipt({ fenceEvidence: "operator stopped clients — café 🧪" }).payload)
+    : abortReceipt({}, receipt({ fenceEvidence: "operator stopped clients — café 🧪" }).payload)).payload;
   const keyPath = join(root, "supervisor-key.pem");
   const originalPath = join(root, "original-request.json"), sealedPath = join(root, "sealed.json");
   writeFileSync(keyPath, privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
@@ -582,7 +600,7 @@ test("actual Python abort signer and hold archive compose with production Bun CL
   const target = { scope: originalRequest.scope, fixtureOperationId: originalRequest.fixtureOperationId,
     bindingId: originalRequest.bindingId, operationId: originalRequest.operationId,
     generation: originalRequest.generation, connectionRevision: originalRequest.connectionRevision };
-  writeFileSync(sealedPath, JSON.stringify({ version: 1, action: "recover-fenced-cleanup", target, pins }), { mode: 0o600 });
+  writeFileSync(sealedPath, JSON.stringify({ version: mode === "stable" ? 2 : 1, action: "recover-fenced-cleanup", target, pins }), { mode: 0o600 });
   const python = `import hashlib, importlib.util, json, os, subprocess, sys
 from pathlib import Path
 from unittest import mock
@@ -643,3 +661,156 @@ print(json.dumps(proof))`;
     await reopened.close(); clients.splice(clients.indexOf(reopened), 1);
   } finally { rmSync(root, { recursive: true, force: true }); }
 }, 30_000);
+
+
+test("stable START recovery preserves the complete UNKNOWN row and reserved disk while journaling separate DESTROY", async () => {
+  const { db } = await stableSetup();
+  const before = (await db.select().from(schema.sandboxOperations))[0]!;
+  const cleanupId = await applyFencedCleanupRecovery(db, stableReceipt(), publicKeyPem, now);
+  expect(await applyFencedCleanupRecovery(db, stableReceipt(), publicKeyPem, now)).toBe(cleanupId);
+  const [original] = await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId));
+  expect(original).toEqual(before);
+  const [cleanup] = await db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, cleanupId));
+  expect(cleanup).toMatchObject({ kind: "DESTROY", state: "JOURNALED", requestPayload: { expectedGeneration: 2 } });
+  const [reservation] = await db.select().from(schema.sandboxReservations);
+  expect(reservation).toMatchObject({ diskState: "RESERVED", cleanupIntentId: `incus-qualification-destroy-${fixtureOperationId}` });
+  expect(await hasUnfinishedProviderSandboxes(db, scope.installationId)).toBe(true);
+});
+
+for (const [label, overrides] of Object.entries({
+  handle: { providerOperationId: "ezh-setPower-" + "a".repeat(32) + "-" + "b".repeat(32) },
+  tag: { operationTag: "ezh-setPower-" + "a".repeat(32) + "-" + "b".repeat(32) },
+  kind: { operationHandleKind: "stable-stop-intent" }, native: { nativeOperationId: "11111111-1111-1111-1111-111111111111" },
+  generation: { expectedProviderGeneration: 1 }, overflow: { expectedProviderGeneration: Number.MAX_SAFE_INTEGER + 1 },
+  extra: { noEffect: true }, hybrid: { first: receipt().payload.first },
+  active: { second: { ...stableReceipt().payload.second, noActiveOperations: false } },
+  observed: { second: { ...stableReceipt().payload.second, providerGeneration: 3 } },
+  stale: { second: { ...stableReceipt().payload.second, observedAtMs: now - 31_000 } },
+  unfenced: { allClientsFenced: false }, expired: { fenceUntilMs: now },
+})) test(`stable START signed proof rejects ${label}`, () => {
+  expect(() => verifyFencedCleanupReceipt(stableReceipt(overrides as Partial<StableStartCleanupPayload>), publicKeyPem, now)).toThrow();
+});
+
+test("native v1 cannot carry stable v2 discriminator fields", () => {
+  expect(() => verifyFencedCleanupReceipt(receipt({ operationHandleKind: "stable-start-intent" } as never), publicKeyPem, now)).toThrow("native cleanup version changed");
+});
+
+for (const [label, change] of Object.entries({ stop: { kind: "STOP" }, expected: { requestPayload: { expectedGeneration: 2 } },
+  handle: { providerOperationId: "foreign" }, state: { state: "SUCCEEDED" }, hash: { payloadHash: "d".repeat(64) } })) test(`stable START durable admission rejects ${label} without compensation`, async () => {
+  const { db } = await stableSetup();
+  await db.update(schema.sandboxOperations).set(change as never).where(eq(schema.sandboxOperations.id, operationId));
+  await expect(applyFencedCleanupRecovery(db, stableReceipt(), publicKeyPem, now)).rejects.toThrow();
+  expect(await db.select().from(schema.incusFencedCleanupRecoveries)).toHaveLength(0);
+  expect((await db.select().from(schema.sandboxBindings))[0]).toMatchObject({ currentOperationId: operationId, tombstonedAt: null });
+  expect((await db.select().from(schema.sandboxReservations))[0]).toMatchObject({ diskState: "RESERVED", cleanupIntentId: null });
+});
+
+function stableAbortReceipt(overrides: Partial<FencedCleanupAbortPayload<StableStartCleanupPins>> = {},
+  recovery = stableReceipt().payload): FencedCleanupAbortReceipt<StableStartCleanupPins> {
+  const base = abortReceipt({}, receipt({ fenceEvidence: recovery.fenceEvidence }).payload).payload;
+  const { nativeOperationId: _native, ...common } = base.pins;
+  const payload: FencedCleanupAbortPayload<StableStartCleanupPins> = { ...base, version: 2,
+    pins: { ...common, operationHandleKind: "stable-start-intent", expectedProviderGeneration: recovery.expectedProviderGeneration,
+      providerOperationId: recovery.providerOperationId, operationTag: recovery.operationTag }, ...overrides };
+  return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+}
+
+test("stable START abort preserves UNKNOWN, consumes only the held nonce and blocks replayed cleanup", async () => {
+  const { db } = await stableSetup();
+  const before = (await db.select().from(schema.sandboxOperations))[0]!;
+  const proof = await applyFencedCleanupAbort(db, stableAbortReceipt(), publicKeyPem, now);
+  expect(await inspectFencedCleanupAbort(db, stableAbortReceipt(), publicKeyPem)).toEqual(proof);
+  expect((await db.select().from(schema.sandboxOperations))[0]).toEqual(before);
+  expect((await db.select().from(schema.sandboxReservations))[0]).toMatchObject({ diskState: "RESERVED", cleanupIntentId: null });
+  await expect(applyFencedCleanupRecovery(db, stableReceipt(), publicKeyPem, now)).rejects.toThrow("nonce");
+  expect(await db.select().from(schema.incusFencedCleanupRecoveries)).toHaveLength(0);
+});
+
+for (const [label, pins] of Object.entries({ native: { ...stableAbortReceipt().payload.pins, nativeOperationId: receipt().payload.nativeOperationId },
+  handle: { ...stableAbortReceipt().payload.pins, providerOperationId: "foreign" },
+  generation: { ...stableAbortReceipt().payload.pins, expectedProviderGeneration: 3 },
+})) test(`stable START abort rejects ${label} proof`, async () => {
+  const { db } = await stableSetup();
+  await expect(applyFencedCleanupAbort(db, stableAbortReceipt({ pins: pins as StableStartCleanupPins }), publicKeyPem, now)).rejects.toThrow();
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+});
+
+test("actual Python v2 recovery signer admits separate cleanup through production Bun verifier", async () => {
+  const root = mkdtempSync(join(tmpdir(), "incus-stable-python-cli-"));
+  const path = join(root, "db");
+  const { db, client } = await stableSetup(path);
+  const before = (await db.select().from(schema.sandboxOperations))[0];
+  await client.close(); clients.splice(clients.indexOf(client), 1);
+  const stable = stableReceipt().payload;
+  const { originalRequest, pins } = stableAbortReceipt().payload;
+  const request = { ...originalRequest, deadlineMs: realNow() + 90_000 };
+  const target = { scope: request.scope, fixtureOperationId: request.fixtureOperationId, bindingId: request.bindingId,
+    operationId: request.operationId, generation: request.generation, connectionRevision: request.connectionRevision };
+  const keyPath = join(root, "key.pem"), configPath = join(root, "sealed.json");
+  writeFileSync(keyPath, privateKey.export({ format: "pem", type: "pkcs8" }), { mode: 0o600 });
+  writeFileSync(configPath, JSON.stringify({ version: 2, action: "recover-fenced-cleanup", target, pins,
+    observation: { oldCertificateSha256: "5".repeat(64) } }), { mode: 0o600 });
+  writeFileSync(join(root, "request.json"), JSON.stringify(request), { mode: 0o600 });
+  const python = `import importlib.util, json, os, sys, time
+from pathlib import Path
+from unittest import mock
+source,root,bun,cli=map(Path,sys.argv[1:5])
+spec=importlib.util.spec_from_file_location('supervisor',source)
+m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+request=json.loads((root/'request.json').read_text());pins=json.loads((root/'sealed.json').read_text())['pins']
+s=m.Supervisor(str(root/'unused.sock'),['must-not-start'],os.getuid(),os.getgid(),root/'key.pem',['true'],['true'],enforce_distinct_uid=False)
+s.recovery_command=[str(bun),str(cli)];s.recovery_fence_command=['fence'];s.child=object()
+s.assert_exclusive_app_uid=lambda:None
+identity={'pid':123,'startTicks':'456'}
+def stop():s.child=None;return identity
+s.stop_child=stop
+fences=[]
+def fence(r,p):assert r==request and p==identity;fences.append(True)
+s.verify_recovery_fence=fence
+starts=[];s.start_child=lambda:starts.append(True)
+actual=s.recovery_stage
+observation={'instanceState':'stopped','noActiveOperations':True,'providerGeneration':pins['expectedProviderGeneration'],'pins':pins}
+def stage(phase,value,deadline):
+ if phase=='durable':return actual(phase,value,deadline)
+ if phase=='backend':return observation
+ if phase=='apply':return actual(phase,value,deadline)
+ assert phase=='restore' and s.recovery_held() and s.child is None
+ return {'transportReady':True,**value}
+s.recovery_stage=stage
+clock=[time.time()-70]
+with mock.patch.object(m.time,'time',lambda:clock[0]),mock.patch.object(m.time,'sleep',lambda seconds:clock.__setitem__(0,clock[0]+seconds)):
+ result=s.recover_noeffect(request)
+assert len(fences)==2 and starts==[True] and not s.recovery_held()
+assert result['receipt']['payload']['version']==2
+assert 'nativeOperationId' not in result['receipt']['payload']
+print(json.dumps(result))`;
+  const env: NodeJS.ProcessEnv = { ...process.env, PYTHONDONTWRITEBYTECODE: "1", EZCORP_INCUS_SUPERVISOR_DB_PATH: path,
+    EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: publicKeyPem, EZCORP_INCUS_FENCED_CLEANUP_CONFIG: configPath };
+  delete env.DATABASE_URL; delete env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64;
+  try {
+    const child = Bun.spawn(["python3", "-c", python, join(import.meta.dir, "../../scripts/incus/incus-qualification-supervisor.py"),
+      root, process.execPath, join(import.meta.dir, "../../scripts/incus/incus-create-noeffect-recovery.ts")], { env, stdout: "pipe", stderr: "pipe" });
+    const [stdout, stderr, childExit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect({ childExit, stderr }).toEqual({ childExit: 0, stderr: "" });
+    const result = JSON.parse(stdout);
+    expect(result.receipt.payload).toMatchObject({ version: 2, operationHandleKind: "stable-start-intent", providerOperationId: stable.providerOperationId });
+    expect(result.receipt.payload.first).not.toHaveProperty("nativeOperationAbsent");
+    const reopened = new PGlite(path); clients.push(reopened); await reopened.waitReady;
+    const reopenedDb = drizzle(reopened, { schema });
+    expect((await reopenedDb.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId)))[0]).toEqual(before);
+    expect((await reopenedDb.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, result.cleanupOperationId)))[0]).toMatchObject({ kind: "DESTROY", state: "JOURNALED", requestPayload: { expectedGeneration: 2 } });
+    expect((await reopenedDb.select().from(schema.sandboxReservations))[0]).toMatchObject({ diskState: "RESERVED", cleanupIntentId: `incus-qualification-destroy-${fixtureOperationId}` });
+    await reopened.close(); clients.splice(clients.indexOf(reopened), 1);
+  } finally { rmSync(root, { recursive: true, force: true }); }
+}, 30_000);
+
+for (const change of [{ kind: "STOP" as const, expectedGeneration: 1 }, { kind: "START" as const, expectedGeneration: 2 }]) test(`stable intent cannot compensate a rehashed ${change.kind} request at provider generation ${change.expectedGeneration}`, async () => {
+  const { db } = await stableSetup();
+  const payloadHash = operationPayloadHash({ bindingId, kind: change.kind, generation: 1,
+    idempotencyScope: "incus-qualification-power", idempotencyKey: `${fixtureOperationId}:start`, payload: { expectedGeneration: change.expectedGeneration } });
+  await db.update(schema.sandboxOperations).set({ kind: change.kind, requestPayload: { expectedGeneration: change.expectedGeneration }, payloadHash }).where(eq(schema.sandboxOperations.id, operationId));
+  if (change.kind === "STOP") await db.update(schema.sandboxBindings).set({ desiredState: "STOPPED" }).where(eq(schema.sandboxBindings.id, bindingId));
+  await expect(applyFencedCleanupRecovery(db, stableReceipt({ payloadHash }), publicKeyPem, now)).rejects.toThrow("stable START generation or kind changed");
+  expect(await db.select().from(schema.incusFencedCleanupRecoveries)).toHaveLength(0);
+  expect(await db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+});

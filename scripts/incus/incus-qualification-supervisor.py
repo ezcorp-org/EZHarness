@@ -34,6 +34,34 @@ CLAIM_KEYS = {"version", "action", "runId", "nonce", "afterDigest"}
 RECOVERY_KEYS = {"version", "action", "nonce", "reviewId", "scope",
                  "fixtureOperationId", "bindingId", "operationId", "generation",
                  "connectionRevision", "fenceEvidence", "allClientsFenced", "deadlineMs"}
+NATIVE_CLEANUP_PIN_KEYS = {"installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "providerOperationId", "nativeOperationId", "operationTag", "payloadHash", "presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"}
+STABLE_CLEANUP_PIN_KEYS = (NATIVE_CLEANUP_PIN_KEYS - {"nativeOperationId"}) | {"operationHandleKind", "expectedProviderGeneration"}
+
+
+def cleanup_pin_keys(version):
+    return STABLE_CLEANUP_PIN_KEYS if version == 2 else NATIVE_CLEANUP_PIN_KEYS
+
+
+def validate_stable_cleanup_config(config):
+    pins, target = config.get("pins"), config.get("target")
+    if not isinstance(pins, dict) or set(pins) != STABLE_CLEANUP_PIN_KEYS \
+            or pins.get("operationHandleKind") != "stable-start-intent" \
+            or type(pins.get("expectedProviderGeneration")) is not int \
+            or not 1 < pins["expectedProviderGeneration"] <= 9007199254740991 \
+            or not isinstance(target, dict) or not isinstance(target.get("scope"), dict):
+        raise ValueError("stable cleanup pins invalid")
+    scope = target["scope"]
+    values = [scope.get("connectionId"), target.get("bindingId"), target.get("operationId")]
+    if any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value) for value in values):
+        raise ValueError("stable cleanup target invalid")
+    connection, binding, operation = values
+    resource = hashlib.sha256((connection + "\0" + binding).encode()).hexdigest()[:32]
+    intent = hashlib.sha256((connection + "\0" + binding + "\0" + operation + "\0" + operation + "\0setPower").encode()).hexdigest()[:32]
+    tag = "ezh-setPower-" + resource + "-" + intent
+    if pins.get("providerOperationId") != tag or pins.get("operationTag") != tag:
+        raise ValueError("stable cleanup original intent changed")
+
+
 SCOPE_KEYS = {"installationId", "releaseId", "connectionId", "presetId"}
 FAULT_ARM_KEYS = {"runId", "nonce", "deadlineMs", "scope", "fixtureOperationId",
                   "bindingId", "destroyOperationId", "generation", "providerGeneration",
@@ -647,7 +675,7 @@ class Supervisor:
         if not isinstance(stored, dict) or set(stored) != {"payload", "signature"} or not isinstance(stored["signature"], str) or not re.fullmatch(r"[A-Za-z0-9+/]{86}==", stored["signature"]):
             raise ValueError("operator abort receipt changed")
         payload = stored["payload"]
-        expected = {"version": 1, "action": message["action"], "originalRequest": original,
+        expected = {"version": sealed["version"], "action": message["action"], "originalRequest": original,
             "pins": sealed["pins"], "requestSha256": message["requestSha256"], "holdSha256": message["holdSha256"]}
         if not isinstance(payload, dict) or set(payload) != set(expected) | {"issuedAtMs", "expiresAtMs"} \
                 or any(payload[key] != value for key, value in expected.items()) \
@@ -680,7 +708,7 @@ class Supervisor:
                 raise ValueError("operator abort authorization archive limit reached")
         except FileNotFoundError:
             now = int(time.time()*1000)
-            payload = {"version": 1, "action": message["action"], "originalRequest": original,
+            payload = {"version": sealed["version"], "action": message["action"], "originalRequest": original,
                 "pins": sealed["pins"], "requestSha256": message["requestSha256"],
                 "holdSha256": message["holdSha256"], "issuedAtMs": now, "expiresAtMs": now+30000}
             stored = self.sign_payload(payload)
@@ -814,8 +842,12 @@ class Supervisor:
                 config = json.loads(os.read(fd, 128 * 1024 + 1))
             finally:
                 os.close(fd)
-            if not isinstance(config, dict) or config.get("version") != 1 or config.get("action") != action:
+            if not isinstance(config, dict) or config.get("version") not in (1, 2) or config.get("action") != action:
                 raise ValueError("sealed cleanup config action invalid")
+            if config["version"] == 2:
+                validate_stable_cleanup_config(config)
+            elif isinstance(config.get("pins"), dict) and ("operationHandleKind" in config["pins"] or "expectedProviderGeneration" in config["pins"]):
+                raise ValueError("native cleanup pin version changed")
             return config
 
 
@@ -863,12 +895,16 @@ class Supervisor:
         second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
         second_at = int(time.time() * 1000)
         if fenced_cleanup:
-            observation_keys = {"instanceState", "nativeOperationAbsent", "activeOperations", "providerGeneration", "pins"}
-            if any(not isinstance(o, dict) or set(o) != observation_keys
-                   or o["instanceState"] != "stopped" or o["nativeOperationAbsent"] is not True
-                   or o["activeOperations"] != [] or type(o["providerGeneration"]) is not int
-                   or o["providerGeneration"] <= 0 or o["pins"] != durable["pins"] for o in (first, second)) \
-                    or first != second:
+            stable = sealed["version"] == 2
+            observation_keys = ({"instanceState", "noActiveOperations", "providerGeneration", "pins"} if stable
+                else {"instanceState", "nativeOperationAbsent", "activeOperations", "providerGeneration", "pins"})
+            def valid_observation(o):
+                if not isinstance(o, dict) or set(o) != observation_keys or o["instanceState"] != "stopped" \
+                        or type(o["providerGeneration"]) is not int or o["providerGeneration"] <= 0 or o["pins"] != durable["pins"]:
+                    return False
+                return (o["noActiveOperations"] is True and o["providerGeneration"] == sealed["pins"]["expectedProviderGeneration"] if stable
+                    else o["nativeOperationAbsent"] is True and o["activeOperations"] == [])
+            if not all(valid_observation(o) for o in (first, second)) or first != second:
                 raise ValueError("operator backend owned stopped state not independently verified")
         elif first != {"absent": True, "activeOperations": []} \
                 or second != {"absent": True, "activeOperations": []}:
@@ -891,10 +927,9 @@ class Supervisor:
                               "activeOperations": []}}
         if fenced_cleanup:
             pins = durable["pins"]
-            pin_keys = {"installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "providerOperationId", "nativeOperationId", "operationTag", "payloadHash", "presetDigest",
-                        "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"}
-            if not isinstance(pins, dict) or set(pins) != pin_keys:
+            if not isinstance(pins, dict) or set(pins) != cleanup_pin_keys(sealed["version"]):
                 raise ValueError("operator durable recovery pins invalid")
+            payload["version"] = sealed["version"]
             payload.update(pins)
             payload["action"] = request["action"]
             for label, observation, observed_at in (("first", first, first_at), ("second", second, second_at)):

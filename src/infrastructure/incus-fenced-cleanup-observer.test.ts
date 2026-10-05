@@ -10,7 +10,8 @@ import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import recipeValue from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { makeTestCertificates } from "./incus-transport/test-certificates";
-import { resourceName } from "./incus-transport/lifecycle";
+import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+import { incusLifecycleOperationId, resourceName } from "./incus-transport/lifecycle";
 import { observeFencedCleanup, type FencedCleanupPins } from "./incus-fenced-cleanup-observer";
 const certs = makeTestCertificates();
 afterAll(() => certs.dispose());
@@ -62,4 +63,61 @@ test("producer sealed config rejects altered scope and public pins before creden
     try { await expect(handleFencedCleanupPhase({ phase: "apply", publicKeyPem: foreign, receipt: {} })).rejects.toThrow("configured supervisor signer"); }
     finally { if (previous === undefined) delete process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64; else process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64 = previous; }
   } finally { if (old === undefined) delete process.env.EZCORP_INCUS_FENCED_CLEANUP_CONFIG; else process.env.EZCORP_INCUS_FENCED_CLEANUP_CONFIG = old; await rm(directory, { recursive: true }); }
+});
+
+test("stable START intent observation never invents a native operation UUID or no-effect proof", async () => {
+  const stablePins = stableObserverPins();
+  const stableId = stablePins.operationTag;
+  const b = backend(value => {
+    value.config["user.ezharness.operation_id"] = stableId;
+    Object.assign(value.config, { "user.ezharness.desired_state": "running" });
+  });
+  const observation = await observeFencedCleanup({ resolveForHost: async () => connection }, context, target, stablePins as never, b.fetcher as never);
+  expect(observation).toEqual({ instanceState: "stopped", noActiveOperations: true, providerGeneration: 2, pins: stablePins });
+  expect(b.paths).toEqual([`/1.0/instances/${instance.name}`, "/1.0/operations", `/1.0/instances/${instance.name}`]);
+  expect(observation).not.toHaveProperty("nativeOperationAbsent");
+});
+
+function stableObserverPins() {
+  const { nativeOperationId: _native, ...common } = pins;
+  const operationTag = incusLifecycleOperationId("setPower", { connectionId: scope.connectionId, sandboxName: instance.name,
+    tags: { managedBy: "ezharness-incus-sandbox", connectionId: scope.connectionId, sandboxId: target.bindingId },
+    idempotency: { requestId: target.operationId, key: target.operationId } } as IncusTransportRequest);
+  return { ...common, providerOperationId: operationTag, operationTag, operationHandleKind: "stable-start-intent" as const, expectedProviderGeneration: 2 };
+}
+
+for (const [label, operations] of Object.entries({ null: null, array: [], text: "", missing: undefined,
+  malformed: { running: null }, active: { running: ["native"] }, completed: { success: ["native"] } })) test(`stable observer rejects ${label} project operation metadata`, async () => {
+  const stable = stableObserverPins();
+  const b = backend(value => { value.config["user.ezharness.operation_id"] = stable.operationTag;
+    Object.assign(value.config, { "user.ezharness.desired_state": "running" }); }, 404, operations === undefined ? "missing" : operations);
+  await expect(observeFencedCleanup({ resolveForHost: async () => connection }, context, target, stable, b.fetcher as never)).rejects.toThrow();
+  expect(b.paths).not.toContain(`/1.0/operations/${stable.operationTag}`);
+});
+
+for (const [label, statusCode, type] of [["denied", 403, "sync"], ["missing", 404, "sync"], ["error", 500, "sync"], ["async", 200, "async"], ["noncanonical status", 201, "sync"]] as const) test(`stable observer rejects ${label} operation envelope`, async () => {
+  const stable = stableObserverPins();
+  const b = backend(value => { value.config["user.ezharness.operation_id"] = stable.operationTag;
+    Object.assign(value.config, { "user.ezharness.desired_state": "running" }); });
+  const fetcher = (url: string, init: RequestInit) => new URL(url).pathname === "/1.0/operations"
+    ? Promise.resolve(Response.json({ type, status_code: statusCode, metadata: { running: [] } }, { status: statusCode })) : b.fetcher(url, init);
+  await expect(observeFencedCleanup({ resolveForHost: async () => connection }, context, target, stable, fetcher as never)).rejects.toThrow();
+});
+
+for (const [label, config, moving] of [["wrong generation", { "user.ezharness.generation": "3" }, false],
+  ["wrong desired", { "user.ezharness.desired_state": "stopped" }, false],
+  ["wrong tag", { "user.ezharness.operation_id": "foreign" }, false], ["moving", {}, true]] as const) test(`stable observer rejects ${label} intent`, async () => {
+  const stable = stableObserverPins();
+  const b = backend(value => Object.assign(value.config, { "user.ezharness.operation_id": stable.operationTag,
+    "user.ezharness.desired_state": "running" }, config), 404, { running: [] }, moving);
+  await expect(observeFencedCleanup({ resolveForHost: async () => connection }, context, target, stable, b.fetcher as never)).rejects.toThrow();
+});
+
+test("stable observer rejects arbitrary stable handle and hybrid pins before all reads", async () => {
+  const stable = stableObserverPins(); const b = backend();
+  for (const changed of [{ ...stable, providerOperationId: "foreign" }, { ...stable, nativeOperationId: pins.nativeOperationId },
+    { ...stable, expectedProviderGeneration: 0 }, { ...stable, operationHandleKind: "stable-stop-intent" }]) {
+    await expect(observeFencedCleanup({ resolveForHost: async () => connection }, context, target, changed as never, b.fetcher as never)).rejects.toThrow();
+  }
+  expect(b.paths).toEqual([]);
 });

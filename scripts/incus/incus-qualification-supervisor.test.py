@@ -1033,6 +1033,79 @@ class FencedCleanupSignerTest(unittest.TestCase):
         self.assertNotIn("apply", self.events)
 
 
+class StableStartCleanupSignerTest(FencedCleanupSignerTest):
+    def setUp(self):
+        super().setUp()
+        self.pins.pop("nativeOperationId")
+        connection, binding, operation = self.request["scope"]["connectionId"], self.request["bindingId"], self.request["operationId"]
+        resource = hashlib.sha256((connection+"\0"+binding).encode()).hexdigest()[:32]
+        intent = hashlib.sha256((connection+"\0"+binding+"\0"+operation+"\0"+operation+"\0setPower").encode()).hexdigest()[:32]
+        tag = "ezh-setPower-"+resource+"-"+intent
+        self.pins.update(operationHandleKind="stable-start-intent", expectedProviderGeneration=2,
+                         providerOperationId=tag, operationTag=tag)
+        self.observation = {"instanceState": "stopped", "noActiveOperations": True,
+                            "providerGeneration": 2, "pins": self.pins}
+        self.durable = {"verified": True, "pins": self.pins}
+        self.write_config()
+
+    def write_config(self, **changes):
+        FencedCleanupSignerTest.write_config(self, **{"version": 2 if "operationHandleKind" in self.pins else 1, **changes})
+
+    def test_exact_v2_shape_never_claims_native_absence(self):
+        result = self.execute()
+        payload = result["receipt"]["payload"]
+        self.assertEqual(payload["version"], 2)
+        self.assertNotIn("nativeOperationId", payload)
+        self.assertNotIn("nativeOperationAbsent", payload["first"])
+        self.assertNotIn("activeOperations", payload["first"])
+        self.assertTrue(payload["first"]["noActiveOperations"])
+        self.assertEqual(payload["expectedProviderGeneration"], 2)
+
+    def test_invalid_stable_pin_modes_reject_before_stop(self):
+        for changes in ({"nativeOperationId": "182045d2-7795-4fdb-81de-faf6c6a744c3"},
+                        {"operationHandleKind": "stable-stop-intent"}, {"providerOperationId": "foreign"},
+                        {"operationTag": "foreign"}, {"expectedProviderGeneration": True},
+                        {"expectedProviderGeneration": 1}, {"expectedProviderGeneration": 9007199254740992}):
+            with self.subTest(changes=changes):
+                self.write_config(pins={**self.pins, **changes})
+                with self.assertRaises(ValueError):
+                    self.execute()
+                self.assertEqual(self.events, [])
+                self.supervisor.sign_payload.assert_not_called()
+
+    def test_v1_config_cannot_carry_v2_pins(self):
+        self.write_config(version=1)
+        with self.assertRaisesRegex(ValueError, "pin version changed"):
+            self.execute()
+        self.assertEqual(self.events, [])
+
+    def test_v2_observer_generation_and_activity_are_exact(self):
+        for changes in ({"providerGeneration": 3}, {"noActiveOperations": False}, {"nativeOperationAbsent": True}):
+            with self.subTest(changes=changes):
+                with self.assertRaisesRegex(ValueError, "owned stopped state"):
+                    self.execute([self.observation, {**self.observation, **changes}])
+                self.supervisor.sign_payload.assert_not_called()
+                self.assertNotIn("apply", self.events)
+                self.supervisor.clear_recovery_hold()
+                self.supervisor.used_recoveries.clear()
+                self.supervisor.child = object()
+                self.events.clear()
+
+    def test_changed_sealed_target_refuses_before_stopping(self):
+        self.write_config(target={**self.target, "bindingId": "other"})
+        with self.assertRaisesRegex(ValueError, "original intent changed"):
+            self.execute()
+        self.assertEqual(self.events, [])
+        self.supervisor.sign_payload.assert_not_called()
+
+    def test_signer_refuses_extra_public_pin_fields(self):
+        self.write_config(pins={**self.pins, "arbitraryAuthority": True})
+        with self.assertRaisesRegex(ValueError, "stable cleanup pins invalid"):
+            self.execute()
+        self.assertEqual(self.events, [])
+        self.supervisor.sign_payload.assert_not_called()
+
+
 ABORT_CLI = r"""
 import hashlib,json,os,subprocess,sys,tempfile,uuid
 from pathlib import Path

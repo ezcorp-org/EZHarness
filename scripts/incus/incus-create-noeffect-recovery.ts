@@ -11,8 +11,8 @@ import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
   type NoEffectRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
-import { applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
-import { observeFencedCleanup, type FencedCleanupPins, type FencedCleanupTarget } from "../../src/infrastructure/incus-fenced-cleanup-observer";
+import { isStableStartCleanup, requireFencedCleanupPinVersion, requireStableStartCleanupPins, requireStableStartOriginal, applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupProofPins, type FencedCleanupProofPayload, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
+import { observeFencedCleanup, type FencedCleanupTarget } from "../../src/infrastructure/incus-fenced-cleanup-observer";
 import { canonicalRecoveryJson } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { incusSupervisorPublicKeyPem } from "../../src/infrastructure/incus-supervisor-public-key";
 import { incusQualificationFixtures, sandboxBindings, sandboxOperations } from "../../src/db/schema";
@@ -122,14 +122,16 @@ async function backend(target: Target): Promise<{ absent: true; activeOperations
   return verifiedObservation(result, observation);
 }
 
-type SealedFencedTarget = FencedCleanupTarget & { action: "recover-fenced-cleanup"; pins: FencedCleanupPins };
-type FencedConfig = { version: 1; action: "recover-fenced-cleanup"; target: FencedCleanupTarget;
-  pins: FencedCleanupPins; context: LiveReadbackContext;
+type SealedFencedTarget = FencedCleanupTarget & { action: "recover-fenced-cleanup"; pins: FencedCleanupProofPins };
+type FencedConfig = { version: 1 | 2; action: "recover-fenced-cleanup"; target: FencedCleanupTarget;
+  pins: FencedCleanupProofPins; context: LiveReadbackContext;
   observation: Pick<Observation, "project" | "instance" | "oldCertificateSha256">;
   operatorClientCertificateFile: string; operatorPrivateKeyFile: string };
 
 /** These public pins come from the root-owned config, not the control request. */
-async function durableFenced(target: SealedFencedTarget): Promise<{ verified: true; pins: FencedCleanupPins }> {
+async function durableFenced(target: SealedFencedTarget): Promise<{ verified: true; pins: FencedCleanupProofPins }> {
+  requireFencedCleanupPinVersion(isStableStartCleanup(target.pins) ? 2 : 1, target.pins);
+  if (isStableStartCleanup(target.pins)) requireStableStartCleanupPins(target, target.pins);
   await withOfflineDb(async db => {
     await requireFencedCleanupAuthority(db, { ...target, ...target.pins });
     const [fixture] = await db.select().from(incusQualificationFixtures)
@@ -147,6 +149,7 @@ async function durableFenced(target: SealedFencedTarget): Promise<{ verified: tr
       && operation.payloadHash === target.pins.payloadHash
       && operation.idempotencyScope === "incus-qualification-power"
       && operation.idempotencyKey.startsWith(`${target.fixtureOperationId}:`), "fenced cleanup durable target changed");
+    if (isStableStartCleanup(target.pins)) requireStableStartOriginal(operation, binding, target.pins);
   });
   return { verified: true, pins: target.pins };
 }
@@ -156,7 +159,8 @@ function sealedFencedConfig(target: SealedFencedTarget): FencedConfig {
   requireFact(path, "fenced cleanup sealed config required");
   const sealed = JSON.parse(privateFile(path)) as FencedConfig;
   const { action, pins, ...publicTarget } = target;
-  requireFact(sealed.version === 1 && sealed.action === action
+  requireFencedCleanupPinVersion(sealed.version, pins);
+  requireFact(sealed.version === (isStableStartCleanup(pins) ? 2 : 1) && sealed.action === action
     && Object.keys(sealed).sort().join() === "action,context,observation,operatorClientCertificateFile,operatorPrivateKeyFile,pins,target,version"
     && canonicalRecoveryJson(sealed.target) === canonicalRecoveryJson(publicTarget)
     && canonicalRecoveryJson(sealed.pins) === canonicalRecoveryJson(pins)
@@ -197,13 +201,13 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
     requireFact(Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "abort phase fields changed");
     const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
     return withOfflineDb(db => input.phase === "abort"
-      ? applyFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt, trustedKey)
-      : inspectFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt, trustedKey));
+      ? applyFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt<FencedCleanupProofPins>, trustedKey)
+      : inspectFencedCleanupAbort(db, input.receipt as FencedCleanupAbortReceipt<FencedCleanupProofPins>, trustedKey));
   }
   requireFact(input.phase === "apply" && Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "fenced cleanup phase invalid");
   const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
   const cleanupOperationId = await withOfflineDb(db => applyFencedCleanupRecovery(db,
-    input.receipt as FencedCleanupReceipt, trustedKey));
+    input.receipt as FencedCleanupReceipt<FencedCleanupProofPayload>, trustedKey));
   return { cleanupOperationId };
 }
 

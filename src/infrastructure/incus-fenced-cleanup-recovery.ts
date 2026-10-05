@@ -25,23 +25,61 @@ export type FencedCleanupPayload = {
   stoppedAtMs: number; fenceUntilMs: number; allClientsFenced: true; fenceEvidence: string;
   first: StoppedObservation; second: StoppedObservation;
 };
-export type FencedCleanupReceipt = { payload: FencedCleanupPayload; signature: string };
+type StableStoppedObservation = { observedAtMs: number; instanceState: "stopped";
+  noActiveOperations: true; providerGeneration: number };
+export type StableStartCleanupPayload = Omit<FencedCleanupPayload, "version" | "nativeOperationId" | "first" | "second"> & {
+  version: 2; operationHandleKind: "stable-start-intent"; expectedProviderGeneration: number;
+  first: StableStoppedObservation; second: StableStoppedObservation;
+};
+export type FencedCleanupProofPayload = FencedCleanupPayload | StableStartCleanupPayload;
+export type FencedCleanupReceipt<P extends FencedCleanupProofPayload = FencedCleanupPayload> = { payload: P; signature: string };
+export type NativeFencedCleanupPins = Pick<FencedCleanupPayload, "installationGeneration" | "releaseDigest" | "grantsDigest" | "endpoint" | "project" | "providerOperationId" | "nativeOperationId"
+  | "operationTag" | "payloadHash" | "presetDigest" | "effectiveSettingsDigest" | "imageFingerprint" | "helperVersion" | "serverCertificateSha256">;
+export type StableStartCleanupPins = Omit<NativeFencedCleanupPins, "nativeOperationId"> & Pick<StableStartCleanupPayload, "operationHandleKind" | "expectedProviderGeneration">;
+export type FencedCleanupProofPins = NativeFencedCleanupPins | StableStartCleanupPins;
+const nativePinKeys = "effectiveSettingsDigest,endpoint,grantsDigest,helperVersion,imageFingerprint,installationGeneration,nativeOperationId,operationTag,payloadHash,presetDigest,project,providerOperationId,releaseDigest,serverCertificateSha256";
+const stablePinKeys = nativePinKeys.split(",").filter(key => key !== "nativeOperationId").concat("operationHandleKind", "expectedProviderGeneration").sort().join(",");
+
+export function isStableStartCleanup(pins: FencedCleanupProofPins): pins is StableStartCleanupPins {
+  return "operationHandleKind" in pins;
+}
+
+export function fencedCleanupOperationTag(target: Pick<FencedCleanupPayload, "scope" | "bindingId" | "operationId">): string {
+  return incusLifecycleOperationId("setPower", { connectionId: target.scope.connectionId,
+    sandboxName: resourceName(target.scope.connectionId, target.bindingId),
+    tags: { managedBy: "ezharness-incus-sandbox", connectionId: target.scope.connectionId, sandboxId: target.bindingId },
+    idempotency: { requestId: target.operationId, key: target.operationId } } as IncusTransportRequest);
+}
+
+/** Stable intent is accepted only as the exact original START handle, never as a native operation. */
+export function requireStableStartCleanupPins(target: Pick<FencedCleanupPayload, "scope" | "bindingId" | "operationId">,
+  pins: StableStartCleanupPins): void {
+  requireFact(pins.operationHandleKind === "stable-start-intent" && !("nativeOperationId" in pins)
+    && pins.providerOperationId === pins.operationTag && pins.operationTag === fencedCleanupOperationTag(target)
+    && Number.isSafeInteger(pins.expectedProviderGeneration) && pins.expectedProviderGeneration > 1,
+  "stable START intent pins changed");
+}
+
+export function requireFencedCleanupPinVersion(version: number, pins: FencedCleanupProofPins): void {
+  requireFact(Object.keys(pins).sort().join() === (version === 2 ? stablePinKeys : nativePinKeys)
+    && (version === 2 ? isStableStartCleanup(pins) : version === 1 && !isStableStartCleanup(pins)), "cleanup pin version changed");
+}
 
 function requireFact(value: unknown, message: string): asserts value {
   if (!value) throw new Error(`operator fenced cleanup denied: ${message}`);
 }
 
-export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt,
-  publicKeyPem: string, now = Date.now()): FencedCleanupPayload {
+export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt<FencedCleanupProofPayload>,
+  publicKeyPem: string, now = Date.now()): FencedCleanupProofPayload {
   const p = receipt?.payload;
-  requireFact(p?.version === 1 && p.action === "recover-fenced-cleanup"
+  requireFact((p?.version === 1 || p?.version === 2) && p.action === "recover-fenced-cleanup"
     && p.scope && Object.keys(p.scope).sort().join() === "connectionId,installationId,presetId,releaseId"
     && [p.nonce, p.reviewId, ...Object.values(p.scope), p.fixtureOperationId, p.bindingId,
       p.operationId, p.providerOperationId, p.helperVersion].every(v => typeof v === "string" && v.length > 0 && v.length <= 256)
     && [p.payloadHash, p.presetDigest, p.effectiveSettingsDigest, p.imageFingerprint,
       p.serverCertificateSha256, p.releaseDigest, p.grantsDigest].every(v => /^[a-f0-9]{64}$/.test(v))
-    && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(p.nativeOperationId)
-    && p.providerOperationId === `incus-setPower-${p.nativeOperationId}`
+    && (p.version === 2 || /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(p.nativeOperationId)
+      && p.providerOperationId === `incus-setPower-${p.nativeOperationId}`)
     && typeof p.endpoint === "string" && p.endpoint.startsWith("https://")
     && /^[a-z][a-z0-9-]{0,62}$/.test(p.project) && p.project !== "default"
     && /^ezh-setPower-[a-f0-9]{32}-[a-f0-9]{32}$/.test(p.operationTag)
@@ -50,14 +88,23 @@ export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt,
     && /^[0-9]+$/.test(p.oldProcess.startTicks) && p.allClientsFenced === true
     && typeof p.fenceEvidence === "string" && p.fenceEvidence.length >= 8 && p.fenceEvidence.length <= 512,
   "invalid identity or authority");
+  requireFact(p.version === 2 || !("operationHandleKind" in p) && !("expectedProviderGeneration" in p), "native cleanup version changed");
+  if (p.version === 2) {
+    const expectedKeys = "version,action,nonce,reviewId,scope,fixtureOperationId,bindingId,operationId,generation,connectionRevision,installationGeneration,releaseDigest,grantsDigest,endpoint,project,resourceName,providerOperationId,operationTag,payloadHash,presetDigest,effectiveSettingsDigest,imageFingerprint,helperVersion,serverCertificateSha256,oldProcess,stoppedAtMs,fenceUntilMs,allClientsFenced,fenceEvidence,first,second,operationHandleKind,expectedProviderGeneration".split(",").sort().join(",");
+    requireFact(Object.keys(p).sort().join() === expectedKeys, "stable cleanup receipt fields changed");
+    requireStableStartCleanupPins(p, p);
+  }
   requireFact([p.stoppedAtMs, p.fenceUntilMs, p.first?.observedAtMs, p.second?.observedAtMs].every(Number.isSafeInteger)
     && p.stoppedAtMs + 65_000 <= p.first.observedAtMs
     && p.first.observedAtMs + 5_000 <= p.second.observedAtMs
     && p.second.observedAtMs <= now && now - p.second.observedAtMs <= 30_000
     && now < p.fenceUntilMs && p.fenceUntilMs - p.stoppedAtMs <= 180_000
-    && [p.first, p.second].every(o => o.instanceState === "stopped" && o.nativeOperationAbsent === true
-      && Array.isArray(o.activeOperations) && o.activeOperations.length === 0
-      && Number.isSafeInteger(o.providerGeneration) && o.providerGeneration > 0)
+    && (p.version === 1
+      ? [p.first, p.second].every(o => o.instanceState === "stopped" && o.nativeOperationAbsent === true
+        && Array.isArray(o.activeOperations) && o.activeOperations.length === 0
+        && Number.isSafeInteger(o.providerGeneration) && o.providerGeneration > 0)
+      : [p.first, p.second].every(o => Object.keys(o).sort().join() === "instanceState,noActiveOperations,observedAtMs,providerGeneration"
+        && o.instanceState === "stopped" && o.noActiveOperations === true && o.providerGeneration === p.expectedProviderGeneration))
     && p.first.providerGeneration === p.second.providerGeneration, "invalid or stale fence observations");
   const signature = Buffer.from(receipt.signature ?? "", "base64");
   requireFact(signature.length === 64 && verify(null, Buffer.from(canonicalRecoveryJson(p)), publicKeyPem, signature), "signature changed");
@@ -82,11 +129,7 @@ export async function requireFencedCleanupAuthority(db: Database | DbTransaction
     && connection.configuration?.kind === "incus" && connection.configuration.helperVersion === p.helperVersion
     && createHash("sha256").update(new X509Certificate(connection.serverCertificatePem).raw).digest("hex") === p.serverCertificateSha256,
   "current connection pins changed");
-  const operationTag = incusLifecycleOperationId("setPower", { connectionId: p.scope.connectionId,
-    sandboxName: resourceName(p.scope.connectionId, p.bindingId),
-    tags: { managedBy: "ezharness-incus-sandbox", connectionId: p.scope.connectionId, sandboxId: p.bindingId },
-    idempotency: { requestId: p.operationId, key: p.operationId } } as IncusTransportRequest);
-  requireFact(p.operationTag === operationTag, "original operation tag changed");
+  requireFact(p.operationTag === fencedCleanupOperationTag(p), "original operation tag changed");
   const state = await new DatabaseLifecycleRepository(db).read(p.scope.installationId, db);
   const release = state?.releases[p.scope.releaseId];
   const provider = release?.manifest.sandboxProviders?.find(item => item.kind === "sandbox" && item.id === "incus");
@@ -122,7 +165,7 @@ function requireCleanupFixture(binding: CleanupBinding | undefined,
 
 /** Preserve uncertainty and refuse compensation while another effect remains. */
 function requireUncertainPowerOperation(operations: CleanupOperation[],
-  binding: CleanupBinding, p: FencedCleanupPayload): CleanupOperation {
+  binding: CleanupBinding, p: FencedCleanupProofPayload): CleanupOperation {
   const original = operations.find(o => o.id === p.operationId);
   requireFact(original && ["START", "STOP"].includes(original.kind) && original.state === "OUTCOME_UNKNOWN"
       && original.generation === p.generation && original.providerOperationId === p.providerOperationId
@@ -137,11 +180,24 @@ function requireUncertainPowerOperation(operations: CleanupOperation[],
         payload: original.requestPayload }) === p.payloadHash
       && operations.filter(o => ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(o.state)).length === 1,
     "original uncertain power operation changed or another effect remains unresolved");
+  if (p.version === 2) requireStableStartOriginal(original, binding, p);
   return original;
 }
 
+export function requireStableStartOriginal(original: CleanupOperation, binding: CleanupBinding, pins: StableStartCleanupPins): void {
+  requireFact(original.kind === "START" && binding.desiredState === "RUNNING"
+    && Number.isSafeInteger(original.requestPayload.expectedGeneration)
+    && Number(original.requestPayload.expectedGeneration) > 0
+    && pins.expectedProviderGeneration === Number(original.requestPayload.expectedGeneration) + 1
+    && original.providerOperationId === pins.providerOperationId && original.payloadHash === pins.payloadHash
+    && operationPayloadHash({ bindingId: original.bindingId, kind: original.kind, generation: original.generation,
+      idempotencyScope: original.idempotencyScope, idempotencyKey: original.idempotencyKey,
+      payload: original.requestPayload }) === pins.payloadHash,
+  "stable START generation or kind changed");
+}
+
 /** Admit compensation only. This never assigns an outcome to the original RPC. */
-export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCleanupReceipt,
+export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCleanupReceipt<FencedCleanupProofPayload>,
   publicKeyPem: string, now = Date.now()): Promise<string> {
   const p = verifyFencedCleanupReceipt(receipt, publicKeyPem, now);
   const receiptSha256 = createHash("sha256").update(canonicalRecoveryJson(receipt)).digest("hex");
@@ -190,13 +246,13 @@ export async function applyFencedCleanupRecovery(db: Database, receipt: FencedCl
 
 
 export type FencedCleanupOriginalRequest = Pick<FencedCleanupPayload, "version" | "action" | "nonce" | "reviewId" | "scope" | "fixtureOperationId" | "bindingId" | "operationId" | "generation" | "connectionRevision" | "allClientsFenced" | "fenceEvidence"> & { deadlineMs: number };
-export type FencedCleanupAbortPayload = {
-  version: 1; action: "abort-fenced-cleanup-before-admission";
+export type FencedCleanupAbortPayload<P extends FencedCleanupProofPins = NativeFencedCleanupPins> = {
+  version: P extends NativeFencedCleanupPins ? 1 : 2; action: "abort-fenced-cleanup-before-admission";
   originalRequest: FencedCleanupOriginalRequest;
-  pins: import("./incus-fenced-cleanup-observer").FencedCleanupPins;
+  pins: P;
   requestSha256: string; holdSha256: string; issuedAtMs: number; expiresAtMs: number;
 };
-export type FencedCleanupAbortReceipt = { payload: FencedCleanupAbortPayload; signature: string };
+export type FencedCleanupAbortReceipt<P extends FencedCleanupProofPins = NativeFencedCleanupPins> = { payload: FencedCleanupAbortPayload<P>; signature: string };
 export type FencedCleanupAbortProof = { abortId: string; nonce: string; requestSha256: string; holdSha256: string; receiptSha256: string };
 
 function recoveryDigest(value: unknown): string {
@@ -215,7 +271,7 @@ async function claimFencedCleanupNonce(tx: DbTransaction, nonce: string, action:
     && claim.operationId === operationId && claim.receiptSha256 === receiptSha256, "nonce already consumed or changed");
 }
 
-function verifyAbortRequest(p: FencedCleanupAbortPayload): void {
+function verifyAbortRequest(p: FencedCleanupAbortPayload<FencedCleanupProofPins>): void {
   const r = p.originalRequest;
   requireFact(r && Object.keys(r).sort().join() === "action,allClientsFenced,bindingId,connectionRevision,deadlineMs,fenceEvidence,fixtureOperationId,generation,nonce,operationId,reviewId,scope,version"
     && r.version === 1 && r.action === "recover-fenced-cleanup"
@@ -229,22 +285,24 @@ function verifyAbortRequest(p: FencedCleanupAbortPayload): void {
     && p.holdSha256 === createHash("sha256").update(canonicalRecoveryJson({ nonce: r.nonce, reviewId: r.reviewId }) + "\n").digest("hex"), "abort request or hold hash changed");
 }
 
-function verifyAbortPins(p: FencedCleanupAbortPayload): void {
+function verifyAbortPins(p: FencedCleanupAbortPayload<FencedCleanupProofPins>): void {
   const pins = p.pins;
-  requireFact(pins && Object.keys(pins).sort().join() === "effectiveSettingsDigest,endpoint,grantsDigest,helperVersion,imageFingerprint,installationGeneration,nativeOperationId,operationTag,payloadHash,presetDigest,project,providerOperationId,releaseDigest,serverCertificateSha256"
+  requireFencedCleanupPinVersion(p.version, pins);
+  if (isStableStartCleanup(pins)) requireStableStartCleanupPins(p.originalRequest, pins);
+  requireFact(pins
     && [pins.effectiveSettingsDigest, pins.grantsDigest, pins.imageFingerprint, pins.payloadHash, pins.presetDigest, pins.releaseDigest, pins.serverCertificateSha256].every(v => /^[a-f0-9]{64}$/.test(v))
     && Number.isSafeInteger(pins.installationGeneration) && pins.installationGeneration > 0
     && typeof pins.endpoint === "string" && pins.endpoint.startsWith("https://")
     && typeof pins.helperVersion === "string" && pins.helperVersion.length > 0
     && /^[a-z][a-z0-9-]{0,62}$/.test(pins.project) && pins.project !== "default"
-    && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(pins.nativeOperationId)
-    && pins.providerOperationId === `incus-setPower-${pins.nativeOperationId}`
+    && (isStableStartCleanup(pins) || /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(pins.nativeOperationId)
+      && pins.providerOperationId === `incus-setPower-${pins.nativeOperationId}`)
     && /^ezh-setPower-[a-f0-9]{32}-[a-f0-9]{32}$/.test(pins.operationTag), "abort pins changed");
 }
 
-export function verifyFencedCleanupAbortReceipt(receipt: FencedCleanupAbortReceipt, publicKeyPem: string): FencedCleanupAbortPayload {
+export function verifyFencedCleanupAbortReceipt(receipt: FencedCleanupAbortReceipt<FencedCleanupProofPins>, publicKeyPem: string): FencedCleanupAbortPayload<FencedCleanupProofPins> {
   const p = receipt?.payload;
-  requireFact(p?.version === 1 && p.action === "abort-fenced-cleanup-before-admission"
+  requireFact((p?.version === 1 || p?.version === 2) && p.action === "abort-fenced-cleanup-before-admission"
     && Object.keys(p).sort().join() === "action,expiresAtMs,holdSha256,issuedAtMs,originalRequest,pins,requestSha256,version",
   "abort fields changed");
   verifyAbortRequest(p); verifyAbortPins(p);
@@ -260,7 +318,7 @@ function abortProof(row: typeof incusFencedCleanupAborts.$inferSelect): FencedCl
     holdSha256: row.holdSha256, receiptSha256: row.receiptSha256 };
 }
 
-function requireAbortOriginal(operations: CleanupOperation[], binding: CleanupBinding, p: FencedCleanupAbortPayload): void {
+function requireAbortOriginal(operations: CleanupOperation[], binding: CleanupBinding, p: FencedCleanupAbortPayload<FencedCleanupProofPins>): void {
   const r = p.originalRequest;
   const original = operations.find(o => o.id === r.operationId);
   requireFact(original && ["START", "STOP"].includes(original.kind) && original.state === "OUTCOME_UNKNOWN"
@@ -274,10 +332,11 @@ function requireAbortOriginal(operations: CleanupOperation[], binding: CleanupBi
     && !operations.some(o => o.kind === "DESTROY")
     && operations.filter(o => ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(o.state)).length === 1,
   "abort original operation changed or cleanup admitted");
+  if (isStableStartCleanup(p.pins)) requireStableStartOriginal(original, binding, p.pins);
 }
 
 /** Close only the failed request. No original outcome, resource or reservation changes. */
-export async function applyFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt,
+export async function applyFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt<FencedCleanupProofPins>,
   publicKeyPem: string, now = Date.now()): Promise<FencedCleanupAbortProof> {
   const p = verifyFencedCleanupAbortReceipt(receipt, publicKeyPem);
   const r = p.originalRequest; const receiptSha256 = recoveryDigest(receipt);
@@ -300,7 +359,7 @@ export async function applyFencedCleanupAbort(db: Database, receipt: FencedClean
 
 
 /** Negative admission proof never asserts an outcome for the backend RPC. */
-async function requireUncommittedAbortTarget(tx: DbTransaction, p: FencedCleanupAbortPayload,
+async function requireUncommittedAbortTarget(tx: DbTransaction, p: FencedCleanupAbortPayload<FencedCleanupProofPins>,
   binding: CleanupBinding | undefined): Promise<void> {
   const r = p.originalRequest;
   const [recovery] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.bindingId, r.bindingId));
@@ -316,7 +375,7 @@ export type FencedCleanupAbortInspection = FencedCleanupAbortProof | {
 };
 
 function requireCommittedAbortProof(saved: typeof incusFencedCleanupAborts.$inferSelect,
-  p: FencedCleanupAbortPayload, receiptSha256: string): FencedCleanupAbortProof {
+  p: FencedCleanupAbortPayload<FencedCleanupProofPins>, receiptSha256: string): FencedCleanupAbortProof {
   requireFact(saved.operationId === p.originalRequest.operationId && saved.bindingId === p.originalRequest.bindingId
     && saved.requestSha256 === p.requestSha256 && saved.holdSha256 === p.holdSha256
     && saved.receiptSha256 === receiptSha256, "committed abort proof changed");
@@ -325,7 +384,7 @@ function requireCommittedAbortProof(saved: typeof incusFencedCleanupAborts.$infe
 
 /** Only the explicit uncommitted result permits a separately reviewed renewal.
  * Signature verification remains required after expiry; inspection adds no authority. */
-export async function inspectFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt,
+export async function inspectFencedCleanupAbort(db: Database, receipt: FencedCleanupAbortReceipt<FencedCleanupProofPins>,
   publicKeyPem: string): Promise<FencedCleanupAbortInspection> {
   const p = verifyFencedCleanupAbortReceipt(receipt, publicKeyPem);
   const receiptSha256 = recoveryDigest(receipt), r = p.originalRequest;
