@@ -1,0 +1,29 @@
+wave4i wrapper start 2026-10-05T00:50:45Z head 6ac2458c7f8ce7302599ba13b77d266b0474ee07 prev-combined 1992630f3 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1992630f3: exit 3 (prune scan: STOP (24 hit(s)))
+STOP: prune scan (prune/prune-scan.txt); report to the lead
+wave4i wrapper start 2026-10-05T00:54:39Z head 6ac2458c7f8ce7302599ba13b77d266b0474ee07 prev-combined 1992630f3 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1992630f3: exit 0 (prune scan: clean (24 hit(s)))
+driver exit=0 2026-10-05T00:54:40Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i wrapper end 2026-10-05T00:54:40Z head 6ac2458c7f8ce7302599ba13b77d266b0474ee07 (start head 6ac2458c7f8ce7302599ba13b77d266b0474ee07) dirty=0
+wave4i wrapper start 2026-10-05T02:57:02Z head 645406221b285d4a5e63ef4c99455f7ad557fbe9 prev-combined 1992630f3 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1992630f3: exit 0 (prune scan: clean (24 hit(s)))
+driver exit=0 2026-10-05T02:57:02Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i wrapper end 2026-10-05T02:57:02Z head 645406221b285d4a5e63ef4c99455f7ad557fbe9 (start head 645406221b285d4a5e63ef4c99455f7ad557fbe9) dirty=0
+wave4i wrapper start 2026-10-05T02:59:21Z head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9 prev-combined 1992630f3 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1992630f3: exit 0 (prune scan: clean (24 hit(s)))
+driver exit=0 2026-10-05T02:59:21Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i wrapper end 2026-10-05T02:59:21Z head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9 (start head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9) dirty=0
+wave4i wrapper start 2026-10-05T02:59:29Z head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9 prev-combined 1992630f3 dry=0
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1992630f3: exit 0 (prune scan: clean (24 hit(s)))
+resource-gate 2026-10-05T02:59:29Z wave4i-start disk=149G memAvailable=12GiB swapFreeKiB=3580268/17173956 floors disk>=104G swap>=2621440KiB
+driver exit=0 2026-10-05T05:56:42Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i wrapper end 2026-10-05T05:56:42Z head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9 (start head 98c59f5624e3b251fbd7e897c4d7421f8f9384f9) dirty=0
