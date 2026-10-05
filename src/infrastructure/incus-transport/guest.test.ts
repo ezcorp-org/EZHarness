@@ -1,5 +1,9 @@
 import { afterAll, expect, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
+import { mkdtemp, mkdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { validateSandboxProviderMethodExchange, type JsonValue, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import type { AddressInfo } from "node:net";
 import { createServer } from "node:tls";
 import type { IncusTransportRequest } from "../../../extensions/incus-sandbox/transport";
@@ -67,7 +71,7 @@ test("helper invocation fixes path, UID, guest user, and sandbox ID", async () =
   expect(JSON.parse(request()!.toString())).toMatchObject({ action: "file.stat", user: "sandbox", sandboxId });
 });
 
-test("file.stat crosses real pinned HTTP and four Incus WebSocket streams", async () => {
+async function pinnedGuestFixture(execute: (request: Buffer) => Promise<Buffer>, guest = scope.approvedGuest) {
   const secrets = { "0": "a".repeat(64), "1": "b".repeat(64), "2": "c".repeat(64), control: "d".repeat(64) };
   const routes: string[] = [];
   const channels = new Map<string, import("node:net").Socket>();
@@ -125,32 +129,99 @@ test("file.stat crosses real pinned HTTP and four Incus WebSocket streams", asyn
         wire = wire.subarray(header + 4 + length);
         if (opcode === 2) requestBytes = payload;
         if (opcode === 1 && length === 0) {
-          const output = Buffer.from(JSON.stringify({ version: GUEST_HELPER_VERSION, ok: true,
-            file: { path: "src/app.ts", kind: "file", revision: "rev", sizeBytes: 1, executable: false } }));
           const stdout = channels.get("1");
           const stderr = channels.get("2");
           if (!stdout || !stderr) throw new Error("Incus output channels are missing");
-          const binaryHeader = output.length < 126 ? Buffer.from([0x82, output.length]) : Buffer.from([0x82, 126, output.length >> 8, output.length & 255]);
-          stdout.write(Buffer.concat([binaryHeader, output, Buffer.from([0x81, 0x00])]));
-          stderr.write(Buffer.from([0x81, 0x00]));
+          void execute(requestBytes!).then(output => {
+            const binaryHeader = output.length < 126 ? Buffer.from([0x82, output.length]) : Buffer.from([0x82, 126, output.length >> 8, output.length & 255]);
+            stdout.write(Buffer.concat([binaryHeader, output, Buffer.from([0x81, 0x00])]));
+            stderr.write(Buffer.from([0x81, 0x00]));
+          }, () => { stdout.destroy(); stderr.destroy(); });
         }
       }
     });
   };
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
+  const endpoint = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const transport = new HostIncusGuestTransport({ resolveForHost: async () => ({ endpoint, project: "sandbox",
+    serverCertificatePem: substituteCert, clientCertificatePem: clientCert, privateKeyPem: clientKey }) },
+  { ...scope, approvedGuest: guest });
+  const scopedCommand = { ...command, deadlineMs: Date.now() + 30_000,
+    pins: { ...command.pins, guestUser: guest.user,
+      serverCertificateSha256: createHash("sha256").update(new X509Certificate(substituteCert).raw).digest("hex") } };
+  return { transport, command: scopedCommand, routes, channels, request: () => requestBytes,
+    dispose: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    } };
+}
+
+test("file.stat crosses real pinned HTTP and four Incus WebSocket streams", async () => {
+  const fixture = await pinnedGuestFixture(async () => Buffer.from(JSON.stringify({ version: GUEST_HELPER_VERSION, ok: true,
+    file: { path: "src/app.ts", kind: "file", revision: "rev", sizeBytes: 1, executable: false } })));
   try {
-    const endpoint = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    const transport = new HostIncusGuestTransport({ resolveForHost: async () => ({ endpoint, project: "sandbox",
-      serverCertificatePem: substituteCert, clientCertificatePem: clientCert, privateKeyPem: clientKey }) }, scope);
-    const result = await transport.request({ ...command, deadlineMs: Date.now() + 30_000,
-      pins: { ...command.pins, serverCertificateSha256: createHash("sha256").update(new X509Certificate(substituteCert).raw).digest("hex") } });
-    expect(result).toMatchObject({ ok: true, file: { path: "src/app.ts", revision: "rev" } });
-    expect(routes).toEqual([`GET /1.0/instances/${sandboxName}`, `POST /1.0/instances/${sandboxName}/exec`, `GET /1.0/operations/${opId}/wait`]);
-    expect([...channels.keys()].sort()).toEqual(["0", "1", "2", "control"]);
-    expect(JSON.parse(requestBytes!.toString())).toMatchObject({ action: "file.stat", sandboxId });
+    expect(await fixture.transport.request(fixture.command)).toMatchObject({ ok: true, file: { path: "src/app.ts", revision: "rev" } });
+    expect(fixture.routes).toEqual([`GET /1.0/instances/${sandboxName}`, `POST /1.0/instances/${sandboxName}/exec`, `GET /1.0/operations/${opId}/wait`]);
+    expect([...fixture.channels.keys()].sort()).toEqual(["0", "1", "2", "control"]);
+    expect(JSON.parse(fixture.request()!.toString())).toMatchObject({ action: "file.stat", sandboxId });
+  } finally { await fixture.dispose(); }
+}, 30_000);
+
+test("process identity and output cross pinned TLS/WebSockets and the real guest helper", async () => {
+  const root = await mkdtemp(join(tmpdir(), "ezh-transport-helper-"));
+  const workspace = join(root, "workspace");
+  const state = join(root, "state");
+  await mkdir(workspace);
+  await mkdir(state);
+  const user = (await Bun.$`id -un`.text()).trim();
+  const guest = { ...scope.approvedGuest, user, uid: process.getuid!(), gid: process.getgid!() };
+  const helper = new URL("../incus-guest/helper.py", import.meta.url).pathname;
+  const script = `import importlib.util,json,sys
+spec=importlib.util.spec_from_file_location('helper',sys.argv[1])
+h=importlib.util.module_from_spec(spec)
+spec.loader.exec_module(h)
+print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
+  const fixture = await pinnedGuestFixture(async request => {
+    const child = Bun.spawn(["python3", "-c", script, helper, workspace, state], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    child.stdin.write(request);
+    child.stdin.end();
+    const [output, errors, exit] = await Promise.all([new Response(child.stdout).arrayBuffer(), new Response(child.stderr).text(), child.exited]);
+    expect(exit, errors).toBe(0);
+    return Buffer.from(output);
+  }, guest);
+  const call = async (operation: SandboxProtocolOperation, payload: Record<string, JsonValue>) => {
+    const input = { providerId: "incus", connectionId: command.connectionId, sandboxId, rpcDeadlineMs: Date.now() + 30_000, ...payload };
+    const result = await fixture.transport.request({ ...fixture.command,
+      action: `helper.${operation.replace("processes.", "process.")}` as IncusTransportRequest["action"], payload,
+      ...(operation === "processes.start" ? { idempotency: { requestId: "process-proof", key: "process-proof" } } : {}) });
+    return validateSandboxProviderMethodExchange(operation, input, result).result as Record<string, any>;
+  };
+  try {
+    const started = await call("processes.start", { argv: ["sh", "-c", "printf guest-stdout; printf guest-stderr >&2"],
+      cwd: ".", user, env: [], processDeadlineMs: Date.now() + 30_000, requestId: "process-proof", idempotencyKey: "process-proof" });
+    expect(started.ok).toBe(true);
+    expect(started.processId).toMatch(/^[a-f0-9]{32}$/);
+    expect(started.bootId).toMatch(/^[a-f0-9-]{36}$/);
+    const identity = { processId: started.processId, bootId: started.bootId };
+    let inspected: Record<string, any> | undefined;
+    for (let attempt = 0; attempt < 100; attempt++) {
+      inspected = await call("processes.inspect", identity);
+      if (inspected.process.state === "succeeded") break;
+      await Bun.sleep(10);
+    }
+    expect(inspected?.process).toMatchObject({ ...identity, sandboxId, state: "succeeded", exitCode: 0 });
+    const output = await call("processes.readOutput", { ...identity,
+      cursor: { ...identity, sandboxId, offsetBytes: 0 }, maxBytes: 65536 });
+    expect(output.eof).toBe(true);
+    expect(output.nextCursor).toEqual({ ...identity, sandboxId, offsetBytes: 24 });
+    for (const [stream, expected] of [["stdout", "guest-stdout"], ["stderr", "guest-stderr"]]) {
+      expect(output.chunks.filter((chunk: Record<string, unknown>) => chunk.stream === stream)
+        .map((chunk: Record<string, unknown>) => Buffer.from(String(chunk.dataBase64), "base64").toString()).join("")).toBe(expected);
+    }
+    expect([...fixture.channels.keys()].sort()).toEqual(["0", "1", "2", "control"]);
   } finally {
-    for (const socket of sockets) socket.destroy();
-    await new Promise<void>(resolve => server.close(() => resolve()));
+    await fixture.dispose();
+    await rm(root, { recursive: true, force: true });
   }
 }, 30_000);
 
