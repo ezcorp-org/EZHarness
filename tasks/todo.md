@@ -2646,26 +2646,35 @@ unchanged.
 - [x] Diagnose failed restore, secure actors, and restore normal server/SSH/certificate.
 - [x] Verify final stopped DB, timer and hold records after safe close.
 - [x] Add a separate offline restoration authority for the already-admitted cleanup, with independent review and real boundary tests. Do not extend the expired request or create another admission.
-- [ ] Validate the composed restoration path before any live restore, then complete the same saved cleanup and prove guest absence/accounting release.
-- [ ] Record exact results and limits; no full E2E claim before proof.
+- [x] Pass the full repository gate on `ddbada283` and push that tested source.
+- [x] Restore the missing isolated service accounts and units while preserving the current AMD configuration; verify the resulting host and boot state.
+- [x] Validate the composed signed restoration path and restore normal transport for the saved cleanup.
+- [x] Complete the same saved cleanup and prove guest absence/accounting release.
+- [x] Record exact results and limits; no full E2E claim before proof.
 
 Review: cleanup `8157dc85-d05a-4bb2-9550-726a0a7c2bbb` was admitted once.
-Restore failed, and its original deadline expired before a reviewed continuation
-could start. The original hold remains. The guest still exists, stopped.
-Current APIs have no post-expiry restoration path for an admitted cleanup.
-The new source work is restricted to that missing recovery step; no new guest,
-provider activation, timer reset, or database rewrite is authorized by it.
+After verified host and transport restoration, its delete returned UNKNOWN.
+The target storage directory was not a Btrfs subvolume and contained only
+`backup.yaml`, with no guest root filesystem. A reviewed targeted repair
+preserved that metadata and let Incus remove its stale records. Fresh server
+inspection proves absence. Normal EZHarness read-only reconciliation now
+reports the same saved cleanup SUCCEEDED and the binding ABSENT. The final
+copied database audit proves compute and disk reservations RELEASED, a cleanup
+confirmation timestamp, and the original UNKNOWN operation unchanged. The
+isolated actors are stopped, and the retained test session is revoked.
 
-Producer milestone: `42d477dac` integrates reviewed `ded795c2d`.
-All 63 Python tests passed, including eight focused restoration cases;
-existing wrapper tests and lint passed. Independent source review passed.
-The offline source hash is `c43e3728…`. Installed app remains `3fe533583`.
-Actual admission/server consumer composition is required before live use.
-Normal server/SSH/certificate and both temporary unit removals are verified.
+Source validation: the instrumented restoration suite passed 76/0 and covered
+all 131 changed executable statement lines; this is not full branch or child-
+process coverage. Full gates passed on `ddbada283`, with 28,323 backend coverage
+tests and zero failures, browser suites and patch coverage. All 51 hosted
+checks passed on that source. `711cfa6bf` adds two DESTROY intent regression
+tests; its full lifecycle file passed 43/0. Its fast gate passed with exit
+zero: 27,519 backend/example tests, 3,638 web unit tests, 7,724 component tests,
+lint, type/Svelte checks and production build. Coverage and gated E2E were
+not repeated by that fast command.
 
-Independent signing/subprocess and refusal tests are integrated through
-`0bd63523d`. The instrumented Python suite passed 76/0 and exercised all 131
-changed executable statement lines. This is not full branch or child-process
-coverage. Fast repository checks passed on the unchanged producer at 42d:
-27,517 backend tests, web tests/build, lint and type checks. The final full
-gate and actual database/consumer rehearsal remain pending.
+The original failed attempts remain recorded. No old deadline was extended,
+no replacement guest or new EZHarness cleanup was admitted, and the installed
+app remains `3fe533583`. Exact receipts, host recovery limits and the operator
+cleanup are recorded in `docs/validation/2026-10-05-retained-incus-cleanup.md`.
+The detailed working ledger remains `.cache/incus-cleanup-GATES.md`.

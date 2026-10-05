@@ -576,3 +576,32 @@
 - Check restart behavior after a hold is archived, not just the immediate
   response. A serving daemon can restart and launch its child when the hold
   is absent. Keep this abort offline-only, with all dependent services stopped.
+
+## Actual service-context checks — 5 October 2026
+
+- An inactive, missing unit proves that it is not running. It does not prove
+  that the required deployment exists. Check loaded unit definitions and
+  service accounts separately before a service-context rehearsal.
+- Keep the test unit name in one sealed configuration. Check the actual
+  cgroup against it; do not duplicate the name in launch and driver code.
+- Test the complete main-to-consumer path with actual file metadata. A pass
+  through `prepare()` does not cover later public-code or signature readers.
+  Keep public code and private credentials subject to their correct modes.
+- Verify the selected public-key digest inside the actual process. Service
+  environment files can override a command's environment assignments. Dummy
+  signer fixtures must clear both key forms and set the verified dummy key
+  in-process before invoking the producer and consumer.
+- Use path boundaries when checking for stale paths. A new sibling name can
+  contain the old name as a string without referring to the old directory.
+- Assign new agent work with `followup_task`; `send_message` does not wake a
+  completed agent. Give correction and final preparation one owner, then
+  check agent status before waiting for a result.
+- Pass a retained cookie jar to an HTTP client's cookie-file interface. Never
+  treat its raw bytes as a header, and never let exceptions print credentials.
+  Diagnostic tools must emit selected status fields only.
+- Check an orphaned Incus volume in the daemon's mount namespace. A valid
+  Btrfs pool does not prove that an instance directory is still a subvolume.
+  Preserve exact residual metadata before target-only repair.
+- Do not equate a nonempty Incus operation list with running operations.
+  Completed operations can remain listed. Preserve a failed final check and
+  use fresh read-only evidence; never repeat the destructive step for it.
