@@ -71,7 +71,7 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 	};
 }
 
-type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null;
+type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null; cleanupRecoveryEligible?: boolean;
 	cleanupRecovery?: { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null };
 
 async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
@@ -337,10 +337,10 @@ test("a pending stop hides chat until the saved desired state is safe", async ({
 	await expect(card.getByRole("button", { name: "Stop" })).toHaveCount(0);
 });
 
-test("failed cleanup recovery requires review and keeps exact saved operation IDs @evidence", async ({ page }, testInfo) => {
+for (const native of [false, true]) test(`${native ? "Native terminal" : "Revision conflict"} failed cleanup recovery requires review and keeps exact saved operation IDs @evidence`, async ({ page }, testInfo) => {
 	const failedId = "55555555-5555-4555-8555-555555555555";
-	const failed = { ...feature("RUNNING", { id: failedId, kind: "DESTROY", state: "FAILED",
-		errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), tombstonedAt: "2026-10-03T12:00:00Z" };
+	const failed = { ...feature(native ? "STOPPED" : "RUNNING", { id: failedId, kind: "DESTROY", state: "FAILED",
+		errorCode: native ? "INTERNAL" : "REVISION_CONFLICT", providerOperationRecorded: native }), cleanupRecoveryEligible: true, tombstonedAt: "2026-10-03T12:00:00Z" };
 	const { setFeature } = await mockManagement(page, { initiallyQualified: true, initialFeature: failed });
 	const requests: Record<string, unknown>[] = [];
 	const recovery = { id: "recovery-1", state: "STOP_REQUIRED", failedDestroyOperationId: failedId,
@@ -364,7 +364,7 @@ test("failed cleanup recovery requires review and keeps exact saved operation ID
 	await expect(confirmation).toContainText(failedId);
 	await expect(confirmation).toContainText("Stop first, then dispose");
 	expect(requests).toHaveLength(0);
-	await captureEvidence(page, testInfo, "incus-management-saved-cleanup-recovery", { fullPage: true });
+	await captureEvidence(page, testInfo, `incus-management-${native ? "native" : "revision"}-saved-cleanup-recovery`, { fullPage: true });
 	await confirmation.getByRole("button", { name: "Recover cleanup", exact: true }).click();
 	await expect(card.getByText(`Saved cleanup recovery: ${recovery.id}`)).toBeVisible();
 	await page.reload();

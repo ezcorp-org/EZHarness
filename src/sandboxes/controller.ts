@@ -14,7 +14,7 @@ import {
   type SandboxOperationState,
 } from "../db/schema";
 
-import { matchesCleanupRecoveryBinding, permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "../infrastructure/incus-cleanup-stop-policy";
+import { failedCleanupExpectation, matchesCleanupRecoveryBinding, permitsLinkedCleanupStop, permitsFailedCleanupInspection } from "../infrastructure/incus-cleanup-stop-policy";
 import { resourceName } from "../infrastructure/incus-transport/lifecycle";
 import { fencedCleanupOriginal, frozenFencedCleanupOriginal } from "../infrastructure/incus-fenced-cleanup-policy";
 
@@ -401,7 +401,7 @@ export class SandboxController {
         || binding.providerReleaseId !== input.releaseId || binding.connectionId !== input.connectionId
         || binding.connectionRevision !== input.connectionRevision
         || input.providerResourceId !== resourceName(binding.connectionId, binding.id)
-        || failed?.requestPayload.expectedGeneration !== input.providerGeneration || unsettled
+        || failedCleanupExpectation(failed)?.providerGeneration !== input.providerGeneration || unsettled
         || new Set([input.failedDestroyOperationId, input.stopOperationId, input.destroyOperationId]).size !== 3) {
         throw new SandboxControllerError("SUPERSEDED_OPERATION", "Cleanup recovery authority changed");
       }

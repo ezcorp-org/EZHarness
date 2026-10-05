@@ -32,6 +32,7 @@
 		updatedAt?: string;
 	} | null;
 	type Feature = {
+		cleanupRecoveryEligible?: boolean;
 		projectId: string;
 		projectName: string;
 		bindingId: string;
@@ -441,8 +442,8 @@
 			&& ((recovery.state === "STOP_REQUIRED" && operation.kind === "STOP" && operation.id === recovery.stopOperationId)
 				|| (recovery.state === "DESTROY_REQUIRED" && operation.kind === "DESTROY" && operation.id === recovery.destroyOperationId))
 			? recovery.failedDestroyOperationId : null;
-		return operation?.kind === "DESTROY" && operation.state === "FAILED" && operation.errorCode === "REVISION_CONFLICT"
-			&& operation.providerOperationRecorded === false ? operation.id : null;
+		return feature.cleanupRecoveryEligible === true && operation?.kind === "DESTROY" && operation.state === "FAILED"
+			? operation.id : null;
 	}
 
 	async function recoverCleanup(feature: Feature) {

@@ -18,7 +18,7 @@ const feature = (operation: { id?: string; kind: string; state: string; errorCod
 	installationId: environment.installationId, releaseId: environment.releaseId,
 	connectionId: environment.connectionId, connectionRevision: 1, generation: 1,
 	presetId: environment.presetId, desiredState: "STOPPED", observedState: "STOPPED",
-	operation, tombstonedAt: null as string | null, cleanupConfirmedAt: null as string | null,
+	operation, cleanupRecoveryEligible: false, tombstonedAt: null as string | null, cleanupConfirmedAt: null as string | null,
 	cleanupRecovery: null as { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null,
 });
 const reply = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
@@ -56,8 +56,30 @@ beforeEach(() => localStorage.clear());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Incus management recovery", () => {
+	test("a native FAILED receipt alone does not offer recovery without server eligibility", async () => {
+		const { calls } = serve({ feature: { ...feature({ id: "native-failed", kind: "DESTROY", state: "FAILED",
+			errorCode: "INTERNAL", providerOperationRecorded: true }), tombstonedAt: "2026-10-03T00:00:00Z" } });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByText("Cleanup needs review")).toBeInTheDocument());
+		expect(view.queryByRole("button", { name: "Review cleanup recovery…" })).not.toBeInTheDocument();
+		expect(calls).toEqual([]);
+	});
+	test("terminal native failure uses server eligibility and still requires exact saved confirmation", async () => {
+		const failed = { ...feature({ id: "native-failed", kind: "DESTROY", state: "FAILED", errorCode: "INTERNAL",
+			providerOperationRecorded: true }), cleanupRecoveryEligible: true, tombstonedAt: "2026-10-03T00:00:00Z" };
+		const { calls, setFeature } = serve({ feature: failed });
+		const view = render(Page, { props: { data: { operatorId } } });
+		await waitFor(() => expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled());
+		await fireEvent.click(view.getByRole("button", { name: "Review cleanup recovery…" }));
+		expect(view.getByRole("group", { name: "Confirm cleanup recovery of Project one" })).toHaveTextContent("native-failed");
+		expect(calls).toEqual([]);
+		setFeature({ ...failed, operation: { ...failed.operation!, state: "OUTCOME_UNKNOWN" } });
+		await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+		await waitFor(() => expect(view.getByRole("button", { name: /^Recover cleanup$/ })).toBeDisabled());
+		expect(calls.filter(body => body.action === "recoverCleanup")).toEqual([]);
+	});
 	test("refresh to unknown invalidates a reviewed cleanup recovery", async () => {
-		const failed = { ...feature({ id: "failed-1", kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), tombstonedAt: "2026-10-03T00:00:00Z" };
+		const failed = { ...feature({ id: "failed-1", kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), cleanupRecoveryEligible: true, tombstonedAt: "2026-10-03T00:00:00Z" };
 		const { calls, setFeature } = serve({ feature: failed });
 		const view = render(Page, { props: { data: { operatorId } } });
 		await waitFor(() => expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled());
@@ -132,7 +154,7 @@ describe("Incus management recovery", () => {
 	});
 	test("saved failed cleanup requires confirmation and preserves the exact ID on refusal", async () => {
 		const { calls } = serve({ feature: { ...feature({ id: "failed-1", kind: "DESTROY", state: "FAILED",
-			errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), observedState: "RUNNING", tombstonedAt: "2026-10-03T00:00:00Z" },
+			errorCode: "REVISION_CONFLICT", providerOperationRecorded: false }), cleanupRecoveryEligible: true, observedState: "RUNNING", tombstonedAt: "2026-10-03T00:00:00Z" },
 			onFeature: () => reply({ code: "cleanup_recovery_unavailable", message: "Saved cleanup authority changed. Review its status." }, 409) });
 		const view = render(Page, { props: { data: { operatorId } } });
 		await waitFor(() => expect(view.getByRole("button", { name: "Review cleanup recovery…" })).toBeEnabled());

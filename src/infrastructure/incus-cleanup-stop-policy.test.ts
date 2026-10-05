@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
+import { failedCleanupExpectation, matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsLinkedCleanupStop as permits, permitsFailedCleanupInspection as permitsInspect } from "./incus-cleanup-stop-policy";
 
 type Binding = Parameters<typeof permits>[0];
 type Recovery = NonNullable<Parameters<typeof permits>[1]>;
@@ -13,6 +13,26 @@ const recovery: Recovery = { id: "recovery", bindingId: "binding", generation: 1
 const failed: Journal = { id: "failed", bindingId: "binding", generation: 1, kind: "DESTROY", state: "FAILED",
   providerOperationId: null, errorCode: "REVISION_CONFLICT", requestPayload: { expectedGeneration: 2 } };
 const stop: Journal = { ...failed, id: "stop", kind: "STOP", state: "DISPATCHING", errorCode: null };
+
+test("terminal native DELETE failure requires its exact post-intent generation and linked journal", () => {
+  const native = { ...failed, errorCode: "INTERNAL", providerOperationId: "incus-destroy-33333333-3333-4333-8333-333333333333" };
+  const nativeRecovery = { ...recovery, providerGeneration: 3 };
+  expect(failedCleanupExpectation(failed)).toEqual({ observedState: "running", providerGeneration: 2 });
+  expect(failedCleanupExpectation(native)).toEqual({ observedState: "stopped", providerGeneration: 3 });
+  expect(permitsInspect({ ...binding, currentOperationId: native.id }, native)).toBe(true);
+  expect(matchesFailedCleanupDestroy(binding, nativeRecovery, native)).toBe(true);
+  expect(permits(binding, nativeRecovery, native, { ...stop, requestPayload: { expectedGeneration: 3 } }, "guest")).toBe(true);
+  expect(matchesFailedCleanupDestroy(binding, recovery, native)).toBe(false);
+  for (const patch of [{ state: "OUTCOME_UNKNOWN" as const }, { kind: "STOP" as const }, { errorCode: "REVISION_CONFLICT" },
+    { providerOperationId: null }, { providerOperationId: "incus-setPower-33333333-3333-4333-8333-333333333333" },
+    { providerOperationId: "incus-destroy-" + "-".repeat(36) }, { providerOperationId: "ezh-destroy-stable" },
+    { requestPayload: { expectedGeneration: Number.MAX_SAFE_INTEGER } }, { requestPayload: { expectedGeneration: 0 } },
+    { requestPayload: { expectedGeneration: 2, extra: true } }]) {
+    expect(failedCleanupExpectation({ ...native, ...patch })).toBeNull();
+    expect(permitsInspect({ ...binding, currentOperationId: native.id }, { ...native, ...patch })).toBe(false);
+  }
+  expect(failedCleanupExpectation(undefined)).toBeNull();
+});
 
 test("only the exact linked STOP retains cleanup authority", () => {
   for (const state of ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN", "SUCCEEDED"] as const)

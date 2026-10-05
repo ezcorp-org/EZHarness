@@ -19,7 +19,7 @@ import { callRetiredIncusCleanup } from "./incus-retired-cleanup";
 import type { IncusQualificationScope } from "./incus-qualification";
 import { qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
-import { matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
+import { failedCleanupExpectation, matchesCleanupRecoveryBinding, matchesFailedCleanupDestroy, permitsFailedCleanupInspection } from "./incus-cleanup-stop-policy";
 import { resourceName } from "./incus-transport/lifecycle";
 import { digest as setupDigest } from "../../scripts/incus/model";
 
@@ -719,8 +719,9 @@ export class IncusCleanupRecoveryService {
   private async admit(binding: SandboxBinding, failedDestroyOperationId: string): Promise<SandboxCleanupRecovery> {
       const failed = await this.controller.getOperation(failedDestroyOperationId);
       if (!permitsFailedCleanupInspection(binding, failed ?? undefined)) throw new IncusCleanupRecoveryUnavailableError();
-      const providerGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, "running");
-      if (!binding.connectionRevision || providerGeneration !== failed!.requestPayload.expectedGeneration) {
+      const expected = failedCleanupExpectation(failed ?? undefined)!;
+      const providerGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, expected.observedState);
+      if (!binding.connectionRevision || providerGeneration !== expected.providerGeneration) {
         throw new IncusCleanupRecoveryUnavailableError();
       }
       await this.authorize(binding);

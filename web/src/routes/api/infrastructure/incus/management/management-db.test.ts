@@ -52,9 +52,27 @@ test("real migrated database lists user bindings and excludes fixture projects a
     providerResourceId: "SECRET-guest", providerGeneration: 2, state: "STOP_REQUIRED" });
   const recoveryStatus = await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json();
   expect(recoveryStatus.features[0].operation.providerOperationRecorded).toBe(false);
+  expect(recoveryStatus.features[0].cleanupRecoveryEligible).toBe(true);
   expect(recoveryStatus.features[0].cleanupRecovery).toEqual({ id: "recovery", state: "STOP_REQUIRED",
     failedDestroyOperationId: "operation-user", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy" });
   expect(JSON.stringify(recoveryStatus)).not.toContain("SECRET");
+  const nativeId = "incus-destroy-33333333-3333-4333-8333-333333333333";
+  await db.update(sandboxOperations).set({ errorCode: "INTERNAL", providerOperationId: nativeId })
+    .where(eq(sandboxOperations.id, "operation-user"));
+  await db.update(sandboxBindings).set({ observedState: "STOPPED" }).where(eq(sandboxBindings.id, "binding-user"));
+  const native = await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json();
+  expect(native.features[0].cleanupRecoveryEligible).toBe(true);
+  expect(native.features[0].operation.providerOperationRecorded).toBe(true);
+  const serialized = JSON.stringify(native);
+  for (const privateField of [nativeId, "cleanupJournal", "requestPayload", "expectedGeneration", "SECRET"])
+    expect(serialized).not.toContain(privateField);
+  for (const patch of [{ state: "OUTCOME_UNKNOWN" as const }, { providerOperationId: "ezh-destroy-unsettled" },
+    { requestPayload: { expectedGeneration: 2, secret: "SECRET" } }, { generation: 2 }]) {
+    const [original] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, "operation-user"));
+    await db.update(sandboxOperations).set(patch).where(eq(sandboxOperations.id, "operation-user"));
+    expect((await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json()).features[0].cleanupRecoveryEligible).toBe(false);
+    await db.update(sandboxOperations).set(original!).where(eq(sandboxOperations.id, "operation-user"));
+  }
   for (const [id, release, revision, state] of [["setup-current", "release", 1, "verified"],
     ["setup-old-release", "old-release", 1, "verified"], ["setup-old-revision", "release", 2, "verified"],
     ["setup-unverified", "release", 1, "planned"]] as const) {

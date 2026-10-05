@@ -7,6 +7,7 @@ import { releaseRows } from "$server/db/queries/extension-releases";
 import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
 import { getReleaseRuntime, resolveActiveRelease } from "$server/extensions/release-process";
 import { IncusQualificationStore } from "$server/infrastructure/incus-qualification";
+import { permitsFailedCleanupInspection } from "$server/infrastructure/incus-cleanup-stop-policy";
 import type { RequestHandler } from "./$types";
 
 const pageSize = 100;
@@ -15,6 +16,13 @@ interface Connection {
   setupId: string | null;
 }
 interface Run { runId: string; state: string; deadlineAt: string }
+type CleanupBinding = Parameters<typeof permitsFailedCleanupInspection>[0];
+type CleanupJournal = Parameters<typeof permitsFailedCleanupInspection>[1];
+interface FeatureRow {
+  bindingId: string; generation: number; tombstonedAt: Date | null; desiredState: CleanupBinding["desiredState"];
+  installationId: string; releaseId: string; connectionId: string; connectionRevision: number | null;
+  cleanupConfirmedAt: Date | null; operation: { id: string } | null; cleanupJournal: CleanupJournal;
+}
 
 /** Read-only operator view. Actions recheck authority and qualification before admission. */
 export const GET: RequestHandler = async ({ locals }) => {
@@ -35,13 +43,16 @@ export const GET: RequestHandler = async ({ locals }) => {
     const projects = releaseRows<{ id: string; name: string }>(await db.execute(sql`SELECT id, name
       FROM projects WHERE purpose = 'user' ORDER BY name, id LIMIT ${pageSize + 1}`));
     // Explicit columns keep configuration, certificates, journals and secret data out of the response.
-    const features = releaseRows(await db.execute(sql`SELECT b.project_id AS "projectId", p.name AS "projectName",
+    const featureRows = releaseRows<FeatureRow>(await db.execute(sql`SELECT b.project_id AS "projectId", p.name AS "projectName",
       b.id AS "bindingId", b.provider_installation_id AS "installationId", b.provider_release_id AS "releaseId",
       b.connection_id AS "connectionId", b.connection_revision AS "connectionRevision", b.generation,
       b.preset_id AS "presetId", b.desired_state AS "desiredState",
       b.observed_state AS "observedState", b.tombstoned_at AS "tombstonedAt", b.cleanup_confirmed_at AS "cleanupConfirmedAt",
       CASE WHEN o.id IS NULL THEN NULL ELSE jsonb_build_object('id', o.id, 'kind', o.kind, 'state', o.state,
         'errorCode', o.error_code, 'providerOperationRecorded', o.provider_operation_id IS NOT NULL, 'createdAt', o.created_at, 'updatedAt', o.updated_at) END AS operation,
+      CASE WHEN o.id IS NULL THEN NULL ELSE jsonb_build_object('id', o.id, 'bindingId', o.binding_id,
+        'generation', o.generation, 'kind', o.kind, 'state', o.state, 'errorCode', o.error_code,
+        'providerOperationId', o.provider_operation_id, 'requestPayload', o.request_payload) END AS "cleanupJournal",
       CASE WHEN r.id IS NULL THEN NULL ELSE jsonb_build_object('id', r.id, 'state', r.state,
         'failedDestroyOperationId', r.failed_destroy_operation_id, 'stopOperationId', r.stop_operation_id,
         'destroyOperationId', r.destroy_operation_id) END AS "cleanupRecovery"
@@ -51,6 +62,14 @@ export const GET: RequestHandler = async ({ locals }) => {
       LEFT JOIN sandbox_cleanup_recoveries r ON r.binding_id = b.id
       WHERE p.purpose = 'user' AND c.configuration->>'kind' = 'incus'
       ORDER BY b.created_at DESC, b.id LIMIT ${pageSize + 1}`));
+    const features = featureRows.map(({ cleanupJournal, ...feature }) => ({ ...feature,
+      cleanupRecoveryEligible: !feature.cleanupConfirmedAt && permitsFailedCleanupInspection({
+        id: feature.bindingId, generation: feature.generation, currentOperationId: feature.operation?.id ?? null,
+        tombstonedAt: feature.tombstonedAt, desiredState: feature.desiredState,
+        providerInstallationId: feature.installationId, providerReleaseId: feature.releaseId,
+        connectionId: feature.connectionId, connectionRevision: feature.connectionRevision,
+      }, cleanupJournal ?? undefined),
+    }));
     const qualifications = new IncusQualificationStore({ db });
     const environments = [];
     let truncated = connections.length > pageSize || projects.length > pageSize || features.length > pageSize;

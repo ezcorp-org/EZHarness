@@ -3,6 +3,20 @@ import type { SandboxBinding, SandboxCleanupRecovery, SandboxOperation } from ".
 type Binding = Pick<SandboxBinding, "id" | "generation" | "currentOperationId" | "tombstonedAt" | "desiredState" | "providerInstallationId" | "providerReleaseId" | "connectionId" | "connectionRevision">;
 type Journal = Pick<SandboxOperation, "id" | "bindingId" | "generation" | "kind" | "state" | "providerOperationId" | "errorCode" | "requestPayload">;
 
+/** Known failure classes retain separate backend state and intent-generation proofs. */
+export function failedCleanupExpectation(failed: Journal | undefined): { observedState: "running" | "stopped"; providerGeneration: number } | null {
+  if (failed?.kind !== "DESTROY" || failed.state !== "FAILED"
+    || Object.keys(failed.requestPayload).length !== 1) return null;
+  const generation = failed.requestPayload.expectedGeneration;
+  if (!Number.isSafeInteger(generation) || (generation as number) < 1) return null;
+  if (failed.errorCode === "REVISION_CONFLICT" && failed.providerOperationId === null)
+    return { observedState: "running", providerGeneration: generation as number };
+  if (failed.errorCode === "INTERNAL" && /^incus-destroy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(failed.providerOperationId ?? "")
+    && Number.isSafeInteger((generation as number) + 1))
+    return { observedState: "stopped", providerGeneration: (generation as number) + 1 };
+  return null;
+}
+
 export function matchesCleanupRecoveryBinding(binding: Binding, recovery: SandboxCleanupRecovery, providerResourceId: string): boolean {
   return recovery.bindingId === binding.id && recovery.generation === binding.generation
     && recovery.installationId === binding.providerInstallationId && recovery.releaseId === binding.providerReleaseId
@@ -12,8 +26,7 @@ export function matchesCleanupRecoveryBinding(binding: Binding, recovery: Sandbo
 
 export function matchesFailedCleanupDestroy(binding: Binding, recovery: SandboxCleanupRecovery, failed: Journal): boolean {
   return failed.id === recovery.failedDestroyOperationId && failed.bindingId === binding.id && failed.generation === binding.generation
-    && failed.kind === "DESTROY" && failed.state === "FAILED" && failed.errorCode === "REVISION_CONFLICT" && failed.providerOperationId === null
-    && failed.requestPayload.expectedGeneration === recovery.providerGeneration && Object.keys(failed.requestPayload).length === 1;
+    && failedCleanupExpectation(failed)?.providerGeneration === recovery.providerGeneration;
 }
 
 function matchesLinkedStop(binding: Binding, recovery: SandboxCleanupRecovery, stop: Journal): boolean {
@@ -37,7 +50,5 @@ export function permitsLinkedCleanupStop(binding: Binding, recovery: SandboxClea
 export function permitsFailedCleanupInspection(binding: Binding, current: Journal | undefined): boolean {
   return Boolean(current && binding.tombstonedAt !== null && binding.desiredState === "ABSENT"
     && binding.currentOperationId === current.id && current.bindingId === binding.id && current.generation === binding.generation
-    && current.kind === "DESTROY" && current.state === "FAILED" && current.errorCode === "REVISION_CONFLICT" && current.providerOperationId === null
-    && Number.isSafeInteger(current.requestPayload.expectedGeneration) && (current.requestPayload.expectedGeneration as number) >= 1
-    && Object.keys(current.requestPayload).length === 1);
+    && failedCleanupExpectation(current));
 }

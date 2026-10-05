@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { generateKeyPairSync, sign } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, X509Certificate } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -11,7 +11,7 @@ import { IncusQualificationCheckpointStore, currentProcessIdentity, observationD
 import { PGlite } from "@electric-sql/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
-import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { sandboxPresetDigest, type SandboxOperationInspection } from "@ezcorp/extension-contract";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import * as schema from "../db/schema";
@@ -22,8 +22,12 @@ import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/man
 import { digest } from "../../scripts/incus/model";
 import type { ProviderConnectionCredentials } from "./provider-connections/store";
 import { IncusCleanupRecoveryService, IncusFeatureService, type IncusFeatureServiceDependencies } from "./incus-feature-service";
+import { inspectedOutcome } from "../sandboxes/incus-dispatcher";
+import { HostIncusLifecycleTransport, resourceName } from "./incus-transport/lifecycle";
+import { makeTestCertificates } from "./incus-transport/test-certificates";
 
 const databases: PGlite[] = [];
+const tlsFixtures: ReturnType<typeof makeTestCertificates>[] = [];
 // Each case starts and migrates a fresh PGlite database. In the combined
 // Incus suite that work can exceed Bun's five-second default before assertions run.
 const DB_TEST_TIMEOUT_MS = 30_000;
@@ -114,7 +118,7 @@ async function fixture() {
     setInspectUnavailable: (value: boolean) => { inspectUnavailable = value; }, configureAdmission, preset, retiredCalls };
 }
 
-afterEach(async () => { await Promise.all(databases.splice(0).map(db => db.close())); });
+afterEach(async () => { for (const certificates of tlsFixtures.splice(0)) certificates.dispose(); await Promise.all(databases.splice(0).map(db => db.close())); });
 
 test("read-only readiness uses the prepare gate without creating a binding", async () => {
   const { db, service, preset, dispatches } = await fixture();
@@ -349,6 +353,90 @@ test("user project recovery preserves failed cleanup and charges until exact lin
   expect((await service.recoverCleanup(binding.id, failed.id)).recovery).toEqual(complete.recovery);
   expect(dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "DESTROY", "STOP", "DESTROY"]);
   expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
+}, DB_TEST_TIMEOUT_MS);
+
+test("normal stopped project can recover a terminal native protected DELETE without erasing its receipt", async () => {
+  const { db, service, controller, admission, provider, preset, configureAdmission, setProvider, connection } = await fixture();
+  await configureAdmission();
+  const { binding } = await service.prepareProject({ name: "Protected guest", ownerUserId: "admin",
+    idempotencyKey: "protected-project", installationId: "installation", connectionId: "connection", presetId: preset.id });
+  const request = (key: string) => ({ bindingId: binding.id, idempotencyScope: "protected-project", idempotencyKey: key });
+  await service.create(request("create"));
+  await service.reconcile();
+  setProvider("stopped", 1);
+  const certificates = makeTestCertificates();
+  tlsFixtures.push(certificates);
+  const serverCertificatePem = certificates.read("server-cert.pem");
+  const sandboxName = resourceName("connection", binding.id);
+  const nativeId = "33333333-3333-4333-8333-333333333333";
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": "ezharness-incus-sandbox", "user.ezharness.connection_id": "connection",
+    "user.ezharness.sandbox_id": binding.id, "user.ezharness.generation": "1", "security.protection.delete": "true" } };
+  const writes: string[] = [];
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => ({ endpoint: "https://127.0.0.1:8443",
+    serverCertificatePem, project: "sandbox", clientCertificatePem: certificates.read("client-cert.pem"), privateKeyPem: certificates.read("client-key.pem") }) },
+  { providerInstallationId: "installation", providerReleaseId: "release", revision: 1, hostContractMinor: 1,
+    approvedPreset: { profile: preset.profile, incusProfile: "ezharness", presetId: preset.id,
+      presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64), imageFingerprint: preset.imageDigest, limits: preset.limits } },
+  async (url, init) => {
+    if (new URL(url).pathname.includes("/operations/")) return Response.json({ type: "sync", status_code: 200,
+      metadata: { id: nativeId, class: "task", status: "Failure", status_code: 400, err: "Instance is protected",
+        resources: { instances: [`/1.0/instances/${sandboxName}`] } } });
+    if (init.method === "GET") return Response.json({ type: "sync", status_code: 200, metadata: instance }, { headers: { etag: '"protected"' } });
+    writes.push(init.method!);
+    if (init.method === "PATCH") {
+      Object.assign(instance.config, JSON.parse(String(init.body)).config);
+      setProvider("stopped", Number(instance.config["user.ezharness.generation"]));
+      return Response.json({ type: "sync", status_code: 200, metadata: {} });
+    }
+    expect(init.method).toBe("DELETE");
+    return Response.json({ type: "async", status_code: 100, operation: `/1.0/operations/${nativeId}`,
+      metadata: { id: nativeId, class: "task", status: "Running", status_code: 103 } }, { status: 202 });
+  });
+  const dispatch = provider.dispatch;
+  provider.dispatch = async input => {
+    if (input.kind !== "DESTROY") return dispatch(input);
+    const result = await transport.request({ action: "instance.destroy", connectionId: "connection", deadlineMs: Date.now() + 30_000,
+      pins: { connectionId: "connection", project: "sandbox", profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox",
+        serverCertificateSha256: createHash("sha256").update(new X509Certificate(serverCertificatePem).raw).digest("hex") },
+      tags: { managedBy: "ezharness-incus-sandbox", connectionId: "connection", sandboxId: binding.id }, sandboxName,
+      idempotency: { requestId: input.operationId, key: input.idempotency.key }, payload: { expectedGeneration: Number(input.payload.expectedGeneration) } }) as {
+        receipt: { operationId: string; terminalObservation: SandboxOperationInspection } };
+    return inspectedOutcome("DESTROY", result.receipt.operationId, result.receipt.terminalObservation);
+  };
+  const failed = await service.destroy(request("destroy"));
+  expect(failed).toMatchObject({ kind: "DESTROY", state: "FAILED", errorCode: "INTERNAL",
+    providerOperationId: "incus-destroy-33333333-3333-4333-8333-333333333333",
+    requestPayload: { expectedGeneration: 1 } });
+  expect(writes).toEqual(["PATCH", "DELETE"]);
+  expect(instance.status).toBe("Stopped");
+  expect(await admission.getReservation(binding.id)).toMatchObject({ diskState: "RELEASE_REQUESTED" });
+  provider.dispatch = dispatch;
+  for (const patch of [{ state: "OUTCOME_UNKNOWN" as const }, { providerOperationId: "ezh-destroy-stable" }]) {
+    await db.update(schema.sandboxOperations).set(patch).where(eq(schema.sandboxOperations.id, failed.id));
+    await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toMatchObject({ code: "CLEANUP_RECOVERY_UNAVAILABLE" });
+    expect(await db.select().from(schema.sandboxCleanupRecoveries)).toEqual([]);
+    await db.update(schema.sandboxOperations).set(failed).where(eq(schema.sandboxOperations.id, failed.id));
+  }
+  for (const [state, generation] of [["running", 2], ["stopped", 1], ["stopped", 3]] as const) {
+    setProvider(state, generation);
+    await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toThrow();
+    expect(await db.select().from(schema.sandboxCleanupRecoveries)).toEqual([]);
+  }
+  setProvider("stopped", 2);
+  connection.revision = 2;
+  await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toThrow("connection changed");
+  connection.revision = 1;
+  const recovered = await service.recoverCleanup(binding.id, failed.id);
+  expect(recovered.operation).toMatchObject({ kind: "STOP", requestPayload: { expectedGeneration: 2 } });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
+  setProvider("stopped", 3);
+  const destroyed = await service.recoverCleanup(binding.id, failed.id);
+  expect(destroyed.operation).toMatchObject({ kind: "DESTROY", requestPayload: { expectedGeneration: 3 } });
+  const complete = await service.recoverCleanup(binding.id, failed.id);
+  expect(complete.recovery.state).toBe("COMPLETED");
+  expect(await admission.getReservation(binding.id)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(await controller.getOperation(failed.id)).toEqual(failed);
 }, DB_TEST_TIMEOUT_MS);
 
 test("retired destroy journals an exact stopped guest and replays without another readback", async () => {
