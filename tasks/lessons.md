@@ -605,3 +605,10 @@
 - Do not equate a nonempty Incus operation list with running operations.
   Completed operations can remain listed. Preserve a failed final check and
   use fresh read-only evidence; never repeat the destructive step for it.
+- Before declaring infrastructure cleanup complete, inspect the provider's
+  actual drain predicate, including local negative-test fixtures. An empty
+  backend inventory does not prove the provider can be updated. Use the
+  existing reviewed fixture teardown; never erase real UNKNOWN operations.
+- Validate every recovery input's file type, ownership and permissions before
+  creating temporary authority. Preserve exact bytes when tightening an input
+  file's permissions, and never repeat a successful key mint.

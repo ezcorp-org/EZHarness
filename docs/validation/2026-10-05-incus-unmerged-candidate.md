@@ -1,6 +1,6 @@
 # Unmerged Incus candidate — 5 October 2026
 
-Status: live v4 build verified; approval, activation and full qualification pending.
+Status: exact provider release approved and active; full live workflow qualification pending.
 This record does not approve provider activation or claim release readiness.
 
 ## Candidate
@@ -105,6 +105,70 @@ started at `8e9b65790`; the only later executable change was the child signal
 fix in `d964cbfc4`, whose complete wrapper was separately rerun with four
 passes and zero failures. Later commits contain records only. Do not describe
 this as a new full coverage or live E2E run: fast mode skips those gates.
+
+After push, all 51 hosted checks passed on exact commit
+`eb173c66065722fdd3155e5fb733bc5cbdf9ba34`, including coverage and E2E lanes.
+CI runs: `37328202883` and `37328202679`. These checks do not substitute for
+the separate real Incus feature workflow on the selected server.
+
+The user then approved both the exact isolated release activation and the
+reviewed test-account reset. One live operator will execute them; a separate
+reviewer will verify the saved results before advancing the live milestones.
+
+Account recovery completed through the reviewed normal APIs. Independent
+readback confirmed reset and login HTTP 200, the same admin identity,
+temporary-key deletion HTTP 204 and old-bearer HTTP 401. The saved session is
+root-owned mode 0600. Before reset dispatch, the operator tightened only the
+retained non-secret identity file from 0644 to 0600 after verifying its owner,
+regular-file type, single link and unchanged digest. No second key was minted;
+the original reset script pins were preserved.
+
+## Activation result
+
+The first activation failed with `provider_not_drained` before cutover. A
+stopped database copy identified two old denied probe fixtures with no
+operations, reservations or backend resources. The existing guarded
+`POST /api/infrastructure/incus/probe-fixtures` cleanup removed only those
+fixtures using their saved plan digest
+`70adb3d4a59bee450205cee3e7df6c45e57ed5df6ba938d8547028ae0d1c3492`.
+The actual drain predicate then returned false. The original `069a` UNKNOWN
+operation and completed `8157` cleanup remained unchanged.
+
+One fresh activation, operation `f1a5f4cc-4819-4992-bbb9-f8aa1568770f`,
+succeeded through the same human approval. Independent current inspection
+confirmed release `792beac5-3649-4843-8d6b-79870a92045b` active at generation 5,
+acknowledged generation 5, with no added grants. Stored build evidence remains
+immutable; normal activation reran qualification despite its earlier expiry.
+This proves activation, not the pending full feature workflow.
+
+## Connection and native-model readiness
+
+A normal keyless Kilo chat completed with a persisted `READY` response and no
+tool calls. Independent readback confirmed run
+`99424e50-680e-4050-ad8f-3740c1d05480`; this proves model connectivity, not guest
+tool execution.
+
+Fresh connection `fdede86e-6cef-4d66-913a-49c8c3bf36e8`, revision 1, is bound
+to the active release. Normal setup `7ae98f48-1fab-4a1f-95cf-15c485babab9`
+verified plan `659cc398d1db72e71592f9e549dad526ecaddb0f7b2f53396f24bb67cb3f207a`.
+All 15 steps matched and were skipped. A read-only SSH gate denied every Apply
+command, so a state change would have stopped verification instead of writing
+server resources. No pool, network, profile, endpoint or certificate changed.
+
+After verification, the minimal 22-read-command policy was restored with only
+its owned-neighbor connection ID changed to the new connection. Its exact hash
+is `36644ccf63669d6593cf8955398c746bfdc356cf73716119140658e1ad7c4fe5`.
+The old policy backup is retained. Independent review verified both the
+15-skipped-step receipt and final policy hash. Capacity and live qualification
+remain pending.
+
+The local native-work fixture passed its independent checkout, failing-test,
+repair and retained-commit tests. The Incus transport suite passed 44 tests,
+including the accepted delete-protection failure case. These are offline
+tests. The browser-discovered mobile overflow and ambiguous connection labels
+were fixed in `65f1f3da3`; 24 UI E2E tests and 45 component tests passed, with
+desktop/mobile screenshots reviewed. The live app has not received this UI
+change yet.
 
 This qualification can run before merge. Required pull-request review, exact
 provider activation approval and live release evidence remain separate gates.

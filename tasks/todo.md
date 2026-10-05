@@ -2699,3 +2699,15 @@ and its old bearer returned 401. Both supplied-login attempts failed; no
 password reset occurred. Full real workflow and ten-cycle proof are pending.
 The fixture signal-mask defect is fixed in `d964cbfc4`; independent review
 passed and the parent reran its wrapper with four passes and zero failures.
+
+The user approved the exact provider activation and reviewed isolated-account
+reset on 2026-10-05. Continue with one live operator, independent readback,
+concrete workflow support and CI review in separate Sol worktrees. No merge or
+public release is included. Mark the live milestones only after actual proof.
+
+Verified milestones: account reset/login/key revocation; exact provider
+activation at generation 5; supported teardown of two denied local fixtures;
+same-resource connection verification with all 15 steps skipped under a
+read-only gate; real keyless-model READY run. Full native feature work and ten
+cycles remain pending. New UI fixes passed 24 E2E/45 component tests; native
+fixture tests passed 2/0 and transport lifecycle tests passed 44/0.
