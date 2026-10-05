@@ -1,0 +1,13 @@
+W4H-9 report (owner w4h-1), branch wp/w4h-9 off integ/w00 104cb2237. Head 138ace386.
+Commits (archy noreply, author and committer):
+  0498c0a52 fix(extension-runner): the host that starts a worker owns it (W4H-9)            hook 1 suite: service-detach 13/0
+  02c53fb7a fix(extension-runner): hand each reverse call to an attachment once (W4H-9)     hook 1 suite: service-detach 14/0
+  138ace386 docs(factory): W4H-9 gates and todo                                             hook 0
+Cause: 11b9f72b9 broke two protocol rules for hosts from before the attach handshake (3ec53eaa): events refused until attach;
+  unanswered reverse calls returned on every poll (old client answered twice, second reply stale, client cancelled).
+R1 red: unit-red-r1a.log, unit-red-r1a-reverse.log; E2E r1b-e2e-red/ (21:23Z at d341d8690, scripts identical at base), r3c-e2e/ (fix 1 only).
+R2: service.ts only; no recovery test changed. R3: detach 14/14; unit 45/0 (six suites); podman 31/0 (five suites, r3b-integ/);
+  E2E semantic-only upgrade exit 0 at 02c53fb7a (r3c-e2e-2/, exit file 0).
+OPEN: R3d full historical-upgrade lane starved by load (r3d-full.log); re-queued at 138ace386 (r3d-full-2/). Hosted recovery proof = record.
+Legs at 02c53fb7a: patch PASSED, new-file PASSED, CRAP max 18 (<30), typecheck/lint/boundaries 0, gate-integrity origin/main = expected 8,
+  integ/w00 PASSED, guard 39 files 477/0. Gate file tasks/factory/w4h-9-GATES.md.
