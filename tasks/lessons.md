@@ -587,6 +587,9 @@
 - Test the complete main-to-consumer path with actual file metadata. A pass
   through `prepare()` does not cover later public-code or signature readers.
   Keep public code and private credentials subject to their correct modes.
+- When a wrapper reuses a pinned installer, load its actual exported functions
+  and validate every called signature in a side-effect-free test. Mocks of
+  assumed names cannot prove that the wrapper can call the real installer.
 - Verify the selected public-key digest inside the actual process. Service
   environment files can override a command's environment assignments. Dummy
   signer fixtures must clear both key forms and set the verified dummy key
