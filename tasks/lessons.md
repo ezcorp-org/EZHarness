@@ -1991,3 +1991,12 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A test that pins an environment variable another module caches per process must reset that cache itself (and restore both in afterAll):
   file-organizer-applier-reserved-dirs pinned EZCORP_PROJECT_ROOT after getProjectRoot() had cached the repository root for the process (W4G-14,
   victim-side fix; there is no single polluter when every earlier caller fills the cache legitimately).
+- A "lost update" signature (fewer writes than calls) can be a stall, not a race: W4H-7's two task_add workers never raced. A test-helper
+  trace of every reverse RPC showed the second write answered only when the deadline closed the other worker (the FIFO-pool stall W4H-6
+  fixed). Trace the frames before you change a write path that already holds a row lock and a revision check.
+- Gate before the lock: a hold script checks the resource gate with no wait (`RESOURCE_GATE_MAX_WAIT_S=0`) and exits 75; the waiting
+  happens outside, in w00/gated-flock.sh. W4H-7's first loop waited ten minutes for disk inside the lock. A loop counts only the runs
+  it executed; a gate-skipped iteration is not a run.
+- A status check is answered with results (counts, file:line, cause, what is blocked), never only "queued".
+- A runner-shaped snapshot that a container bind-mounts goes outside the evidence dir, and is removed (with `podman unshare rm -rf`) the
+  moment its last leg ends.

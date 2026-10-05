@@ -5774,3 +5774,17 @@ Review: the two "Worker closed" failures were one product defect that only a hos
 fs-pool threads in blocking FIFO reads, so two live workers on 4 vCPUs stopped every file operation in the process. A local host
 with 32 CPUs needs 16. The supervisor test hid a second defect: it never attached at all. Receipts:
 /tmp/factory-platform-evidence/w4h-6/report.txt.
+## W4H-7 — "concurrent task_add loses an update" (R8) is the FIFO-pool stall, not a race (branch `wp/w4h-7b` from integ/w00 87e1e197c; gates `tasks/factory/w4h-7-GATES.md`)
+
+- [x] Reproduce red in the unit lane on 4 CPUs: red at run 1 (probe) and run 3 (trace), base 52d8ba079.
+- [x] Trace the failure: B's committed write is not answered until the deadline closes both workers; A's lock retry never reaches the host.
+- [x] Root cause: W4H-6's channel FIFO reads on the fs thread pool (coordinator ruling 2026-10-03 23:21Z withdraws the race guess).
+- [x] E2E real-auth task-panel-durability: red at base (:107 60 s timeout), green at the fix (2 of 2 runs, 3 passed).
+- [x] Regression pair with no new test: the unchanged suite with UV_THREADPOOL_SIZE=2, red at base, 10 of 10 green at the fix.
+- [x] Runner-shaped container (4 CPUs): red at run 1 at 52d8ba079; 20 of 20 green with the runner diff. Host: 20 of 20 green at the fix.
+- [x] At the merged fix (87e1e197c): E2E 2 of 2, the unchanged suite 10 of 10 (gates G4).
+- [x] E2E at this branch head 2e529f1bb on 6ac2458c7: 2 of 2 runs, 3 passed (gates G4b; W4H-9 changed the runner service).
+
+Review: W4H-7 changes no product or test file. The write path was already serialised (host row lock through withLock, FOR UPDATE and a
+revision check). The two red lanes are the worker-channel stall that W4H-6 fixes, so W4H-7 merges after W4H-6 and carries only its
+evidence and gates.
