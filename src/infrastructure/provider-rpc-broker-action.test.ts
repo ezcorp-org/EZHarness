@@ -9,7 +9,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
-import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+import { IncusTransportError, type IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
 import * as schema from "../db/schema";
 import { SandboxController } from "../sandboxes/controller";
@@ -25,7 +25,7 @@ const open: PGlite[] = [];
 const observerCertificates = makeTestCertificates();
 afterAll(() => observerCertificates.dispose());
 
-async function setup() {
+async function setup(reply: (command: IncusTransportRequest) => unknown = () => ({ ok: true, file: { path: "src/app.ts" } })) {
   const pglite = new PGlite();
   open.push(pglite);
   await pglite.waitReady;
@@ -48,7 +48,7 @@ async function setup() {
     getMetadata: async () => null } as unknown as ProviderConnectionResolver;
   const calls: IncusTransportRequest[] = [];
   const broker = new ProviderRpcBroker(connections, () => { throw new Error("unexpected probe"); }, db,
-    () => ({ request: async command => { calls.push(command); return { ok: true, file: { path: "src/app.ts" } }; } }));
+    () => ({ request: async command => { calls.push(command); return reply(command); } }));
   const scope = (operation: PreparedIncusAction["operation"], input: Record<string, unknown>): PreparedIncusAction => ({
     installationId: "installation", releaseId: "release", releaseDigest: "d".repeat(64), generation: 1,
     connectionId: "connection", revision: 1, config, operation, method: `incus/${operation.replace(".", "/")}`,
@@ -271,22 +271,73 @@ test("expired DESTROY readback needs the exact tombstoned current journal", asyn
   expect(calls).toHaveLength(1);
 });
 
-test("a repeated guest process mutation returns the first result without redispatch", async () => {
-  const { broker, calls, scope } = await setup();
-  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
-    rpcDeadlineMs: Date.now() + 30_000, requestId: "process-request", idempotencyKey: "process-request",
-    argv: ["/bin/true"], cwd: ".", user: "sandbox", env: [], processDeadlineMs: Date.now() + 60_000 };
-  const action = scope("processes.start", input);
-  const payload = { command: action.expectedCommand };
-  const [first, replay] = await Promise.all([
-    broker.request(action, payload, input.rpcDeadlineMs),
-    broker.request(action, payload, input.rpcDeadlineMs),
-  ]);
-  expect(first).toMatchObject({ ok: true });
-  expect(replay).toEqual(first);
-  expect(await broker.request(action, payload, input.rpcDeadlineMs)).toEqual(first);
+test("minor-1 guest mutations preserve their result and dispatch once without a lifecycle journal", async () => {
+  const results = {
+    "helper.process.start": { ok: true, processId: "process-proof", bootId: "boot-proof", startedAt: "2026-10-05T12:00:00Z" },
+    "helper.process.cancel": { ok: true, receipt: { operationId: "cancel-proof", kind: "processCancel", requestId: "cancel-request",
+      idempotencyKey: "cancel-request", sandboxId: "binding", acceptedAt: "2026-10-05T12:00:00Z" } },
+    "helper.file.writeAtomic": { ok: true, path: "proof", revision: "written-revision", sizeBytes: 2 },
+    "helper.file.remove": { ok: true, receipt: { operationId: "remove-proof", kind: "fileRemove", requestId: "remove-request",
+      idempotencyKey: "remove-request", sandboxId: "binding", acceptedAt: "2026-10-05T12:00:00Z" } },
+  };
+  const { broker, calls, scope, db } = await setup(command => results[command.action as keyof typeof results]);
+  const mutations = [
+    { operation: "processes.start", requestId: "process-request", payload: { argv: ["/bin/true"], cwd: ".", user: "sandbox", env: [], processDeadlineMs: Date.now() + 60_000 } },
+    { operation: "processes.cancel", requestId: "cancel-request", payload: { processId: "process-proof", bootId: "boot-proof" } },
+    { operation: "files.writeAtomic", requestId: "write-request", payload: { path: "proof", expectedRevision: null, dataBase64: "b2s=", byteLength: 2 } },
+    { operation: "files.remove", requestId: "remove-request", payload: { path: "proof", expectedRevision: "written-revision", recursive: false } },
+  ] as const;
+  for (const mutation of mutations) {
+    const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding",
+      rpcDeadlineMs: Date.now() + 30_000, requestId: mutation.requestId, idempotencyKey: mutation.requestId, ...mutation.payload };
+    const action = { ...scope(mutation.operation, input), hostContractMinor: 1 };
+    const payload = { command: action.expectedCommand };
+    const [first, replay] = await Promise.all([
+      broker.request(action, payload, input.rpcDeadlineMs), broker.request(action, payload, input.rpcDeadlineMs),
+    ]);
+    expect(first).toEqual({ ok: true, result: results[action.expectedCommand.action as keyof typeof results] });
+    expect(replay).toEqual(first);
+    expect(await broker.request(action, payload, input.rpcDeadlineMs)).toEqual(first);
+    expect(calls.filter(call => call.action === action.expectedCommand.action)).toHaveLength(1);
+    const stoppedScope = { ...action };
+    await db.update(schema.sandboxBindings).set({ observedState: "STOPPED" }).where(eq(schema.sandboxBindings.id, "binding"));
+    expect(await broker.request(stoppedScope, payload, input.rpcDeadlineMs))
+      .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });
+    expect(calls.filter(call => call.action === action.expectedCommand.action)).toHaveLength(1);
+    await db.update(schema.sandboxBindings).set({ observedState: "RUNNING" }).where(eq(schema.sandboxBindings.id, "binding"));
+
+  }
+  expect(await db.select().from(schema.sandboxOperations)).toEqual([]);
+  expect(calls).toHaveLength(4);
+});
+
+test("minor-1 lost guest mutation reply keeps its unknown identity and cannot redispatch", async () => {
+  const { broker, calls, scope, db } = await setup(() => {
+    throw new IncusTransportError("unavailable", "private guest transport failure", { effect: "unknown", operationId: "guest-process-proof" });
+  });
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: Date.now() + 30_000,
+    requestId: "lost-process", idempotencyKey: "lost-process", argv: ["true"], cwd: ".", user: "sandbox", env: [], processDeadlineMs: Date.now() + 60_000 };
+  const action = { ...scope("processes.start", input), hostContractMinor: 1 };
+  const first = await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs);
+  expect(first).toMatchObject({ ok: false, error: { kind: "unavailable", effect: "unknown", operationId: "guest-process-proof" } });
+  expect(JSON.stringify(first)).not.toContain("private");
+  expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs)).toEqual(first);
   expect(calls).toHaveLength(1);
-  expect(calls[0]?.action).toBe("helper.process.start");
+  expect(await db.select().from(schema.sandboxOperations)).toEqual([]);
+});
+
+test("minor-1 lifecycle mutations still require their admitted host journal before dispatch", async () => {
+  const { broker, calls, scope } = await setup();
+  for (const operation of ["lifecycle.create", "lifecycle.setPower", "lifecycle.destroy"] as const) {
+    const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: Date.now() + 30_000,
+      requestId: `missing-${operation}`, idempotencyKey: `missing-${operation}`, expectedGeneration: 1,
+      desiredState: "running", profile: "linux-exec.v1", presetId: "incus-linux-exec-v1", presetDigest: "a".repeat(64),
+      effectiveSettingsDigest: "b".repeat(64), limits: {} };
+    const action = { ...scope(operation, input), hostContractMinor: 1, approvedGuest: undefined };
+    expect(await broker.request(action, { command: action.expectedCommand }, input.rpcDeadlineMs))
+      .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });
+  }
+  expect(calls).toHaveLength(0);
 });
 
 test("a stopped binding denies a previously prepared guest action before transport", async () => {

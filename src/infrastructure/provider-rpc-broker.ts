@@ -101,9 +101,11 @@ function observationBindingPredicate(scope: SandboxProviderObservationScope) {
     scope.tombstonedAt === null ? isNull(sandboxBindings.tombstonedAt) : eq(sandboxBindings.tombstonedAt, scope.tombstonedAt));
 }
 
-const mutationOperations = new Set<SandboxProtocolOperation>([
+const lifecycleObservationOperations = new Set<SandboxProtocolOperation>([
   "lifecycle.create", "lifecycle.setPower", "lifecycle.destroy",
-  "files.writeAtomic", "files.remove", "processes.start", "processes.cancel",
+]);
+const mutationOperations = new Set<SandboxProtocolOperation>([
+  ...lifecycleObservationOperations, "files.writeAtomic", "files.remove", "processes.start", "processes.cancel",
 ]);
 
 function isAction(scope: PreparedIncusProbe): scope is PreparedIncusAction {
@@ -652,7 +654,7 @@ export class ProviderRpcBroker {
 
   private async requestTransport(scope: PreparedIncusProbe, reviewedScope: PreparedIncusProbe,
     transportCommand: IncusTransportRequest, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
-    const observation = isAction(scope) && mutationOperations.has(scope.operation) ? await this.reserveObservation(scope) : undefined;
+    const observation = isAction(scope) && lifecycleObservationOperations.has(scope.operation) ? await this.reserveObservation(scope) : undefined;
       try {
         const dispatchSignal = observation ? AbortSignal.any([observation.abort.signal, ...(signal ? [signal] : [])]) : signal;
         const transport = isAction(scope)
