@@ -596,7 +596,7 @@ async function invokeActualAdapterWorker(config: IncusTransportRequest["pins"], 
   finally { child.kill(); await child.exited; await reader; }
 }
 
-async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendingCreate = false, failureKind?: "CREATE" | "START" | "PATCH" | "PATCH_SUCCESS", legacyProducer = false, lostReturnPhase?: "accepted" | "terminal", slowCreate = false, resumeCreate = false) {
+async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendingCreate = false, failureKind?: "CREATE" | "START" | "PATCH" | "PATCH_SUCCESS" | "DESTROY_PATCH" | "DESTROY_PATCH_CANCEL", legacyProducer = false, lostReturnPhase?: "accepted" | "terminal", slowCreate = false, resumeCreate = false) {
   const database = new PGlite();
   let observationBroker: ProviderRpcBroker | undefined;
   try {
@@ -651,7 +651,8 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
             return reply({ status: createWaits === 1 ? "Running" : "Success",
               resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           }
-          if (failureKind && failureKind !== "PATCH_SUCCESS" && nativeSequence === (failureKind === "CREATE" ? 1 : 2)) return reply({ status: "Failure", err: "private provider error bytes", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          if ((failureKind === "DESTROY_PATCH" || failureKind === "DESTROY_PATCH_CANCEL") && nativeSequence === 6) return reply({ status: failureKind === "DESTROY_PATCH_CANCEL" ? "Cancelled" : "Failure", err: "private destroy intent failure", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
+          if (failureKind && !failureKind.startsWith("DESTROY_PATCH") && failureKind !== "PATCH_SUCCESS" && nativeSequence === (failureKind === "CREATE" ? 1 : 2)) return reply({ status: "Failure", err: "private provider error bytes", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           if (pendingCreate && nativeSequence === 1) return reply({ status: "Running", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           if (!fault || nativeSequence !== 6) return reply({ status: "Success", resources: { instances: [`/1.0/instances/${sandboxName}`] } });
           destroyInspections++;
@@ -671,7 +672,7 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
       } else if (init.method === "PATCH") {
         expect(new Headers(init.headers).get("if-match")).toBe(`"generation-${instance!.config["user.ezharness.generation"]}"`);
         Object.assign(instance!.config, body.config);
-        if (failureKind === "PATCH" || failureKind === "PATCH_SUCCESS") { nativeSequence++; return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202); }
+        if (failureKind === "PATCH" || failureKind === "PATCH_SUCCESS" || failureKind?.startsWith("DESTROY_PATCH") && body.config["user.ezharness.desired_state"] === "destroyed") { nativeSequence++; return reply({ id: `11111111-1111-1111-1111-${String(nativeSequence).padStart(12, "0")}` }, 202); }
         return reply({});
       } else if (init.method === "PUT") instance!.status = body.action === "start" ? "Running" : "Stopped";
       else if (init.method === "DELETE") {
@@ -685,7 +686,13 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
     const actionTransportFactory: ConstructorParameters<typeof ProviderRpcBroker>[3] = (prepared, _signal, recordAcceptedOperation, recordTerminalObservation, observeNativeWait) => new HostIncusLifecycleTransport(connections, {
       providerInstallationId: prepared.installationId, providerReleaseId: prepared.releaseId, revision: prepared.revision, approvedPreset: prepared.approvedPreset, hostContractMinor: prepared.hostContractMinor, observeNativeWait,
       recordAcceptedOperation: recordAcceptedOperation ? async id => { await recordAcceptedOperation(id); if (lostReturnPhase === "accepted") loseWorkerReturn(); } : undefined,
-      recordTerminalObservation: recordTerminalObservation ? async observation => { await recordTerminalObservation(observation); if (lostReturnPhase === "terminal") loseWorkerReturn(); } : undefined,
+      recordTerminalObservation: recordTerminalObservation ? async observation => {
+        if (observation.kind === "destroy" && failureKind?.startsWith("DESTROY_PATCH")) {
+          expect(observation).toMatchObject({ state: failureKind === "DESTROY_PATCH_CANCEL" ? "cancelled" : "failed", observedState: "unknown",
+            operationId: "incus-destroy-11111111-1111-1111-1111-000000000006", error: { code: "INTERNAL", message: "Incus native lifecycle operation failed", retryable: false } });
+          expect(JSON.stringify(observation)).not.toContain("private destroy intent failure");
+        }
+        await recordTerminalObservation(observation); if (lostReturnPhase === "terminal") loseWorkerReturn(); } : undefined,
     }, fetcher as never, fault);
     const broker = new ProviderRpcBroker(connections, undefined, db, actionTransportFactory, undefined,
       slowCreate ? { resolveActiveRelease: async () => { if (resumeCreate) throw new Error("Original engine observation is unavailable"); return snapshot; } } : undefined);
@@ -740,6 +747,21 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
         expect(writes.some(value => value.startsWith("PUT"))).toBe(false);
         const reservations = await db.select().from(schema.sandboxReservations);
         expect(reservations[0]).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+        return;
+      }
+      if (kind === "DESTROY" && failureKind?.startsWith("DESTROY_PATCH")) {
+        expect(journal).toMatchObject({ state: "FAILED", errorCode: "INTERNAL",
+          errorMessage: "Incus native lifecycle operation failed", providerOperationId: "incus-destroy-11111111-1111-1111-1111-000000000006" });
+        expect(instance).toMatchObject({ status: "Stopped", config: { "user.ezharness.generation": "6", "user.ezharness.desired_state": "destroyed" } });
+        expect(instance!.config["user.ezharness.operation_id"]).toMatch(/^ezh-destroy-/);
+        expect(writes.filter(value => value.startsWith("DELETE"))).toHaveLength(0);
+        expect(journal.errorMessage).not.toContain("private destroy intent failure");
+        const before = writes.length;
+        expect((await controller.requestAndDispatch(request)).id).toBe(journal.id);
+        expect(writes).toHaveLength(before);
+        const reservations = await db.select().from(schema.sandboxReservations);
+        expect(reservations[0]).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+        expect((await controller.getBinding(sandboxId))?.cleanupConfirmedAt).toBeNull();
         return;
       }
       if (kind === failureKind || failureKind === "PATCH" && kind === "START") {
@@ -1025,3 +1047,7 @@ test("a replacement host resumes the saved CREATE observer without replaying its
 
 test("real async PATCH intent advances to one final power receipt only after its successful barrier", () =>
   exerciseAdapterLifecycle(undefined, false, "PATCH_SUCCESS"));
+
+for (const outcome of ["DESTROY_PATCH", "DESTROY_PATCH_CANCEL"] as const) {
+  test(`real destroy ${outcome === "DESTROY_PATCH" ? "failed" : "cancelled"} async tag intent keeps visible tags without issuing DELETE`, () => exerciseAdapterLifecycle(undefined, false, outcome));
+}
