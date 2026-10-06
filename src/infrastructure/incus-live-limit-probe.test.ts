@@ -13,23 +13,26 @@ const facts = { memoryMaxBytes: preset.limits.memoryBytes, cpuQuotaMillis: prese
   privateNetworkProbeBlocked: true, unprivilegedUidMap: true };
 
 function harness(fault?: { resource?: string; detail?: boolean; neighbor?: boolean; host?: boolean;
-  pool?: "full" | "leak"; thrownResource?: string; thrown?: unknown }) {
+  pool?: "full" | "leak"; thrownResource?: string; thrown?: unknown; memory?: "no-oom" | "zero-exit" }) {
   const calls: string[] = [];
   const poolFreeBytes = preset.limits.diskBytes + 128 * 1024 * 1024;
   const deps: IncusLimitProbeDependencies = {
     runGuest: async (fixture, argv, timeout) => {
       expect(fixture).toEqual(handle);
       expect(argv.slice(0, 3)).toEqual(["python3", "-c", LIMIT_PROBE_SCRIPT]);
-      expect(timeout).toBeLessThanOrEqual(120_000);
+      expect(timeout).toBe(110_000);
       const resource = argv[3]!;
       calls.push(resource);
       if (fault?.thrownResource === resource) throw fault.thrown;
       const attempted = Number(argv[4]);
       const observedLimit = Number(argv[5]);
+      if (resource === "memory") expect(attempted).toBe(preset.limits.memoryBytes + 16 * 1024 * 1024);
       const detail = resource === "memory" ? { oomKillDelta: 1, childExit: -9 }
         : resource === "cpu" ? { ...cpuDetail }
           : resource === "pids" ? { denialEventDelta: 1, spawned: observedLimit - 1 }
             : { errno: 122 };
+      if (resource === "memory" && fault?.memory) Object.assign(detail,
+        fault.memory === "no-oom" ? { oomKillDelta: 0 } : { childExit: 0 });
       if (fault?.detail && resource === "cpu") Object.assign(detail, { throttledDelta: 0, cpusetCount: 3, affinityCount: 3 });;
       return { exitCode: 0, stderr: "", stdout: JSON.stringify({
         resource: fault?.resource === resource ? "forged" : resource,
@@ -61,6 +64,41 @@ test("real load script compiles before a fixture can run it", () => {
   expect(result.stderr).toBe("");
 });
 
+test("generated memory child dirties one private anonymous mapping once per page and retains it until completion", () => {
+  const result = spawnSync("python3", ["-c", `import ast,mmap,pathlib,sys,time
+from unittest.mock import patch
+tree=ast.parse(sys.argv[1])
+child=next(n.value.value for n in ast.walk(tree) if isinstance(n,ast.Assign)
+ and any(isinstance(t,ast.Name) and t.id=='child' for t in n.targets))
+real_mmap=mmap.mmap
+for size in (1,mmap.PAGESIZE,mmap.PAGESIZE*3+17):
+ allocations=[]; writes=[]; priorities=[]; sleeps=[]
+ class Mapping(real_mmap):
+  def __new__(cls,fd,length,**kwargs):
+   assert fd==-1 and length==size
+   assert kwargs=={'flags':mmap.MAP_PRIVATE|mmap.MAP_ANONYMOUS}
+   value=super().__new__(cls,fd,length,**kwargs);allocations.append(value);return value
+  def __setitem__(self,offset,value):
+   writes.append((offset,value));super().__setitem__(offset,value)
+ def priority(path,value):
+  assert str(path)=='/proc/self/oom_score_adj' and value=='500'
+  priorities.append(value)
+ def retained(seconds):
+  assert seconds==1 and len(allocations)==1 and not allocations[0].closed
+  assert priorities==['500']
+  assert writes==[(offset,1) for offset in range(0,size,mmap.PAGESIZE)]
+  assert all(allocations[0][offset]==1 for offset in range(0,size,mmap.PAGESIZE))
+  assert all(allocations[0][offset]==0 for offset in range(size) if offset%mmap.PAGESIZE)
+  sleeps.append(seconds)
+ with patch.object(mmap,'mmap',Mapping),patch.object(pathlib.Path,'write_text',priority),patch.object(time,'sleep',retained),patch.object(sys,'argv',['memory-child',str(size)]):
+  exec(compile(child,'<actual-memory-child>','exec'),{})
+ assert sleeps==[1] and allocations[0].closed
+print('actual memory child: three bounded allocations checked')`, LIMIT_PROBE_SCRIPT], { encoding: "utf8" });
+  expect(result.status).toBe(0);
+  expect(result.stderr).toBe("");
+  expect(result.stdout.trim()).toBe("actual memory child: three bounded allocations checked");
+});
+
 test("four resource loads require kernel evidence and healthy host and neighbor readbacks", async () => {
   const value = harness();
   const results = await value.run();
@@ -80,6 +118,14 @@ test("missing kernel evidence, forged identity, or unhealthy neighbor denies qua
   await expect(harness({ resource: "memory" }).run()).rejects.toThrow("memory load did not prove containment");
   await expect(harness({ neighbor: false }).run()).rejects.toThrow("unhealthy before memory load");
   await expect(harness({ host: false }).run()).rejects.toThrow("unhealthy before memory load");
+});
+
+test("memory pressure without an OOM kill or a nonzero child exit remains a failed qualification", async () => {
+  for (const memory of ["no-oom", "zero-exit"] as const) {
+    const value = harness({ memory });
+    await expect(value.run()).rejects.toThrow("memory load did not prove containment");
+    expect(value.calls).toEqual(["host", "neighbor", "memory"]);
+  }
 });
 
 test("an observed limit above the reviewed preset denies before any load", async () => {

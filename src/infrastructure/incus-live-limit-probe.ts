@@ -38,7 +38,7 @@ if actual!=limit or target<=actual: raise RuntimeError('observed limit changed')
 contained=False; detail={}
 if mode=='memory':
  before=event('memory.events','oom_kill')
- child='import pathlib,sys,time\\npathlib.Path("/proc/self/oom_score_adj").write_text("500")\\na=[]\\nfor i in range(0,int(sys.argv[1]),16777216):\\n b=bytearray(min(16777216,int(sys.argv[1])-i))\\n for p in range(0,len(b),4096): b[p]=1\\n a.append(b)\\ntime.sleep(1)'
+ child='import mmap,pathlib,sys,time\\npathlib.Path("/proc/self/oom_score_adj").write_text("500")\\nwith mmap.mmap(-1,int(sys.argv[1]),flags=mmap.MAP_PRIVATE|mmap.MAP_ANONYMOUS) as region:\\n for offset in range(0,len(region),mmap.PAGESIZE): region[offset]=1\\n time.sleep(1)'
  result=subprocess.run([sys.executable,'-c',child,str(target)],timeout=70,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
  after=event('memory.events','oom_kill')
  contained=result.returncode!=0 and after>before
