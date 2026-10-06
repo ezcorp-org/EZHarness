@@ -2,8 +2,9 @@
 
 One attempt under the [reviewed plan](2026-10-06-retained-destroy-classification-attempt7-review.md)
 succeeded. Saved DESTROY `8720a719-b3cd-44d7-a00d-5a57f4262fca` is now
-FAILED / OPERATOR_PROVEN_NO_EFFECT, with no provider handle. Its guest remains
-STOPPED. This step did not delete a guest or release its resource reservations.
+FAILED / OPERATOR_PROVEN_NO_EFFECT, with no provider handle. The guest remained
+STOPPED at that checkpoint. Separate ordinary cleanup has since deleted it,
+as recorded below. Signed classification itself released no reservations.
 
 The original c7 START remains historical UNKNOWN. The proof establishes the
 retained DELETE outcome at the fenced cutoff; it does not assert that an old
@@ -58,11 +59,28 @@ hold absence and restored marker ownership/mode. The normal marker has a new
 inode, 3359748; the temporary marker, inode 3357736, is preserved. No database
 restore or guest cleanup occurred during this disposition.
 
+## Ordinary cleanup
+
+One normal recoverCleanup request created recovery
+`aa5163ca-95b3-4511-8814-7d9eab8ce06c`. Linked STOP
+`d9240e78-88e5-4f8b-adba-651b7699ff98` preceded a distinct DESTROY,
+`5d2d61c7-16ce-4efd-9198-9e1a6aca9ece`. Receipt 334 confirms COMPLETED recovery,
+SUCCEEDED destruction and an ABSENT binding. Its SHA-256 is
+`f42518090c023a33248899a2d5ef48eb2c2d2bee560a3c161e556015a5fe27f5`.
+The original c7 UNKNOWN and signed 8720 classification are preserved.
+
+Receipt 335 shows an empty scoped backend inventory. Receipt 336 independently
+checks the exact instance and container volume: both return 404, while the
+project and storage-pool controls return 200. SHA-256:
+`8666118abb8899b56d95be9525cab0ac54ad8788990f8d61ccf0e0e94fce7f63`.
+This proves current absence; it does not replace an uncaptured prior volume
+ownership record. Independent review passed.
+
 ## Remaining work
 
-Use normal recoverCleanup for a new linked STOP and distinct DESTROY. Prove
-backend and storage absence, released reservations, and compensated historical
-operations.
+Direct verification of released database reservations and the production
+historical-compensation predicate is pending. Backend absence alone does not
+prove those database results.
 
 Live resource-load diagnosis, qualification, the normal UI/native-tool flow,
 ten feature lifecycles and final repository gates remain open. This recovery

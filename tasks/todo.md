@@ -18,7 +18,8 @@
 - [x] Pass the real service-user loader and current 301 stopped-copy DURABLE verification for retained cleanup 8720. Complete receipt `0614af15` proves the target and reserved charges; live bytes are unchanged and clone handles are closed. Preserve old restoration receipts and prepare exact new configuration while the isolated app remains stopped. No server timer, key, certificate change or recovery admission is included in this checkpoint.
 - [x] Execute reviewed signed reconciliation once. Attempt 7 returned the same operation 8720, now FAILED / OPERATOR_PROVEN_NO_EFFECT. Independent signature, public status, transport restoration and forced-thaw checks pass. Canonical signed receipt: `443e4bc6de87b238671b659e5550996a9ee6b92214215c8df8b47e7a00b5d0df`. This does not delete the guest or release reservations.
 - [x] Restore the five original service configurations and original runner-marker metadata through the reviewed success disposition. Receipt 330 passes independent review; the normal marker has a new inode and the temporary marker is preserved. Natural timer completion, temporary-key absence, restored certificate and normal app checks pass. See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
-- [ ] Prove DESTROY completion, independent guest/storage absence and released accounting. Installed 301 adds signed reconciliation, but it does not automatically resolve the saved UNKNOWN operation.
+- [x] Complete ordinary recovery `aa5163ca-95b3-4511-8814-7d9eab8ce06c`: linked STOP followed by distinct DESTROY `5d2d61c7-16ce-4efd-9198-9e1a6aca9ece` succeeded. Receipt 334 confirms completed recovery and ABSENT binding. Independent receipts 335/336 prove empty scoped inventory and exact instance/storage 404 responses with project/pool 200 controls.
+- [ ] Verify released reservations and the actual production predicate for compensated historical operations from a guarded detached database copy. Preserve the original UNKNOWN history; do not clear rows or infer released charges from backend absence alone.
 - [x] Build exact source `50d043fc89141c216548580f224d413902c0ad69` in fresh root/web installs; verify the release bundle, health smoke, real nested dependency resolutions, and advisory regressions. This bundle is not installed.
 - [x] Pass the exact 50d fast gate: all 12 stages, exit 0; 27,585 backend, 3,638 web Bun and 7,727 Vitest tests pass. Log SHA-256 `171ec5afe55938f32e95021dd02346474f5d737762389be62dc71d181b57c5c8`. This proves that revision only; the final combined recovery/dispatch source still needs its own complete checks.
 - [ ] Pass live qualification and the normal UI/native-agent feature flow on the installed, verified bundle.
@@ -28,7 +29,8 @@
 
 Review: the original c7 START remains UNKNOWN history. The saved 8720 cleanup
 is now FAILED / OPERATOR_PROVEN_NO_EFFECT under signed reconciliation. The
-guest remains STOPPED; no reservation release is claimed. The isolated app
+guest and its container storage are now absent after separate ordinary cleanup;
+direct reservation and historical-compensation verification is pending. The isolated app
 runs `301e88e93` with recovered transport and restored normal service settings.
 Original settings and receipts are preserved. The temporary
 key is removed, and independent natural timer closure passed. The actual user
