@@ -113,10 +113,12 @@ other 46 files need the job-local SeaweedFS (Docker compose on the hosted runner
   (probeSecurity 20 = its complexity at 100 percent; requireImage 4; the CRAP tool does not measure scripts/, and
   ci-registration.ts's changed lines are fully covered); guard set 507/0; typecheck, lint, boundaries, lanes rc 0; prune scan
   clean. The first run at ac20f1a8a (02:45Z) found the two vacuous twins on both gate-integrity legs; 643f12dd5 fixed them.
+  Binding rule (coordinator, 2026-10-06): for this package the coverage legs vs integ/w00 bind (PASSED); new-file and patch vs
+  origin/main red on integ's own lines is the known package-head pattern and binds at the combined run.
 - [x] G8: the setup-before-storage ordering rule — DROPPED (coordinator ruling), the setup step's presence stays required.
   CHECK: `W4H12_CHAIN_LEGS=order w4h-12/chain.sh`, leg r7-order at ac20f1a8a (02:47–02:50Z). RESULT: inconclusive, exit 1
   (`w4h-12/logs/r7-order-step.log`): case A (setup after the storage start) up rc 0, then the runner setup itself failed rc 1
-  (its log stayed in the container and was lost, a harness defect), down rc 1; case B void ("Factory storage containers
+  (its log stayed in the container and was lost: a harness defect; logs must live outside the container), down rc 1; case B void ("Factory storage containers
   already exist": A's cleanup failed). The cited reason (`scripts/setup-factory-storage.sh:44`) is therefore not evidence,
   and no other reason is proven.
 
