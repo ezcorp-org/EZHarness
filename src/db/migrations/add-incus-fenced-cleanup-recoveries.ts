@@ -37,4 +37,15 @@ export async function up(db: MigrationDb): Promise<void> {
     receipt JSONB NOT NULL, aborted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
 
+  // A retained resource is not absent. This receipt settles only its DELETE journal;
+  // ordinary cleanup remains responsible for disposal and reservation release.
+  await db.execute(sql`CREATE TABLE IF NOT EXISTS incus_retained_destroy_noeffect_recoveries (
+    operation_id TEXT PRIMARY KEY REFERENCES provider_sandbox_operations(id) ON DELETE RESTRICT,
+    fixture_operation_id TEXT NOT NULL,
+    nonce TEXT NOT NULL UNIQUE, review_id TEXT NOT NULL,
+    origin_operation_id TEXT NOT NULL REFERENCES provider_sandbox_operations(id) ON DELETE RESTRICT,
+    origin_receipt_sha256 TEXT NOT NULL, original_operation JSONB NOT NULL,
+    receipt JSONB NOT NULL, receipt_sha256 TEXT NOT NULL,
+    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`);
 }

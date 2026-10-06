@@ -121,3 +121,26 @@ test("stable observer rejects arbitrary stable handle and hybrid pins before all
   }
   expect(b.paths).toEqual([]);
 });
+
+function retainedObserverPins() {
+  const stable = stableObserverPins();
+  return { ...stable, providerOperationId: null, operationHandleKind: "retained-destroy-noeffect" as const,
+    originOperationId: target.operationId, originReceiptSha256: "d".repeat(64) };
+}
+test("retained DELETE observation reads the original START intent without claiming historical RPC absence", async () => {
+  const retained = retainedObserverPins();
+  const b = backend(value => Object.assign(value.config, { "user.ezharness.operation_id": retained.operationTag,
+    "user.ezharness.desired_state": "running" }));
+  const observation = await observeFencedCleanup({ resolveForHost: async () => connection }, context,
+    { ...target, operationId: "retained-delete" }, retained, b.fetcher as never);
+  expect(observation).toEqual({ instanceState: "stopped", noActiveOperations: true, providerGeneration: 2, pins: retained });
+  expect(b.paths).toEqual([`/1.0/instances/${instance.name}`, "/1.0/operations", `/1.0/instances/${instance.name}`]);
+  expect(observation).not.toHaveProperty("nativeOperationAbsent");
+});
+for (const changed of [{ providerOperationId: "native" }, { originOperationId: "retained-delete" },
+  { originReceiptSha256: "bad" }, { expectedProviderGeneration: 1 }]) test(`retained observer refuses changed ${Object.keys(changed)[0]} before reads`, async () => {
+  const b = backend();
+  await expect(observeFencedCleanup({ resolveForHost: async () => connection }, context,
+    { ...target, operationId: "retained-delete" }, { ...retainedObserverPins(), ...changed } as never, b.fetcher as never)).rejects.toThrow();
+  expect(b.paths).toEqual([]);
+});

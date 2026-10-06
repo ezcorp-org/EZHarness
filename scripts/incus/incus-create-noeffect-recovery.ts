@@ -11,7 +11,7 @@ import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
   type NoEffectRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
-import { isStableStartCleanup, requireFencedCleanupPinVersion, requireStableStartCleanupPins, requireStableStartOriginal, applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupProofPins, type FencedCleanupProofPayload, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
+import { isStableStartCleanup, isRetainedDestroyNoEffect, inspectRetainedDestroyNoEffect, type RetainedDestroyNoEffectPayload, requireRetainedDestroyNoEffectPins, requireRetainedDestroyNoEffectOriginal, requireFencedCleanupPinVersion, requireStableStartCleanupPins, requireStableStartOriginal, applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupProofPins, type FencedCleanupProofPayload, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
 import { observeFencedCleanup, type FencedCleanupTarget } from "../../src/infrastructure/incus-fenced-cleanup-observer";
 import { canonicalRecoveryJson } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { incusSupervisorPublicKeyPem } from "../../src/infrastructure/incus-supervisor-public-key";
@@ -123,17 +123,22 @@ async function backend(target: Target): Promise<{ absent: true; activeOperations
 }
 
 type SealedFencedTarget = FencedCleanupTarget & { action: "recover-fenced-cleanup"; pins: FencedCleanupProofPins };
-type FencedConfig = { version: 1 | 2; action: "recover-fenced-cleanup"; target: FencedCleanupTarget;
+type FencedConfig = { version: 1 | 2 | 3; action: "recover-fenced-cleanup"; target: FencedCleanupTarget;
   pins: FencedCleanupProofPins; context: LiveReadbackContext;
   observation: Pick<Observation, "project" | "instance" | "oldCertificateSha256">;
   operatorClientCertificateFile: string; operatorPrivateKeyFile: string };
 
 /** These public pins come from the root-owned config, not the control request. */
 async function durableFenced(target: SealedFencedTarget): Promise<{ verified: true; pins: FencedCleanupProofPins }> {
-  requireFencedCleanupPinVersion(isStableStartCleanup(target.pins) ? 2 : 1, target.pins);
+  requireFencedCleanupPinVersion(isRetainedDestroyNoEffect(target.pins) ? 3 : isStableStartCleanup(target.pins) ? 2 : 1, target.pins);
   if (isStableStartCleanup(target.pins)) requireStableStartCleanupPins(target, target.pins);
   await withOfflineDb(async db => {
     await requireFencedCleanupAuthority(db, { ...target, ...target.pins });
+    if (isRetainedDestroyNoEffect(target.pins)) {
+      requireRetainedDestroyNoEffectPins(target, target.pins);
+      await requireRetainedDestroyNoEffectOriginal(db, { ...target, ...target.pins });
+      return;
+    }
     const [fixture] = await db.select().from(incusQualificationFixtures)
       .where(eq(incusQualificationFixtures.operationId, target.fixtureOperationId));
     const [binding] = await db.select().from(sandboxBindings).where(eq(sandboxBindings.id, target.bindingId));
@@ -160,7 +165,7 @@ function sealedFencedConfig(target: SealedFencedTarget): FencedConfig {
   const sealed = JSON.parse(privateFile(path)) as FencedConfig;
   const { action, pins, ...publicTarget } = target;
   requireFencedCleanupPinVersion(sealed.version, pins);
-  requireFact(sealed.version === (isStableStartCleanup(pins) ? 2 : 1) && sealed.action === action
+  requireFact(sealed.version === (isRetainedDestroyNoEffect(pins) ? 3 : isStableStartCleanup(pins) ? 2 : 1) && sealed.action === action
     && Object.keys(sealed).sort().join() === "action,context,observation,operatorClientCertificateFile,operatorPrivateKeyFile,pins,target,version"
     && canonicalRecoveryJson(sealed.target) === canonicalRecoveryJson(publicTarget)
     && canonicalRecoveryJson(sealed.pins) === canonicalRecoveryJson(pins)
@@ -196,6 +201,11 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
       return { endpoint: sealed.pins.endpoint, project: sealed.pins.project,
         serverCertificatePem: sealed.context.connection.serverCertificatePem, clientCertificatePem, privateKeyPem };
     } }, sealed.context, sealed.target, sealed.pins);
+  }
+  if (input.phase === "inspect-noeffect") {
+    requireFact(Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "no-effect readback fields changed");
+    const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
+    return withOfflineDb(db => inspectRetainedDestroyNoEffect(db, input.receipt as FencedCleanupReceipt<RetainedDestroyNoEffectPayload>, trustedKey));
   }
   if (input.phase === "abort" || input.phase === "inspect-abort") {
     requireFact(Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "abort phase fields changed");

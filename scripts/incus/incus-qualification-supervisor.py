@@ -38,14 +38,18 @@ NATIVE_CLEANUP_PIN_KEYS = {"installationGeneration", "releaseDigest", "grantsDig
 STABLE_CLEANUP_PIN_KEYS = (NATIVE_CLEANUP_PIN_KEYS - {"nativeOperationId"}) | {"operationHandleKind", "expectedProviderGeneration"}
 
 
+RETAINED_CLEANUP_PIN_KEYS = STABLE_CLEANUP_PIN_KEYS | {"originOperationId", "originReceiptSha256"}
+
+
 def cleanup_pin_keys(version):
-    return STABLE_CLEANUP_PIN_KEYS if version == 2 else NATIVE_CLEANUP_PIN_KEYS
+    return RETAINED_CLEANUP_PIN_KEYS if version == 3 else STABLE_CLEANUP_PIN_KEYS if version == 2 else NATIVE_CLEANUP_PIN_KEYS
 
 
 def validate_stable_cleanup_config(config):
     pins, target = config.get("pins"), config.get("target")
-    if not isinstance(pins, dict) or set(pins) != STABLE_CLEANUP_PIN_KEYS \
-            or pins.get("operationHandleKind") != "stable-start-intent" \
+    retained = config.get("version") == 3
+    if not isinstance(pins, dict) or set(pins) != cleanup_pin_keys(config.get("version")) \
+            or pins.get("operationHandleKind") != ("retained-destroy-noeffect" if retained else "stable-start-intent") \
             or type(pins.get("expectedProviderGeneration")) is not int \
             or not 1 < pins["expectedProviderGeneration"] <= 9007199254740991 \
             or not isinstance(target, dict) or not isinstance(target.get("scope"), dict):
@@ -55,10 +59,17 @@ def validate_stable_cleanup_config(config):
     if any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value) for value in values):
         raise ValueError("stable cleanup target invalid")
     connection, binding, operation = values
+    if retained:
+        origin = pins.get("originOperationId")
+        if not isinstance(origin, str) or not IDENTIFIER.fullmatch(origin) or origin == operation \
+                or not isinstance(pins.get("originReceiptSha256"), str) or not DIGEST.fullmatch(pins["originReceiptSha256"]) \
+                or pins.get("providerOperationId") is not None:
+            raise ValueError("retained DELETE origin invalid")
+        operation = origin
     resource = hashlib.sha256((connection + "\0" + binding).encode()).hexdigest()[:32]
     intent = hashlib.sha256((connection + "\0" + binding + "\0" + operation + "\0" + operation + "\0setPower").encode()).hexdigest()[:32]
     tag = "ezh-setPower-" + resource + "-" + intent
-    if pins.get("providerOperationId") != tag or pins.get("operationTag") != tag:
+    if (not retained and pins.get("providerOperationId") != tag) or pins.get("operationTag") != tag:
         raise ValueError("stable cleanup original intent changed")
 
 
@@ -408,7 +419,7 @@ class Supervisor:
 
     def recovery_stage(self, phase, value, deadline_ms):
         if phase not in ("durable", "backend", "apply", "restore", "abort", "inspect-abort",
-                         "inspect-admitted-restoration", "restore-admitted"):
+                         "inspect-admitted-restoration", "restore-admitted", "inspect-noeffect"):
             raise ValueError("invalid operator recovery stage")
         command = self.recovery_abort_command if phase in ("abort", "inspect-abort") else self.recovery_command
         if phase in ("inspect-admitted-restoration", "restore-admitted"):
@@ -419,7 +430,7 @@ class Supervisor:
             check = subprocess.run(command,
                 input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
                 timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
-                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply", "abort", "inspect-abort") else None)
+                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect") else None)
         except OSError:
             self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
             raise ValueError("independent operator recovery verifier failed") from None
@@ -577,7 +588,7 @@ class Supervisor:
         return request
 
     def restoration_stage(self, phase, value, deadline_ms):
-        if phase not in ("inspect-admitted-restoration", "restore-admitted"):
+        if phase not in ("inspect-admitted-restoration", "restore-admitted", "inspect-noeffect"):
             raise ValueError("invalid admitted restoration stage")
         return self.recovery_stage(phase, value, deadline_ms)
 
@@ -842,9 +853,9 @@ class Supervisor:
                 config = json.loads(os.read(fd, 128 * 1024 + 1))
             finally:
                 os.close(fd)
-            if not isinstance(config, dict) or config.get("version") not in (1, 2) or config.get("action") != action:
+            if not isinstance(config, dict) or config.get("version") not in (1, 2, 3) or config.get("action") != action:
                 raise ValueError("sealed cleanup config action invalid")
-            if config["version"] == 2:
+            if config["version"] in (2, 3):
                 validate_stable_cleanup_config(config)
             elif isinstance(config.get("pins"), dict) and ("operationHandleKind" in config["pins"] or "expectedProviderGeneration" in config["pins"]):
                 raise ValueError("native cleanup pin version changed")
@@ -895,7 +906,7 @@ class Supervisor:
         second = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
         second_at = int(time.time() * 1000)
         if fenced_cleanup:
-            stable = sealed["version"] == 2
+            stable = sealed["version"] in (2, 3)
             observation_keys = ({"instanceState", "noActiveOperations", "providerGeneration", "pins"} if stable
                 else {"instanceState", "nativeOperationAbsent", "activeOperations", "providerGeneration", "pins"})
             def valid_observation(o):

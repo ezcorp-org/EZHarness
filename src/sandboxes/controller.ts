@@ -1,3 +1,4 @@
+import { hasRetainedDestroyNoEffectEvidence } from "../infrastructure/incus-fenced-cleanup-recovery";
 import { createHash } from "node:crypto";
 import { and, asc, eq, inArray, isNull, ne, not, notInArray, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
@@ -395,8 +396,8 @@ export class SandboxController {
       const [failed] = await tx.select().from(sandboxOperations)
         .where(eq(sandboxOperations.id, input.failedDestroyOperationId));
       const [unsettled] = await tx.select({ id: sandboxOperations.id }).from(sandboxOperations).where(and(
-        eq(sandboxOperations.bindingId, input.bindingId), inArray(sandboxOperations.state, RECONCILE_STATES)));
-      if (!binding || !permitsFailedCleanupInspection(binding, failed) || binding.cleanupConfirmedAt
+        eq(sandboxOperations.bindingId, input.bindingId), inArray(sandboxOperations.state, RECONCILE_STATES), not(frozenFencedCleanupOriginal)));
+      if (!binding || !permitsFailedCleanupInspection(binding, failed) || !failed || !await hasRetainedDestroyNoEffectEvidence(tx, failed) || binding.cleanupConfirmedAt
         || binding.generation !== input.generation || binding.providerInstallationId !== input.installationId
         || binding.providerReleaseId !== input.releaseId || binding.connectionId !== input.connectionId
         || binding.connectionRevision !== input.connectionRevision

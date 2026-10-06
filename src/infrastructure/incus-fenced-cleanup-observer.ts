@@ -1,5 +1,5 @@
 import { canonicalRecoveryJson } from "./incus-create-noeffect-recovery";
-import { isStableStartCleanup, requireFencedCleanupPinVersion, requireStableStartCleanupPins, type FencedCleanupPayload, type NativeFencedCleanupPins, type FencedCleanupProofPins } from "./incus-fenced-cleanup-recovery";
+import { isStableStartCleanup, isRetainedDestroyNoEffect, requireRetainedDestroyNoEffectPins, requireFencedCleanupPinVersion, requireStableStartCleanupPins, type FencedCleanupPayload, type NativeFencedCleanupPins, type FencedCleanupProofPins } from "./incus-fenced-cleanup-recovery";
 import { incusLiveReadbackCommand, incusLiveReadbackPolicy, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { metadata, resourceName, withSession } from "./incus-transport/lifecycle";
 import { object, verifiedHttpsRequest, type HostConnectionResolver, type PinnedFetch } from "./incus-transport/transport";
@@ -17,10 +17,12 @@ function requireFact(value: unknown, message: string): asserts value {
 export async function observeFencedCleanup(connections: HostConnectionResolver,
   context: LiveReadbackContext, target: FencedCleanupTarget, pins: FencedCleanupProofPins,
   http: PinnedFetch = verifiedHttpsRequest) {
-  const stable = isStableStartCleanup(pins);
+  const retained = isRetainedDestroyNoEffect(pins);
+  const stable = isStableStartCleanup(pins) || retained;
   if (stable) {
-    requireFencedCleanupPinVersion(2, pins);
-    requireStableStartCleanupPins(target, pins);
+    requireFencedCleanupPinVersion(retained ? 3 : 2, pins);
+    if (isRetainedDestroyNoEffect(pins)) requireRetainedDestroyNoEffectPins(target, pins);
+    else if (isStableStartCleanup(pins)) requireStableStartCleanupPins(target, pins);
   }
   const command = incusLiveReadbackCommand(context, target.bindingId);
   requireFact(canonicalRecoveryJson(context.scope) === canonicalRecoveryJson({
@@ -31,7 +33,7 @@ export async function observeFencedCleanup(connections: HostConnectionResolver,
     && pins.presetDigest === context.presetDigest && pins.effectiveSettingsDigest === context.effectiveSettingsDigest
     && pins.imageFingerprint === context.preset.imageDigest && pins.helperVersion === context.connection.configuration.helperVersion
     && pins.serverCertificateSha256 === command.pins.serverCertificateSha256
-    && (stable || !isStableStartCleanup(pins) && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(pins.nativeOperationId)
+    && (stable || !("operationHandleKind" in pins) && /^[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}$/.test(pins.nativeOperationId)
       && pins.providerOperationId === `incus-setPower-${pins.nativeOperationId}`), "sealed target pins changed");
   const sealedConnections: HostConnectionResolver = { resolveForHost: async input => {
     const resolved = await connections.resolveForHost(input);
@@ -55,8 +57,8 @@ export async function observeFencedCleanup(connections: HostConnectionResolver,
       && Array.isArray(profiles) && profiles.length === 1 && profiles[0] === context.recipe.profile.name
       && Number.isSafeInteger(providerGeneration) && providerGeneration > 0, "owned stopped instance changed");
     if (stable) requireFact(config["user.ezharness.desired_state"] === "running"
-      && providerGeneration === pins.expectedProviderGeneration, "stable START intent generation or desired state changed");
-    if (!isStableStartCleanup(pins)) {
+      && providerGeneration === ("expectedProviderGeneration" in pins ? pins.expectedProviderGeneration : null), "stable START intent generation or desired state changed");
+    if (!("operationHandleKind" in pins)) {
     const operation = await session.request("GET", `/1.0/operations/${pins.nativeOperationId}?project=${project}`);
     requireFact(operation.status === 404, "native operation still exists or cannot be checked");
     }

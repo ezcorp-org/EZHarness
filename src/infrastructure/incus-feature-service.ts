@@ -1,3 +1,4 @@
+import { hasRetainedDestroyNoEffectEvidence } from "./incus-fenced-cleanup-recovery";
 import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
 import { createHash, randomUUID } from "node:crypto";
 import { and, asc, eq, inArray, ne, not, or, sql } from "drizzle-orm";
@@ -718,7 +719,7 @@ export class IncusCleanupRecoveryService {
   }
   private async admit(binding: SandboxBinding, failedDestroyOperationId: string): Promise<SandboxCleanupRecovery> {
       const failed = await this.controller.getOperation(failedDestroyOperationId);
-      if (!permitsFailedCleanupInspection(binding, failed ?? undefined)) throw new IncusCleanupRecoveryUnavailableError();
+      if (!permitsFailedCleanupInspection(binding, failed ?? undefined) || !failed || !await hasRetainedDestroyNoEffectEvidence(this.db, failed)) throw new IncusCleanupRecoveryUnavailableError();
       const expected = failedCleanupExpectation(failed ?? undefined)!;
       const providerGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, expected.observedState);
       if (!binding.connectionRevision || providerGeneration !== expected.providerGeneration) {

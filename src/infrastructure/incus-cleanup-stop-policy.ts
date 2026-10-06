@@ -11,6 +11,8 @@ export function failedCleanupExpectation(failed: Journal | undefined): { observe
   if (!Number.isSafeInteger(generation) || (generation as number) < 1) return null;
   if (failed.errorCode === "REVISION_CONFLICT" && failed.providerOperationId === null)
     return { observedState: "running", providerGeneration: generation as number };
+  if (failed.errorCode === "OPERATOR_PROVEN_NO_EFFECT" && failed.providerOperationId === null)
+    return { observedState: "stopped", providerGeneration: generation as number };
   if (failed.errorCode === "INTERNAL" && /^incus-destroy-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(failed.providerOperationId ?? "")
     && Number.isSafeInteger((generation as number) + 1))
     return { observedState: "stopped", providerGeneration: (generation as number) + 1 };
