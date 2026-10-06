@@ -141,3 +141,37 @@ The two memory-load failures and the later preparation pass remain distinct
 results. No causal memory fix has been established. Further qualification must
 test reliability with the corrected receipt scope. The full user workflow
 remains unverified.
+
+## Repaired receipt scope: next continuation boundary reached
+
+Run `incus-final-301e88-repaired-20261006-5a68bad2-4792-49c2-a15f-45627327ce70`
+used the corrected receipt configuration. Preparation passed again and returned
+HTTP 202 / AWAITING_RESTART. Response SHA-256:
+`27e38858b1af855e25b425e86eaaf75d181823a223c511276ed80ec8850a4b6d`.
+During the memory load, the outer cgroup recorded one OOM kill and subsequent
+memory use of about 104 MB. This is a second preparation pass, not a causal
+explanation for the earlier inspection timeouts.
+
+After automatic restart, receipt verification passed. The later lost-delete-
+response test failed with `stage=dispatch state=unavailable`. Journal SHA-256:
+`6f2d5ff85c7d40e27846b5e4433bc09a54c084c3e2212343522dfdab5aa32413`.
+The qualification remains failed. Its generic stage does not establish that
+the failed call had no effect.
+
+The separate fault verifier still referenced the old provider scope. The
+unchanged installed verifier rejected the current scope before any transport
+call in an isolated regression. A scope-only fixture then passed its strict
+stopped-instance verification. This proves a required rejection in that
+configuration; the live inner stderr was not preserved. The configuration
+repair and early check now cover both verifier scopes.
+
+The normal continuation cleanup deleted all three guests automatically.
+Each saved DESTROY succeeded, each binding is ABSENT, and scoped backend
+inventory is empty. The same run's remaining negative-test controls were
+cleaned through their saved plan. Fresh detached-copy accounting proves zero
+charges, no actionable operations and a false production drain result.
+Completion SHA-256:
+`aee6c9e958401b1e985e1b4442e877aad8571703a0df27d3cdb43bbd0654e006`.
+Normal 301 startup passed, with no database restore. Resume SHA-256:
+`3b364ff454634b0efebb31dbf43878ed80c06a2733cd0b11ef3618d69ca73a0e`.
+Independent review passed. No failed qualification was replayed.
