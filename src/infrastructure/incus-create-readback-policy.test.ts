@@ -14,7 +14,7 @@ const cleanup: SandboxOperation = {
   id: "cleanup", bindingId: "binding", kind: "DESTROY", generation: 1, state: "JOURNALED",
   idempotencyScope: "qualification", idempotencyKey: "cleanup", payloadHash: "cleanup-hash",
   providerOperationId: null, requestPayload: { expectedGeneration: 1 }, errorCode: null, errorMessage: null,
-  reconcileOrder: null, createdAt: timestamp, updatedAt: timestamp,
+  reconcileOrder: null, dispatchedAt: null, createdAt: timestamp, updatedAt: timestamp,
 };
 const create: SandboxOperation = { ...cleanup, id: "create", kind: "CREATE", state: "OUTCOME_UNKNOWN",
   providerOperationId: "saved-provider-create", idempotencyKey: "create", requestPayload: {} };

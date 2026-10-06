@@ -528,6 +528,7 @@ export class SandboxController {
       if (unsettled) return { operation, binding, claimed: false, rejection: null };
       const [claimed] = await transaction.update(sandboxOperations).set({
         state: "DISPATCHING",
+        dispatchedAt: sql`COALESCE(${sandboxOperations.dispatchedAt}, clock_timestamp())`,
         updatedAt: new Date(),
       }).where(and(
         eq(sandboxOperations.id, operation.id),

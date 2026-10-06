@@ -61,6 +61,8 @@ export async function up(database: MigrationDb): Promise<void> {
   await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS preset_digest TEXT`);
   await database.execute(sql`ALTER TABLE sandbox_bindings ADD COLUMN IF NOT EXISTS effective_settings_digest TEXT`);
   await database.execute(sql`ALTER TABLE provider_sandbox_operations ADD COLUMN IF NOT EXISTS reconcile_order BIGINT`);
+  // Legacy in-flight rows retain a null anchor; never grant them a fresh budget.
+  await database.execute(sql`ALTER TABLE provider_sandbox_operations ADD COLUMN IF NOT EXISTS dispatched_at TIMESTAMPTZ`);
   await database.execute(sql`CREATE SEQUENCE IF NOT EXISTS sandbox_reconcile_order_seq`);
   await database.execute(sql`CREATE INDEX IF NOT EXISTS idx_provider_sandbox_operations_reconcile_order
     ON provider_sandbox_operations(state, reconcile_order)`);

@@ -74,6 +74,75 @@ afterEach(async () => {
 });
 
 describe("SandboxController durable dispatch", () => {
+  test("dispatch anchor survives a database reopen and unknown outcome without renewal", async () => {
+    const { db, pglite } = await setup("anchor-reopen");
+    const provider = new FakeProvider();
+    provider.dispatchHandler = async () => { throw new Error("lost before native acceptance"); };
+    const controller = new SandboxController(db, provider);
+    const b = await binding(controller, "anchor-reopen");
+    const operation = await controller.requestAndDispatch({ bindingId: b.id, kind: "START", generation: 1,
+      idempotencyScope: "lifecycle", idempotencyKey: "crash", payload: { expectedGeneration: 1 } });
+    expect(operation.state).toBe("OUTCOME_UNKNOWN");
+    expect(operation.dispatchedAt).toBeInstanceOf(Date);
+    const data = await pglite.dumpDataDir();
+    const reopenedDatabase = new PGlite({ loadDataDir: data });
+    databases.push(reopenedDatabase);
+    await reopenedDatabase.waitReady;
+    const reopenedProvider = new FakeProvider();
+    const reopened = new SandboxController(drizzle(reopenedDatabase, { schema }), reopenedProvider);
+    await reopened.reconcile();
+    const saved = (await reopened.getOperation(operation.id))!;
+    expect(saved.state).toBe("OUTCOME_UNKNOWN");
+    expect(saved.dispatchedAt).toEqual(operation.dispatchedAt);
+    expect(reopenedProvider.dispatches).toHaveLength(0);
+    expect(reopenedProvider.inspections).toHaveLength(1);
+  });
+
+  test("idempotent migration leaves legacy dispatch anchors null and preserves existing anchors", async () => {
+    const { db, pglite } = await setup("anchor-migration");
+    const controller = new SandboxController(db, new FakeProvider());
+    const b = await binding(controller, "anchor-migration");
+    const operation = await controller.journalOperation({ bindingId: b.id, kind: "START", generation: 1,
+      idempotencyScope: "lifecycle", idempotencyKey: "legacy", payload: {} });
+    await pglite.exec("ALTER TABLE provider_sandbox_operations DROP COLUMN dispatched_at");
+    await addSandboxController(db);
+    await addSandboxController(db);
+    expect((await controller.getOperation(operation.id))!.dispatchedAt).toBeNull();
+    const anchor = new Date("2001-01-01T00:00:00Z");
+    await db.update(schema.sandboxOperations).set({ dispatchedAt: anchor, state: "DISPATCHING" }).where(eq(schema.sandboxOperations.id, operation.id));
+    await addSandboxController(db);
+    expect((await controller.getOperation(operation.id))!.dispatchedAt).toEqual(anchor);
+    await controller.reconcile();
+    expect((await controller.getOperation(operation.id))!.dispatchedAt).toEqual(anchor);
+    expect((await controller.getOperation(operation.id))!.state).toBe("OUTCOME_UNKNOWN");
+  });
+
+  test("first dispatch anchors an aged queue once across competing claims and reopened controllers", async () => {
+    const { db } = await setup("dispatch-anchor");
+    const provider = new FakeProvider();
+    const controller = new SandboxController(db, provider);
+    const b = await binding(controller, "dispatch-anchor");
+    const operation = await controller.journalOperation({ bindingId: b.id, kind: "START", generation: 1,
+      idempotencyScope: "lifecycle", idempotencyKey: "aged", payload: { expectedGeneration: 1 } });
+    const queuedAt = new Date("2000-01-01T00:00:00Z");
+    await db.update(schema.sandboxOperations).set({ createdAt: queuedAt }).where(eq(schema.sandboxOperations.id, operation.id));
+    expect((await controller.getOperation(operation.id))!.dispatchedAt).toBeNull();
+    provider.dispatchHandler = async request => {
+      const saved = (await controller.getOperation(request.operationId))!;
+      expect(saved.dispatchedAt).toBeInstanceOf(Date);
+      expect(saved.dispatchedAt!.getTime()).toBeGreaterThan(queuedAt.getTime());
+      return { outcome: "PENDING", providerOperationId: "native-operation" };
+    };
+    await Promise.all([controller.reconcile(), new SandboxController(db, provider).reconcile()]);
+    const saved = (await controller.getOperation(operation.id))!;
+    expect(provider.dispatches).toHaveLength(1);
+    expect(saved.createdAt).toEqual(queuedAt);
+    const reopened = new SandboxController(db, provider);
+    await reopened.inspectOperation(operation.id);
+    expect((await reopened.getOperation(operation.id))!.dispatchedAt).toEqual(saved.dispatchedAt);
+    expect(provider.dispatches).toHaveLength(1);
+  });
+
   test("a host terminal observation uses the same atomic journal and binding settlement", async () => {
     const { db } = await setup("host-terminal");
     const provider = new FakeProvider();

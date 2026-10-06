@@ -139,6 +139,7 @@ export const sandboxOperations = pgTable("provider_sandbox_operations", {
   errorCode: text("error_code"),
   errorMessage: text("error_message"),
   reconcileOrder: bigint("reconcile_order", { mode: "bigint" }),
+  dispatchedAt: timestamp("dispatched_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
