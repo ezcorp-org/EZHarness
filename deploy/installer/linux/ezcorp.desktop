@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Name=EZCorp
+GenericName=AI workspace
+Comment=Chat with persistent memory, running on your own computer
+Exec=ezcorp launch
+Icon=ezcorp
+# A terminal shows download progress on first launch and lets the installer
+# ask for interactive trusted-local confirmation. The runner-mode command can
+# ask for that confirmation later, if the user changes modes.
+Terminal=true
+Categories=Office;Network;
+Keywords=AI;chat;LLM;assistant;
+StartupNotify=false

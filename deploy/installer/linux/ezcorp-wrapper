@@ -1,0 +1,5 @@
+#!/bin/sh
+# /usr/bin/ezcorp. A wrapper rather than a symlink on purpose: the installer
+# core finds its compose files and vendored compose binary beside ITSELF
+# (dirname of BASH_SOURCE), and a symlink would make that /usr/bin.
+exec /usr/lib/ezcorp/ezcorp "$@"
