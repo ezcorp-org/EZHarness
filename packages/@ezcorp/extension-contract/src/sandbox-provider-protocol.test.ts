@@ -81,6 +81,30 @@ function protocolManifest(): ExtensionManifestV4 {
 }
 
 describe("sandbox.provider.v1 canonical protocol", () => {
+  test("lists protected names as metadata without authorizing their contents", () => {
+    const entry = (path: string) => ({ path, kind: "directory", revision: "revision-entry", sizeBytes: 0, executable: false });
+    for (const name of [".git", "node_modules"]) {
+      const input = { ...scope, path: "repo", limit: 1 };
+      const result = { ok: true, directoryRevision: "revision-dir", entries: [entry(`repo/${name}`)],
+        nextCursor: { sandboxId: scope.sandboxId, directoryRevision: "revision-dir", afterName: name } };
+      expect(validateSandboxProviderMethodExchange("files.list", input, result).result).toEqual(result);
+      expect(validateSandboxProviderMethodValue("files.list", "input", { ...input, cursor: result.nextCursor })).toBeTruthy();
+      for (const operation of ["files.stat", "files.list", "files.readRange", "files.writeAtomic", "files.remove"] as const) {
+        expect(() => validateSandboxProviderMethodValue(operation, "input", { ...input, path: `repo/${name}` })).toThrow();
+      }
+      expect(() => validateSandboxProviderMethodValue("files.list", "result", {
+        ...result, entries: [entry(`repo/${name}/config`)],
+      })).toThrow("Unsafe file path");
+      expect(() => validateSandboxProviderMethodExchange("files.list", input, {
+        ...result, entries: [entry(`other/${name}`)],
+      })).toThrow();
+    }
+    for (const path of ["repo/../.git", "repo/.git/../.git", "repo/__proto__", "repo/.git\\config"]) {
+      expect(() => validateSandboxProviderMethodValue("files.list", "result", {
+        ok: true, directoryRevision: "revision-dir", entries: [entry(path)],
+      })).toThrow();
+    }
+  });
   test("publishes exactly the frozen v1 methods through one validator and accepts their canonical manifest schemas", () => {
     expect(SANDBOX_PROVIDER_OPERATIONS).toEqual([
       "describe", "preflight",

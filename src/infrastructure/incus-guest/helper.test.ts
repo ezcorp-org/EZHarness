@@ -4,6 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { decodeGuestResponse, encodeGuestRequest, GUEST_HELPER_SHA256, GUEST_HELPER_VERSION, GuestProtocolError } from "./protocol";
+import { validateSandboxProviderMethodValue } from "@ezcorp/extension-contract";
 
 const helper = new URL("./helper.py", import.meta.url).pathname;
 let fixture = "";
@@ -82,6 +83,29 @@ test("list cursor is bound to sandbox and directory revision", async () => {
   await writeFile(join(directory, "c"), "c");
   expect((await invoke("file.list", { path: "listing", limit: 1,
     cursor: first.nextCursor })).error.kind).toBe("revision_conflict");
+});
+
+test("actual Git repository listing satisfies the production provider contract", async () => {
+  const directory = join(workspace, "git-repository");
+  await mkdir(directory);
+  const fixtureEnv = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+  const initialized = Bun.spawn(["git", "init", "--quiet", directory], { env: fixtureEnv });
+  expect(await initialized.exited).toBe(0);
+  await writeFile(join(directory, "proof.txt"), "fixture\n");
+  const reply = await invoke("file.list", { path: "git-repository", limit: 100 });
+  const { version: _version, ...result } = reply;
+  expect(() => validateSandboxProviderMethodValue("files.list", "result", result)).not.toThrow();
+  expect(reply.entries.map((entry: any) => entry.path)).toEqual(["git-repository/.git", "git-repository/proof.txt"]);
+  const first = await invoke("file.list", { path: "git-repository", limit: 1 });
+  const { version: _firstVersion, ...firstResult } = first;
+  expect(() => validateSandboxProviderMethodValue("files.list", "result", firstResult)).not.toThrow();
+  expect(first.nextCursor.afterName).toBe(".git");
+  expect(() => validateSandboxProviderMethodValue("files.list", "input", {
+    providerId: "incus", connectionId: "connection-1", sandboxId: "sandbox-a", rpcDeadlineMs: Date.now() + 30_000,
+    path: "git-repository", limit: 1, cursor: first.nextCursor,
+  })).not.toThrow();
+  const next = await invoke("file.list", { path: "git-repository", limit: 1, cursor: first.nextCursor });
+  expect(next.entries.map((entry: any) => entry.path)).toEqual(["git-repository/proof.txt"]);
 });
 
 test("file mutation replay returns the saved result without repeating the effect", async () => {

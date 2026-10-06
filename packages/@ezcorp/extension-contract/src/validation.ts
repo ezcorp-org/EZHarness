@@ -978,7 +978,16 @@ function requireSandboxPath(value: unknown, label: string, rootAllowed = false):
 
 function requireSandboxBasename(value: unknown, label: string): asserts value is string {
   if (typeof value !== "string" || value.includes("/")) throw new ContractError("INVALID_PATH", `Invalid sandbox ${label}`);
-  requireSandboxPath(value, label);
+  requireSandboxListingPath(value, label);
+}
+
+/** Listing names and cursor positions do not authorize access to protected contents. */
+function requireSandboxListingPath(value: unknown, label: string): asserts value is string {
+  if (typeof value !== "string") throw new ContractError("INVALID_PATH", `Invalid sandbox ${label}`);
+  const parts = value.split("/");
+  const name = parts.at(-1);
+  if (name === ".git" || name === "node_modules") parts[parts.length - 1] = "_".repeat(name.length);
+  requireSandboxPath(parts.join("/"), label);
 }
 
 function isDirectChildPath(directory: string, candidate: string): boolean {
@@ -1037,8 +1046,9 @@ function validateSandboxInspection(sandbox: Record<string, unknown>): void {
   requireUtcTimestamp(sandbox.observedAt, "inspection observedAt");
 }
 
-function validateFileStat(file: Record<string, unknown>, rootAllowed = false): void {
-  requireSandboxPath(file.path, "file path", rootAllowed);
+function validateFileStat(file: Record<string, unknown>, rootAllowed = false, listing = false): void {
+  if (listing) requireSandboxListingPath(file.path, "file path");
+  else requireSandboxPath(file.path, "file path", rootAllowed);
   requireStableId(file.revision, "file revision");
   requireSafeInteger(file.sizeBytes, "file size");
   if (file.kind !== "file" && file.sizeBytes !== 0) throw new ContractError("INVALID_PROVIDER_VALUE", "Non-file entries must report zero bytes");
@@ -1099,7 +1109,7 @@ function validateSandboxFileValue(operation: SandboxProtocolOperation, direction
     requireStableId(record.directoryRevision, "directory revision");
     const entries = record.entries as Record<string, unknown>[];
     if (entries.length > sandboxProtocolMaximums.listItems) throw new ContractError("INVALID_PROVIDER_VALUE", "File list result exceeds its absolute limit");
-    for (const entry of entries) validateFileStat(entry);
+    for (const entry of entries) validateFileStat(entry, false, true);
     if (new Set(entries.map(entry => entry.path)).size !== entries.length) throw new ContractError("INVALID_PROVIDER_VALUE", "File list contains duplicate paths");
     const cursor = record.nextCursor as Record<string, unknown> | undefined;
     if (cursor) { requireStableId(cursor.sandboxId, "file cursor sandboxId"); requireStableId(cursor.directoryRevision, "file cursor revision"); requireSandboxBasename(cursor.afterName, "file cursor name"); }
