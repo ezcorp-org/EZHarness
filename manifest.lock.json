@@ -237,14 +237,14 @@
       "entrypoint": "extension.ts",
       "files": 30,
       "bytes": 292060,
-      "sourceDigest": "22273cdb3245da1f6cf7abd25854e089249144b8e825e89063bc201ff580a686"
+      "sourceDigest": "f2b082f92f5b8a8a7af5490a68822e825338351d19425b35446f07dce0396c2c"
     },
     "substack-pilot": {
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
       "bytes": 237947,
-      "sourceDigest": "cf69a5fb0e03a564180e9f7ebcfececd206aa71c32af2ac530420d11ade08eb7"
+      "sourceDigest": "37caf336edaa8132fcfe989f523f2f2fd13509b870d7dac2ab2b69024d66fcb7"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -356,7 +356,7 @@
       "entrypoint": "extension.ts",
       "files": 53,
       "bytes": 398412,
-      "sourceDigest": "2303ef90c686b3c6b8d9a2aed5bcb397db99b39a3619afef32372eeaa2d9b849"
+      "sourceDigest": "8f613ddc71aca8ae637cec3d18c884963ec9ff0af1b793140425036166115535"
     }
   }
 }
