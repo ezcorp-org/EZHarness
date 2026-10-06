@@ -1,4 +1,6 @@
 import importlib.util
+from contextlib import contextmanager, nullcontext, redirect_stdout
+import io
 import dis
 import json
 import os
@@ -68,6 +70,7 @@ if mode == phase + ':oversize': print('x' * 65537); sys.exit(0)
 if mode == phase + ':reuse': receipt['identity'] = {key: key+'-1' for key in identity}
 print(json.dumps(receipt))
 ''')
+        self.hook_code = compile(self.hook.read_text(), str(self.hook), "exec")
 
     def config(self, mode="normal", cycles=1):
         command = [sys.executable, str(self.hook), mode, json.dumps(flow.CHECKS)]
@@ -75,21 +78,29 @@ print(json.dumps(receipt))
                 "cycles": cycles, "timeoutSeconds": 1, "faultCycles": [cycles] if cycles > 1 else [],
                 "hooks": {phase: command for phase in flow.PHASES}}
 
+    def serialized_hook(self, command, output, _error, _timeout):
+        # Reuse the exact hook fixture and its serialized bytes. Only process
+        # creation is replaced; flow.run still validates and persists receipts.
+        captured = io.StringIO()
+        code = 0
+        with patch.object(sys, "argv", command[1:]), redirect_stdout(captured):
+            try:
+                exec(self.hook_code, {"__name__": "__main__"})
+            except SystemExit as exited:
+                code = exited.code
+        output.write(captured.getvalue().encode())
+        return code
+
+    @contextmanager
+    def receipt_boundary(self):
+        # Receipt validation does not depend on child scheduling or disk flush
+        # latency. Real process and durable ordering tests below cover both.
+        with patch.object(flow, "supervise", side_effect=self.serialized_hook) as invoke, patch.object(flow.os, "fsync") as sync:
+            yield invoke, sync
+
     def test_ten_serial_distinct_cycles(self):
-        def scripted_receipt(command, output, _error, _timeout):
-            request = json.loads(Path(command[-1]).read_text())
-            artifact = Path(command[-1]).with_suffix(".artifact")
-            artifact.write_text(json.dumps(request))
-            phase = request["phase"]
-            identity = {} if phase in ("preflight", "denied_credentials") else {key: f"{key}-{request['cycle']}" for key in flow.IDENTITY}
-            receipt = {"requestId": request["requestId"], "cycle": request["cycle"], "phase": phase,
-                       "state": "SUCCEEDED", "identity": identity,
-                       "checks": {key: True for key in flow.CHECKS[phase]},
-                       "artifacts": [{"path": str(artifact), "sha256": flow.hashlib.sha256(artifact.read_bytes()).hexdigest()}]}
-            output.write(json.dumps(receipt).encode())
-            return 0
         # This test checks sequencing; the dedicated durability test uses real fsync.
-        with patch.object(flow, "supervise", scripted_receipt), patch.object(flow.os, "fsync") as sync:
+        with self.receipt_boundary() as (_invoke, sync):
             result = flow.run(self.config(cycles=10), self.base / "run")
         self.assertGreater(sync.call_count, 0)
         self.assertEqual(result["state"], "SUCCEEDED")
@@ -102,6 +113,13 @@ print(json.dumps(receipt))
         guests = [json.loads((self.base / "run" / f"{cycle:02d}-create.stdout").read_text())["identity"] for cycle in range(1, 11)]
         for key in flow.IDENTITY:
             self.assertEqual(len({guest[key] for guest in guests}), 10)
+        command = self.config()["hooks"]["preflight"] + [str(self.base / "run" / "01-preflight-request.json")]
+        with tempfile.TemporaryFile() as actual, tempfile.TemporaryFile() as scripted:
+            self.assertEqual(flow.supervise(command, actual, actual, 1), 0)
+            self.assertEqual(self.serialized_hook(command, scripted, scripted, 1), 0)
+            actual.seek(0)
+            scripted.seek(0)
+            self.assertEqual(actual.read(), scripted.read())
 
     def test_virtual_workspace_absence_uses_truthful_subprocess_evidence(self):
         config = {**self.config(), "routingProof": "virtual-workspace-absence"}
@@ -139,7 +157,8 @@ print(json.dumps(receipt))
                 root = self.base / mode.replace(":", "-")
                 config = {**self.config(mode), "routingProof": "virtual-workspace-absence"}
                 with self.assertRaises(ValueError):
-                    flow.run(config, root)
+                    with self.receipt_boundary():
+                        flow.run(config, root)
                 self.assertEqual(json.loads((root / "journal.json").read_text())["state"], "BLOCKED")
 
     def test_unproved_step_blocks_without_next_effect_or_replay(self):
@@ -148,12 +167,17 @@ print(json.dumps(receipt))
             with self.subTest(mode=mode):
                 root = self.base / mode
                 phase = "checkout" if mode in ("identity", "incomplete") else "create" if mode == "unknown" else "preflight"
-                with self.assertRaises(Exception):
+                # Exit and timeout exercise the real supervisor. Receipt-only
+                # refusals use the same fixture at its serialized process boundary.
+                boundary = nullcontext() if mode in ("fail", "timeout") else self.receipt_boundary()
+                with boundary as observed, self.assertRaises(Exception):
                     flow.run(self.config(phase + ":" + mode, cycles=10), root)
                 journal = json.loads((root / "journal.json").read_text())
                 self.assertEqual(journal["state"], "BLOCKED")
                 self.assertEqual(journal["steps"][-1]["phase"], phase)
                 self.assertEqual(journal["steps"][-1]["state"], "ADMITTED")
+                if observed is not None:
+                    self.assertEqual(observed[0].call_count, len(journal["steps"]))
                 before = (root / "journal.json").read_bytes()
                 with self.assertRaises(FileExistsError):
                     flow.run(self.config(), root)
@@ -162,12 +186,14 @@ print(json.dumps(receipt))
 
     def test_precreate_identity_is_rejected(self):
         with self.assertRaises(ValueError):
-            flow.run(self.config("preflight:preidentity"), self.base / "preidentity")
+            with self.receipt_boundary():
+                flow.run(self.config("preflight:preidentity"), self.base / "preidentity")
 
     def test_final_accounting_failure_prevents_next_guest(self):
         root = self.base / "accounting"
         with self.assertRaises(ValueError):
-            flow.run(self.config("accounting:false", cycles=10), root)
+            with self.receipt_boundary():
+                flow.run(self.config("accounting:false", cycles=10), root)
         journal = json.loads((root / "journal.json").read_text())
         self.assertEqual(len(journal["steps"]), len(flow.phases_for(self.config(cycles=10), 1)))
         self.assertFalse((root / "02-preflight-request.json").exists())
@@ -211,7 +237,7 @@ print(json.dumps(receipt))
     def test_cli_reports_sanitized_success_and_failure(self):
         config_path = self.base / "config.json"
         config_path.write_text(json.dumps(self.config()))
-        with patch.object(sys, "argv", ["driver", "--config", str(config_path), "--output", str(self.base / "cli")]):
+        with self.receipt_boundary(), patch.object(sys, "argv", ["driver", "--config", str(config_path), "--output", str(self.base / "cli")]):
             self.assertEqual(flow.main(), 0)
             self.assertEqual(flow.main(), 2)
 
@@ -231,7 +257,8 @@ print(json.dumps(receipt))
     def test_reused_guest_is_not_credited_twice(self):
         root = self.base / "reuse"
         with self.assertRaises(ValueError):
-            flow.run(self.config("create:reuse", cycles=2), root)
+            with self.receipt_boundary():
+                flow.run(self.config("create:reuse", cycles=2), root)
         journal = json.loads((root / "journal.json").read_text())
         self.assertEqual((journal["steps"][-1]["cycle"], journal["steps"][-1]["phase"]), (2, "create"))
         self.assertFalse((root / "02-checkout-request.json").exists())
