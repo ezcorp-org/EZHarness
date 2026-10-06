@@ -2,6 +2,16 @@ import type { HarnessClient } from "@ezcorp/harness-client";
 import { resolveBundledExtensions } from "../../src/extensions/bundled";
 import { bundledInstallationId } from "../../src/extensions/bundled-bootstrap";
 import type { InstallationState, LifecycleOperation } from "../../src/extensions/v4/types";
+import {
+  BUNDLED_BOOTSTRAP_POLICY,
+  type BundledBootstrapPolicy,
+  BundledBootstrapProgress,
+  type BundledBootstrapVerdict,
+  bundledBootstrapSafetyNetMs,
+  describeBundledBootstrapVerdict,
+  isPendingBuildState,
+  latestBuild,
+} from "./bundled-bootstrap-progress";
 
 export type BundledBootstrapState = {
   bootstrapInstallations: number;
@@ -13,8 +23,9 @@ export type BundledBootstrapState = {
 
 export type BundledBootstrapObserver = {
   startedAt: string;
-  deadlineAt: string;
-  deadlineMs: number;
+  policy: BundledBootstrapPolicy;
+  /** The safety net for this chain (bundled-bootstrap-progress.ts: builds x slowest step + one lease). */
+  safetyNetMs: number;
 };
 
 export type BundledBootstrapObservation = BundledBootstrapState & {
@@ -32,10 +43,11 @@ export type BundledBootstrapObservation = BundledBootstrapState & {
 
 export class BundledBootstrapTimeoutError extends Error {
   constructor(
-    public readonly snapshot: BundledBootstrapObservation | null,
+    public readonly snapshot: BundledBootstrapObservation,
     public readonly observer: BundledBootstrapObserver,
+    public readonly verdict: BundledBootstrapVerdict,
   ) {
-    super("Candidate bootstrap did not reach a terminal runner state before the deadline: " + JSON.stringify({ observer, snapshot }));
+    super(`Candidate bootstrap did not reach a terminal runner state: ${describeBundledBootstrapVerdict(verdict)}: ${JSON.stringify({ observer, verdict, snapshot })}`);
     this.name = "BundledBootstrapTimeoutError";
   }
 }
@@ -74,42 +86,51 @@ function summarizeBootstrap(
   };
 }
 
-export async function waitForBundledBootstrap(client: HarnessClient, options: { requireObservedPending?: boolean; deadlineMs?: number } = {}): Promise<BundledBootstrapObservation> {
-  const startedAtMs = Date.now();
-  const deadlineMs = options.deadlineMs ?? 360_000;
-  const deadline = startedAtMs + deadlineMs;
+export type BundledBootstrapWaitOptions = {
+  requireObservedPending?: boolean;
+  policy?: BundledBootstrapPolicy;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<unknown>;
+};
+
+/** Wait until every bundled build is terminal. The wait ends early only on NO PROGRESS (bundled-bootstrap-progress.ts). */
+export async function waitForBundledBootstrap(client: HarnessClient, options: BundledBootstrapWaitOptions = {}): Promise<BundledBootstrapObservation> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? Bun.sleep;
+  const policy = options.policy ?? BUNDLED_BOOTSTRAP_POLICY;
+  const startedAtMs = now();
+  const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
   const observer: BundledBootstrapObserver = {
     startedAt: new Date(startedAtMs).toISOString(),
-    deadlineAt: new Date(deadline).toISOString(),
-    deadlineMs,
+    policy,
+    safetyNetMs: bundledBootstrapSafetyNetMs(bootstrapNames.size, policy),
   };
   const requireObservedPending = options.requireObservedPending ?? true;
-  const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
+  const progress = new BundledBootstrapProgress(startedAtMs, policy);
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
-  let latest: BundledBootstrapObservation | null = null;
-  while (Date.now() < deadline) {
+  for (;;) {
     const extensions = await client.listExtensions();
     const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
     const lifecycleInstallations = [...bootstrapNames].map(name => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
     const lifecycleIds = lifecycleInstallations.map(({ installationId }) => installationId);
     if (new Set(lifecycleIds).size !== bootstrapNames.size) throw new Error("Candidate bootstrap installation IDs are not unique");
     const states = await Promise.all(lifecycleInstallations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
-    const installationStates = states.map(({ state }) => state);
-    const pending = installationStates.reduce((count, state) => count + Object.values(state.operations).filter(operation => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
+    const pending = states.reduce((count, { state }) => count + Object.values(state.operations).filter(operation => isPendingBuildState(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
     if (pending > 0 && initialPending === 0) initialPending = pending;
-    latest = summarizeBootstrap(states, initialPending, maximumPending, observer);
+    const latest = summarizeBootstrap(states, initialPending, maximumPending, observer);
     if (pending > 0) {
       idleChecks = 0;
     } else if (!requireObservedPending || initialPending > 0) {
       idleChecks += 1;
       if (idleChecks === 2) return latest;
     }
-    await Bun.sleep(1_000);
+    const verdict = progress.observe(states.map(({ name, state }) => latestBuild(name, state)), now());
+    if (verdict) throw new BundledBootstrapTimeoutError(latest, observer, verdict);
+    await sleep(1_000);
   }
-  throw new BundledBootstrapTimeoutError(latest, observer);
 }
 
 export function requireBundledBootstrapVerified(state: BundledBootstrapState, point: string): void {
