@@ -486,14 +486,14 @@ export class ProviderRpcBroker {
       .where(observationBindingPredicate(scope.settlementScope)).limit(1);
     if (!owned) throw new IncusTransportError("permission", "Incus binding changed before effect admission");
     if (this.observationsStopped || journal.createdAt.getTime() + OBSERVATION_BUDGET_MS <= this.observationNow()) {
-      throw new IncusTransportError("unavailable", "Incus host observation budget is unavailable");
+      throw new IncusTransportError("unavailable", "Incus host observation budget is unavailable", { effect: "none" });
     }
     const existing = this.observations.get(id);
     if (existing) {
       if (existing.scope !== scope) throw new IncusTransportError("permission", "Incus journal already has a host observation owner");
       return existing;
     }
-    if (this.observations.size >= OBSERVATION_LIMIT) throw new IncusTransportError("unavailable", "Incus host observation capacity is full");
+    if (this.observations.size >= OBSERVATION_LIMIT) throw new IncusTransportError("unavailable", "Incus host observation capacity is full", { effect: "none" });
     const slot = { scope, expiresAt: journal.createdAt.getTime() + OBSERVATION_BUDGET_MS, abort: new AbortController() };
     this.observations.set(id, slot);
     return slot;

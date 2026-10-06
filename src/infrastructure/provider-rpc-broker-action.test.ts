@@ -7,7 +7,9 @@ import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { eq } from "drizzle-orm";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { createIncusTransportCommand } from "../../extensions/incus-sandbox/adapter";
+import { createIncusTransportCommand, IncusSandboxAdapter } from "../../extensions/incus-sandbox/adapter";
+import { createHostIncusTransport } from "../../extensions/incus-sandbox/host-transport";
+import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import { IncusTransportError, type IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
@@ -504,15 +506,15 @@ test("host observer capacity is reserved before effects and shutdown drains all 
   }
   const refused = await fixture.add(32);
   expect(await broker.request(refused, { command: refused.expectedCommand }, refused.expectedCommand.deadlineMs))
-    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+    .toMatchObject({ ok: false, error: { kind: "unavailable", effect: "none" } });
   expect(effects).toBe(32);
   await broker.stopObservations();
   await Promise.all(calls);
   expect(await broker.request(refused, { command: refused.expectedCommand }, refused.expectedCommand.deadlineMs))
-    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+    .toMatchObject({ ok: false, error: { kind: "unavailable", effect: "none" } });
   const afterStop = await fixture.add(33);
   expect(await broker.request(afterStop, { command: afterStop.expectedCommand }, afterStop.expectedCommand.deadlineMs))
-    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+    .toMatchObject({ ok: false, error: { kind: "unavailable", effect: "none" } });
   expect(effects).toBe(32);
   expect((await fixture.db.select().from(schema.sandboxOperations)).every(row => row.state === "DISPATCHING")).toBe(true);
 });
@@ -525,12 +527,45 @@ test("observer budget is absolute from journal creation and never resets on a ne
     () => ({ request: async () => { effects++; return { ok: true }; } }), undefined,
     { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("Expired journal must not resolve"); } });
   expect(await broker.request(expired, { command: expired.expectedCommand }, expired.expectedCommand.deadlineMs))
-    .toMatchObject({ ok: false, error: { kind: "unavailable" } });
+    .toMatchObject({ ok: false, error: { kind: "unavailable", effect: "none" } });
   await fixture.db.update(schema.sandboxOperations).set({ providerOperationId: "incus-create-11111111-1111-4111-8111-111111111111", state: "OUTCOME_UNKNOWN" });
   await broker.resumePendingObservations();
   expect(effects).toBe(0);
   expect((await fixture.db.select().from(schema.sandboxOperations))[0]?.state).toBe("OUTCOME_UNKNOWN");
   await broker.stopObservations();
+});
+
+test("expired queued cleanup stays a known pretransport failure through broker, worker adapter and controller", async () => {
+  const fixture = await observationFixture();
+  const action = await fixture.add(0, 600_000, true);
+  const operationId = action.expectedCommand.idempotency!.requestId;
+  // A normal qualification fixture is not the operator-owned lost-reply case.
+  await fixture.db.update(schema.sandboxOperations).set({ state: "JOURNALED",
+    idempotencyKey: "qual-primary-expired:destroy", requestPayload: { expectedGeneration: 2 } })
+    .where(eq(schema.sandboxOperations.id, operationId));
+  await fixture.db.update(schema.sandboxBindings).set({ observedState: "STOPPED" })
+    .where(eq(schema.sandboxBindings.id, action.bindingId));
+  let effects = 0;
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    () => ({ request: async () => { effects++; throw new Error("Expired dispatch reached backend"); } }), undefined,
+    { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("Expired dispatch resolved release"); } });
+  let workerResult: unknown;
+  const provider = new IncusSandboxProviderDispatcher({ call: async (scope, _method, input) => {
+    expect(scope.generation).toBe(1);
+    expect(input.expectedGeneration).toBe(2);
+    const prepared = { ...action, expectedCommand: createIncusTransportCommand("lifecycle.destroy", input, action.config) };
+    const transport = createHostIncusTransport({ call: async (_name, value) =>
+      await broker.request(prepared, value as Record<string, unknown>, scope.deadlineMs) });
+    workerResult = await new IncusSandboxAdapter(action.config, transport).invoke("lifecycle.destroy", input);
+    return workerResult;
+  } });
+  try {
+    const outcome = await new SandboxController(fixture.db, provider).executeOperation(operationId);
+    expect(workerResult).toMatchObject({ ok: false, error: { code: "UNAVAILABLE", retryable: true } });
+    expect(outcome).toMatchObject({ state: "FAILED", errorCode: "UNAVAILABLE", providerOperationId: null });
+    expect(effects).toBe(0);
+    expect(outcome.requestPayload).toEqual({ expectedGeneration: 2 });
+  } finally { await broker.stopObservations(); }
 });
 
 test("an accepted observer refreshes authority independently and revoked release preserves the journal", async () => {
