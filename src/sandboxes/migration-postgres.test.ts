@@ -273,12 +273,20 @@ test("cleanup recovery serializes admission and advancement across PostgreSQL co
     expect(recoveryCount).toEqual([{ count: 1 }]);
     const tombstone = (await first.getBinding(binding.id))!.tombstonedAt;
     expect(tombstone).toBeInstanceOf(Date);
-    expect((await first.executeOperation(recovery.stopOperationId)).state).toBe("OUTCOME_UNKNOWN");
-    expect((await second.executeOperation(recovery.stopOperationId)).state).toBe("OUTCOME_UNKNOWN");
+    await client`UPDATE provider_sandbox_operations SET created_at = '2000-01-01T00:00:00Z' WHERE id = ${recovery.stopOperationId}`;
+    expect((await first.getOperation(recovery.stopOperationId))?.dispatchedAt).toBeNull();
+    await Promise.all([first, second].map(controller => controller.executeOperation(recovery.stopOperationId)));
+    expect((await first.getOperation(recovery.stopOperationId))?.state).toBe("OUTCOME_UNKNOWN");
+    expect((await second.getOperation(recovery.stopOperationId))?.state).toBe("OUTCOME_UNKNOWN");
+    const anchor = (await first.getOperation(recovery.stopOperationId))!.dispatchedAt;
+    expect(anchor).toBeInstanceOf(Date);
+    expect(anchor).not.toEqual(new Date("2000-01-01T00:00:00Z"));
+    expect((await second.getOperation(recovery.stopOperationId))?.dispatchedAt).toEqual(anchor);
     expect(dispatched).toEqual([failed.id, recovery.stopOperationId]);
     await expect(second.advanceCleanupRecovery(recovery.id, 3)).rejects.toThrow("stop is not verified");
     expect((await second.inspectOperation(recovery.stopOperationId)).state).toBe("SUCCEEDED");
     expect(inspected).toEqual([recovery.stopOperationId]);
+    expect((await second.getOperation(recovery.stopOperationId))?.dispatchedAt).toEqual(anchor);
     expect(await first.getBinding(binding.id)).toMatchObject({ desiredState: "ABSENT", observedState: "STOPPED",
       tombstonedAt: tombstone, cleanupConfirmedAt: null });
     const advanced = await Promise.all([first, second].map(controller => controller.advanceCleanupRecovery(recovery.id, 3)));
