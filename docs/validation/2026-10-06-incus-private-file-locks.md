@@ -1,6 +1,6 @@
 # Incus private file locks — 6 October 2026
 
-Status: source fix verified. A replacement guest image and a new live workflow are still required.
+Status: source fix and replacement image verified. The updated provider and a new EZHarness-native workflow are still required.
 
 ## Observed failure
 
@@ -24,4 +24,8 @@ The root regression also passed with deliberately invalid inherited `GIT_DIR` an
 
 ## Remaining gate
 
-Build a new pinned image through the existing builder. Verify actual helper mutations and clean Git in a guest from that image. Then publish the reviewed provider revision through v4, verify its connection and repeat the EZHarness-native workflow. Final repository gates and ten lifecycle tests remain open.
+The existing builder produced image `f0b8298a2e61667625f28824fd85b1b06b469c731b31a625fff6972b71460545`, alias `ezharness-guest-0-1-4`. A separate bounded guest from that exact image ran the pinned helper as UID/GID 1000. Actual hello, revision-checked write and removal succeeded, and both Git commits left a clean checkout. Independent review verified the build result, image retention, helper result and cleanup. Both temporary instances and their volumes were absent afterward.
+
+The build started despite a failed local control-plane memory guard because the launch used a separate tool call. Initial measurements were not saved, so the original guard cannot be called a pass. Fresh measurements showed ample sandbox-server headroom and no memory pressure; the original bounded build continued once. The later canary saved its measurements and used a single sequential caller that refused admission on a failed guard. This execution error remains part of the evidence.
+
+Publish the reviewed provider revision through v4, verify its connection and repeat the EZHarness-native workflow. The direct image canary does not replace that workflow. Final repository gates and ten lifecycle tests remain open.
