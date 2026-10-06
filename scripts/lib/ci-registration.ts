@@ -73,19 +73,24 @@ export function runsBackendSuites(run: string): boolean {
 export interface PreparedStep { readonly where: string; readonly preceded: boolean }
 
 /**
- * Each run step that `needs(run, step)` selects, with whether `action` (a `uses:` value) ran earlier in the same job.
+ * Each run step that `needs(run, step)` selects, with whether a step that `prepares` selects ran earlier in the same job.
  * The step is passed too, for a selection that also reads the step's `env` (a host-shard coverage step sets SHARD_INDEX).
  */
-export function stepsNeedingAction(workflows: readonly Workflow[], action: string, needs: (run: string, step: WorkflowStep) => boolean): PreparedStep[] {
+export function stepsNeedingPreparation(workflows: readonly Workflow[], prepares: (step: WorkflowStep) => boolean, needs: (run: string, step: WorkflowStep) => boolean): PreparedStep[] {
   const found: PreparedStep[] = [];
   for (const { file, jobs } of workflows) {
     for (const [id, job] of Object.entries(jobs)) {
       let installed = false;
       for (const step of job.steps ?? []) {
-        if (step.uses === action) installed = true;
+        if (prepares(step)) installed = true;
         if (step.run !== undefined && needs(step.run, step)) found.push({ where: `${file} ${id} (${job.name ?? id}): ${step.name ?? step.run.split("\n")[0]}`, preceded: installed });
       }
     }
   }
   return found;
+}
+
+/** {@link stepsNeedingPreparation} where the preparation is a shared action (a `uses:` value). */
+export function stepsNeedingAction(workflows: readonly Workflow[], action: string, needs: (run: string, step: WorkflowStep) => boolean): PreparedStep[] {
+  return stepsNeedingPreparation(workflows, (step) => step.uses === action, needs);
 }

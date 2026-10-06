@@ -6,7 +6,7 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
-import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerError, sha256, validateFiles } from "./core";
+import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
@@ -319,6 +319,7 @@ export class PodmanRunner implements Runner {
     if (!info.host?.security?.rootless || !info.host?.security?.seccompEnabled || info.host?.cgroupVersion !== "v2" || !["memory", "cpu", "pids"].every(controller => info.host.cgroupControllers.includes(controller))) throw new RunnerError("isolation_unavailable", "Rootless Podman, seccomp, and cgroup v2 CPU/memory/PID controls are required");
     const profile = JSON.parse(await readFile(this.seccompPath, "utf8"));
     if (profile.defaultAction !== "SCMP_ACT_ERRNO") throw new RunnerError("seccomp_unavailable", "An explicit deny-by-default seccomp profile is required");
+    await this.requireImage();
     const probeId = `probe-${randomUUID()}`;
     const limits = { ...executionLimits, memoryBytes: 128 * 1024 ** 2, cpuMillis: 500, pids: 32 };
     try {
@@ -329,6 +330,19 @@ export class PodmanRunner implements Runner {
     const orphans = await command(this.podman, ["ps", "-a", "--filter", `label=io.ezcorp.runner=${sha256(this.root)}`, "--format={{.Names}}"]);
     for (const name of orphans.trim().split("\n").filter(Boolean)) {
       if (/^ez-v4-[a-f0-9-]+$/.test(name)) await command(this.podman, ["rm", "--force", "--time=0", name]);
+    }
+  }
+  /**
+   * The pinned image is a host precondition, not a download: every guest starts
+   * with `--pull=never`. A host that never provisioned it is refused here by
+   * name, before the probe's own run would fail on podman's "image not known"
+   * under whatever warnings podman printed (W4H-12).
+   */
+  private async requireImage(): Promise<void> {
+    try { await command(this.podman, ["image", "exists", this.image]); }
+    catch (error) {
+      if (error instanceof RunnerCommandError && error.exitCode === 1) throw new RunnerError("image_unavailable", `Runner image ${this.image} is not in the local image store. Guests start with --pull=never, so the host must provision the image first (CI: bash scripts/setup-extension-runner-ci.sh --install).`);
+      throw error;
     }
   }
   /** The in-guest program that reports the applied kernel controls, in the guest's own language. */

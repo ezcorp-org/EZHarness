@@ -88,10 +88,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      # W4H-12: the storage step runs a real Podman guest (factory-host-launch). The runner starts guests
-      # with --pull=never, so this job provisions it like every other Podman-guest job: the pinned image,
-      # conmon, cgroup delegation and the user session (scripts/podman-guest-job-registration.test.ts).
-      - run: bash scripts/setup-extension-runner-ci.sh --install
 
       # Targeted, single-file run (safe per scripts/test.sh — only the
       # unbounded root glob deadlocks). The file's PGlite suite runs too and

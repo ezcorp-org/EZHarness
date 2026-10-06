@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { type Workflow, missingProducers, missingThresholds, readWorkflows, runsBackendSuites, stepsNeedingAction, workflowCommands } from "./ci-registration.ts";
+import { type Workflow, type WorkflowStep, missingProducers, missingThresholds, readWorkflows, runsBackendSuites, stepsNeedingAction, stepsNeedingPreparation, workflowCommands } from "./ci-registration.ts";
 
 describe("workflowCommands", () => {
   test("removes whole-line and trailing comments", () => {
@@ -111,5 +111,31 @@ describe("stepsNeedingAction", () => {
       jobs: { shard: { steps: [{ uses: ACTION }, { name: "Shard", run: "needs-tool", env: { SHARD_INDEX: "0" } }] }, legs: { steps: [{ name: "Legs", run: "needs-tool", env: { LEGS_ONLY: "1" } }] } },
     }];
     expect(stepsNeedingAction(sharded, ACTION, (run, step) => needs(run) && step.env?.SHARD_INDEX !== undefined)).toEqual([{ where: "w.yml shard (shard): Shard", preceded: true }]);
+  });
+});
+
+describe("stepsNeedingPreparation", () => {
+  // W4H-12: a preparation can be a run step (scripts/setup-extension-runner-ci.sh), not only a shared action.
+  const prepares = (step: WorkflowStep) => step.run?.includes("setup-tool") === true;
+  const needs = (run: string) => run.includes("needs-tool");
+
+  test("a run step prepares the steps after it in its job, and not the steps before it", () => {
+    const workflows: Workflow[] = [{
+      file: "w.yml",
+      text: "",
+      jobs: {
+        ready: { steps: [{ run: "bash setup-tool --install" }, { name: "After", run: "needs-tool" }] },
+        late: { steps: [{ name: "Before", run: "needs-tool" }, { run: "bash setup-tool --install" }] },
+      },
+    }];
+    expect(stepsNeedingPreparation(workflows, prepares, needs)).toEqual([
+      { where: "w.yml ready (ready): After", preceded: true },
+      { where: "w.yml late (late): Before", preceded: false },
+    ]);
+  });
+
+  test("a step that both prepares and needs counts as prepared, as an action step does", () => {
+    const workflows: Workflow[] = [{ file: "w.yml", text: "", jobs: { one: { steps: [{ name: "Both", run: "setup-tool && needs-tool" }] } } }];
+    expect(stepsNeedingPreparation(workflows, prepares, needs)).toEqual([{ where: "w.yml one (one): Both", preceded: true }]);
   });
 });
