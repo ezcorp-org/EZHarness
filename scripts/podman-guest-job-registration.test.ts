@@ -7,7 +7,8 @@
  * tests/postgres/factory-host-launch.test.ts in db-postgres.yml's external-postgres job, which never ran that
  * script; the test failed on podman's "image not known" behind a hidden rejection. This guard reads what each step
  * RUNS: every `./…test.ts` file a step names, followed through its relative imports, and it fails by name when a
- * file that starts a Podman guest runs in a job that did not provision the runner first.
+ * file that starts a Podman guest runs in a job that did not provision the runner first, or when a job runs the
+ * setup after its factory-storage start. Fixture: scripts/fixtures/podman-guest-jobs/base (db-postgres.yml at 1bc5f63c7).
  *
  * Its reach: test files a workflow step names. Suites a step runs through a pool script (scripts/test-coverage.sh
  * with EZCORP_RUN_PODMAN_TESTS) are not named in the workflow, and those jobs already provision the runner.
@@ -15,10 +16,12 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type Workflow, readWorkflows, stepsNeedingPreparation } from "./lib/ci-registration.ts";
+import { type Workflow, type WorkflowStep, readWorkflows, stepsNeedingPreparation, workflowCommands } from "./lib/ci-registration.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const RUNNER_SETUP = "bash scripts/setup-extension-runner-ci.sh --install";
+const STORAGE_ACTION = "./.github/actions/factory-storage";
+const FIXTURES = join(REPO_ROOT, "scripts/fixtures/podman-guest-jobs");
 /** A source that constructs a Podman runner, or defines one. */
 const STARTS_GUEST = /\bnew \w*PodmanRunner\(|\bextends PodmanRunner\b/;
 /** Relative static and dynamic import specifiers. Bare package specifiers are not followed. */
@@ -57,20 +60,77 @@ export function namedTestFiles(run: string): string[] {
   return [...run.matchAll(/(?:^|[\s'"])\.\/([\w@./-]+\.test\.ts)\b/g)].map((match) => match[1]!);
 }
 
+/** A step that runs the runner setup as a command; a `#` comment that only mentions it does not count. */
+export function runsRunnerSetup(step: WorkflowStep): boolean {
+  return step.run !== undefined && workflowCommands(step.run).includes(RUNNER_SETUP);
+}
+
 /** Every step that runs a Podman-guest test, with whether the runner setup ran before it in its job. */
 export function podmanGuestSteps(workflows: readonly Workflow[], read: Read = readRepo) {
-  return stepsNeedingPreparation(
-    workflows,
-    (step) => step.run?.includes(RUNNER_SETUP) === true,
-    (run) => namedTestFiles(run).some((file) => startsPodmanGuest(file, read)),
-  );
+  return stepsNeedingPreparation(workflows, runsRunnerSetup, (run) => namedTestFiles(run).some((file) => startsPodmanGuest(file, read)));
+}
+
+/** Every unprepared Podman-guest step, by name. */
+export function unpreparedGuestSteps(workflows: readonly Workflow[], read: Read = readRepo): string[] {
+  return podmanGuestSteps(workflows, read).filter((step) => !step.preceded).map((step) => `${step.where}: runs a Podman-guest test before '${RUNNER_SETUP}'`);
+}
+
+/**
+ * Jobs that start the factory storage AND run the runner setup must run the setup first. The setup exports the user
+ * session (XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS) for later steps, and a storage start between them once moved
+ * podman off it (the action's own XDG_RUNTIME_DIR export, removed in W4H-12); the order keeps that class of override out.
+ */
+export function setupAfterStorage(workflows: readonly Workflow[]): string[] {
+  const findings: string[] = [];
+  for (const { file, jobs } of workflows) {
+    for (const [id, job] of Object.entries(jobs)) {
+      const steps = job.steps ?? [];
+      const storage = steps.findIndex((step) => step.uses === STORAGE_ACTION && step.with?.command === "up");
+      const setup = steps.findIndex(runsRunnerSetup);
+      if (storage >= 0 && setup > storage) findings.push(`${file} ${id}: '${RUNNER_SETUP}' runs after the factory-storage start`);
+    }
+  }
+  return findings;
+}
+
+/** Everything the guard refuses in a set of workflows. */
+export function podmanGuestFindings(workflows: readonly Workflow[], read: Read = readRepo): string[] {
+  return [...unpreparedGuestSteps(workflows, read), ...setupAfterStorage(workflows)];
 }
 
 describe("Podman-guest tests run only where the runner is provisioned (W4H-12)", () => {
   const workflows = readWorkflows(join(REPO_ROOT, ".github/workflows"));
 
-  test("every step that runs a Podman-guest test runs after the runner setup in its job", () => {
-    expect(podmanGuestSteps(workflows).filter((step) => !step.preceded).map((step) => step.where)).toEqual([]);
+  test("every step that runs a Podman-guest test runs after the runner setup in its job, and the setup precedes storage", () => {
+    expect(podmanGuestFindings(workflows)).toEqual([]);
+  });
+
+  test("the base workflow of hosted run 37383355593 is red by name; the committed one is green", () => {
+    // The fixture is db-postgres.yml at 1bc5f63c7, byte for byte.
+    expect(podmanGuestFindings(readWorkflows(join(FIXTURES, "base")))).toEqual([
+      `db-postgres.yml external-postgres (External Postgres (Bun.sql)): Run factory storage and private services on Postgres and S3: runs a Podman-guest test before '${RUNNER_SETUP}'`,
+    ]);
+    expect(podmanGuestFindings(workflows.filter(({ file }) => file === "db-postgres.yml"))).toEqual([]);
+  });
+
+  test("the committed workflow with the setup moved after the storage start, or only in a comment, is red by name", () => {
+    const committed = workflows.find(({ file }) => file === "db-postgres.yml")!;
+    const job = committed.jobs["external-postgres"]!;
+    const steps = job.steps ?? [];
+    const setup = steps.findIndex(runsRunnerSetup);
+    const storage = steps.findIndex((step) => step.uses === STORAGE_ACTION && step.with?.command === "up");
+    expect(setup).toBeGreaterThan(-1);
+    expect(storage).toBeGreaterThan(setup);
+    const without = steps.filter((_, index) => index !== setup);
+    const moved = [...without.slice(0, storage), steps[setup]!, ...without.slice(storage)];
+    const late: Workflow = { ...committed, jobs: { "external-postgres": { ...job, steps: moved } } };
+    expect(podmanGuestFindings([late])).toEqual([
+      `db-postgres.yml external-postgres: '${RUNNER_SETUP}' runs after the factory-storage start`,
+    ]);
+    const commented = steps.map((step, index) => (index === setup ? { ...step, run: `# ${RUNNER_SETUP}\necho provisioned` } : step));
+    expect(podmanGuestFindings([{ ...committed, jobs: { "external-postgres": { ...job, steps: commented } } }])).toEqual([
+      `db-postgres.yml external-postgres (External Postgres (Bun.sql)): Run factory storage and private services on Postgres and S3: runs a Podman-guest test before '${RUNNER_SETUP}'`,
+    ]);
   });
 
   test("the guard sees the step that failed in hosted run 37383355593", () => {
