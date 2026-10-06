@@ -1,5 +1,28 @@
 # Active completion — 3 October 2026
 
+## Current next steps — 6 October, source 85916e640; installed app 4e0007a85
+
+- [x] Install and verify app 50a; preserve the live database and clear the prior guest.
+- [x] Pass live qualification on 50a with the existing provider; clean all fixtures and verify zero reservations.
+- [x] Reproduce the remaining listing failure in the actual old compiled provider; prove the rebuilt artifact accepts directory metadata and still denies protected content.
+- [x] Complete independent review and exact human approval of provider release 5d7208c2 (digest cddb67a6); activate through v4 only. Active generation 6 confirmed.
+- [x] Verify the new connection setup through the approved read-only policy. All 15 resource steps matched and were skipped. Normal policy and controls pass; all old/current rollback timers are closed.
+- [x] Capture current metadata without changing live database bytes; verify zero charges, clear drain and actual new connection 911cae3a / release 5d7208c2.
+- [x] Install both new verifier scopes through the reviewed guarded update; prove selected readiness before live qualification.
+- [x] Register the reviewed capacity for the new connection; execute qualification 7700 once and preserve its failed memory-inspection result. Guest cleanup, zero accounting, and normal app resume pass independent review.
+- [x] Fix bounded read-only process observation: actual baseline RED, 21 focused tests passed, independent review passed, changed measured lines covered. Integrated as 4e0007a85. The original deadline and all memory, terminal-state and health assertions remain enforced.
+- [x] Build, verify and install 4e0007a85 through the guarded host-only update. Independent review confirms database preservation before startup, healthy new app, exact manifest 40537c5d and unchanged current configuration. Both selected verifier readiness checks and live qualification remain pending.
+- [ ] Qualify the new provider and connection; prove the normal native-agent Git, test and Compose workflow.
+- [ ] Complete ten numbered lifecycle tests with fresh qualification between clean batches, restart, denial and cleanup recovery evidence.
+- [x] Close ee417 cleanup through ordinary reconciliation and deletion; independently prove current-connection and global zero charges, absent guests, normal app state, and preserved historical compensation.
+- [x] Compare matched backend memory diagnostics B and C. B passed with delayed observation; C missed the unchanged deadline with immediate observation. Both were independently reviewed and fully cleaned. These diagnostics are not qualification evidence.
+- [x] Fix the new Sharp security advisory with version 0.35.5 in both dependency trees; verify native image transforms, audit, tests and independent review. Source 67f0547cc is not yet deployed.
+- [x] Integrate isolated Python helper startup without privileged file reads or changed deadlines. Actual old transport regression failed; corrected transport passed 12 tests, including a real helper call. Matched immediate-polling diagnostic D returned terminal success in 3.182 seconds. This is candidate evidence, not app qualification.
+- [ ] Build and install the final combined source, then repeat actual qualification and native workflows.
+- [ ] Run fresh final-source local and hosted gates; record final cleanup and remaining product scope limits. The interrupted 4e0007 full gate is superseded and incomplete.
+
+Review: fast 4e0007 passed (27,628 backend tests, zero failures); that revision is pushed to draft PR #303. Its full local gate was stopped as superseded after the Sharp advisory required a source update; no full pass is claimed. Provider 5d7208c2 and connection 911cae3a remain current. Qualification ee417 failed after four status timeouts exhausted the original 110-second deadline. The guest later stopped naturally and ordinary cleanup completed; no force command ran. Global and current-connection accounting are now independently verified as zero. In matched operator diagnostics, B killed the load after 2.6 seconds with no early helper observations; C with immediate observations killed it after 130.6 seconds, outside the unchanged deadline and before cleanup. B also killed Docker, so neither result proves A05 or a healthy full workload. Both diagnostic guests and their volumes are absent. Privileged daemon file reads have a parent-symlink escape risk; review a safe observation design before changing production. No new qualification, native workflow or ten-cycle pass is claimed. No merge or public release is authorized.
+
 ## Current execution checklist — 6 October 2026
 
 - [x] Close attempt 5 with a supported signed no-admission abort; independently verify complete app, certificate, configuration, key and timer restoration. Preserve the failed packet and ledger.

@@ -1,5 +1,11 @@
 # Lessons
 
+- After a provider connection changes, verify every accounting query's actual scope, not just the updated launcher metadata. Keep historical recovery assertions, then separately check the current connection and global reservation totals. Test old-scope zero with nonzero new-scope and unrelated-scope charges; both must block a global-zero claim.
+
+- Before a guarded setup window, run the actual Bun CLI read-only preflight as the managed service user with an explicit reviewed PATH and the normal app working directory. Direct ssh-keygen/ssh canaries passed while Bun could not spawn them from the inaccessible developer worktree. A controlled cwd-only comparison proved the cause; binary availability alone was insufficient.
+
+- A shared contract fix can be bundled into an immutable provider artifact. Inspect the active compiled artifact before claiming an app-only update fixes the provider. Prove old failure and corrected behavior through both compiled entrypoints; rebuild, review and activate through the existing release lifecycle.
+
 - Healthy app startup does not prove operator scope is current. Compare the selected approved connection and release with every independent verifier before allocation, including receipt and fault verification. Audit the full configuration dependency set together; fixing only the first rejection leaves later stale settings undetected. Restoring older configuration bytes can restore a stale scope.
 - A guest init PID can belong to a child service cgroup. Verify the exact outer container group before interpreting memory limits, and capture the full fixed diagnostic set during the load rather than after cleanup.
 - Keep accounting assertions complete but serialize only bounded validated facts. Full historical proof objects can exceed transport limits even when every check passes.
