@@ -1,6 +1,6 @@
 # Lessons
 
-- Healthy app startup does not prove operator receipt scope is current. Compare the selected approved connection and release with the receipt verifier before allocation; restoring older configuration bytes can restore a stale scope.
+- Healthy app startup does not prove operator scope is current. Compare the selected approved connection and release with every independent verifier before allocation, including receipt and fault verification. Audit the full configuration dependency set together; fixing only the first rejection leaves later stale settings undetected. Restoring older configuration bytes can restore a stale scope.
 - A guest init PID can belong to a child service cgroup. Verify the exact outer container group before interpreting memory limits, and capture the full fixed diagnostic set during the load rather than after cleanup.
 - Keep accounting assertions complete but serialize only bounded validated facts. Full historical proof objects can exceed transport limits even when every check passes.
 - Keep each live qualification's negative-test plan ID and digest in its run receipt. Cleanup of a later combined plan does not clean earlier applied controls. Verify all applied plans reach supported cleanup before calling the provider drained; never infer this from empty backend inventory alone.
