@@ -1,6 +1,6 @@
 export const GUEST_HELPER_VERSION = "0.1.0";
 export const GUEST_HELPER_PATH = "/usr/local/libexec/ezharness-helper";
-export const GUEST_HELPER_SHA256 = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
+export const GUEST_HELPER_SHA256 = "caa4fd5ce201ada90d89477f2f5dab47af7f78bb6cba805433b668e53fbb47bd";
 export const GUEST_HELPER_MAX_REQUEST_BYTES = 2 * 1024 * 1024;
 export const GUEST_HELPER_MAX_RESPONSE_BYTES = 2 * 1024 * 1024;
 

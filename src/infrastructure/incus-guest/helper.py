@@ -183,7 +183,7 @@ def journaled_file_mutation(action, request, state_root, root):
             require(prior.get("state") == "complete", "internal", "File mutation outcome is unknown")
             return prior["result"]
         atomic_json(journal, {"digest": request_digest, "state": "pending"})
-        result = file_action(action, request, root)
+        result = file_action(action, request, root, state_root)
         atomic_json(journal, {"digest": request_digest, "state": "complete", "result": result})
         return result
     finally:
@@ -205,7 +205,51 @@ def live_process(state):
     return type(pid) is int and proc_start(pid) == state.get("pidStart")
 
 
-def file_action(action, request, root):
+def file_lock(state_root, request, parent, name):
+    require(isinstance(state_root, str), message="File lock state is required")
+    state = directory_fd(state_root, [])
+    mutations = locks = None
+    try:
+        info = os.fstat(state)
+        require(info.st_uid == os.geteuid() and not info.st_mode & 0o022,
+                "permission", "Unsafe helper state directory")
+        try:
+            os.mkdir("mutations", mode=0o700, dir_fd=state)
+        except FileExistsError:
+            pass
+        mutations = os.open("mutations", os.O_RDONLY | os.O_DIRECTORY | NOFOLLOW, dir_fd=state)
+        info = os.fstat(mutations)
+        require((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) ==
+                (os.geteuid(), os.getegid(), 0o700), "permission", "Unsafe mutation directory")
+        try:
+            os.mkdir("file-locks", mode=0o700, dir_fd=mutations)
+        except FileExistsError:
+            pass
+        locks = os.open("file-locks", os.O_RDONLY | os.O_DIRECTORY | NOFOLLOW, dir_fd=mutations)
+        info = os.fstat(locks)
+        require((info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) ==
+                (os.geteuid(), os.getegid(), 0o700), "permission", "Unsafe file lock directory")
+        target = os.fstat(parent)
+        identity = json.dumps([request["sandboxId"], target.st_dev, target.st_ino, name],
+                              separators=(",", ":"))
+        identifier = hashlib.sha256(identity.encode()).hexdigest()
+        lock = os.open(identifier, os.O_CREAT | os.O_RDWR | NOFOLLOW, 0o600, dir_fd=locks)
+        info = os.fstat(lock)
+        if not (stat.S_ISREG(info.st_mode) and info.st_nlink == 1 and
+                (info.st_uid, info.st_gid, stat.S_IMODE(info.st_mode)) ==
+                (os.geteuid(), os.getegid(), 0o600)):
+            os.close(lock)
+            raise Failure("permission", "Unsafe file lock")
+        return lock
+    finally:
+        if locks is not None:
+            os.close(locks)
+        if mutations is not None:
+            os.close(mutations)
+        os.close(state)
+
+
+def file_action(action, request, root, state_root=None):
     path = request.get("path")
     names = parts(path)
     if action == "file.stat":
@@ -276,9 +320,9 @@ def file_action(action, request, root):
         require(expected is None or isinstance(expected, str))
         parent, name = parent_fd(root, path)
         temp = f".ezh-{uuid.uuid4().hex}"
-        lock = os.open(f".ezh-lock-{hashlib.sha256(name.encode()).hexdigest()}",
-                       os.O_CREAT | os.O_RDWR | NOFOLLOW, 0o600, dir_fd=parent)
+        lock = None
         try:
+            lock = file_lock(state_root, request, parent, name)
             fcntl.flock(lock, fcntl.LOCK_EX)
             try:
                 existing = os.stat(name, dir_fd=parent, follow_symlinks=False)
@@ -309,14 +353,15 @@ def file_action(action, request, root):
                 except FileNotFoundError:
                     pass
         finally:
-            os.close(lock)
+            if lock is not None:
+                os.close(lock)
             os.close(parent)
     if action == "file.remove":
         require(names, message="Cannot remove workspace root")
         parent, name = parent_fd(root, path)
-        lock = os.open(f".ezh-lock-{hashlib.sha256(name.encode()).hexdigest()}",
-                       os.O_CREAT | os.O_RDWR | NOFOLLOW, 0o600, dir_fd=parent)
+        lock = None
         try:
+            lock = file_lock(state_root, request, parent, name)
             fcntl.flock(lock, fcntl.LOCK_EX)
             info = os.stat(name, dir_fd=parent, follow_symlinks=False)
             require(request.get("expectedRevision") == revision(info), "revision_conflict", "File changed")
@@ -329,7 +374,8 @@ def file_action(action, request, root):
             os.fsync(parent)
             return {"removedRevision": revision(info)}
         finally:
-            os.close(lock)
+            if lock is not None:
+                os.close(lock)
             os.close(parent)
     raise Failure("unsupported", "Unknown file action")
 

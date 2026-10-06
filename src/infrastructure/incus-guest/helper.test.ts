@@ -27,8 +27,12 @@ async function invoke(action: string, payload: Record<string, unknown> = {}) {
     ...(["process.start", "file.writeAtomic", "file.remove"].includes(action)
       ? { requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID() } : {}), ...payload };
   const code = `import importlib.util,json,sys\nspec=importlib.util.spec_from_file_location('helper',sys.argv[1])\nh=importlib.util.module_from_spec(spec)\nspec.loader.exec_module(h)\ntry:\n print(json.dumps(h.handle(json.loads(sys.stdin.read()),sys.argv[2],sys.argv[3])))\nexcept h.Failure as e:\n print(json.dumps({'version':h.VERSION,'ok':False,'error':{'kind':e.kind,'message':str(e)}}))\nexcept OSError as e:\n print(json.dumps({'version':h.VERSION,'ok':False,'error':{'kind':'not_found' if e.errno==2 else 'invalid','message':str(e)}}))`;
-  const child = Bun.spawn(["python3", "-c", code, helper, workspace, state], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
-  child.stdin.write(JSON.stringify(request));
+  return python(code, [helper, workspace, state], JSON.stringify(request));
+}
+
+async function python(code: string, args: string[], input = "") {
+  const child = Bun.spawn(["python3", "-c", code, ...args], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  child.stdin.write(input);
   child.stdin.end();
   const [output, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   expect(exit, error).toBe(0);
@@ -106,6 +110,105 @@ test("actual Git repository listing satisfies the production provider contract",
   })).not.toThrow();
   const next = await invoke("file.list", { path: "git-repository", limit: 1, cursor: first.nextCursor });
   expect(next.entries.map((entry: any) => entry.path)).toEqual(["git-repository/proof.txt"]);
+});
+
+test("file writes and removals leave a real Git checkout clean after commit", async () => {
+  const directory = join(workspace, "git-locks");
+  await mkdir(directory);
+  const git = async (...args: string[]) => {
+    const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")));
+    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", "-C", directory, ...args], { env, stdout: "pipe", stderr: "pipe" });
+    const [output, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(exit, error).toBe(0);
+    return output.trim();
+  };
+  await git("init", "--initial-branch=main");
+  await git("config", "user.name", "Fixture");
+  await git("config", "user.email", "fixture@example.invalid");
+  await writeFile(join(directory, "proof.txt"), "before\n");
+  await git("add", "proof.txt");
+  await git("commit", "-m", "seed");
+  const before = await invoke("file.stat", { path: "git-locks/proof.txt" });
+  const changed = await invoke("file.writeAtomic", { path: "git-locks/proof.txt", expectedRevision: before.file.revision,
+    dataBase64: Buffer.from("after\n").toString("base64"), byteLength: 6, executable: false });
+  expect(changed.ok).toBe(true);
+  await git("add", "proof.txt");
+  await git("commit", "-m", "native edit");
+  expect(await git("status", "--porcelain", "--untracked-files=all")).toBe("");
+  expect((await invoke("file.remove", { path: "git-locks/proof.txt", expectedRevision: changed.revision, recursive: false })).ok).toBe(true);
+  await git("add", "-u");
+  await git("commit", "-m", "native remove");
+  expect(await git("status", "--porcelain", "--untracked-files=all")).toBe("");
+});
+
+test("path locks retain stable alias identity and refuse unsafe state, directory and leaf metadata", async () => {
+  const result = await python(`import fcntl,hashlib,importlib.util,json,os,stat,tempfile
+from pathlib import Path
+spec=importlib.util.spec_from_file_location('helper',__import__('sys').argv[1]);h=importlib.util.module_from_spec(spec);spec.loader.exec_module(h)
+with tempfile.TemporaryDirectory() as d:
+ root=Path(d);state=root/'state';state.mkdir(mode=0o700);repo=root/'repo';repo.mkdir();other=root/'other';other.mkdir()
+ a=os.open(repo,os.O_RDONLY|os.O_DIRECTORY);alias=os.open(repo,os.O_RDONLY|os.O_DIRECTORY);b=os.open(other,os.O_RDONLY|os.O_DIRECTORY)
+ req={'sandboxId':'sandbox-a'};one=h.file_lock(str(state),req,a,'proof.txt');two=h.file_lock(str(state),req,alias,'proof.txt');different=h.file_lock(str(state),req,b,'proof.txt');sandbox=h.file_lock(str(state),{'sandboxId':'sandbox-b'},a,'proof.txt');info=os.fstat(one)
+ assert (info.st_dev,info.st_ino)==(os.fstat(two).st_dev,os.fstat(two).st_ino)
+ assert info.st_ino not in (os.fstat(different).st_ino,os.fstat(sandbox).st_ino)
+ fcntl.flock(one,fcntl.LOCK_EX)
+ try:fcntl.flock(two,fcntl.LOCK_EX|fcntl.LOCK_NB);raise AssertionError('alias did not serialize')
+ except BlockingIOError:pass
+ os.close(one);fcntl.flock(two,fcntl.LOCK_EX|fcntl.LOCK_NB);os.close(two)
+ stable=h.file_lock(str(state),req,a,'proof.txt');assert os.fstat(stable).st_ino==info.st_ino;os.close(stable);os.close(different);os.close(sandbox)
+ assert list(repo.iterdir())==[]
+ locks=state/'mutations'/'file-locks';target=os.fstat(a);key=hashlib.sha256(json.dumps(['sandbox-a',target.st_dev,target.st_ino,'proof.txt'],separators=(',',':')).encode()).hexdigest();leaf=locks/key
+ leaf.unlink();outside=root/'outside';outside.write_text('secret');leaf.symlink_to(outside)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('symlink accepted')
+ except OSError:pass
+ assert outside.read_text()=='secret';leaf.unlink();os.link(outside,leaf);outside.chmod(0o600)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('hardlink accepted')
+ except h.Failure:pass
+ leaf.unlink();locks.chmod(0o755)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('public lock directory accepted')
+ except h.Failure:pass
+ locks.chmod(0o700)
+ for item in locks.iterdir():item.unlink()
+ locks.rmdir();locks.symlink_to(other)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('lock directory symlink accepted')
+ except OSError:pass
+ assert list(other.iterdir())==[];locks.unlink();mutations=state/'mutations';mutations.chmod(0o755)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('public mutations accepted')
+ except h.Failure:pass
+ mutations.chmod(0o700);mutations.rmdir();mutations.symlink_to(other)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('mutations symlink accepted')
+ except OSError:pass
+ assert list(other.iterdir())==[];mutations.unlink();state.chmod(0o777)
+ try:h.file_lock(str(state),req,a,'proof.txt');raise AssertionError('writable state accepted')
+ except h.Failure:pass
+ denial=root/'denial-state';denial.mkdir(mode=0o700);(denial/'mutations').mkdir(mode=0o700);(denial/'mutations'/'file-locks').symlink_to(other)
+ import base64,pwd
+ request={'version':'0.1.0','user':pwd.getpwuid(os.geteuid()).pw_name,'sandboxId':'sandbox-a','action':'file.writeAtomic','requestId':'denied-request','idempotencyKey':'denied-key','path':'denied.txt','expectedRevision':None,'dataBase64':base64.b64encode(b'x').decode(),'byteLength':1,'executable':False}
+ try:h.handle(request,str(repo),str(denial));raise AssertionError('unsafe lock performed mutation')
+ except OSError:pass
+ assert not (repo/'denied.txt').exists()
+ journal=list((denial/'mutations').glob('*.json'));assert len(journal)==1 and json.loads(journal[0].read_bytes())['state']=='pending'
+ try:h.handle(request,str(repo),str(denial));raise AssertionError('pending mutation was retried')
+ except h.Failure as error:assert error.kind=='internal'
+ assert not (repo/'denied.txt').exists()
+ os.close(a);os.close(alias);os.close(b)
+ print(json.dumps({'aliasSerialized':True,'stableInode':True,'sandboxAndParentSeparated':True,'symlinkAndHardlinkDenied':True,'privateMetadataRequired':True,'workspaceUntouched':True,'failedMutationPendingAndNotRetried':True}))
+`, [helper]);
+  expect(result).toEqual({ aliasSerialized: true, stableInode: true, sandboxAndParentSeparated: true,
+    symlinkAndHardlinkDenied: true, privateMetadataRequired: true, workspaceUntouched: true,
+    failedMutationPendingAndNotRetried: true });
+});
+
+test("different mutation identities serialize CAS writes to the same path", async () => {
+  const path = "concurrent-cas.txt";
+  await writeFile(join(workspace, path), "original");
+  const before = await invoke("file.stat", { path });
+  const replies = await Promise.all(["first", "other"].map(data => invoke("file.writeAtomic", {
+    path, expectedRevision: before.file.revision, dataBase64: Buffer.from(data).toString("base64"), byteLength: data.length, executable: false,
+  })));
+  expect(replies.filter(reply => reply.ok)).toHaveLength(1);
+  expect(replies.filter(reply => reply.error?.kind === "revision_conflict")).toHaveLength(1);
+  expect(["first", "other"]).toContain(await readFile(join(workspace, path), "utf8"));
 });
 
 test("file mutation replay returns the saved result without repeating the effect", async () => {
