@@ -637,3 +637,7 @@
   final rendered artifacts through every actual consumer validator in a
   no-effect fixture. Internally consistent mocks and allowed-field checks do
   not prove that the generator and its consumers agree.
+- When the user directs continuation through a working end-to-end result,
+  keep that outcome active across recovery and test milestones. A prepared
+  packet or a partial pass is not completion. Carry existing authorization
+  forward and finish independent work while required external input is pending.

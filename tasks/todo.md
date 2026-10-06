@@ -3015,12 +3015,40 @@ is `docs/validation/2026-10-05-c7-batched-recovery-attempt2-review.md`.
 - [x] Seal fresh attempt 3 and independently verify all files, prior ledgers,
   current target, actual bootstrap, and all final consumer validators.
   Execution index: `7871965a544a75e14579bbc8a2a3f653094fa627cb2f3950389640a640b2a208`.
-- [ ] Obtain exact approval of
+- [x] Obtain exact approval of
   `docs/validation/2026-10-05-c7-canonical-key-attempt3-review.md`.
+  User instructed continuation through E2E in direct reply to the pending
+  packet approval. Root authorized that shown one-attempt packet, SHA
+  `f37463a56809dc3aea9f0f3da264c1405d8a6f0f390a64d2c418ae690509bdc6`.
 - [ ] Wait for source gate completion, recheck headroom, then execute only the
   approved attempt and independently verify its result and access restoration.
 
 Review: attempt 2 is fully closed and cannot be replayed. The canonical-byte
 fix passed actual final consumers and independent review. Actual timer, SSH,
 cleanup and expiry remain unproved for attempt 3; no clock or server effects
-have started. Fast source gate is running on integrated `11620ca6e`.
+have started at preparation close. The fast source gate subsequently passed
+on integrated `11620ca6e`.
+
+### Active end-to-end completion goal
+
+- [x] Complete supported fast gate on `11620ca6e`: exit 0; backend 27,585/0,
+  web Bun 3,638/0, web Vitest 7,727/0, production build and all early gates pass.
+  All owned test workers are stopped.
+- [x] Complete one authorized attempt 3 and independently verify its result.
+  Actual timer/key/freeze checks passed. The continuation refused a review
+  receipt aged 46,895 ms at persistence; no certificate fence or admission.
+  Independent access/app restoration passed. Receipts 208–209 prove the
+  fallback timer ended and all access is absent; c7 cleanup is still outstanding.
+- [ ] Implement and verify atomic first review publication plus a bounded
+  operator waiter; preserve the existing 30-second freshness and all deadlines.
+- [ ] Complete the missing 17-phase E2E operator-hook bridge and exact
+  post-failed-DESTROY reservation proof through a stopped database clone.
+- [ ] Install the current verified app in the isolated environment.
+- [ ] Pass current live qualification and the normal UI/native-agent workflow.
+- [ ] Pass ten repeatable feature lifecycles, restart, denied access, cleanup
+  recovery, and final backend/database accounting.
+- [ ] Complete final full repository gate, hosted checks and evidence update.
+
+Do not stop at a prepared packet or a partial test result. Continue authorized
+work until the selected deployment works end to end. Keep source and live
+evidence separate; do not merge or publicly release without authorization.
