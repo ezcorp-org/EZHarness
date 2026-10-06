@@ -13,6 +13,17 @@ export class RunnerError extends Error {
   }
 }
 
+/**
+ * A control command that exited nonzero. The code stays `command_failed`; the
+ * exit status is kept so a caller can tell a defined answer (`podman image
+ * exists` exits 1 for "absent") from a failure, whatever podman wrote to stderr.
+ */
+export class RunnerCommandError extends RunnerError {
+  constructor(message: string, public readonly exitCode: number | null) {
+    super("command_failed", message);
+  }
+}
+
 const publicHostErrors: Record<string, string> = {
   STATE_CONFLICT: "State changed; reload before retrying.",
   INVALID_LOCK: "Invalid stable lock key or request.",
@@ -95,6 +106,6 @@ export async function capture(child: ChildProcessWithoutNullStreams, timeoutMs: 
     child.stdout.on("data", chunk => collect(chunk, false));
     child.stderr.on("data", chunk => collect(chunk, true));
     child.on("error", error => { clearTimeout(timer); reject(error); });
-    child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output); else reject(new RunnerError("command_failed", (errors.trim() || output.trim()).slice(0, 8192) || `Runner control exited ${code}`)); });
+    child.on("close", code => { clearTimeout(timer); if (code === 0) resolve(output); else reject(new RunnerCommandError((errors.trim() || output.trim()).slice(0, 8192) || `Runner control exited ${code}`, code)); });
   });
 }

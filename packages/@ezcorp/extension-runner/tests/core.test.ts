@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles, safeHostError } from "../src/core";
+import { command, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles, safeHostError } from "../src/core";
 
 test("public host errors use fixed allowlisted messages and never expose exception details", () => {
   for (const code of ["STATE_CONFLICT", "INVALID_LOCK", "LOCK_TIMEOUT", "LOCK_QUARANTINED", "LOCK_FENCED", "LOCK_CAPACITY", "LOCK_CLOSED", "LOCK_KEY_REQUIRED"]) {
@@ -39,6 +39,16 @@ test("control processes bound stdout, stderr and elapsed time", async () => {
   await expect(command("/missing/control", [])).rejects.toThrow();
   await expect(command(process.execPath, ["-e", "setInterval(()=>{},1000)"], 20)).rejects.toThrow("timed out");
   await expect(command(process.execPath, ["-e", "console.log('x'.repeat(1000))"], 1000, 20)).rejects.toThrow("output");
+});
+
+test("a failed control command keeps its exit status beside the text it printed", async () => {
+  // Stderr text (podman's cgroup warnings, for example) must not hide the exit status a caller decides on (W4H-12).
+  const failure = await command(process.execPath, ["-e", "console.error('level=warning');process.exit(3)"]).catch((error: unknown) => error);
+  expect(failure).toBeInstanceOf(RunnerCommandError);
+  expect(failure).toBeInstanceOf(RunnerError);
+  expect(failure).toMatchObject({ code: "command_failed", exitCode: 3, message: "level=warning" });
+  // A process killed by a signal has no exit status, and says so.
+  expect(await command(process.execPath, ["-e", "process.kill(process.pid,'SIGKILL')"]).catch((error: unknown) => error)).toMatchObject({ code: "command_failed", exitCode: null, message: "Runner control exited null" });
 });
 
 test("separate Bun boots read current environment from the same large module", async () => {
