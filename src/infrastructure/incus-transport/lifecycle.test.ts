@@ -59,6 +59,45 @@ test("session permits the canonical read-only API root without widening route au
   expect(requests).toEqual(["GET /1.0?project=sandbox"]);
 });
 
+test("already stopped cleanup advances provider intent without a state PUT and settles through the actual adapter", async () => {
+  const calls: string[] = [];
+  const instance = { name: sandboxName, status: "Stopped", config: {
+    "user.ezharness.managed_by": command.tags.managedBy,
+    "user.ezharness.connection_id": command.connectionId, "user.ezharness.sandbox_id": sandboxId,
+    "user.ezharness.generation": "2", "user.ezharness.desired_state": "running",
+    "user.ezharness.operation_id": `ezh-setPower-${sandboxName.slice(4)}-${"a".repeat(32)}`,
+  } };
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => connection }, scope,
+    (async (url: string, init: RequestInit) => {
+      const path = new URL(url).pathname;
+      calls.push(`${init.method} ${path}`);
+      if (init.method === "PATCH") {
+        Object.assign(instance.config, JSON.parse(String(init.body)).config);
+        return reply({});
+      }
+      expect(init.method).toBe("GET");
+      return Response.json({ type: "sync", status_code: 200, metadata: instance }, { headers: { etag: '"owned-generation-two"' } });
+    }) as never);
+  const adapter = new IncusSandboxAdapter(command.pins, transport);
+  const dispatcher = new IncusSandboxProviderDispatcher({ call: async (context, method, input) => {
+    expect(context.generation).toBe(1);
+    return adapter.invoke(method.endsWith("inspectOperation") ? "lifecycle.inspectOperation" : "lifecycle.setPower", input);
+  } });
+  const request = { operationId: "cleanup-stop", kind: "STOP" as const, generation: 1,
+    idempotency: { scope: "cleanup", key: "stop-once", payloadHash: "d".repeat(64) }, payload: { expectedGeneration: 2 },
+    binding: { id: sandboxId, projectId: "project", providerInstallationId: scope.providerInstallationId,
+      providerReleaseId: scope.providerReleaseId, connectionId: command.connectionId, connectionRevision: 1,
+      ...scope.approvedPreset, resourceKey: sandboxId } };
+  const accepted = await dispatcher.dispatch(request);
+  expect(accepted.outcome).toBe("PENDING");
+  expect(accepted.providerOperationId).toMatch(/^ezh-setPower-/);
+  expect(await dispatcher.inspectOperation({ ...request, providerOperationId: accepted.providerOperationId! }))
+    .toMatchObject({ outcome: "SUCCEEDED", observedState: "STOPPED" });
+  expect(instance.config["user.ezharness.generation"]).toBe("3");
+  expect(instance.config["user.ezharness.desired_state"]).toBe("stopped");
+  expect(calls.filter(call => !call.startsWith("GET"))).toEqual([`PATCH /1.0/instances/${sandboxName}`]);
+});
+
 test("wrong project, stale scope, and missing approved policy deny before HTTP", async () => {
   let calls = 0;
   const fetcher = async () => { calls++; return reply({}); };
