@@ -101,7 +101,43 @@ stopped. Independent review passed; attestation SHA-256:
 This did not reproduce the timeout and does not establish Incus policy parity.
 Earlier output-only local tests did not exercise the full polling sequence.
 
-Capture effective guest memory and swap controls during the next live load,
-before cleanup removes the guest. Correct the diagnostic caller's wait period
-to match the bounded server preparation workflow; preserve unknown replies
-without replay. Qualification and the full user workflow remain unverified.
+## Third diagnostic: preparation passed, continuation failed
+
+Run `incus-final-301e88-outer-20261006-2b4d64ed-be36-421d-8975-aac01c3869cd`
+used the corrected caller and sampled the actual outer container cgroup.
+Its baseline showed a 4 GiB limit, zero swap, and about 277 MB used. During
+the memory load, the recorded OOM-kill count rose from zero to one. A scoped
+kernel record identifies a Python process killed within this guest's memory
+cgroup at 08:52:11.167 UTC. This is not evidence of a host-wide OOM.
+The collector did not capture the peak or establish the load process's exact
+PID linkage. Kernel receipt SHA-256:
+`f17787f352c0e2584e26d59665b244732e9fe80bdd2e6326d0750b7caf872de6`.
+
+The unchanged installed app completed preparation and returned HTTP 202 /
+AWAITING_RESTART. Response SHA-256:
+`74d8bdaf4f1d5e69f94996ca763956e390cf5de9d1c5002ff2a5774013111926`.
+The supervisor restarted automatically. Continuation then failed independent
+backend receipt verification. This is a failed qualification, not a pass.
+
+The verifier's saved operator configuration referenced an older provider
+release and connection. An isolated regression using the installed production
+verifier reproduced rejection before any backend GET. Changing only the scope
+to the current connection passed the fixture. A read-only query against the
+existing detached database copy then confirmed the current connection's
+release, revision, endpoint, settings and certificate hashes. No secret bytes
+were exposed. Metadata completion SHA-256:
+`c3b3b8d11d24f93991d3bd4490ec740d1acbf139bc1e9007d840ee23a8d5e778`.
+The exact configuration repair and an early scope-readiness check are being
+validated separately.
+
+Both guests were stopped and destroyed through normal actions. The same
+run's controls were cleaned, scoped backend inventory is empty, and a fresh
+detached-copy check proves zero charges and a false production drain result.
+Historical UNKNOWN operations remain preserved and compensated. The app
+resumed normally; no database restore occurred. Inventory receipt SHA-256:
+`f7ec023819fa3076c90fcf368aa02dabdb48d7bcd85633bc842b35b93f263de0`.
+
+The two memory-load failures and the later preparation pass remain distinct
+results. No causal memory fix has been established. Further qualification must
+test reliability with the corrected receipt scope. The full user workflow
+remains unverified.
