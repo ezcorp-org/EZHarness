@@ -1,0 +1,56 @@
+ACCEPT wp/w4h-12-factory-host-launch at d364e11ad
+W4H-12 verdict, validator-5 (lock-veto lane validator-2), 2026-10-06T15:20Z. Base integ/w00 1bc5f63c7. Every log below ran at d364e11ad
+(snapshot head checked); the owner's logs at earlier heads (a8c6e9e94, 643f12dd5, f0cf1e8f7, e423c827b) are history, not evidence here.
+
+Reader set (sha256; counts)
+- Lock-free hold: /tmp/factory-platform-evidence/w4g-validation/v5-w4h12/hold-d364e11ad/hold.log
+    5a7d384184d5344c678c3ba8fe80ecc759ee2203035f264134f7f0aab00a461f; results.jsonl bc3d64c6028a4218c7e341edb2e83e538bdb046cb2c21a5428a5084a73accf66
+- Heavy (gated-flock, START_MEM 8 GiB, exit file 0, lock 15:07:38Z-15:08:18Z, lock_veto validator-2 first): .../v5-w4h12/heavy/hold.log
+    4ac21fc3aff9ce0a79b667e05e17f60e7e47d739fb052d2b97c5c6c6de9feb15; results.jsonl a7483851d58183d55125c2a620789308b8746eaa6a5dcdaf46ea8d1ef6004b7d
+    (first lock try 14:56:38Z released at once on the in-lock gate, swap 1 GiB, exit 75; re-queued outside the lock)
+
+1. Scope and rulings
+   - a8c6e9e94..d364e11ad: tasks/factory/w4h-12-GATES.md only (the report names a8c6e9e94; accepted, the later commit is docs-only).
+   - Net diff 1bc5f63c7..d364e11ad: 13 files: the workflow step, the guard and its fixture, ci-registration, core.ts, podman.ts, the two
+     runner tests, the two host-launch twins, the gate file, tasks/todo.md.
+   - Ruling 3: no diff vs 1bc5f63c7 under .github/actions/ and in scripts/factory-storage-action-registration.test.ts (the action is
+     byte-equal). Ruling 2: no setup-before-storage-action rule remains; the guard requires only that the runner setup runs before a
+     Podman-guest step in its job. The fixture scripts/fixtures/podman-guest-jobs/base/db-postgres.yml is byte-equal to the base workflow.
+   - Ruling 4: the gate file is force-added (established practice); noted.
+   - Gate change (no decision file, as ruled): the .github diff only ADDS `bash scripts/setup-extension-runner-ci.sh --install` before
+     the storage step in external-postgres (a stricter job). Gate-integrity: base leg PASSED; origin/main = exactly the 8 (set check PASS).
+   - Identity: 8 of 8 commits archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+   - Shared config: 888c78b9e94ea660 at the hold's start and end; in the lock, exit 1 (branch/remote sections only vs baseline
+     696e30f3f879fcf9; recorded, not a stop). Before the start: the 12:38:50Z core.bare STOP, repaired by the user (lead's word 14:24Z).
+2. Guard (scripts/podman-guest-job-registration.test.ts) on the REAL committed workflow
+   - green with ci-registration: 23/0 (log 60122070ed5ee3fa)
+   - red by name ("every step that runs a Podman-guest test runs after the runner setup in its job"):
+       base workflow restored 4/3 (49f7ca4087c68850); setup only in a comment 4/3 (72a5f76f688c4130);
+       setup moved after the storage step 5/2 (1fcec22c17900e71)
+3. Runner (image_unavailable by name)
+   - core + image-precondition: 9/0 (0e9bbb6de5a0e442)
+   - base podman.ts under the head tests: 0/4 by name, "an unprovisioned image is refused by name before any container starts" and 3 more;
+     not a load error (e40d23169c857f8d). This reproduces the owner's unit-red-without-precondition (0/4 on base podman.ts).
+   - mutants red: requireImage not called 5/4 (e400b9194789f041); exit status 1 not treated as absent 7/2 (bcc5ec1e360e4ac0); exit status
+     dropped in core.ts 4/5, incl. "a failed control command keeps its exit status beside the text it printed" (db3e8b259e0cc71a)
+4. The twins, heavy, on MY OWN fresh PostgreSQL (container v5-w4h12-pg, docker.io/pgvector/pgvector:pg15 4b4956e2ab1f = the job's service
+   image, server 15.19, 127.0.0.1 only, password only in a 0600 env file; container and home removed; never the shared proof server)
+   - tests/postgres/factory-host-launch.test.ts in the storage step's form (FACTORY_TEST_POSTGRES_URL = DATABASE_URL, --timeout 30000,
+     --coverage): 1 pass, 0 fail, 13 expect() calls (log 85ca4d817c302274a3504d26dacdd9a92d30b7a9ce6bf0532eff875f6b8f9b6e)
+   - src/factory/host-launch-e2e.podman.integration.test.ts: 1 pass, 0 fail (01283966286c31d5b3fc45da1e80602637e6979a78c288bdbd06cbf9e140b3da)
+   - The host has the pinned runner image, so this shows the twin green on real PostgreSQL with a real guest; the hosted-shape red
+     (image absent under --pull=never) is the owner's container leg and the next hosted external-postgres run is the proof of record.
+5. Static and gates
+   - typecheck, lint, check-factory-boundaries, check-boundaries: 0. gitleaks 0. Prune scan: "prune scan: clean (0 hit(s))",
+     w00/prune-scan.sh sha256 a4a59601cec26963ba26d47a62b833c27f8bc5d30fa542a71006b33d30029a02.
+   - Guard set 507 pass, 0 fail (17188a646a0080ec).
+   - Hook mapped per commit (e18becde4, 44e2121e9, f0cf1e8f7, e423c827b, ac20f1a8a, 643f12dd5, a8c6e9e94, d364e11ad): 3, 2, 2, 2, 2, 4, 0, 0,
+     equal to the owner's record; all lock-free mapped suites green with lcov; the two twins in section 4.
+   - Binding coverage vs integ/w00 1bc5f63c7 (ruling 1): new-file PASSED, patch PASSED, CRAP --changed 0.
+     Merged lcov a0b5edea3e6ecdf0eed282d65edd0bec6d122f0c591b0d37a1eaee31e3c3f31a.
+   - vs origin/main (informational; binds at the combined run): 504 files fail, all the integration branch's; of this package's files only
+     podman.ts is listed, and every executable line the package changed there (9, 322, 341-345) has hits in the merged lcov. No uncovered
+     line is the package's own.
+6. Findings: none.
+
+Evidence dir: /tmp/factory-platform-evidence/w4g-validation/v5-w4h12/ (snapshot outside the evidence tree, removed after use).

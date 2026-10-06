@@ -1,0 +1,42 @@
+control HEAD e423c827b300befabd28f5b29b7bb298a056db4f files 56 bun 1.4.2 2026-10-06T01:25:13Z
+bun test v1.4.2 (744846f84)
+
+tests/postgres/factory-admission-stop.test.ts:
+[W09h] hold before the cancel: "held"
+[W09h] cancel-node command: {"kind":"cancel-node","id":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:cancel-node:4","nodeId":"snapshot-repository","candidateGeneration":0,"attempt":1,"attemptCommandId":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:request-admission:2","cancellationEpoch":1}
+[W09h] kernel status after the cancel: "stopping"
+[W09h] task stop outcome: {"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:request-admission:2","id":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}}
+[W09h] admission after the stop: {"state":"pending","stop_command_id":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"}
+[W09h] inbox event kinds: ["cancel","usage-settled","attempt-stopped"]
+[W09h] kernel status after the stop: "cancelled"
+[W09h] stopped node: {"status":"cancelled","candidateGeneration":0,"nextAttempt":1,"attempts":[{"candidateGeneration":0,"attempt":1,"commandId":"06cc6b71-657f-4a66-a7a6-66c6a2b11578:snapshot-repository:request-admission:2","startedAtMs":1893456000000,"deadlineAtMs":1893457800000,"stopped":true,"uncertain":false}],"terminalSequence":3,"waitingReason":"admission","waitingDeadlineAtMs":1893457800000,"error":"STOPPED_BEFORE_ADMISSION"}
+[W09h] run lifecycle status: "cancelling"
+[W09h] hold after the stop: "settled"
+[W09h] R3 stop outcome: {"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"7afdfbcd-3669-4f2d-a63b-4f2bb0f37ba6:snapshot-repository:request-admission:2","id":"7afdfbcd-3669-4f2d-a63b-4f2bb0f37ba6:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}}
+[W09h] R3 admission worker result: {"status":"cancelled","reservationId":"factory-reservation:9b14a1039a168a182dedc64f6b7dddc523ef52d0ca12b0f0d036ad0c0","refused":"factory_compute_admission_attempt_stopped"}
+[W09h] R3 admission after the late grant: {"state":"cancelled","stop_command_id":"7afdfbcd-3669-4f2d-a63b-4f2bb0f37ba6:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"}
+[W09h] R3 inbox event kinds: ["cancel","usage-settled","attempt-stopped"]
+[W09h] R4 hold after the stop: {"state":"settled","actual":"{\"computeMs\":\"0\",\"costMicros\":\"0\",\"tokens\":\"0\"}","receipt_digest":"sha256:1ea9d7d2dfa1eb5f8b056cc690710e67a44cf2bf59ef3d08732c418361b731e1","xmin":"102837"}
+[W09h] R4 settlements: [{"source":"no-operations","known_cost_micros":"0","unknown_cost_micros":null,"stop_receipt_digest":"sha256:1ea9d7d2dfa1eb5f8b056cc690710e67a44cf2bf59ef3d08732c418361b731e1","basis":"no-operations: nothing launched, all zero","attempt_id":"c1a71ecd-1858-4d25-accc-e374c9878aa6:snapshot-repository:request-admission:2","xmin":"102837"}]
+[W09h] R5 stop then grant: lock waits: {"gatePid":755,"first":{"pid":754,"blockedBy":[755],"tables":["factory_child_runs","factory_installation","factory_projects","factory_run_lifecycle","factory_runs"]},"second":{"pid":756,"blockedBy":[754],"tables":["factory_child_runs","factory_installation","factory_projects","factory_runs"]}}
+[W09h] R5 stop then grant: {"stop":{"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"70931faf-f688-4f1f-aeeb-c254bc81ca50:snapshot-repository:request-admission:2","id":"70931faf-f688-4f1f-aeeb-c254bc81ca50:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}},"grant":{"ok":true,"value":{"status":"cancelled","reservationId":"factory-reservation:0bfbdcea7da427ef30fae99ba3d9dd8c969b8b7380835ee2761f686fb","refused":"factory_compute_admission_attempt_stopped"}},"cancellations":[["factory-reservation:0bfbdcea7da427ef30fae99ba3d9dd8c969b8b7380835ee2761f686fb",1]],"admission":{"state":"cancelled","stop_command_id":"70931faf-f688-4f1f-aeeb-c254bc81ca50:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"},"hold":"settled","kinds":["cancel","usage-settled","attempt-stopped"],"status":"cancelled","settlements":[{"source":"no-operations","basis":"no-operations: nothing launched, all zero"}],"stopRows":[],"launchRows":[]}
+[W09h] R5 grant then stop: lock waits: {"gatePid":756,"first":{"pid":755,"blockedBy":[756],"tables":["factory_child_runs","factory_installation","factory_projects","factory_run_lifecycle","factory_runs"]},"second":{"pid":757,"blockedBy":[755],"tables":["factory_installation","factory_projects","factory_runs"]}}
+[W09h] R5 grant then stop: {"stop":{"settled":{"state":"stopped","event":{"atMs":1893456000000,"attempt":1,"candidateGeneration":0,"commandId":"f45d8b51-a549-4149-be1c-f241e6140187:snapshot-repository:request-admission:2","id":"f45d8b51-a549-4149-be1c-f241e6140187:snapshot-repository:cancel-node:4:stopped","kind":"attempt-stopped","nodeId":"snapshot-repository","stoppedBefore":"admission"}}},"grant":{"ok":true,"value":{"status":"cancelled","reservationId":"factory-reservation:c38b26d8159f090514322eed57668445303af367ccb688a5972e3be1a"}},"cancellations":[["factory-reservation:c38b26d8159f090514322eed57668445303af367ccb688a5972e3be1a",1]],"admission":{"state":"cancelled","stop_command_id":"f45d8b51-a549-4149-be1c-f241e6140187:snapshot-repository:cancel-node:4","stop_requested_epoch":"1"},"hold":"settled","kinds":["cancel","usage-settled","attempt-stopped"],"status":"cancelled","settlements":[{"source":"no-operations","basis":"no-operations: nothing launched, all zero"}],"stopRows":[],"launchRows":[]}
+{"ts":"2026-10-06T01:39:41.517Z","level":"warn","msg":"waiting for migrate lock held by pid 892","subsystem":"db","holderPid":892,"waitMs":300}
+
+tests/postgres/factory-retention.test.ts:
+w15 retention storage cleanup {"ordinaryRemoved":5,"archiveRetained":25}
+
+tests/postgres/factory-checkpoint.test.ts:
+w15 checkpoint storage cleanup {"ordinaryRemoved":0,"archiveRetained":93}
+
+tests/postgres/factory-restore.test.ts:
+w15 restore storage cleanup {"ordinaryRemoved":0,"archiveRetained":39}
+
+tests/postgres/factory-key-rotation.test.ts:
+w15 rotation storage cleanup {"ordinaryRemoved":3,"archiveRetained":4}
+
+ 629 pass
+ 0 fail
+ 9172 expect() calls
+Ran 629 tests across 56 files. [1136.24s]

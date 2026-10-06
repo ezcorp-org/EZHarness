@@ -1,0 +1,67 @@
+=== heavy 2026-10-06T17:36:26Z
+HEAD 738de9d0bf4a6705c076531101ef7eadbdfe530e MERGE_HEAD  index-tree 5f1b0bbc627890d1f5464e5ca6f20966fe43ece3
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-06T17:36:26Z hold-start disk=130G memAvailable=8GiB swapFreeKiB=2630248/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+config: 8bb4d0ebe323b271 = accepted baseline
+shared config hash at hold start: 8bb4d0ebe323b271 (accepted baseline 8bb4d0ebe323b271)
+prune scan: exit 0 (prune scan: clean (0 hit(s)))
+resource-gate 2026-10-06T17:36:27Z attestation-check disk=130G memAvailable=8GiB swapFreeKiB=2631932/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START attestation-check 2026-10-06T17:36:27Z
+--- END   attestation-check 2026-10-06T17:36:27Z exit=0 
+guard set: 40 files from guard-suites.sh
+resource-gate 2026-10-06T17:36:27Z guard-set disk=130G memAvailable=8GiB swapFreeKiB=2631944/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START guard-set 2026-10-06T17:36:27Z
+--- END   guard-set 2026-10-06T17:38:03Z exit=0  507 pass 0 fail 
+resource-gate 2026-10-06T17:38:03Z build-factory-sdk disk=130G memAvailable=11GiB swapFreeKiB=2870068/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-sdk 2026-10-06T17:38:03Z
+--- END   build-factory-sdk 2026-10-06T17:38:03Z exit=0 
+resource-gate 2026-10-06T17:38:03Z build-factory-transport disk=130G memAvailable=11GiB swapFreeKiB=2870072/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-transport 2026-10-06T17:38:03Z
+--- END   build-factory-transport 2026-10-06T17:38:03Z exit=0 
+resource-gate 2026-10-06T17:38:03Z build-factory-orchestrator disk=130G memAvailable=11GiB swapFreeKiB=2870072/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-orchestrator 2026-10-06T17:38:03Z
+--- END   build-factory-orchestrator 2026-10-06T17:38:03Z exit=0 
+resource-gate 2026-10-06T17:38:03Z pg-factory-host-launch disk=130G memAvailable=11GiB swapFreeKiB=2870076/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START pg-factory-host-launch 2026-10-06T17:38:03Z
+--- END   pg-factory-host-launch 2026-10-06T17:38:25Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-06T17:38:25Z unit-packages--ezcorp-extension-runner-tests-core-test-ts disk=130G memAvailable=11GiB swapFreeKiB=2871620/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-packages--ezcorp-extension-runner-tests-core-test-ts 2026-10-06T17:38:25Z
+--- END   unit-packages--ezcorp-extension-runner-tests-core-test-ts 2026-10-06T17:38:25Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-06T17:38:25Z unit-packages--ezcorp-extension-runner-tests-image-precondition-test-ts disk=130G memAvailable=11GiB swapFreeKiB=2871652/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-packages--ezcorp-extension-runner-tests-image-precondition-test-ts 2026-10-06T17:38:25Z
+--- END   unit-packages--ezcorp-extension-runner-tests-image-precondition-test-ts 2026-10-06T17:38:26Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-06T17:38:26Z unit-scripts-lib-ci-registration-test-ts disk=130G memAvailable=11GiB swapFreeKiB=2871652/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-scripts-lib-ci-registration-test-ts 2026-10-06T17:38:26Z
+--- END   unit-scripts-lib-ci-registration-test-ts 2026-10-06T17:38:26Z exit=0  16 pass 0 fail 
+resource-gate 2026-10-06T17:38:26Z unit-scripts-podman-guest-job-registration-test-ts disk=130G memAvailable=11GiB swapFreeKiB=2871664/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-scripts-podman-guest-job-registration-test-ts 2026-10-06T17:38:26Z
+--- END   unit-scripts-podman-guest-job-registration-test-ts 2026-10-06T17:38:39Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-06T17:38:39Z unit-src-factory-host-launch-e2e-podman-integration-test-ts disk=130G memAvailable=11GiB swapFreeKiB=2872056/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-src-factory-host-launch-e2e-podman-integration-test-ts 2026-10-06T17:38:39Z
+--- END   unit-src-factory-host-launch-e2e-podman-integration-test-ts 2026-10-06T17:38:51Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-06T17:38:51Z actionlint disk=130G memAvailable=9GiB swapFreeKiB=2873432/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START actionlint 2026-10-06T17:38:51Z
+--- END   actionlint 2026-10-06T17:38:51Z exit=0 
+resource-gate 2026-10-06T17:38:51Z web-server-lcov disk=130G memAvailable=9GiB swapFreeKiB=2873432/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START web-server-lcov 2026-10-06T17:38:51Z
+--- END   web-server-lcov 2026-10-06T17:39:15Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-06T17:39:15Z coverage-merge disk=130G memAvailable=11GiB swapFreeKiB=2841732/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START coverage-merge 2026-10-06T17:39:15Z
+--- END   coverage-merge 2026-10-06T17:39:16Z exit=0 
+resource-gate 2026-10-06T17:39:16Z web-build disk=130G memAvailable=11GiB swapFreeKiB=2841760/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START web-build 2026-10-06T17:39:16Z
+--- END   web-build 2026-10-06T17:40:01Z exit=0 
+resource-gate 2026-10-06T17:40:01Z graph-mock-pass disk=130G memAvailable=11GiB swapFreeKiB=2705172/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START graph-mock-pass 2026-10-06T17:40:01Z
+--- END   graph-mock-pass 2026-10-06T17:41:09Z exit=0 
+bash: /tmp/factory-platform-evidence/w01h/graph/dump-and-drop.sh: No such file or directory
+mock pass w4h-12-factory-host-launch-mock outcome: passed
+resource-gate 2026-10-06T17:41:09Z crap-changed-base disk=130G memAvailable=9GiB swapFreeKiB=2789432/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START crap-changed-base 2026-10-06T17:41:09Z
+--- END   crap-changed-base 2026-10-06T17:41:09Z exit=0 
+resource-gate 2026-10-06T17:41:09Z merge-commit-gates disk=130G memAvailable=10GiB swapFreeKiB=2789476/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START merge-commit-gates 2026-10-06T17:41:09Z
+--- END   merge-commit-gates 2026-10-06T17:41:14Z exit=0 
+config: 8bb4d0ebe323b271 = accepted baseline
+shared config hash at hold end: 8bb4d0ebe323b271 (accepted baseline 8bb4d0ebe323b271)
+HEAVY DONE status=0 dirty=0 2026-10-06T17:41:15Z
