@@ -47,8 +47,11 @@ function fixture(output: unknown = { version: GUEST_HELPER_VERSION, ok: true, fi
       || (fault === "exec" && init.method === "POST") || (fault === "wait" && url.includes("/wait"))) throw failure;
     if (new URL(url).pathname.endsWith("/exec")) {
       const body = JSON.parse(String(init.body)) as Record<string, unknown>;
-      expect(body.command).toEqual(["/usr/local/libexec/ezharness-helper"]);
+      expect(body.command).toEqual(["/usr/bin/python3", "-I", "-S", "/usr/local/libexec/ezharness-helper"]);
       expect(body.user).toBe(1000);
+      expect(body.group).toBe(1000);
+      expect(body.cwd).toBe("/workspace");
+      expect(body.environment).toEqual({ HOME: "/workspace", PATH: "/usr/local/bin:/usr/bin:/bin" });
       expect(body["record-output"]).toBe(false);
       return execResponse();
     }
@@ -73,7 +76,7 @@ function fixture(output: unknown = { version: GUEST_HELPER_VERSION, ok: true, fi
   return { transport, routes, request: () => requestBytes };
 }
 
-test("helper invocation fixes path, UID, guest user, and sandbox ID", async () => {
+test("helper invocation isolates Python startup and fixes path, UID, guest user, and sandbox ID", async () => {
   const { transport, routes, request } = fixture();
   const result = await transport.request(command) as Record<string, unknown>;
   expect(result.ok).toBe(true);
@@ -192,7 +195,7 @@ h=importlib.util.module_from_spec(spec)
 spec.loader.exec_module(h)
 print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
   const fixture = await pinnedGuestFixture(async request => {
-    const child = Bun.spawn(["python3", "-c", script, helper, workspace, state], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["python3", "-I", "-S", "-c", script, helper, workspace, state], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
     child.stdin.write(request);
     child.stdin.end();
     const [output, errors, exit] = await Promise.all([new Response(child.stdout).arrayBuffer(), new Response(child.stderr).text(), child.exited]);

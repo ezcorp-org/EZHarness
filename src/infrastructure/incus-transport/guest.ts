@@ -83,7 +83,7 @@ export class HostIncusGuestTransport implements IncusTransport {
         phase = "exec";
         execAttempted = true;
         const posted = await session.request("POST", `${instancePath}/exec?project=${project}`, {
-          command: [GUEST_HELPER_PATH], user: approved.uid, group: approved.gid, cwd: "/workspace",
+          command: ["/usr/bin/python3", "-I", "-S", GUEST_HELPER_PATH], user: approved.uid, group: approved.gid, cwd: "/workspace",
           environment: { HOME: "/workspace", PATH: "/usr/local/bin:/usr/bin:/bin" },
           "wait-for-websocket": true, interactive: false, "record-output": false,
         });
