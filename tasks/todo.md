@@ -3203,3 +3203,38 @@ The app update and supported provider build also passed. These do not prove
 the complete native-agent workflow on the new release. The old approved
 provider is still active. Test-only changes after `6f5b53407` need repository
 validation but do not require another app deployment.
+
+### Memory qualification reliability — next controlled change
+
+- [x] Prove the first complete native workflow and ordinary cleanup on Incus
+  provider 0.1.5; preserve the earlier runner-service failure separately.
+- [x] Record fresh qualification `d5a359` as failed. Its memory-status request
+  exceeded the deadline under sustained reclaim. All guests and charges are
+  now absent; the app resumed healthy. Ten-cycle proof remains pending.
+- [x] Compare failed and successful outer memory samples. Both reached the
+  same 4 GiB bound. The failed run reclaimed pages without an OOM kill before
+  its control deadline; this is not proof of missing memory enforcement.
+- [x] Implement and independently review an allocator-only candidate: one
+  private anonymous mapping, one write per page. Preserve target bytes,
+  OOM score adjustment, deadlines, polling, terminal/EOF checks, required
+  OOM evidence and host/neighbor health checks.
+- [ ] Run meaningful fixture regressions and applicable source gates. Prepare
+  a bounded read-only process-lineage observer for the live comparison.
+  Focused regressions passed 58 tests; the previous generated child failed
+  the new regression. Independent source review passed. The observer passed
+  13 tests and independent review. Repository gates remain pending for this
+  source change. Source commit `6d2572d9f` is integrated as `a6d7e005c`.
+- [x] Install the reviewed candidate in the isolated app. Actual source
+  `6d2572d9f`, manifest `b8efab4799`, started successfully. Independent review
+  confirmed database preservation, both readiness checks, and unchanged
+  provider, image and connection. No database restore was used.
+- [ ] Run the controlled live comparison and retain failure evidence. One
+  positive result alone does not establish reliability.
+- [ ] Once the candidate is supported by evidence, complete ten lifecycle
+  tests in batches of at most three with fresh qualification and accounting.
+
+Review boundary: hosted PR integration checks passed all 51 checks for
+  `eafae1446` using merge revision `f649fd38`; exact local full validation was
+  interrupted by host memory pressure. Neither that interruption nor the
+  failed qualification is a pass. No deadline increase or OOM waiver is part
+  of this candidate.
