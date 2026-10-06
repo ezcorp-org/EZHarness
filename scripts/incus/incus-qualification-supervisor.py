@@ -127,6 +127,21 @@ def bounded_timeout(deadline_ms, stage_limit_seconds):
     return min(remaining, stage_limit_seconds)
 
 
+def validate_readiness_pin(pin):
+    if not isinstance(pin, dict) or set(pin) != {"scope", "connectionRevision",
+            "presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperSha256"} \
+            or not isinstance(pin.get("scope"), dict) or set(pin["scope"]) != SCOPE_KEYS:
+        raise ValueError("invalid selected readiness pin")
+    if any(not isinstance(value, str) or not IDENTIFIER.fullmatch(value)
+           for value in pin["scope"].values()):
+        raise ValueError("invalid selected readiness scope")
+    if type(pin["connectionRevision"]) is not int or not 0 < pin["connectionRevision"] <= 9007199254740991:
+        raise ValueError("invalid selected readiness revision")
+    if any(not isinstance(pin[name], str) or not DIGEST.fullmatch(pin[name])
+           for name in ("presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperSha256")):
+        raise ValueError("invalid selected readiness digest")
+
+
 def validate_request(message):
     if not isinstance(message, dict) or set(message) != REQUEST_KEYS or message["version"] != 1 \
             or message["action"] != "restart" or not isinstance(message["scope"], dict) \
@@ -1098,15 +1113,24 @@ class Supervisor:
         return {"released": True}
 
     def readiness(self, message):
-        if message != {"version": 1, "action": "readiness"}:
+        if not isinstance(message, dict) or set(message) not in (
+                {"version", "action"}, {"version", "action", "expectedPin"}) \
+                or message.get("version") != 1 or message.get("action") != "readiness":
             raise ValueError("invalid readiness request")
+        expected = message.get("expectedPin")
+        if "expectedPin" in message:
+            validate_readiness_pin(expected)
         if self.pending is not None or self.claimed is not None:
             raise ValueError("qualification run is already active")
         if not self.fault_authority_command:
             raise ValueError("operator fault verifier is unavailable")
         for command, name in ((self.receipt_authority_command, "receipt"),
                               (self.fault_authority_command, "fault")):
-            check = subprocess.run(command, input=b'{"phase":"readiness"}\n',
+            verifier_input = {"phase": "readiness"}
+            if expected is not None:
+                verifier_input["expectedPin" if name == "receipt" else "expectedScope"] = (
+                    expected if name == "receipt" else expected["scope"])
+            check = subprocess.run(command, input=canonical(verifier_input) + b"\n",
                                    capture_output=True, timeout=5, check=False)
             if check.returncode != 0 or check.stdout != \
                     (b'{"ready":"' + name.encode() + b'.v1"}\n'):

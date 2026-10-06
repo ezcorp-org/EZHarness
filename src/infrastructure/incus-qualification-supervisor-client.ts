@@ -19,6 +19,16 @@ export interface SupervisorRestartRequest {
   beforeDigest: string;
 }
 
+/** Trusted current selection; contains no credentials or transport configuration. */
+export interface IncusSupervisorSelectedPin {
+  scope: IncusQualificationScope;
+  connectionRevision: number;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  imageFingerprint: string;
+  helperSha256: string;
+}
+
 const RESTART_ACK_TIMEOUT_MS = 5_000;
 // Two sequential verifier commands each have a five-second server budget, plus IPC.
 const READINESS_TIMEOUT_MS = 12_000;
@@ -61,8 +71,8 @@ export async function requestIncusSupervisorRestart(socketPath: string,
 }
 
 /** Read-only preflight from the authenticated managed app process. */
-export async function requestIncusSupervisorReadiness(socketPath: string): Promise<boolean> {
-  const response = await exchange(socketPath, { version: 1, action: "readiness" }, READINESS_TIMEOUT_MS) as {
+export async function requestIncusSupervisorReadiness(socketPath: string, expectedPin?: IncusSupervisorSelectedPin): Promise<boolean> {
+  const response = await exchange(socketPath, { version: 1, action: "readiness", ...(expectedPin ? { expectedPin } : {}) }, READINESS_TIMEOUT_MS) as {
     ready?: unknown; protocol?: unknown;
   };
   return response.ready === true && response.protocol === "incus-qualification.v1";

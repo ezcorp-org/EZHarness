@@ -11,7 +11,7 @@ import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusFeatureService } from "./incus-feature-service";
 import { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
-import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { IncusLiveControlProbes } from "./incus-live-control-probes";
 import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
@@ -22,12 +22,33 @@ import { logger } from "../logger";
 
 const log = logger.child("incus.reconcile");
 
-export async function createIncusQualificationWitness(scope: IncusQualificationScope,
-  runId: string, db: Database = getDb()): Promise<IncusHostLiveWitness> {
-  const rootDirectory = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
-  if (!rootDirectory) throw new Error("Incus control probe root is unavailable");
+function qualificationProbeRoot(): string {
+  const root = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  if (!root) throw new Error("Incus control probe root is unavailable");
+  return root;
+}
+
+async function qualificationWitness(scope: IncusQualificationScope, runId: string,
+  db: Database, rootDirectory: string): Promise<IncusHostLiveWitness> {
   const config = await new IncusLiveProbeFixtureService({ db, rootDirectory }).readyConfig(scope, runId);
   return new IncusHostLiveWitness({ db, controlProbe: new IncusLiveControlProbes(config, { db }) });
+}
+
+/** New runs require selected readiness before any durable preparation or allocation. */
+export async function createIncusQualificationWitness(scope: IncusQualificationScope,
+  runId: string, db: Database = getDb(), deps: {
+    selected?: Awaited<ReturnType<IncusQualificationStore["authorizeFixture"]>>;
+    ready?: typeof incusHostLiveWitnessReady;
+  } = {}): Promise<IncusHostLiveWitness> {
+  const root = qualificationProbeRoot();
+  const selected = deps.selected ?? await new IncusQualificationStore({ db }).authorizeFixture(scope);
+  if (!await (deps.ready ?? incusHostLiveWitnessReady)({ expectedPin: { scope,
+    connectionRevision: selected.connection.revision, presetDigest: selected.presetDigest,
+    effectiveSettingsDigest: selected.effectiveSettingsDigest,
+    imageFingerprint: selected.preset.imageDigest, helperSha256: selected.helperDigest } })) {
+    throw new Error("Incus selected operator pins are unavailable");
+  }
+  return qualificationWitness(scope, runId, db, root);
 }
 
 type QualificationContinuationDependencies = {
@@ -50,7 +71,11 @@ export async function resumePendingIncusQualification(deps: QualificationContinu
   try {
     const qualifications = deps.qualifications ?? new IncusQualificationStore({ db });
     const selected = await qualifications.authorizeFixture(pending.scope);
-    const witness = await (deps.createWitness ?? createIncusQualificationWitness)(pending.scope, pending.runId, db);
+    // This is an existing claimed run: the supervisor must keep its active-run
+    // readiness fence. Resume uses the durable checkpoint and receipt path instead.
+    const witness = deps.createWitness
+      ? await deps.createWitness(pending.scope, pending.runId, db)
+      : await qualificationWitness(pending.scope, pending.runId, db, qualificationProbeRoot());
     const evidence = await (deps.resume ?? resumeDurableIncusLiveCases)({ witness,
       composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
     pending.scope, selected.preset, { runId: pending.runId, nonce: pending.nonce });

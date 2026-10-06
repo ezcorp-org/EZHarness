@@ -371,6 +371,41 @@ print(json.dumps({'snapshot':{'alive':alive}}))
             with self.assertRaisesRegex(ValueError, "invalid readiness"):
                 supervisor.readiness({**request, "scope": "forged"})
 
+    def test_selected_readiness_forwards_closed_trusted_pin_to_both_verifiers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); key = root / "key.pem"
+            key.write_text("private fixture"); key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["authority"], ["receipt"], enforce_distinct_uid=False)
+            supervisor.fault_authority_command = ["fault"]
+            pin = {"scope": {"installationId": "installation", "releaseId": "release",
+                "connectionId": "connection", "presetId": "preset"}, "connectionRevision": 1,
+                "presetDigest": "a"*64, "effectiveSettingsDigest": "b"*64,
+                "imageFingerprint": "c"*64, "helperSha256": "d"*64}
+            message = {"version": 1, "action": "readiness", "expectedPin": pin}
+            with mock.patch.object(MODULE.subprocess, "run", side_effect=[
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"receipt.v1"}\n'),
+                    subprocess.CompletedProcess([], 0, stdout=b'{"ready":"fault.v1"}\n')]) as run:
+                self.assertEqual(supervisor.readiness(message), {"ready": True, "protocol": "incus-qualification.v1"})
+                self.assertEqual(json.loads(run.call_args_list[0].kwargs["input"]), {"phase": "readiness", "expectedPin": pin})
+                self.assertEqual(json.loads(run.call_args_list[1].kwargs["input"]), {"phase": "readiness", "expectedScope": pin["scope"]})
+                self.assertEqual([c.kwargs["timeout"] for c in run.call_args_list], [5, 5])
+            for changed in [None, [], {}, dict(pin, extra=True), dict(pin, scope="wrong"),
+                    dict(pin, scope=dict(pin["scope"], extra=True)),
+                    dict(pin, scope=dict(pin["scope"], releaseId="../wrong")),
+                    dict(pin, connectionRevision=True), dict(pin, connectionRevision=0),
+                    dict(pin, connectionRevision=9007199254740992), dict(pin, helperSha256="bad")]:
+                with mock.patch.object(MODULE.subprocess, "run") as run:
+                    with self.assertRaisesRegex(ValueError, "selected readiness"):
+                        supervisor.readiness(dict(message, expectedPin=changed))
+                    run.assert_not_called()
+            for changed in [dict(message, extra=True), dict(message, action="restart"), dict(message, version=2)]:
+                with self.assertRaisesRegex(ValueError, "invalid readiness"):
+                    supervisor.readiness(changed)
+            supervisor.pending = {"run": "active"}
+            with self.assertRaisesRegex(ValueError, "already active"):
+                supervisor.readiness(message)
+
     def test_operator_noeffect_recovery_requires_fence_and_two_independent_reads(self):
         with tempfile.TemporaryDirectory(prefix="incus-supervisor-", dir="/tmp") as directory:
             root = Path(directory)

@@ -39,14 +39,19 @@ def owned_file(path):
         raise ValueError("operator file is not private")
 
 
+def require_scope(scope, config):
+    if not isinstance(scope, dict) or set(scope) != SCOPE_KEYS or scope != config["scope"]:
+        raise ValueError("fault scope mismatch")
+
+
 def validate(message, config):
     if not isinstance(message, dict) or set(message) != {"phase", "arm"} \
             or message["phase"] not in ("arm", "readback"):
         raise ValueError("invalid fault verification request")
     arm = message["arm"]
-    if not isinstance(arm, dict) or set(arm) != ARM_KEYS or not isinstance(arm["scope"], dict) \
-            or set(arm["scope"]) != SCOPE_KEYS or arm["scope"] != config["scope"]:
+    if not isinstance(arm, dict) or set(arm) != ARM_KEYS:
         raise ValueError("fault scope mismatch")
+    require_scope(arm["scope"], config)
     for name in ("runId", "nonce", "fixtureOperationId", "bindingId"):
         if not isinstance(arm[name], str) or not IDENTIFIER.fullmatch(arm[name]):
             raise ValueError("invalid fault identity")
@@ -146,7 +151,10 @@ def main():
     args = parser.parse_args()
     config = load_config(args.config)
     message = json.loads(sys.stdin.buffer.readline(16385))
-    if message == {"phase": "readiness"}:
+    if message == {"phase": "readiness"} or (isinstance(message, dict)
+            and set(message) == {"phase", "expectedScope"} and message["phase"] == "readiness"):
+        if "expectedScope" in message:
+            require_scope(message["expectedScope"], config)
         sys.stdout.buffer.write(b'{"ready":"fault.v1"}\n')
         return
     arm = validate(message, config)

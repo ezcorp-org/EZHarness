@@ -4,6 +4,7 @@
  * after the old process exits; verify runs as the operator before signing. */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
+import type { IncusSupervisorSelectedPin } from "../../src/infrastructure/incus-qualification-supervisor-client";
 import type { RestartHandoffPayload } from "../../src/infrastructure/incus-qualification-checkpoint";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
 import type { ResolvedIncusConnection } from "../../src/infrastructure/incus-transport/transport";
@@ -164,6 +165,35 @@ function operatorConfig(): { context: LiveReadbackContext; transportConnection: 
   return config;
 }
 
+function requireSelectedPin(pin: IncusSupervisorSelectedPin): void {
+  requireFact(pin && typeof pin === "object" && !Array.isArray(pin)
+    && Object.keys(pin).sort().join() === "connectionRevision,effectiveSettingsDigest,helperSha256,imageFingerprint,presetDigest,scope"
+    && pin.scope && typeof pin.scope === "object" && !Array.isArray(pin.scope)
+    && Object.keys(pin.scope).sort().join() === "connectionId,installationId,presetId,releaseId"
+    && Object.values(pin.scope).every(value => typeof value === "string" && identifier.test(value))
+    && Number.isSafeInteger(pin.connectionRevision) && pin.connectionRevision > 0
+    && [pin.presetDigest, pin.effectiveSettingsDigest, pin.imageFingerprint, pin.helperSha256]
+      .every(value => typeof value === "string" && digest.test(value)), "invalid selected readiness pin");
+}
+
+function requireOperatorPin(config: ReturnType<typeof operatorConfig>, pin: IncusSupervisorSelectedPin): void {
+  requireSelectedPin(pin);
+  const { context, transportConnection } = config;
+  const image = context.recipe.guestImage;
+  requireFact(context && transportConnection
+    && same(context.scope, { installationId: pin.scope.installationId,
+      releaseId: pin.scope.releaseId, connectionId: pin.scope.connectionId })
+    && context.preset.id === pin.scope.presetId
+    && context.presetDigest === pin.presetDigest
+    && context.effectiveSettingsDigest === pin.effectiveSettingsDigest
+    && context.connection.revision === pin.connectionRevision
+    && context.connection.serverCertificatePem === transportConnection.serverCertificatePem
+    && context.connection.project === transportConnection.project
+    && image?.fingerprint === context.preset.imageDigest && image.fingerprint === pin.imageFingerprint
+    && context.preset.helperDigests.includes(image.helperSha256) && image.helperSha256 === pin.helperSha256,
+  "operator pin does not match fixture");
+}
+
 async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value: Snapshot): Promise<string> {
   const { version, oldProcess, newProcess, ...request } = payload;
   requireFact(version === 1 && value && same(value.request, request)
@@ -174,18 +204,9 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
   const { context, transportConnection } = config;
   const image = context?.recipe?.guestImage;
   requireFact(image, "operator image pin required");
-  requireFact(context && transportConnection
-    && same(context.scope, { installationId: request.scope.installationId,
-      releaseId: request.scope.releaseId, connectionId: request.scope.connectionId })
-    && context.preset.id === request.scope.presetId
-    && context.presetDigest === value.presetDigest
-    && context.effectiveSettingsDigest === value.effectiveSettingsDigest
-    && context.connection.revision === request.connectionRevision
-    && context.connection.serverCertificatePem === transportConnection.serverCertificatePem
-    && context.connection.project === transportConnection.project
-    && image?.fingerprint === context.preset.imageDigest
-    && context.preset.helperDigests.includes(image.helperSha256),
-  "operator pin does not match fixture");
+  requireOperatorPin(config, { scope: request.scope, connectionRevision: request.connectionRevision,
+    presetDigest: value.presetDigest, effectiveSettingsDigest: value.effectiveSettingsDigest,
+    imageFingerprint: value.before.backend.imageDigest, helperSha256: value.before.backend.helperDigest });
   const reader = new HostIncusLiveReadback({ resolveForHost: async input => {
     requireFact(input.connectionId === request.scope.connectionId
       && input.providerInstallationId === request.scope.installationId
@@ -214,10 +235,12 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
 }
 
 const input = JSON.parse(await Bun.stdin.text());
-if (input.phase === "readiness" && Object.keys(input).length === 1) {
+if (input.phase === "readiness" && (Object.keys(input).sort().join() === "phase"
+  || Object.keys(input).sort().join() === "expectedPin,phase")) {
   requireFact(process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH?.startsWith("/")
     && !process.env.DATABASE_URL, "isolated PGlite path required");
-  operatorConfig();
+  const config = operatorConfig();
+  if (Object.hasOwn(input, "expectedPin")) requireOperatorPin(config, input.expectedPin);
   process.stdout.write('{"ready":"receipt.v1"}\n');
 } else if (input.phase === "snapshot") {
   process.stdout.write(JSON.stringify({ snapshot: await snapshot(input.request) }) + "\n");

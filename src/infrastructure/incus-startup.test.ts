@@ -13,6 +13,7 @@ import { ProviderRpcBroker } from "./provider-rpc-broker";
 import type { ProviderConnectionMetadata } from "./provider-connections/store";
 import type { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
 import { IncusLiveProbeFixtureService } from "./incus-live-probe-fixtures";
+import { IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { IncusFeatureService } from "./incus-feature-service";
@@ -44,7 +45,25 @@ test("qualification witness requires a host probe root and uses the saved host f
       .rejects.toThrow("control probe root is unavailable");
     expect(ready).not.toHaveBeenCalled();
     process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe-root";
-    const witness = await createIncusQualificationWitness(scope, "run", db);
+    const selected = { connection: { revision: 1 }, preset, presetDigest: "a".repeat(64),
+      effectiveSettingsDigest: "b".repeat(64), helperDigest: preset.helperDigests[0] } as never;
+    const hostReady = async (input: Parameters<typeof import("./incus-host-live-witness").incusHostLiveWitnessReady>[0]) => {
+      expect(input?.expectedPin).toEqual({ scope, connectionRevision: 1, presetDigest: "a".repeat(64),
+        effectiveSettingsDigest: "b".repeat(64), imageFingerprint: preset.imageDigest,
+        helperSha256: preset.helperDigests[0] });
+      return true;
+    };
+    const witness = await createIncusQualificationWitness(scope, "run", db, { selected, ready: hostReady });
+    await expect(createIncusQualificationWitness(scope, "stale-run", db, {
+      selected: { connection: { revision: 1 }, preset, presetDigest: "a".repeat(64),
+        effectiveSettingsDigest: "b".repeat(64), helperDigest: preset.helperDigests[0] } as never,
+      ready: async () => false,
+    })).rejects.toThrow("selected operator pins");
+    const authorize = spyOn(IncusQualificationStore.prototype, "authorizeFixture").mockResolvedValue(selected);
+    try {
+      await createIncusQualificationWitness(scope, "default-selected", db, { ready: hostReady });
+      expect(authorize).toHaveBeenCalledWith(scope);
+    } finally { authorize.mockRestore(); }
     expect(ready).toHaveBeenCalledWith(scope, "run");
     expect((witness as unknown as { controlProbe: unknown }).controlProbe).toBeDefined();
   } finally {

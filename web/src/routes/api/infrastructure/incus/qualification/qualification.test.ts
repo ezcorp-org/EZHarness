@@ -13,6 +13,7 @@ let unsettledError: InstanceType<typeof IncusQualificationOperationUnsettledErro
 const warnings: Array<{ message: string; fields: unknown }> = [];
 mock.module("$server/logger", () => ({ logger: { child: () => ({ warn: (message: string, fields: unknown) => warnings.push({ message, fields }) }) } }));
 let witnessReady = false;
+let selectedPinsReady = true;
 let beginResult = false;
 let fixtureReady = true;
 const originalRoot = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
@@ -26,6 +27,7 @@ mock.module("$server/infrastructure/incus-host-live-witness", () => ({
 mock.module("$server/infrastructure/incus-startup", () => ({
   createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string) => {
     calls.push(`witness.create:${input.connectionId}:${operationId}`);
+    if (!selectedPinsReady) throw new Error("Incus selected operator pins are unavailable");
     if (unsettledError) throw unsettledError;
     if (!process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT || !fixtureReady) throw new Error("control unavailable");
     return { name: "operator-witness" };
@@ -341,4 +343,16 @@ test("load diagnostic projects each finite resource and excludes arbitrary cause
       expect(JSON.stringify(warnings.at(-1))).not.toContain("secret-canary");
     }
   } finally { preparationError = null; witnessReady = false; }
+});
+
+
+test("qualify refuses stale selected operator pins before durable preparation or allocation", async () => {
+  calls.length = 0; witnessReady = true; selectedPinsReady = false;
+  try {
+    const response = await POST(event(admin, { ...scope, action: "qualify" }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toEqual({ code: "qualification_unavailable",
+      message: "The Incus qualification fixture is unavailable for this scope. Check host logs and its saved status." });
+    expect(calls).toEqual(["authorize:connection", "witness.create:connection:fixture-1"]);
+  } finally { selectedPinsReady = true; witnessReady = false; }
 });

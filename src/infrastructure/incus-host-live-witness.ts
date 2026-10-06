@@ -20,7 +20,7 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
-import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt,
+import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt, type IncusSupervisorSelectedPin,
   requestIncusSupervisorRestart, releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
@@ -35,6 +35,7 @@ const guestOperations = new Set<SandboxProtocolOperation>(INCUS_WITNESS_GUEST_OP
 /** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
 export async function incusHostLiveWitnessReady(deps: {
   env?: NodeJS.ProcessEnv;
+  expectedPin?: IncusSupervisorSelectedPin;
   supervisorReadiness?: typeof requestIncusSupervisorReadiness;
   terminalRelease?: typeof releaseTerminalIncusQualification;
 } = {}): Promise<boolean> {
@@ -58,7 +59,7 @@ export async function incusHostLiveWitnessReady(deps: {
     // A missed post-commit IPC can be recovered from the host-owned terminal row.
     // Failed proof leaves the supervisor claim intact; readiness still refuses it.
     await (deps.terminalRelease ?? releaseTerminalIncusQualification)(undefined, env).catch(() => undefined);
-    return await (deps.supervisorReadiness ?? requestIncusSupervisorReadiness)(socket);
+    return await (deps.supervisorReadiness ?? requestIncusSupervisorReadiness)(socket, deps.expectedPin);
   } catch { return false; }
 }
 

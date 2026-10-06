@@ -61,7 +61,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
           message: "The host live qualification witness is incomplete." }, { status: 503 });
       }
       const selected = await new IncusQualificationStore().authorizeFixture(input.scope);
-      const witness = await createIncusQualificationWitness(input.scope, input.operationId);
+      const witness = await createIncusQualificationWitness(input.scope, input.operationId, undefined, { selected });
       const run = await beginDurableIncusLiveCases({ witness,
         composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
       input.scope, selected.preset, { runId: input.operationId, nonce: randomUUID(),

@@ -148,3 +148,17 @@ test("terminal client reports only the exact validated host receipt and rejects 
   await expect(requestIncusSupervisorTerminal(await server('{"released":false}\n'), attestation))
     .rejects.toThrow("not released");
 });
+
+
+test("selected readiness uses the same bounded authenticated exchange and carries no credentials", async () => {
+  const expectedPin = { scope: restart.scope, connectionRevision: 1,
+    presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+    imageFingerprint: "c".repeat(64), helperSha256: "d".repeat(64) };
+  const path = await server(input => {
+    expect(input).toEqual({ version: 1, action: "readiness", expectedPin });
+    return '{"ready":true,"protocol":"incus-qualification.v1"}\n';
+  });
+  expect(await requestIncusSupervisorReadiness(path, expectedPin)).toBe(true);
+  const denied = await server('{"error":"operator receipt verifier is unavailable"}\n');
+  await expect(requestIncusSupervisorReadiness(denied, expectedPin)).rejects.toThrow("verifier is unavailable");
+});

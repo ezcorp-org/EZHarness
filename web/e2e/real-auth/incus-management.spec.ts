@@ -74,7 +74,7 @@ function feature(state: string, operation: { id: string; kind: string; state: st
 type FeatureFixture = ReturnType<typeof feature> & { tombstonedAt?: string | null; cleanupConfirmedAt?: string | null; cleanupRecoveryEligible?: boolean;
 	cleanupRecovery?: { id: string; state: string; failedDestroyOperationId: string; stopOperationId: string; destroyOperationId: string } | null };
 
-async function mockManagement(page: Page, options: { initiallyQualified?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
+async function mockManagement(page: Page, options: { initiallyQualified?: boolean; rejectSelectedReadiness?: boolean; initialFeature?: ReturnType<typeof feature>; loseFirstCreateResponse?: boolean; rejectFirstCreate?: boolean; holdApply?: boolean; preparedProject?: { id: string; name: string }; preparedBindingId?: string } = {}) {
 	let qualified = options.initiallyQualified ?? false;
 	let qualificationRunId: string | null = null;
 	const selectedProject = options.preparedProject ?? project;
@@ -116,6 +116,9 @@ async function mockManagement(page: Page, options: { initiallyQualified?: boolea
 	await page.route("**/api/infrastructure/incus/qualification", async route => {
 		const body = route.request().postDataJSON() as Record<string, unknown>;
 		actions.push({ endpoint: "qualification", body });
+		if (options.rejectSelectedReadiness) return route.fulfill({ status: 409, json: {
+			code: "qualification_unavailable", message: "The Incus qualification fixture is unavailable for this scope. Check host logs and its saved status.",
+		} });
 		qualified = true;
 		qualificationRunId = String(body.operationId);
 		return route.fulfill({ status: 202, json: { run: { runId: body.operationId, state: "AWAITING_RESTART" } } });
@@ -212,15 +215,7 @@ test("qualifies an environment, creates a project sandbox, and manages its lifec
 	await page.getByRole("button", { name: "Apply reviewed capacity" }).click();
 	await expect(page.getByText("Capacity is saved for this verified setup.")).toBeVisible();
 	await expect(page.locator(".environment-card .pill").filter({ hasText: "Not qualified" })).toBeVisible();
-	await page.getByRole("button", { name: "Prepare qualification…" }).click();
-	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
-	await expect(page.getByTestId("qualification-workflow")).toContainText("/srv/ezharness/incus-fixtures");
-	await expect(page.getByTestId("qualification-workflow")).toContainText("project-unsupported");
-	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
-	await captureEvidence(page, testInfo, "incus-management-qualification-confirmation", { fullPage: true });
-	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
-	await expect(page.getByTestId("qualification-workflow").getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
-	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+	await prepareQualification(page, () => captureEvidence(page, testInfo, "incus-management-qualification-confirmation", { fullPage: true }));
 	await page.getByRole("button", { name: "Run live qualification" }).click();
 	await expect(page.getByTestId("qualification-workflow")).toContainText("Qualification passed");
 	await expect(page.getByText("Qualified", { exact: true })).toBeVisible();
@@ -673,4 +668,29 @@ test("qualification failure shows the safe diagnostic and does not repeat the ru
 	await expect(page.getByRole("alert")).toContainText(message);
 	expect(attempts).toBe(1);
 	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+});
+
+async function prepareQualification(page: Page, capture?: () => Promise<void>) {
+	await page.getByRole("button", { name: "Prepare qualification…" }).click();
+	await expect(page.getByTestId("qualification-workflow")).toContainText(planDigest);
+	await expect(page.getByTestId("qualification-workflow")).toContainText("/srv/ezharness/incus-fixtures");
+	await expect(page.getByTestId("qualification-workflow")).toContainText("project-unsupported");
+	await page.getByRole("checkbox", { name: /I reviewed this plan/ }).check();
+	await capture?.();
+	await page.getByRole("button", { name: "Apply reviewed fixture plan" }).click();
+	await expect(page.getByTestId("qualification-workflow").getByText("Operator fixtures are ready", { exact: true })).toBeVisible();
+	await page.getByRole("checkbox", { name: /host is ready for a live sandbox qualification/ }).check();
+}
+
+test("stale operator readiness refuses qualification and keeps sandbox creation unavailable @evidence", async ({ page }, testInfo) => {
+	const { actions } = await mockManagement(page, { rejectSelectedReadiness: true });
+	await page.goto("/extensions/incus-management");
+	await prepareQualification(page);
+	await page.getByRole("button", { name: "Run live qualification" }).click();
+	await expect(page.getByRole("alert")).toContainText("qualification fixture is unavailable for this scope");
+	await expect(page.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+	expect(actions.filter(action => action.endpoint === "qualification")).toHaveLength(1);
+	expect(actions.filter(action => action.endpoint === "features")).toHaveLength(0);
+	await expect(page.locator(".feature-card")).toHaveCount(0);
+	await captureEvidence(page, testInfo, "incus-selected-readiness-refused", { fullPage: true });
 });

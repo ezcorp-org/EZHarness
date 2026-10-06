@@ -51,13 +51,22 @@ class FaultVerifierTest(unittest.TestCase):
                 "clientCertificate": str(certificate), "clientKey": str(key), "scope": SCOPE}))
             for path in (certificate, key, config_path):
                 path.chmod(0o600)
-            def run():
+            def run(message=None):
                 return subprocess.run([sys.executable, str(SOURCE), "--config", str(config_path)],
-                    input=b'{"phase":"readiness"}\n', capture_output=True, check=False)
+                    input=json.dumps(message or {"phase": "readiness"}).encode()+b"\n", capture_output=True, check=False)
             with patch.object(MODULE, "query_instance", side_effect=AssertionError("backend request")):
                 ready = run()
             self.assertEqual(ready.returncode, 0, ready.stderr)
             self.assertEqual(ready.stdout, b'{"ready":"fault.v1"}\n')
+            selected = {"phase": "readiness", "expectedScope": SCOPE}
+            self.assertEqual(run(selected).returncode, 0)
+            for field in SCOPE:
+                rejected = run({**selected, "expectedScope": {**SCOPE, field: "stale"}})
+                self.assertNotEqual(rejected.returncode, 0)
+                self.assertIn(b"fault scope mismatch", rejected.stderr)
+            for scope in (None, [], {}, {**SCOPE, "extra": "value"}):
+                self.assertNotEqual(run({**selected, "expectedScope": scope}).returncode, 0)
+            self.assertNotEqual(run({**selected, "extra": True}).returncode, 0)
             key.chmod(0o644)
             self.assertNotEqual(run().returncode, 0)
 
