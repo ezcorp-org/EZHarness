@@ -2,7 +2,7 @@
 
 - Put a required guard and its dependent effect in one fail-closed sequential caller. A separate tool call can run even after an earlier call exits nonzero. Check the exact host and measured resource before admission; preserve any already-admitted operation and inspect its original handle instead of replaying it.
 
-- Strip inherited GIT_* variables from Git fixture subprocesses. Commit hooks export repository and index paths; a temporary working directory alone does not isolate Git. Test with poisoned variables and verify the real repository HEAD, staged paths and commit scope after hooks.
+- Strip inherited GIT_* variables from Git fixture subprocesses. Commit hooks export repository and index paths; a temporary working directory alone does not isolate Git. Test with poisoned variables and verify the real repository HEAD, staged paths, commit scope and local configuration after hooks. The first failing fixture also overwrote shared user.name/email; restore only proven affected keys from pre-failure evidence.
 
 - Keep runtime locks and metadata outside user repositories. Hiding helper files from a file-list tool does not hide them from Git. Test real helper edits and removals followed by real Git status; preserve stable lock inodes across concurrent waiters instead of deleting lock files after each call.
 
