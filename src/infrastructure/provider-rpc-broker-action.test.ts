@@ -453,7 +453,7 @@ async function observationFixture() {
   const fixture = await setup();
   const now = Date.UTC(2026, 9, 4, 17);
   const actions: PreparedIncusAction[] = [];
-  const add = async (index: number, age = 0, recovery = false) => {
+  const add = async (index: number, age = 0, recovery = false, dispatchedAge?: number) => {
     const bindingId = `observation-${index}`;
     const id = `observation-journal-${index}`;
     const [original] = await fixture.db.select().from(schema.sandboxBindings).where(eq(schema.sandboxBindings.id, "binding"));
@@ -466,7 +466,8 @@ async function observationFixture() {
     await fixture.db.insert(schema.sandboxOperations).values({ id, bindingId, generation: 1,
       kind: recovery ? "DESTROY" : "CREATE", state: "DISPATCHING", idempotencyScope: recovery ? "incus-qualification" : "feature",
       idempotencyKey: recovery ? `qual-recovery-${id}:destroy` : id, payloadHash: "observer-hash",
-      requestPayload: payload, createdAt: new Date(now - age) });
+      requestPayload: payload, createdAt: new Date(now - age),
+      dispatchedAt: dispatchedAge === undefined ? null : new Date(now - dispatchedAge) });
     const input = { providerId: "incus", connectionId: "connection", sandboxId: bindingId,
       requestId: id, idempotencyKey: id, rpcDeadlineMs: Date.now() + 30_000, ...payload, ...(!recovery ? { desiredState: "stopped" } : {}) };
     const action = fixture.scope(recovery ? "lifecycle.destroy" : "lifecycle.create", input);
@@ -488,6 +489,22 @@ function pendingUntilAbort(signal: AbortSignal | undefined, entered: () => void)
     if (signal?.aborted) resolve({ ok: false });
     else signal?.addEventListener("abort", () => resolve({ ok: false }), { once: true });
   });
+}
+
+function cleanupWorkerBridge(broker: ProviderRpcBroker, action: PreparedIncusAction,
+  beforeDispatch: () => Promise<void> = async () => {}) {
+  let workerResult: unknown;
+  const provider = new IncusSandboxProviderDispatcher({ call: async (scope, _method, input) => {
+    expect(scope.generation).toBe(1);
+    expect(input.expectedGeneration).toBe(2);
+    await beforeDispatch();
+    const prepared = { ...action, expectedCommand: createIncusTransportCommand("lifecycle.destroy", input, action.config) };
+    const transport = createHostIncusTransport({ call: async (_name, value) =>
+      await broker.request(prepared, value as Record<string, unknown>, scope.deadlineMs) });
+    workerResult = await new IncusSandboxAdapter(action.config, transport).invoke("lifecycle.destroy", input);
+    return workerResult;
+  } });
+  return { provider, result: () => workerResult };
 }
 
 test("host observer capacity is reserved before effects and shutdown drains all accepted dispatches", async () => {
@@ -519,7 +536,7 @@ test("host observer capacity is reserved before effects and shutdown drains all 
   expect((await fixture.db.select().from(schema.sandboxOperations)).every(row => row.state === "DISPATCHING")).toBe(true);
 });
 
-test("observer budget is absolute from journal creation and never resets on a new host", async () => {
+test("legacy observer budget without a dispatch anchor stays absolute from creation on a new host", async () => {
   const fixture = await observationFixture();
   const expired = await fixture.add(0, 600_000);
   let effects = 0;
@@ -535,9 +552,9 @@ test("observer budget is absolute from journal creation and never resets on a ne
   await broker.stopObservations();
 });
 
-test("expired queued cleanup stays a known pretransport failure through broker, worker adapter and controller", async () => {
+test("expired saved dispatch anchor stays a known pretransport failure through broker, worker adapter and controller", async () => {
   const fixture = await observationFixture();
-  const action = await fixture.add(0, 600_000, true);
+  const action = await fixture.add(0, 600_000, true, 600_000);
   const operationId = action.expectedCommand.idempotency!.requestId;
   // A normal qualification fixture is not the operator-owned lost-reply case.
   await fixture.db.update(schema.sandboxOperations).set({ state: "JOURNALED",
@@ -549,22 +566,49 @@ test("expired queued cleanup stays a known pretransport failure through broker, 
   const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
     () => ({ request: async () => { effects++; throw new Error("Expired dispatch reached backend"); } }), undefined,
     { now: () => fixture.now, resolveActiveRelease: async () => { throw new Error("Expired dispatch resolved release"); } });
-  let workerResult: unknown;
-  const provider = new IncusSandboxProviderDispatcher({ call: async (scope, _method, input) => {
-    expect(scope.generation).toBe(1);
-    expect(input.expectedGeneration).toBe(2);
-    const prepared = { ...action, expectedCommand: createIncusTransportCommand("lifecycle.destroy", input, action.config) };
-    const transport = createHostIncusTransport({ call: async (_name, value) =>
-      await broker.request(prepared, value as Record<string, unknown>, scope.deadlineMs) });
-    workerResult = await new IncusSandboxAdapter(action.config, transport).invoke("lifecycle.destroy", input);
-    return workerResult;
-  } });
+  const worker = cleanupWorkerBridge(broker, action);
   try {
-    const outcome = await new SandboxController(fixture.db, provider).executeOperation(operationId);
-    expect(workerResult).toMatchObject({ ok: false, error: { code: "UNAVAILABLE", retryable: true } });
+    const outcome = await new SandboxController(fixture.db, worker.provider).executeOperation(operationId);
+    expect(worker.result()).toMatchObject({ ok: false, error: { code: "UNAVAILABLE", retryable: true } });
     expect(outcome).toMatchObject({ state: "FAILED", errorCode: "UNAVAILABLE", providerOperationId: null });
     expect(effects).toBe(0);
     expect(outcome.requestPayload).toEqual({ expectedGeneration: 2 });
+  } finally { await broker.stopObservations(); }
+});
+
+test("old queued cleanup receives its first dispatch budget without weakening host or provider generations", async () => {
+  const fixture = await observationFixture();
+  const action = await fixture.add(0, 600_000, true);
+  const operationId = action.expectedCommand.idempotency!.requestId;
+  await fixture.db.update(schema.sandboxOperations).set({ state: "JOURNALED", idempotencyKey: "qual-primary-queued:destroy",
+    requestPayload: { expectedGeneration: 2 } }).where(eq(schema.sandboxOperations.id, operationId));
+  let anchor = fixture.now;
+  let effects = 0;
+  const nativeId = "incus-destroy-11111111-1111-4111-8111-111111111111";
+  const broker = new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    prepared => ({ request: async () => {
+      effects++;
+      const identity = prepared.expectedCommand.idempotency!;
+      return { ok: true, receipt: { operationId: nativeId, kind: "destroy", requestId: identity.requestId,
+        idempotencyKey: identity.key, sandboxId: prepared.bindingId, acceptedAt: new Date(anchor).toISOString() } };
+    } }), undefined,
+    { now: () => anchor, resolveActiveRelease: async () => { throw new Error("No accepted observation callback in this fixture"); } });
+  const worker = cleanupWorkerBridge(broker, action, async () => {
+    const [claimed] = await fixture.db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId));
+    expect(claimed?.state).toBe("DISPATCHING");
+    expect(claimed?.dispatchedAt).toBeInstanceOf(Date);
+    // Pin observation time to the saved database claim, rather than timing the host.
+    anchor = claimed!.dispatchedAt!.getTime();
+  });
+  try {
+    const [before] = await fixture.db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId));
+    expect(before?.dispatchedAt).toBeNull();
+    const result = await new SandboxController(fixture.db, worker.provider).executeOperation(operationId);
+    expect(result).toMatchObject({ state: "PROVIDER_PENDING", providerOperationId: nativeId });
+    expect(result.dispatchedAt?.getTime()).toBe(anchor);
+    expect(result.createdAt.getTime()).toBe(fixture.now - 600_000);
+    expect(effects).toBe(1);
+    expect(result.requestPayload).toEqual({ expectedGeneration: 2 });
   } finally { await broker.stopObservations(); }
 });
 
@@ -649,6 +693,44 @@ async function observerReadFixture() {
   };
   return { ...fixture, add, snapshot, connections, connectionChecks: () => connectionsChecked };
 }
+
+test("startup uses the saved first-dispatch anchor for old queued work and never renews it from updates", async () => {
+  const fixture = await observerReadFixture();
+  const actions = await Promise.all([0, 1, 2].map(index => fixture.add(index)));
+  const nativeId = "incus-create-11111111-1111-4111-8111-111111111111";
+  for (const [index, action] of actions.entries()) {
+    await fixture.db.update(schema.sandboxOperations).set({ state: "PROVIDER_PENDING", providerOperationId: nativeId,
+      createdAt: new Date(fixture.now - 700_000), updatedAt: new Date(fixture.now + 700_000),
+      dispatchedAt: index === 2 ? null : new Date(fixture.now - (index === 0 ? 599_999 : 600_000)) })
+      .where(eq(schema.sandboxOperations.id, action.expectedCommand.idempotency!.requestId));
+  }
+  const reads: { bindingId: string; deadlineMs: number }[] = [];
+  let writes = 0;
+  let anchorNow = fixture.now;
+  const makeBroker = () => new ProviderRpcBroker(fixture.connections, undefined, fixture.db,
+    (prepared, _signal, _accepted, _terminal, observing) => ({ request: async command => {
+      if (!observing) { writes++; throw new Error("Restart cannot dispatch a mutation"); }
+      reads.push({ bindingId: prepared.bindingId, deadlineMs: command.deadlineMs });
+      return { ok: true, operation: { operationId: nativeId, kind: "create", sandboxId: prepared.bindingId,
+        state: "outcome_unknown", desiredState: "stopped", observedState: "unknown", resourceId: prepared.expectedCommand.sandboxName,
+        startedAt: new Date(fixture.now).toISOString(), finishedAt: null, error: null } };
+    } }), undefined, { now: () => anchorNow, resolveActiveRelease: async () => fixture.snapshot });
+  const first = makeBroker();
+  try {
+    await first.resumePendingObservations();
+    await first.awaitObservation(actions[0]!.expectedCommand.idempotency!.requestId);
+    expect(reads).toEqual([{ bindingId: actions[0]!.bindingId, deadlineMs: fixture.now + 1 }]);
+    expect(writes).toBe(0);
+  } finally { await first.stopObservations(); }
+  anchorNow = fixture.now + 1;
+  const restarted = makeBroker();
+  try {
+    await restarted.resumePendingObservations();
+    expect(reads).toHaveLength(1);
+    expect(writes).toBe(0);
+    expect((await fixture.db.select().from(schema.sandboxOperations)).every(row => row.state === "PROVIDER_PENDING")).toBe(true);
+  } finally { await restarted.stopObservations(); }
+});
 
 for (const completion of ["terminal", "revoked", "expired"] as const) {
   test(`independent observer schedules bounded reads and ${completion} preserves exact journal truth`, async () => {

@@ -485,7 +485,8 @@ export class ProviderRpcBroker {
     const [owned] = await this.database.select({ id: sandboxBindings.id }).from(sandboxBindings)
       .where(observationBindingPredicate(scope.settlementScope)).limit(1);
     if (!owned) throw new IncusTransportError("permission", "Incus binding changed before effect admission");
-    if (this.observationsStopped || journal.createdAt.getTime() + OBSERVATION_BUDGET_MS <= this.observationNow()) {
+    const expiresAt = (journal.dispatchedAt ?? journal.createdAt).getTime() + OBSERVATION_BUDGET_MS;
+    if (this.observationsStopped || expiresAt <= this.observationNow()) {
       throw new IncusTransportError("unavailable", "Incus host observation budget is unavailable", { effect: "none" });
     }
     const existing = this.observations.get(id);
@@ -494,7 +495,7 @@ export class ProviderRpcBroker {
       return existing;
     }
     if (this.observations.size >= OBSERVATION_LIMIT) throw new IncusTransportError("unavailable", "Incus host observation capacity is full", { effect: "none" });
-    const slot = { scope, expiresAt: journal.createdAt.getTime() + OBSERVATION_BUDGET_MS, abort: new AbortController() };
+    const slot = { scope, expiresAt, abort: new AbortController() };
     this.observations.set(id, slot);
     return slot;
   }
@@ -563,7 +564,7 @@ export class ProviderRpcBroker {
     if (this.observationsStopped) return;
     const pending = await this.database.select().from(sandboxOperations).where(and(
       inArray(sandboxOperations.state, [...observationStates]), not(operatorRecoveryDestroy),
-      gte(sandboxOperations.createdAt, new Date(this.observationNow() - OBSERVATION_BUDGET_MS)),
+      gte(sql<Date>`COALESCE(${sandboxOperations.dispatchedAt}, ${sandboxOperations.createdAt})`, new Date(this.observationNow() - OBSERVATION_BUDGET_MS)),
       sql`${sandboxOperations.providerOperationId} ~ ${"^incus-(create|setPower|destroy)-[a-f0-9-]{36}$"}`,
     )).limit(OBSERVATION_LIMIT);
     for (const journal of pending) {
