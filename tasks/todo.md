@@ -3020,7 +3020,7 @@ is `docs/validation/2026-10-05-c7-batched-recovery-attempt2-review.md`.
   User instructed continuation through E2E in direct reply to the pending
   packet approval. Root authorized that shown one-attempt packet, SHA
   `f37463a56809dc3aea9f0f3da264c1405d8a6f0f390a64d2c418ae690509bdc6`.
-- [ ] Wait for source gate completion, recheck headroom, then execute only the
+- [x] Wait for source gate completion, recheck headroom, then execute only the
   approved attempt and independently verify its result and access restoration.
 
 Review: attempt 2 is fully closed and cannot be replayed. The canonical-byte
@@ -3039,15 +3039,48 @@ on integrated `11620ca6e`.
   receipt aged 46,895 ms at persistence; no certificate fence or admission.
   Independent access/app restoration passed. Receipts 208–209 prove the
   fallback timer ended and all access is absent; c7 cleanup is still outstanding.
-- [ ] Implement and verify atomic first review publication plus a bounded
+- [x] Implement and verify atomic first review publication plus a bounded
   operator waiter; preserve the existing 30-second freshness and all deadlines.
+  Root reviewed component `2ccc10bc8e4f1d8aa2cd7934cfd93f4cdd692b42f3c16316fbd3ced2cd8348aa`
+  and independently reran 13 handoff plus 18 existing component tests. New
+  Attempt 4 namespace sealing and final artifact review passed. Root reviewed
+  the exact component delta and recorded the one-attempt execution plan in
+  `docs/validation/2026-10-05-c7-synchronous-review-attempt4.md`.
+- [x] Execute one attempt 4 and prove its disposition and full restoration.
+  Actual access and synchronous handoff passed; the independent fence verifier
+  refused. Supported offline abort `94253636-cb6f-4cd9-b58a-f5245365cb5d`
+  committed and passed independent review, proving no cleanup admission.
+  Exact certificate/configuration/app restoration passed independent receipts
+  235–239. Natural access rollback passed 229–230. The app is healthy on
+  508/f935; c7 and its reservation remain preserved. No cleanup claim.
+  The missing production-v3 audit wire is reproduced through the actual
+  supervisor/verifier/dispatcher composition; six candidate tests pass. The
+  unchanged dispatcher fails. Independent review passed all six composition
+  tests, 21 earlier regressions, and three actual final-artifact checks.
+  No earlier attempt or UNKNOWN operation may be replayed.
+- [ ] Seal and review a fresh cleanup attempt with a new nonce, the corrected
+  exact audit command, and complete success/abort restoration plans.
 - [ ] Complete the missing 17-phase E2E operator-hook bridge and exact
   post-failed-DESTROY reservation proof through a stopped database clone.
+  Snapshot/projection subtask passed root review and independent 14 Python /
+  42 TypeScript tests. It proves compute RELEASED and positive disk capacity
+  still RELEASE_REQUESTED from the detached clone; no live database is opened.
+  The process observer now reports only exact initial-marker ENOENT as not
+  ready; independent review and 25 focused tests passed. Full driver remains
+  in progress in the isolated flow worktree. The independent storage helper
+  passed review and 10 tests; it proves the exact root-volume API returns a
+  genuine 404 while project/pool controls remain 200. Physical disk absence and
+  reservation release require their separate evidence.
 - [ ] Install the current verified app in the isolated environment.
 - [ ] Pass current live qualification and the normal UI/native-agent workflow.
 - [ ] Pass ten repeatable feature lifecycles, restart, denied access, cleanup
   recovery, and final backend/database accounting.
 - [ ] Complete final full repository gate, hosted checks and evidence update.
+  PR head `bf65af3e0` is pushed after normal hooks. Hosted dependency audit has
+  a new failure corrected locally in `df08c12c8`: only proxy-addr 2.0.8 and
+  source-map-js 1.2.2 lock entries changed. Fresh installs, actual nested imports,
+  regressions and the dependency audit pass. Final current-source gates remain
+  required; no advisory or gate suppression was used.
 
 Do not stop at a prepared packet or a partial test result. Continue authorized
 work until the selected deployment works end to end. Keep source and live

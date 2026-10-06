@@ -641,3 +641,11 @@
   keep that outcome active across recovery and test milestones. A prepared
   packet or a partial pass is not completion. Carry existing authorization
   forward and finish independent work while required external input is pending.
+- Test every actual command producer against a forced-command gate. Passing
+  the transport adapter's wires does not cover the supervisor's independent
+  verifier wire. Include the production serializer and gate in one fixture;
+  distinguish an RPC timeout from the future time an audit must prove safe.
+  Preserve the original failure and test forbidden paths, hashes and verbs.
+- Before a timed operation starts, prepare both success restoration and the
+  supported abort after admission uncertainty. An expired lease must not force
+  a new live design for restoring a known prior certificate or configuration.

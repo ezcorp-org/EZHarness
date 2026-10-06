@@ -16,6 +16,20 @@ confirmed no access or admission effect and restored the same app. The
 checksum generator now has an actual renderer-to-consumer regression; the
 saved guest still needs cleanup. See the [attempt 2 result](../docs/validation/2026-10-05-c7-batched-recovery-attempt2-result.md).
 
+Latest continuation: attempt 3 proved temporary access, then refused a stale
+review receipt before certificate fencing or cleanup admission. Its access,
+configuration and fallback timer restoration passed independently. The fresh
+[attempt 4 plan](../docs/validation/2026-10-05-c7-synchronous-review-attempt4.md)
+keeps all deadline and freshness checks and uses synchronous one-time review
+delivery. Its actual handoff passed, but the production verifier's audit command
+was missing from the temporary SSH gate. A supported signed abort proved no
+cleanup admission; natural access rollback and complete prior-state restoration
+passed independently. See the [attempt 4 result](../docs/validation/2026-10-05-c7-synchronous-review-attempt4-result.md).
+The app is healthy on 508/f935; the exact stopped c7 guest remains preserved.
+Source `df08c12c8` also patches two newly published dependency advisories;
+fresh dependency installs, real nested imports and the audit pass. The current
+full gate and complete normal user flow remain open.
+
 The historical proofs below remain valid for their recorded releases and
 identities. They do not close the current release gates. The boxes remain
 open until current evidence or an explicit identity-matched carry-forward
