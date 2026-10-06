@@ -14,18 +14,19 @@
 - [x] Add a once-only durable dispatch timestamp to the atomic claim and use it consistently for observation expiry and restart. Claim/schema `309beefea`, broker `b84ec38af`, and real PostgreSQL assertions `1a13b13b6` are integrated and independently reviewed. Validation: 23 controller tests, 32 broker-action tests, 2 PostgreSQL tests, and combined typecheck pass. Legacy rows retain conservative creation-time expiry; UNKNOWN budgets never refresh. This is source validation, not deployed proof.
 - [x] Add signed retained-DESTROY no-effect reconciliation through the existing fenced operator mechanism (`a00c678d2`). Preserve the original UNKNOWN snapshot and prior recovery evidence; require unchanged owned generation/tags, fenced actors and quiet backend. Keep reservations until separate cleanup succeeds. Independent review, focused tests, measured changed-line coverage, complexity and typechecking pass. This is source proof; the live UNKNOWN row is unchanged.
 - [x] Add permanent real-adapter/transport proof for stopping an already STOPPED guest (`0b531c4d7`): one generation-fenced intent PATCH, no native stop PUT, then confirmed STOPPED inspection. All 45 lifecycle tests pass.
-- [ ] Build and verify the combined recovery/dispatch candidate, install it with guarded state preservation, and execute the reviewed signed reconciliation before normal cleanup. Reuse the tested access and restoration protocol; do not run a timed window under heavy validation load.
-- [ ] Prove DESTROY completion, independent guest/storage absence and released accounting. The newer 50d build does not automatically resolve this UNKNOWN path; its cleanup change applies only to a separate known-FAILED case.
+- [x] Build and verify combined candidate `301e88e93`, then install it through the independently reviewed guarded update. All six phases exited 0; health passed, configurations and stopped accounting were preserved, and no database restore occurred. The live cleanup remains UNKNOWN. See [the update result](../docs/validation/2026-10-06-incus-301-update-result.md).
+- [ ] Execute reviewed signed reconciliation before normal cleanup. Reuse the tested access and restoration protocol; do not run a timed window under heavy validation load.
+- [ ] Prove DESTROY completion, independent guest/storage absence and released accounting. Installed 301 adds signed reconciliation, but it does not automatically resolve the saved UNKNOWN operation.
 - [x] Build exact source `50d043fc89141c216548580f224d413902c0ad69` in fresh root/web installs; verify the release bundle, health smoke, real nested dependency resolutions, and advisory regressions. This bundle is not installed.
 - [x] Pass the exact 50d fast gate: all 12 stages, exit 0; 27,585 backend, 3,638 web Bun and 7,727 Vitest tests pass. Log SHA-256 `171ec5afe55938f32e95021dd02346474f5d737762389be62dc71d181b57c5c8`. This proves that revision only; the final combined recovery/dispatch source still needs its own complete checks.
-- [ ] Install the verified bundle using current-state checks; pass live qualification and the normal UI/native-agent feature flow.
+- [ ] Pass live qualification and the normal UI/native-agent feature flow on the installed, verified bundle.
 - [ ] Reproduce and resolve the earlier resource-load output timeout. Request 126 reported `guest_processes_readOutput_deadline_exceeded`; installed 508 did not record the resource or transport phase. Current source includes `c07ed31e5` diagnostics only. Local TLS/helper and bounded pressure tests passed but did not reproduce the Incus failure. Capture the exact new resource/phase and bounded guest/kernel evidence on the next live diagnostic attempt; do not call that attempt verification of an existing fix.
 - [ ] Run ten complete feature lifecycles, including retained files, Compose, process control, restart, denied access and independent cleanup/accounting proof.
 - [ ] Pass current-source full local/hosted gates, update PR #303, and obtain required non-author review. Do not merge or publicly release.
 
 Review: both the original c7 START and the new 8720 cleanup are UNKNOWN. The
 guest remains STOPPED; no reservation release is claimed. The isolated app is
-healthy on `5080f3792`, with original settings and no recovery hold. Temporary
+healthy on `301e88e93`, with original settings and no recovery hold. Temporary
 access is closed. The actual user workflow and release are not complete. See
 the [attempt 6 result](../docs/validation/2026-10-06-c7-consumer-preflight-attempt6-result.md).
 
