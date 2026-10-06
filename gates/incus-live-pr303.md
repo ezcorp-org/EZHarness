@@ -2,14 +2,27 @@
 
 Scope: Review and apply a plan bound to the pinned provider release on the named sandbox server, prove the EZHarness-to-Incus workflow with the isolated app, and close the PR's code and CI gates without claiming unsupported features.
 
-Latest deployment, 6 October: combined source `301e88e93` is installed and
+Current state, 6 October: source `301e88e93` is installed. Attempt 7 classified
+saved cleanup 8720 as FAILED / OPERATOR_PROVEN_NO_EFFECT under a signed proof.
+Independent review verified transport restoration and closed the temporary
+access window. Normal app settings are restored. The guest is still STOPPED;
+cleanup and reservation release are not complete. Next prove ordinary cleanup,
+resource-load qualification, the user workflow, ten lifecycles and final gates.
+See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
+
+## Earlier checkpoints
+
+These entries record earlier states; their pending items are not the current
+task list.
+
+Deployment checkpoint, 6 October: combined source `301e88e93` is installed and
 healthy. Independent update review passed; configurations and stopped-copy
 accounting were preserved without a database restore. Cleanup 8720 remains
 UNKNOWN and the same guest remains STOPPED. Signed reconciliation, cleanup,
 resource-timeout diagnosis and full feature proof remain open. See the
 [update result](../docs/validation/2026-10-06-incus-301-update-result.md).
 
-Latest status, 6 October: attempt 6 passed actual loader, detached-database,
+Attempt 6 checkpoint, 6 October: attempt 6 passed actual loader, detached-database,
 server ownership and production audit checks. It admitted cleanup
 `8720a719-b3cd-44d7-a00d-5a57f4262fca`, then restoration stopped on runner
 startup identity. A separate supported restoration and normal app startup

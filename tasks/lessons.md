@@ -664,3 +664,7 @@
   and socket are ready. Wait within the existing deadline for the new socket
   and stable process, then enforce all strict identity checks. Set generated
   file ownership explicitly instead of assuming the caller's group is root.
+- Before a timed recovery, prepare the final restoration of normal service
+  settings and marker metadata as well as transport restoration and abort.
+  A working connection does not prove that temporary service settings were
+  removed. Test runtime-bound configuration hashes, not just preview hashes.
