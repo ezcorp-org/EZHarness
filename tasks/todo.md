@@ -1,7 +1,31 @@
 # Active completion — 3 October 2026
 
-Current execution checklist: **October 4, 13:36 UTC — approved release execution**
-below. Earlier sections are historical checkpoints, not current open-task lists.
+## Current execution checklist — 6 October 2026
+
+- [x] Close attempt 5 with a supported signed no-admission abort; independently verify complete app, certificate, configuration, key and timer restoration. Preserve the failed packet and ledger.
+- [x] Reproduce the six-versus-four helper-map error through the actual public loader under app UID 62040. Derive the successor map from the loader's exact contract and pass the real loader before any clock.
+- [x] Run the unchanged installed DURABLE verifier against a byte-verified detached copy while all database actors are stopped. Actual receipt 278 passed; live bytes/metadata were preserved and clone handles closed. Normal app restoration and independent proof review precede any new clock.
+- [ ] Review the final successor packet and actual preflights; prove the server ownership check and production audit SSH route before certificate fencing. Safely resolve c7 without replaying its UNKNOWN START.
+- [x] Attempt 6 passed actual pre-authority checks and admitted cleanup `8720a719-b3cd-44d7-a00d-5a57f4262fca`. Preserve its saved request and hold; no replay or no-admission abort is allowed.
+- [x] Complete separately reviewed restoration of this admitted cleanup. Explicit marker ownership and bounded strict runner readiness pass; actual admission/certificate checks, signed restoration, hold archive and normal 508 startup pass independent review.
+- [ ] Diagnose the new cleanup outcome: receipt 299 records 8720 DESTROY OUTCOME_UNKNOWN with null provider handle/error. Actual 305 GET-only proof finds the exact guest STOPPED, backend generation 2, original START tags and no active backend operations. This does not prove no effect. Hold new workflow effects; do not replay deletion or use no-admission abort. Reproduce and fix the provider response path before further action.
+- [x] Reproduce the failure through the real broker, dispatcher, adapter and transport with a database fixture: an expired observation budget rejects before any backend call, but the missing explicit no-effect classification becomes UNKNOWN. The valid host-generation-1/provider-generation-2 case succeeds. Actual saved creation time, final JOURNALED admission check and later supervisor startup establish that cleanup 8720 reached dispatch after expiry. No raw reply was retained; the live row still requires supported recovery.
+- [x] Correct the proven pre-transport error classification; test expiry, capacity and stopped-observer rejection without weakening post-dispatch UNKNOWN handling. Independent review passed; integrated as `e840eb10b`. Actual root test run: 30 passed, 0 failed, 209 assertions. The separate durable dispatch-budget change remains in progress.
+- [ ] Add a once-only durable dispatch timestamp to the atomic claim and use it consistently for observation expiry and restart. Claim/schema change `309beefea` is integrated and independently reviewed: 23 controller tests pass, including migration, database reopen and competing claims. Broker consumption is still in progress. Preserve conservative legacy behavior and never refresh an UNKNOWN operation's budget.
+- [ ] Add signed retained-DESTROY no-effect reconciliation through the existing fenced operator mechanism. Preserve the original UNKNOWN snapshot and prior recovery evidence; require unchanged owned generation/tags, fenced actors and quiet backend. Keep reservations until a separately journaled cleanup actually succeeds.
+- [ ] Prove DESTROY completion, independent guest/storage absence and released accounting. The newer 50d build does not automatically resolve this UNKNOWN path; its cleanup change applies only to a separate known-FAILED case.
+- [x] Build exact source `50d043fc89141c216548580f224d413902c0ad69` in fresh root/web installs; verify the release bundle, health smoke, real nested dependency resolutions, and advisory regressions. This bundle is not installed.
+- [ ] Install the verified bundle using current-state checks; pass live qualification and the normal UI/native-agent feature flow.
+- [ ] Run ten complete feature lifecycles, including retained files, Compose, process control, restart, denied access and independent cleanup/accounting proof.
+- [ ] Pass current-source full local/hosted gates, update PR #303, and obtain required non-author review. Do not merge or publicly release.
+
+Review: both the original c7 START and the new 8720 cleanup are UNKNOWN. The
+guest remains STOPPED; no reservation release is claimed. The isolated app is
+healthy on `5080f3792`, with original settings and no recovery hold. Temporary
+access is closed. The actual user workflow and release are not complete. See
+the [attempt 6 result](../docs/validation/2026-10-06-c7-consumer-preflight-attempt6-result.md).
+
+Earlier sections are historical checkpoints, not current open-task lists.
 
 ## Latest verified state — 4 October, 00:20 UTC
 

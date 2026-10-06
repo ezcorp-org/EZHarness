@@ -2,6 +2,33 @@
 
 Scope: Review and apply a plan bound to the pinned provider release on the named sandbox server, prove the EZHarness-to-Incus workflow with the isolated app, and close the PR's code and CI gates without claiming unsupported features.
 
+Latest status, 6 October: attempt 6 passed actual loader, detached-database,
+server ownership and production audit checks. It admitted cleanup
+`8720a719-b3cd-44d7-a00d-5a57f4262fca`, then restoration stopped on runner
+startup identity. A separate supported restoration and normal app startup
+subsequently passed. The queued cleanup now reports OUTCOME_UNKNOWN, without
+a provider handle or saved error, and the stopped guest is still present.
+The cleanup must not be repeated or treated as unadmitted. Temporary access
+rollback passed independently. Read-only provider-response diagnosis is in
+progress; DESTROY success and reservation release remain open. The database
+fixture and saved admission/startup timestamps identify an expired queued
+observation budget: the host rejected before the backend call, but classified
+the failure as UNKNOWN. The prospective classification fix `e840eb10b` passes
+30 tests and independent review. It does not settle the saved UNKNOWN row;
+durable dispatch timing and signed no-effect reconciliation remain in progress.
+See the [attempt 6 result](../docs/validation/2026-10-06-c7-consumer-preflight-attempt6-result.md).
+
+Prior state: attempt 5 proved the actual repaired audit SSH route,
+then the public wrapper refused a generated six-entry helper map where its
+contract requires four. A supported signed abort and complete restoration
+passed independent review. The c7 START remains UNKNOWN; its stopped guest and
+reservations remain preserved. The next attempt must pass the actual app-user
+loader and unchanged DURABLE verifier on a guarded detached database copy
+before any clock. See the [attempt 5 result](../docs/validation/2026-10-06-c7-audit-wire-attempt5-result.md).
+Exact source `50d043fc8` has a freshly built, verified, smoke-tested bundle with
+real dependency-resolution proof. It is not installed; full current-source
+gates and the complete normal feature workflow remain open.
+
 Current status, 5 October 2026: provider 0.1.4 is active at generation 5 on
 connection `fdede86e-6cef-4d66-913a-49c8c3bf36e8`, revision 1. The isolated app
 is healthy on source `5080f3792`. Its real basic Compose lifecycle passed, but

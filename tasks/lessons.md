@@ -1,5 +1,7 @@
 # Lessons
 
+- A durable queue's creation time is not its first-dispatch time. Persist the first authorized dispatch in the same claim transaction; use that immutable time for observation expiry and restart. Test a queued request delayed beyond the observation budget.
+- Prove failure classification across the broker, worker adapter and controller. A host refusal before the transport call must state that no effect occurred; a generic unavailable error can otherwise become UNKNOWN and block safe cleanup. Preserve UNKNOWN for failures after a request may have reached the backend.
 - Database JSON objects do not preserve field order. Build durable scope identities and plan digests from one fixed representation. Test the actual database round trip and reopened service, and keep legacy valid digests unchanged. Object stringification alone is not a scope equality check.
 - Before the final browser/coverage capture, audit cancellation through the actual tool-to-provider boundary. An aborted request signal must not prevent exact guest cleanup; cleanup still needs its own deadline and fresh authorization. Prove guest process absence independently of a cancelled host run.
 - Rehearse the exact staging command with the installed CLI. GNU tar rejects `--keep-old-files` together with `--no-overwrite-dir`. Nix JSON v2 can key path information by store basename; validate its store directory, exact basename, NAR hash and size against a real read-only response.
@@ -649,3 +651,16 @@
 - Before a timed operation starts, prepare both success restoration and the
   supported abort after admission uncertainty. An expired lease must not force
   a new live design for restoring a known prior certificate or configuration.
+- Run a generated packet through the consumer's actual entry point under its
+  real service UID before starting a recovery clock. Importing pure validators
+  does not test the closed dependency map or file permissions. Derive helper
+  lists from the consumer contract. Exercise read-only database verification on
+  a guarded detached copy before granting backend authority.
+- Test the real runtime's module loader as the service user. An exact file can
+  be readable while Bun cannot resolve it through a directory without read
+  permission. Preserve private scope with the required group access, then
+  prove the actual loader before a timed action.
+- A Type=simple service can report activation before its final process account
+  and socket are ready. Wait within the existing deadline for the new socket
+  and stable process, then enforce all strict identity checks. Set generated
+  file ownership explicitly instead of assuming the caller's group is root.
