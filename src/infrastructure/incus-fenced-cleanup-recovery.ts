@@ -69,9 +69,8 @@ function requireFact(value: unknown, message: string): asserts value {
   if (!value) throw new Error(`operator fenced cleanup denied: ${message}`);
 }
 
-export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt<FencedCleanupProofPayload>,
-  publicKeyPem: string, now = Date.now()): FencedCleanupProofPayload {
-  const p = receipt?.payload;
+/** Validate the complete signed resource identity before selecting its proof version. */
+function requireFencedCleanupIdentity(p: FencedCleanupProofPayload): void {
   requireFact((p?.version === 1 || p?.version === 2) && p.action === "recover-fenced-cleanup"
     && p.scope && Object.keys(p.scope).sort().join() === "connectionId,installationId,presetId,releaseId"
     && [p.nonce, p.reviewId, ...Object.values(p.scope), p.fixtureOperationId, p.bindingId,
@@ -88,12 +87,10 @@ export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt<FencedC
     && /^[0-9]+$/.test(p.oldProcess.startTicks) && p.allClientsFenced === true
     && typeof p.fenceEvidence === "string" && p.fenceEvidence.length >= 8 && p.fenceEvidence.length <= 512,
   "invalid identity or authority");
-  requireFact(p.version === 2 || !("operationHandleKind" in p) && !("expectedProviderGeneration" in p), "native cleanup version changed");
-  if (p.version === 2) {
-    const expectedKeys = "version,action,nonce,reviewId,scope,fixtureOperationId,bindingId,operationId,generation,connectionRevision,installationGeneration,releaseDigest,grantsDigest,endpoint,project,resourceName,providerOperationId,operationTag,payloadHash,presetDigest,effectiveSettingsDigest,imageFingerprint,helperVersion,serverCertificateSha256,oldProcess,stoppedAtMs,fenceUntilMs,allClientsFenced,fenceEvidence,first,second,operationHandleKind,expectedProviderGeneration".split(",").sort().join(",");
-    requireFact(Object.keys(p).sort().join() === expectedKeys, "stable cleanup receipt fields changed");
-    requireStableStartCleanupPins(p, p);
-  }
+}
+
+/** Preserve the client fence lease and both version-specific provider observations. */
+function requireFencedCleanupObservations(p: FencedCleanupProofPayload, now: number): void {
   requireFact([p.stoppedAtMs, p.fenceUntilMs, p.first?.observedAtMs, p.second?.observedAtMs].every(Number.isSafeInteger)
     && p.stoppedAtMs + 65_000 <= p.first.observedAtMs
     && p.first.observedAtMs + 5_000 <= p.second.observedAtMs
@@ -106,6 +103,19 @@ export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt<FencedC
       : [p.first, p.second].every(o => Object.keys(o).sort().join() === "instanceState,noActiveOperations,observedAtMs,providerGeneration"
         && o.instanceState === "stopped" && o.noActiveOperations === true && o.providerGeneration === p.expectedProviderGeneration))
     && p.first.providerGeneration === p.second.providerGeneration, "invalid or stale fence observations");
+}
+
+export function verifyFencedCleanupReceipt(receipt: FencedCleanupReceipt<FencedCleanupProofPayload>,
+  publicKeyPem: string, now = Date.now()): FencedCleanupProofPayload {
+  const p = receipt?.payload;
+  requireFencedCleanupIdentity(p);
+  requireFact(p.version === 2 || !("operationHandleKind" in p) && !("expectedProviderGeneration" in p), "native cleanup version changed");
+  if (p.version === 2) {
+    const expectedKeys = "version,action,nonce,reviewId,scope,fixtureOperationId,bindingId,operationId,generation,connectionRevision,installationGeneration,releaseDigest,grantsDigest,endpoint,project,resourceName,providerOperationId,operationTag,payloadHash,presetDigest,effectiveSettingsDigest,imageFingerprint,helperVersion,serverCertificateSha256,oldProcess,stoppedAtMs,fenceUntilMs,allClientsFenced,fenceEvidence,first,second,operationHandleKind,expectedProviderGeneration".split(",").sort().join(",");
+    requireFact(Object.keys(p).sort().join() === expectedKeys, "stable cleanup receipt fields changed");
+    requireStableStartCleanupPins(p, p);
+  }
+  requireFencedCleanupObservations(p, now);
   const signature = Buffer.from(receipt.signature ?? "", "base64");
   requireFact(signature.length === 64 && verify(null, Buffer.from(canonicalRecoveryJson(p)), publicKeyPem, signature), "signature changed");
   return p;
