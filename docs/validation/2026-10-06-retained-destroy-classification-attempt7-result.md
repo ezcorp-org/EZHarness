@@ -76,11 +76,27 @@ project and storage-pool controls return 200. SHA-256:
 This proves current absence; it does not replace an uncaptured prior volume
 ownership record. Independent review passed.
 
+## Released capacity and operation history
+
+The first detached-copy projection passed its release checks, then failed a
+combined history/drain assertion. Its failure is preserved. The isolated app
+resumed normally; no database restore occurred. A finite diagnostic on the
+same closed copy then passed, SHA-256
+`37f0d8d916a739a19273a6c3c8424242cefeb944ddd834fa1fe9ea27089caa4b`.
+
+Independent review confirms both reservation records are RELEASED, all scoped
+charged totals are zero, and the original 069/c7 UNKNOWN operations are
+compensated under the installed production predicate. There are no actionable
+operations. The current cleanup binding is ABSENT and points to the successful
+distinct DESTROY. Historical records were preserved.
+
 ## Remaining work
 
-Direct verification of released database reservations and the production
-historical-compensation predicate is pending. Backend absence alone does not
-prove those database results.
+The actual provider-drain query still returns true for two saved negative-test
+bindings, ending in `-drift` and `-missingControl`. Both have no current operation
+or charged reservation, but remain STOPPED/UNKNOWN without confirmed cleanup.
+Their provenance and supported cleanup remain under investigation. No record
+was manually cleared and no name-based query exclusion was added.
 
 Live resource-load diagnosis, qualification, the normal UI/native-tool flow,
 ten feature lifecycles and final repository gates remain open. This recovery

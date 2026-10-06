@@ -19,7 +19,9 @@
 - [x] Execute reviewed signed reconciliation once. Attempt 7 returned the same operation 8720, now FAILED / OPERATOR_PROVEN_NO_EFFECT. Independent signature, public status, transport restoration and forced-thaw checks pass. Canonical signed receipt: `443e4bc6de87b238671b659e5550996a9ee6b92214215c8df8b47e7a00b5d0df`. This does not delete the guest or release reservations.
 - [x] Restore the five original service configurations and original runner-marker metadata through the reviewed success disposition. Receipt 330 passes independent review; the normal marker has a new inode and the temporary marker is preserved. Natural timer completion, temporary-key absence, restored certificate and normal app checks pass. See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
 - [x] Complete ordinary recovery `aa5163ca-95b3-4511-8814-7d9eab8ce06c`: linked STOP followed by distinct DESTROY `5d2d61c7-16ce-4efd-9198-9e1a6aca9ece` succeeded. Receipt 334 confirms completed recovery and ABSENT binding. Independent receipts 335/336 prove empty scoped inventory and exact instance/storage 404 responses with project/pool 200 controls.
-- [ ] Verify released reservations and the actual production predicate for compensated historical operations from a guarded detached database copy. Preserve the original UNKNOWN history; do not clear rows or infer released charges from backend absence alone.
+- [x] Verify released reservations and compensated historical operations on a guarded detached database copy. Actual diagnostic `37f0d8d916a739a19273a6c3c8424242cefeb944ddd834fa1fe9ea27089caa4b` proves both charges RELEASED, scoped totals zero, the original 069/c7 UNKNOWN rows compensated by the unchanged production predicate, and no actionable operations. The failed first projection remains preserved; the app resumed normally without a database restore.
+- [ ] Resolve two saved negative-test probe bindings that still make the actual production provider-drain query return true. The `drift` and `missingControl` records have no current operation or unreleased reservation, but remain STOPPED/UNKNOWN without confirmed cleanup. Trace their creator and use a supported lifecycle; do not manually clear rows or add a name-based exclusion.
+  Provenance is established: the original probe plan created these intentional controls; an earlier cleanup targeted a different combined plan. Use existing `IncusLiveProbeFixtureService.cleanup` with the original saved digest, then confirm the actual drain result. No product defect is established.
 - [x] Build exact source `50d043fc89141c216548580f224d413902c0ad69` in fresh root/web installs; verify the release bundle, health smoke, real nested dependency resolutions, and advisory regressions. This bundle is not installed.
 - [x] Pass the exact 50d fast gate: all 12 stages, exit 0; 27,585 backend, 3,638 web Bun and 7,727 Vitest tests pass. Log SHA-256 `171ec5afe55938f32e95021dd02346474f5d737762389be62dc71d181b57c5c8`. This proves that revision only; the final combined recovery/dispatch source still needs its own complete checks.
 - [ ] Pass live qualification and the normal UI/native-agent feature flow on the installed, verified bundle.
@@ -30,7 +32,8 @@
 Review: the original c7 START remains UNKNOWN history. The saved 8720 cleanup
 is now FAILED / OPERATOR_PROVEN_NO_EFFECT under signed reconciliation. The
 guest and its container storage are now absent after separate ordinary cleanup;
-direct reservation and historical-compensation verification is pending. The isolated app
+released reservations and historical compensation are verified. Two saved negative-test
+bindings still block the provider-drain check. The isolated app
 runs `301e88e93` with recovered transport and restored normal service settings.
 Original settings and receipts are preserved. The temporary
 key is removed, and independent natural timer closure passed. The actual user
