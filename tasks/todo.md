@@ -3180,3 +3180,26 @@ between verified behavior and remaining work.
 Do not stop at a prepared packet or a partial test result. Continue authorized
 work until the selected deployment works end to end. Keep source and live
 evidence separate; do not merge or publicly release without authorization.
+
+### 6 October — current app and provider milestone
+
+- [x] Install production source `6f5b53407` in the isolated app and verify
+  database preservation, startup, both readiness checks and installed source
+  correspondence. Manifest: `5aff9e650ae23979d8befa99bd4684eda45800aed6eb8beab26499ba56165020`.
+- [x] Use the supported bundled import once. Original queued build
+  `b82b0e5c-0771-421c-9d85-d43f0bb19deb` verified provider 0.1.5.
+- [ ] Independently review and obtain exact human approval for release
+  `4a3c3c28-192d-4b44-8f68-88df5d82c61c`, then activate through v4.
+- [ ] Complete the new saved setup, qualification, native file/Git/Compose
+  workflow and ten lifecycle tests. Earlier live qualification has expired.
+- [x] Complete the test-only Python reliability correction. All four unchanged
+  wrapper suites passed; the final-flow suite passed 18 tests with all 222
+  measured statements covered. Independent review passed. No deadline changed.
+- [ ] Complete final repository gates. The earlier fast run was interrupted
+  under host pressure, not passed.
+
+Review: the corrected image passed its direct file/Git canary and cleanup.
+The app update and supported provider build also passed. These do not prove
+the complete native-agent workflow on the new release. The old approved
+provider is still active. Test-only changes after `6f5b53407` need repository
+validation but do not require another app deployment.
