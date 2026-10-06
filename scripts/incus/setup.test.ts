@@ -732,11 +732,12 @@ describe("Incus setup planning", () => {
   test("reviewed recipe and active release require the same published image and helper", () => {
     const reviewed = checkedInRecipe as IncusSetupRecipe;
     const presets = incusManifest.sandboxProviders!.find(provider => provider.id === INCUS_PROVIDER_ID)!.presets;
-    const fingerprint = "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912";
+    const fingerprint = "f0b8298a2e61667625f28824fd85b1b06b469c731b31a625fff6972b71460545";
     expect(reviewed.guestImage?.fingerprint).toBe(fingerprint);
-    expect(reviewed.version).toBe("1.2.3");
-    expect(reviewed.guestImage).toMatchObject({ alias: "ezharness-guest-0-1-3", fingerprint,
-      helperSha256: "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75",
+    expect(reviewed.version).toBe("1.2.4");
+    expect(presets.every(preset => preset.recipeDigest === digest(reviewed))).toBe(true);
+    expect(reviewed.guestImage).toMatchObject({ alias: "ezharness-guest-0-1-4", fingerprint,
+      helperSha256: "caa4fd5ce201ada90d89477f2f5dab47af7f78bb6cba805433b668e53fbb47bd",
       gitPackageVersion: "1:2.39.5-0+deb12u3" });
     expect(presets.every(preset => preset.imageDigest === fingerprint &&
       JSON.stringify(preset.helperDigests) === JSON.stringify([reviewed.guestImage!.helperSha256]))).toBe(true);

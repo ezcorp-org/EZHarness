@@ -22,11 +22,11 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
-  test("release 0.1.4 binds the reviewed image and helper in each preset digest", async () => {
+  test("release 0.1.5 binds the reviewed image and helper in each preset digest", async () => {
     const presets = incusManifest.sandboxProviders![0]!.presets;
-    const image = "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912";
-    const helper = "804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75";
-    expect(incusManifest.version).toBe("0.1.4");
+    const image = "f0b8298a2e61667625f28824fd85b1b06b469c731b31a625fff6972b71460545";
+    const helper = "caa4fd5ce201ada90d89477f2f5dab47af7f78bb6cba805433b668e53fbb47bd";
+    expect(incusManifest.version).toBe("0.1.5");
     const packageMetadata = await Bun.file(new URL("./package.json", import.meta.url)).json();
     expect(packageMetadata.version).toBe(incusManifest.version);
     for (const preset of presets) {
@@ -35,6 +35,8 @@ describe("Incus extension manifest", () => {
       expect(await sandboxPresetDigest({ ...preset, imageDigest: "0".repeat(64) })).not.toBe(await sandboxPresetDigest(preset));
       expect(await sandboxPresetDigest({ ...preset, helperDigests: ["a".repeat(64)] })).not.toBe(await sandboxPresetDigest(preset));
     }
+    expect(presets[0]!.recipeDigest).toBe(presets[1]!.recipeDigest);
+    expect(await sandboxPresetDigest(presets[0]!)).not.toBe(await sandboxPresetDigest(presets[1]!));
   });
 
   test("declares exactly the frozen 19 provider methods with canonical schemas", () => {

@@ -66,8 +66,8 @@ export function incusMethodName(operation: SandboxProtocolOperation): string {
 }
 
 const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "storage"> = {
-  imageDigest: "ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912",
-  helperDigests: ["804d68bd8d83ca817c6413eb3b2365216778aa26421c81fb3e9f3810b82dcb75"],
+  imageDigest: "f0b8298a2e61667625f28824fd85b1b06b469c731b31a625fff6972b71460545",
+  helperDigests: ["caa4fd5ce201ada90d89477f2f5dab47af7f78bb6cba805433b668e53fbb47bd"],
   network: { mode: "private", outbound: "restricted" },
   limits: {
     memoryBytes: 4_294_967_296,
@@ -92,19 +92,21 @@ const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "sto
   },
 };
 
+const reviewedRecipeDigest = "d084b0a77fce951fb3abbf094082c1196b3ae2adabc7a7c6c6d50d4394e57923";
+
 export const INCUS_PRESETS: SandboxPreset[] = [
   {
     ...commonPreset,
     id: "incus-linux-exec-v1",
     profile: "linux-exec.v1",
-    recipeDigest: "0d19e5fcd94daa78edad71ad034525db3335692768174c42da1da101ef0e2953",
+    recipeDigest: reviewedRecipeDigest,
     storage: { workspace: "ephemeral", minimumBytes: 5_368_709_120 },
   },
   {
     ...commonPreset,
     id: "incus-compose-v1",
     profile: "persistent-web-compose.v1",
-    recipeDigest: "9025ecd64f8d0a85ecdef4567f34102468854568a800308275036afc21ac44e6",
+    recipeDigest: reviewedRecipeDigest,
     storage: { workspace: "persistent", minimumBytes: 5_368_709_120 },
     requirements: { ...commonPreset.requirements, nestedCompose: true },
   },
@@ -113,7 +115,7 @@ export const INCUS_PRESETS: SandboxPreset[] = [
 export const incusManifest: ExtensionManifestV4 = validateManifest({
   schemaVersion: 4,
   name: "incus-sandbox",
-  version: "0.1.4",
+  version: "0.1.5",
   description: "Incus sandbox provider over the host-owned protected transport.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",
