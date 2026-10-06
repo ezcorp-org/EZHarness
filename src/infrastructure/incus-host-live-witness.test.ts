@@ -584,3 +584,151 @@ test("only a proven terminal create failure permits automatic cleanup", async ()
   await expect(candidate.createFixture(scope, preset, "fixture", false)).rejects.toThrow("fixture create is not verified");
   expect(cleanups).toBe(1);
 });
+
+async function processObservationHarness(invoke: (operation: string, input: Record<string, unknown>) => Promise<unknown>,
+  authorizationDelay = 0, startAuthorizationDelay = 0) {
+  const preset = INCUS_PRESETS[0]!;
+  const presetDigest = await sandboxPresetDigest(preset);
+  const fixture = { ...scope, operationId: handle.operationId, bindingId: handle.sandboxId,
+    projectId: "project", connectionRevision: 1, presetDigest, effectiveSettingsDigest: "b".repeat(64) };
+  const binding = { id: handle.sandboxId, projectId: fixture.projectId, resourceKey: handle.sandboxId,
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    connectionId: scope.connectionId, connectionRevision: 1, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest: fixture.effectiveSettingsDigest, tombstonedAt: null,
+    desiredState: "RUNNING", observedState: "RUNNING", generation: 1 };
+  let clock = 1_000_000;
+  const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+  const candidate = new IncusHostLiveWitness({
+    db: { select: () => ({ from: (table: unknown) => ({ where: () => ({
+      limit: async () => table === incusQualificationFixtures ? [fixture] : [binding],
+    }) }) }) } as unknown as Database,
+    qualifications: { authorizeFixture: async () => ({ connection: { revision: 1 }, preset, presetDigest,
+      effectiveSettingsDigest: fixture.effectiveSettingsDigest }) } as unknown as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    now: () => clock,
+    activeRelease: async () => {
+      clock += calls.length ? authorizationDelay : startAuthorizationDelay;
+      return { installation: { id: scope.installationId, activeReleaseId: scope.releaseId },
+        release: { id: scope.releaseId } } as ActiveExtensionRelease;
+    },
+    resolveConnection: async () => ({ id: scope.connectionId, revision: 1, revokedAt: null,
+      configuration: { kind: "incus", guestUser: "sandbox" } }) as ProviderConnectionCredentials,
+    invokeGuest: async (_installation, _binding, operation, input) => {
+      calls.push({ operation, input });
+      return invoke(operation, input);
+    },
+  });
+  return { candidate, calls, binding, advance: (ms: number) => { clock += ms; }, now: () => clock };
+}
+
+const processStarted = { ok: true, processId: "process-1", bootId: "boot-1", startedAt: "2026-09-23T12:00:00.000Z" };
+function processOutput(offset: number, eof: boolean) {
+  return { ok: true, chunks: [{ stream: "stdout", offsetBytes: offset, dataBase64: offset ? "aw==" : "bw==", byteLength: 1 }],
+    nextCursor: { sandboxId: handle.sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: offset + 1 }, eof };
+}
+const processTerminal = { ok: true, process: { processId: "process-1", sandboxId: handle.sandboxId, bootId: "boot-1",
+  state: "succeeded", startedAt: "2026-09-23T12:00:00.000Z", finishedAt: "2026-09-23T12:00:01.000Z", exitCode: 0, signal: null } };
+
+test("7700 delayed observation reconciles only reads within the original 110 second process budget", async () => {
+  // Actual7700 inspect expired at15:39:25; the same guest killed its load at15:40:02,
+  // before its original110-second managed-process deadline. Never start the load twice.
+  let outputAttempt = 0;
+  let inspectAttempt = 0;
+  const h = await processObservationHarness(async (operation, input) => {
+    if (operation === "processes.start") return processStarted;
+    if (operation === "processes.readOutput") {
+      outputAttempt++;
+      if (outputAttempt === 1) { h.advance(30_000); return { ok: false, error: { code: "DEADLINE_EXCEEDED", message: "private", retryable: false } }; }
+      return processOutput(Number((input.cursor as { offsetBytes: number }).offsetBytes), outputAttempt > 2);
+    }
+    inspectAttempt++;
+    if (inspectAttempt <= 2) { h.advance(30_000); return { ok: false, error: { code: "DEADLINE_EXCEEDED", message: "private", retryable: false } }; }
+    return processTerminal;
+  });
+  expect(await h.candidate.run(handle, ["python3", "memory-probe"], 110_000)).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
+  expect(h.calls.filter(c => c.operation === "processes.start")).toHaveLength(1);
+  expect(h.calls.filter(c => c.operation === "processes.readOutput").map(c => (c.input.cursor as { offsetBytes: number }).offsetBytes)).toEqual([0, 0, 1]);
+  expect(h.calls.every(c => Number(c.input.rpcDeadlineMs) <= 1_110_000)).toBe(true);
+  expect(h.calls.every(c => c.input.processId === undefined || c.input.processId === "process-1")).toBe(true);
+  expect(h.calls.every(c => c.input.bootId === undefined || c.input.bootId === "boot-1")).toBe(true);
+});
+
+test("read observation exhaustion preserves the original absolute deadline and never repeats start", async () => {
+  const h = await processObservationHarness(async operation => {
+    if (operation === "processes.start") return processStarted;
+    h.advance(30_000);
+    return { ok: false, error: { code: "DEADLINE_EXCEEDED", message: "private", retryable: false } };
+  });
+  await expect(h.candidate.run(handle, ["python3", "memory-probe"], 110_000)).rejects.toMatchObject({
+    code: "guest_processes_readOutput_deadline_exceeded" });
+  expect(h.calls.filter(c => c.operation === "processes.start")).toHaveLength(1);
+  expect(h.calls.filter(c => c.operation === "processes.readOutput")).toHaveLength(4);
+  expect(h.calls.at(-1)!.input.rpcDeadlineMs).toBe(1_110_000);
+  expect(h.calls.some(c => c.operation === "processes.inspect")).toBe(false);
+});
+
+test("non-deadline, effect, ownership and returned output failures do not reconcile", async () => {
+  for (const code of ["UNAVAILABLE", "OUTCOME_UNKNOWN", "PERMISSION_DENIED", "UNKNOWN"]) {
+    const h = await processObservationHarness(async operation => operation === "processes.start" ? processStarted
+      : { ok: false, error: { code, message: "private", retryable: false,
+        ...(code === "OUTCOME_UNKNOWN" ? { operationId: "known-operation" } : {}) } });
+    const outcome = h.candidate.run(handle, ["true"], 110_000);
+    if (code === "UNAVAILABLE") await expect(outcome).rejects.toMatchObject({
+      code: "guest_processes_readOutput_unavailable" });
+    else await expect(outcome).rejects.toBeInstanceOf(Error);
+    expect(h.calls).toHaveLength(2);
+  }
+  const h = await processObservationHarness(async operation => {
+    if (operation === "processes.start") return processStarted;
+    h.binding.observedState = "STOPPED";
+    h.advance(30_000);
+    return { ok: false, error: { code: "DEADLINE_EXCEEDED", message: "private", retryable: false } };
+  });
+  await expect(h.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("not running");
+  expect(h.calls).toHaveLength(2);
+  const gap = await processObservationHarness(async operation => operation === "processes.start" ? processStarted
+    : { ...processOutput(1, true), gap: { fromOffsetBytes: 0, toOffsetBytes: 1, reason: "retention" } });
+  await expect(gap.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("output has a gap");
+  expect(gap.calls).toHaveLength(2);
+});
+
+
+test("late returned success and expired authorization cannot cross the original process deadline", async () => {
+  const late = await processObservationHarness(async operation => {
+    if (operation === "processes.start") return processStarted;
+    if (operation === "processes.readOutput") return processOutput(0, true);
+    late.advance(110_000);
+    return processTerminal;
+  });
+  await expect(late.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("guest process deadline expired");
+  expect(late.calls.map(c => c.operation)).toEqual(["processes.start", "processes.readOutput", "processes.inspect"]);
+  const expired = await processObservationHarness(async operation => {
+    if (operation === "processes.start") { expired.advance(110_000); return processStarted; }
+    throw new Error("no expired read may dispatch");
+  });
+  await expect(expired.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("guest process deadline expired");
+  expect(expired.calls).toHaveLength(1);
+  const authority = await processObservationHarness(async () => processStarted, 110_000);
+  await expect(authority.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("guest process deadline expired");
+  expect(authority.calls).toHaveLength(1);
+  const noStart = await processObservationHarness(async () => processStarted, 0, 110_000);
+  await expect(noStart.candidate.run(handle, ["true"], 110_000)).rejects.toThrow("guest process deadline changed");
+  expect(noStart.calls).toHaveLength(0);
+});
+
+test("a typed start deadline never replays the effect or observes an unknown handle", async () => {
+  const h = await processObservationHarness(async () => ({ ok: false,
+    error: { code: "DEADLINE_EXCEEDED", message: "private", retryable: false } }));
+  await expect(h.candidate.run(handle, ["true"], 110_000)).rejects.toMatchObject({
+    code: "guest_processes_start_deadline_exceeded" });
+  expect(h.calls.map(c => c.operation)).toEqual(["processes.start"]);
+});
+
+
+test("the once-only start RPC is clamped to the original short process budget", async () => {
+  const h = await processObservationHarness(async operation => operation === "processes.start" ? processStarted
+    : operation === "processes.readOutput" ? processOutput(0, true) : processTerminal, 0, 2_000);
+  expect(await h.candidate.run(handle, ["true"], 10_000)).toEqual({ exitCode: 0, stdout: "o", stderr: "" });
+  expect(h.calls.map(c => c.input.rpcDeadlineMs)).toEqual([1_010_000, 1_010_000, 1_010_000]);
+  expect(h.calls[0]!.input.processDeadlineMs).toBe(1_010_000);
+});

@@ -24,6 +24,7 @@ import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt, type In
   requestIncusSupervisorRestart, releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
 import { observeFailedCleanupRecovery } from "./incus-live-recovery-probes";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
+import { logger } from "../logger";
 import { incusSupervisorPublicKeyPem } from "./incus-supervisor-public-key";
 
 const MAX_FILE_BYTES = 64 * 1024;
@@ -272,7 +273,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   }
 
   private async guest(handle: LiveFixtureHandle, operation: SandboxProtocolOperation,
-    payload: Record<string, unknown>): Promise<Record<string, unknown>> {
+    payload: Record<string, unknown>, observationDeadline?: number): Promise<Record<string, unknown>> {
     if (!guestOperations.has(operation)) deny("guest operation is not approved for a witness");
     const { fixture, binding } = await this.owned(handle, true);
     const active = await this.activeRelease(fixture.installationId);
@@ -285,8 +286,9 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     if (connection.id !== fixture.connectionId || connection.revision !== fixture.connectionRevision
       || connection.revokedAt || connection.configuration.kind !== "incus") deny("connection changed");
     const now = this.now();
+    if (observationDeadline !== undefined && now >= observationDeadline) deny("guest process deadline expired");
     const input: Record<string, unknown> = { ...payload, providerId: "incus", connectionId: fixture.connectionId,
-      sandboxId: fixture.bindingId, rpcDeadlineMs: now + 30_000 };
+      sandboxId: fixture.bindingId, rpcDeadlineMs: Math.min(now + 30_000, observationDeadline ?? Infinity) };
     if (operation === "processes.start") {
       const requestedDeadline = Number(payload.processDeadlineMs);
       if (!Number.isSafeInteger(requestedDeadline) || requestedDeadline <= now
@@ -619,8 +621,38 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     let stdout = "";
     let stderr = "";
     let terminalExitCode: number | null = null;
+    const observe = async (operation: "processes.readOutput" | "processes.inspect",
+      payload: Record<string, unknown>): Promise<Record<string, unknown>> => {
+      let firstDeadlineAt: number | undefined;
+      let lastDeadlineAt: number | undefined;
+      let deadlineCount = 0;
+      let lastDeadlineError: IncusLiveWitnessError | undefined;
+      try {
+        while (this.now() < deadline) {
+          try {
+            const value = await this.guest(handle, operation, payload, deadline);
+            if (this.now() >= deadline) deny("guest process deadline expired");
+            return value;
+          }
+          catch (error) {
+            if (!(error instanceof IncusLiveWitnessError)
+              || error.code !== incusGuestFailureCauseCode(operation, "DEADLINE_EXCEEDED")) throw error;
+            lastDeadlineError = error;
+            lastDeadlineAt = this.now();
+            firstDeadlineAt ??= lastDeadlineAt;
+            deadlineCount++;
+            await new Promise(resolve => setTimeout(resolve, POLL_MS));
+          }
+        }
+        throw lastDeadlineError ?? new IncusLiveWitnessError("guest process deadline expired");
+      } finally {
+        if (deadlineCount) logger.child("incus.witness").warn("Guest process observation deadline summary", {
+          operation, causeCode: lastDeadlineError?.code, deadlineCount, firstDeadlineAt, lastDeadlineAt, processDeadlineMs: deadline,
+        });
+      }
+    };
     while (this.now() < deadline) {
-      const output = await this.guest(handle, "processes.readOutput", { processId: start.processId,
+      const output = await observe("processes.readOutput", { processId: start.processId,
         bootId: start.bootId, cursor: { sandboxId: handle.sandboxId, processId: start.processId,
           bootId: start.bootId, offsetBytes: offset }, maxBytes: MAX_FILE_BYTES });
       if (output.gap || !Array.isArray(output.chunks)) deny("guest process output has a gap");
@@ -634,7 +666,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       }
       const next = output.nextCursor as Record<string, unknown> | undefined;
       if (next?.offsetBytes !== offset || offset > MAX_FILE_BYTES) deny("guest process output exceeded bound");
-      const inspected = await this.guest(handle, "processes.inspect", { processId: start.processId, bootId: start.bootId });
+      const inspected = await observe("processes.inspect", { processId: start.processId, bootId: start.bootId });
       const process = inspected.process as Record<string, unknown> | undefined;
       if (process?.processId !== start.processId || process.sandboxId !== handle.sandboxId
         || process.bootId !== start.bootId) deny("guest process identity changed");
