@@ -1,5 +1,13 @@
 # Lessons
 
+- Put a required guard and its dependent effect in one fail-closed sequential caller. A separate tool call can run even after an earlier call exits nonzero. Check the exact host and measured resource before admission; preserve any already-admitted operation and inspect its original handle instead of replaying it.
+
+- Strip inherited GIT_* variables from Git fixture subprocesses. Commit hooks export repository and index paths; a temporary working directory alone does not isolate Git. Test with poisoned variables and verify the real repository HEAD, staged paths and commit scope after hooks.
+
+- Keep runtime locks and metadata outside user repositories. Hiding helper files from a file-list tool does not hide them from Git. Test real helper edits and removals followed by real Git status; preserve stable lock inodes across concurrent waiters instead of deleting lock files after each call.
+
+- A pinned base image does not imply application images are cached in each new guest. Make the exact digest preparation an explicit fixture prerequisite and verify it before a no-pull workload test. Preserve known partial results and continue only unfinished steps; never replay a consumed test receipt to conceal a setup failure.
+
 - After a provider connection changes, verify every accounting query's actual scope, not just the updated launcher metadata. Keep historical recovery assertions, then separately check the current connection and global reservation totals. Test old-scope zero with nonzero new-scope and unrelated-scope charges; both must block a global-zero claim.
 
 - Before a guarded setup window, run the actual Bun CLI read-only preflight as the managed service user with an explicit reviewed PATH and the normal app working directory. Direct ssh-keygen/ssh canaries passed while Bun could not spawn them from the inaccessible developer worktree. A controlled cwd-only comparison proved the cause; binary availability alone was insufficient.

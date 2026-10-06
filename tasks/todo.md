@@ -1,6 +1,6 @@
 # Active completion — 3 October 2026
 
-## Current next steps — 6 October, source 85916e640; installed app 4e0007a85
+## Current next steps — 6 October, source bf80a50e3 and installed app e02641500
 
 - [x] Install and verify app 50a; preserve the live database and clear the prior guest.
 - [x] Pass live qualification on 50a with the existing provider; clean all fixtures and verify zero reservations.
@@ -12,14 +12,24 @@
 - [x] Register the reviewed capacity for the new connection; execute qualification 7700 once and preserve its failed memory-inspection result. Guest cleanup, zero accounting, and normal app resume pass independent review.
 - [x] Fix bounded read-only process observation: actual baseline RED, 21 focused tests passed, independent review passed, changed measured lines covered. Integrated as 4e0007a85. The original deadline and all memory, terminal-state and health assertions remain enforced.
 - [x] Build, verify and install 4e0007a85 through the guarded host-only update. Independent review confirms database preservation before startup, healthy new app, exact manifest 40537c5d and unchanged current configuration. Both selected verifier readiness checks and live qualification remain pending.
-- [ ] Qualify the new provider and connection; prove the normal native-agent Git, test and Compose workflow.
+- [x] Qualify the current provider and connection on e026: canonical run443fc passed automatic restart; all fixtures and controls were removed, and current/global zero accounting and normal app resume passed independent review.
+- [ ] Complete the normal native-agent workflow with a clean Git workspace. Actual UI creation/start/chat/reload, four read tools, two partial edits, tests, Compose and Git commit ran; persistent helper lock files caused the final clean-tree check to fail.
 - [ ] Complete ten numbered lifecycle tests with fresh qualification between clean batches, restart, denial and cleanup recovery evidence.
 - [x] Close ee417 cleanup through ordinary reconciliation and deletion; independently prove current-connection and global zero charges, absent guests, normal app state, and preserved historical compensation.
 - [x] Compare matched backend memory diagnostics B and C. B passed with delayed observation; C missed the unchanged deadline with immediate observation. Both were independently reviewed and fully cleaned. These diagnostics are not qualification evidence.
-- [x] Fix the new Sharp security advisory with version 0.35.5 in both dependency trees; verify native image transforms, audit, tests and independent review. Source 67f0547cc is not yet deployed.
+- [x] Fix the new Sharp security advisory with version 0.35.5 in both dependency trees; verify native image transforms, audit, tests and independent review. Deployed in e026.
 - [x] Integrate isolated Python helper startup without privileged file reads or changed deadlines. Actual old transport regression failed; corrected transport passed 12 tests, including a real helper call. Matched immediate-polling diagnostic D returned terminal success in 3.182 seconds. This is candidate evidence, not app qualification.
-- [ ] Build and install the final combined source, then repeat actual qualification and native workflows.
+- [x] Build and install combined source e026 through the guarded update. Bundle, non-root startup, database preservation, both selected verifiers and the actual recovery loader passed independent review.
+- [x] Reproduce the live dirty-Git failure using the actual pinned helper and a real temporary repository. Native write locks remain beside edited files; hiding them from file listings does not keep Git clean.
+- [x] Move stable mutation locks outside the user workspace under private helper state. Integrated bf80a50e3 after independent review; all 15 helper tests pass, including a root run with poisoned Git environment and the normal commit hook. Stable inode, flock, containment, revision checks and journal semantics remain enforced.
+- [ ] Build and review the required helper/image successor through existing machinery; determine exact provider/connection pin changes before live activation. No live helper patch or unreviewed provider activation.
+- [x] Preserve current native files, commit and failure evidence, then perform ordinary authorized cleanup. Verified Git bundle retained; STOP and DESTROY succeeded; fresh inventory and current/global zero accounting passed independent review. Failed workflow remains failed.
+- [ ] Re-run current-source qualification and native workflow after the fix; finish process/restart/denial evidence and ten consecutive lifecycle tests with explicit pinned-image fixture preparation.
 - [ ] Run fresh final-source local and hosted gates; record final cleanup and remaining product scope limits. The interrupted 4e0007 full gate is superseded and incomplete.
+
+Current review: e026 Compose qualification and its cleanup passed. Actual UI and native read/edit tools passed; three application tests, Compose up/test/down and a Git commit succeeded after explicit preparation of the pinned image. Final Git cleanliness failed because helper lock files remained in the checkout. Fix bf80a50e3 passed 15 helper tests and independent review; the installed app still uses the old image. The failed guest's files and Git bundle are preserved, and cleanup and zero accounting passed. The team is building a fresh image alias with the corrected helper and preparing explicit cache setup for the next fixture. No clean full native workflow, ten-cycle pass, final-source full gate, merge or release is claimed. The e026 full gates never started and are superseded.
+
+### Historical review — before e026 qualification
 
 Review: fast 4e0007 passed (27,628 backend tests, zero failures); that revision is pushed to draft PR #303. Its full local gate was stopped as superseded after the Sharp advisory required a source update; no full pass is claimed. Provider 5d7208c2 and connection 911cae3a remain current. Qualification ee417 failed after four status timeouts exhausted the original 110-second deadline. The guest later stopped naturally and ordinary cleanup completed; no force command ran. Global and current-connection accounting are now independently verified as zero. In matched operator diagnostics, B killed the load after 2.6 seconds with no early helper observations; C with immediate observations killed it after 130.6 seconds, outside the unchanged deadline and before cleanup. B also killed Docker, so neither result proves A05 or a healthy full workload. Both diagnostic guests and their volumes are absent. Privileged daemon file reads have a parent-symlink escape risk; review a safe observation design before changing production. No new qualification, native workflow or ten-cycle pass is claimed. No merge or public release is authorized.
 
