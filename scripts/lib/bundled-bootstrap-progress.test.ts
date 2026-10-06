@@ -79,6 +79,15 @@ describe("BundledBootstrapProgress", () => {
     );
   });
 
+  test("the summary records the total, the stall clock's maximum and the net in force", () => {
+    const progress = new BundledBootstrapProgress(AT);
+    expect(progress.summary()).toEqual({ elapsedMs: 0, maxStallClockMs: 0, stallMs: 120_000, safetyNetMs: 0, lastProgressAt: iso(AT) });
+    progress.observe([build("a", "queued")], AT + 5_000);
+    progress.observe([build("a", "queued")], AT + 50_000);
+    progress.observe([build("a", "verified", AT + 60_000)], AT + 60_000);
+    expect(progress.summary()).toEqual({ elapsedMs: 60_000, maxStallClockMs: 45_000, stallMs: 120_000, safetyNetMs: 38_000 + 360_000 + 120_000, lastProgressAt: iso(AT + 60_000) });
+  });
+
   test("a change resets the stall clock", () => {
     const progress = new BundledBootstrapProgress(AT);
     expect(progress.observe([build("a", "queued")], AT + 100_000)).toBeNull();

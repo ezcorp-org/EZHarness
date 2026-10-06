@@ -6,6 +6,7 @@ import {
   BUNDLED_BOOTSTRAP_POLICY,
   type BundledBootstrapPolicy,
   BundledBootstrapProgress,
+  type BundledBootstrapProgressSummary,
   type BundledBootstrapVerdict,
   bundledBootstrapSafetyNetMs,
   describeBundledBootstrapVerdict,
@@ -31,6 +32,8 @@ export type BundledBootstrapObserver = {
 export type BundledBootstrapObservation = BundledBootstrapState & {
   capturedAt: string;
   observer: BundledBootstrapObserver;
+  /** Present on a finished wait: the total and the stall clock's maximum (the timeout error carries the verdict instead). */
+  progress?: BundledBootstrapProgressSummary;
   terminalOperations: Array<{
     name: string;
     installationId: string;
@@ -125,9 +128,9 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: Bu
       idleChecks = 0;
     } else if (!requireObservedPending || initialPending > 0) {
       idleChecks += 1;
-      if (idleChecks === 2) return latest;
     }
     const verdict = progress.observe(states.map(({ name, state }) => latestBuild(name, state)), now());
+    if (idleChecks === 2) return { ...latest, progress: progress.summary() };
     if (verdict) throw new BundledBootstrapTimeoutError(latest, observer, verdict);
     await sleep(1_000);
   }

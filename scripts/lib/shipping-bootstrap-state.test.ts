@@ -84,11 +84,14 @@ test("a serial chain that needs longer than the old flat 360 s finishes while ea
     async extensionControl(_tool: string, { installationId }: { installationId: string }) {
       const index = BUNDLED.findIndex((name) => installationId === bundledInstallationId(name));
       expect(index).toBeGreaterThanOrEqual(0);
-      return timed(index < poll ? "verified" : index === poll ? "building" : "queued", index <= poll ? clock.now : 0);
+      // A build changes state twice: it starts at poll `index` and verifies at poll `index + 1`; its timestamp stays put after that.
+      return index < poll ? timed("verified", (index + 1) * 13_200) : index === poll ? timed("building", index * 13_200) : timed("queued", 0);
     },
   } as unknown as HarnessClient;
   const result = await waitForBundledBootstrap(client, options);
   expect(clock.now).toBeGreaterThan(360_000);
+  // The receipt names the total (past the old flat 360 s) and the stall clock's maximum (one build step, far under the limit).
+  expect(result.progress).toEqual({ elapsedMs: clock.now, maxStallClockMs: 13_200, stallMs: 120_000, safetyNetMs: bundledBootstrapSafetyNetMs(BUNDLED.length), lastProgressAt: new Date(BUNDLED.length * 13_200).toISOString() });
   expect(result).toMatchObject({
     observer: { policy: BUNDLED_BOOTSTRAP_POLICY, safetyNetMs: bundledBootstrapSafetyNetMs(BUNDLED.length) },
     initialPending: BUNDLED.length,
@@ -123,6 +126,8 @@ test("an R2 observer waits a whole six-minute build lease out, then finishes on 
   expect(result).toMatchObject({ initialPending: BUNDLED.length, terminalOperationStates: { verified: BUNDLED.length } });
   requireBundledBootstrapVerified(result, "after a recovered lease");
   expect(clock.now).toBe(410_000);
+  // Silence under the live lease does not count; the clock runs only from the lease's end (360 s) to the change seen at 400 s.
+  expect(result.progress).toMatchObject({ elapsedMs: 410_000, maxStallClockMs: 30_000 });
 });
 
 test("a build left under an expired lease is a stall once the stall limit passes the lease", async () => {

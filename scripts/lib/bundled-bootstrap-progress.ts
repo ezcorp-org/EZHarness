@@ -58,6 +58,15 @@ export function latestBuild(name: string, state: InstallationState): BundledBoot
 
 export type BundledBootstrapUnverifiedBuild = { name: string; state: string | null; sinceTransitionMs: number | null };
 
+/** What a finished wait records in its receipt: how long it took and how close it came to the stall limit. */
+export type BundledBootstrapProgressSummary = {
+  elapsedMs: number;
+  maxStallClockMs: number;
+  stallMs: number;
+  safetyNetMs: number;
+  lastProgressAt: string;
+};
+
 export type BundledBootstrapVerdict = {
   reason: "stalled" | "safety_net";
   elapsedMs: number;
@@ -82,12 +91,26 @@ export class BundledBootstrapProgress {
   private fingerprint: string | null = null;
   private lastProgressMs: number;
   private latestLeaseUntilMs = 0;
+  private maxStallClockMs = 0;
+  private lastSafetyNetMs = 0;
+  private lastObservedMs: number;
 
   constructor(
     readonly startedAtMs: number,
     readonly policy: BundledBootstrapPolicy = BUNDLED_BOOTSTRAP_POLICY,
   ) {
     this.lastProgressMs = startedAtMs;
+    this.lastObservedMs = startedAtMs;
+  }
+
+  summary(): BundledBootstrapProgressSummary {
+    return {
+      elapsedMs: this.lastObservedMs - this.startedAtMs,
+      maxStallClockMs: this.maxStallClockMs,
+      stallMs: this.policy.stallMs,
+      safetyNetMs: this.lastSafetyNetMs,
+      lastProgressAt: new Date(this.lastProgressMs).toISOString(),
+    };
   }
 
   observe(builds: readonly BundledBootstrapBuild[], nowMs: number): BundledBootstrapVerdict | null {
@@ -100,6 +123,9 @@ export class BundledBootstrapProgress {
     const elapsedMs = nowMs - this.startedAtMs;
     const safetyNetMs = bundledBootstrapSafetyNetMs(builds.length, this.policy);
     const stallClockMs = Math.max(0, nowMs - Math.max(this.lastProgressMs, this.latestLeaseUntilMs));
+    this.maxStallClockMs = Math.max(this.maxStallClockMs, stallClockMs);
+    this.lastSafetyNetMs = safetyNetMs;
+    this.lastObservedMs = nowMs;
     const reason = stallClockMs >= this.policy.stallMs ? "stalled" : elapsedMs >= safetyNetMs ? "safety_net" : null;
     if (!reason) return null;
     const unverified = builds.filter(({ state }) => state !== "verified").map(({ name, state, updatedAt }) => ({
