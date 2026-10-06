@@ -5850,6 +5850,25 @@ Review: W4H-7 changes no product or test file. The write path was already serial
 revision check). The two red lanes are the worker-channel stall that W4H-6 fixes, so W4H-7 merges after W4H-6 and carries only its
 evidence and gates.
 
+## W4H-12 — factory-host-launch rejects in the hosted external-postgres job (branch `wp/w4h-12-factory-host-launch`; gates `tasks/factory/w4h-12-GATES.md`)
+
+- [x] R1: red reproduced in a runner-shaped Ubuntu 24.04 container with a fresh pgvector:pg15; rejection made visible: "image not known".
+- [x] R2: cause named with its lines: the job never ran the extension runner setup, guests start with --pull=never, and the test hid
+  the value. My fourth point (the storage action's XDG_RUNTIME_DIR export) was disproved by leg r6-xdg.
+- [x] R3: the job runs the runner setup; the runner refuses a missing image by name (`image_unavailable`); a guard holds Podman-guest
+  steps to the setup (e18becde4, 44e2121e9, f0cf1e8f7, e423c827b); the action change reverted (ac20f1a8a); twins assert again and
+  the unproven ordering rule dropped (643f12dd5).
+- [x] R4: tests red without the fix (runner precondition 0/4, guard 1 fail on the base workflow), green with it.
+- [x] R5: the storage step green in the hosted shape (r5-green, and r6-xdg for the head's exact job shape); r5-named red by name.
+- [x] Control: wave4i-2's 56-file postgres list, 629 pass / 0 fail (the first run void by a host OOM storm).
+- [x] Final light legs at 643f12dd5 green (gate-integrity: integ/w00 PASSED, origin/main the 8 expected); r7-order inconclusive, so
+  the ordering rule was dropped.
+
+Review: the hosted red was not in the test or the product dispatch path. The external-postgres job ran a real Podman guest on a runner
+that nobody had provisioned, and the test's `.resolves.toBeUndefined()` hid podman's "image not known". One of my four causes was
+wrong; the leg built to prove it disproved it, and the change it motivated was reverted. Receipts:
+/tmp/factory-platform-evidence/w4h-12/report.txt (written once, at the end).
+
 ## W4H — hosted CI 37138524741 follow-up packages (landing records)
 
 - [x] Hosted CI 37138524741 at 52d8ba079 failed 20 jobs against the baseline's 26; the causes were routed to W4H-1..9.
