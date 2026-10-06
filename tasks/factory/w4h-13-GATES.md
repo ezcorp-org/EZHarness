@@ -12,8 +12,15 @@ Evidence root: `/tmp/factory-platform-evidence/w4h-13/` (report.txt, logs/).
   The brief's line numbers are this file.
 - The 2026-10-06 12:34Z incident branch `fix/incus-git-listing-sol61-oct06` (`5a5c1e165`) descends from main.
   Its hook-lib.sh has no scrub (188 lines).
-- So `scripts/lib/hook-lib.sh` is unchanged on this branch. The repair for main is to bring `48da9c886` to origin/main.
-  That is outside this branch and is the coordinator's and user's call.
+- So `scripts/lib/hook-lib.sh` is unchanged on this branch (coordinator ruling (a)).
+
+For the user (coordinator ruling (c), verbatim): "origin/main lacks 48da9c886 (scripts/lib/hook-lib.sh without_git_context + its
+git-hooks.test.ts case); every main-based worktree is exposed until PR 318 merges or a hotfix cherry-picks it".
+- Commit: `48da9c886` "fix(hooks): run staged tests without the git context the hook exports".
+- Files it changes: `scripts/lib/hook-lib.sh` and `src/__tests__/git-hooks.test.ts`.
+- The test case is "hook-lib > run_staged_tests > runs each staged suite without the git context the hook exports".
+- origin/main `beaff68c8` has neither part. Its git-hooks.test.ts scrubs only its own fixtures.
+- The hotfix decision is the user's.
 
 ## G1 = R1: red reproduced in a throwaway repository
 
@@ -33,7 +40,9 @@ The origin/main leg runs Bun 1.3.14 from `~/.bun/bin`, with the version asserted
 
 ## G2 = R2: the scrub at the root, and every hook subprocess
 
-No change: the root fix already exists at base (see the finding above). Hook subprocesses at head:
+No change: the root fix already exists at base (see the finding above). Audit of every hook subprocess at head. The pre-commit
+biome, bun-version and manifest-lock steps run no git against a foreign path. The pre-push lint, typecheck and svelte-check steps
+also run no git against a foreign path.
 
 | Hook | Subprocess | Runs git against a path it owns? | Scrubbed |
 |---|---|---|---|
@@ -59,8 +68,10 @@ The case asserts five things:
 - the commit landed.
 
 - Green at head: 29 pass, 0 fail (`head-git-hooks.log`, `logs/final-unit-git-hooks.log`).
-- Red with the scrub removed from the bun runner (`mutation-red.sh`, which restores the file on exit). The failure is
-  `core.bare` Expected "false", Received "true" (`r3-mutation-red.log`).
+- Red against origin/main `beaff68c8`'s `scripts/lib/hook-lib.sh` (coordinator ruling (b)): the file is swapped in for one
+  run of the case, then restored. The failure is `core.bare` Expected "false", Received "true".
+  Log: `r3-mutation-red-origin-main.log` (script `mutation-red-main.sh`). The test itself never reads main.
+- Red also with only the bun runner's scrub removed: same failure (`r3-mutation-red.log`).
 - Changed executable lines: none outside the test file. CRAP: 0 touched functions. biome: clean.
 
 ## G4 = R4: R1 re-run at the head
