@@ -489,6 +489,8 @@
 - Check generated durable IDs in the creation service before assuming API schemas accept them.
 - Use `messages?withToolCalls=true` for saved native results; plain message reads do not include tool rows.
 - Keep one-off live drivers outside a frozen source head unless a concrete product defect requires a reviewed source change.
+- Build normal-run tool instructions from the final model tool catalog, after all restrictions. Do not require tools merely because an extension can provide them. Test the actual executor request, including exact extension names and filtered-out tools.
+- A metadata catalog endpoint can omit tools that the runtime adds later. Verify the actual runtime composition and saved model tool calls before claiming those tools are unavailable.
 
 ## Incus asynchronous qualification — 3 October 2026
 

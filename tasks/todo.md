@@ -3098,21 +3098,34 @@ on integrated `11620ca6e`.
   unchanged dispatcher fails. Independent review passed all six composition
   tests, 21 earlier regressions, and three actual final-artifact checks.
   No earlier attempt or UNKNOWN operation may be replayed.
-- [ ] Seal and review a fresh cleanup attempt with a new nonce, the corrected
-  exact audit command, and complete success/abort restoration plans.
-- [ ] Complete the missing 17-phase E2E operator-hook bridge and exact
+- [x] Seal and review the fresh cleanup attempt and close the preserved c7
+  recovery. The exact no-effect recovery and distinct normal cleanup succeeded;
+  old UNKNOWN history remains preserved and compensated. Temporary access,
+  fences and timers are closed. Do not replay historical attempts.
+- [x] Complete the 17-phase E2E operator-hook bridge and exact
   post-failed-DESTROY reservation proof through a stopped database clone.
   Snapshot/projection subtask passed root review and independent 14 Python /
   42 TypeScript tests. It proves compute RELEASED and positive disk capacity
   still RELEASE_REQUESTED from the detached clone; no live database is opened.
   The process observer now reports only exact initial-marker ENOENT as not
   ready; independent review and 25 focused tests passed. Full driver remains
-  in progress in the isolated flow worktree. The independent storage helper
+  prepared and reviewed in the isolated flow worktree. The independent storage helper
   passed review and 10 tests; it proves the exact root-volume API returns a
   genuine 404 while project/pool controls remain 200. Physical disk absence and
   reservation release require their separate evidence.
-- [ ] Install the current verified app in the isolated environment.
-- [ ] Pass current live qualification and the normal UI/native-agent workflow.
+- [x] Install verified source `178525ad3` in the isolated environment. The
+  guarded update, database preservation and normal startup passed review.
+- [x] Pass live qualification on `178525ad3`, including automatic restart and
+  cleanup-fault continuation. All three fixtures are absent; independent
+  accounting reports zero charges and no active provider drain.
+- [x] Pass browser create/start/open-chat/reload and one actual model-invoked
+  shell call on that same project. The shell returned `/workspace`.
+- [x] Reproduce and fix the normal-run instruction that required unavailable
+  task tools. The final model tool catalog now controls that instruction;
+  independent review and 29 focused tests pass.
+- [ ] Install and verify the corrected runtime, complete the browser controls,
+  and prove the full model-invoked file/Git/Compose workflow. A successful `pwd`
+  call does not establish the full workflow.
 - [ ] Pass ten repeatable feature lifecycles, restart, denied access, cleanup
   recovery, and final backend/database accounting.
 - [ ] Complete final full repository gate, hosted checks and evidence update.
@@ -3121,6 +3134,12 @@ on integrated `11620ca6e`.
   source-map-js 1.2.2 lock entries changed. Fresh installs, actual nested imports,
   regressions and the dependency audit pass. Final current-source gates remain
   required; no advisory or gate suppression was used.
+
+Current review: exact `178525ad3` backend tests passed 27,615/0; all five
+browser lanes passed (283, 1,441, 396, seven and 138). Coverage is still running.
+The subsequent runtime fix needs integrated validation and live proof. See
+`docs/validation/2026-10-06-incus-native-flow-verification.md` for the boundary
+between verified behavior and remaining work.
 
 Do not stop at a prepared packet or a partial test result. Continue authorized
 work until the selected deployment works end to end. Keep source and live
