@@ -76,9 +76,11 @@ export function unpreparedGuestSteps(workflows: readonly Workflow[], read: Read 
 }
 
 /**
- * Jobs that start the factory storage AND run the runner setup must run the setup first. The setup exports the user
- * session (XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS) for later steps, and a storage start between them once moved
- * podman off it (the action's own XDG_RUNTIME_DIR export, removed in W4H-12); the order keeps that class of override out.
+ * Jobs that start the factory storage AND run the runner setup must run the setup first. Both write XDG_RUNTIME_DIR to
+ * the job environment: the storage action its private directory, the setup the user session's. A setup after the
+ * storage start leaves the session's directory in force, and the storage stop's `down` then refuses the credential
+ * directory ("Credential directory must be generated directly below XDG_RUNTIME_DIR", setup-factory-storage.sh:44).
+ * The other order is proven green (W4H-12 r6-xdg): the setup's explicit D-Bus address keeps podman on its session.
  */
 export function setupAfterStorage(workflows: readonly Workflow[]): string[] {
   const findings: string[] = [];

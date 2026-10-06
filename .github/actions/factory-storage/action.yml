@@ -3,12 +3,9 @@ description: >
   Starts or stops the job-local factory object storage from the one committed recipe: scripts/setup-factory-storage.sh
   drives compose.factory-storage.local.yml, which holds the SeaweedFS image digest and the loopback ports. `up` creates
   a fresh, random credential set below a private runtime directory (never a repository secret, never printed) and
-  exports only EZCORP_FACTORY_STORAGE_SECRETS_DIR to the later steps. The private directory is this action's own: both
-  commands name it for the script, and XDG_RUNTIME_DIR is never written to the job environment, because a later step's
-  Podman (the extension runner set up by scripts/setup-extension-runner-ci.sh) keeps its state under the job's real
-  runtime directory (W4H-12). `down` removes the containers, their volumes, and the set. Every job uses this action for
-  both (W4H-5); a job's stop step runs only when its start step ran (scripts/factory-storage-action-registration.test.ts
-  holds these rules).
+  exports XDG_RUNTIME_DIR and EZCORP_FACTORY_STORAGE_SECRETS_DIR to the later steps. `down` removes the containers,
+  their volumes, and the set. Every job uses this action for both (W4H-5); a job's stop step runs only when its start
+  step ran (scripts/factory-storage-action-registration.test.ts holds both rules).
 
 inputs:
   command:
@@ -24,15 +21,16 @@ runs:
         FACTORY_STORAGE_COMMAND: ${{ inputs.command }}
       run: |
         set -euo pipefail
-        # The script's private runtime directory, for this step's process only.
-        export XDG_RUNTIME_DIR="$RUNNER_TEMP/factory-storage-runtime"
         case "$FACTORY_STORAGE_COMMAND" in
           up)
-            install -d -m 700 "$XDG_RUNTIME_DIR"
+            runtime_dir="$RUNNER_TEMP/factory-storage-runtime"
+            install -d -m 700 "$runtime_dir"
+            export XDG_RUNTIME_DIR="$runtime_dir"
             setup_output="$(scripts/setup-factory-storage.sh up)"
             storage_dir="$(printf '%s\n' "$setup_output" | sed -n 's#^Factory local storage is ready. Credentials are in \(.*\) below.*#\1#p')"
             test -n "$storage_dir"
             test -d "$storage_dir"
+            echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
             echo "EZCORP_FACTORY_STORAGE_SECRETS_DIR=$storage_dir" >> "$GITHUB_ENV"
             ;;
           down) scripts/setup-factory-storage.sh down ;;

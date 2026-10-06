@@ -69,18 +69,6 @@ describe("factory object storage in CI (W4H-5)", () => {
     expect(Object.values(services).map((service) => service.image)).toEqual(Array(2).fill(expect.stringMatching(/^docker\.io\/chrislusf\/seaweedfs@sha256:[0-9a-f]{64}$/)));
   });
 
-  test("the action keeps its runtime directory to itself and exports only the credential directory", () => {
-    // W4H-12: exporting XDG_RUNTIME_DIR moved every later step's Podman to the action's private directory, away
-    // from the user session the extension runner setup prepared (and its D-Bus bus), in the same job.
-    const [step] = (Bun.YAML.parse(read(".github/actions/factory-storage/action.yml")) as { runs: { steps: Step[] } }).runs.steps;
-    const exported = [...step.run!.matchAll(/^\s*echo "([A-Z_]+)=.*>> "\$GITHUB_ENV"\s*$/gm)].map((match) => match[1]);
-    expect(exported).toEqual(["EZCORP_FACTORY_STORAGE_SECRETS_DIR"]);
-    expect(step.run).not.toMatch(/XDG_RUNTIME_DIR[^\n]*GITHUB_ENV/);
-    // Both commands name the same private directory for the script, before the case: `down` needs no job variable.
-    const header = step.run!.slice(0, step.run!.indexOf("case "));
-    expect(header).toContain('export XDG_RUNTIME_DIR="$RUNNER_TEMP/factory-storage-runtime"');
-  });
-
   test("the three storage jobs use the action, and no workflow runs the script itself", () => {
     expect(storageJobs().map((job) => job.where)).toEqual([
       "ci.yml factory-deployment-operations",
