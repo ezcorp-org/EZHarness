@@ -90,13 +90,23 @@ compensated under the installed production predicate. There are no actionable
 operations. The current cleanup binding is ABSENT and points to the successful
 distinct DESTROY. Historical records were preserved.
 
-## Remaining work
+## Negative-test controls and final drain check
 
-The actual provider-drain query still returns true for two saved negative-test
-bindings, ending in `-drift` and `-missingControl`. Both have no current operation
-or charged reservation, but remain STOPPED/UNKNOWN without confirmed cleanup.
-Their provenance and supported cleanup remain under investigation. No record
-was manually cleared and no name-based query exclusion was added.
+The first drain result came from two intentional negative-test controls from
+an earlier probe plan. A prior cleanup had targeted a different plan. One
+supported cleanup with the original saved plan and digest removed these controls.
+Receipt 337 returned HTTP 200 / cleaned; SHA-256:
+`e46fbe51fd959008a054f4ab397ea130ccc579220a078c80ddde9045ae78528c`.
+
+A fresh stopped-copy check then passed the unchanged production predicate:
+`hasUnfinishedProviderSandboxes` is false. Charges remain zero, historical
+UNKNOWN rows remain compensated, and actionable operations are empty.
+Completion SHA-256:
+`fe51bded379be05021f5c8ce8042648e3ed88e562dbc0fa4e33793b173d83c56`.
+Independent review passed. No record was manually cleared, no name-based
+query exclusion was added, and the live database was not restored.
+
+## Remaining work
 
 Live resource-load diagnosis, qualification, the normal UI/native-tool flow,
 ten feature lifecycles and final repository gates remain open. This recovery

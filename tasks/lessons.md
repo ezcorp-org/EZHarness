@@ -1,5 +1,6 @@
 # Lessons
 
+- Keep each live qualification's negative-test plan ID and digest in its run receipt. Cleanup of a later combined plan does not clean earlier applied controls. Verify all applied plans reach supported cleanup before calling the provider drained; never infer this from empty backend inventory alone.
 - A durable queue's creation time is not its first-dispatch time. Persist the first authorized dispatch in the same claim transaction; use that immutable time for observation expiry and restart. Test a queued request delayed beyond the observation budget.
 - Prove failure classification across the broker, worker adapter and controller. A host refusal before the transport call must state that no effect occurred; a generic unavailable error can otherwise become UNKNOWN and block safe cleanup. Preserve UNKNOWN for failures after a request may have reached the backend.
 - Database JSON objects do not preserve field order. Build durable scope identities and plan digests from one fixed representation. Test the actual database round trip and reopened service, and keep legacy valid digests unchanged. Object stringification alone is not a scope equality check.
