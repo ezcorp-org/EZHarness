@@ -1199,7 +1199,7 @@ export class AgentExecutor {
     // Auto-spin-up team members (if setupTools flagged the run) and inject
     // the orchestrator prompt onto ctx.system. Done AFTER Promise.all so the
     // model is resolved + tools are ready.
-    await applyAutoSpinUp(ctx, host, userMessage);
+    const includeTaskTracking = await applyAutoSpinUp(ctx, host, userMessage);
 
     // Apply mode tool restrictions (filter tools by category + allowlist).
     // Phase 48 extends the contract: when a mode declares
@@ -1291,6 +1291,12 @@ export class AgentExecutor {
     if (options.forceDenyOrchestration) {
       const { POLICY_LEAF_SPAWN_DENY } = await import("./tools/filter");
       pushScope({ policyForceDenyBare: [...POLICY_LEAF_SPAWN_DENY] });
+    }
+
+    if (includeTaskTracking) {
+      const { buildTaskTrackingInstructions } = await import("./orchestrator-prompt");
+      const taskBlock = buildTaskTrackingInstructions(ctx.agentTools.map(tool => tool.name));
+      if (taskBlock) ctx.system = ctx.system ? `${ctx.system}\n\n${taskBlock}` : taskBlock;
     }
 
     /**
