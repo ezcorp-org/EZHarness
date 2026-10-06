@@ -1,6 +1,6 @@
 # Active completion — 3 October 2026
 
-## Current next steps — 6 October, source bf80a50e3 and installed app e02641500
+## Current next steps — 6 October, corrected image/provider source and installed app e02641500
 
 - [x] Install and verify app 50a; preserve the live database and clear the prior guest.
 - [x] Pass live qualification on 50a with the existing provider; clean all fixtures and verify zero reservations.
@@ -22,7 +22,7 @@
 - [x] Build and install combined source e026 through the guarded update. Bundle, non-root startup, database preservation, both selected verifiers and the actual recovery loader passed independent review.
 - [x] Reproduce the live dirty-Git failure using the actual pinned helper and a real temporary repository. Native write locks remain beside edited files; hiding them from file listings does not keep Git clean.
 - [x] Move stable mutation locks outside the user workspace under private helper state. Integrated bf80a50e3 after independent review; all 15 helper tests pass, including a root run with poisoned Git environment and the normal commit hook. Stable inode, flock, containment, revision checks and journal semantics remain enforced.
-- [ ] Build and review the required helper/image successor through existing machinery; determine exact provider/connection pin changes before live activation. No live helper patch or unreviewed provider activation.
+- [x] Build and review the helper/image successor through existing machinery. Actual image f0b8298 passed UID1000 helper writes/removal and clean Git commits; temporary guests and volumes are absent. Independently reviewed metadata 8a9ff4907 pins provider0.1.5/recipe1.2.4/helpercaa4; 41 focused tests passed. App deployment, exact v4 approval and new connection verification remain pending.
 - [x] Preserve current native files, commit and failure evidence, then perform ordinary authorized cleanup. Verified Git bundle retained; STOP and DESTROY succeeded; fresh inventory and current/global zero accounting passed independent review. Failed workflow remains failed.
 - [ ] Re-run current-source qualification and native workflow after the fix; finish process/restart/denial evidence and ten consecutive lifecycle tests with explicit pinned-image fixture preparation.
 - [ ] Run fresh final-source local and hosted gates; record final cleanup and remaining product scope limits. The interrupted 4e0007 full gate is superseded and incomplete.
