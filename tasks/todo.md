@@ -2976,3 +2976,30 @@ efficiency fix is in progress, with the same timeout and product-line gate.
 - The user chose to wait for the unrelated heavy typecheck. It exited on its
   own; no unrelated process was stopped. New heavy tests remain held during
   recovery preparation. Use the combined source for the next candidate.
+
+### Combined source checks and next bounded recovery
+
+- [x] Complete exact `2bb18f611` supported fast gate: exit 0; 27,585 backend
+  and 7,727 web tests passed; production build passed.
+- [x] Capture both recovery browser cases: exit 0, two tests and two verified
+  screenshots. Preserve the earlier failed startup as historical evidence.
+- [x] Prepare and independently review the corrected one-attempt c7 packet:
+  execution index `36d0365097aabb2b7c912c160a51dce8317d39c3939eb4c5bb78afdbcfbd9726`.
+  Marker handling and partial-runtime abort tests passed; no lease was armed.
+- [x] Obtain new exact approval for the new temporary root-access window.
+  User approved packet SHA `7f470c0e99cef9b0a44e3ee861c56050e671345d71b23d3c2665e48942ae0c57`.
+- [x] Execute once, verify cleanup and full access restoration, or record a
+  safe stop without retrying an uncertain effect.
+  Attempt 2 safely stopped at the actual key-hash validator before timer/key
+  installation. Independent receipts 182–187 prove original 508 restoration
+  and no access/admission effect. c7 cleanup remains outstanding.
+- [ ] Fix the extra-newline generator hash and prove final generated artifacts
+  pass the actual dispatcher, expiry, installer, and binder validators together.
+- [ ] Close hosted complexity failure through a reviewed behavior-preserving
+  receipt-verifier refactor; no gate or threshold changes.
+- [ ] Complete the combined full gate after the recovery window closes.
+- [ ] Build/install the combined candidate and prove the remaining live flow.
+
+Review: the first access attempt and c07 update are closed without cleanup or
+candidate installation. The running app remains 508/f935. The new review packet
+is `docs/validation/2026-10-05-c7-batched-recovery-attempt2-review.md`.

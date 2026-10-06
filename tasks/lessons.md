@@ -632,3 +632,8 @@
   avoid spending its safety margin on separate model/tool round trips. Keep
   an independent proof review before revocation or signed admission. A missed
   margin means abort and restore, never extend or rebind the consumed lease.
+- Hash the exact serialized bytes once; never append a second newline while
+  computing a checksum. Before requesting an operational approval, pass the
+  final rendered artifacts through every actual consumer validator in a
+  no-effect fixture. Internally consistent mocks and allowed-field checks do
+  not prove that the generator and its consumers agree.
