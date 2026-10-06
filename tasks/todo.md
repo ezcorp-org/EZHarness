@@ -2993,13 +2993,34 @@ efficiency fix is in progress, with the same timeout and product-line gate.
   Attempt 2 safely stopped at the actual key-hash validator before timer/key
   installation. Independent receipts 182–187 prove original 508 restoration
   and no access/admission effect. c7 cleanup remains outstanding.
-- [ ] Fix the extra-newline generator hash and prove final generated artifacts
+- [x] Fix the extra-newline generator hash and prove final generated artifacts
   pass the actual dispatcher, expiry, installer, and binder validators together.
-- [ ] Close hosted complexity failure through a reviewed behavior-preserving
+  Independent review and 11 actual-loader/canonical/binder tests passed. Fresh
+  successor packet sealing and final indexed-artifact validation remain open.
+- [x] Close hosted complexity failure through a reviewed behavior-preserving
   receipt-verifier refactor; no gate or threshold changes.
+  Integrated `11620ca6e`: 73 tests/233 assertions passed; measured target lines
+  298/298 covered. Actual strict changed-function scores are 22, 10, and 6
+  against limit 30. Patch coverage, lint, typecheck and normal hooks passed.
+  The hosted whole-branch gate still needs a new run after push.
 - [ ] Complete the combined full gate after the recovery window closes.
 - [ ] Build/install the combined candidate and prove the remaining live flow.
 
 Review: the first access attempt and c07 update are closed without cleanup or
 candidate installation. The running app remains 508/f935. The new review packet
 is `docs/validation/2026-10-05-c7-batched-recovery-attempt2-review.md`.
+
+### Canonical-key successor
+
+- [x] Seal fresh attempt 3 and independently verify all files, prior ledgers,
+  current target, actual bootstrap, and all final consumer validators.
+  Execution index: `7871965a544a75e14579bbc8a2a3f653094fa627cb2f3950389640a640b2a208`.
+- [ ] Obtain exact approval of
+  `docs/validation/2026-10-05-c7-canonical-key-attempt3-review.md`.
+- [ ] Wait for source gate completion, recheck headroom, then execute only the
+  approved attempt and independently verify its result and access restoration.
+
+Review: attempt 2 is fully closed and cannot be replayed. The canonical-byte
+fix passed actual final consumers and independent review. Actual timer, SSH,
+cleanup and expiry remain unproved for attempt 3; no clock or server effects
+have started. Fast source gate is running on integrated `11620ca6e`.

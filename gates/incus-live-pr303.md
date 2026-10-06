@@ -10,14 +10,23 @@ new fixtures were cleaned up. Earlier START `c7b5f35d-aa75-421f-aa6b-0741840c8c3
 remains UNKNOWN with its guest STOPPED and its reservation held. A temporary
 access attempt aborted before admission and restored access. A later app
 update timed out before replacing the active build; the same app was restored
-without a database restore or replay.
+without a database restore or replay. A second access attempt rejected a
+generated key checksum before timer/key installation. Independent checks
+confirmed no access or admission effect and restored the same app. The
+checksum generator now has an actual renderer-to-consumer regression; the
+saved guest still needs cleanup. See the [attempt 2 result](../docs/validation/2026-10-05-c7-batched-recovery-attempt2-result.md).
 
 The historical proofs below remain valid for their recorded releases and
 identities. They do not close the current release gates. The boxes remain
 open until current evidence or an explicit identity-matched carry-forward
-review closes each gate. Combined source `2bb18f611` has reviewed fixes and
-passing focused tests; final source checks and the full normal user workflow
-are still pending. See the [current candidate evidence](../docs/validation/2026-10-05-incus-unmerged-candidate.md).
+review closes each gate. Combined source `2bb18f611` passed the supported fast
+gate and both recovery screenshot cases. Its hosted coverage checks passed,
+but one fully covered function exceeded the complexity limit. Reviewed
+refactor `11620ca6e` preserves every check and reduces its score from 36 to 6;
+all extracted helpers also pass the unchanged limit. Its 73 focused tests,
+measured coverage, patch coverage, lint and typecheck passed. Final source
+checks and the full normal user workflow are still pending. See the
+[current candidate evidence](../docs/validation/2026-10-05-incus-unmerged-candidate.md).
 
 Historical status, 4 October 2026: provider 0.1.3 is approved and active at generation
 4. The retained diagnostic guest was stopped and disposed through the UI; its
