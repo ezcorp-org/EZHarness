@@ -14,6 +14,15 @@ export interface GitResult {
 const DEFAULT_TIMEOUT_MS = 30_000;
 const CLONE_TIMEOUT_MS = 120_000;
 
+// A caller's Git hook can select its repository even when we set another cwd.
+// Preserve authentication and config settings, but select repositories ourselves.
+const REPOSITORY_ENV_KEYS = new Set([
+  "GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE", "GIT_PREFIX",
+  "GIT_OBJECT_DIRECTORY", "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_CEILING_DIRECTORIES",
+  "GIT_DISCOVERY_ACROSS_FILESYSTEM", "GIT_SHALLOW_FILE", "GIT_GRAFT_FILE",
+  "GIT_IMPLICIT_WORK_TREE", "GIT_INTERNAL_SUPER_PREFIX",
+]);
+
 export function gitExec(
   args: string[],
   opts?: { cwd?: string; timeout?: number },
@@ -23,7 +32,9 @@ export function gitExec(
     const result = Bun.spawnSync(["git", ...args], {
       cwd: opts?.cwd,
       timeout,
-      env: { ...process.env },
+      env: Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !REPOSITORY_ENV_KEYS.has(name)),
+      ),
     });
 
     return {
