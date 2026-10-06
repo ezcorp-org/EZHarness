@@ -45,13 +45,18 @@ export async function listFirstPartyExtensionSources(projectRoot: string): Promi
     const directory = join(projectRoot, sourceRoot);
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-      const configPath = join(directory, entry.name, "ezcorp.config.ts");
-      const config = await lstat(configPath).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return null;
-        throw error;
-      });
-      if (!config) continue;
-      if (!config.isFile()) throw new Error(`Extension config must be a regular file: ${configPath}`);
+      let hasSource = false;
+      for (const marker of ["extension.ts", "ezcorp.config.ts"]) {
+        const markerPath = join(directory, entry.name, marker);
+        const file = await lstat(markerPath).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (!file) continue;
+        if (!file.isFile()) throw new Error(`Extension source marker must be a regular file: ${markerPath}`);
+        hasSource = true;
+      }
+      if (!hasSource) continue;
       sources.push({ name: entry.name, directory: `${sourceRoot}/${entry.name}`, entrypoint: "extension.ts" });
     }
   }

@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { chmod, mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { listFirstPartyExtensionSources, snapshotFirstPartyExtension, snapshotExtensionSource } from "./migrate-extension-v4";
 
@@ -110,4 +110,38 @@ test("bounds entries even when excluded files consume no source bytes", async ()
   const { root, extension } = await fixture();
   for (let index = 0; index < 4096; index++) await writeFile(join(extension, `.env.${index}`), "");
   await expect(snapshotFirstPartyExtension(root, "candidate")).rejects.toThrow("entry limit");
+});
+
+for (const name of ["incus-sandbox", "infisical-secrets"]) test(`snapshots shipped ${name} without a legacy config`, async () => {
+  const snapshot = await snapshotFirstPartyExtension(resolve(import.meta.dir, ".."), name);
+  expect(snapshot.source).toEqual({ name, directory: `extensions/${name}`, entrypoint: "extension.ts" });
+  expect(snapshot.files["extension.ts"]).toContain("serve");
+  expect(snapshot.files["manifest.ts"]).toBeDefined();
+  expect(snapshot.files["ezcorp.config.ts"]).toBeUndefined();
+});
+
+test("canonical entrypoint is enough, ordinary directories are excluded, and marker links are denied", async () => {
+  const { root, extension } = await fixture();
+  await rm(join(extension, "ezcorp.config.ts"));
+  expect((await snapshotFirstPartyExtension(root, "candidate")).files["extension.ts"]).toContain("version = 4");
+  await mkdir(join(root, "extensions", "ordinary"));
+  expect(await listFirstPartyExtensionSources(root)).toHaveLength(1);
+  for (const marker of ["extension.ts", "ezcorp.config.ts"]) {
+    const path = join(extension, marker);
+    await rm(path, { force: true });
+    await symlink("/etc/passwd", path);
+    await expect(listFirstPartyExtensionSources(root)).rejects.toThrow("regular file");
+    await rm(path);
+    await writeFile(path, "source must not execute");
+  }
+});
+
+test("source marker metadata errors cannot become an absent source", async () => {
+  const { root, extension } = await fixture();
+  await chmod(extension, 0);
+  try {
+    await expect(listFirstPartyExtensionSources(root)).rejects.toMatchObject({ code: "EACCES" });
+  } finally {
+    await chmod(extension, 0o700);
+  }
 });

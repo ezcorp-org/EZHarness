@@ -11,6 +11,9 @@ An active administrator in a human session can call
 - `{kind:"local",path:"/approved/root/extension"}`: a regular directory beneath
   a host-owned install root or registered project's authored-extension root.
 - `{kind:"bundled",name:"scratchpad"}`: one exact first-party inventory entry.
+  Discovery accepts the canonical `extension.ts` entrypoint or a retained
+  `ezcorp.config.ts` source marker under the fixed first-party roots. Both remain
+  data during import; neither is evaluated on the host.
 - `{kind:"github",repository:"owner/repository",ref:"commit-or-branch",directory:"optional/subdirectory"}`:
   a GitHub tree pinned before blob collection, with redirects, links, submodules,
   traversal, environment files, and oversized input refused.
