@@ -42,9 +42,11 @@ import {
   copyFileSync,
   chmodSync,
   symlinkSync,
+  existsSync,
+  readFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { parseBunVersion } from "../../scripts/check-bun-version.ts";
 import { withoutGitContext } from "./helpers/scratch-git.ts";
 
@@ -172,6 +174,9 @@ const CLEAN_TS = "export function add(a: number, b: number): number {\n  return 
 // The pre-commit tests spawn git → hook → `bunx biome`; a cold bunx/biome start
 // can exceed the 5s default, so give them headroom (biome itself is ~1-2s).
 const BIOME_TIMEOUT_MS = 30_000;
+// A commit that really runs a staged suite adds the lane lookup and one
+// `bun test` process to the biome run.
+const STAGED_SUITE_TIMEOUT_MS = 60_000;
 
 afterAll(() => {
   for (const d of created) rmSync(d, { recursive: true, force: true });
@@ -536,6 +541,64 @@ describe("hook-lib > run_staged_tests", () => {
       rmSync(bin, { recursive: true, force: true });
     }
   });
+});
+
+describe("pre-commit hook > a staged suite that runs git", () => {
+  // End to end, the way the 2026-09-25 and 2026-10-06 incidents happened: a
+  // commit from a LINKED worktree, the real hook, and a staged test that runs a
+  // bare `git init` in a directory it owns. With the hook's GIT_DIR leaked into
+  // that test, `git init` re-initialises the repository the commit runs in and
+  // writes core.bare=true into its SHARED config, which breaks every worktree.
+  const STAGED = "src/staged-git-init.test.ts";
+  const STAGED_SOURCE = `import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+
+test("runs git init in a directory it owns", () => {
+  const out = process.env.HOOK_FIXTURE_OUT ?? "";
+  const seen = Object.keys(process.env).filter((k) => k.startsWith("GIT_"));
+  writeFileSync(join(out, "seen-git-env.txt"), seen.join("\\n"));
+  const dir = join(out, "inner-repo");
+  mkdirSync(dir);
+  expect(Bun.spawnSync(["git", "init", "--quiet", dir]).exitCode).toBe(0);
+});
+`;
+
+  test("a staged test's bare `git init` leaves the shared config byte-equal", () => {
+    const primary = initRepoWithCommit("ezcorp-precommit-git-env-");
+    sh(["git", "config", "core.hooksPath", ".githooks"], { cwd: primary });
+    const wt = addWorktree(primary, "staged-git-init");
+    // The linked worktree sees the hook and the tree's real scripts/ (hook-lib,
+    // test-file-sets and the lane lookup they run), so the staged test really runs.
+    mkdirSync(join(wt, ".githooks"));
+    copyFileSync(PRE_COMMIT, join(wt, ".githooks/pre-commit"));
+    chmodSync(join(wt, ".githooks/pre-commit"), 0o755);
+    for (const f of [BIOME_JSON, GITIGNORE, join(REPO_ROOT, ".bun-version")]) copyFileSync(f, join(wt, basename(f)));
+    symlinkSync(NODE_MODULES, join(wt, "node_modules"));
+    symlinkSync(join(REPO_ROOT, "scripts"), join(wt, "scripts"));
+    mkdirSync(join(wt, "src"));
+    writeFileSync(join(wt, STAGED), STAGED_SOURCE);
+    sh(["git", "add", STAGED], { cwd: wt });
+
+    const out = mkdtempSync(join(tmpdir(), "ezcorp-staged-git-init-"));
+    created.push(out);
+    const sharedConfig = join(primary, ".git/config");
+    const before = readFileSync(sharedConfig);
+
+    const res = sh(["git", "commit", "-m", "staged suite runs git init"], {
+      cwd: wt,
+      env: { ...baseEnv, HOOK_FIXTURE_OUT: out },
+    });
+
+    expect(res.exitCode).toBe(0);
+    expect(res.out).toContain(`bun: ${STAGED}`);
+    expect(res.out).toMatch(/\b1 pass\b/);
+    expect(readCfg(primary, "core.bare")).toBe("false");
+    expect(readFileSync(sharedConfig).equals(before)).toBe(true);
+    expect(readFileSync(join(out, "seen-git-env.txt"), "utf8")).toBe("");
+    expect(existsSync(join(out, "inner-repo/.git/HEAD"))).toBe(true);
+    expect(sh(["git", "log", "--oneline", "-1"], { cwd: wt }).out).toContain("staged suite runs git init");
+  }, STAGED_SUITE_TIMEOUT_MS);
 });
 
 describe("hook-lib > run_staged_tests > factory-orchestrator", () => {
