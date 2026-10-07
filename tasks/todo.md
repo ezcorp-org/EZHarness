@@ -3438,3 +3438,32 @@ Review: New behavioral test failed before the correction with the missing root m
 Plan review: Keep the assertion that the failed upgrade aborts the guest connection. Change only the mock type; do not alter production or coverage policy.
 
 Review: On exact 9b7, `bun run --cwd web check` failed with two errors at the zero-argument mock call, then passed with 0 errors and 0 warnings after typing its request as `SandboxPreviewConnectRequest`. The abort assertion remains. Focused Node/Vitest V8 coverage passes 27/27 tests and 163/163 bridge lines. Test typecheck and focused Biome pass. No production or coverage policy changed.
+
+## Caller-tool hosted CI repair Oct 07
+- [x] Inspect hosted trace and reproduce isolated real-auth failure.
+- [x] Fix proven cause without weakened gates.
+- [x] Verify focused tests and commit with normal hooks.
+Review: reader abort ownership verified; final integration gates owned by root.
+
+Evidence: hosted trace outcome assertion passed at 502284.575; test remained
+in finally/await serving until its 60000ms limit. Deterministic unit RED:
+`bun test ./packages/@ezcorp/harness-client/src/index.test.ts --test-name-pattern 'cancels its owned reader' --timeout 30000`
+failed cancel ownership assertion (false versus true), no timing assertion.
+With reader abort cancellation, package suite and coverage run: 96 pass, 0 fail.
+Repository formatter is explicitly disabled; biome check passed on touched code.
+Controlled real-server E2E RED: original streamEvents source plus real SSE
+transport with request abort omitted. All HTTP, authentication, permissions,
+tool replies, model scripts and SSE events remain real. The completed-turn
+assertion passed; awaiting device shutdown timed out at the unchanged 60000ms
+budget. Result: 6 passed, 1 failed, exit 1. Log:
+/tmp/caller-tool-repro-oct07.log; trace: .cache/caller-tool-red-results.
+GREEN rerun uses the restored fix, same full spec, fresh owned DB and port4397.
+Build, touched-file Biome and git diff --check passed. Root backend/web/test
+typecheck passed. Own fast gate stopped (exit130) at parent direction; final
+combined gates belong to integration root, and no gate pass is claimed here.
+
+GREEN: same full real-auth spec, restored fix, fresh isolated fixture.
+7 passed (3.8m), exit0; /tmp/caller-tool-green-oct07.log.
+Final package coverage rerun:96passed/0failed,285assertions, all added
+cancellation executable lines have positive hits. No retries/timeouts/gates
+changed. No live application or GitHub mutations.
