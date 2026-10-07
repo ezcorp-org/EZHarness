@@ -44,6 +44,7 @@ interface SandboxPreviewWsData {
   kind: "sandbox";
   previewId: string;
   userId: string;
+  cookieToken: string;
   binding: Readonly<SandboxWorkspaceBinding>;
   port: number;
   expiresAt: number;
@@ -70,6 +71,8 @@ function requestedSubprotocol(header: string | null): "vite-hmr" | "vite-ping" |
 
 async function currentSandboxPreview(data: SandboxPreviewWsData): Promise<boolean> {
   if (Date.now() >= data.expiresAt) return false;
+  const claims = await verifyPreviewToken(data.cookieToken);
+  if (claims?.previewId !== data.previewId || claims.userId !== data.userId) return false;
   const row = await getServablePreview(data.previewId, data.userId);
   if (!row || row.userId !== data.userId || row.kind !== "dynamic" || row.targetPort !== data.port
     || !(row.expiresAt instanceof Date) || row.expiresAt.getTime() <= Date.now()
@@ -160,7 +163,7 @@ export async function tryBridgePreviewWebSocket(
       });
       if (duplex.protocol !== protocol) throw new Error("Sandbox preview protocol changed");
       const data: SandboxPreviewWsData = {
-        __preview: true, kind: "sandbox", previewId, userId: decision.userId, binding: target.binding,
+        __preview: true, kind: "sandbox", previewId, userId: decision.userId, cookieToken: cookieToken!, binding: target.binding,
         port: decision.port, expiresAt: decision.row.expiresAt!.getTime(), duplex, abort,
       };
       if (!await currentSandboxPreview(data)) throw new Error("Sandbox preview changed before upgrade");
@@ -256,7 +259,9 @@ export function createPreviewWebSocketHandler(
     if (closeClient) ws.close(code, code === 1000 ? "preview closed" : "preview unavailable");
   }
 
-  async function stillAllowed(ws: Client, state: SandboxState): Promise<boolean> {
+  async function stillAllowed(ws: Client, state: SandboxState, fresh = false): Promise<boolean> {
+    if (state.closed) return false;
+    if (fresh && state.checking) await state.checking;
     if (state.closed) return false;
     state.checking ??= currentSandboxPreview(state.data).catch(() => false).then(allowed => {
       if (!allowed) stopSandbox(ws, state, 1008);
@@ -298,7 +303,7 @@ export function createPreviewWebSocketHandler(
         void (async () => {
           if (!await stillAllowed(ws, state)) return;
           for await (const frame of data.duplex.messages) {
-            if (!await stillAllowed(ws, state) || !accountFrame(ws, state, frame)) return;
+            if (!await stillAllowed(ws, state, true) || !accountFrame(ws, state, frame)) return;
             ws.send(typeof frame === "string" ? frame : Uint8Array.from(frame).buffer);
           }
           stopSandbox(ws, state);
@@ -345,7 +350,7 @@ export function createPreviewWebSocketHandler(
       if (sandbox) {
         if (!accountFrame(ws as Client, sandbox, message)) return;
         sandbox.pending = sandbox.pending.then(async () => {
-          if (!await stillAllowed(ws as Client, sandbox)) return;
+          if (!await stillAllowed(ws as Client, sandbox, true)) return;
           const frame = typeof message === "string" ? message : new Uint8Array(message);
           await sandbox.data.duplex.send(frame);
         }).catch(() => stopSandbox(ws as Client, sandbox, 1011));

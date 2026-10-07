@@ -66,6 +66,18 @@ function setupSandbox(connectWebSocket: ReturnType<typeof vi.fn>) {
   return row;
 }
 
+async function upgradeSandbox(): Promise<unknown> {
+  let data: unknown;
+  try {
+    await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
+      { server: { upgrade: (_request, options) => { data = options?.data; return true; } }, request: {} });
+  } catch (error) {
+    // Node rejects Bun's 101 Response sentinel after the successful upgrade.
+    expect(String(error)).toContain("status");
+  }
+  return data;
+}
+
 function wsRequest(headers: Record<string, string> = {}): Request {
   return new Request(`https://${VALID_ID}.preview.${APP_HOST}/__vite_hmr`, {
     headers: {
@@ -144,14 +156,7 @@ describe("tryBridgePreviewWebSocket", () => {
     const connectWebSocket = vi.fn(async () => ({ protocol: "vite-hmr", send: async () => {},
       messages: (async function* () {})(), close: async () => {} }));
     setupSandbox(connectWebSocket);
-    let upgradeData: unknown;
-    try {
-      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
-        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
-    } catch (error) {
-      // Node's Response rejects the Bun 101 sentinel after upgrade; the data remains observable.
-      expect(String(error)).toContain("status");
-    }
+    const upgradeData = await upgradeSandbox();
     expect(upgradeData).toMatchObject({ __preview: true, previewId: VALID_ID, kind: "sandbox" });
     expect(upgradeData).not.toHaveProperty("upstreamUrl");
     expect(connectWebSocket).toHaveBeenCalledWith(expect.objectContaining({
@@ -183,11 +188,7 @@ describe("tryBridgePreviewWebSocket", () => {
       messages: { async *[Symbol.asyncIterator]() { await new Promise<void>(resolve => { finishFrames = resolve; }); } },
       close: async () => { closedGuest++; finishFrames?.(); } };
     setupSandbox(vi.fn(async () => duplex));
-    let upgradeData: unknown;
-    try {
-      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
-        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
-    } catch (error) { expect(String(error)).toContain("status"); }
+    const upgradeData = await upgradeSandbox();
     expect(upgradeData).toMatchObject({ kind: "sandbox", previewId: VALID_ID });
     const handler = createPreviewWebSocketHandler(() => { throw new Error("host loopback must not open"); });
     const client = { data: upgradeData, sent: [] as Array<string | ArrayBufferLike>, closed: 0,
@@ -203,17 +204,29 @@ describe("tryBridgePreviewWebSocket", () => {
     expect(closedGuest).toBe(1);
   });
 
+  test("a live sandbox socket closes when its preview cookie expires", async () => {
+    let finishFrames: (() => void) | undefined;
+    let sent = 0;
+    const duplex = { protocol: "vite-hmr", send: async () => { sent++; },
+      messages: { async *[Symbol.asyncIterator]() { await new Promise<void>(resolve => { finishFrames = resolve; }); } },
+      close: async () => { finishFrames?.(); } };
+    setupSandbox(vi.fn(async () => duplex));
+    const handler = createPreviewWebSocketHandler();
+    const client = { data: await upgradeSandbox(), closed: 0, send: () => {}, close() { this.closed++; } };
+    handler.open(client);
+    verifyPreviewToken.mockResolvedValue(null);
+    handler.message(client, "after expiry");
+    await vi.waitFor(() => expect(client.closed).toBe(1));
+    expect(sent).toBe(0);
+  });
+
   test("a slow guest send cannot let browser frames queue without a bound", async () => {
     let finishFrames: (() => void) | undefined;
     const duplex = { protocol: "vite-hmr", send: async () => { await new Promise<void>(() => {}); },
       messages: { async *[Symbol.asyncIterator]() { await new Promise<void>(resolve => { finishFrames = resolve; }); } },
       close: async () => { finishFrames?.(); } };
     setupSandbox(vi.fn(async () => duplex));
-    let upgradeData: unknown;
-    try {
-      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
-        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
-    } catch (error) { expect(String(error)).toContain("status"); }
+    const upgradeData = await upgradeSandbox();
     const handler = createPreviewWebSocketHandler(() => { throw new Error("host loopback must not open"); });
     const client = { data: upgradeData, closed: 0, send: () => {}, close() { this.closed++; } };
     handler.open(client);
