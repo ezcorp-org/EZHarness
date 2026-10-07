@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { INCUS_MEMORY_STRESS_BYTES, INCUS_MEMORY_STRESS_SHA256, loadIncusMemoryStressAsset } from "./incus-memory-stress-asset";
+import { INCUS_MEMORY_STRESS_BYTES, INCUS_MEMORY_STRESS_SHA256, loadIncusMemoryStressAsset,
+  readIncusMemoryStressAssetReference } from "./incus-memory-stress-asset";
 const binary = new URL("./incus-guest/memory-stress.x86_64.bin", import.meta.url);
 const read = () => Bun.file(binary).arrayBuffer();
 
@@ -7,6 +8,14 @@ test("the real pinned static workload fits the unchanged transfer bound", async 
   const asset = await loadIncusMemoryStressAsset("amd64");
   expect(asset.bytes.length).toBe(INCUS_MEMORY_STRESS_BYTES);
   expect(asset.sha256).toBe(INCUS_MEMORY_STRESS_SHA256);
+});
+test("source path and production inline URL decode the same pinned workload", async () => {
+  const source = await read();
+  const inlined = `data:application/octet-stream;base64,${Buffer.from(source).toString("base64")}`;
+  const decoded = await readIncusMemoryStressAssetReference(inlined);
+  expect(Buffer.from(decoded)).toEqual(Buffer.from(source));
+  expect((await loadIncusMemoryStressAsset("amd64", () => readIncusMemoryStressAssetReference(inlined))).sha256)
+    .toBe(INCUS_MEMORY_STRESS_SHA256);
 });
 test("unknown architecture refuses before reading an artifact", async () => {
   let reads = 0;
