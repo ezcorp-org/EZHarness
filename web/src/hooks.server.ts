@@ -23,7 +23,7 @@ import {
   clearSessionCookie,
   getSessionCookieName,
 } from "$lib/server/auth/session-cookie";
-import { matchPreviewOrigin, servePreviewRequest } from "$lib/server/preview/dispatch";
+import { isUnmatchedPreviewOrigin, matchPreviewOrigin, previewNotFound, servePreviewRequest } from "$lib/server/preview/dispatch";
 import { createPreviewWebSocketHandler } from "$lib/server/preview/ws-bridge";
 import { isLoopbackTestBypass } from "$lib/server/test-surface";
 import { principalId } from "$server/auth/principal-id";
@@ -442,6 +442,7 @@ const handleApp: Handle = async ({ event, resolve }) => {
     // vite dev — the bridge then answers 426 for upgrades, serves HTTP fine.
     return servePreviewRequest(request, previewMatch, event.platform as never);
   }
+  if (isUnmatchedPreviewOrigin(request)) return previewNotFound();
 
   // OPTIONS preflight
   if (request.method === "OPTIONS") {

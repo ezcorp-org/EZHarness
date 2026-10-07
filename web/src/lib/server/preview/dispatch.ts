@@ -1,5 +1,6 @@
 import {
   parsePreviewHost,
+  PREVIEW_HOST_INFIX,
   handlePreviewRequest,
   resolvePreviewAppHost,
   sanitizeInboundHeaders,
@@ -63,6 +64,20 @@ export function matchPreviewOrigin(request: Request): ParsedPreviewHost | null {
   return parsePreviewHost(request.headers.get("host"), host);
 }
 
+/** Keep invalid preview-shaped Hosts out of the app's login route. */
+export function isUnmatchedPreviewOrigin(request: Request): boolean {
+  const host = request.headers.get("host")?.split(":")[0]?.toLowerCase();
+  const configuredHost = appHost()?.split(":")[0]?.toLowerCase();
+  return Boolean(host?.includes(PREVIEW_HOST_INFIX) && host !== configuredHost);
+}
+
+export function previewNotFound(): Response {
+  return new Response("Not found", {
+    status: 404,
+    headers: { "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store" },
+  });
+}
+
 /**
  * Serve a request that has already been matched to the preview origin.
  * Handles `/__open` (code -> cookie swap), a WS-upgrade bridge (HMR), and
@@ -95,10 +110,7 @@ export async function servePreviewRequest(
     const claims = redeemOneTimeCode(code);
     // The code must redeem AND be for THIS subdomain's preview id.
     if (!claims || claims.previewId !== previewId) {
-      return new Response("Not found", {
-        status: 404,
-        headers: { "Referrer-Policy": "no-referrer", "Cache-Control": "private, no-store" },
-      });
+      return previewNotFound();
     }
     const token = await signPreviewToken({ previewId, userId: claims.userId });
     // Host-only cookie (NO Domain=) on the subdomain — never sent to the
