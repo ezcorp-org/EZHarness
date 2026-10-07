@@ -62,6 +62,7 @@ const { matchPreviewOrigin, servePreviewRequest, meterResponseBody } = await imp
   "$lib/server/preview/dispatch"
 );
 const { PREVIEW_TOKEN_TTL_SECONDS } = await import("$server/runtime/preview/preview-token");
+const { registerQualificationPreviewTarget } = await import("$server/runtime/preview/preview-target");
 
 const VALID_ID = "abcdefghjkmnpqrstvwxyz0123";
 const user = { id: "u1", email: "u@x", name: "u", role: "member" as const };
@@ -222,6 +223,40 @@ describe("servePreviewRequest serving path", () => {
 });
 
 describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
+  test("an exact claimed fixture lease serves through the same owner and token path, then closes", async () => {
+    const binding = { projectId: "project-1", workspaceId: "fixture-1", connectionId: "connection-1",
+      providerId: "incus", generation: 7, presetId: "compose", releaseDigest: "a".repeat(64),
+      presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) };
+    const row = { id: VALID_ID, userId: "u1", conversationId: "conversation-1", kind: "dynamic" as const,
+      staticPath: null, targetPort: 5173, expiresAt: new Date(Date.now() + 60_000),
+      workspaceTarget: { kind: "sandbox" as const, binding } };
+    verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
+    getServablePreview.mockResolvedValue(row);
+    getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "project-1" });
+    getProject.mockResolvedValue({ id: "project-1" });
+    resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "local" });
+    const serve = vi.fn(async () => new Response("fixture page"));
+    const resolve = vi.fn(async () => ({ kind: "sandbox" as const, binding, backend: { previews: { serve } } }));
+    const dispose = registerQualificationPreviewTarget({ previewId: VALID_ID, userId: "u1",
+      conversationId: "conversation-1", binding }, resolve as any);
+    const request = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/`, {
+      headers: { cookie: "__ezpreview=tok" },
+    });
+    try {
+      const response = await servePreviewRequest(request, { previewId: VALID_ID });
+      expect(response.status).toBe(200);
+      expect(await response.text()).toBe("fixture page");
+      expect(resolve).toHaveBeenCalledOnce();
+      getServablePreview.mockResolvedValue({ ...row, workspaceTarget: { kind: "sandbox",
+        binding: { ...binding, generation: 8 } } });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledOnce();
+    } finally { dispose(); }
+    getServablePreview.mockResolvedValue(row);
+    expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+    expect(serve).toHaveBeenCalledOnce();
+  });
+
   test("an authorized sandbox preview uses the current project binding and guest backend", async () => {
     const binding = { projectId: "project-1", workspaceId: "sandbox-1", connectionId: "connection-1",
       providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "a".repeat(64),

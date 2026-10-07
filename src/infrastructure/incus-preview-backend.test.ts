@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
-import type { SandboxPreviewServeRequest, SandboxWorkspaceBinding } from "../runtime/workspaces/target";
+import type { SandboxPreviewConnectRequest, SandboxPreviewServeRequest, SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 
 const binding: SandboxWorkspaceBinding = {
@@ -14,6 +14,40 @@ function preview(request: Request, targetPort = 3000): SandboxPreviewServeReques
   return { binding, previewId: "preview-a", userId: "user-a", targetPort, requestPath: new URL(request.url).pathname,
     request, expiresAt };
 }
+
+function socketRequest(over: Partial<SandboxPreviewConnectRequest> = {}): SandboxPreviewConnectRequest {
+  return { binding, previewId: "preview-a", userId: "user-a", targetPort: 3000, requestPath: "/hmr",
+    search: "?token=x", expiresAt, signal: new AbortController().signal, subprotocol: "vite-hmr", ...over };
+}
+
+test("sandbox WebSocket stays closed without a qualified duplex factory", async () => {
+  const backend = new IncusSandboxPreviewBackend({ call: async () => ({}) });
+  await expect(backend.connectWebSocket(socketRequest())).rejects.toThrow("unavailable");
+});
+
+test("sandbox WebSocket passes only a bounded registered request to guest duplex", async () => {
+  const calls: SandboxPreviewConnectRequest[] = [];
+  const socket = { protocol: "vite-hmr", send: async () => {}, messages: (async function* () {})(), close: async () => {} };
+  const backend = new IncusSandboxPreviewBackend({ call: async () => ({}) }, Date.now,
+    async request => { calls.push(request); return socket; });
+  expect(await backend.connectWebSocket(socketRequest())).toBe(socket);
+  expect(calls).toEqual([expect.objectContaining({ binding, previewId: "preview-a", userId: "user-a",
+    targetPort: 3000, requestPath: "/hmr", search: "?token=x", subprotocol: "vite-hmr" })]);
+  await expect(backend.connectWebSocket(socketRequest({ targetPort: 80 }))).rejects.toThrow("port");
+  await expect(backend.connectWebSocket(socketRequest({ requestPath: "//evil.example" }))).rejects.toThrow("path");
+  await expect(backend.connectWebSocket(socketRequest({ expiresAt: new Date(0) }))).rejects.toThrow("expiry");
+  await expect(backend.connectWebSocket(socketRequest({ subprotocol: "evil" as "vite-hmr" }))).rejects.toThrow("protocol");
+  expect(calls).toHaveLength(1);
+});
+
+test("sandbox WebSocket refuses a changed guest-selected protocol and closes its stream", async () => {
+  let closes = 0;
+  const backend = new IncusSandboxPreviewBackend({ call: async () => ({}) }, Date.now,
+    async () => ({ protocol: null, send: async () => {}, messages: (async function* () {})(),
+      close: async () => { closes++; } }));
+  await expect(backend.connectWebSocket(socketRequest())).rejects.toThrow("protocol changed");
+  expect(closes).toBe(1);
+});
 
 test("sandbox preview open accepts only a current bounded endpoint", async () => {
   let calls = 0;

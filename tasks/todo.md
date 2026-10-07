@@ -3311,3 +3311,15 @@ The initial 77,096-byte prototype could not use the 64 KiB file API. The
 reviewed smaller artifact can use the existing bounded file contract. No
 image or provider change is planned for this fixture. One native diagnostic
 passed in less than three seconds, but reliability is not yet proved.
+
+### Incus authenticated preview runtime — 2026-10-07
+
+- [x] Reproduce the current sandbox WebSocket refusal through the app bridge, and record the exact baseline result.
+- [x] Add a narrow guest duplex preview interface, with fixed binding, owner, port, path, expiry, and allowlisted HMR subprotocol.
+- [x] Route authorized sandbox WebSockets through the guest duplex, with current-binding checks at upgrade and while open, bounded traffic, and prompt close on revocation or stop.
+- [x] Apply the existing preview response-byte quota to sandbox HTTP, without using the host loopback fallback.
+- [ ] Add positive and negative runtime/app tests, an actual Bun consumer test, a browser E2E spec, and focused type/build checks; obtain independent review.
+
+Plan review: keep transport and qualification in their assigned worktrees. The app bridge must never turn a sandbox descriptor into a host URL. Vite HMR requires the allowlisted `vite-hmr` subprotocol. A qualified transport and active release are still required before production enables this path.
+
+Review so far: before the change, the app bridge returned 403 and did not call Bun upgrade for an owned, current sandbox preview. After the change, 45 focused app tests and 30 Bun tests pass, including guest-frame revocation, stale generation, fixture-lease isolation, slow-send flood, and fixed guest HTTP redirect behavior. Biome and Svelte check pass on touched files. Production build and browser E2E proof remain open until transport/startup wiring is integrated.

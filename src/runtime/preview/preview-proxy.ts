@@ -249,6 +249,8 @@ export interface HandlePreviewRequestDeps {
   /** The access-layer requester-only registry lookup: returns the row
    *  only when owned + active + unexpired + unrevoked. */
   getServable: (id: string, userId: string) => Promise<PreviewRegistryRow | undefined>;
+  /** Apply the same rolling byte budget as the local dynamic proxy. */
+  meterSandboxResponse?: (id: string, response: Response) => Response;
   /** Read a resolved static file into a Response body. Injected so the
    *  pure handler can be tested without real I/O. `body` is anything
    *  `new Response(...)` accepts (a stream, a Uint8Array, a string). */
@@ -521,7 +523,8 @@ export async function handlePreviewRequest(
           request: providerRequest,
           expiresAt: row.expiresAt,
         });
-        return sanitizeUpstreamResponse(response);
+        const sanitized = sanitizeUpstreamResponse(response);
+        return deps.meterSandboxResponse?.(previewId, sanitized) ?? sanitized;
       } catch {
         return badGateway();
       }

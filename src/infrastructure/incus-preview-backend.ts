@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
-import type { SandboxPreviewBackend, SandboxPreviewServeRequest } from "../runtime/workspaces/target";
+import type { SandboxPreviewBackend, SandboxPreviewConnectRequest, SandboxPreviewServeRequest,
+  SandboxPreviewSocket } from "../runtime/workspaces/target";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 const MAX_RESPONSE_BYTES = 512 * 1024;
@@ -57,9 +58,13 @@ async function boundedBody(request: Request): Promise<Buffer> {
 
 function pathOf(request: SandboxPreviewServeRequest): string {
   const original = new URL(request.request.url);
-  const path = `${request.requestPath}${original.search}`;
+  return boundedPath(request.requestPath, original.search);
+}
+
+function boundedPath(requestPath: string, search: string): string {
+  const path = `${requestPath}${search}`;
   if (!path.startsWith("/") || path.startsWith("//") || path.length > 2048
-    || [...path].some(character => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127)) {
+    || [...path].some(character => character.charCodeAt(0) < 33 || character.charCodeAt(0) > 126 || character === "#")) {
     throw new Error("Invalid sandbox preview path");
   }
   return path;
@@ -159,7 +164,8 @@ function browserResponse(output: Buffer, method: string): Response {
 /** Bounded HTTP relay over the already approved guest process channel.
  * WebSocket upgrades stay closed until a separately qualified streaming relay exists. */
 export class IncusSandboxPreviewBackend implements SandboxPreviewBackend {
-  constructor(private readonly caller: ProviderSandboxWorkspaceCaller, private readonly now: () => number = Date.now) {}
+  constructor(private readonly caller: ProviderSandboxWorkspaceCaller, private readonly now: () => number = Date.now,
+    private readonly connectDuplex?: (request: SandboxPreviewConnectRequest) => Promise<SandboxPreviewSocket>) {}
 
   async open(request: Parameters<SandboxPreviewBackend["open"]>[0]): Promise<void> {
     positivePort(request.targetPort);
@@ -178,5 +184,25 @@ export class IncusSandboxPreviewBackend implements SandboxPreviewBackend {
     const { processId, bootId } = await startGuest(call, payload, this.now());
     await awaitGuest(call, processId, bootId, request.request.signal);
     return browserResponse(await readGuestOutput(call, request, processId, bootId), request.request.method);
+  }
+
+  async connectWebSocket(request: SandboxPreviewConnectRequest): Promise<SandboxPreviewSocket> {
+    if (!this.connectDuplex || !request.userId || !request.previewId || request.signal.aborted) {
+      throw new Error("Sandbox preview WebSocket is unavailable");
+    }
+    positivePort(request.targetPort);
+    boundedPath(request.requestPath, request.search);
+    if (request.expiresAt.getTime() <= this.now() || request.expiresAt.getTime() > this.now() + 24 * 60 * 60 * 1000) {
+      throw new Error("Invalid sandbox preview expiry");
+    }
+    if (request.subprotocol !== null && request.subprotocol !== "vite-hmr" && request.subprotocol !== "vite-ping") {
+      throw new Error("Invalid sandbox preview WebSocket protocol");
+    }
+    const duplex = await this.connectDuplex(request);
+    if (duplex.protocol !== request.subprotocol) {
+      await duplex.close();
+      throw new Error("Sandbox preview WebSocket protocol changed");
+    }
+    return duplex;
   }
 }

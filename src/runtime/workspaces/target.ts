@@ -91,12 +91,33 @@ export interface SandboxPreviewCloseRequest {
   targetPort: number | null;
 }
 
+export interface SandboxPreviewConnectRequest {
+  binding: Readonly<SandboxWorkspaceBinding>;
+  previewId: string;
+  userId: string;
+  targetPort: number;
+  requestPath: string;
+  search: string;
+  expiresAt: Date;
+  signal: AbortSignal;
+  subprotocol: "vite-hmr" | "vite-ping" | null;
+}
+
+export interface SandboxPreviewSocket {
+  /** The guest-selected protocol; it must match the allowlisted request. */
+  protocol: string | null;
+  send(frame: string | Uint8Array): Promise<void>;
+  messages: AsyncIterable<string | Uint8Array>;
+  close(): Promise<void>;
+}
+
 /** Provider capability for an authenticated preview relay. The provider must
  * keep the registered port and binding pinned for the complete request. */
 export interface SandboxPreviewBackend {
   open(request: SandboxPreviewOpenRequest): Promise<void>;
   serve(request: SandboxPreviewServeRequest): Promise<Response>;
   close(request: SandboxPreviewCloseRequest): Promise<void>;
+  connectWebSocket?(request: SandboxPreviewConnectRequest): Promise<SandboxPreviewSocket>;
 }
 
 export interface SandboxWorkspacePrincipal { userId: string }

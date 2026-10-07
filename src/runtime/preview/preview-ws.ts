@@ -92,6 +92,13 @@ export type WebSocketUpgradeDecision =
       port: number;
     }
   | {
+      accept: true;
+      kind: "sandbox";
+      row: PreviewRegistryRow;
+      userId: string;
+      port: number;
+    }
+  | {
       accept: false;
       /** Opaque rejection reason (logged, not surfaced verbatim). */
       reason: string;
@@ -152,15 +159,18 @@ export async function decideWebSocketUpgrade(
 
   const row = await deps.getServable(previewId, claims.userId);
   if (!row || row.userId !== claims.userId) return { accept: false, reason: "not servable" };
-  if (row.workspaceTarget?.kind === "sandbox") {
-    return { accept: false, reason: "sandbox websocket transport unavailable" };
-  }
   if (row.kind !== "dynamic") return { accept: false, reason: "not dynamic" };
-  if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0) {
+  if (!Number.isInteger(row.targetPort) || (row.targetPort ?? 0) <= 0 || (row.targetPort ?? 0) > 65535) {
     return { accept: false, reason: "no target port" };
   }
 
   const port = row.targetPort as number;
+  if (row.workspaceTarget?.kind === "sandbox") {
+    if (port < 1024 || !(row.expiresAt instanceof Date) || row.expiresAt.getTime() <= Date.now()) {
+      return { accept: false, reason: "sandbox preview expired or invalid" };
+    }
+    return { accept: true, kind: "sandbox", row, userId: claims.userId, port };
+  }
   const search = input.search ?? "";
   return {
     accept: true,

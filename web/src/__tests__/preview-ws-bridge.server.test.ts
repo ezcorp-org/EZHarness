@@ -16,6 +16,9 @@ import { test, expect, describe, vi, beforeEach } from "vitest";
 
 const verifyPreviewToken = vi.fn();
 const getServablePreview = vi.fn();
+const getConversation = vi.fn();
+const getProject = vi.fn();
+const resolveProjectWorkspaceTarget = vi.fn();
 vi.mock("$server/runtime/preview/preview-token", async () => {
   const actual = await vi.importActual<typeof import("$server/runtime/preview/preview-token")>(
     "$server/runtime/preview/preview-token",
@@ -28,6 +31,18 @@ vi.mock("$server/db/queries/preview-sessions", async () => {
   );
   return { ...actual, getServablePreview: (...a: any[]) => (getServablePreview as any)(...a) };
 });
+vi.mock("$server/db/queries/conversations", async () => ({
+  ...await vi.importActual<typeof import("$server/db/queries/conversations")>("$server/db/queries/conversations"),
+  getConversation: (...args: any[]) => getConversation(...args),
+}));
+vi.mock("$server/db/queries/projects", async () => ({
+  ...await vi.importActual<typeof import("$server/db/queries/projects")>("$server/db/queries/projects"),
+  getProject: (...args: any[]) => getProject(...args),
+}));
+vi.mock("$server/runtime/workspaces/project-target", async () => ({
+  ...await vi.importActual<typeof import("$server/runtime/workspaces/project-target")>("$server/runtime/workspaces/project-target"),
+  resolveProjectWorkspaceTarget: (...args: any[]) => resolveProjectWorkspaceTarget(...args),
+}));
 
 const { tryBridgePreviewWebSocket, createPreviewWebSocketHandler, MAX_PREUPSTREAM_QUEUE } =
   await import("$lib/server/preview/ws-bridge");
@@ -35,6 +50,21 @@ const { tryBridgePreviewWebSocket, createPreviewWebSocketHandler, MAX_PREUPSTREA
 const VALID_ID = "abcdefghjkmnpqrstvwxyz0123";
 const APP_HOST = "ezcorp.example.com";
 const ORIGIN = `https://${VALID_ID}.preview.${APP_HOST}`;
+const sandboxBinding = { projectId: "project-1", workspaceId: "sandbox-1", connectionId: "connection-1",
+  providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "a".repeat(64),
+  presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) };
+
+function setupSandbox(connectWebSocket: ReturnType<typeof vi.fn>) {
+  const row = { id: VALID_ID, userId: "u1", conversationId: "conversation-1", kind: "dynamic",
+    targetPort: 5173, expiresAt: new Date(Date.now() + 60_000),
+    workspaceTarget: { kind: "sandbox", binding: sandboxBinding } };
+  getServablePreview.mockResolvedValue(row);
+  getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "project-1" });
+  getProject.mockResolvedValue({ id: "project-1" });
+  resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding: sandboxBinding,
+    backend: { previews: { connectWebSocket } } });
+  return row;
+}
 
 function wsRequest(headers: Record<string, string> = {}): Request {
   return new Request(`https://${VALID_ID}.preview.${APP_HOST}/__vite_hmr`, {
@@ -51,6 +81,9 @@ function wsRequest(headers: Record<string, string> = {}): Request {
 beforeEach(() => {
   verifyPreviewToken.mockReset();
   getServablePreview.mockReset();
+  getConversation.mockReset();
+  getProject.mockReset();
+  resolveProjectWorkspaceTarget.mockReset();
   verifyPreviewToken.mockResolvedValue({ previewId: VALID_ID, userId: "u1" });
   getServablePreview.mockResolvedValue({
     id: VALID_ID, userId: "u1", kind: "dynamic", staticPath: null, targetPort: 5173,
@@ -105,6 +138,87 @@ describe("tryBridgePreviewWebSocket", () => {
       previewId: VALID_ID,
       upstreamUrl: "ws://127.0.0.1:5173/__vite_hmr",
     });
+  });
+
+  test("an owner with a current sandbox binding upgrades through the guest backend", async () => {
+    const connectWebSocket = vi.fn(async () => ({ protocol: "vite-hmr", send: async () => {},
+      messages: (async function* () {})(), close: async () => {} }));
+    setupSandbox(connectWebSocket);
+    let upgradeData: unknown;
+    try {
+      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
+        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
+    } catch (error) {
+      // Node's Response rejects the Bun 101 sentinel after upgrade; the data remains observable.
+      expect(String(error)).toContain("status");
+    }
+    expect(upgradeData).toMatchObject({ __preview: true, previewId: VALID_ID, kind: "sandbox" });
+    expect(upgradeData).not.toHaveProperty("upstreamUrl");
+    expect(connectWebSocket).toHaveBeenCalledWith(expect.objectContaining({
+      previewId: VALID_ID, userId: "u1", targetPort: 5173, subprotocol: "vite-hmr",
+    }));
+  });
+
+  test("sandbox upgrade denies unreviewed subprotocols and a changed generation before guest connect", async () => {
+    const connectWebSocket = vi.fn(async () => ({ protocol: null, send: async () => {},
+      messages: (async function* () {})(), close: async () => {} }));
+    setupSandbox(connectWebSocket);
+    const platform = { server: { upgrade: vi.fn(() => true) }, request: {} };
+    const badProtocol = await tryBridgePreviewWebSocket(
+      wsRequest({ "sec-websocket-protocol": "vite-hmr, attacker" }), VALID_ID, APP_HOST, platform);
+    expect(badProtocol?.status).toBe(403);
+    resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox",
+      binding: { ...sandboxBinding, generation: 2 }, backend: { previews: { connectWebSocket } } });
+    const stale = await tryBridgePreviewWebSocket(wsRequest(), VALID_ID, APP_HOST, platform);
+    expect(stale?.status).toBe(403);
+    expect(connectWebSocket).not.toHaveBeenCalled();
+    expect(platform.server.upgrade).not.toHaveBeenCalled();
+  });
+
+  test("a live sandbox socket sends guest frames and closes when its preview is revoked", async () => {
+    const sentToGuest: Array<string | Uint8Array> = [];
+    let closedGuest = 0;
+    let finishFrames: (() => void) | undefined;
+    const duplex = { protocol: "vite-hmr", send: async (frame: string | Uint8Array) => { sentToGuest.push(frame); },
+      messages: { async *[Symbol.asyncIterator]() { await new Promise<void>(resolve => { finishFrames = resolve; }); } },
+      close: async () => { closedGuest++; finishFrames?.(); } };
+    setupSandbox(vi.fn(async () => duplex));
+    let upgradeData: unknown;
+    try {
+      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
+        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
+    } catch (error) { expect(String(error)).toContain("status"); }
+    expect(upgradeData).toMatchObject({ kind: "sandbox", previewId: VALID_ID });
+    const handler = createPreviewWebSocketHandler(() => { throw new Error("host loopback must not open"); });
+    const client = { data: upgradeData, sent: [] as Array<string | ArrayBufferLike>, closed: 0,
+      send(frame: string | ArrayBufferLike) { this.sent.push(frame); },
+      close() { this.closed++; } };
+    handler.open(client);
+    handler.message(client, "hello guest");
+    await vi.waitFor(() => expect(sentToGuest).toEqual(["hello guest"]));
+    getServablePreview.mockResolvedValue(undefined);
+    handler.message(client, "must not reach guest");
+    await vi.waitFor(() => expect(client.closed).toBe(1));
+    expect(sentToGuest).toEqual(["hello guest"]);
+    expect(closedGuest).toBe(1);
+  });
+
+  test("a slow guest send cannot let browser frames queue without a bound", async () => {
+    let finishFrames: (() => void) | undefined;
+    const duplex = { protocol: "vite-hmr", send: async () => { await new Promise<void>(() => {}); },
+      messages: { async *[Symbol.asyncIterator]() { await new Promise<void>(resolve => { finishFrames = resolve; }); } },
+      close: async () => { finishFrames?.(); } };
+    setupSandbox(vi.fn(async () => duplex));
+    let upgradeData: unknown;
+    try {
+      await tryBridgePreviewWebSocket(wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
+        { server: { upgrade: (_request, options) => { upgradeData = options?.data; return true; } }, request: {} });
+    } catch (error) { expect(String(error)).toContain("status"); }
+    const handler = createPreviewWebSocketHandler(() => { throw new Error("host loopback must not open"); });
+    const client = { data: upgradeData, closed: 0, send: () => {}, close() { this.closed++; } };
+    handler.open(client);
+    for (let i = 0; i <= 1024; i++) handler.message(client, "x");
+    expect(client.closed).toBe(1);
   });
 
   test("upgrade() returning false → 400", async () => {

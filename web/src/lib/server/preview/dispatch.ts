@@ -142,6 +142,12 @@ export async function servePreviewRequest(
       // Per-preview request rate limit (Phase 3b) — the process-wide quota
       // singleton; over-cap → 429.
       checkRate: (id) => getPreviewQuota().allowRequest(id),
+      meterSandboxResponse: (id, response) => {
+        if (!response.body) return response;
+        return new Response(meterResponseBody(response.body, id, getPreviewQuota()), {
+          status: response.status, statusText: response.statusText, headers: response.headers,
+        });
+      },
     },
   );
 }
