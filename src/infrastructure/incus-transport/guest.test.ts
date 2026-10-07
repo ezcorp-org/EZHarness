@@ -1,3 +1,4 @@
+import { loadIncusMemoryStressAsset } from "../incus-memory-stress-asset";
 import { logger } from "../../logger";
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { createHash, X509Certificate } from "node:crypto";
@@ -132,9 +133,10 @@ async function pinnedGuestFixture(execute: (request: Buffer) => Promise<Buffer>,
       for (;;) {
         if (wire.length < 6) return;
         const lengthCode = wire[1]! & 127;
-        const header = lengthCode === 126 ? 4 : 2;
-        if (lengthCode === 127 || wire.length < header + 4) return;
-        const length = lengthCode === 126 ? wire.readUInt16BE(2) : lengthCode;
+        const header = lengthCode === 127 ? 10 : lengthCode === 126 ? 4 : 2;
+        if (wire.length < header + 4) return;
+        const length = lengthCode === 127 ? Number(wire.readBigUInt64BE(2)) : lengthCode === 126 ? wire.readUInt16BE(2) : lengthCode;
+        if (!Number.isSafeInteger(length) || length > 128 * 1024) throw new Error("fixture frame exceeds bounded helper exchange");
         if (wire.length < header + 4 + length) return;
         const opcode = wire[0]! & 15;
         const mask = wire.subarray(header, header + 4);
@@ -146,7 +148,10 @@ async function pinnedGuestFixture(execute: (request: Buffer) => Promise<Buffer>,
           const stderr = channels.get("2");
           if (!stdout || !stderr) throw new Error("Incus output channels are missing");
           void execute(requestBytes!).then(output => {
-            const binaryHeader = output.length < 126 ? Buffer.from([0x82, output.length]) : Buffer.from([0x82, 126, output.length >> 8, output.length & 255]);
+            const binaryHeader = output.length < 126 ? Buffer.from([0x82, output.length])
+              : output.length <= 65535 ? Buffer.from([0x82, 126, output.length >> 8, output.length & 255])
+                : Buffer.alloc(10);
+            if (output.length > 65535) { binaryHeader[0] = 0x82; binaryHeader[1] = 127; binaryHeader.writeBigUInt64BE(BigInt(output.length), 2); }
             stdout.write(Buffer.concat([binaryHeader, output, Buffer.from([0x81, 0x00])]));
             stderr.write(Buffer.from([0x81, 0x00]));
           }, () => { stdout.destroy(); stderr.destroy(); });
@@ -206,11 +211,23 @@ print(json.dumps(h.handle(json.load(sys.stdin),sys.argv[2],sys.argv[3])))`;
     const rpcDeadlineMs = Math.min(Date.now() + 30_000, Number(payload.processDeadlineMs ?? Number.MAX_SAFE_INTEGER));
     const input = { providerId: "incus", connectionId: command.connectionId, sandboxId, rpcDeadlineMs, ...payload };
     const result = await fixture.transport.request({ ...fixture.command, deadlineMs: rpcDeadlineMs,
-      action: `helper.${operation.replace("processes.", "process.")}` as IncusTransportRequest["action"], payload,
-      ...(operation === "processes.start" ? { idempotency: { requestId: "process-proof", key: "process-proof" } } : {}) });
+      action: `helper.${operation.replace("processes.", "process.").replace("files.", "file.")}` as IncusTransportRequest["action"], payload,
+      ...(["processes.start", "files.writeAtomic"].includes(operation) ? { idempotency: { requestId: "process-proof", key: "process-proof" } } : {}) });
     return validateSandboxProviderMethodExchange(operation, input, result).result as Record<string, any>;
   };
   try {
+    const asset = await loadIncusMemoryStressAsset("amd64");
+    const path = `ezh-memory-probe-${"a".repeat(64)}`;
+    const written = await call("files.writeAtomic", { path, expectedRevision: null,
+      dataBase64: Buffer.from(asset.bytes).toString("base64"), byteLength: asset.bytes.length,
+      executable: true, requestId: "native-write", idempotencyKey: "native-write" });
+    expect(written).toMatchObject({ ok: true, path, sizeBytes: asset.bytes.length });
+    const stat = await call("files.stat", { path });
+    expect(stat.file).toMatchObject({ path, kind: "file", sizeBytes: asset.bytes.length, executable: true });
+    const read = await call("files.readRange", { path, revision: stat.file.revision,
+      offsetBytes: 0, lengthBytes: asset.bytes.length });
+    expect(read.eof).toBe(true);
+    expect(Buffer.from(read.dataBase64, "base64")).toEqual(Buffer.from(asset.bytes));
     const processDeadlineMs = Date.now() + 30_000;
     const startClock = spyOn(Date, "now").mockReturnValue(processDeadlineMs - 29_999);
     let started: Record<string, any>;

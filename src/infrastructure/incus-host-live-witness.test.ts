@@ -1,4 +1,5 @@
 import { expect, spyOn, test } from "bun:test";
+import { loadIncusMemoryStressAsset } from "./incus-memory-stress-asset";
 import { generateKeyPairSync } from "node:crypto";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
@@ -438,7 +439,9 @@ test("limit loads recheck the pinned host and neighbor after each guest load", a
   const internal = candidate as unknown as {
     owned: (value: typeof handle) => Promise<unknown>;
     context: () => Promise<unknown>;
+    stageMemoryLoad: () => Promise<string>;
   };
+  internal.stageMemoryLoad = async () => `ezh-memory-probe-${"a".repeat(64)}`;
   internal.owned = async () => ({ scope, selected });
   internal.context = async () => ({ context: {} });
   candidate.observeEnforcement = async () => ({ memoryMaxBytes: preset.limits.memoryBytes,
@@ -449,7 +452,7 @@ test("limit loads recheck the pinned host and neighbor after each guest load", a
       stdout: "ezh-neighbor-ok", stderr: "" };
     const resource = argv[3]!;
     calls.push(`load:${resource}`);
-    const detail = resource === "memory" ? { oomKillDelta: 1, childExit: 137 }
+    const detail = resource === "memory" ? { oomKillDelta: 1, childExit: -9, controlMappedBytes: 217088, controlLockedBytes: 217088, payloadLockedBytes: 0 }
       : resource === "cpu" ? { throttledDelta: 1, elapsedMs: 4000,
         quotaMicros: preset.limits.cpuMillis * 100, periodMicros: 100000,
         cpusetCount: 2, affinityCount: 2, outsideCpuCount: 30,
@@ -731,4 +734,43 @@ test("the once-only start RPC is clamped to the original short process budget", 
   expect(await h.candidate.run(handle, ["true"], 10_000)).toEqual({ exitCode: 0, stdout: "o", stderr: "" });
   expect(h.calls.map(c => c.input.rpcDeadlineMs)).toEqual([1_010_000, 1_010_000, 1_010_000]);
   expect(h.calls[0]!.input.processDeadlineMs).toBe(1_010_000);
+});
+
+
+test("native memory staging uses one executable null-CAS write and verifies bounded binary readback", async () => {
+  const asset = await loadIncusMemoryStressAsset("amd64");
+  for (const failure of ["none", "architecture", "write", "mode", "digest"]) {
+    const candidate = new IncusHostLiveWitness({ db: {} as Database, qualifications: {} as IncusQualificationStore, fixtures: {} as IncusQualificationFixtureService });
+    const calls: Array<{ operation: string; input: Record<string, unknown> }> = [];
+    const internal = candidate as unknown as {
+      owned: () => Promise<unknown>;
+      guest: (fixture: typeof handle, operation: string, input: Record<string, unknown>) => Promise<Record<string, unknown>>;
+      stageMemoryLoad: (fixture: typeof handle) => Promise<string>;
+    };
+    internal.owned = async () => ({ scope, selected: { preset: INCUS_PRESETS[0] } });
+    candidate.observe = async () => ({ observation: { architecture: failure === "architecture" ? "arm64" : "amd64" } }) as never;
+    internal.guest = async (_handle, operation, input) => {
+      calls.push({ operation, input });
+      if (operation === "files.writeAtomic") return { path: input.path, sizeBytes: failure === "write" ? 1 : asset.bytes.length };
+      if (operation === "files.stat") return { file: { path: input.path, kind: "file", revision: "native-r1",
+        executable: failure !== "mode", sizeBytes: asset.bytes.length } };
+      if (operation === "files.readRange") {
+        const bytes = asset.bytes.slice();
+        if (failure === "digest") bytes[bytes.length - 1] ^= 1;
+        return { path: input.path, revision: "native-r1", offsetBytes: 0, byteLength: bytes.length,
+          dataBase64: Buffer.from(bytes).toString("base64"), eof: true };
+      }
+      throw new Error("unexpected staging operation");
+    };
+    if (failure === "none") expect(await internal.stageMemoryLoad(handle)).toMatch(/^ezh-memory-probe-[a-f0-9]{64}$/);
+    else await expect(internal.stageMemoryLoad(handle)).rejects.toThrow();
+    const writes = calls.filter(call => call.operation === "files.writeAtomic");
+    expect(writes).toHaveLength(failure === "architecture" ? 0 : 1);
+    if (writes.length) {
+      expect(writes[0]!.input.expectedRevision).toBeNull();
+      expect(writes[0]!.input.executable).toBe(true);
+      expect(Buffer.from(String(writes[0]!.input.dataBase64), "base64")).toEqual(Buffer.from(asset.bytes));
+      expect(writes[0]!.input.byteLength).toBeLessThanOrEqual(65536);
+    }
+  }
 });

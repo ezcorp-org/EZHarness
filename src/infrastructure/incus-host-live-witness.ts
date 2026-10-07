@@ -14,6 +14,7 @@ import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureSer
 import { incusGuestFailureCauseCode, INCUS_WITNESS_GUEST_OPERATIONS, type HostIncusLiveWitness, type LiveFixtureHandle, type LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
 import { exerciseIncusLimits } from "./incus-live-limit-probe";
+import { loadIncusMemoryStressAsset } from "./incus-memory-stress-asset";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transport/live-readback";
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
@@ -525,7 +526,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     const management = await this.resourceNetwork.managementTarget(context);
     return observeIncusResourceEnforcement(handle, primaryOwned.selected.preset,
       { management, otherSandbox: neighborTarget }, {
-        runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
+      runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
         readRootQuota: async () => ({ sandboxId: handle.sandboxId, bytes: primary.diskBytes! }),
         hostCanConnect: target => this.resourceNetwork!.hostCanConnect(target),
       });
@@ -549,6 +550,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     };
     const facts = await this.observeEnforcement(handle, neighbor);
     return exerciseIncusLimits(handle, primary.selected.preset, facts, {
+      prepareMemoryLoad: fixture => this.stageMemoryLoad(fixture),
       runGuest: (fixture, argv, timeoutMs) => this.run(fixture, argv, timeoutMs),
       neighborHealthy: async () => {
         if (!await healthyInstance(neighbor)) return false;
@@ -584,6 +586,24 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       deny("fixture power change is not verified");
     }
     await this.assertDurableState(handle, scope, state === "running" ? "RUNNING" : "STOPPED");
+  }
+
+  private async stageMemoryLoad(handle: LiveFixtureHandle): Promise<string> {
+    const { scope, selected } = await this.owned(handle, true);
+    const backend = await this.observe(scope, selected.preset);
+    const asset = await loadIncusMemoryStressAsset(backend.observation.architecture);
+    const identity = createHash("sha256").update(JSON.stringify([scope, handle.operationId, handle.sandboxId])).digest("hex");
+    const path = `ezh-memory-probe-${identity}`;
+    const result = await this.guest(handle, "files.writeAtomic", { path, expectedRevision: null,
+      dataBase64: Buffer.from(asset.bytes).toString("base64"), byteLength: asset.bytes.length, executable: true });
+    if (result.path !== path || result.sizeBytes !== asset.bytes.length) deny("memory asset write changed");
+    const stat = await this.guest(handle, "files.stat", { path });
+    const file = stat.file as Record<string, unknown> | undefined;
+    if (file?.path !== path || file.kind !== "file" || file.executable !== true
+      || file.sizeBytes !== asset.bytes.length) deny("memory asset executable readback changed");
+    const bytes = await this.readFile(handle, path);
+    if (createHash("sha256").update(bytes).digest("hex") !== asset.sha256) deny("memory asset digest changed");
+    return path;
   }
 
   async writeFile(handle: LiveFixtureHandle, path: string, bytes: Uint8Array): Promise<void> {

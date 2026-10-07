@@ -1,9 +1,13 @@
 import type { SandboxPreset } from "@ezcorp/extension-contract";
 import type { LiveCommandResult, LiveEnforcementFacts, LiveFixtureHandle, LiveLimitLoadFact } from "./incus-live-cases";
 
+import { INCUS_MEMORY_STRESS_BYTES, INCUS_MEMORY_STRESS_SHA256 } from "./incus-memory-stress-asset";
+
 type Resource = LiveLimitLoadFact["resource"];
 
 export interface IncusLimitProbeDependencies {
+  /** Stages the pinned native leaf through the exact-fixture bounded file transport. */
+  prepareMemoryLoad: (handle: LiveFixtureHandle) => Promise<string>;
   /** Calls the protected, exact-fixture process transport. */
   runGuest: (handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number) => Promise<LiveCommandResult>;
   /** Reads the neighbor through the pinned Incus API and runs a guest canary. */
@@ -21,7 +25,7 @@ function requireLimit(condition: unknown, message: string): asserts condition {
 // The process supervisor gives this script a hard 110-second deadline. Every
 // child has a shorter lifetime; an interrupted parent cannot leave a lasting
 // load. The disk file is unlinked before allocation, even if the guest exits.
-export const LIMIT_PROBE_SCRIPT = `import errno,json,math,os,pathlib,signal,subprocess,sys,time
+export const LIMIT_PROBE_SCRIPT = `import errno,hashlib,json,math,os,pathlib,signal,stat,subprocess,sys,time
 cg=pathlib.Path('/sys/fs/cgroup')
 mode=sys.argv[1]; target=int(sys.argv[2]); limit=int(sys.argv[3])
 def number(name):
@@ -38,11 +42,25 @@ if actual!=limit or target<=actual: raise RuntimeError('observed limit changed')
 contained=False; detail={}
 if mode=='memory':
  before=event('memory.events','oom_kill')
- child='import mmap,pathlib,sys,time\\npathlib.Path("/proc/self/oom_score_adj").write_text("500")\\nwith mmap.mmap(-1,int(sys.argv[1]),flags=mmap.MAP_PRIVATE|mmap.MAP_ANONYMOUS) as region:\\n for offset in range(0,len(region),mmap.PAGESIZE): region[offset]=1\\n time.sleep(1)'
- result=subprocess.run([sys.executable,'-c',child,str(target)],timeout=70,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+ fd=os.open(sys.argv[4],os.O_RDONLY|os.O_NOFOLLOW|os.O_CLOEXEC)
+ try:
+  info=os.fstat(fd)
+  if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.getuid() or info.st_nlink!=1 or info.st_size!=${INCUS_MEMORY_STRESS_BYTES} or not info.st_mode&stat.S_IXUSR: raise RuntimeError('native memory inode changed')
+  data=os.read(fd,${INCUS_MEMORY_STRESS_BYTES}+1)
+  if len(data)!=${INCUS_MEMORY_STRESS_BYTES} or hashlib.sha256(data).hexdigest()!='${INCUS_MEMORY_STRESS_SHA256}': raise RuntimeError('native memory executable changed')
+  result=subprocess.run(['/proc/self/fd/'+str(fd),str(target)],pass_fds=(fd,),timeout=70,stdout=subprocess.PIPE,stderr=subprocess.PIPE)
+ finally: os.close(fd)
+ if len(result.stdout)>4096 or result.stderr: raise RuntimeError('native memory output exceeded proof bounds')
+ frames=[json.loads(line) for line in result.stdout.decode('ascii').splitlines()]
+ if len(frames) not in (2,3): raise RuntimeError('native memory control proof missing')
+ control,mapped=frames[:2]
+ ceiling=1048576
+ if control.get('phase')!='control' or control.get('targetBytes')!=target or control.get('pageBytes')!=os.sysconf('SC_PAGE_SIZE') or not 0<control.get('lockedBytes',0)<=control.get('mappedBytes',0)<=ceiling: raise RuntimeError('native memory control proof changed')
+ if mapped.get('phase')!='mapped' or mapped.get('lockedBytes')!=control['lockedBytes'] or mapped.get('payloadLockedBytes')!=0: raise RuntimeError('native payload lock changed')
+ if len(frames)==3 and (frames[2].get('phase')!='touched' or frames[2].get('lockedBytes')!=control['lockedBytes']): raise RuntimeError('native memory lock changed')
  after=event('memory.events','oom_kill')
- contained=result.returncode!=0 and after>before
- detail={'oomKillDelta':after-before,'childExit':result.returncode}
+ contained=result.returncode==-9 and after>before
+ detail={'oomKillDelta':after-before,'childExit':result.returncode,'controlMappedBytes':control['mappedBytes'],'controlLockedBytes':control['lockedBytes'],'payloadLockedBytes':mapped['payloadLockedBytes']}
 elif mode=='cpu':
  def cpus(text):
   values=set()
@@ -167,7 +185,10 @@ function cpuEvidence(detail: Record<string, unknown>, limit: number, attempted: 
 
 function evidence(resource: Resource, detail: Record<string, unknown>, attempted: number, limit: number): boolean {
   if (resource === "memory") return Number.isSafeInteger(detail.oomKillDelta) && Number(detail.oomKillDelta) > 0
-    && Number.isSafeInteger(detail.childExit) && Number(detail.childExit) !== 0;
+    && detail.childExit === -9 && Number.isSafeInteger(detail.controlMappedBytes)
+    && Number.isSafeInteger(detail.controlLockedBytes) && Number(detail.controlLockedBytes) > 0
+    && Number(detail.controlLockedBytes) <= Number(detail.controlMappedBytes)
+    && Number(detail.controlMappedBytes) <= 1024 * 1024 && detail.payloadLockedBytes === 0;
   if (resource === "cpu") return cpuEvidence(detail, limit, attempted);
   if (resource === "pids") return Number.isSafeInteger(detail.denialEventDelta)
     && Number(detail.denialEventDelta) > 0 && Number.isSafeInteger(detail.spawned)
@@ -211,8 +232,13 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
     "host storage pool has insufficient independent free space for the quota probe");
     let run: LiveCommandResult;
     try {
-      run = await deps.runGuest(handle,
-        ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)], TIMEOUT_MS);
+      const argv = ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)];
+      if (resource === "memory") {
+        const path = await deps.prepareMemoryLoad(handle);
+        requireLimit(/^ezh-memory-probe-[a-f0-9]{64}$/.test(path), "native memory asset path changed");
+        argv.push(path);
+      }
+      run = await deps.runGuest(handle, argv, TIMEOUT_MS);
     } catch (error) { throw new IncusLimitLoadFailure(resource, error); }
     requireLimit(run.exitCode === 0 && run.stderr.length === 0 && run.stdout.length <= 4096,
       `${resource} load did not finish cleanly`);
