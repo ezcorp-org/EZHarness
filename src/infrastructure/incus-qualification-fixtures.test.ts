@@ -48,6 +48,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
   await addFencedCleanupRecoveries(db);
   await addQualificationFixtures(db);
   await addQualificationFixtures(db);
+  await addQualificationRuns(db);
   await db.insert(schema.providerConnections).values({ id: scope.connectionId, revision: 1,
     providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
     endpoint: "https://127.0.0.1", serverCertificatePem: "cert", project: "sandbox",
@@ -473,6 +474,38 @@ test("two service instances replay one fixture after concurrent create", async (
   expect(dispatches).toHaveLength(1);
   expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
 });
+
+test("terminal run fences late and concurrent recovery fixture admission", async () => {
+  const { service, db, dispatches } = await setup();
+  const runId = "terminal-recovery-fence";
+  const primary = await service.create(scope, `qual-primary-${runId}`);
+  await db.execute(sql`INSERT INTO incus_qualification_runs
+    (run_id,fixture_operation_id,scope,binding_id,generation,connection_revision,last_operation_id,
+     nonce,deadline_at,before_observation,before_digest,old_process_identity,state)
+    VALUES (${runId},${`qual-primary-${runId}`},${JSON.stringify(scope)}::jsonb,
+      ${(await service.status(scope, `qual-primary-${runId}`)).binding.id},1,1,${primary.id},
+      ${`${runId}-nonce`},${new Date(Date.now() + 60_000)},'{}'::jsonb,${"a".repeat(64)},
+      '{"pid":1,"startTicks":"1"}'::jsonb,'CLAIMED')`);
+  let release!: () => void;
+  let locked!: () => void;
+  const lockedPromise = new Promise<void>(resolve => { locked = resolve; });
+  const releasePromise = new Promise<void>(resolve => { release = resolve; });
+  const terminal = db.transaction(async tx => {
+    await tx.execute(sql`SELECT run_id FROM incus_qualification_runs WHERE run_id = ${runId} FOR UPDATE`);
+    locked();
+    await releasePromise;
+    await tx.execute(sql`UPDATE incus_qualification_runs SET state = 'FAILED' WHERE run_id = ${runId}`);
+  });
+  await lockedPromise;
+  const admission = service.create(scope, `qual-recovery-${runId}`);
+  release();
+  await terminal;
+  await expect(admission).rejects.toThrow("Terminal Incus qualification recovery fixture is unavailable");
+  await expect(service.create(scope, `qual-recovery-${runId}`))
+    .rejects.toThrow("Terminal Incus qualification recovery fixture is unavailable");
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
+  expect(dispatches).toHaveLength(1);
+}, 30_000);
 
 test("destroy uses the inspected provider generation after guest power changes", async () => {
   const { service, dispatches } = await setup(true, false, 7);

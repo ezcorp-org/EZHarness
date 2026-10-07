@@ -9,7 +9,7 @@ import {
   type SandboxPreset,
 } from "@ezcorp/extension-contract";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projectMembers, projects, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxReservations, type SandboxBinding, type SandboxCleanupRecovery, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projectMembers, projects, sandboxAdmissionRequests, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxProjectQuotas, sandboxReservations, type SandboxBinding, type SandboxCleanupRecovery, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { assertSandboxPresetReady } from "../extensions/v4/sandbox-preset-qualification";
 import { SandboxAdmissionStore, type SandboxResourceVector } from "../sandboxes/admission";
@@ -238,7 +238,8 @@ export class IncusFeatureService {
   /** A fixture destroy is cleared only by the original journaled operation,
    * provider-confirmed absence, and settled admission reservation. */
   /** Host database proof only; no user or provider can supply a terminal attestation. */
-  async assertTerminalRunCleanup(scope: IncusQualificationScope, runId: string, connectionRevision: number): Promise<void> {
+  async assertTerminalRunCleanup(scope: IncusQualificationScope, runId: string, connectionRevision: number,
+    terminalState: "COMPLETED" | "FAILED" = "COMPLETED"): Promise<void> {
     const operationIds = ["primary", "unrelated", "recovery"].map(kind => `qual-${kind}-${runId}`);
     const fixtures: QualificationFixture[] = await this.db.select().from(incusQualificationFixtures).where(and(
       inArray(incusQualificationFixtures.operationId, operationIds),
@@ -247,7 +248,41 @@ export class IncusFeatureService {
       eq(incusQualificationFixtures.connectionId, scope.connectionId),
       eq(incusQualificationFixtures.connectionRevision, connectionRevision),
       eq(incusQualificationFixtures.presetId, scope.presetId)));
-    if (fixtures.length !== 3 || new Set(fixtures.map(fixture => fixture.operationId)).size !== 3) {
+    const saved = new Set(fixtures.map(fixture => fixture.operationId));
+    const earlyFailure = terminalState === "FAILED" && fixtures.length === 2
+      && saved.has(operationIds[0]!) && saved.has(operationIds[1]!);
+    if (earlyFailure) {
+      // Recovery is created only after the preview step. A failed preview can
+      // therefore leave two cleaned fixtures. Prove that the reserved third
+      // identity has no durable project, binding, admission, or provider work.
+      const operationId = operationIds[2]!;
+      const identity = qualificationFixtureIdentity(scope, operationId);
+      const projectId = `incus-qual-project-${identity}`;
+      const bindingId = `incus-qual-binding-${identity}`;
+      const absent = await Promise.all([
+        this.db.select({ id: incusQualificationFixtures.operationId }).from(incusQualificationFixtures)
+          .where(eq(incusQualificationFixtures.operationId, operationId)).limit(1),
+        this.db.select({ id: projects.id }).from(projects).where(eq(projects.id, projectId)).limit(1),
+        this.db.select({ id: sandboxBindings.id }).from(sandboxBindings).where(eq(sandboxBindings.id, bindingId)).limit(1),
+        this.db.select({ id: sandboxOperations.id }).from(sandboxOperations).where(eq(sandboxOperations.bindingId, bindingId)).limit(1),
+        this.db.select({ id: sandboxReservations.bindingId }).from(sandboxReservations).where(eq(sandboxReservations.bindingId, bindingId)).limit(1),
+        this.db.select({ id: sandboxAdmissionRequests.id }).from(sandboxAdmissionRequests)
+          .where(eq(sandboxAdmissionRequests.bindingId, bindingId)).limit(1),
+        this.db.select({ id: sandboxOperations.id }).from(sandboxOperations).where(and(
+          eq(sandboxOperations.idempotencyScope, "incus-qualification"),
+          or(eq(sandboxOperations.idempotencyKey, operationId),
+            sql`left(${sandboxOperations.idempotencyKey}, ${operationId.length + 1}) = ${`${operationId}:`}`))).limit(1),
+        this.db.select({ id: sandboxAdmissionRequests.id }).from(sandboxAdmissionRequests).where(and(
+          eq(sandboxAdmissionRequests.idempotencyScope, "incus-qualification"),
+          or(eq(sandboxAdmissionRequests.idempotencyKey, operationId),
+            sql`left(${sandboxAdmissionRequests.idempotencyKey}, ${operationId.length + 1}) = ${`${operationId}:`}`))).limit(1),
+        this.db.select({ id: sandboxCleanupRecoveries.id }).from(sandboxCleanupRecoveries)
+          .where(eq(sandboxCleanupRecoveries.bindingId, bindingId)).limit(1),
+        this.db.select({ id: sandboxProjectQuotas.projectId }).from(sandboxProjectQuotas)
+          .where(eq(sandboxProjectQuotas.projectId, projectId)).limit(1),
+      ]);
+      if (absent.some(rows => rows.length)) throw new IncusQualificationCleanupError();
+    } else if (fixtures.length !== 3 || saved.size !== 3 || operationIds.some(id => !saved.has(id))) {
       throw new IncusQualificationCleanupError();
     }
     for (const fixture of fixtures) {

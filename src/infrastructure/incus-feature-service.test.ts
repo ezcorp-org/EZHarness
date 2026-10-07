@@ -1,13 +1,15 @@
 import { afterEach, expect, test } from "bun:test";
-import { createHash, generateKeyPairSync, sign, X509Certificate } from "node:crypto";
+import { createHash, generateKeyPairSync, randomUUID, sign, X509Certificate } from "node:crypto";
 import { createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
+import { releaseRows } from "../db/queries/extension-releases";
+import { up as addLiveQualification } from "../db/migrations/add-incus-qualification";
 import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
 import { up as completeQualificationRuns } from "../db/migrations/complete-incus-qualification-runs";
-import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest, restartHandoffSigningBytes } from "./incus-qualification-checkpoint";
+import { IncusQualificationCheckpointStore, currentProcessIdentity, observationDigest, qualificationFixtureIdentity, restartHandoffSigningBytes } from "./incus-qualification-checkpoint";
 import { PGlite } from "@electric-sql/pglite";
 import { eq, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
@@ -43,6 +45,7 @@ async function fixture() {
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
   await addQualificationFixtures(db);
+  await addLiveQualification(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/project" });
   const preset = INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
@@ -531,6 +534,95 @@ async function addQualificationFixture(f: Awaited<ReturnType<typeof fixture>>, f
     pids: preset.limits.pids, diskBytes: preset.limits.diskBytes, executionSlots: 1,
     computeState: "RELEASED", diskState: "RESERVED" });
 }
+
+test("early preview failure releases a failed terminal claim after two exact cleanups", async () => {
+  const f = await fixture();
+  const runId = "early-preview";
+  const scope = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: f.preset.id };
+  await f.configureAdmission();
+  for (const kind of ["primary", "unrelated"]) {
+    const operationId = `qual-${kind}-${runId}`;
+    const bindingId = `${runId}-${kind}`;
+    await addQualificationFixture(f, operationId, bindingId);
+    await f.admission.markCleanupIntent(bindingId, 1, `incus-qualification-destroy-${operationId}`);
+    await f.controller.requestAndDispatch({ bindingId, generation: 1, kind: "DESTROY",
+      idempotencyScope: "incus-qualification", idempotencyKey: `${operationId}:destroy`, payload: { expectedGeneration: 1 } });
+    await f.service.reconcile(100);
+  }
+  await addQualificationRuns(f.db); await completeQualificationRuns(f.db);
+  const keys = generateKeyPairSync("ed25519"); const process = currentProcessIdentity();
+  const before = {} as Parameters<typeof observationDigest>[0];
+  const payload = { version: 1 as const, runId, nonce: "early-preview-nonce", scope,
+    fixtureOperationId: `qual-primary-${runId}`, bindingId: `${runId}-primary`, generation: 1, connectionRevision: 1,
+    deadlineMs: 1, lastOperationId: "saved-stop", oldProcess: { pid: 1, startTicks: "1" },
+    newProcess: process, beforeDigest: observationDigest(before), afterDigest: "a".repeat(64) };
+  const receipt = { payload, signature: sign(null, restartHandoffSigningBytes(payload), keys.privateKey).toString("base64") };
+  await f.db.execute(sql`INSERT INTO incus_qualification_runs
+    (run_id,nonce,scope,fixture_operation_id,binding_id,generation,connection_revision,last_operation_id,
+     deadline_at,before_observation,before_digest,old_process_identity,state,receipt,claimed_at)
+    VALUES (${runId},${payload.nonce},${JSON.stringify(scope)}::jsonb,${payload.fixtureOperationId},
+      ${payload.bindingId},1,1,${payload.lastOperationId},${new Date(1)},${JSON.stringify(before)}::jsonb,
+      ${payload.beforeDigest},${JSON.stringify(payload.oldProcess)}::jsonb,'FAILED',${JSON.stringify(receipt)}::jsonb,NOW())`);
+  const checkpoint = new IncusQualificationCheckpointStore(f.db, keys.publicKey.export({ type: "spki", format: "pem" }).toString());
+  expect(await checkpoint.terminalAttestation()).toMatchObject({ runId, state: "FAILED" });
+  await expect(f.service.assertTerminalRunCleanup(scope, runId, 1, "COMPLETED")).rejects.toThrow();
+  const directory = await mkdtemp(join(tmpdir(), "incus-early-terminal-"));
+  const socket = join(directory, "control.sock");
+  const frames: unknown[] = [];
+  const server = createServer(connection => {
+    let data = "";
+    connection.on("data", chunk => {
+      data += chunk.toString();
+      if (!data.includes("\n")) return;
+      frames.push(JSON.parse(data));
+      connection.end('{"released":true}\n');
+    });
+  });
+  try {
+    await new Promise<void>(resolve => server.listen(socket, resolve));
+    await releaseTerminalIncusQualification(f.db, { EZCORP_INCUS_SUPERVISOR_SOCKET: socket,
+      EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY: keys.publicKey.export({ type: "spki", format: "pem" }).toString() });
+    expect(frames).toEqual([{ version: 1, action: "terminal", ...(await checkpoint.terminalAttestation()) }]);
+    expect(releaseRows<{ state: string }>(await f.db.execute(sql`SELECT state FROM incus_qualification_runs
+      WHERE run_id = ${runId}`))).toEqual([{ state: "FAILED" }]);
+    expect(releaseRows(await f.db.execute(sql`SELECT 1 FROM incus_live_qualifications
+      WHERE installation_id = ${scope.installationId} AND connection_id = ${scope.connectionId}
+        AND preset_id = ${scope.presetId}`))).toEqual([]);
+  } finally {
+    await new Promise<void>(resolve => server.close(() => resolve()));
+    await rm(directory, { recursive: true, force: true });
+  }
+  const recoveryOperationId = `qual-recovery-${runId}`;
+  const identity = qualificationFixtureIdentity(scope, recoveryOperationId);
+  const projectId = `incus-qual-project-${identity}`;
+  await f.db.insert(schema.projects).values({ id: projectId, name: projectId,
+    purpose: "incus-qualification", path: `/__incus_qualification__/${identity}` });
+  await expect(checkpoint.terminalAttestation()).rejects.toThrow("cleanup is unverified");
+  await f.db.delete(schema.projects).where(eq(schema.projects.id, projectId));
+  const [primaryOperation] = await f.db.select().from(schema.sandboxOperations)
+    .where(eq(schema.sandboxOperations.bindingId, `${runId}-primary`)).limit(1);
+  if (!primaryOperation) throw new Error("Expected saved primary operation");
+  const misplacedId = randomUUID();
+  await f.db.insert(schema.sandboxOperations).values({ ...primaryOperation, id: misplacedId,
+    kind: "CREATE", state: "SUCCEEDED", idempotencyKey: recoveryOperationId, providerOperationId: null });
+  await expect(checkpoint.terminalAttestation()).rejects.toThrow("cleanup is unverified");
+  await f.db.delete(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, misplacedId));
+  const misplacedAdmissionId = randomUUID();
+  await f.db.insert(schema.sandboxAdmissionRequests).values({ id: misplacedAdmissionId,
+    bindingId: `${runId}-primary`, generation: 1, kind: "CREATE",
+    idempotencyScope: "incus-qualification", idempotencyKey: `${recoveryOperationId}:create`,
+    payloadHash: "misplaced-recovery", memoryBytes: 1, cpuMillicores: 1, pids: 1, diskBytes: 1,
+    executionSlots: 1, state: "ADMITTED" });
+  await expect(checkpoint.terminalAttestation()).rejects.toThrow("cleanup is unverified");
+  await f.db.delete(schema.sandboxAdmissionRequests).where(eq(schema.sandboxAdmissionRequests.id, misplacedAdmissionId));
+  const bindingId = `incus-qual-binding-${identity}`;
+  await addQualificationFixture(f, recoveryOperationId, bindingId);
+  await f.controller.requestAndDispatch({ bindingId, generation: 1, kind: "CREATE",
+    idempotencyScope: "incus-qualification", idempotencyKey: `${recoveryOperationId}:create`, payload: {} });
+  await f.db.delete(schema.incusQualificationFixtures)
+    .where(eq(schema.incusQualificationFixtures.operationId, recoveryOperationId));
+  await expect(checkpoint.terminalAttestation()).rejects.toThrow("cleanup is unverified");
+}, DB_TEST_TIMEOUT_MS);
 
 async function qualificationFixture() {
   const f = await fixture();

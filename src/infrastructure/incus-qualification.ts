@@ -607,6 +607,16 @@ export class IncusQualificationFixtureService {
     if (!row) {
       try {
         await this.db.transaction(async (tx: DbTransaction) => {
+          if (operationId.startsWith("qual-recovery-")) {
+            // Serialize a new recovery identity against terminal attestation.
+            // Once the run is terminal, an absent recovery fixture must stay absent.
+            const runId = operationId.slice("qual-recovery-".length);
+            const [run] = releaseRows<{ state: string }>(await tx.execute(sql`SELECT state
+              FROM incus_qualification_runs WHERE run_id = ${runId} FOR UPDATE`));
+            if (run && ["COMPLETED", "FAILED"].includes(run.state)) {
+              throw new Error("Terminal Incus qualification recovery fixture is unavailable");
+            }
+          }
           await this.assertCurrentScope({ connectionId: scope.connectionId,
             providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
             releaseDigest: selected.snapshot.release.releaseDigest,

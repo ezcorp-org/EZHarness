@@ -242,9 +242,10 @@ export class IncusQualificationCheckpointStore {
   /** Only the managed app reads its live DB. Never open PGlite in a supervisor verifier. */
   async terminalAttestation(): Promise<IncusTerminalAttestation | null> {
     const process = currentProcessIdentity();
-    const rows = releaseRows<RunRow>(await this.db.execute(sql`SELECT ${runColumns}
+    return this.db.transaction(async (transaction: Database) => {
+    const rows = releaseRows<RunRow>(await transaction.execute(sql`SELECT ${runColumns}
       FROM incus_qualification_runs WHERE state IN ('COMPLETED', 'FAILED') AND receipt IS NOT NULL
-      ORDER BY claimed_at DESC, run_id DESC LIMIT 1`));
+      ORDER BY claimed_at DESC, run_id DESC LIMIT 1 FOR UPDATE`));
     const row = rows[0];
     if (!row) return null;
     if (!this.publicKeyPem || !row.receipt) throw new Error("Incus terminal receipt is unavailable");
@@ -260,9 +261,11 @@ export class IncusQualificationCheckpointStore {
       throw new Error("Incus terminal receipt changed");
     }
     const { IncusFeatureService } = await import("./incus-feature-service");
-    await new IncusFeatureService({ db: this.db, loadQualification: async () => null }).assertTerminalRunCleanup(row.scope, row.runId, row.connectionRevision);
+    await new IncusFeatureService({ db: transaction, loadQualification: async () => null })
+      .assertTerminalRunCleanup(row.scope, row.runId, row.connectionRevision, row.state as "COMPLETED" | "FAILED");
     return { runId: row.runId, nonce: row.nonce, scope: canonicalQualificationScope(row.scope),
       connectionRevision: row.connectionRevision, process, claimedProcess: payload.newProcess, state: row.state as "COMPLETED" | "FAILED" };
+    });
   }
 
   async begin(input: { runId: string; nonce: string; deadlineMs: number;
