@@ -3403,3 +3403,13 @@ Plan review: test expectations must follow the new authenticated sandbox routing
 Plan review: Use the existing bridge handler and upgrade seams. Assert observable socket closure, frame forwarding, authorization checks, and resource release. Do not change production code or coverage rules for a test-only gap.
 
 Review: The canonical Node/Vitest V8 producer reproduced 146/163 covered lines with all 20 old tests passing. Seven new behavior tests pass (27 total); focused LCOV now measures 163/163 lines. The revoke test first proves an active guest frame reached the browser, then proves a later frame is denied. The timer test proves the initial authorization completed before the periodic check revokes it. Test typecheck, focused Biome, and `git diff --check` pass. Independent review found no remaining behavior blocker. No production or gate source changed.
+
+# Preview target coverage gaps — 7 October
+
+- [x] Confirm full-gate misses at registration rejection and database error boundary.
+- [x] Test malformed and duplicate host registrations, lease disposal, and lookup failures with no fallback.
+- [x] Measure both missed target lines and run full type/lint checks.
+- [x] Obtain independent review; commit the reviewed tests.
+
+Plan review: tests only; preserve existing authority policy. Separate Sol work owns WebSocket bridge coverage.
+Review: three new tests plus the existing host preview witness pass (4 tests, 34 assertions). The new coverage hits lines25 and71. Target source is byte-identical to frozen5bc16; combining prior and new line evidence accounts for45/45 lines, but this is diagnostic only and does not replace the final committed-HEAD gate. Full typecheck and Biome pass. Independent Sol review passed with a separate three-test run and canonical two-file host coverage shard. Repaired cleanup fixture coverage independently passed88tests/324assertions and432/432lines. Production source and gates are unchanged.
