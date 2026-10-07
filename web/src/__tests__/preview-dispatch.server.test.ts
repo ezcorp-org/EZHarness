@@ -238,7 +238,7 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
     const serve = vi.fn(async () => new Response("fixture page"));
     const resolve = vi.fn(async () => ({ kind: "sandbox" as const, binding, backend: { previews: { serve } } }));
     const dispose = registerQualificationPreviewTarget({ previewId: VALID_ID, userId: "u1",
-      conversationId: "conversation-1", binding }, resolve as any);
+      conversationId: "conversation-1", targetPort: 5173, binding }, resolve as any);
     const request = new Request(`http://${VALID_ID}.preview.ezcorp.example.com/`, {
       headers: { cookie: "__ezpreview=tok" },
     });
@@ -247,14 +247,28 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe("fixture page");
       expect(resolve).toHaveBeenCalledOnce();
+      resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding, backend: null });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(200);
+      expect(resolve).toHaveBeenCalledTimes(2);
+      resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox",
+        binding: { ...binding, generation: 8 }, backend: null });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledTimes(2);
+      resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "local" });
       getServablePreview.mockResolvedValue({ ...row, workspaceTarget: { kind: "sandbox",
         binding: { ...binding, generation: 8 } } });
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-      expect(resolve).toHaveBeenCalledOnce();
+      expect(resolve).toHaveBeenCalledTimes(2);
+      getServablePreview.mockResolvedValue({ ...row, targetPort: 4173 });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledTimes(2);
+      getServablePreview.mockResolvedValue({ ...row, expiresAt: new Date(0) });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledTimes(2);
     } finally { dispose(); }
     getServablePreview.mockResolvedValue(row);
     expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-    expect(serve).toHaveBeenCalledOnce();
+    expect(serve).toHaveBeenCalledTimes(2);
   });
 
   test("an authorized sandbox preview uses the current project binding and guest backend", async () => {

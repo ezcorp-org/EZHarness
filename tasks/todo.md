@@ -3334,3 +3334,14 @@ Review so far: before the change, the app bridge returned 403 and did not call B
 - [ ] Run focused tests, typecheck, and source review; commit the qualification milestone.
 
 Review: pending.
+### Incus preview qualification traffic client
+
+- [x] Check configuration and a real app readiness route before fixture allocation; pin the approved origin address.
+- [x] Redeem the normal one-time preview code and retain only the host-only preview cookie.
+- [x] Drive bounded HTTP and `vite-hmr` WebSocket traffic through the real preview Host/Origin route with no redirects or proxy.
+- [x] Prove success and denial, redirect, body/frame limits, and socket cleanup against a real local Bun server.
+- [x] Add the required new-source coverage key and focused type/lint/test checks; request independent review after commit.
+
+Plan review: the witness owns preview rows, fixture permit, and scenario results. This client owns only fixed app-origin traffic from host configuration. Its method inputs cannot choose a destination, method, or headers.
+
+Review so far: Bun 1.3.14's node:http shim returned a WebSocket 101 through the ordinary response event, and writing a masked frame to that response socket did not reach the Bun server. The real consumer test failed. The client now uses a bounded raw net/tls handshake for WebSocket and keeps node:http/https for readiness, handoff and HTTP. The same test now passes real `vite-hmr` echo and observed socket close. It also proves wrong Host, malformed Host, wrong Origin, denied cookie, redirect without follow, and oversized HTTP and WebSocket denial. The new source has 100% line coverage in the focused run. Review also found that a matching pre-proof sandbox without `previews` blocked the exact fixture lease; the regression was red at 502 and now passes while a mismatched sandbox remains denied. Full app/browser evidence is owned by the other agents.

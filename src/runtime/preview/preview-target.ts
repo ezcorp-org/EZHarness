@@ -8,6 +8,7 @@ type QualificationPreviewKey = {
   previewId: string;
   userId: string;
   conversationId: string;
+  targetPort: number;
   binding: Readonly<SandboxWorkspaceBinding>;
 };
 type QualificationPreviewEntry = QualificationPreviewKey & {
@@ -19,7 +20,8 @@ const qualificationPreviews = new Map<string, QualificationPreviewEntry>();
  * The caller owns the claim checks and must dispose this lease in finally. */
 export function registerQualificationPreviewTarget(key: QualificationPreviewKey,
   resolve: QualificationPreviewEntry["resolve"]): () => void {
-  if (!key.previewId || !key.userId || !key.conversationId || qualificationPreviews.has(key.previewId)) {
+  if (!key.previewId || !key.userId || !key.conversationId || !Number.isInteger(key.targetPort)
+    || key.targetPort < 1024 || key.targetPort > 65535 || qualificationPreviews.has(key.previewId)) {
     throw new Error("Qualification preview route is unavailable");
   }
   const entry = { ...key, resolve };
@@ -33,6 +35,8 @@ export function registerQualificationPreviewTarget(key: QualificationPreviewKey,
 export async function resolveQualificationPreviewTarget(row: PreviewRegistryRow): Promise<SandboxWorkspaceTarget | undefined> {
   const entry = qualificationPreviews.get(row.id);
   if (!entry || row.userId !== entry.userId || row.conversationId !== entry.conversationId
+    || row.kind !== "dynamic" || row.targetPort !== entry.targetPort
+    || !(row.expiresAt instanceof Date) || row.expiresAt.getTime() <= Date.now()
     || row.workspaceTarget?.kind !== "sandbox"
     || !sameSandboxWorkspaceBinding(row.workspaceTarget.binding, entry.binding)) return undefined;
   const target = await entry.resolve();
@@ -56,7 +60,8 @@ export async function resolveCurrentPreviewSandboxTarget(row: PreviewRegistryRow
     try {
       const current = await resolveProjectWorkspaceTarget(project, "preview access");
       if (current.kind === "sandbox") {
-        return sameSandboxWorkspaceBinding(reference.binding, current.binding) ? current : undefined;
+        if (!sameSandboxWorkspaceBinding(reference.binding, current.binding)) return undefined;
+        return current.backend?.previews ? current : await resolveQualificationPreviewTarget(row);
       }
     } catch { /* An exact fixture lease may supply this one preview. */ }
     return await resolveQualificationPreviewTarget(row);
