@@ -3,7 +3,8 @@
 - [x] Recheck access: server SSH and Incus are available; local TCP sockets work; isolated app and runner are active.
 - [x] Confirm installed app source `6d2572d9f179d14c9912618981be993accdc9219`, manifest `b8efab47997cc92b839586e0792e888c656a1d4ae98be6a94b8ec8ce3545c229`.
 - [x] Recover the reviewed native asset work. Commit `1b8506673` has a new 59,704-byte artifact, SHA-256 `be1051effa23cd55790a7ad070eded71f3702fe22c54fb8f56e0cd97c28c5247`; byte-identical rebuild, five native tests, 129/129 measured C lines and 47 coverage guard tests pass. The prior server diagnostic tested a different prototype.
-- [ ] Complete and independently review native staging through the existing bounded file and helper process contracts. Keep memory targets, deadlines, OOM and health requirements unchanged.
+- [x] Complete and independently review native staging through the existing bounded file and helper process contracts. Memory targets, deadlines, OOM and health requirements remain unchanged. Exact `07a4bd4e5` fast gate passed (27,648 backend tests; no failures).
+- [x] Merge current main `e3309906d` without conflicts and refresh both frozen dependency installs. Hosted CI exposed a test-double incompatibility with main's external hook runner; preserve its failing reproduction and verify the executable-double fix before final gates.
 - [ ] Build and verify the integrated app, preserve current state during its guarded update, and qualify the exact new native artifact on the server.
 - [ ] Complete ten consecutive feature lifecycles with fresh qualification between clean batches, restart, denied access, retention and independent cleanup/accounting proof.
 - [ ] Pass final-source local and hosted gates, update PR #303, and complete independent review. Do not merge or publicly release without authorization.
