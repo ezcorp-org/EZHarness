@@ -6,6 +6,7 @@ import { MAX_PREVIEW_SESSION_MS, metadata, resourceName, withPreviewSession } fr
 import { openPinnedWebSocket, type PinnedWebSocket } from "./pinned-websocket";
 import { encodeMaskedPreviewFrame, MAX_PREVIEW_FRAME_BYTES, readUnmaskedPreviewFrame } from "./preview-websocket-codec";
 import { object, verifiedHttpsRequest, type HostConnectionResolver, type HostConnectionScope, type PinnedFetch } from "./transport";
+import { notePreviewWsDenial } from "../../runtime/preview/preview-ws-diagnostics";
 
 const MAX_TOTAL = 4 * 1024 * 1024;
 const MAX_FRAMES = 1024;
@@ -212,6 +213,7 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
   let framesOut = 0;
   let framesIn = 0;
   let closed = false;
+  let setupStage: "authorize" | "authority" | "revalidate" | "session" | "instance" | "exec" | "channels" | "handshake" = "authorize";
   let settled!: Promise<void>;
   const close = async () => {
     if (!closed) {
@@ -224,20 +226,28 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
   settled = (async () => {
     try {
       const approved = await Promise.race([authorize(request), setupDeadline]);
+      setupStage = "authority";
       assertAuthority(request, approved);
+      setupStage = "revalidate";
       await approved.revalidate();
       const signal = AbortSignal.any([request.signal, approved.scope.signal ?? request.signal, setupController.signal]);
+      setupStage = "session";
       await withPreviewSession(approved.connections, { ...approved.scope, signal }, dependencies.http ?? verifiedHttpsRequest,
         approved.command, async session => {
+          setupStage = "instance";
           const project = encodeURIComponent(session.connection.project);
           const instancePath = `/1.0/instances/${approved.command.sandboxName}`;
           const instance = object(metadata(await session.request("GET", `${instancePath}?project=${project}`)));
           const config = object(instance.config);
+          const providerGeneration = config["user.ezharness.generation"];
           if (instance.name !== approved.command.sandboxName || instance.status !== "Running"
             || config["user.ezharness.managed_by"] !== "ezharness-incus-sandbox"
             || config["user.ezharness.connection_id"] !== request.binding.connectionId
             || config["user.ezharness.sandbox_id"] !== request.binding.workspaceId
-            || config["user.ezharness.generation"] !== String(request.binding.generation)
+            // The broker binding epoch and Incus provider generation have
+            // separate lifecycles. START advances only the provider value.
+            || typeof providerGeneration !== "string" || !/^[1-9][0-9]*$/.test(providerGeneration)
+            || !Number.isSafeInteger(Number(providerGeneration))
             || config["user.ezharness.profile"] !== approved.scope.approvedPreset?.profile
             || config["user.ezharness.preset_id"] !== request.binding.presetId
             || config["volatile.base_image"] !== approved.scope.approvedPreset?.imageFingerprint
@@ -248,6 +258,7 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
           await approved.revalidate();
           const guest = approved.scope.approvedGuest!;
           const lifetimeSeconds = Math.min(900, Math.max(1, Math.ceil((approved.command.deadlineMs - Date.now()) / 1_000)));
+          setupStage = "exec";
           const posted = await session.request("POST", `${instancePath}/exec?project=${project}`, {
             command: ["/usr/bin/python3", "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY],
             user: guest.uid, group: guest.gid, cwd: "/workspace",
@@ -260,6 +271,7 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
           const open = dependencies.websocket ?? openPinnedWebSocket;
           const sockets: PinnedWebSocket[] = [];
           try {
+            setupStage = "channels";
             for (const channel of ["0", "1", "2", "control"]) sockets.push(await open(session, exec.id, exec.fds[channel]!));
             [input, output] = sockets;
             const stderr = sockets[2]!;
@@ -268,6 +280,7 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
             const key = randomBytes(16).toString("base64");
             const protocol = request.subprotocol ?? null;
             const handshake = `GET ${path} HTTP/1.1\r\nHost: 127.0.0.1:${approved.registeredPort}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: ${key}\r\n${protocol ? `Sec-WebSocket-Protocol: ${protocol}\r\n` : ""}\r\n`;
+            setupStage = "handshake";
             await (input!.sendBounded?.(Buffer.from(handshake)) ?? Promise.resolve(input!.send(Buffer.from(handshake))));
             const selected = validateHandshake(await bytes.header(), key, protocol);
             const duplex: GuestPreviewDuplex = {
@@ -344,7 +357,10 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
           }
         });
     } catch (error) {
-      if (!delivered) readyReject(error);
+      if (!delivered) {
+        notePreviewWsDenial(`transport.${setupStage}`);
+        readyReject(error);
+      }
     } finally {
       clearTimeout(setupTimer);
       request.signal.removeEventListener("abort", cancelSetup);

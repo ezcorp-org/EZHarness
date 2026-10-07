@@ -181,6 +181,29 @@ describe("tryBridgePreviewWebSocket", () => {
     expect(close).toHaveBeenCalledOnce();
   });
 
+  test("a guest connection failure keeps the client denial opaque and logs only its fixed stage", async () => {
+    const canary = "private-preview-token-and-challenge";
+    const connectWebSocket = vi.fn(async () => { throw new Error(canary); });
+    setupSandbox(connectWebSocket);
+    const writes: string[] = [];
+    const originalWrite = process.stderr.write;
+    process.stderr.write = ((chunk: string | Uint8Array) => { writes.push(String(chunk)); return true; }) as typeof process.stderr.write;
+    try {
+      const denied = await tryBridgePreviewWebSocket(
+        wsRequest({ "sec-websocket-protocol": "vite-hmr" }), VALID_ID, APP_HOST,
+        { server: { upgrade: () => true }, request: { raw: true } },
+      );
+      expect(denied?.status).toBe(403);
+      expect(await denied?.text()).toBe("Forbidden");
+      expect(connectWebSocket).toHaveBeenCalledOnce();
+    } finally {
+      process.stderr.write = originalWrite;
+    }
+    expect(writes.join("")).toContain('"stage":"connect"');
+    expect(writes.join("")).not.toContain(canary);
+    expect(writes.join("")).not.toContain(VALID_ID);
+  });
+
   test("sandbox upgrade denies unreviewed subprotocols and a changed generation before guest connect", async () => {
     const connectWebSocket = vi.fn(async () => ({ protocol: null, send: async () => {},
       messages: (async function* () {})(), close: async () => {} }));

@@ -8,6 +8,7 @@ import { makeTestCertificates } from "./test-certificates";
 import { connectIncusPreviewDuplex, PREVIEW_GUEST_RELAY, type IncusPreviewAuthorization,
   type IncusPreviewDuplexRequest } from "./preview-duplex";
 import { openPinnedWebSocket, type PinnedWebSocket } from "./pinned-websocket";
+import { PREVIEW_PYTHON } from "../incus-host-live-witness";
 
 const certificates = makeTestCertificates();
 afterAll(() => certificates.dispose());
@@ -65,7 +66,7 @@ function decodeClientFrame(frame: Buffer): { opcode: number; body: Buffer } {
     body: Buffer.from(frame.subarray(offset + 4, offset + 4 + length).map((value, index) => value ^ mask[index % 4]!)) };
 }
 
-function fixture(options: { generation?: string; selectProtocol?: string | null; onRevalidate?: () => void;
+function fixture(options: { generation?: string; sandboxId?: string; selectProtocol?: string | null; onRevalidate?: () => void;
   deadlineOffsetMs?: number; stallHandshake?: boolean; setupTimeoutMs?: number } = {}) {
   const channels = [new Channel(), new Channel(), new Channel(), new Channel()];
   const calls: string[] = [];
@@ -78,7 +79,8 @@ function fixture(options: { generation?: string; selectProtocol?: string | null;
       lastExec = JSON.parse(String(init.body)) as Record<string, unknown>;
       return reply({ id: operationId, resources: { instances: [`/1.0/instances/${name}`] }, metadata: { fds: tokens } }, 202);
     }
-    return reply({ ...instance, config: { ...instance.config, "user.ezharness.generation": options.generation ?? "1" } });
+    return reply({ ...instance, config: { ...instance.config, "user.ezharness.generation": options.generation ?? "1",
+      "user.ezharness.sandbox_id": options.sandboxId ?? binding.workspaceId } });
   };
   const websocket = async (_session: Session, id: string, token: string): Promise<PinnedWebSocket> => {
     expect(id).toBe(operationId);
@@ -145,13 +147,27 @@ test("fixed preview exec carries sanitized HMR duplex frames and closes channels
   expect(f.channels.every(channel => channel.closed)).toBe(true);
 });
 
-test("changed generation denies before exec and wrong subprotocol denies the upgrade", async () => {
-  const changed = fixture({ generation: "2" });
+test("a START changes provider generation without changing the broker preview binding epoch", async () => {
+  const f = fixture({ generation: "2" });
+  const duplex = await f.connect();
+  expect(duplex.protocol).toBe("vite-hmr");
+  expect(f.calls).toEqual([`GET /1.0/instances/${name}`, `POST /1.0/instances/${name}/exec`]);
+  await duplex.close();
+});
+
+test("invalid provider generation denies before exec and wrong subprotocol denies the upgrade", async () => {
+  const changed = fixture({ generation: "0" });
   await expect(changed.connect()).rejects.toThrow("Incus lifecycle request failed");
   expect(changed.calls).toEqual([`GET /1.0/instances/${name}`]);
   const wrong = fixture({ selectProtocol: null });
   await expect(wrong.connect()).rejects.toThrow("Incus lifecycle request failed");
   expect(wrong.channels.every(channel => channel.closed)).toBe(true);
+});
+
+test("a replaced instance owner still denies before guest exec", async () => {
+  const replaced = fixture({ generation: "2", sandboxId: "foreign-sandbox" });
+  await expect(replaced.connect()).rejects.toThrow("Incus lifecycle request failed");
+  expect(replaced.calls).toEqual([`GET /1.0/instances/${name}`]);
 });
 
 test("invalid destination, stale authority, oversize frame, and revoke fail closed", async () => {
@@ -193,6 +209,59 @@ test("fixed Python relay reaches only selected guest loopback port", async () =>
     server.close();
   }
 });
+
+test("production preview proof server completes the Incus duplex handshake and challenge", async () => {
+  const reservation = createServer();
+  await new Promise<void>(resolve => reservation.listen(0, "127.0.0.1", resolve));
+  const address = reservation.address();
+  if (!address || typeof address === "string") throw new Error("Missing test port");
+  await new Promise<void>(resolve => reservation.close(() => resolve()));
+  const port = address.port;
+  const challenge = "local-preview-proof";
+  const server = Bun.spawn([hostPython3(), "-u", "-c", PREVIEW_PYTHON.replace(`,4173),Handler)`, `,${port}),Handler)`) ], {
+    env: { ...process.env, EZH_QUAL_CHALLENGE: challenge }, stdout: "pipe", stderr: "pipe",
+  });
+  const relay = Bun.spawn([hostPython3(), "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
+    env: { ...process.env, EZH_PREVIEW_PORT: String(port), EZH_PREVIEW_LIFETIME_SECONDS: "15" },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  });
+  try {
+    let ready = false;
+    for (let attempt = 0; attempt < 30; attempt++) {
+      ready = await fetch(`http://127.0.0.1:${port}/proof`).then(reply => reply.status === 200).catch(() => false);
+      if (ready) break;
+      await Bun.sleep(50);
+    }
+    expect(ready).toBe(true);
+    const f = fixture();
+    f.authority.registeredPort = port;
+    f.channels[0]!.onSend = bytes => { relay.stdin.write(bytes); };
+    const pump = (async () => {
+      const reader = relay.stdout.getReader();
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          f.channels[1]!.push(Buffer.from(value));
+        }
+      } finally {
+        reader.releaseLock();
+        f.channels[1]!.push(null);
+      }
+    })();
+    const duplex = await f.connect({ ...request(), targetPort: port, requestPath: "/proof", search: "" });
+    expect(duplex.protocol).toBe("vite-hmr");
+    await duplex.send(challenge);
+    expect((await duplex.messages[Symbol.asyncIterator]().next()).value).toBe(challenge);
+    await duplex.close();
+    relay.stdin.end();
+    await pump;
+  } finally {
+    relay.kill();
+    server.kill();
+    await Promise.all([relay.exited, server.exited]);
+  }
+}, 20_000);
 
 test("global connection cap and abort release every exec channel", async () => {
   const fixtures = Array.from({ length: 9 }, () => fixture());

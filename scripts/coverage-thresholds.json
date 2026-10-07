@@ -72,6 +72,7 @@
   "src/infrastructure/provider-rpc-broker.ts": 100,
   "src/runtime/workspaces/project-command-runner.ts": 100,
   "src/runtime/preview/preview-target.ts": 100,
+  "src/runtime/preview/preview-ws-diagnostics.ts": 100,
   "src/runtime/workspaces/project-target.ts": 100,
   "src/runtime/workspaces/provider-backend.ts": 100,
   "src/sandboxes/admission.ts": 100,

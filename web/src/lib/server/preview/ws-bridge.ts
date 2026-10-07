@@ -32,6 +32,7 @@ import { getServablePreview, isValidPreviewId } from "$server/db/queries/preview
 import { resolveCurrentPreviewSandboxTarget } from "$server/runtime/preview/preview-target";
 import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
 import { sameSandboxWorkspaceBinding, type SandboxPreviewSocket, type SandboxWorkspaceBinding } from "$server/runtime/workspaces/target";
+import { notePreviewWsDenial, type PreviewWsDenialStage } from "$server/runtime/preview/preview-ws-diagnostics";
 
 /** Socket context attached at upgrade time, read by the open handler. */
 interface LocalPreviewWsData {
@@ -132,6 +133,7 @@ export async function tryBridgePreviewWebSocket(
   );
 
   if (!decision.accept) {
+    notePreviewWsDenial("gate");
     // Opaque 403 — same surface as the HTTP 404 (gives nothing away).
     return new Response("Forbidden", {
       status: 403,
@@ -151,27 +153,33 @@ export async function tryBridgePreviewWebSocket(
     if (protocol === undefined || target?.kind !== "sandbox" || !target.backend?.previews?.connectWebSocket
       || decision.row.workspaceTarget?.kind !== "sandbox"
       || !sameSandboxWorkspaceBinding(target.binding, decision.row.workspaceTarget.binding)) {
+      notePreviewWsDenial("target");
       return new Response("Forbidden", { status: 403 });
     }
     const abort = new AbortController();
     let duplex: SandboxPreviewSocket | undefined;
+    let stage: PreviewWsDenialStage = "connect";
     try {
       duplex = await target.backend.previews.connectWebSocket({
         binding: target.binding, previewId, userId: decision.userId, targetPort: decision.port,
         requestPath: url.pathname, search: url.search, expiresAt: decision.row.expiresAt!,
         signal: abort.signal, subprotocol: protocol,
       });
+      stage = "protocol";
       if (duplex.protocol !== protocol) throw new Error("Sandbox preview protocol changed");
       const data: SandboxPreviewWsData = {
         __preview: true, kind: "sandbox", previewId, userId: decision.userId, cookieToken: cookieToken!, binding: target.binding,
         port: decision.port, expiresAt: decision.row.expiresAt!.getTime(), duplex, abort,
       };
+      stage = "recheck";
       if (!await currentSandboxPreview(data)) throw new Error("Sandbox preview changed before upgrade");
       const headers = protocol ? { "Sec-WebSocket-Protocol": protocol } : undefined;
+      stage = "upgrade";
       if (!platform.server.upgrade(platform.request, { data, ...(headers ? { headers } : {}) })) {
         throw new Error("Sandbox preview upgrade failed");
       }
     } catch {
+      notePreviewWsDenial(stage);
       abort.abort();
       await duplex?.close().catch(() => undefined);
       return new Response("Forbidden", { status: 403 });
