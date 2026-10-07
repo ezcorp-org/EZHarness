@@ -726,3 +726,7 @@
 - Before adding a scoped worktree plan, check whether `tasks/todo.md` is tracked and append to it. An `Add File` patch can replace an existing plan and erase prior task history.
 - A revocation test must first prove the stream was allowed and active. Otherwise a denial during initial authorization can make a later-frame recheck test pass without exercising that recheck.
 - A test mock with a zero-argument callback has `mock.calls` tuples of length zero, even if production invokes it with a request. Type the callback with the real request contract and run the web Svelte check; backend test typecheck alone can miss this web test error.
+
+- Each new test must create its own required durable state. Run every added
+  test alone with its name filter before claiming independence; a full-file
+  pass can hide a dependency on an earlier test's saved receipt.

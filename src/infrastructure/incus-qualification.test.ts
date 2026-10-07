@@ -174,6 +174,46 @@ describe("host Incus qualification store", () => {
     expect(await store.load(scope)).not.toBeNull();
   });
 
+  test("changed artifact observations cannot replace persisted qualification", async () => {
+    const before = await store.recordVerified(scope);
+    expect(await store.load(scope)).toEqual(before);
+    for (const change of [
+      { observedProfile: "other" }, { observedImageDigest: "0".repeat(64) },
+      { observedHelperDigest: "0".repeat(64) },
+      { observation: { ...observation, backendApi: "unsupported" } },
+      { observation: { ...observation, backendVersion: "different" } },
+    ]) {
+      await expect(store.recordVerified(scope, { ...cases(), ...change }))
+        .rejects.toThrow("Live Incus artifact observation changed");
+      expect(await store.load(scope)).toEqual(before);
+    }
+  });
+
+  test("a connection revision changed during live cases is refused before persistence", async () => {
+    const before = await store.recordVerified(scope);
+    expect(await store.load(scope)).toEqual(before);
+    const changing = new IncusQualificationStore({ db,
+      activeRelease: async () => snapshot,
+      connectionRevision: async () => revision,
+      imageReceipt: async () => imageReceipt(),
+      resolveConnection: async () => connection(),
+      probe: async () => probeResult(),
+      runLiveCases: async () => {
+        const evidence = cases();
+        revision += 1;
+        return evidence;
+      },
+      now: () => now,
+    });
+    const originalRevision = revision;
+    try {
+      await expect(changing.recordVerified(scope)).rejects.toThrow("Incus qualification changed during live cases");
+    } finally {
+      revision = originalRevision;
+    }
+    expect(await store.load(scope)).toEqual(before);
+  });
+
   test("the default store has no synthetic live runner", async () => {
     const noRunner = new IncusQualificationStore({ db,
       activeRelease: async () => snapshot,

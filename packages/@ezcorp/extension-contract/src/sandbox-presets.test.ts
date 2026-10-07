@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ExtensionManifestV4, LiveSandboxPresetQualification, SandboxPreset, SandboxPresetQualification } from "./types";
+import type { ExtensionManifestV4, LiveSandboxPreviewProof, LiveSandboxPresetQualification, SandboxPreset, SandboxPresetQualification } from "./types";
 import { composeSandboxPreset as composePreset, linuxSandboxPreset as linuxPreset, liveComposePreviewProof, manifestWithSandboxPresets as manifestWith, SANDBOX_FIXTURE_NOW as NOW, SANDBOX_FIXTURE_RELEASE_DIGEST as RELEASE_DIGEST, SANDBOX_FIXTURE_SETTINGS_DIGEST as EFFECTIVE_SETTINGS_DIGEST, sandboxFixtureManifest as baseManifest } from "./sandbox-presets.fixture";
 import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, LIVE_SANDBOX_QUALIFICATION_CASES, PERSISTENT_WEB_COMPOSE_LIVE_CASES, sandboxPresetDigest, validateCandidateSandboxPresetQualifications, validateLiveSandboxPresetQualification, validateManifest, validateWire } from "./validation";
 
@@ -150,6 +150,41 @@ describe("sandbox preset qualification", () => {
     const linux = linuxPreset();
     const linuxEvidence = await liveQualification(linux);
     expect((await validateLiveSandboxPresetQualification(linux, linuxEvidence, context)).cases).toHaveLength(8);
+  });
+
+  test("rejects mismatched preview identity, endpoint, exchanges, denials, and dispatch", async () => {
+    const preset = composePreset();
+    const context = { providerId: "incus", releaseDigest: RELEASE_DIGEST, connectionId: "connection-1", effectiveSettingsDigest: EFFECTIVE_SETTINGS_DIGEST, now: NOW };
+    const evidence = await liveQualification(preset);
+    const proof = evidence.previewProof!;
+    const fields: Array<[keyof LiveSandboxPreviewProof, unknown]> = [
+      ["connectionId", "other"], ["presetId", "other"], ["releaseDigest", "0".repeat(64)],
+      ["presetDigest", "0".repeat(64)], ["effectiveSettingsDigest", "0".repeat(64)],
+      ["imageDigest", "0".repeat(64)], ["helperDigest", "0".repeat(64)],
+      ["sandboxId", ""], ["operationId", ""], ["endpointId", ""], ["ownerId", ""],
+      ["generation", 0.5], ["generation", 0], ["port", 0.5], ["port", 0], ["port", 65536],
+      ["expiresAt", "not-a-time"], ["expiresAt", "2026-99-99T00:00:00.000Z"],
+      ["challengeSha256", "bad"], ["httpStatus", 500], ["httpBodySha256", "0".repeat(64)],
+      ["webSocketStatus", 500], ["webSocketMessageSha256", "0".repeat(64)],
+      ["webSocketSubprotocol", "other"], ["redirectStatus", 301], ["redirectLocation", "http://other/"],
+    ];
+    const denied = Object.keys(proof.denied).map(key => ({ denied: { ...proof.denied, [key]: 500 } }));
+    const dispatch = [
+      { instanceId: "other" }, { port: proof.port + 1 },
+      { httpRequests: 0.5 }, { httpRequests: 0 },
+      { webSocketConnections: 0.5 }, { webSocketConnections: 0 },
+    ].map(change => ({ dispatch: { ...proof.dispatch, ...change } }));
+    const changes = [...fields.map(([key, value]) => ({ [key]: value })), ...denied, ...dispatch];
+    for (const change of changes) {
+      await expect(validateLiveSandboxPresetQualification(preset,
+        { ...evidence, previewProof: { ...proof, ...change } }, context))
+        .rejects.toMatchObject({ code: "INVALID_QUALIFICATION", message: "Sandbox preview proof is incomplete or mismatched" });
+    }
+    // Expected identity is checked before any proof mismatch.
+    await expect(validateLiveSandboxPresetQualification(preset,
+      { ...evidence, previewProof: { ...proof, connectionId: "other" } }, { ...context, providerId: "" }))
+      .rejects.toMatchObject({ code: "INVALID_QUALIFICATION", message: "Invalid expected live sandbox qualification identity" });
+    expect(await validateLiveSandboxPresetQualification(preset, evidence, context)).toEqual(evidence);
   });
 
   test("keeps qualification evidence out of build evidence", async () => {

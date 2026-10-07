@@ -3489,3 +3489,33 @@ Review: The focused real Bun producer measured 51/51 orchestration lines before 
 Plan review: Keep all branch decisions and fail-closed checks in named helpers. Keep the caller's try/catch/finally boundary and reverse cleanup order. Use actual LCOV from the existing witness tests; no synthetic coverage data.
 
 Review: Real focused SP09 LCOV reproduces old caller CC62 and measures new caller CC29 at 99% line coverage; authorization helper CC21 at 100%, proof helpers CC8/4/4 at 100%. All 51 added executable lines are measured and hit. The existing SP09 registry/permit fixture passes (1 test); real Bun HTTP/WebSocket traffic passes (3); witness guard suite passes (23); default guest caller passes (1). Backend typecheck, focused Biome, and diff whitespace check pass. No live Incus action ran. The focused LCOV is scoped to this witness change; the combined PR quality gate still requires its full merged LCOV.
+
+## Qualification complexity repair Oct 07
+- [x] Reproduce CRAP failures with fresh targeted coverage.
+- [x] Extract ordered contract preview checks and store evidence checks into existing modules.
+- [x] Verify all extracted helpers, existing behavior, typecheck and changed-function CRAP.
+- [x] Commit with normal hooks and report authoritative-contract deployment impact.
+Review: pending. Ownership: validation.ts live qualification and incus-qualification.ts recordVerified only.
+
+Review: baseline fresh targeted coverage reproduced CRAP exit1: validator
+CC56/100%, recordVerified CC33/100%. Report-only final-source scoring shows
+validator CC23, recordVerified CC6; nine helpers CC4–12 and100%coverage.
+Fresh contract suite59pass/646assertions; store12pass/44assertions before
+adding two explicit known-good-row checks. Checkpoint7pass, continuation2pass,
+v4Ready5pass; typecheck and contract build passed. Changed-mode scoring must
+run after commit: it reads committedHEAD, so an uncommitted0-file run is not
+proof. Targeted LCOV is deliberately partial; integration owns whole gates.
+Deployment: these helpers execute in authoritative qualification validation
+and persistence. Unlike the earlier client-only fix, deploy a rebuilt app and
+contract package to run this code. Semantics stay fixed, but installed old
+release bytes remain distinct; this refactor does not qualify a live server
+or establish release/digest equivalence. No live mutation or gate change.
+
+Final proof: normal commit hooks passed. Fresh postcommit package59pass,
+store12pass/46assertions. BASE_REF4de60e515 changed CRAP exit0 measures
+14functions/2files, all100%, maximum23. This is scoped proof, not whole-suite
+coverage. Integration root independently reviews and runs final combined gates.
+
+Review correction: both new storetests failed alone (exit1, missing saved
+receipt). Each now records and reads its own valid receipt before negative
+controls. Verify each namefilter independently and wholefile before amendment.

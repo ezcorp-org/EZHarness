@@ -1,7 +1,7 @@
 import Ajv from "ajv";
 import { RE2JS } from "re2js";
 import schema from "./wire-schema.json";
-import type { ExtensionManifestV4, JsonValue, LiveSandboxPresetQualification, LiveSandboxQualificationContext, SandboxCompatibilityObservation, SandboxEffectiveSettings, SandboxPreset, SandboxPresetLimits, SandboxPresetQualification, SandboxPresetResolution, SandboxProviderCapability, SandboxProtocolContribution, SandboxProviderDeclaration, SandboxProviderDescribeResult, SandboxProviderError, SandboxProtocolMethodGroup, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFile, WorkspaceFiles } from "@ezcorp/extension-contract/types";
+import type { ExtensionManifestV4, JsonValue, LiveSandboxPreviewProof, LiveSandboxPresetQualification, LiveSandboxQualificationContext, SandboxCompatibilityObservation, SandboxEffectiveSettings, SandboxPreset, SandboxPresetLimits, SandboxPresetQualification, SandboxPresetResolution, SandboxProviderCapability, SandboxProtocolContribution, SandboxProviderDeclaration, SandboxProviderDescribeResult, SandboxProviderError, SandboxProtocolMethodGroup, ToolDefinitionV4, ValueSchema, WireData, WorkspaceFile, WorkspaceFiles } from "@ezcorp/extension-contract/types";
 import { parseTcpDestination } from "./network";
 import { assertJson, ContractError, isForbiddenJsonKey, MAX_FRAME_BYTES } from "./json";
 import { validateWorkspaceFiles, validateWorkspacePath } from "./files";
@@ -1463,6 +1463,47 @@ export async function validateCandidateSandboxPresetQualifications(manifestValue
   return validated;
 }
 
+function previewIdentityMismatch(proof: LiveSandboxPreviewProof, preset: SandboxPreset, qualification: LiveSandboxPresetQualification, context: LiveSandboxQualificationContext): boolean {
+  return proof.version !== 1 || proof.connectionId !== context.connectionId
+      || proof.presetId !== preset.id || proof.releaseDigest !== context.releaseDigest
+      || proof.presetDigest !== qualification.presetDigest
+      || proof.effectiveSettingsDigest !== context.effectiveSettingsDigest
+      || proof.imageDigest !== preset.imageDigest || !preset.helperDigests.includes(proof.helperDigest);
+}
+
+function invalidPreviewEndpoint(proof: LiveSandboxPreviewProof): boolean {
+  return !sandboxRequirementPattern.test(proof.sandboxId) || !sandboxRequirementPattern.test(proof.operationId)
+      || !sandboxRequirementPattern.test(proof.endpointId) || !sandboxRequirementPattern.test(proof.ownerId)
+      || !Number.isSafeInteger(proof.generation) || proof.generation < 1
+      || !Number.isSafeInteger(proof.port) || proof.port < 1 || proof.port > 65535
+      || !utcTimestampPattern.test(proof.expiresAt) || !Number.isFinite(Date.parse(proof.expiresAt))
+      || !digestPattern.test(proof.challengeSha256);
+}
+
+function invalidPreviewExchange(proof: LiveSandboxPreviewProof): boolean {
+  return proof.httpStatus !== 200
+      || proof.httpBodySha256 !== proof.challengeSha256 || proof.webSocketStatus !== 101
+      || proof.webSocketMessageSha256 !== proof.challengeSha256 || proof.webSocketSubprotocol !== "vite-hmr"
+      || proof.redirectStatus !== 302 || proof.redirectLocation !== "http://127.0.0.1:1/";
+}
+
+function invalidPreviewDenials(proof: LiveSandboxPreviewProof): boolean {
+  const denied = proof.denied;
+  const authDenied = [denied.missingAuth, denied.wrongOwner, denied.expired,
+    denied.malformed, denied.revoked, denied.wrongHost];
+  const targetDenied = [denied.wrongSandbox, denied.wrongGeneration, denied.wrongPort,
+    denied.stopped];
+  return authDenied.some(status => status !== 404) || targetDenied.some(status => status !== 502)
+      || denied.webSocketWrongOwner !== 403 || denied.webSocketWrongOrigin !== 403;
+}
+
+function invalidPreviewDispatch(proof: LiveSandboxPreviewProof): boolean {
+  return proof.dispatch.backend !== "incus"
+      || proof.dispatch.instanceId !== proof.sandboxId || proof.dispatch.port !== proof.port
+      || !Number.isSafeInteger(proof.dispatch.httpRequests) || proof.dispatch.httpRequests < 1
+      || !Number.isSafeInteger(proof.dispatch.webSocketConnections) || proof.dispatch.webSocketConnections < 1;
+}
+
 /** Validates connection-specific evidence before a preset is Ready for use. */
 export async function validateLiveSandboxPresetQualification(preset: SandboxPreset, qualificationValue: unknown, context: LiveSandboxQualificationContext): Promise<LiveSandboxPresetQualification> {
   const qualification = validateWire("liveSandboxPresetQualification", qualificationValue);
@@ -1474,34 +1515,10 @@ export async function validateLiveSandboxPresetQualification(preset: SandboxPres
   validateQualificationCases(qualification.cases, needsPreview ? PERSISTENT_WEB_COMPOSE_LIVE_CASES : LIVE_SANDBOX_QUALIFICATION_CASES);
   const proof = qualification.previewProof;
   if (needsPreview !== !!proof) throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof does not match the profile");
-  if (proof) {
-    const denied = proof.denied;
-    const authDenied = [denied.missingAuth, denied.wrongOwner, denied.expired,
-      denied.malformed, denied.revoked, denied.wrongHost];
-    const targetDenied = [denied.wrongSandbox, denied.wrongGeneration, denied.wrongPort,
-      denied.stopped];
-    if (proof.version !== 1 || proof.connectionId !== context.connectionId
-      || proof.presetId !== preset.id || proof.releaseDigest !== context.releaseDigest
-      || proof.presetDigest !== qualification.presetDigest
-      || proof.effectiveSettingsDigest !== context.effectiveSettingsDigest
-      || proof.imageDigest !== preset.imageDigest || !preset.helperDigests.includes(proof.helperDigest)
-      || !sandboxRequirementPattern.test(proof.sandboxId) || !sandboxRequirementPattern.test(proof.operationId)
-      || !sandboxRequirementPattern.test(proof.endpointId) || !sandboxRequirementPattern.test(proof.ownerId)
-      || !Number.isSafeInteger(proof.generation) || proof.generation < 1
-      || !Number.isSafeInteger(proof.port) || proof.port < 1 || proof.port > 65535
-      || !utcTimestampPattern.test(proof.expiresAt) || !Number.isFinite(Date.parse(proof.expiresAt))
-      || !digestPattern.test(proof.challengeSha256) || proof.httpStatus !== 200
-      || proof.httpBodySha256 !== proof.challengeSha256 || proof.webSocketStatus !== 101
-      || proof.webSocketMessageSha256 !== proof.challengeSha256 || proof.webSocketSubprotocol !== "vite-hmr"
-      || proof.redirectStatus !== 302 || proof.redirectLocation !== "http://127.0.0.1:1/"
-      || authDenied.some(status => status !== 404) || targetDenied.some(status => status !== 502)
-      || denied.webSocketWrongOwner !== 403 || denied.webSocketWrongOrigin !== 403
-      || proof.dispatch.backend !== "incus"
-      || proof.dispatch.instanceId !== proof.sandboxId || proof.dispatch.port !== proof.port
-      || !Number.isSafeInteger(proof.dispatch.httpRequests) || proof.dispatch.httpRequests < 1
-      || !Number.isSafeInteger(proof.dispatch.webSocketConnections) || proof.dispatch.webSocketConnections < 1) {
-      throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof is incomplete or mismatched");
-    }
+  if (proof && (previewIdentityMismatch(proof, preset, qualification, context)
+    || invalidPreviewEndpoint(proof) || invalidPreviewExchange(proof)
+    || invalidPreviewDenials(proof) || invalidPreviewDispatch(proof))) {
+    throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof is incomplete or mismatched");
   }
   return qualification;
 }

@@ -73,6 +73,15 @@ export interface IncusImageReceipt {
   recipe: IncusSetupRecipe;
 }
 
+interface IncusQualificationSelection {
+  snapshot: ActiveExtensionRelease;
+  connection: ProviderConnectionCredentials;
+  preset: SandboxPreset;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  helperDigest: string;
+}
+
 interface QualificationRow {
   installationId: string;
   releaseId: string;
@@ -153,6 +162,48 @@ function compatible(preset: SandboxPreset, observation: SandboxCompatibilityObse
     && (!required.nestedCompose || observation.nestedCompose);
 }
 
+function assertCompatibleLiveProbe(connection: ProviderConnectionCredentials, preset: SandboxPreset, probe: IncusProbeResult): void {
+  if (probe.serverCertificateSha256 !== certificateDigest(connection.serverCertificatePem)
+    || probe.project !== connection.project || probe.profile !== connection.configuration.profile
+    || probe.backendApi === "unverified" || !probe.backendVersion
+    || !preset.requirements.backendApis.includes(probe.backendApi)
+    || !preset.requirements.architectures.includes(probe.architecture)) {
+    throw new Error("Live Incus backend probe is incompatible");
+  }
+}
+
+function assertQualificationUnchanged(selected: IncusQualificationSelection, afterCases: IncusQualificationSelection): void {
+  if (afterCases.snapshot.release.releaseDigest !== selected.snapshot.release.releaseDigest
+    || afterCases.connection.revision !== selected.connection.revision
+    || afterCases.presetDigest !== selected.presetDigest
+    || afterCases.effectiveSettingsDigest !== selected.effectiveSettingsDigest) {
+    throw new Error("Incus qualification changed during live cases");
+  }
+}
+
+function assertLiveArtifactMatches(selected: IncusQualificationSelection, probe: IncusProbeResult, cases: IncusLiveCaseEvidence): void {
+  if (cases.observedProfile !== selected.preset.profile
+    || cases.observedImageDigest !== selected.preset.imageDigest
+    || cases.observedHelperDigest !== selected.helperDigest
+    || !compatible(selected.preset, cases.observation)
+    || cases.observation.backendApi !== probe.backendApi
+    || cases.observation.backendVersion !== probe.backendVersion
+    || cases.observation.architecture !== probe.architecture) {
+    throw new Error("Live Incus artifact observation changed");
+  }
+}
+
+function assertLivePreviewMatches(scope: IncusQualificationScope, selected: IncusQualificationSelection, preview: LiveSandboxPreviewProof | undefined): void {
+  if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
+    || preview.connectionId !== scope.connectionId || preview.presetId !== scope.presetId
+    || preview.releaseDigest !== selected.snapshot.release.releaseDigest
+    || preview.presetDigest !== selected.presetDigest
+    || preview.effectiveSettingsDigest !== selected.effectiveSettingsDigest
+    || preview.imageDigest !== selected.preset.imageDigest || preview.helperDigest !== selected.helperDigest)) {
+    throw new Error("Live Incus preview proof changed or is unavailable");
+  }
+}
+
 /** Persist only after a real provider preflight and host live-case runner pass.
  * Every load re-resolves the active release and exact connection revision. */
 export class IncusQualificationStore {
@@ -174,10 +225,7 @@ export class IncusQualificationStore {
     this.now = deps.now ?? Date.now;
   }
 
-  private async current(scope: IncusQualificationScope): Promise<{
-    snapshot: ActiveExtensionRelease; connection: ProviderConnectionCredentials;
-    preset: SandboxPreset; presetDigest: string; effectiveSettingsDigest: string; helperDigest: string;
-  }> {
+  private async current(scope: IncusQualificationScope): Promise<IncusQualificationSelection> {
     const snapshot = await this.activeRelease(scope.installationId);
     if (snapshot.installation.id !== scope.installationId || snapshot.release.id !== scope.releaseId
       || snapshot.installation.activeReleaseId !== scope.releaseId) throw new Error("Incus qualification release is unavailable");
@@ -217,39 +265,13 @@ export class IncusQualificationStore {
     const selected = await this.current(scope);
     const probe = await this.probe(scope, selected.connection, selected.preset,
       selected.presetDigest, selected.effectiveSettingsDigest);
-    if (probe.serverCertificateSha256 !== certificateDigest(selected.connection.serverCertificatePem)
-      || probe.project !== selected.connection.project || probe.profile !== selected.connection.configuration.profile
-      || probe.backendApi === "unverified" || !probe.backendVersion
-      || !selected.preset.requirements.backendApis.includes(probe.backendApi)
-      || !selected.preset.requirements.architectures.includes(probe.architecture)) {
-      throw new Error("Live Incus backend probe is incompatible");
-    }
+    assertCompatibleLiveProbe(selected.connection, selected.preset, probe);
     const cases = resumedEvidence ?? await this.deps.runLiveCases!(scope, selected.preset);
     const afterCases = await this.current(scope);
-    if (afterCases.snapshot.release.releaseDigest !== selected.snapshot.release.releaseDigest
-      || afterCases.connection.revision !== selected.connection.revision
-      || afterCases.presetDigest !== selected.presetDigest
-      || afterCases.effectiveSettingsDigest !== selected.effectiveSettingsDigest) {
-      throw new Error("Incus qualification changed during live cases");
-    }
-    if (cases.observedProfile !== selected.preset.profile
-      || cases.observedImageDigest !== selected.preset.imageDigest
-      || cases.observedHelperDigest !== selected.helperDigest
-      || !compatible(selected.preset, cases.observation)
-      || cases.observation.backendApi !== probe.backendApi
-      || cases.observation.backendVersion !== probe.backendVersion
-      || cases.observation.architecture !== probe.architecture) {
-      throw new Error("Live Incus artifact observation changed");
-    }
+    assertQualificationUnchanged(selected, afterCases);
+    assertLiveArtifactMatches(selected, probe, cases);
     const preview = cases.previewProof;
-    if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
-      || preview.connectionId !== scope.connectionId || preview.presetId !== scope.presetId
-      || preview.releaseDigest !== selected.snapshot.release.releaseDigest
-      || preview.presetDigest !== selected.presetDigest
-      || preview.effectiveSettingsDigest !== selected.effectiveSettingsDigest
-      || preview.imageDigest !== selected.preset.imageDigest || preview.helperDigest !== selected.helperDigest)) {
-      throw new Error("Live Incus preview proof changed or is unavailable");
-    }
+    assertLivePreviewMatches(scope, selected, preview);
     const qualification: LiveSandboxPresetQualification = {
       producer: "live-provider", connectionId: scope.connectionId, providerId: "incus",
       presetId: scope.presetId, profile: selected.preset.profile,
