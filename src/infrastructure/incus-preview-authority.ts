@@ -9,7 +9,7 @@ import { resolveQualificationPreviewTarget } from "../runtime/preview/preview-ta
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
 import { IncusQualificationStore } from "./incus-qualification";
 import { guestHelperSha256 } from "./incus-guest/protocol";
-import { resourceName } from "./incus-transport/lifecycle";
+import { MAX_PREVIEW_SESSION_MS, resourceName } from "./incus-transport/lifecycle";
 import type { IncusPreviewAuthorize, IncusPreviewDuplexRequest } from "./incus-transport/preview-duplex";
 
 type PreviewRow = typeof previewSessions.$inferSelect;
@@ -93,7 +93,7 @@ export function createIncusPreviewAuthorizer(deps: IncusPreviewAuthorityDependen
       registeredPort: authority.row.targetPort!,
       command: {
         action: "endpoint.open", connectionId: binding.connectionId,
-        deadlineMs: Math.min(now() + 30_000, captured.expiresAt.getTime()),
+        deadlineMs: Math.min(now() + MAX_PREVIEW_SESSION_MS, captured.expiresAt.getTime()),
         pins: { connectionId: binding.connectionId,
           serverCertificateSha256: createHash("sha256").update(new X509Certificate(connection.serverCertificatePem).raw).digest("hex"),
           project: connection.project, profile: config.profile, helperVersion: config.helperVersion, guestUser: config.guestUser },

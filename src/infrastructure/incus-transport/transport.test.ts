@@ -111,14 +111,14 @@ test("probe uses only fixed GET routes and reports unverified guest controls as 
   expect(result.nestedCompose).toBe(false);
 });
 
-test("reviewed live evidence reads the pinned image and storage and still reports unsupported endpoints", async () => {
+test.each([false, true])("reviewed live evidence reports only the host-proved preview control (%s)", async endpointProxy => {
   const reviewedPins = { ...pins, project: recipe.project.name, profile: recipe.profile.name };
   const reviewedCommand = { ...command, pins: reviewedPins };
   const routes: string[] = [];
   const transport = new HostIncusProbeTransport({ resolveForHost: async () => ({ ...connection,
     project: recipe.project.name }) }, { ...scope, approvedPreflight: {
     recipe: recipe as IncusSetupRecipe, imageFingerprint: recipe.guestImage.fingerprint,
-    helperSha256: recipe.guestImage.helperSha256, nestedCompose: true,
+    helperSha256: recipe.guestImage.helperSha256, nestedCompose: true, endpointProxy,
   } }, async (url) => {
     const parsed = new URL(url);
     routes.push(`${parsed.pathname}${parsed.search}`);
@@ -137,7 +137,7 @@ test("reviewed live evidence reads the pinned image and storage and still report
   expect(result.nestedCompose).toBe(true);
   expect(result.controls).toMatchObject({ restrictedProject: true, unprivileged: true,
     projectLimits: true, privateNetwork: true, explicitGuestUser: true,
-    atomicFileReplace: true, durableProcesses: true, boundedOutput: true, endpointProxy: false });
+    atomicFileReplace: true, durableProcesses: true, boundedOutput: true, endpointProxy });
 });
 
 test("reviewed preflight rejects a drifted Incus profile", async () => {

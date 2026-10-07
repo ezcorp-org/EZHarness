@@ -23,6 +23,12 @@ import { digestObject } from "../extensions/v4/blobs";
 import { sandboxPresetQualificationReleaseDigest } from "../extensions/v4/sandbox-preset-qualification";
 import { ProviderRpcBroker, type ProviderConnectionResolver } from "./provider-rpc-broker";
 import { HostIncusProbeTransport } from "./incus-transport/transport";
+import { PGlite } from "@electric-sql/pglite";
+import { drizzle } from "drizzle-orm/pglite";
+import { up as addIncusOperatorSetups } from "../db/migrations/add-incus-operator-setups";
+import { IncusQualificationStore } from "./incus-qualification";
+import recipeTemplate from "../../scripts/incus/recipe.json";
+import type { PreparedIncusProbe } from "./provider-rpc-broker";
 
 const certificate = readFileSync(new URL("./incus-transport/test-server.pem", import.meta.url), "utf8");
 const fingerprint = createHash("sha256").update(new X509Certificate(certificate).raw).digest("hex");
@@ -100,13 +106,65 @@ async function fixture(options: { fetch?: ProbeFetch } = {}) {
   const input = { providerId: "incus", connectionId: connection.id, profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
     presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64) };
   return {
-    process, input, snapshot, broker, get transportCalls() { return transportCalls; },
+    process, input, snapshot, broker, connections, get transportCalls() { return transportCalls; },
     setDispatch(callback: typeof onDispatch) { onDispatch = callback; },
     revoke() { revoked = true; revision++; },
     changeRelease() { providerReleaseId = "another-release"; },
     changeGeneration() { generation++; },
   };
 }
+
+test("broker grants the preview control only from a current Compose SP09 qualification", async () => {
+  const value = await fixture();
+  const client = new PGlite();
+  const db = drizzle(client);
+  const recipe = { ...recipeTemplate, project: { ...recipeTemplate.project, name: "sandbox" },
+    profile: { ...recipeTemplate.profile, name: "ezharness" } };
+  const load = spyOn(IncusQualificationStore.prototype, "load");
+  const seen: Array<PreparedIncusProbe["approvedPreflight"]> = [];
+  try {
+    await client.exec("CREATE TABLE extension_release_installations (id TEXT PRIMARY KEY); CREATE TABLE provider_connections (id TEXT PRIMARY KEY)");
+    await addIncusOperatorSetups(db);
+    await client.query("INSERT INTO extension_release_installations VALUES ($1)", [value.snapshot.installation.id]);
+    await client.query("INSERT INTO provider_connections VALUES ($1)", [value.input.connectionId]);
+    await client.query(`INSERT INTO incus_operator_setups
+      (id, provider_installation_id, provider_release_id, provider_release_digest, provider_generation,
+       connection_id, connection_revision, planned_by, recipe, plan, state)
+      VALUES ('setup',$1,$2,$3,1,$4,1,'operator',$5,'{}','verified')`,
+    [value.snapshot.installation.id, value.snapshot.release.id, value.snapshot.release.releaseDigest,
+      value.input.connectionId, JSON.stringify(recipe)]);
+    const broker = new ProviderRpcBroker(value.connections, (scope, signal) => {
+      seen.push(scope.approvedPreflight);
+      return new HostIncusProbeTransport(value.connections, { providerInstallationId: scope.installationId,
+        providerReleaseId: scope.releaseId, revision: scope.revision, approvedPreflight: scope.approvedPreflight, signal },
+      async url => {
+        const path = new URL(url).pathname;
+        const metadata = path === "/1.0" ? { api_version: "1.0", environment: { kernel_architecture: "x86_64", server_version: "6.0.6" } }
+          : path.startsWith("/1.0/projects/") ? { name: "sandbox", config: recipe.project.config }
+          : path.startsWith("/1.0/profiles/") ? { name: "ezharness", config: recipe.profile.config, devices: recipe.profile.devices }
+          : path.startsWith("/1.0/storage-pools/") ? { name: recipe.storage.name, driver: recipe.storage.driver }
+          : { fingerprint: recipe.guestImage.fingerprint, type: "container", aliases: [{ name: recipe.guestImage.alias }] };
+        return Response.json({ type: "sync", status_code: 200, metadata });
+      });
+    }, db);
+    const prepared = await broker.prepare(value.snapshot, value.input.connectionId);
+    const command = { action: "probe", connectionId: value.input.connectionId,
+      deadlineMs: Date.now() + 30_000, pins: prepared.config,
+      tags: { managedBy: "ezharness-incus-sandbox", connectionId: value.input.connectionId },
+      payload: { ...value.input, profile: "persistent-web-compose.v1", presetId: "incus-compose-v1" } };
+    for (const hasPreview of [false, true]) {
+      load.mockResolvedValue({ ...value.input, profile: "persistent-web-compose.v1",
+        cases: hasPreview ? [{ caseId: "SP09", status: "passed" }] : [] } as never);
+      const response = await broker.request(prepared, { command }, Date.now() + 30_000);
+      expect(response).toMatchObject({ ok: true, result: { controls: { endpointProxy: hasPreview } } });
+      expect(seen.at(-1)?.endpointProxy).toBe(hasPreview);
+    }
+    load.mockResolvedValue(null);
+    const unqualified = await broker.request(prepared, { command }, Date.now() + 30_000);
+    expect(unqualified).toMatchObject({ ok: true, result: { controls: { endpointProxy: false } } });
+    expect(seen.at(-1)).toBeUndefined();
+  } finally { load.mockRestore(); value.process.kill(); await client.close(); }
+}, 30_000);
 
 test("host-owned Incus preflight reaches reserved RPC and fails closed after a bounded real probe", async () => {
   const value = await fixture();
@@ -168,7 +226,7 @@ test("active Incus provider cannot resolve or expose undeclared credentials thro
   }
 });
 
-test("preview endpoint commands stay closed before a scoped host relay exists", async () => {
+test("provider endpoint RPC stays unavailable independently of host preview routing", async () => {
   const value = await fixture();
   try {
     const scope = {

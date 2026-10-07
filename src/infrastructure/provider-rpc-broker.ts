@@ -11,7 +11,7 @@ import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
 import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
-import { HostIncusProbeTransport, type HostConnectionResolver } from "./incus-transport/transport";
+import { HostIncusProbeTransport, type HostConnectionResolver, type HostConnectionScope } from "./incus-transport/transport";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import { HostIncusLifecycleTransport, incusLifecycleOperationId, type PostEffectDestroyReplyFault } from "./incus-transport/lifecycle";
 import { HostIncusGuestTransport } from "./incus-transport/guest";
@@ -63,8 +63,7 @@ export interface PreparedIncusProbe {
   readonly connectionId: string;
   readonly revision: number;
   readonly config: IncusConnectionConfig;
-  readonly approvedPreflight?: { recipe: IncusSetupRecipe; imageFingerprint: string;
-    helperSha256: string; nestedCompose: boolean };
+  readonly approvedPreflight?: HostConnectionScope["approvedPreflight"];
 }
 
 export interface PreparedIncusAction extends PreparedIncusProbe {
@@ -357,7 +356,10 @@ export class ProviderRpcBroker {
       || typeof image.helperSha256 !== "string" || !/^[a-f0-9]{64}$/.test(image.helperSha256)) return undefined;
     return { recipe: setup.recipe, imageFingerprint: image.fingerprint,
       helperSha256: image.helperSha256,
-      nestedCompose: qualification.profile === "persistent-web-compose.v1" };
+      nestedCompose: qualification.profile === "persistent-web-compose.v1",
+      // load() requires the real HTTP/WS preview proof for this profile.
+      endpointProxy: qualification.profile === "persistent-web-compose.v1"
+        && qualification.cases.some(item => item.caseId === "SP09" && item.status === "passed") };
   }
 
   /** Bind one host-journaled operation to its exact approved release and preset. */

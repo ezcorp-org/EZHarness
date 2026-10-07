@@ -41,7 +41,7 @@ export interface HostConnectionScope {
   approvedGuest?: { user: string; uid: number; gid: number; helperSha256: string };
   /** Host-owned, persisted setup and real guest qualification. Never supplied by a provider worker. */
   approvedPreflight?: { recipe: IncusSetupRecipe; imageFingerprint: string; helperSha256: string;
-    nestedCompose: boolean };
+    nestedCompose: boolean; endpointProxy?: boolean };
 }
 
 export interface ResolvedIncusConnection {
@@ -553,7 +553,7 @@ export class HostIncusProbeTransport implements IncusTransport {
           atomicFileReplace: reviewedGuest,
           durableProcesses: reviewedGuest,
           boundedOutput: reviewedGuest,
-          endpointProxy: false,
+          endpointProxy: reviewedGuest && approved!.endpointProxy === true,
         },
       };
     } catch (error) {

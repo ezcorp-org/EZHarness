@@ -62,6 +62,7 @@ test("preview authority binds transport to the registered guest and keeps creden
   expect(authorized.command).toMatchObject({ action: "endpoint.open", connectionId: "connection",
     tags: { sandboxId: "sandbox", managedBy: "ezharness-incus-sandbox" }, payload: {} });
   expect(authorized.scope).toMatchObject({ revision: 2, approvedGuest: { uid: 1000, gid: 1000, user: "sandbox" } });
+  expect(authorized.command.deadlineMs).toBe(f.row.expiresAt.getTime());
   expect(JSON.stringify(authorized.command)).not.toContain("host-private-key");
   expect(await authorized.connections.resolveForHost({ connectionId: "connection",
     providerInstallationId: f.current.providerInstallationId, providerReleaseId: f.current.providerReleaseId,
