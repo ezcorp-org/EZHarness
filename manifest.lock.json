@@ -334,8 +334,8 @@
       "directory": "extensions/incus-sandbox",
       "entrypoint": "extension.ts",
       "files": 12,
-      "bytes": 69989,
-      "sourceDigest": "20869a62c6ed616ec6a295f139a2d42ecc4e13ac92d05abbf82a42ecc1b9a6d5"
+      "bytes": 70727,
+      "sourceDigest": "df536b05bfd4e2280db6324299d861d7a7448100a40477e6fdc9a621bdd489e2"
     },
     "infisical-secrets": {
       "directory": "extensions/infisical-secrets",
