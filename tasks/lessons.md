@@ -723,3 +723,5 @@
 - To test a permit's binding or port check, change the same leased preview row and restore it in `finally`. A different preview ID proves only that an unregistered row is denied.
 
 - When adding durable owner checks, trace every effect after a process restart. In this qualification flow, the third recovery CREATE happens after restart; recover the original owner from the exact saved primary fixture and test the real resumed service call.
+- Before adding a scoped worktree plan, check whether `tasks/todo.md` is tracked and append to it. An `Add File` patch can replace an existing plan and erase prior task history.
+- A revocation test must first prove the stream was allowed and active. Otherwise a denial during initial authorization can make a later-frame recheck test pass without exercising that recheck.

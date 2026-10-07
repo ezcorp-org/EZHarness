@@ -3391,3 +3391,15 @@ Review: Pinned Bun 1.3.14 reproduced the missing-owner recovery denial, then pas
 Review: routing/WebSocket 35 tests / 97 assertions; entrypoint/manifest 7 / 102; fenced cleanup 88 / 324; lifecycle 45 / 658. All pass. Full typecheck and Biome pass. Complete independent Sol review approved the stable diff, with independent routing/WebSocket, lock, and diff checks. Production code is unchanged. The frozen full gate still has four old test failures and must not be called green.
 
 Plan review: test expectations must follow the new authenticated sandbox routing contract. Do not change production routing or the active full-gate checkout.
+
+# WebSocket bridge coverage — 7 October 2026
+
+- [x] Install pinned root and web dependencies in this isolated worktree.
+- [x] Reproduce the reported uncovered paths with the canonical Node/Vitest producer.
+- [x] Add behavior tests for sandbox upgrade failure, socket cap, guest frames/errors, send failure, malformed socket data, and client close.
+- [x] Run focused Node/Vitest coverage to 100%, web test typecheck and lint.
+- [x] Commit test-only changes and record exact source, commands, and review results.
+
+Plan review: Use the existing bridge handler and upgrade seams. Assert observable socket closure, frame forwarding, authorization checks, and resource release. Do not change production code or coverage rules for a test-only gap.
+
+Review: The canonical Node/Vitest V8 producer reproduced 146/163 covered lines with all 20 old tests passing. Seven new behavior tests pass (27 total); focused LCOV now measures 163/163 lines. The revoke test first proves an active guest frame reached the browser, then proves a later frame is denied. The timer test proves the initial authorization completed before the periodic check revokes it. Test typecheck, focused Biome, and `git diff --check` pass. Independent review found no remaining behavior blocker. No production or gate source changed.
