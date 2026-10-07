@@ -3,8 +3,10 @@ import { createHash } from "node:crypto";
 import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createServer } from "node:net";
 import { decodeGuestResponse, encodeGuestRequest, GUEST_HELPER_SHA256, GUEST_HELPER_VERSION, GuestProtocolError } from "./protocol";
 import { validateSandboxProviderMethodValue } from "@ezcorp/extension-contract";
+import { PREVIEW_PYTHON, waitForPreviewGuestLoopback } from "../incus-host-live-witness";
 
 const helper = new URL("./helper.py", import.meta.url).pathname;
 let fixture = "";
@@ -282,6 +284,55 @@ test("supervised subprocess has durable identity and bounded binary output", asy
   expect(Buffer.from(oneByte.chunks[0].dataBase64, "base64").length).toBe(1);
   expect(oneByte.nextCursor.offsetBytes).toBe(1);
   expect((await invoke("process.inspect", { processId: started.processId, bootId: "wrong" })).error.kind).toBe("not_found");
+}, 20000);
+
+test("the real guest helper starts the preview service before bounded readiness accepts it", async () => {
+  const reserved = createServer();
+  await new Promise<void>(resolve => reserved.listen(0, "127.0.0.1", resolve));
+  const address = reserved.address();
+  if (!address || typeof address === "string") throw new Error("missing local test port");
+  const port = address.port;
+  await new Promise<void>(resolve => reserved.close(() => resolve()));
+  const gate = `preview-go-${crypto.randomUUID()}`;
+  const script = `import os,time\nwhile not os.path.exists("${gate}"): time.sleep(.01)\n${PREVIEW_PYTHON.replace("4173", String(port))}`;
+  const service = await invoke("process.start", { argv: ["python3", "-u", "-c", script], cwd: ".",
+    env: [{ name: "EZH_QUAL_CHALLENGE", value: "guest-proof" }], processDeadlineMs: Date.now() + 20_000 });
+  expect(service.ok).toBe(true);
+  let released = false;
+  let probes = 0;
+  try {
+    const ready = await waitForPreviewGuestLoopback(async () => {
+      probes++;
+      const attempt = await invoke("process.start", { argv: ["python3", "-c",
+        `import socket; s=socket.create_connection(('127.0.0.1',${port}),1); s.close()`],
+      cwd: ".", env: [], processDeadlineMs: Date.now() + 3000 });
+      expect(attempt.ok).toBe(true);
+      return (await waitForProcess(attempt.processId)).exitCode === 0;
+    }, async ms => {
+      expect(ms).toBe(100);
+      if (!released) {
+        released = true;
+        await writeFile(join(workspace, gate), "go");
+        for (let check = 0; check < 100; check++) {
+          const response = await fetch(`http://127.0.0.1:${port}/proof`,
+            { signal: AbortSignal.timeout(1000) }).catch(() => null);
+          if (response?.ok) {
+            expect(await response.text()).toBe("guest-proof");
+            break;
+          }
+          if (check === 99) throw new Error("guest preview service did not bind");
+          await Bun.sleep(20);
+        }
+      }
+    });
+    expect(ready).toBe(true);
+    expect(probes).toBe(2);
+    expect(released).toBe(true);
+    expect((await invoke("process.inspect", { processId: service.processId, bootId })).process.state).toBe("running");
+  } finally {
+    await invoke("process.cancel", { processId: service.processId, bootId });
+    expect((await waitForProcess(service.processId)).state).toBe("cancelled");
+  }
 }, 20000);
 
 test("lost process.start reply replays one durable process handle", async () => {

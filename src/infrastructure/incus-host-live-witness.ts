@@ -44,7 +44,7 @@ const CONTROL_DENIALS = ["unsupported", "missingControl", "drift", "unqualified"
 type ControlDenial = (typeof CONTROL_DENIALS)[number];
 const guestOperations = new Set<SandboxProtocolOperation>(INCUS_WITNESS_GUEST_OPERATIONS);
 const PREVIEW_PORT = 4173;
-const PREVIEW_PYTHON = `import base64,hashlib,http.server,os,socketserver
+export const PREVIEW_PYTHON = `import base64,hashlib,http.server,os,socketserver
 class Handler(http.server.BaseHTTPRequestHandler):
  def log_message(self,*args): pass
  def do_GET(self):
@@ -67,7 +67,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
   else:
    self.send_response(200); self.send_header("Content-Length",str(len(payload))); self.end_headers(); self.wfile.write(payload)
 class Server(socketserver.ThreadingMixIn,http.server.HTTPServer): daemon_threads=True
-Server(("127.0.0.1",4173),Handler).serve_forever()`;
+Server(("127.0.0.1",${PREVIEW_PORT}),Handler).serve_forever()`;
+
+export async function waitForPreviewGuestLoopback(probe: () => Promise<boolean>,
+  pause: (ms: number) => Promise<void> = Bun.sleep): Promise<boolean> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    if (await probe().catch(() => false)) return true;
+    if (attempt < 7) await pause(100);
+  }
+  return false;
+}
 
 /** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
 export async function incusHostLiveWitnessReady(deps: {
@@ -422,14 +431,11 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       if (typeof started.processId !== "string" || typeof started.bootId !== "string") {
         deny("preview guest service did not start");
       }
-      let listening = false;
-      for (let attempt = 0; attempt < 8 && !listening; attempt++) {
-        try {
-          const probe = await this.run(handle, ["python3", "-c",
-            "import socket; s=socket.create_connection(('127.0.0.1',4173),1); s.close()"], 3000);
-          listening = probe.exitCode === 0;
-        } catch { await Bun.sleep(100); }
-      }
+      const listening = await waitForPreviewGuestLoopback(async () => {
+        const probe = await this.run(handle, ["python3", "-c",
+          `import socket; s=socket.create_connection(('127.0.0.1',${PREVIEW_PORT}),1); s.close()`], 3000);
+        return probe.exitCode === 0;
+      });
       if (!listening) deny("preview guest loopback service is unavailable");
       const conversation = await createConversation(fixture.projectId,
         { title: "Qualification preview", userId: owner.userId, test: true });

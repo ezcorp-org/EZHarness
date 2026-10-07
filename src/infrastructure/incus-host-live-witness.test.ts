@@ -12,7 +12,8 @@ import type { IncusSetupRecipe } from "../../scripts/incus/model";
 import type { Database } from "../db/connection";
 import { incusQualificationFixtures } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
-import { IncusHostLiveWitness, IncusLiveWitnessError, incusHostLiveWitnessReady } from "./incus-host-live-witness";
+import { IncusHostLiveWitness, IncusLiveWitnessError, incusHostLiveWitnessReady,
+  waitForPreviewGuestLoopback } from "./incus-host-live-witness";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
@@ -25,6 +26,27 @@ const handle = { sandboxId: "fixture-binding", operationId: "fixture-operation" 
 const witness = new IncusHostLiveWitness({ db: {} as Database,
   qualifications: {} as IncusQualificationStore,
   fixtures: {} as IncusQualificationFixtureService });
+
+test("preview readiness pauses after nonzero and thrown probes without exceeding eight attempts", async () => {
+  let attempts = 0;
+  const pauses: number[] = [];
+  const ready = await waitForPreviewGuestLoopback(async () => {
+    attempts++;
+    if (attempts === 1) return false;
+    if (attempts === 2) throw new Error("socket not bound");
+    return true;
+  }, async ms => { pauses.push(ms); });
+  expect(ready).toBe(true);
+  expect(attempts).toBe(3);
+  expect(pauses).toEqual([100, 100]);
+
+  attempts = 0;
+  pauses.length = 0;
+  expect(await waitForPreviewGuestLoopback(async () => { attempts++; return false; },
+    async ms => { pauses.push(ms); })).toBe(false);
+  expect(attempts).toBe(8);
+  expect(pauses).toEqual(Array(7).fill(100));
+});
 
 test("production qualification remains closed without operator wiring", async () => {
   expect(await incusHostLiveWitnessReady({ env: {} })).toBe(false);
