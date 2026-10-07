@@ -57,15 +57,16 @@ test.describe("secure preview origin — access layer", () => {
     expect(res.headers()["set-cookie"]).toBeFalsy();
   });
 
-  test("a malformed preview-host label does NOT route to the preview origin", async ({ request }) => {
-    // 'short' is not a valid 26-char preview id -> parse returns null ->
-    // falls through to the normal app (which redirects unauth to /login).
+  test("a malformed preview-host label is denied without a cookie", async ({ request }) => {
+    // 'short' is not a valid preview id. The app denies this preview-shaped
+    // host before normal app routing, without disclosing session state.
     const res = await request.get(`${APP}/`, {
       headers: { host: "short.preview.localhost" },
       maxRedirects: 0,
     });
-    // NOT a 404-from-preview; the app handled it (redirect or page).
-    expect(res.status()).not.toBe(404);
+    expect(res.status()).toBe(404);
+    expect(res.headers()["set-cookie"]).toBeFalsy();
+    expect(res.headers()["referrer-policy"]).toBe("no-referrer");
   });
 });
 
