@@ -792,7 +792,8 @@ def stage(phase,value,deadline):
  return {'transportReady':True,**value}
 s.recovery_stage=stage
 clock=[time.time()-70]
-with mock.patch.object(m.time,'time',lambda:clock[0]),mock.patch.object(m.time,'sleep',lambda seconds:clock.__setitem__(0,clock[0]+seconds)):
+clock_for_supervisor=mock.Mock(wraps=time,time=lambda:clock[0],sleep=lambda seconds:clock.__setitem__(0,clock[0]+seconds))
+with mock.patch.object(m,'time',clock_for_supervisor):
  result=s.recover_noeffect(request)
 assert len(fences)==2 and starts==[True] and not s.recovery_held()
 assert result['receipt']['payload']['version']==json.loads((root/'sealed.json').read_text())['version']
