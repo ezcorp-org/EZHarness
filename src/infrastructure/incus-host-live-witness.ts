@@ -999,6 +999,25 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return bytes;
   }
 
+  private terminalProcessExit(process: Record<string, unknown> | undefined,
+    identity: { processId: string; bootId: string; sandboxId: string },
+    workDeadline: number, requireOnTime: boolean): number | null {
+    if (process?.processId !== identity.processId || process.sandboxId !== identity.sandboxId
+      || process.bootId !== identity.bootId) deny("guest process identity changed");
+    if (!["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state))) {
+      return null;
+    }
+    if (!Number.isSafeInteger(process.exitCode)) deny("guest process exit is unavailable");
+    if (requireOnTime && Number(process.exitCode) === 0) {
+      // The helper records whole seconds. The entire reported second must precede
+      // the work deadline; a completion later within that second is ambiguous.
+      const finishedSecond = Date.parse(String(process.finishedAt));
+      if (process.state !== "succeeded" || !Number.isFinite(finishedSecond)
+        || finishedSecond + 1_000 > workDeadline) deny("guest process exceeded its work deadline");
+    }
+    return Number(process.exitCode);
+  }
+
   async run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number,
     observationDeadlineMs?: number): ReturnType<HostIncusLiveWitness["run"]> {
     if (!argv.length || argv.some(arg => typeof arg !== "string") || !Number.isSafeInteger(timeoutMs)
@@ -1065,20 +1084,9 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       if (next?.offsetBytes !== offset || offset > MAX_FILE_BYTES) deny("guest process output exceeded bound");
       const inspected = await observe("processes.inspect", { processId: start.processId, bootId: start.bootId });
       const process = inspected.process as Record<string, unknown> | undefined;
-      if (process?.processId !== start.processId || process.sandboxId !== handle.sandboxId
-        || process.bootId !== start.bootId) deny("guest process identity changed");
-      if (["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state))) {
-        if (!Number.isSafeInteger(process.exitCode)) deny("guest process exit is unavailable");
-        // The helper records whole seconds. The entire reported second must precede
-        // the work deadline; a completion later within that second is ambiguous.
-        const finishedSecond = Date.parse(String(process.finishedAt));
-        if (observationDeadlineMs !== undefined && Number(process.exitCode) === 0
-          && (process.state !== "succeeded" || !Number.isFinite(finishedSecond)
-            || finishedSecond + 1_000 > deadline)) {
-          deny("guest process exceeded its work deadline");
-        }
-        terminalExitCode = Number(process.exitCode);
-      }
+      const observedExit = this.terminalProcessExit(process, { processId: start.processId,
+        bootId: start.bootId, sandboxId: handle.sandboxId }, deadline, observationDeadlineMs !== undefined);
+      if (observedExit !== null) terminalExitCode = observedExit;
       if (terminalExitCode !== null && output.eof === true) return { exitCode: terminalExitCode, stdout, stderr };
       await new Promise(resolve => setTimeout(resolve, POLL_MS));
     }
