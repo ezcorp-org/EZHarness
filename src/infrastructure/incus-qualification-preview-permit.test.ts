@@ -7,7 +7,7 @@ test("a preview permit checks the claimed fixture on every request and expires",
     providerId: "incus", generation: 1, presetId: "incus-compose-v1",
     releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64),
     effectiveSettingsDigest: "c".repeat(64) };
-  const target = sandboxWorkspaceTarget(binding, { previews: {
+  const target = sandboxWorkspaceTarget(binding, { execute: async () => { throw new Error("not used"); }, previews: {
     open: async () => {}, serve: async () => new Response("ok"), close: async () => {},
   } } as SandboxWorkspaceBackend);
   let clock = 1000;
@@ -41,7 +41,7 @@ test("a preview permit rejects an invalid host-selected port before registration
     providerId: "incus", generation: 1, presetId: "incus-compose-v1",
     releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64),
     effectiveSettingsDigest: "c".repeat(64) };
-  const target = sandboxWorkspaceTarget(binding, { previews: {
+  const target = sandboxWorkspaceTarget(binding, { execute: async () => { throw new Error("not used"); }, previews: {
     open: async () => {}, serve: async () => new Response("ok"), close: async () => {},
   } } as SandboxWorkspaceBackend);
   let registered = false;
