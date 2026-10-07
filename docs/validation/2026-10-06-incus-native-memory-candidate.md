@@ -1,5 +1,12 @@
 # Incus native memory candidate — 6 October 2026
 
+Update on 7 October: the real workflow exposed a required preview gap.
+The host still reports `endpointProxy:false`, so the positive Compose setup
+probe rejects it. The successful qualification response recorded below proves
+the tested resource and restart cases; it does not prove the full Compose
+profile. Its validator is missing mandatory preview coverage. Do not use that
+response as release approval or bypass the endpoint control.
+
 This is candidate evidence for the isolated Incus deployment. Live qualification,
 the ten-cycle run, negative controls and final CI remain release gates. This
 document does not claim guest secret delivery, Infisical parity, independent

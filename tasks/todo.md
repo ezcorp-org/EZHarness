@@ -1,16 +1,38 @@
 # Current completion — 6 October 2026 resumed session
 
+## Release gap found during the real workflow — 7 October UTC
+
+- [x] Preserve V2's actual failure: project preparation succeeded, no guest CREATE was admitted, and the positive setup probe returned `unverified_guest_controls`.
+- [x] Identify the required missing control: host Incus transport deliberately reports `endpointProxy:false`. Authenticated previews are required by `persistent-web-compose.v1`; do not bypass this control or call the resource/restart qualification a full-profile pass.
+- [ ] Implement and test the live authenticated preview path through existing endpoint, transport and authorization components.
+- [ ] Correct qualification so a missing mandatory preview control cannot produce a qualified Compose environment. Add actual consumer regressions and positive live preview evidence.
+- [x] Dispose of the prepared-only project through the normal project DELETE route; preserve its failed journal and do not replay the denied phase. Database foreign keys atomically reject deletion if an admission, reservation or operation arrives first. One DELETE returned 200; fresh project GET returned 404, management omitted the binding, and scoped/project inventory was empty. Independent review passed. Receipts `716`–`722` and `normal-prepared-only-project-delete-da0f00af.private.json` are retained in the private qualification stage.
+- [ ] Resume ten complete workflows only after the full selected profile passes; then close cleanup, credential-scan and final repository gates.
+
+The API verification team owns isolated repository gates at frozen `2912ff9ba`. This team owns live actions. Its fix is integrated as `76dcc8e49`; the shared coordination note records the test-only clock correction and evidence-document differences.
+
+### Preview completion plan and ownership
+
+- [ ] Transport milestone — Sol assets owns a fixed, bounded guest-loopback duplex transport over existing destination-pinned Incus execution. Reuse existing TLS, instance and generation checks; no arbitrary network destination or new host daemon. Test actual duplex consumers and cancellation.
+- [ ] Runtime milestone — Sol staging owns the workspace preview socket interface, Incus preview backend, authenticated preview routing and app WebSocket bridge. Reuse durable preview sessions and current-binding checks. Test owner, expiry, generation, port, revocation, headers, byte limits and reconnect; never fall back to AMD loopback.
+- [ ] Qualification milestone — Sol cycle owns the authoritative profile-specific proof, qualification store and live cases. Compose requires HTTP and WebSocket evidence; incomplete historical Compose records fail closed. Preserve the baseline profile and avoid a qualification/preflight dependency cycle.
+- [ ] Integration milestone — root owns host authority, startup and witness wiring. Qualification may exercise only its exact owned fixture before publication. Production previews require the current qualified connection/profile and current user authority.
+- [ ] Independent Sol reviewer checks each milestone and the combined consumer tests before a new isolated bundle is staged. The separate API team keeps sole ownership of whole-repository gates.
+- [ ] Live milestone — run the selected profile with actual HTTP/WebSocket positive and denial checks, clean the fixtures, then start new numbered lifecycle batches. Preserve the two failed batch namespaces; never relabel them as passes.
+
+Review before implementation: use the existing preview registry, authorization and transport layers. A preset declaration or successful process start is not preview qualification. New tests must exercise the consumer boundary and prove rejection, rather than mirror helper implementation.
+
 - [x] Recheck access: server SSH and Incus are available; local TCP sockets work; isolated app and runner are active.
 - [x] Confirm installed app source `6d2572d9f179d14c9912618981be993accdc9219`, manifest `b8efab47997cc92b839586e0792e888c656a1d4ae98be6a94b8ec8ce3545c229`.
 - [x] Recover the reviewed native asset work. Commit `1b8506673` has a new 59,704-byte artifact, SHA-256 `be1051effa23cd55790a7ad070eded71f3702fe22c54fb8f56e0cd97c28c5247`; byte-identical rebuild, five native tests, 129/129 measured C lines and 47 coverage guard tests pass. The prior server diagnostic tested a different prototype.
 - [x] Complete and independently review native staging through the existing bounded file and helper process contracts. Memory targets, deadlines, OOM and health requirements remain unchanged. Exact `07a4bd4e5` fast gate passed (27,648 backend tests; no failures).
 - [x] Merge current main `e3309906d` without conflicts and refresh both frozen dependency installs. Hosted CI exposed a test-double incompatibility with main's external hook runner; preserve its failing reproduction and verify the executable-double fix before final gates.
 - [x] Build and verify integrated source `2bde0375e`, including the actual server-bundle asset loader. Guarded update preserved database bytes and metadata; the new app is healthy, both selected verifiers pass, and an independent reviewer confirmed the current provider/setup/capacity scope.
-- [x] Qualify the exact installed native artifact on the server. Run `incus-final-native-release-20261006-39bebb58-2c28-4d88-95ac-e09d9f69d1a8` completed after automatic restart; the management API confirms qualification. All three guests report ABSENT and the probe plan is cleaned. Independent scoped/whole-server inventories are empty; the stopped-copy query proves zero current/global charges, no unfinished work and preserved live database bytes. Normal app resumed.
+- [x] Test the exact installed native artifact on the server. Run `incus-final-native-release-20261006-39bebb58-2c28-4d88-95ac-e09d9f69d1a8` completed after automatic restart. Its qualification response lacks mandatory preview coverage and is not full-profile proof. All three guests report ABSENT and the probe plan is cleaned. Independent scoped/whole-server inventories were empty; the stopped-copy query proved zero current/global charges, no unfinished work and preserved live database bytes. Normal app resumed.
 - [ ] Complete ten consecutive feature lifecycles with fresh qualification between clean batches, restart, denied access, retention and independent cleanup/accounting proof.
 - [ ] Pass final-source local and hosted gates, update PR #303, and complete independent review. Do not merge or publicly release without authorization.
 
-Current boundary: one complete native feature workflow and cleanup already passed on provider 0.1.5. Native candidate `2bde0375e` is installed, healthy and live-qualified; scoped/whole-server inventories and independent current/global accounting are zero. The first numbered batch stopped before any external request because its helper rejected the large manifest; preserve that failed journal and use a corrected fresh sequence. Ten workflows remain. The branch includes main and the hook test fix through `cd5dedea1`. Full local checks found a raw-Bun asset-loader failure and a separate clock-fixture defect; corrections and a clean final gate are required. PR #303 remains open and draft. Hosted head `07a4bd4e5` exposed the hook test-double failure already corrected locally; the new head still needs hosted verification. The historical checkpoints below retain their original observations and failures.
+Current boundary: the installed `2bde0375e` app passed resource/restart tests and their cleanup, but mandatory authenticated previews remain unsupported. The fresh workflow prepared one project, then stopped at that control before creating a guest. Ten complete profile workflows remain. Repository loader and clock-fixture fixes are integrated; the separate API team runs the frozen repository gate. PR #303 remains open and draft. The historical checkpoints below retain their original observations and failures and do not establish full-profile readiness.
 
 # Historical completion record — from 3 October 2026
 
