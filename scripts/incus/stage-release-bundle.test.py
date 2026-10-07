@@ -25,6 +25,10 @@ class ReleaseBundleTests(unittest.TestCase):
             else:
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_bytes(b"reviewed release file")
+        contract = root / "packages/@ezcorp/extension-contract/dist"
+        contract.mkdir(parents=True)
+        (contract / "index.js").write_text("export {};\n")
+        (contract / "index.d.ts").write_text("export {};\n")
         (root / "bin").mkdir(exist_ok=True)
         (root / "bin/bun").write_bytes(b"pinned bun")
         (root / "bun.lock").write_bytes(b"root lock")
@@ -160,6 +164,68 @@ HTTPServer(("127.0.0.1", int(os.environ["PORT"])), Handler).serve_forever()
             self.assertEqual(list(placeholder.iterdir()), [])
             self.assertFalse(any(item["path"].startswith(".ezcorp/")
                                  for item in MODULE.verify(output)["files"]))
+
+    def test_stage_builds_contract_declarations_before_sdk_and_web(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+            commands = []
+
+            def fake_run(argv, *, cwd, env):
+                commands.append((tuple(argv[1:]), cwd))
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+                    contract = cwd / "packages/@ezcorp/extension-contract/dist"
+                    if contract.exists():
+                        for path in contract.iterdir():
+                            path.unlink()
+                if argv[1:] == ["run", "--cwd", "packages/@ezcorp/extension-contract", "build"]:
+                    contract = cwd / "packages/@ezcorp/extension-contract/dist"
+                    contract.mkdir(parents=True, exist_ok=True)
+                    (contract / "index.js").write_text("export {};\n")
+                    (contract / "index.d.ts").write_text("export {};\n")
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            build_commands = [parts for parts, _cwd in commands if parts and parts[0] == "run"]
+            self.assertLess(build_commands.index(("run", "--cwd", "packages/@ezcorp/extension-contract", "build")),
+                            build_commands.index(("run", "--cwd", "packages/@ezcorp/sdk", "build")))
+            self.assertLess(build_commands.index(("run", "--cwd", "packages/@ezcorp/extension-contract", "build")),
+                            build_commands.index(("run", "--cwd", "web", "build")))
+            manifest = MODULE.verify(output)
+            self.assertIn("packages/@ezcorp/extension-contract/dist/index.d.ts",
+                          {entry["path"] for entry in manifest["files"]})
+
+    def test_stage_refuses_a_contract_build_without_published_outputs(self):
+        with tempfile.TemporaryDirectory(dir="/tmp") as directory:
+            source = Path(directory) / "source"
+            source.mkdir()
+            bun = source / "bun"
+            bun.write_bytes(b"fake bun")
+            output = Path(directory) / "release"
+
+            def fake_run(_argv, *, cwd, env):
+                if cwd.name == "release" and not (cwd / "bun.lock").exists():
+                    self.release_fixture(cwd)
+                    (cwd / "bin/bun").write_bytes(bun.read_bytes())
+                    (cwd / MODULE.RUNTIME_DIR).rmdir()
+                    (cwd / "packages/@ezcorp/extension-contract/dist/index.d.ts").unlink()
+
+            with patch.object(MODULE, "git_head", return_value="a" * 40), \
+                 patch.object(MODULE, "extract_head"), \
+                 patch.object(MODULE, "run", side_effect=fake_run), \
+                 patch.object(MODULE.subprocess, "check_output", return_value="1.3.14\n"):
+                with self.assertRaisesRegex(ValueError, "built extension contract is absent: index.d.ts"):
+                    MODULE.stage(source, output, bun, MODULE.sha256(bun))
+            self.assertFalse(output.exists())
 
     def test_stage_normalizes_dependency_modes_without_changing_hardlinked_source(self):
         with tempfile.TemporaryDirectory(dir="/tmp") as directory:

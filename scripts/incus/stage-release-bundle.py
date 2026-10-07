@@ -284,13 +284,18 @@ def stage(source, output, bun, expected_bun_sha256):
         executable = str(work / "bin/bun")
         run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
         run([executable, "install", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
-        for package in ("sdk", "harness-client"):
+        # The SDK and Vite resolve this workspace's published type entry from
+        # dist. A clean archive has no dist tree, so build the contract first.
+        for package in ("extension-contract", "sdk", "harness-client"):
             run([executable, "run", "--cwd", f"packages/@ezcorp/{package}", "build"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-tools"], cwd=work, env=env)
         run([executable, "run", "build:sandbox-supervisor"], cwd=work, env=env)
         run([executable, "run", "--cwd", "web", "build"], cwd=work, env=env)
         run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work, env=env)
         run([executable, "install", "--production", "--frozen-lockfile", "--ignore-scripts"], cwd=work / "web", env=env)
+        for name in ("index.js", "index.d.ts"):
+            require((work / "packages/@ezcorp/extension-contract/dist" / name).is_file(),
+                    f"built extension contract is absent: {name}")
         shutil.rmtree(work / "web/.svelte-kit", ignore_errors=True)
         require(not os.path.lexists(work / RUNTIME_DIR), "build created reserved runtime path")
         (work / RUNTIME_DIR).mkdir(mode=0o755)
