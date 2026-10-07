@@ -648,7 +648,8 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
     if (legacyProducer) {
       manifest.version = "0.1.3";
       manifest.sandboxProviders![0]!.minimumHostContract!.minor = 0;
-      for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+      // Freeze the receipt schemas of the implemented core; previews use the host relay.
+      for (const operation of SANDBOX_PROVIDER_OPERATIONS.filter(operation => !operation.startsWith("endpoints."))) {
         const method = manifest.methods!.find(item => item.name === `incus/${operation.replace(".", "/")}`)!;
         Object.assign(method, sandboxProviderMethodSchemas(operation, 0));
       }

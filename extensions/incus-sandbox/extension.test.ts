@@ -8,9 +8,9 @@ test("Incus entrypoint serves its validated provider definition", async () => {
   // implemented lifecycle/file/process RPC, without advertising endpoint RPCs.
   const required = SANDBOX_PROVIDER_OPERATIONS.filter(operation => !operation.startsWith("endpoints."))
     .map(operation => `incus/${operation.replace(".", "/")}`).sort();
-  expect(manifest.methods.map(method => method.name).sort()).toEqual(required);
+  expect(manifest.methods!.map(method => method.name).sort()).toEqual(required);
   expect(manifest.sandboxProviders?.map(provider => provider.id)).toEqual(["incus"]);
   const provider = manifest.sandboxProviders![0]!;
   expect(provider.capabilities).toEqual(["lifecycle.v1", "files.v1", "processes.v1"]);
-  expect(provider.methodGroups[0]?.methods.endpoints).toBeUndefined();
+  expect(provider.methodGroups![0]?.methods.endpoints).toBeUndefined();
 });

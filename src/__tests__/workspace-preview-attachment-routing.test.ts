@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, spyOn, test } from "bun:test";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +9,7 @@ import {
   readAttachmentBytes,
   writeAttachment,
 } from "../chat/attachments/storage";
-import { handlePreviewRequest } from "../runtime/preview/preview-proxy";
+import { handlePreviewRequest, type PreviewRegistryRow } from "../runtime/preview/preview-proxy";
 import { decideWebSocketUpgrade } from "../runtime/preview/preview-ws";
 import {
   sandboxWorkspaceTarget,
@@ -401,7 +401,16 @@ describe("sandbox preview serving", () => {
 
   test("sandbox websocket reconnect cannot fall through to host loopback", async () => {
     const target = sandboxWorkspaceTarget(binding, null);
-    const decision = await decideWebSocketUpgrade({
+    const row: PreviewRegistryRow = {
+      id: previewId,
+      userId: "user-1",
+      kind: "dynamic",
+      staticPath: null,
+      targetPort: 4173,
+      expiresAt: new Date(2000),
+      workspaceTarget: workspaceTargetReference(target),
+    };
+    const decide = () => decideWebSocketUpgrade({
       previewId,
       requestPath: "/hmr",
       cookieToken: "valid",
@@ -410,19 +419,31 @@ describe("sandbox preview serving", () => {
     }, {
       isValidPreviewId: () => true,
       verifyToken: async () => ({ previewId, userId: "user-1" }),
-      getServable: async () => ({
-        id: previewId,
+      getServable: async () => row,
+    });
+    const now = spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      const decision = await decide();
+      expect(decision).toEqual({
+        accept: true,
+        kind: "sandbox",
+        row,
         userId: "user-1",
-        kind: "dynamic",
-        staticPath: null,
-        targetPort: 4173,
-        workspaceTarget: workspaceTargetReference(target),
-      }),
-    });
+        port: 4173,
+      });
+      expect(decision).not.toHaveProperty("upstreamUrl");
 
-    expect(decision).toEqual({
-      accept: false,
-      reason: "sandbox websocket transport unavailable",
-    });
+      for (const expiresAt of [undefined, new Date(999), new Date(1000)]) {
+        row.expiresAt = expiresAt;
+        const denied = await decide();
+        expect(denied).toEqual({
+          accept: false,
+          reason: "sandbox preview expired or invalid",
+        });
+        expect(denied).not.toHaveProperty("upstreamUrl");
+      }
+    } finally {
+      now.mockRestore();
+    }
   });
 });

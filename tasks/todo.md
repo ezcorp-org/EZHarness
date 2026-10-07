@@ -3379,3 +3379,15 @@ Review so far: Bun 1.3.14's node:http shim returned a WebSocket 101 through the 
 - [x] Run focused tests, types, coverage, and normal commit hooks.
 
 Review: Pinned Bun 1.3.14 reproduced the missing-owner recovery denial, then passed 60 fixture, 13 startup, and 26 live-case tests. Backend and test typechecks and focused Biome passed. The resume test uses a real host witness and fixture service over an in-memory database; it is not live Incus evidence. No live state changed.
+
+# Final preview gate regression correction
+
+- [x] Reproduce the workspace WebSocket routing failure on frozen preview source.
+- [x] Update the fixture to prove valid sandbox routing and expired-preview denial without host fallback.
+- [x] Reproduce and correct legacy receipt fixtures that still assume provider endpoint methods.
+- [x] Run focused routing, WebSocket, entrypoint, recovery, lifecycle, and full type checks.
+- [x] Obtain complete independent review; commit the reviewed fixes.
+
+Review: routing/WebSocket 35 tests / 97 assertions; entrypoint/manifest 7 / 102; fenced cleanup 88 / 324; lifecycle 45 / 658. All pass. Full typecheck and Biome pass. Complete independent Sol review approved the stable diff, with independent routing/WebSocket, lock, and diff checks. Production code is unchanged. The frozen full gate still has four old test failures and must not be called green.
+
+Plan review: test expectations must follow the new authenticated sandbox routing contract. Do not change production routing or the active full-gate checkout.

@@ -56,7 +56,10 @@ const presetDigest = await sandboxPresetDigest(preset);
 const manifest = structuredClone(incusManifest);
 manifest.version = "0.1.3";
 manifest.sandboxProviders![0]!.minimumHostContract!.minor = 0;
-for (const operation of SANDBOX_PROVIDER_OPERATIONS) Object.assign(manifest.methods!.find(method => method.name === `incus/${operation.replace(".", "/")}`)!, sandboxProviderMethodSchemas(operation, 0));
+// Freeze the receipt schemas of the implemented core; previews use the host relay.
+for (const operation of SANDBOX_PROVIDER_OPERATIONS.filter(operation => !operation.startsWith("endpoints."))) {
+  Object.assign(manifest.methods!.find(method => method.name === `incus/${operation.replace(".", "/")}`)!, sandboxProviderMethodSchemas(operation, 0));
+}
 manifest.sandboxProviders![0]!.presets = [preset];
 const releaseDigest = "a".repeat(64);
 
