@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext } from "@ezcorp/sdk/v4";
 import {
-  SANDBOX_PROVIDER_OPERATIONS,
   canonicalJson,
   compileValueSchema,
   sandboxPresetDigest,
@@ -10,7 +9,7 @@ import {
 } from "@ezcorp/extension-contract";
 import { INCUS_CONNECTION_CONFIG_SCHEMA, parseIncusConnectionConfig } from "./config";
 import { createIncusExtension, resolveHostIncusInvocationRuntime } from "./index";
-import { INCUS_METHOD_GROUP, incusManifest, incusMethodName } from "./manifest";
+import { INCUS_METHOD_GROUP, INCUS_OPERATIONS, incusManifest, incusMethodName } from "./manifest";
 
 const validConfig = {
   connectionId: "connection-1",
@@ -22,11 +21,11 @@ const validConfig = {
 };
 
 describe("Incus extension manifest", () => {
-  test("release 0.1.5 binds the reviewed image and helper in each preset digest", async () => {
+  test("release 0.1.6 binds the reviewed image and helper in each preset digest", async () => {
     const presets = incusManifest.sandboxProviders![0]!.presets;
     const image = "f0b8298a2e61667625f28824fd85b1b06b469c731b31a625fff6972b71460545";
     const helper = "caa4fd5ce201ada90d89477f2f5dab47af7f78bb6cba805433b668e53fbb47bd";
-    expect(incusManifest.version).toBe("0.1.5");
+    expect(incusManifest.version).toBe("0.1.6");
     const packageMetadata = await Bun.file(new URL("./package.json", import.meta.url)).json();
     expect(packageMetadata.version).toBe(incusManifest.version);
     for (const preset of presets) {
@@ -39,8 +38,10 @@ describe("Incus extension manifest", () => {
     expect(await sandboxPresetDigest(presets[0]!)).not.toBe(await sandboxPresetDigest(presets[1]!));
   });
 
-  test("declares exactly the frozen 19 provider methods with canonical schemas", () => {
-    expect(incusManifest.methods).toHaveLength(19);
+  test("declares the 17 implemented provider methods with canonical schemas", () => {
+    expect(incusManifest.methods).toHaveLength(17);
+    expect(incusManifest.sandboxProviders![0]!.capabilities).not.toContain("endpoints.v1");
+    expect(() => incusMethodName("endpoints.open")).toThrow("unsupported");
     expect(INCUS_METHOD_GROUP.methods).toEqual({
       describe: "incus/describe",
       preflight: "incus/preflight",
@@ -65,9 +66,8 @@ describe("Incus extension manifest", () => {
         readOutput: "incus/processes/readOutput",
         cancel: "incus/processes/cancel",
       },
-      endpoints: { open: "incus/endpoints/open", close: "incus/endpoints/close" },
     });
-    for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+    for (const operation of INCUS_OPERATIONS) {
       const declared = incusManifest.methods!.find((method) => method.name === incusMethodName(operation));
       expect(declared).toBeDefined();
       const canonical = sandboxProviderMethodSchemas(operation, 1);

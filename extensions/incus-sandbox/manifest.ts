@@ -17,8 +17,10 @@ export const INCUS_CAPABILITIES: SandboxProviderCapability[] = [
   "lifecycle.v1",
   "files.v1",
   "processes.v1",
-  "endpoints.v1",
 ];
+// Previews use the host's authenticated registry. No provider endpoint RPC is
+// advertised until its separate open/close contract has an implementation.
+export const INCUS_OPERATIONS = SANDBOX_PROVIDER_OPERATIONS.filter(operation => !operation.startsWith("endpoints."));
 
 export const INCUS_METHOD_GROUP: SandboxProtocolMethodGroup = {
   name: "sandbox.provider.v1",
@@ -46,10 +48,6 @@ export const INCUS_METHOD_GROUP: SandboxProtocolMethodGroup = {
       readOutput: "incus/processes/readOutput",
       cancel: "incus/processes/cancel",
     },
-    endpoints: {
-      open: "incus/endpoints/open",
-      close: "incus/endpoints/close",
-    },
   },
 };
 
@@ -62,7 +60,8 @@ export function incusMethodName(operation: SandboxProtocolOperation): string {
     string,
   ];
   const methods = INCUS_METHOD_GROUP.methods[group] as unknown as Record<string, string>;
-  return methods[name]!;
+  if (!methods?.[name]) throw new Error("Incus provider operation is unsupported");
+  return methods[name];
 }
 
 const commonPreset: Omit<SandboxPreset, "id" | "profile" | "recipeDigest" | "storage"> = {
@@ -115,12 +114,12 @@ export const INCUS_PRESETS: SandboxPreset[] = [
 export const incusManifest: ExtensionManifestV4 = validateManifest({
   schemaVersion: 4,
   name: "incus-sandbox",
-  version: "0.1.5",
+  version: "0.1.6",
   description: "Incus sandbox provider over the host-owned protected transport.",
   author: { name: "EZCorp" },
   entrypoint: "./extension.ts",
   permissions: {},
-  methods: SANDBOX_PROVIDER_OPERATIONS.map((operation) => ({
+  methods: INCUS_OPERATIONS.map((operation) => ({
     name: incusMethodName(operation),
     ...sandboxProviderMethodSchemas(operation, 1),
   })),

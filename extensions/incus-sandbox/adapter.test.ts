@@ -107,6 +107,17 @@ function adapter(transport: IncusTransport): IncusSandboxAdapter {
 }
 
 describe("Incus sandbox adapter discovery", () => {
+  test("unimplemented endpoint RPC is rejected before transport", async () => {
+    const transport = new FakeTransport(() => { throw new Error("Endpoint transport must not run"); });
+    for (const operation of ["endpoints.open", "endpoints.close"] as const) {
+      const payload = operation === "endpoints.open"
+        ? { ...mutation, port: 3000, protocol: "http", expiresAt: "2026-09-22T13:00:00Z" }
+        : { ...mutation, endpointId: "endpoint-1" };
+      expect(await adapter(transport).invoke(operation, payload)).toMatchObject({ ok: false,
+        error: { code: "UNSUPPORTED_CAPABILITY", retryable: false } });
+    }
+    expect(transport.commands).toEqual([]);
+  });
   test("describes only the declared profiles, presets and stable capabilities without I/O", async () => {
     const transport = new FakeTransport(() => {
       throw new Error("describe must stay local");
@@ -116,7 +127,7 @@ describe("Incus sandbox adapter discovery", () => {
       protocolMajor: 1,
       profiles: ["linux-exec.v1", "persistent-web-compose.v1"],
       presetIds: INCUS_PRESETS.map((preset) => preset.id),
-      capabilities: ["lifecycle.v1", "files.v1", "processes.v1", "endpoints.v1"],
+      capabilities: ["lifecycle.v1", "files.v1", "processes.v1"],
     });
     expect(transport.commands).toEqual([]);
   });
@@ -158,6 +169,16 @@ describe("Incus sandbox adapter discovery", () => {
         },
       },
     ]);
+  });
+
+  test("the baseline execution profile does not require the optional preview control", async () => {
+    const transport = new FakeTransport(() => ({ ...probe, nestedCompose: false,
+      controls: { ...probe.controls, endpointProxy: false } }));
+    const result = await adapter(transport).invoke("preflight", { providerId: "incus", connectionId,
+      profile: "linux-exec.v1", presetId: "incus-linux-exec-v1", presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64) });
+    expect(result).toMatchObject({ observation: { nestedCompose: false } });
+    expect(transport.commands).toHaveLength(1);
   });
 
   test("preflight fails closed for every pin, required control and preset requirement", async () => {
@@ -211,7 +232,7 @@ describe("Incus sandbox adapter discovery", () => {
 });
 
 describe("Incus sandbox adapter translation", () => {
-  test("translates every lifecycle, file, process and endpoint method with bounded scope", async () => {
+  test("translates every declared lifecycle, file and process method with bounded scope", async () => {
     const responses: Record<string, unknown> = {
       "instance.create": { ok: true, receipt: receipt("create") },
       "instance.inspect": { ok: true, sandbox },
@@ -274,13 +295,6 @@ describe("Incus sandbox adapter translation", () => {
         eof: true,
       },
       "helper.process.cancel": { ok: true, receipt: receipt("processCancel") },
-      "endpoint.open": {
-        ok: true,
-        endpointId: "endpoint-1",
-        url: "https://preview.example.test/e/1",
-        expiresAt: "2026-09-22T13:00:00Z",
-      },
-      "endpoint.close": { ok: true, receipt: receipt("endpointClose") },
     };
     const transport = new FakeTransport((command) => responses[command.action]);
     const outputCursor = { sandboxId, processId: "process-1", bootId: "boot-1", offsetBytes: 0 };
@@ -300,8 +314,6 @@ describe("Incus sandbox adapter translation", () => {
       ["processes.inspect", { ...scope, processId: "process-1", bootId: "boot-1" }],
       ["processes.readOutput", { ...scope, processId: "process-1", bootId: "boot-1", cursor: outputCursor, maxBytes: 5 }],
       ["processes.cancel", { ...mutation, processId: "process-1", bootId: "boot-1" }],
-      ["endpoints.open", { ...mutation, port: 3000, protocol: "http", expiresAt: "2026-09-22T13:00:00Z" }],
-      ["endpoints.close", { ...mutation, endpointId: "endpoint-1" }],
     ];
     for (const [operation, input] of exchanges) {
       const result = await adapter(transport).invoke(operation, input);
@@ -323,8 +335,6 @@ describe("Incus sandbox adapter translation", () => {
       "helper.process.inspect",
       "helper.process.readOutput",
       "helper.process.cancel",
-      "endpoint.open",
-      "endpoint.close",
     ]);
     for (const command of transport.commands) {
       expect(command.connectionId).toBe(connectionId);
@@ -345,8 +355,6 @@ describe("Incus sandbox adapter translation", () => {
       "helper.file.remove",
       "helper.process.start",
       "helper.process.cancel",
-      "endpoint.open",
-      "endpoint.close",
     ]);
     expect(mutations.every((command) => command.idempotency?.requestId === mutation.requestId)).toBe(true);
     expect(mutations.every((command) => command.idempotency?.key === mutation.idempotencyKey)).toBe(true);

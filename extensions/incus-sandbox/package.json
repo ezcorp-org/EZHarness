@@ -1,6 +1,6 @@
 {
   "name": "@ezcorp/incus-sandbox",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Incus sandbox provider adapter",
   "private": true,
   "type": "module",

@@ -11,6 +11,7 @@ import {
 import type { IncusConnectionConfig } from "./config";
 import {
   INCUS_CAPABILITIES,
+  INCUS_OPERATIONS,
   INCUS_PRESETS,
   INCUS_PROFILES,
   INCUS_PROVIDER_ID,
@@ -281,7 +282,9 @@ export class IncusSandboxAdapter {
     }
     const input = validateSandboxProviderMethodValue(operation, "input", inputValue) as Record<string, unknown>;
     let result: unknown;
-    if (operation === "describe") {
+    if (!INCUS_OPERATIONS.includes(operation)) {
+      result = providerFailure("UNSUPPORTED_CAPABILITY", "The Incus provider operation is unsupported");
+    } else if (operation === "describe") {
       result = describeIncusProvider();
     } else if (operation === "preflight") {
       result = await this.preflight(input);
@@ -329,7 +332,8 @@ export class IncusSandboxAdapter {
     if (mismatched) preflightFailure(`Incus ${mismatched[0]} pin does not match`);
 
     const requiredControls = Object.entries(probe.controls)
-      .filter(([name, enabled]) => name !== "workspaceRoot" && enabled !== true)
+      .filter(([name, enabled]) => name !== "workspaceRoot"
+        && (name !== "endpointProxy" || preset.profile === "persistent-web-compose.v1") && enabled !== true)
       .map(([name]) => name);
     if (requiredControls.length > 0) {
       preflightFailure(`Incus required controls are unavailable: ${requiredControls.sort().join(", ")}`);

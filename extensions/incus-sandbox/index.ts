@@ -1,6 +1,5 @@
 import {
   ContractError,
-  SANDBOX_PROVIDER_OPERATIONS,
   type ExtensionContext,
   type SandboxProtocolOperation,
   validateSandboxProviderMethodExchange,
@@ -9,7 +8,7 @@ import { defineExtension, type MethodHandler } from "@ezcorp/sdk/v4";
 import { describeIncusProvider, IncusSandboxAdapter } from "./adapter";
 import { parseIncusConnectionConfig, type IncusConnectionConfig } from "./config";
 import { createHostIncusTransport } from "./host-transport";
-import { incusManifest, incusMethodName } from "./manifest";
+import { INCUS_OPERATIONS, incusManifest, incusMethodName } from "./manifest";
 import type { IncusTransport } from "./transport";
 
 export * from "./adapter";
@@ -40,7 +39,7 @@ export function resolveHostIncusInvocationRuntime(context: ExtensionContext): In
 
 export function createIncusExtension(resolveRuntime: ResolveIncusInvocationRuntime) {
   const methods: Record<string, MethodHandler> = {};
-  for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
+  for (const operation of INCUS_OPERATIONS) {
     const declaration = incusManifest.methods!.find(
       (method) => method.name === incusMethodName(operation),
     )!;
