@@ -108,7 +108,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   }
   let failureStage: FailureStage = "fixture_action";
   try {
-    const service = new IncusQualificationFixtureService();
+    const service = new IncusQualificationFixtureService({ qualificationOwnerId: admin.id });
     if (input.action === "status") {
       failureStage = "fixture_status";
       return json(await service.status(input.scope, input.operationId));

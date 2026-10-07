@@ -1,6 +1,7 @@
 import { afterAll, expect, mock, test } from "bun:test";
 
 const calls: string[] = [];
+const constructorOwners: Array<string | undefined> = [];
 const files = new Map<string, Uint8Array>();
 class IncusLiveWitnessError extends Error {
   constructor(reason: string) {
@@ -25,6 +26,9 @@ afterAll(() => {
 
 mock.module("$server/infrastructure/incus-qualification", () => ({
   IncusQualificationFixtureService: class {
+    constructor(deps: { qualificationOwnerId?: string } = {}) {
+      constructorOwners.push(deps.qualificationOwnerId);
+    }
     async create(scope: { connectionId: string }, id: string) {
       calls.push(`create:${scope.connectionId}:${id}`);
       if (fail) throw new Error("private certificate secret");
@@ -106,6 +110,16 @@ test("smoke actions require an admin session and same-origin JSON", async () => 
   expect((await POST(event(admin, body, null))).status).toBe(403);
   expect((await POST(event(admin, body, "http://localhost", "text/plain"))).status).toBe(400);
   expect(calls).toEqual([]);
+  expect(constructorOwners).toEqual([]);
+});
+
+test("Compose create supplies the authenticated administrator as fixture owner", async () => {
+  calls.length = 0;
+  constructorOwners.length = 0;
+  const response = await POST(event(admin, { ...scope, presetId: "compose", action: "create" }));
+  expect(response.status).toBe(202);
+  expect(constructorOwners).toEqual(["admin"]);
+  expect(calls).toEqual(["create:connection:incus-smoke-one"]);
 });
 
 test("smoke input cannot choose guest commands, paths, images, or provider authority", async () => {
