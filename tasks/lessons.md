@@ -707,4 +707,11 @@
   Record the complete compiler argument vector, specs, linker selection and
   static inputs. Run the documented build from a fresh output directory and
   compare its bytes before calling the provenance complete.
+- When another root owns a frozen verification run, reuse its reviewed fix
+  and record the ownership split in the shared note. Do not edit its worktree
+  or start a duplicate gate. Test later changes as separate milestones and
+  hand off the exact combined commit for final verification.
+- A profile is ready only when every required user path has live evidence.
+  A resource/restart test cannot qualify authenticated previews. Reject old
+  incomplete receipts when a missing mandatory check is discovered.
 - A denied preview result is not proof merely because its HTTP status is 4xx or 5xx. Pin each expected route result, reject generic 500 for identity and expiry gates, and require separate destination observations before claiming host or management isolation.
