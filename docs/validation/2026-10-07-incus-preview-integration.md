@@ -45,7 +45,7 @@ Measured startup coverage is 173/173 lines. The host witness reaches 100%
 line coverage across its focused test union. These are focused results, not
 a substitute for final repository gates.
 
-## Built consumer failure and required repair
+## Built consumer failure and verified repair
 
 The frozen `f6a7faea5` production build passed. Its real-auth browser consumer
 loaded the preview page over HTTP but received 403 for the WebSocket upgrade,
@@ -56,12 +56,30 @@ Its log and browser trace are retained in the isolated
 Inspection found that `svelte-adapter-bun` 1.0.1 patches `get_hooks()` in the
 generated server entry. The current SvelteKit build puts that function in a
 separate chunk, so the generated handler does not receive the exported
-WebSocket handler. A strict adapter compatibility repair and a repeated
-built-browser test are in progress. No authorization check is relaxed.
+WebSocket handler. A strict adapter compatibility repair now runs at the
+adapter's build hook. It requires exactly one supported generated shape and
+fails the build on missing, duplicate, or partial hooks. No authorization
+check is relaxed. Four focused helper tests pass with 100% measured line and
+function coverage, and the test is in both required test pools.
+
+The repeated production Chromium consumer passed on clean revision
+`79d8980b0de2a5944a1b112ce94126f5d50ded6c`: one test, exit 0, 3.7 minutes.
+The built listener reports `with WebSocket`. The browser opens the preview,
+receives HTTP 200, exchanges the `vite-hmr` challenge, and observes its socket
+close on revocation. Subsequent HTTP returns 404 and a new socket is denied.
+Wrong and malformed Host requests each return 404 without the guest proof.
+The log is `.cache/incus-preview-browser-consumer/79d8980b0-browser.log` in
+the isolated consumer worktree. Combined regression test type checking also
+passes. The fixture uses a controlled in-memory backend; this result does
+not establish real Incus transport qualification.
+Independent receipt review passed. The log SHA-256 is
+`e9c90e33299643935aabbe3a85bd4d65f79bf63cf51479c7bf1c4012d2743fdb`.
+No passing-run trace or literal 101 log is claimed; the browser's received
+WebSocket echo establishes that the upgrade succeeded.
 
 ## Remaining release gates
 
-- [ ] Complete the adapter repair and pass HTTP, WebSocket, revocation, and
+- [x] Complete the adapter repair and pass HTTP, WebSocket, revocation, and
       wrong-Host checks against a fresh production build.
 - [ ] Freeze the final source and hand its exact SHA to the API verification
       team for separate final-source gates.
