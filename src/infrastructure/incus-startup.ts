@@ -8,8 +8,12 @@ import { sandboxWorkspaceTarget, type SandboxPreviewBackend } from "../runtime/w
 import { ProviderConnectionStore } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
+import { createIncusPreviewAuthorizer, incusPreviewQualified } from "./incus-preview-authority";
+import { connectIncusPreviewDuplex } from "./incus-transport/preview-duplex";
+import { createIncusPreviewTrafficDriver } from "./incus-preview-traffic";
+import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
 import { IncusFeatureService } from "./incus-feature-service";
-import { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
+import { assertIncusQualificationOwner, IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusHostLiveWitness, incusHostLiveWitnessReady } from "./incus-host-live-witness";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
@@ -28,10 +32,18 @@ function qualificationProbeRoot(): string {
   return root;
 }
 
+/** Both normal projects and claimed qualification fixtures use this backend.
+ * Construction grants no access; each request obtains fresh host authority. */
+export function createIncusPreviewBackend(db?: Database, caller?: ProviderSandboxWorkspaceCaller): IncusSandboxPreviewBackend {
+  return new IncusSandboxPreviewBackend(caller ?? { call: request => new IncusWorkspaceCaller({ db }).call(request) },
+    Date.now, request => connectIncusPreviewDuplex(request, createIncusPreviewAuthorizer({ db })));
+}
+
 async function qualificationWitness(scope: IncusQualificationScope, runId: string,
-  db: Database, rootDirectory: string): Promise<IncusHostLiveWitness> {
+  db: Database, rootDirectory: string, qualificationOwnerId?: string): Promise<IncusHostLiveWitness> {
   const config = await new IncusLiveProbeFixtureService({ db, rootDirectory }).readyConfig(scope, runId);
-  return new IncusHostLiveWitness({ db, controlProbe: new IncusLiveControlProbes(config, { db }) });
+  return new IncusHostLiveWitness({ db, qualificationOwnerId, controlProbe: new IncusLiveControlProbes(config, { db }),
+    previewTraffic: createIncusPreviewTrafficDriver(), previewBackend: createIncusPreviewBackend(db) });
 }
 
 /** New runs require selected readiness before any durable preparation or allocation. */
@@ -39,16 +51,22 @@ export async function createIncusQualificationWitness(scope: IncusQualificationS
   runId: string, db: Database = getDb(), deps: {
     selected?: Awaited<ReturnType<IncusQualificationStore["authorizeFixture"]>>;
     ready?: typeof incusHostLiveWitnessReady;
+    previewReady?: () => Promise<void>;
+    qualificationOwnerId?: string;
   } = {}): Promise<IncusHostLiveWitness> {
   const root = qualificationProbeRoot();
   const selected = deps.selected ?? await new IncusQualificationStore({ db }).authorizeFixture(scope);
+  if (selected.preset.profile === "persistent-web-compose.v1") {
+    await assertIncusQualificationOwner(db, deps.qualificationOwnerId ?? "");
+    await (deps.previewReady ?? (() => createIncusPreviewTrafficDriver().ready()))();
+  }
   if (!await (deps.ready ?? incusHostLiveWitnessReady)({ expectedPin: { scope,
     connectionRevision: selected.connection.revision, presetDigest: selected.presetDigest,
     effectiveSettingsDigest: selected.effectiveSettingsDigest,
     imageFingerprint: selected.preset.imageDigest, helperSha256: selected.helperDigest } })) {
     throw new Error("Incus selected operator pins are unavailable");
   }
-  return qualificationWitness(scope, runId, db, root);
+  return qualificationWitness(scope, runId, db, root, deps.qualificationOwnerId);
 }
 
 type QualificationContinuationDependencies = {
@@ -102,7 +120,7 @@ export function startIncusQualificationContinuation(deps: QualificationContinuat
 type StartupDependencies = {
   backend?: ReturnType<typeof createProviderSandboxWorkspaceBackend>;
   previewBackend?: SandboxPreviewBackend;
-  /** Host-owned preview qualification. The default remains closed. */
+  /** Host-owned preview qualification; production requires the saved profile proof. */
   previewQualified?: (binding: SandboxBinding) => Promise<boolean>;
   setResolver?: typeof setSandboxWorkspaceTargetResolver;
   resolveRelease?: (installationId: string) => ReturnType<typeof resolveActiveRelease>;
@@ -114,9 +132,9 @@ type StartupDependencies = {
 export function initializeIncusSandboxWorkspace(dependencies: StartupDependencies = {}): void {
   const caller = dependencies.backend ? null : new IncusWorkspaceCaller();
   const backend = dependencies.backend ?? createProviderSandboxWorkspaceBackend(caller!);
-  const previewBackend = dependencies.previewQualified
-    ? dependencies.previewBackend ?? new IncusSandboxPreviewBackend(caller ?? new IncusWorkspaceCaller())
-    : undefined;
+  const previewQualified = dependencies.previewQualified ?? incusPreviewQualified;
+  // Delay database access until a request: startup installs routing, not a grant.
+  const previewBackend = dependencies.previewBackend ?? createIncusPreviewBackend(undefined, caller ?? undefined);
   (dependencies.setResolver ?? setSandboxWorkspaceTargetResolver)(async binding => {
     if (!binding.resourceKey || binding.resourceKey !== binding.id || !binding.connectionRevision
       || !binding.profile || !binding.presetId || !binding.presetDigest || !binding.effectiveSettingsDigest
@@ -137,7 +155,7 @@ export function initializeIncusSandboxWorkspace(dependencies: StartupDependencie
       const preset = provider?.presets.find(item => item.id === binding.presetId && item.profile === binding.profile);
       if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest) return null;
       const selectedBackend = previewBackend && binding.profile === "persistent-web-compose.v1"
-        && await dependencies.previewQualified?.(binding)
+        && await previewQualified(binding)
         ? { ...backend, previews: previewBackend } : backend;
       return sandboxWorkspaceTarget({
         projectId: binding.projectId,

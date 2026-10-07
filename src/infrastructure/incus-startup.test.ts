@@ -7,6 +7,7 @@ import { up as addSandboxController } from "../db/migrations/add-sandbox-control
 import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
 import { up as addQualificationRuns } from "../db/migrations/add-incus-qualification-runs";
 import * as schema from "../db/schema";
+import * as connection from "../db/connection";
 import type { SandboxWorkspaceTargetResolver } from "../runtime/workspaces/project-target";
 import { configureReleaseRuntime, type ActiveExtensionRelease } from "../extensions/release-process";
 import { ProviderRpcBroker } from "./provider-rpc-broker";
@@ -17,7 +18,7 @@ import { IncusQualificationStore } from "./incus-qualification";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusLiveCleanupController } from "./incus-live-cleanup-controller";
 import { IncusFeatureService } from "./incus-feature-service";
-import { createIncusQualificationWitness, initializeIncusSandboxWorkspace, resumePendingIncusQualification,
+import { createIncusPreviewBackend, createIncusQualificationWitness, initializeIncusSandboxWorkspace, resumePendingIncusQualification,
   startIncusQualificationContinuation,
   reconcileIncusWithClaimedCleanup, startIncusSandboxReconciler } from "./incus-startup";
 
@@ -28,6 +29,25 @@ let revision = 1;
 let revoked = false;
 let reconcileCalls = 0;
 const preset = incusManifest.sandboxProviders![0]!.presets[0]!;
+
+test("startup preview backend checks persisted authority before HTTP or a guest stream", async () => {
+  let reads = 0;
+  const db = { select: () => { reads++; throw new Error("preview registry unavailable"); } } as never;
+  const backend = createIncusPreviewBackend(db);
+  expect(reads).toBe(0);
+  const request = { previewId: "a".repeat(26), userId: "owner",
+    binding: { providerId: "incus", projectId: "project", workspaceId: "sandbox", connectionId: "connection",
+      generation: 1, releaseDigest: "a".repeat(64), presetId: "compose", presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64) },
+    targetPort: 5173, requestPath: "/", search: "", expiresAt: new Date(Date.now() + 60_000),
+    signal: new AbortController().signal, subprotocol: "vite-hmr" as const,
+  };
+  await expect(backend.connectWebSocket(request)).rejects.toThrow("preview registry unavailable");
+  expect(reads).toBe(1);
+  await expect(backend.serve({ ...request, request: new Request("http://preview.localhost/") }))
+    .rejects.toThrow("preview registry unavailable");
+  expect(reads).toBe(2);
+});
 
 test("qualification witness requires a host probe root and uses the saved host fixture", async () => {
   const previous = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
@@ -80,6 +100,55 @@ test("qualification continuation reports a failed handoff without leaving a pend
       fail: async () => {} } });
   await stop();
   expect(attempts).toBe(1);
+});
+
+test("Compose qualification refuses missing preview ingress before preparing any fixture", async () => {
+  const client = new PGlite();
+  await client.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); INSERT INTO users VALUES ('operator', 'admin', 'active')");
+  const db = drizzle(client, { schema });
+  const previous = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe-root";
+  const compose = incusManifest.sandboxProviders![0]!.presets.find(item => item.profile === "persistent-web-compose.v1")!;
+  const readyConfig = spyOn(IncusLiveProbeFixtureService.prototype, "readyConfig");
+  let operatorReadiness = 0;
+  try {
+    await expect(createIncusQualificationWitness({ installationId: "installation", releaseId: "release",
+      connectionId: "connection", presetId: compose.id }, "run", db, {
+      selected: { preset: compose } as never,
+      qualificationOwnerId: "operator",
+      ready: async () => { operatorReadiness++; return true; },
+      previewReady: async () => { throw new Error("preview ingress is unavailable"); },
+    })).rejects.toThrow("preview ingress is unavailable");
+    expect(readyConfig).not.toHaveBeenCalled();
+    expect(operatorReadiness).toBe(0);
+  } finally {
+    readyConfig.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+    else process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = previous;
+    await client.close();
+  }
+});
+
+test("Compose qualification rejects a missing initiating owner before readiness or fixture preparation", async () => {
+  const previous = process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe-root";
+  const compose = incusManifest.sandboxProviders![0]!.presets.find(item => item.profile === "persistent-web-compose.v1")!;
+  const readyConfig = spyOn(IncusLiveProbeFixtureService.prototype, "readyConfig");
+  let readinessCalls = 0;
+  try {
+    await expect(createIncusQualificationWitness({ installationId: "installation", releaseId: "release",
+      connectionId: "connection", presetId: compose.id }, "run", {} as never, {
+      selected: { preset: compose } as never,
+      ready: async () => { readinessCalls++; return true; },
+      previewReady: async () => { readinessCalls++; },
+    })).rejects.toThrow("qualification owner is invalid");
+    expect(readyConfig).not.toHaveBeenCalled();
+    expect(readinessCalls).toBe(0);
+  } finally {
+    readyConfig.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT;
+    else process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = previous;
+  }
 });
 
 test("startup fences the active SP05 run and recovers only a replacement process's exact journal", async () => {
@@ -172,6 +241,35 @@ test("preview backend needs a compose binding and explicit host qualification", 
     presetDigest: await sandboxPresetDigest(composePreset) };
   const composeTarget = await resolver!(compose);
   expect(composeTarget?.backend?.previews).toBe(previewBackend);
+});
+
+test("default preview routing requires the current saved qualification and matching digests", async () => {
+  const db = spyOn(connection, "getDb").mockReturnValue({} as never);
+  const load = spyOn(IncusQualificationStore.prototype, "load").mockResolvedValue(null);
+  try {
+    initializeIncusSandboxWorkspace({
+      backend: {} as ReturnType<typeof createProviderSandboxWorkspaceBackend>,
+      setResolver: next => { resolver = next; },
+      resolveRelease: async () => ({ release: { id: "release", releaseDigest: "release-digest", manifest: incusManifest } }) as ActiveExtensionRelease,
+      getConnectionMetadata: async () => ({ revision: 1, revokedAt: null, providerInstallationId: "installation",
+        providerReleaseId: "release", configuration: { kind: "incus" } }) as ProviderConnectionMetadata,
+    });
+    const compose = incusManifest.sandboxProviders![0]!.presets.find(item => item.profile === "persistent-web-compose.v1")!;
+    const pinned = { ...binding(await sandboxPresetDigest(compose)), profile: compose.profile, presetId: compose.id } as Parameters<SandboxWorkspaceTargetResolver>[0];
+    expect((await resolver!(pinned))?.backend?.previews).toBeUndefined();
+    expect(load).toHaveBeenCalledWith({ installationId: "installation", releaseId: "release",
+      connectionId: "connection", presetId: compose.id });
+    load.mockResolvedValue({ presetDigest: pinned.presetDigest,
+      effectiveSettingsDigest: pinned.effectiveSettingsDigest } as never);
+    expect((await resolver!(pinned))?.backend?.previews?.connectWebSocket).toBeFunction();
+    load.mockResolvedValue({ presetDigest: "changed", effectiveSettingsDigest: pinned.effectiveSettingsDigest } as never);
+    expect((await resolver!(pinned))?.backend?.previews).toBeUndefined();
+    load.mockResolvedValue({ presetDigest: pinned.presetDigest, effectiveSettingsDigest: "changed" } as never);
+    expect((await resolver!(pinned))?.backend?.previews).toBeUndefined();
+    // The store returns null for expired or revoked evidence; startup must close again.
+    load.mockResolvedValue(null);
+    expect((await resolver!(pinned))?.backend?.previews).toBeUndefined();
+  } finally { load.mockRestore(); db.mockRestore(); }
 });
 
 test("startup reconciler runs immediately and closes without scheduling more work", async () => {

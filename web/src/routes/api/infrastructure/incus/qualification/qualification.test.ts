@@ -25,7 +25,9 @@ mock.module("$server/infrastructure/incus-host-live-witness", () => ({
   incusHostLiveWitnessReady: async () => witnessReady,
 }));
 mock.module("$server/infrastructure/incus-startup", () => ({
-  createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string) => {
+  createIncusQualificationWitness: async (input: { connectionId: string }, operationId: string,
+    _db: unknown, deps: { qualificationOwnerId: string }) => {
+    expect(deps.qualificationOwnerId).toBe("admin");
     calls.push(`witness.create:${input.connectionId}:${operationId}`);
     if (!selectedPinsReady) throw new Error("Incus selected operator pins are unavailable");
     if (unsettledError) throw unsettledError;
@@ -56,6 +58,9 @@ mock.module("$server/infrastructure/incus-qualification", () => ({
     }
   },
   IncusQualificationFixtureService: class {
+  constructor(deps: { qualificationOwnerId: string }) {
+    expect(deps.qualificationOwnerId).toBe("admin");
+  }
   async create(scope: { connectionId: string }, id: string) {
     calls.push(`create:${scope.connectionId}:${id}`);
     if (unsettledError) throw unsettledError;

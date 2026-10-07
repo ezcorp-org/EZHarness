@@ -61,14 +61,15 @@ export const POST: RequestHandler = async ({ locals, request }) => {
           message: "The host live qualification witness is incomplete." }, { status: 503 });
       }
       const selected = await new IncusQualificationStore().authorizeFixture(input.scope);
-      const witness = await createIncusQualificationWitness(input.scope, input.operationId, undefined, { selected });
+      const witness = await createIncusQualificationWitness(input.scope, input.operationId, undefined,
+        { selected, qualificationOwnerId: admin.id });
       const run = await beginDurableIncusLiveCases({ witness,
         composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
       input.scope, selected.preset, { runId: input.operationId, nonce: randomUUID(),
         deadlineMs: Date.now() + 20 * 60_000 });
       return json({ run }, { status: 202 });
     }
-    const service = new IncusQualificationFixtureService();
+    const service = new IncusQualificationFixtureService({ qualificationOwnerId: admin.id });
     if (input.action === "recoverCleanup") {
       const result = await service.recoverCleanup(input.scope, input.operationId, input.failedDestroyOperationId!);
       return json({ recovery: { id: result.recovery.id, state: result.recovery.state,
