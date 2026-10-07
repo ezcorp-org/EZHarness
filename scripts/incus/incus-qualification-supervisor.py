@@ -30,6 +30,9 @@ UUID = re.compile(r"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f
 REQUEST_KEYS = {"version", "action", "runId", "nonce", "deadlineMs", "scope",
                 "fixtureOperationId", "bindingId", "generation", "connectionRevision",
                 "lastOperationId", "beforeDigest"}
+HANDOFF_PAYLOAD_KEYS = (REQUEST_KEYS - {"action"}) | {"oldProcess", "newProcess", "afterDigest"}
+TERMINAL_KEYS = {"version", "action", "runId", "nonce", "scope", "connectionRevision",
+                 "process", "claimedProcess", "state"}
 CLAIM_KEYS = {"version", "action", "runId", "nonce", "afterDigest"}
 RECOVERY_KEYS = {"version", "action", "nonce", "reviewId", "scope",
                  "fixtureOperationId", "bindingId", "operationId", "generation",
@@ -92,6 +95,13 @@ def identity(pid):
     return {"pid": pid, "startTicks": fields[19]}
 
 
+def valid_process_identity(value):
+    return isinstance(value, dict) and set(value) == {"pid", "startTicks"} \
+        and type(value["pid"]) is int and value["pid"] > 0 \
+        and isinstance(value["startTicks"], str) and value["startTicks"].isdigit() \
+        and int(value["startTicks"]) > 0
+
+
 def process_credentials(pid):
     before = identity(pid)
     status = Path(f"/proc/{pid}/status").read_text()
@@ -142,7 +152,7 @@ def validate_readiness_pin(pin):
         raise ValueError("invalid selected readiness digest")
 
 
-def validate_request(message):
+def validate_request(message, *, historical=False):
     if not isinstance(message, dict) or set(message) != REQUEST_KEYS or message["version"] != 1 \
             or message["action"] != "restart" or not isinstance(message["scope"], dict) \
             or set(message["scope"]) != SCOPE_KEYS:
@@ -159,7 +169,7 @@ def validate_request(message):
         if type(message[name]) is not int or message[name] <= 0:
             raise ValueError("invalid restart number")
     now = int(time.time() * 1000)
-    if not now < message["deadlineMs"] <= now + 120000:
+    if not historical and not now < message["deadlineMs"] <= now + 120000:
         raise ValueError("restart deadline expired or excessive")
 
 
@@ -256,6 +266,11 @@ class Supervisor:
         self.recovery_restore_journal_path = None
         self.recovery_restore_config_path = None
         self.recovery_fence_command = None
+        self.terminal_handoff_path = None
+        self.terminal_handoff_sha256 = None
+        self.terminal_handoff_run_id = None
+        self.terminal_handoff_active = False
+        self.terminal_handoff_consumed = None
         key_stat = self.key_path.lstat()
         if not stat.S_ISREG(key_stat.st_mode) or key_stat.st_uid != os.geteuid() \
                 or key_stat.st_mode & 0o077:
@@ -304,8 +319,8 @@ class Supervisor:
         self.recovery_hold_path.unlink()
         self.sync_hold_directory()
 
-    def sync_hold_directory(self):
-        descriptor = os.open(self.key_path.parent, os.O_RDONLY | os.O_DIRECTORY)
+    def sync_hold_directory(self, directory=None):
+        descriptor = os.open(directory or self.key_path.parent, os.O_RDONLY | os.O_DIRECTORY)
         try:
             os.fsync(descriptor)
         finally:
@@ -508,7 +523,104 @@ class Supervisor:
             handle.write(data)
             handle.flush()
             os.fsync(handle.fileno())
-        self.sync_hold_directory()
+        self.sync_hold_directory(Path(path).parent)
+
+    def load_terminal_claim_handoff(self):
+        """Restore one signed failed claim before the replacement app can start."""
+        if self.terminal_handoff_path is None:
+            return
+        parent = self.terminal_handoff_path.parent.lstat()
+        if not stat.S_ISDIR(parent.st_mode) or parent.st_uid != os.geteuid() \
+                or stat.S_IMODE(parent.st_mode) & 0o077:
+            raise ValueError("terminal claim handoff directory is not private")
+        raw = self.private_recovery_bytes(self.terminal_handoff_path)
+        if hashlib.sha256(raw).hexdigest() != self.terminal_handoff_sha256:
+            raise ValueError("terminal claim handoff hash changed")
+        handoff = json.loads(raw)
+        if not isinstance(handoff, dict) or set(handoff) != {"version", "terminalRow", "receipt"} \
+                or handoff["version"] != 1:
+            raise ValueError("terminal claim handoff changed")
+        receipt = handoff["receipt"]
+        if not isinstance(receipt, dict) or set(receipt) != {"payload", "signature"} \
+                or not isinstance(receipt["payload"], dict) \
+                or set(receipt["payload"]) != HANDOFF_PAYLOAD_KEYS \
+                or not isinstance(receipt["signature"], str):
+            raise ValueError("terminal claim receipt changed")
+        payload = receipt["payload"]
+        terminal_row = handoff["terminalRow"]
+        if not isinstance(terminal_row, dict) \
+                or set(terminal_row) != {"runId", "nonce", "scope", "connectionRevision", "state"} \
+                or terminal_row["state"] != "FAILED" \
+                or any(terminal_row[key] != payload[key]
+                       for key in ("runId", "nonce", "scope", "connectionRevision")):
+            raise ValueError("terminal claim saved row changed")
+        request = {key: payload[key] for key in REQUEST_KEYS - {"action"}}
+        request["action"] = "restart"
+        validate_request(request, historical=True)
+        if payload["runId"] != self.terminal_handoff_run_id \
+                or not isinstance(payload["afterDigest"], str) \
+                or not DIGEST.fullmatch(payload["afterDigest"]):
+            raise ValueError("terminal claim identity changed")
+        for field in ("oldProcess", "newProcess"):
+            if not valid_process_identity(payload[field]):
+                raise ValueError("terminal claim process changed")
+        try:
+            signature = base64.b64decode(receipt["signature"], validate=True)
+        except (ValueError, base64.binascii.Error):
+            raise ValueError("terminal claim signature changed") from None
+        if len(signature) != 64:
+            raise ValueError("terminal claim signature changed")
+        with tempfile.TemporaryDirectory(prefix="incus-handoff-verify-") as directory:
+            base = Path(directory)
+            (base / "payload").write_bytes(canonical(payload))
+            (base / "signature").write_bytes(signature)
+            public = subprocess.run(["openssl", "pkey", "-in", str(self.key_path), "-pubout"],
+                                    capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
+            (base / "public").write_bytes(public.stdout)
+            verified = subprocess.run(["openssl", "pkeyutl", "-verify", "-pubin", "-inkey",
+                                       str(base / "public"), "-rawin", "-in", str(base / "payload"),
+                                       "-sigfile", str(base / "signature")],
+                                      capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=False)
+            if verified.returncode != 0:
+                raise ValueError("terminal claim signature changed")
+        try:
+            if identity(payload["newProcess"]["pid"]) == payload["newProcess"]:
+                raise ValueError("claimed process is still alive")
+        except (FileNotFoundError, ProcessLookupError):
+            pass
+        self.used_runs.add(payload["runId"])
+        consumed = self.terminal_handoff_path.with_name(self.terminal_handoff_path.name + ".consumed")
+        if consumed.exists():
+            marker = json.loads(self.private_recovery_bytes(consumed))
+            if not isinstance(marker, dict) or set(marker) != {"version", "handoffSha256", "runId", "terminal"} \
+                    or marker["version"] != 1 or marker["handoffSha256"] != self.terminal_handoff_sha256 \
+                    or marker["runId"] != payload["runId"]:
+                raise ValueError("terminal claim consumption changed")
+            self.validate_handoff_terminal(marker["terminal"], request, payload["newProcess"])
+            self.terminal_handoff_consumed = {"request": request, "newProcess": payload["newProcess"]}
+            return
+        self.claimed = {"request": request, "newProcess": payload["newProcess"]}
+        self.terminal_handoff_active = True
+
+    def validate_handoff_terminal(self, message, request, historical):
+        if not isinstance(message, dict) or set(message) != TERMINAL_KEYS \
+                or message["version"] != 1 or message["action"] != "terminal" or message["state"] != "FAILED" \
+                or message["claimedProcess"] != historical \
+                or any(message[key] != request[key] for key in ("runId", "nonce", "scope", "connectionRevision")):
+            raise ValueError("terminal claim consumption changed")
+        if not valid_process_identity(message["process"]):
+            raise ValueError("terminal claim consumption changed")
+
+    def consume_terminal_claim_handoff(self, message):
+        if not self.terminal_handoff_active:
+            return
+        self.validate_handoff_terminal(message, self.claimed["request"], self.claimed["newProcess"])
+        marker = {"version": 1, "handoffSha256": self.terminal_handoff_sha256,
+                  "runId": self.terminal_handoff_run_id, "terminal": message}
+        consumed = self.terminal_handoff_path.with_name(self.terminal_handoff_path.name + ".consumed")
+        self.persist_abort_file(consumed, marker, exclusive=True)
+        self.terminal_handoff_consumed = self.claimed
+        self.terminal_handoff_active = False
 
     def assert_abort_actors_stopped(self, units, runner_uid):
         if type(runner_uid) is not int or runner_uid <= 0 or runner_uid == self.app_uid \
@@ -1083,9 +1195,7 @@ class Supervisor:
         # The managed host owns its live database and reports only committed
         # terminal state after exact fixture cleanup/accounting verification.
         # Providers and public requests have no path to this child-only RPC.
-        keys = {"version", "action", "runId", "nonce", "scope", "connectionRevision",
-                "process", "claimedProcess", "state"}
-        if not isinstance(message, dict) or set(message) != keys or message["version"] != 1 \
+        if not isinstance(message, dict) or set(message) != TERMINAL_KEYS or message["version"] != 1 \
                 or message["action"] != "terminal" or message["state"] not in ("COMPLETED", "FAILED"):
             raise ValueError("invalid terminal claim")
         if message["process"] != self.child_identity:
@@ -1094,6 +1204,10 @@ class Supervisor:
             raise ValueError("restart is still pending")
         if self.claimed is None:
             if self.terminal_claim == canonical(message):
+                return {"released": True}
+            if self.terminal_handoff_consumed is not None:
+                self.validate_handoff_terminal(message, self.terminal_handoff_consumed["request"],
+                                               self.terminal_handoff_consumed["newProcess"])
                 return {"released": True}
             raise ValueError("terminal claim unavailable")
         request = self.claimed["request"]
@@ -1107,6 +1221,7 @@ class Supervisor:
                     raise ValueError("claimed process is still alive")
             except (FileNotFoundError, ProcessLookupError):
                 pass
+        self.consume_terminal_claim_handoff(message)
         self.terminal_claim = canonical(message)
         self.claimed = None
         # used_runs and fault_armed intentionally remain replay fences.
@@ -1138,6 +1253,7 @@ class Supervisor:
         return {"ready": True, "protocol": "incus-qualification.v1"}
 
     def serve(self):
+        self.load_terminal_claim_handoff()
         parent = self.socket_path.parent.stat()
         if parent.st_uid != os.geteuid() or parent.st_mode & 0o027:
             raise RuntimeError("control directory must be operator-owned and private")
@@ -1191,7 +1307,8 @@ class Supervisor:
                             raise ValueError("invalid control request")
                         if message.get("action") == "restart":
                             validate_request(message)
-                            if self.pending is not None or message["runId"] in self.used_runs:
+                            if self.pending is not None or self.claimed is not None \
+                                    or message["runId"] in self.used_runs:
                                 raise ValueError("restart already pending or used")
                             # Ack before terminating the requesting child.
                             send_message(connection, {"accepted": True})
@@ -1222,6 +1339,8 @@ class Supervisor:
                 self.stop_child()
 
     def restart_authorized(self, request):
+        if self.claimed is not None:
+            raise ValueError("qualification run is already active")
         self.assert_exclusive_app_uid()
         self.used_runs.add(request["runId"])
         self.claimed = None
@@ -1266,7 +1385,8 @@ def main():
     optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand",
                 "faultAuthorityCommand", "recoveryAbortCommand", "recoveryRequestPath",
                 "recoveryAbortStoppedUnits", "recoveryAbortRunnerUid", "recoveryRestoreCommand",
-                "recoveryRestoreJournalPath", "recoveryRestoreConfigPath"}
+                "recoveryRestoreJournalPath", "recoveryRestoreConfigPath",
+                "terminalClaimHandoffPath", "terminalClaimHandoffSha256", "terminalClaimHandoffRunId"}
     if not required <= set(config) or set(config) - required - optional \
             or bool(config.get("operatorSocket")) != bool(config.get("recoveryCommand")) \
             or not all(type(config[name]) is int and config[name] > 0
@@ -1280,6 +1400,12 @@ def main():
     if "operatorSocket" in config and (not isinstance(config["operatorSocket"], str)
             or not config["operatorSocket"].startswith("/")):
         raise ValueError("invalid operator recovery socket")
+    handoff_keys = ("terminalClaimHandoffPath", "terminalClaimHandoffSha256", "terminalClaimHandoffRunId")
+    if any(key in config for key in handoff_keys) and (not all(key in config for key in handoff_keys)
+            or not isinstance(config[handoff_keys[0]], str) or not config[handoff_keys[0]].startswith("/")
+            or not isinstance(config[handoff_keys[1]], str) or not DIGEST.fullmatch(config[handoff_keys[1]])
+            or not isinstance(config[handoff_keys[2]], str) or not IDENTIFIER.fullmatch(config[handoff_keys[2]])):
+        raise ValueError("invalid terminal claim handoff configuration")
     if "recoveryCommand" in config and (not isinstance(config["recoveryCommand"], list)
             or not config["recoveryCommand"]
             or not all(isinstance(value, str) and value for value in config["recoveryCommand"])):
@@ -1327,6 +1453,10 @@ def main():
         return
     supervisor = Supervisor(config["socket"], config["appCommand"], config["appUid"], config["appGid"],
                             config["key"], config["authorityCommand"], config["receiptAuthorityCommand"])
+    if "terminalClaimHandoffPath" in config:
+        supervisor.terminal_handoff_path = Path(config["terminalClaimHandoffPath"])
+        supervisor.terminal_handoff_sha256 = config["terminalClaimHandoffSha256"]
+        supervisor.terminal_handoff_run_id = config["terminalClaimHandoffRunId"]
     if config.get("operatorSocket"):
         supervisor.operator_socket_path = Path(config["operatorSocket"])
         supervisor.recovery_command = config["recoveryCommand"]

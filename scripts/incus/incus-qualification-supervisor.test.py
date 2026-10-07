@@ -2,6 +2,7 @@
 """Process-level proof of the Linux control socket and restart handoff."""
 
 import importlib.util
+import base64
 import hashlib
 import json
 import os
@@ -151,6 +152,268 @@ def process_live(pid):
         return stat[stat.rfind(")") + 2] != "Z"
     except FileNotFoundError:
         return False
+
+
+def signed_failed_handoff(root, key, *, new_process=None):
+    payload = {"version": 1, "runId": "failed-run", "nonce": "saved-nonce",
+               "deadlineMs": 1, "scope": {"installationId": "installation", "releaseId": "release",
+               "connectionId": "connection", "presetId": "preset"},
+               "fixtureOperationId": "qual-primary-failed-run", "bindingId": "primary-binding",
+               "generation": 3, "connectionRevision": 2, "lastOperationId": "saved-stop",
+               "beforeDigest": "a" * 64, "afterDigest": "b" * 64,
+               "oldProcess": {"pid": 99999997, "startTicks": "1"},
+               "newProcess": new_process or {"pid": 99999998, "startTicks": "1"}}
+    (root / "payload").write_bytes(MODULE.canonical(payload))
+    signed = subprocess.run(["openssl", "pkeyutl", "-sign", "-rawin", "-inkey", str(key),
+                             "-in", str(root / "payload")], check=True, capture_output=True)
+    terminal_row = {key: payload[key] for key in ("runId", "nonce", "scope", "connectionRevision")}
+    handoff = {"version": 1, "terminalRow": {**terminal_row, "state": "FAILED"}, "receipt": {"payload": payload,
+               "signature": base64.b64encode(signed.stdout).decode()}}
+    path = root / "failed-claim.json"
+    path.write_bytes(MODULE.canonical(handoff) + b"\n")
+    path.chmod(0o600)
+    return path, handoff
+
+
+def handoff_supervisor(root, key, handoff_path, run_id="failed-run"):
+    supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"], os.getuid(), os.getgid(),
+                                    key, ["true"], ["true"], enforce_distinct_uid=False)
+    supervisor.terminal_handoff_path = handoff_path
+    supervisor.terminal_handoff_sha256 = hashlib.sha256(handoff_path.read_bytes()).hexdigest()
+    supervisor.terminal_handoff_run_id = run_id
+    return supervisor
+
+
+class TerminalClaimHandoffTest(unittest.TestCase):
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory(prefix="incus-claim-handoff-", dir="/tmp")
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.key = self.root / "key.pem"
+        subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(self.key)],
+                       check=True, capture_output=True)
+        self.key.chmod(0o600)
+        self.path, self.handoff = signed_failed_handoff(self.root, self.key)
+
+    def supervisor(self, run_id="failed-run"):
+        return handoff_supervisor(self.root, self.key, self.path, run_id)
+
+    def terminal(self, process):
+        payload = self.handoff["receipt"]["payload"]
+        return {"version": 1, "action": "terminal", "state": "FAILED", "process": process,
+                "claimedProcess": payload["newProcess"],
+                **{key: payload[key] for key in ("runId", "nonce", "scope", "connectionRevision")}}
+
+    def test_config_requires_exact_path_hash_and_run_together(self):
+        config = {"socket": str(self.root / "control.sock"), "appCommand": ["app"],
+                  "appUid": 1001, "appGid": 1001, "key": str(self.key),
+                  "authorityCommand": ["authority"], "receiptAuthorityCommand": ["receipt"],
+                  "terminalClaimHandoffPath": str(self.path),
+                  "terminalClaimHandoffSha256": hashlib.sha256(self.path.read_bytes()).hexdigest(),
+                  "terminalClaimHandoffRunId": "failed-run"}
+        path = self.root / "config.json"
+        for missing in ("terminalClaimHandoffPath", "terminalClaimHandoffSha256", "terminalClaimHandoffRunId"):
+            path.write_text(json.dumps({key: value for key, value in config.items() if key != missing}))
+            with mock.patch.object(sys, "argv", ["supervisor", "--config", str(path)]):
+                with self.assertRaisesRegex(ValueError, "invalid terminal claim handoff configuration"):
+                    MODULE.main()
+        path.write_text(json.dumps(config))
+        with mock.patch.object(sys, "argv", ["supervisor", "--config", str(path)]), \
+                mock.patch.object(MODULE, "Supervisor") as constructor:
+            MODULE.main()
+        chosen = constructor.return_value
+        self.assertEqual(chosen.terminal_handoff_path, self.path)
+        self.assertEqual(chosen.terminal_handoff_sha256, config["terminalClaimHandoffSha256"])
+        self.assertEqual(chosen.terminal_handoff_run_id, "failed-run")
+        chosen.serve.assert_called_once()
+
+    def test_signed_failed_claim_restores_before_child_and_consumes_durably(self):
+        supervisor = self.supervisor()
+        supervisor.load_terminal_claim_handoff()
+        self.assertEqual(supervisor.claimed["newProcess"], self.handoff["receipt"]["payload"]["newProcess"])
+        self.assertIn("failed-run", supervisor.used_runs)
+        with self.assertRaisesRegex(ValueError, "already active"):
+            supervisor.readiness({"version": 1, "action": "readiness"})
+        with mock.patch.object(supervisor, "assert_exclusive_app_uid") as exclusive:
+            with self.assertRaisesRegex(ValueError, "already active"):
+                supervisor.restart_authorized({"runId": "other-run"})
+            exclusive.assert_not_called()
+        current = MODULE.identity(os.getpid())
+        supervisor.child_identity = current
+        message = self.terminal(current)
+        with self.assertRaisesRegex(ValueError, "terminal claim changed"):
+            supervisor.terminal({**message, "runId": "other-run"})
+        self.assertFalse(self.path.with_name(self.path.name + ".consumed").exists())
+        self.assertEqual(supervisor.terminal(message), {"released": True})
+        marker = self.path.with_name(self.path.name + ".consumed")
+        self.assertEqual(json.loads(marker.read_text())["terminal"], message)
+        self.assertEqual(marker.stat().st_mode & 0o777, 0o600)
+        self.assertEqual(supervisor.terminal(message), {"released": True})
+        restarted = self.supervisor()
+        restarted.load_terminal_claim_handoff()
+        self.assertIsNone(restarted.claimed)
+        self.assertIn("failed-run", restarted.used_runs)
+
+    def test_missing_changed_and_unrelated_handoffs_fail_before_start(self):
+        self.root.chmod(0o750)
+        with self.assertRaisesRegex(ValueError, "not private"):
+            self.supervisor().load_terminal_claim_handoff()
+        self.root.chmod(0o700)
+        missing = self.supervisor()
+        self.path.unlink()
+        with mock.patch.object(missing, "start_child") as start:
+            with self.assertRaises(FileNotFoundError):
+                missing.serve()
+            start.assert_not_called()
+        self.path, self.handoff = signed_failed_handoff(self.root, self.key)
+        changed = self.supervisor()
+        self.path.write_bytes(self.path.read_bytes() + b" ")
+        with self.assertRaisesRegex(ValueError, "hash changed"):
+            changed.load_terminal_claim_handoff()
+        with self.assertRaisesRegex(ValueError, "identity changed"):
+            self.supervisor("other-run").load_terminal_claim_handoff()
+        mixed = json.loads(self.path.read_text())
+        mixed["terminalRow"]["nonce"] = "other-nonce"
+        self.path.write_bytes(MODULE.canonical(mixed) + b"\n")
+        with self.assertRaisesRegex(ValueError, "saved row changed"):
+            self.supervisor().load_terminal_claim_handoff()
+        mixed["terminalRow"]["nonce"] = self.handoff["receipt"]["payload"]["nonce"]
+        mixed["terminalRow"]["state"] = "COMPLETED"
+        self.path.write_bytes(MODULE.canonical(mixed) + b"\n")
+        with self.assertRaisesRegex(ValueError, "saved row changed"):
+            self.supervisor().load_terminal_claim_handoff()
+        self.path, self.handoff = signed_failed_handoff(self.root, self.key)
+        forged = json.loads(self.path.read_text())
+        forged["receipt"]["payload"]["scope"]["presetId"] = "other-preset"
+        forged["terminalRow"]["scope"]["presetId"] = "other-preset"
+        self.path.write_bytes(MODULE.canonical(forged) + b"\n")
+        with self.assertRaisesRegex(ValueError, "signature changed"):
+            self.supervisor().load_terminal_claim_handoff()
+
+    def test_live_claimed_process_and_changed_consumption_are_rejected(self):
+        self.path, self.handoff = signed_failed_handoff(self.root, self.key,
+                                                        new_process=MODULE.identity(os.getpid()))
+        with self.assertRaisesRegex(ValueError, "still alive"):
+            self.supervisor().load_terminal_claim_handoff()
+        self.path, self.handoff = signed_failed_handoff(self.root, self.key)
+        supervisor = self.supervisor()
+        supervisor.load_terminal_claim_handoff()
+        current = MODULE.identity(os.getpid())
+        supervisor.child_identity = current
+        self.assertEqual(supervisor.terminal(self.terminal(current)), {"released": True})
+        marker = self.path.with_name(self.path.name + ".consumed")
+        recorded = json.loads(marker.read_text())
+        recorded["terminal"]["nonce"] = "other"
+        marker.write_bytes(MODULE.canonical(recorded) + b"\n")
+        with self.assertRaisesRegex(ValueError, "consumption changed"):
+            self.supervisor().load_terminal_claim_handoff()
+
+    def test_consumption_write_failure_keeps_claim_and_readiness_fenced(self):
+        supervisor = self.supervisor()
+        supervisor.load_terminal_claim_handoff()
+        current = MODULE.identity(os.getpid())
+        supervisor.child_identity = current
+        with mock.patch.object(supervisor, "persist_abort_file", side_effect=OSError("disk full")):
+            with self.assertRaisesRegex(OSError, "disk full"):
+                supervisor.terminal(self.terminal(current))
+        self.assertIsNotNone(supervisor.claimed)
+        self.assertFalse(self.path.with_name(self.path.name + ".consumed").exists())
+        with self.assertRaisesRegex(ValueError, "already active"):
+            supervisor.readiness({"version": 1, "action": "readiness"})
+
+    def test_real_socket_child_releases_then_restart_keeps_consumed_fence(self):
+        app = r'''
+import json, os, socket, sys, time
+from pathlib import Path
+root=Path(sys.argv[1]); control=sys.argv[2]; phase=sys.argv[3]
+def call(message):
+    with socket.socket(socket.AF_UNIX) as peer:
+        peer.connect(control); peer.sendall(json.dumps(message).encode()+b'\n')
+        answer=b''
+        while not answer.endswith(b'\n'): answer+=peer.recv(4096)
+        return json.loads(answer)
+stat=Path('/proc/self/stat').read_text(); ticks=stat[stat.rfind(')')+2:].split()[19]
+process={'pid':os.getpid(),'startTicks':ticks}
+if phase=='second':
+    os.execvpe('bun',['bun','-e',r"""
+const fs=await import('node:fs');
+const root=process.env.HANDOFF_ROOT, socket=process.env.HANDOFF_SOCKET;
+const client=await import(process.env.HANDOFF_CLIENT_SOURCE);
+const witness=await import(process.env.HANDOFF_WITNESS_SOURCE);
+const payload=JSON.parse(fs.readFileSync(root+'/failed-claim.json','utf8')).receipt.payload;
+const stat=fs.readFileSync('/proc/self/stat','utf8');
+const processId={pid:process.pid,startTicks:stat.slice(stat.lastIndexOf(')')+2).split(' ')[19]};
+const report=Object.fromEntries(['runId','nonce','scope','connectionRevision'].map(key=>[key,payload[key]]));
+Object.assign(report,{process:processId,claimedProcess:payload.newProcess,state:'FAILED'});
+const env={EZCORP_INCUS_CONTROL_PROBE_ROOT:root,EZCORP_INCUS_SUPERVISOR_SOCKET:socket,
+ EZCORP_INCUS_QUALIFICATION_USER_PROJECT_ID:'reviewed-project',
+ EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF:'registry.example/proof@sha256:'+ 'a'.repeat(64),
+ EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64:process.env.HANDOFF_PUBLIC_KEY_B64};
+let releases=0;
+const ready=await witness.incusHostLiveWitnessReady({env,terminalRelease:async()=>{
+ releases++;await client.requestIncusSupervisorTerminal(socket,report);}});
+let wrongRunDenied=false;
+try{await client.requestIncusSupervisorTerminal(socket,{...report,runId:'other-run'});}catch{wrongRunDenied=true;}
+fs.writeFileSync(root+'/result-second.tmp',JSON.stringify({process:processId,ready,releases,wrongRunDenied}));
+fs.renameSync(root+'/result-second.tmp',root+'/result-second.json');
+setInterval(()=>{},1000);
+"""],dict(os.environ,HANDOFF_ROOT=str(root),HANDOFF_SOCKET=control))
+before=call({'version':1,'action':'readiness'})
+result={'process':process,'before':before}
+if phase=='first':
+    payload=json.loads((root/'failed-claim.json').read_text())['receipt']['payload']
+    report={key:payload[key] for key in ('runId','nonce','scope','connectionRevision')}
+    report.update(version=1,action='terminal',process=process,claimedProcess=payload['newProcess'],state='FAILED')
+    result['terminal']=call(report)
+    result['after']=call({'version':1,'action':'readiness'})
+temporary=root/('result-'+phase+'.tmp')
+temporary.write_text(json.dumps(result)); temporary.replace(root/('result-'+phase+'.json'))
+while True:time.sleep(.1)
+'''
+        runner_code = r'''
+import importlib.util,sys
+s=importlib.util.spec_from_file_location('supervisor',sys.argv[1]);m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
+root=sys.argv[2]; path=sys.argv[3]; phase=sys.argv[4]
+supervisor=m.Supervisor(root+'/control.sock',[sys.executable,'-c',sys.argv[5],root,root+'/control.sock',phase],
+ int(sys.argv[6]),int(sys.argv[7]),root+'/key.pem',[sys.executable,'-c','pass'],
+ [sys.executable,'-c',sys.argv[8]],enforce_distinct_uid=False)
+supervisor.fault_authority_command=[sys.executable,'-c',sys.argv[9]]
+supervisor.terminal_handoff_path=m.Path(path)
+supervisor.terminal_handoff_sha256=sys.argv[10]
+supervisor.terminal_handoff_run_id='failed-run'
+supervisor.serve()
+'''
+        pin = hashlib.sha256(self.path.read_bytes()).hexdigest()
+        public = subprocess.run(["openssl", "pkey", "-in", str(self.key), "-pubout"],
+                                check=True, capture_output=True).stdout
+        environment = dict(os.environ,
+            HANDOFF_PUBLIC_KEY_B64=base64.b64encode(public).decode(),
+            HANDOFF_CLIENT_SOURCE=str(SOURCE.parents[2] / "src/infrastructure/incus-qualification-supervisor-client.ts"),
+            HANDOFF_WITNESS_SOURCE=str(SOURCE.parents[2] / "src/infrastructure/incus-host-live-witness.ts"))
+        for phase in ("first", "second"):
+            with self.subTest(phase=phase):
+                runner = subprocess.Popen([sys.executable, "-c", runner_code, str(SOURCE), str(self.root),
+                    str(self.path), phase, app, str(os.getuid()), str(os.getgid()),
+                    RECEIPT_AUTH, FAULT_AUTH, pin], stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    env=environment)
+                try:
+                    result = wait_file(self.root / f"result-{phase}.json")
+                    if phase == "first":
+                        self.assertEqual(result["before"], {"error": "qualification run is already active"})
+                        self.assertEqual(result["terminal"], {"released": True})
+                        self.assertEqual(result["after"], {"ready": True, "protocol": "incus-qualification.v1"})
+                    else:
+                        self.assertTrue(result["ready"])
+                        self.assertEqual(result["releases"], 1)
+                        self.assertTrue(result["wrongRunDenied"])
+                    self.assertIsNone(runner.poll(), runner.stderr.read().decode() if runner.poll() is not None else "")
+                finally:
+                    runner.terminate()
+                    try: runner.wait(timeout=5)
+                    except subprocess.TimeoutExpired: runner.kill(); runner.wait()
+                    runner.stdout.close(); runner.stderr.close()
+                self.assertFalse(process_live(result["process"]["pid"]))
+
 
 
 class SupervisorTest(unittest.TestCase):
