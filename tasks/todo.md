@@ -3478,3 +3478,14 @@ changed. No live application or GitHub mutations.
 Plan review: Refactor the probe orchestration at its natural boundaries. Keep the per-resource load order, short-circuit health checks, failure wrapping, CPU diagnostic, storage checks and all guest constraints exact. No host workload is authorized.
 
 Review: The focused real Bun producer measured 51/51 orchestration lines before the change and the canonical scorer reported CC31. After extraction it measured 120/120 source lines, with CC13 for orchestration, CC17 for proof validation and CC3 for guest execution. All 16 limit tests pass (243 assertions), including exact per-resource call order. Full typecheck, focused Biome and diff whitespace check pass. A focused-only LCOV cannot prove the repository-wide changed gate; the integration owner holds that full-run proof.
+
+# Preview witness complexity — 7 October 2026
+
+- [x] Install pinned root and web dependencies; reproduce the AST complexity with real focused coverage.
+- [x] Extract cohesive private helpers without changing preview order, security checks, or cleanup behavior.
+- [x] Run focused HTTP/WebSocket witness tests, line coverage, complexity gate, types, and lint.
+- [x] Review the diff and verification evidence; commit the isolated change.
+
+Plan review: Keep all branch decisions and fail-closed checks in named helpers. Keep the caller's try/catch/finally boundary and reverse cleanup order. Use actual LCOV from the existing witness tests; no synthetic coverage data.
+
+Review: Real focused SP09 LCOV reproduces old caller CC62 and measures new caller CC29 at 99% line coverage; authorization helper CC21 at 100%, proof helpers CC8/4/4 at 100%. All 51 added executable lines are measured and hit. The existing SP09 registry/permit fixture passes (1 test); real Bun HTTP/WebSocket traffic passes (3); witness guard suite passes (23); default guest caller passes (1). Backend typecheck, focused Biome, and diff whitespace check pass. No live Incus action ran. The focused LCOV is scoped to this witness change; the combined PR quality gate still requires its full merged LCOV.

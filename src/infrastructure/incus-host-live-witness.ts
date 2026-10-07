@@ -327,37 +327,42 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       deny("preview app listener or Incus guest relay is unavailable");
     }
     await traffic.ready();
-    const { fixture, binding, scope: ownedScope, selected } = await this.owned(handle, true);
-    if (preset.profile !== "persistent-web-compose.v1" || selected.preset.id !== preset.id
-      || ownedScope.installationId !== scope.installationId || ownedScope.releaseId !== scope.releaseId
-      || ownedScope.connectionId !== scope.connectionId || ownedScope.presetId !== scope.presetId
-      || !/^[0-9a-f-]{36}$/.test(challenge) || !handle.operationId.startsWith("qual-primary-")) {
-      deny("preview fixture scope or challenge changed");
-    }
-    const runId = handle.operationId.slice("qual-primary-".length);
-    const checkpointStore = new IncusQualificationCheckpointStore(this.db);
-    const checkpoint = await checkpointStore.get(runId);
-    if (checkpoint?.state !== "CLAIMED" || checkpoint.fixtureOperationId !== handle.operationId
-      || checkpoint.bindingId !== handle.sandboxId || checkpoint.generation !== binding.generation
-      || checkpoint.connectionRevision !== fixture.connectionRevision
-      || checkpoint.scope.installationId !== scope.installationId
-      || checkpoint.scope.releaseId !== scope.releaseId
-      || checkpoint.scope.connectionId !== scope.connectionId
-      || checkpoint.scope.presetId !== scope.presetId
-      || new Date(checkpoint.deadlineAt).getTime() <= this.now()) deny("preview restart claim changed");
-    if (!fixture.ownerUserId) deny("qualification project owner is unavailable");
-    await assertIncusQualificationOwner(this.db, fixture.ownerUserId);
-    const [owner] = await this.db.select().from(projectMembers)
-      .where(and(eq(projectMembers.projectId, fixture.projectId),
-        eq(projectMembers.userId, fixture.ownerUserId), eq(projectMembers.role, "owner"))).limit(1);
-    if (!owner) deny("qualification project owner changed");
-    const context = await this.context(scope, preset);
-    const workspaceBinding: SandboxWorkspaceBinding = {
-      projectId: fixture.projectId, workspaceId: fixture.bindingId, connectionId: fixture.connectionId,
-      providerId: "incus", generation: binding.generation, presetId: preset.id,
-      releaseDigest: selected.snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
-      effectiveSettingsDigest: selected.effectiveSettingsDigest,
+    const authorizePreviewFixture = async () => {
+      const { fixture, binding, scope: ownedScope, selected } = await this.owned(handle, true);
+      if (preset.profile !== "persistent-web-compose.v1" || selected.preset.id !== preset.id
+        || ownedScope.installationId !== scope.installationId || ownedScope.releaseId !== scope.releaseId
+        || ownedScope.connectionId !== scope.connectionId || ownedScope.presetId !== scope.presetId
+        || !/^[0-9a-f-]{36}$/.test(challenge) || !handle.operationId.startsWith("qual-primary-")) {
+        deny("preview fixture scope or challenge changed");
+      }
+      const runId = handle.operationId.slice("qual-primary-".length);
+      const checkpointStore = new IncusQualificationCheckpointStore(this.db);
+      const checkpoint = await checkpointStore.get(runId);
+      if (checkpoint?.state !== "CLAIMED" || checkpoint.fixtureOperationId !== handle.operationId
+        || checkpoint.bindingId !== handle.sandboxId || checkpoint.generation !== binding.generation
+        || checkpoint.connectionRevision !== fixture.connectionRevision
+        || checkpoint.scope.installationId !== scope.installationId
+        || checkpoint.scope.releaseId !== scope.releaseId
+        || checkpoint.scope.connectionId !== scope.connectionId
+        || checkpoint.scope.presetId !== scope.presetId
+        || new Date(checkpoint.deadlineAt).getTime() <= this.now()) deny("preview restart claim changed");
+      if (!fixture.ownerUserId) deny("qualification project owner is unavailable");
+      await assertIncusQualificationOwner(this.db, fixture.ownerUserId);
+      const [owner] = await this.db.select().from(projectMembers)
+        .where(and(eq(projectMembers.projectId, fixture.projectId),
+          eq(projectMembers.userId, fixture.ownerUserId), eq(projectMembers.role, "owner"))).limit(1);
+      if (!owner) deny("qualification project owner changed");
+      const context = await this.context(scope, preset);
+      const workspaceBinding: SandboxWorkspaceBinding = {
+        projectId: fixture.projectId, workspaceId: fixture.bindingId, connectionId: fixture.connectionId,
+        providerId: "incus", generation: binding.generation, presetId: preset.id,
+        releaseDigest: selected.snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
+        effectiveSettingsDigest: selected.effectiveSettingsDigest,
+      };
+      return { fixture, binding, owner, context, workspaceBinding, runId, checkpointStore, checkpoint };
     };
+    const { fixture, binding, owner, context, workspaceBinding, runId, checkpointStore, checkpoint } =
+      await authorizePreviewFixture();
     let previewId = "";
     let httpRequests = 0;
     let webSocketConnections = 0;
@@ -515,16 +520,20 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       await this.setPower(handle, "stopped");
       stopped = true;
       const deniedStopped = await status(previewId, cookie);
-      if (positive.status !== 200 || digest(positive.body) !== challengeSha256
-        || socket.status !== 101 || socket.subprotocol !== "vite-hmr" || !socket.reply
-        || digest(socket.reply) !== challengeSha256 || redirect.status !== 302
-        || redirect.location !== "http://127.0.0.1:1/"
-        || [deniedMissingAuth, deniedWrongOwner, deniedMalformed, deniedWrongHost,
-          deniedExpired, deniedRevoked].some(value => value !== 404)
-        || [deniedWrongSandbox, deniedWrongGeneration, deniedWrongPort, deniedStopped].some(value => value !== 502)
-        || deniedWebSocketWrongOwner !== 403 || deniedWebSocketWrongOrigin !== 403
-        || httpRequests < 2 || webSocketConnections < 1
-        || observedInstanceId !== handle.sandboxId || observedPort !== PREVIEW_PORT) {
+      const positiveTrafficVerified = () => positive.status === 200
+        && digest(positive.body) === challengeSha256
+        && socket.status === 101 && socket.subprotocol === "vite-hmr" && !!socket.reply
+        && digest(socket.reply) === challengeSha256 && redirect.status === 302
+        && redirect.location === "http://127.0.0.1:1/";
+      const deniedTrafficVerified = () =>
+        [deniedMissingAuth, deniedWrongOwner, deniedMalformed, deniedWrongHost,
+          deniedExpired, deniedRevoked].every(value => value === 404)
+        && [deniedWrongSandbox, deniedWrongGeneration, deniedWrongPort, deniedStopped]
+          .every(value => value === 502)
+        && deniedWebSocketWrongOwner === 403 && deniedWebSocketWrongOrigin === 403;
+      const dispatchVerified = () => httpRequests >= 2 && webSocketConnections >= 1
+        && observedInstanceId === handle.sandboxId && observedPort === PREVIEW_PORT;
+      if (!positiveTrafficVerified() || !deniedTrafficVerified() || !dispatchVerified()) {
         deny("preview route proof is incomplete");
       }
       proofResult = { version: 1, connectionId: scope.connectionId, presetId: preset.id,
@@ -534,8 +543,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         generation: binding.generation, endpointId: previewId, ownerId: owner.userId, port: PREVIEW_PORT,
         expiresAt: row.expiresAt.toISOString(), challengeSha256, httpStatus: positive.status,
         httpBodySha256: digest(positive.body), webSocketStatus: socket.status,
-        webSocketMessageSha256: digest(socket.reply), webSocketSubprotocol: socket.subprotocol,
-        redirectStatus: redirect.status, redirectLocation: redirect.location,
+        webSocketMessageSha256: digest(socket.reply!), webSocketSubprotocol: socket.subprotocol!,
+        redirectStatus: redirect.status, redirectLocation: redirect.location!,
         dispatch: { backend: "incus", instanceId: observedInstanceId, port: observedPort,
           httpRequests, webSocketConnections },
         denied: { missingAuth: deniedMissingAuth, wrongOwner: deniedWrongOwner,
