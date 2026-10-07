@@ -29,6 +29,12 @@ const operationId = "11111111-1111-1111-1111-111111111111";
 const tokens = { "0": "a".repeat(64), "1": "b".repeat(64), "2": "c".repeat(64), control: "d".repeat(64) };
 const reply = (value: unknown, status = 200) => Response.json({ type: status === 202 ? "async" : "sync", metadata: value }, { status });
 
+function hostPython3(): string {
+  const python3 = Bun.which("python3");
+  if (!python3) throw new Error("Preview relay tests require python3 on PATH");
+  return python3;
+}
+
 class Channel implements PinnedWebSocket {
   chunks: (Buffer | null)[] = [];
   waiting: ((value: Buffer | null) => void) | null = null;
@@ -171,7 +177,7 @@ test("fixed Python relay reaches only selected guest loopback port", async () =>
   await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Missing test port");
-  const child = Bun.spawn(["/run/current-system/sw/bin/python3", "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
+  const child = Bun.spawn([hostPython3(), "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
     env: { ...process.env, EZH_PREVIEW_PORT: String(address.port), EZH_PREVIEW_LIFETIME_SECONDS: "5" },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
@@ -320,7 +326,7 @@ test("established duplex stays open after its short setup timer", async () => {
 });
 
 test("fixed guest relay exits before opening a socket when no Incus stdin arrives", async () => {
-  const child = Bun.spawn(["/run/current-system/sw/bin/python3", "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
+  const child = Bun.spawn([hostPython3(), "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
     env: { ...process.env, EZH_PREVIEW_PORT: "4173", EZH_PREVIEW_LIFETIME_SECONDS: "20" },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
