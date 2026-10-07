@@ -20,10 +20,11 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
+import { fixtureGitEnv } from "./helpers/git-fixture-env";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const BASH = Bun.which("bash");
@@ -392,6 +393,41 @@ describe("e2e lane manifest", () => {
     expect(transfer).toContain("build .svelte-kit/output");
     expect(transfer).toContain(".svelte-kit/output/server");
     expect(transfer).toContain("bun run preview");
+  });
+
+  test("transferred preview has tracked root dependencies but no untracked producer files", async () => {
+    const fixture = mkdtempSync(join(tmpdir(), "browser-transfer-source-"));
+    const trace = join(fixture, "preview-trace.json");
+    const env = { ...fixtureGitEnv(), PATH: `${dirname(process.execPath)}:${process.env.PATH}`, BROWSER_TRANSFER_TRACE: trace };
+    try {
+      for (const directory of ["scripts", "node_modules", "web/node_modules", "web/build/client/_app/immutable/entry", "web/.svelte-kit/output/client", "web/.svelte-kit/output/server"]) {
+        mkdirSync(join(fixture, directory), { recursive: true });
+      }
+      writeFileSync(join(fixture, "scripts/verify-browser-build-transfer.sh"), await Bun.file(join(REPO_ROOT, "scripts/verify-browser-build-transfer.sh")).text());
+      writeFileSync(join(fixture, "scripts/preview-marker.ts"), 'export const marker = "tracked-root-dependency";\n');
+      writeFileSync(join(fixture, "web/package.json"), JSON.stringify({ scripts: { preview: "bun preview.ts" } }));
+      writeFileSync(join(fixture, "web/preview.ts"), `import { marker } from "../scripts/preview-marker.ts";
+import { existsSync, writeFileSync } from "node:fs";
+writeFileSync(process.env.BROWSER_TRANSFER_TRACE!, JSON.stringify({ marker, untracked: existsSync("untracked-producer.txt") }));
+Bun.serve({ hostname: "127.0.0.1", port: Number(process.argv[process.argv.indexOf("--port") + 1]), fetch(request) {
+  return new Response(new URL(request.url).pathname === "/login" ? '<!doctype html><html data-hydrated="true"></html>' : 'export {};');
+} });
+`);
+      for (const file of ["web/build/client/manifest.json", "web/.svelte-kit/output/client/manifest.json"]) writeFileSync(join(fixture, file), "{}");
+      writeFileSync(join(fixture, "web/.svelte-kit/output/server/index.js"), "export {};\n");
+      writeFileSync(join(fixture, "web/build/client/_app/immutable/entry/start-fixture.js"), "export {};\n");
+      writeFileSync(join(fixture, "web/untracked-producer.txt"), "must not reach consumer");
+      for (const args of [["init", "-q"], ["add", "scripts", "web/package.json", "web/preview.ts"]]) {
+        const git = Bun.spawnSync(["git", ...args], { cwd: fixture, env });
+        expect(git.exitCode, git.stderr.toString()).toBe(0);
+      }
+      const result = Bun.spawnSync(["bash", "scripts/verify-browser-build-transfer.sh", "--round-trip-preview"], { cwd: fixture, env });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      expect(result.stdout.toString()).toContain("restored browser build preview served");
+      expect(JSON.parse(readFileSync(trace, "utf8"))).toEqual({ marker: "tracked-root-dependency", untracked: false });
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
   });
 
   test("local full coverage consumes one verified browser receipt without repeating its lanes or V8 build", async () => {

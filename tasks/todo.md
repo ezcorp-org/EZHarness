@@ -3414,6 +3414,20 @@ Review: The canonical Node/Vitest V8 producer reproduced 146/163 covered lines w
 Plan review: tests only; preserve existing authority policy. Separate Sol work owns WebSocket bridge coverage.
 Review: three new tests plus the existing host preview witness pass (4 tests, 34 assertions). The new coverage hits lines25 and71. Target source is byte-identical to frozen5bc16; combining prior and new line evidence accounts for45/45 lines, but this is diagnostic only and does not replace the final committed-HEAD gate. Full typecheck and Biome pass. Independent Sol review passed with a separate three-test run and canonical two-file host coverage shard. Repaired cleanup fixture coverage independently passed88tests/324assertions and432/432lines. Production source and gates are unchanged.
 
+# Hosted browser archive preview regression — 7 October 2026
+
+- [x] Reproduce exact f078 build and transferred-preview failure with pinned Bun and both installs.
+- [x] Identify missing root scripts/ensure-bun-websocket-hook.js in the partial test checkout.
+- [x] Add a failing behavioral fixture with a tracked root dependency and untracked-file exclusion.
+- [x] Copy complete tracked source; retain strict archive and readiness checks.
+- [x] Pass exact round-trip preview and regression tests.
+- [x] Obtain independent review.
+- [x] Commit the reviewed correction with normal hooks; all 23 lane tests pass.
+
+Plan review: API owns this isolated worktree. Original root owns integration and all live actions. Hosted job112667598428 and local exact consumer fail with exit1 after a successful build. Fix checkout fidelity, without changing production or weakening any gate.
+
+Review: New behavioral test failed before the correction with the missing root module. Afterward the full lane suite passed 23 tests / 330 assertions. The actual source-mapped f078 SvelteKit artifact also passed the unchanged restored-preview readiness checks with exit0. Full typecheck, focused Biome, and diff whitespace checks passed. Independent Sol review approved exact source diff9ddd636d after reproducing the original failure, passing the patched fixture twice, and checking shell syntax and diff whitespace. Production source, archive payload, and strict readiness checks are unchanged.
+
 # WebSocket bridge test typing repair — 7 October 2026
 
 - [x] Reproduce the Svelte check error on exact 9b7 source.
