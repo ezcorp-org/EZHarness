@@ -382,6 +382,13 @@ describe("hook-lib > staged_test_targets", () => {
     created.push(dir);
     mkdirSync(join(dir, "scripts/lib"), { recursive: true });
     mkdirSync(join(dir, "web"));
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    // The real hook can use env to remove GIT_* from each test process.
+    // Executable doubles work across that process boundary; shell functions do not.
+    for (const [command, label] of [["bun", "BUN"], ["bunx", "VITEST"]]) {
+      writeFileSync(join(bin, command), `#!/bin/sh\nprintf "${label}:%s\\n" "$*"\n`, { mode: 0o755 });
+    }
     const target = "web/src/__tests__/runner.unit.test.ts";
     writeFileSync(join(dir, "scripts/lib/test-file-sets.sh"),
       `passfail_files() { printf '%s\\n' '${target}'; for ((i=0;i<20000;i++)); do printf 'zz-%08d.test.ts\\n' "$i"; done; }
@@ -393,9 +400,7 @@ fixture_root="$2"
 fixture_target="$3"
 git() { printf '%s\\n' "$fixture_root"; }
 staged_test_targets() { printf '%s\\n' "$fixture_target" "$fixture_target.extra.unit.test.ts"; }
-bun() { printf 'BUN:%s\\n' "$*"; }
-bunx() { printf 'VITEST:%s\\n' "$*"; }
-run_staged_tests`, "_", HOOK_LIB, dir, target], { cwd: dir });
+run_staged_tests`, "_", HOOK_LIB, dir, target], { cwd: dir, env: { ...baseEnv, PATH: `${bin}:${baseEnv.PATH}` } });
     expect(res.exitCode).toBe(0);
     expect(res.out).toContain(`BUN:test --timeout 30000 ./${target}`);
     expect(res.out).toContain("VITEST:vitest run --silent=true src/__tests__/runner.unit.test.ts.extra.unit.test.ts");
