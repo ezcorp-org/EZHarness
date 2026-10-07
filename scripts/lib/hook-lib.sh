@@ -122,6 +122,21 @@ staged_test_targets() {
 # Backend files run ONE PER PROCESS with --timeout 30000 — bare `bun test` over
 # several backend files deadlocks on cross-file mock.module() contamination,
 # and the 5s default hook budget is too short for a PGlite restore.
+# Run a command without the git context a hook exports. Git sets GIT_DIR,
+# GIT_INDEX_FILE, GIT_PREFIX and friends for hook processes, and a test that
+# builds a scratch repository in a tmpdir inherits them: its `git init` then
+# re-initialises the REAL repository as bare and its `git config` writes the
+# fixture identity into the shared config (this happened on 2026-09-24 through
+# gate-scripts.test.ts, and earlier through git-hooks.test.ts). A staged test
+# never needs the hook's repository context; it finds its repository from cwd.
+without_git_context() {
+  local drop=() name
+  for name in $(compgen -e); do
+    case "$name" in GIT_*) drop+=(-u "$name") ;; esac
+  done
+  env ${drop[@]+"${drop[@]}"} "$@"
+}
+
 run_staged_tests() {
   local max="${EZ_PRECOMMIT_TEST_MAX:-12}"
   local targets count
@@ -176,13 +191,13 @@ EOF
     # that tree resolves to zero files — which bun exits non-zero for. That read
     # as "your test failed" on a file whose tests are fine. scripts/test.sh
     # prefixes for the same reason.
-    bun test --timeout 30000 "./$t" || rc=1
+    without_git_context bun test --timeout 30000 "./$t" || rc=1
   done
   if [ "${#vitest_targets[@]}" -gt 0 ]; then
     echo "  vitest: ${vitest_targets[*]}"
     # `--silent=true`, not a bare `--silent`: vitest's CAC parser treats the
     # next argv entry as the flag's VALUE and dies on the first test path.
-    (cd web && bunx vitest run --silent=true "${vitest_targets[@]}") || rc=1
+    (cd web && without_git_context bunx vitest run --silent=true "${vitest_targets[@]}") || rc=1
   fi
   return "$rc"
 }
