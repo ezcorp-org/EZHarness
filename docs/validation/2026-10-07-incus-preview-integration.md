@@ -77,6 +77,40 @@ Independent receipt review passed. The log SHA-256 is
 No passing-run trace or literal 101 log is claimed; the browser's received
 WebSocket echo establishes that the upgrade succeeded.
 
+## Restart and entrypoint regressions after the first freeze
+
+The API team's full gate on `5bc16f72fb230ec0d2492bda5c69c21b172b2842`
+found a stale entrypoint assertion: the extension exposes 17 implemented
+methods after removal of two unsupported endpoint methods. Reviewed fix
+`66ea78ddd1fbcf3ca53f24fe817196e0562e7a9c` checks the exact method set,
+provider ID, capabilities, and absence of the endpoint group. It also
+regenerates the required source lock. Its author and independent reviewer
+each passed seven tests with 102 assertions. Runtime permissions and the
+provider version do not change.
+
+A separate restart regression prevented creation of the recovery fixture:
+the rebuilt witness did not receive the initiating operator ID. Reviewed
+fix `d32a6af63` loads that ID from the exact saved primary fixture and checks
+its operation, scope, binding, revision, generation, active administrator,
+and project membership. Both production and injected witness factories
+receive the same ID. Missing or changed authority is denied; Linux profile
+behavior remains unchanged.
+
+The restart regression test uses the real host witness and fixture service
+with PGlite to create the recovery fixture after resume. The author passed
+60 fixture, 13 startup, and 26 live-case tests, backend and test type checks,
+lint, and normal commit hooks. Independent review passed the 60 fixture
+tests and checked the final committed change. These are local checks, not
+live Incus results.
+
+Both fixes are integrated through `03fd7a809a21b73a964c69caa92077599d2a2daf`.
+On that combined source, the seven entrypoint/manifest tests pass with 102
+assertions, the authoritative source-lock check passes, and the backend
+type check passes using Bun 1.3.14.
+The API team's frozen 5bc16 run continues to collect other failures. It is
+not a passing final-source gate. The cancelled local 5bc16 bundle attempt
+produced no sealed bundle and made no live change.
+
 ## Remaining release gates
 
 - [x] Complete the adapter repair and pass HTTP, WebSocket, revocation, and
