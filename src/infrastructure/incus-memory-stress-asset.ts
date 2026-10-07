@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import build from "./incus-guest/memory-stress.build.json";
+import embeddedAsset from "./incus-guest/memory-stress.x86_64.bin?url&inline";
 
 export const INCUS_MEMORY_STRESS_SHA256 = build.artifact.sha256;
 export const INCUS_MEMORY_STRESS_BYTES = build.artifact.bytes;
@@ -10,7 +11,7 @@ export interface IncusMemoryStressAsset {
   sha256: string;
 }
 
-/** Bun reads the source file; Vite embeds the asset in the production server bundle. */
+/** Bun resolves a file path in source; Vite embeds the same asset in the production server bundle. */
 export function readIncusMemoryStressAssetReference(reference: string): Promise<ArrayBuffer> {
   const prefix = "data:application/octet-stream;base64,";
   if (reference.startsWith(prefix)) {
@@ -19,17 +20,9 @@ export function readIncusMemoryStressAssetReference(reference: string): Promise<
   return Bun.file(reference).arrayBuffer();
 }
 
-async function readDefaultIncusMemoryStressAsset(): Promise<ArrayBuffer> {
-  // Vite replaces SSR with a boolean; Bun exposes environment values as strings.
-  const reference = typeof import.meta.env.SSR === "boolean" && import.meta.env.SSR
-    ? (await import("./incus-guest/memory-stress.x86_64.bin?url&inline")).default
-    : new URL("./incus-guest/memory-stress.x86_64.bin", import.meta.url).pathname;
-  return readIncusMemoryStressAssetReference(reference);
-}
-
 /** This is one reviewed qualification workload, never an arbitrary executable. */
 export async function loadIncusMemoryStressAsset(architecture: string,
-  readAsset: () => Promise<ArrayBuffer> = readDefaultIncusMemoryStressAsset): Promise<IncusMemoryStressAsset> {
+  readAsset: () => Promise<ArrayBuffer> = () => readIncusMemoryStressAssetReference(embeddedAsset)): Promise<IncusMemoryStressAsset> {
   if (architecture !== "amd64") throw new Error("Incus native memory workload architecture is unavailable");
   const bytes = new Uint8Array(await readAsset());
   if (bytes.length !== INCUS_MEMORY_STRESS_BYTES || bytes.length > 64 * 1024) {

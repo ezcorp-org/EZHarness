@@ -9,16 +9,6 @@ test("the real pinned static workload fits the unchanged transfer bound", async 
   expect(asset.bytes.length).toBe(INCUS_MEMORY_STRESS_BYTES);
   expect(asset.sha256).toBe(INCUS_MEMORY_STRESS_SHA256);
 });
-test("Bun source reads the pinned workload when SSR is an environment string", async () => {
-  const previous = process.env.SSR;
-  try {
-    process.env.SSR = "1";
-    expect((await loadIncusMemoryStressAsset("amd64")).sha256).toBe(INCUS_MEMORY_STRESS_SHA256);
-  } finally {
-    if (previous === undefined) delete process.env.SSR;
-    else process.env.SSR = previous;
-  }
-});
 test("source path and production inline URL decode the same pinned workload", async () => {
   const source = await read();
   const inlined = `data:application/octet-stream;base64,${Buffer.from(source).toString("base64")}`;
