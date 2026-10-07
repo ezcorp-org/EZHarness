@@ -60,6 +60,8 @@
   "src/infrastructure/incus-transport/lifecycle.ts": 100,
   "src/infrastructure/incus-transport/live-readback.ts": 100,
   "src/infrastructure/incus-transport/pinned-websocket.ts": 100,
+  "src/infrastructure/incus-transport/preview-duplex.ts": 100,
+  "src/infrastructure/incus-transport/preview-websocket-codec.ts": 100,
   "src/infrastructure/incus-transport/test-certificates.ts": 100,
   "src/infrastructure/incus-transport/transport.ts": 100,
   "src/infrastructure/incus-workspace-caller.ts": 100,

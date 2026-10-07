@@ -6,6 +6,7 @@ import { IncusTransportError, type IncusTransport, type IncusTransportRequest } 
 import { boundedJson, object, pinnedCertificate, pinnedOrigin, verifiedHttpsRequest, type HostConnectionResolver, type HostConnectionScope, type PinnedFetch, type ResolvedIncusConnection } from "./transport";
 
 const MAX_DEADLINE_MS = 30_000;
+export const MAX_PREVIEW_SESSION_MS = 15 * 60_000;
 const ID = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/;
 const NAME = /^[a-z][a-z0-9-]{0,62}$/;
 const DIGEST = /^[a-f0-9]{64}$/;
@@ -35,13 +36,13 @@ function sourceConfig(scope: HostConnectionScope) {
     || !Number.isSafeInteger(limits.diskBytes) || limits.diskBytes < 1024 ** 3 || limits.diskBytes > 128 * 1024 ** 3) denied("Incus lifecycle limits are unavailable");
   return lifecycle;
 }
-function assertScope(command: IncusTransportRequest, scope: HostConnectionScope): void {
+function assertScope(command: IncusTransportRequest, scope: HostConnectionScope, maxDeadlineMs = MAX_DEADLINE_MS): void {
   if (!ID.test(scope.providerInstallationId) || !ID.test(scope.providerReleaseId) || !Number.isSafeInteger(scope.revision) || scope.revision < 1) denied("Incus host scope is invalid");
   if (!ID.test(command.connectionId) || command.pins.connectionId !== command.connectionId || command.tags.connectionId !== command.connectionId
     || command.tags.managedBy !== managedBy || !DIGEST.test(command.pins.serverCertificateSha256)
     || !NAME.test(command.pins.project) || command.pins.project === "default"
     || !NAME.test(command.pins.profile) || command.pins.profile === "default"
-    || !Number.isFinite(command.deadlineMs) || command.deadlineMs <= Date.now() || command.deadlineMs - Date.now() > MAX_DEADLINE_MS) invalid("Invalid Incus lifecycle scope");
+    || !Number.isFinite(command.deadlineMs) || command.deadlineMs <= Date.now() || command.deadlineMs - Date.now() > maxDeadlineMs) invalid("Invalid Incus lifecycle scope");
   assertSandboxIdentity(command);
   assertOperationIdentity(command);
 }
@@ -67,7 +68,20 @@ export interface Session {
 }
 
 export async function withSession<T>(connections: HostConnectionResolver, scope: HostConnectionScope, http: PinnedFetch, command: IncusTransportRequest, run: (session: Session) => Promise<T>): Promise<T> {
-  assertScope(command, scope);
+  return withSessionLimit(connections, scope, http, command, run, MAX_DEADLINE_MS);
+}
+
+/** Host-only long-lived preview stream. Ordinary provider RPCs keep the 30s
+ * limit; only endpoint.open without an idempotent mutation identity may enter. */
+export async function withPreviewSession<T>(connections: HostConnectionResolver, scope: HostConnectionScope, http: PinnedFetch,
+  command: IncusTransportRequest, run: (session: Session) => Promise<T>): Promise<T> {
+  if (command.action !== "endpoint.open" || command.idempotency) invalid("Invalid Incus preview session action");
+  return withSessionLimit(connections, scope, http, command, run, MAX_PREVIEW_SESSION_MS);
+}
+
+async function withSessionLimit<T>(connections: HostConnectionResolver, scope: HostConnectionScope, http: PinnedFetch,
+  command: IncusTransportRequest, run: (session: Session) => Promise<T>, maxDeadlineMs: number): Promise<T> {
+  assertScope(command, scope, maxDeadlineMs);
   let mutationAttempted = false;
   const controller = new AbortController();
   const abort = () => controller.abort();

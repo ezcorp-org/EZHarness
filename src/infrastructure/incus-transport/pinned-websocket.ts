@@ -61,7 +61,9 @@ function maskedFrame(opcode: number, data: Uint8Array = new Uint8Array()): Buffe
 
 export interface PinnedWebSocket {
   send(data: Buffer): void;
+  sendBounded?(data: Buffer): Promise<void>;
   finish(): void;
+  readChunk?(): Promise<Buffer | null>;
   readAll(): Promise<Buffer>;
   close(): void;
 }
@@ -82,9 +84,7 @@ export async function openPinnedWebSocket(session: Session, operationId: string,
     const accept = /^sec-websocket-accept:\s*(\S+)\s*$/im.exec(header)?.[1];
     const expected = createHash("sha1").update(key + GUID).digest("base64");
     if (accept !== expected) throw new Error("Incus WebSocket upgrade invalid");
-    const readAll = async (): Promise<Buffer> => {
-      const chunks: Buffer[] = [];
-      let total = 0;
+    const readChunk = async (): Promise<Buffer | null> => {
       for (;;) {
         const head = await bytes.read(2);
         const opcode = head[0]! & 15;
@@ -104,14 +104,38 @@ export async function openPinnedWebSocket(session: Session, operationId: string,
         if (opcode !== 0 && opcode !== 1 && opcode !== 2) throw new Error("Invalid Incus WebSocket frame");
         if (opcode === 1) {
           if (head[0] !== 0x81 || length !== 0) throw new Error("Invalid Incus WebSocket stream EOF");
-          return Buffer.concat(chunks, total);
+          return null;
         }
-        total += length;
-        if (total > MAX_FRAME_BYTES) throw new Error("Incus WebSocket response is too large");
-        chunks.push(frame);
+        if (head[0] !== 0x82) throw new Error("Invalid Incus WebSocket binary stream");
+        return frame;
       }
     };
-    return { send(data) { socket.write(maskedFrame(2, data)); }, finish() { socket.write(maskedFrame(1)); }, readAll, close() { socket.destroy(); } };
+    const readAll = async (): Promise<Buffer> => {
+      const chunks: Buffer[] = [];
+      let total = 0;
+      for (;;) {
+        const chunk = await readChunk();
+        if (chunk === null) return Buffer.concat(chunks, total);
+        total += chunk.length;
+        if (total > MAX_FRAME_BYTES) throw new Error("Incus WebSocket response is too large");
+        chunks.push(chunk);
+      }
+    };
+    const sendBounded = async (data: Buffer): Promise<void> => {
+      const frame = maskedFrame(2, data);
+      if (socket.destroyed) throw new Error("Incus WebSocket closed");
+      await new Promise<void>((resolve, reject) => {
+        const closed = () => { socket.off("close", closed); reject(new Error("Incus WebSocket closed")); };
+        socket.once("close", closed);
+        socket.write(frame, error => {
+          socket.off("close", closed);
+          if (error || socket.destroyed) reject(new Error("Incus WebSocket write failed"));
+          else resolve();
+        });
+      });
+    };
+    return { send(data) { socket.write(maskedFrame(2, data)); }, sendBounded,
+      finish() { socket.write(maskedFrame(1)); }, readChunk, readAll, close() { socket.destroy(); } };
   } catch (error) {
     socket.destroy();
     throw error;

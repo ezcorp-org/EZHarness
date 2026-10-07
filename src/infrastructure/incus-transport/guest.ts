@@ -33,15 +33,19 @@ function receipt(command: IncusTransportRequest, kind: "fileRemove" | "processCa
   return { ok: true as const, receipt: { operationId: stableId(command), kind, requestId: command.idempotency!.requestId,
     idempotencyKey: command.idempotency!.key, sandboxId: command.tags.sandboxId!, acceptedAt: new Date().toISOString() } };
 }
-function operation(reply: Record<string, unknown>, sandboxName: string): { id: string; fds: Record<string, unknown> } {
+export function parseGuestExecOperation(reply: Record<string, unknown>, sandboxName: string): { id: string; fds: Record<string, string> } {
   const value = object(reply.metadata);
   const operationId = value.id;
   if (typeof operationId !== "string" || !/^[a-f0-9-]{36}$/.test(operationId)) unexpected("Invalid Incus exec operation");
   const resources = object(value.resources);
   const instances = resources.instances;
   if (!Array.isArray(instances) || !instances.some(item => typeof item === "string" && new URL(item, "https://incus.invalid").pathname === `/1.0/instances/${sandboxName}`)) denied("Incus exec operation escaped sandbox scope");
-  const fds = object(object(value.metadata).fds);
-  for (const channel of ["0", "1", "2", "control"]) if (typeof fds[channel] !== "string" || !/^[a-f0-9]{64}$/.test(fds[channel])) unexpected("Invalid Incus exec channel");
+  const raw = object(object(value.metadata).fds);
+  const fds: Record<string, string> = {};
+  for (const channel of ["0", "1", "2", "control"]) {
+    if (typeof raw[channel] !== "string" || !/^[a-f0-9]{64}$/.test(raw[channel])) unexpected("Invalid Incus exec channel");
+    fds[channel] = raw[channel] as string;
+  }
   return { id: operationId, fds };
 }
 
@@ -88,7 +92,7 @@ export class HostIncusGuestTransport implements IncusTransport {
           "wait-for-websocket": true, interactive: false, "record-output": false,
         });
         if (posted.status !== 202 || posted.envelope.type !== "async") unexpected("Incus guest exec was not accepted");
-        const exec = operation(posted.envelope, command.sandboxName!);
+        const exec = parseGuestExecOperation(posted.envelope, command.sandboxName!);
         phase = "channels";
         const sockets = await Promise.all(["0", "1", "2", "control"].map(channel => this.websocket(session, exec.id, exec.fds[channel] as string)));
         try {
