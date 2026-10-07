@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import build from "./incus-guest/memory-stress.build.json";
-import embeddedAsset from "./incus-guest/memory-stress.x86_64.bin?url&inline";
+import embeddedAsset from "./incus-guest/memory-stress.x86_64.bin?url&inline" with { type: "file" };
 
 export const INCUS_MEMORY_STRESS_SHA256 = build.artifact.sha256;
 export const INCUS_MEMORY_STRESS_BYTES = build.artifact.bytes;
