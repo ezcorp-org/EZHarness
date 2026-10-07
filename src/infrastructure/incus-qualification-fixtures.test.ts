@@ -3,7 +3,7 @@ import { afterEach, expect, spyOn, test } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { eq, sql } from "drizzle-orm";
-import { sandboxPresetDigest } from "@ezcorp/extension-contract";
+import { sandboxPresetDigest, type SandboxPreset } from "@ezcorp/extension-contract";
 import { incusOperatorFaultAuthority } from "../extensions/extension-lifecycle-service";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
@@ -32,13 +32,15 @@ const assertCurrentScope = async () => {};
 
 async function setup(configureHost = true, pendingCreate = false, providerGeneration = 1,
   inspectError: Error | null = null, hostSlots = 2,
-  options: { destroyEffect?: (request: SandboxProviderRequest) => Promise<void> | Promise<SandboxProviderOutcome>; enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number } = {}) {
+  options: { destroyEffect?: (request: SandboxProviderRequest) => Promise<void> | Promise<SandboxProviderOutcome>; enforcePowerGeneration?: boolean; refuseRunningDestroy?: boolean; pendingKinds?: string[]; inspectOutcome?: "UNKNOWN" | "PENDING"; inspectUnknownCount?: number; inspectFailureCount?: number; inspectTerminalFailure?: boolean; missingStartReceipt?: boolean; missingStopReceipt?: boolean; now?: () => number; preset?: SandboxPreset; qualificationOwnerId?: string } = {}) {
   const client = new PGlite();
   opened.push(client);
   await client.waitReady;
   await client.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await client.exec("CREATE TABLE extension_release_installations (id TEXT PRIMARY KEY, payload TEXT NOT NULL)");
   await client.exec("CREATE TABLE project_workspace_bindings (project_id TEXT PRIMARY KEY, kind TEXT NOT NULL, binding_id TEXT, revision INTEGER NOT NULL, state TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await client.exec("CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL, password_hash TEXT NOT NULL, name TEXT NOT NULL, role TEXT NOT NULL, status TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), onboarded_at TIMESTAMPTZ)");
+  await client.exec("CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   await client.exec("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, provider_installation_id TEXT NOT NULL, provider_release_id TEXT NOT NULL, endpoint TEXT NOT NULL, server_certificate_pem TEXT NOT NULL, project TEXT NOT NULL, configuration JSONB, client_certificate_pem TEXT NOT NULL, private_key_ciphertext TEXT NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   const db = drizzle(client, { schema });
   await addController(db);
@@ -49,7 +51,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
     providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
     endpoint: "https://127.0.0.1", serverCertificatePem: "cert", project: "sandbox",
     clientCertificatePem: "client", privateKeyCiphertext: "ciphertext" });
-  const preset = INCUS_PRESETS[0]!;
+  const preset = options.preset ?? INCUS_PRESETS[0]!;
   const presetDigest = await sandboxPresetDigest(preset);
   const effectiveSettingsDigest = digest({ presetDigest, connectionRevision: 1 });
   const qualifications = { authorizeFixture: async () => ({
@@ -99,6 +101,7 @@ async function setup(configureHost = true, pendingCreate = false, providerGenera
     safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 },
   });
   const fixtureServiceDeps = { db, qualifications, admission, controller, now: options.now,
+    qualificationOwnerId: options.qualificationOwnerId,
     assertCurrentScope,
     inspect: async (_installationId: string, _bindingId: string, input: Record<string, unknown>) => {
       if (inspectError) throw inspectError;
@@ -121,6 +124,47 @@ test("the default scope guard denies create before any provider effect when appr
   expect(dispatches).toHaveLength(0);
   expect(await db.select().from(schema.projects)).toHaveLength(0);
   expect(await db.select().from(schema.sandboxBindings)).toHaveLength(0);
+});
+
+test("Compose fixture binds the initiating active admin through restart and rejects an owner swap", async () => {
+  const compose = INCUS_PRESETS[1]!;
+  const composeScope = { ...scope, presetId: compose.id };
+  const missing = await setup(true, false, 1, null, 2, { preset: compose });
+  await expect(missing.service.create(composeScope, "compose-without-owner"))
+    .rejects.toThrow("Interactive qualification owner is unavailable");
+  expect(missing.dispatches).toHaveLength(0);
+  expect(await missing.db.select().from(schema.incusQualificationFixtures)).toHaveLength(0);
+
+  const { db, service, dispatches } = await setup(true, false, 1, null, 2,
+    { preset: compose, qualificationOwnerId: "admin-one" });
+  await db.insert(schema.users).values({ id: "admin-one", email: "admin@example.test",
+    passwordHash: "test", name: "Admin", role: "admin", status: "active" });
+  const first = await service.create(composeScope, "compose-owned");
+  expect(first.state).toBe("SUCCEEDED");
+  const [fixture] = await db.select().from(schema.incusQualificationFixtures);
+  expect(fixture?.ownerUserId).toBe("admin-one");
+  const [member] = await db.select().from(schema.projectMembers);
+  expect(member).toMatchObject({ projectId: fixture?.projectId, userId: "admin-one", role: "owner" });
+  expect((await service.create(composeScope, "compose-owned")).id).toBe(first.id);
+  await db.update(schema.users).set({ status: "inactive" }).where(eq(schema.users.id, "admin-one"));
+  await expect(service.create(composeScope, "compose-owned"))
+    .rejects.toThrow("not an active admin");
+  await db.update(schema.users).set({ status: "active" }).where(eq(schema.users.id, "admin-one"));
+  await db.delete(schema.projectMembers).where(eq(schema.projectMembers.projectId, fixture!.projectId));
+  await db.insert(schema.projectMembers).values({ projectId: fixture!.projectId,
+    userId: "admin-two", role: "owner" });
+  await expect(service.create(composeScope, "compose-owned"))
+    .rejects.toThrow("Interactive qualification owner changed");
+  expect(dispatches).toHaveLength(1);
+});
+
+test("fixture migration adds the durable owner column to an existing table", async () => {
+  const { db } = await setup();
+  await db.execute(sql`ALTER TABLE incus_qualification_fixtures DROP COLUMN owner_user_id`);
+  await addQualificationFixtures(db);
+  await addQualificationFixtures(db);
+  const rows = await db.execute(sql`SELECT owner_user_id FROM incus_qualification_fixtures`);
+  expect(rows.rows).toEqual([]);
 });
 
 test("host fixture create and destroy use admission and durable controller without a user workspace binding", async () => {

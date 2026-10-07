@@ -98,13 +98,13 @@ test("Compose preview qualification rejects missing app listener and relay befor
     qualifications: {} as IncusQualificationStore,
     fixtures: {} as IncusQualificationFixtureService,
     previewBackend: new IncusSandboxPreviewBackend({} as never),
-    previewTraffic: { ready: async () => false,
+    previewTraffic: { ready: async () => { throw new Error("preview unready"); },
       handoff: async () => { throw new Error("unreachable"); },
       http: async () => { throw new Error("unreachable"); },
       webSocket: async () => { throw new Error("unreachable"); } },
   });
   await expect(guarded.exercisePreviewAndStop(handle, scope, INCUS_PRESETS[0]!, randomUUID()))
-    .rejects.toThrow("preview app listener or Incus guest relay is unavailable");
+    .rejects.toThrow("preview unready");
 });
 
 test("restart handoff stays bound to the saved fixture and rejects a changed claimed scope", async () => {

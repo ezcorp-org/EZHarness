@@ -7,6 +7,7 @@ export async function up(db: MigrationDb): Promise<void> {
     CHECK (purpose IN ('user', 'incus-qualification'))`);
   await db.execute(sql`CREATE TABLE IF NOT EXISTS incus_qualification_fixtures (
     operation_id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE RESTRICT,
     binding_id TEXT NOT NULL UNIQUE REFERENCES sandbox_bindings(id) ON DELETE RESTRICT,
     installation_id TEXT NOT NULL,
@@ -18,4 +19,6 @@ export async function up(db: MigrationDb): Promise<void> {
     effective_settings_digest TEXT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
   )`);
+  await db.execute(sql`ALTER TABLE incus_qualification_fixtures
+    ADD COLUMN IF NOT EXISTS owner_user_id TEXT`);
 }

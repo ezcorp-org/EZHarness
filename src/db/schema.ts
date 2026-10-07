@@ -109,9 +109,11 @@ export const sandboxBindings = pgTable("sandbox_bindings", {
     .where(sql`${table.tombstonedAt} IS NOT NULL AND ${table.cleanupConfirmedAt} IS NULL`),
 ]);
 
-/** Host-only fixture ownership. No project membership or workspace binding is created. */
+/** Host-only fixture ownership. Compose stores its initiating admin as the
+ * sole project owner. No user workspace binding is created. */
 export const incusQualificationFixtures = pgTable("incus_qualification_fixtures", {
   operationId: text("operation_id").primaryKey(),
+  ownerUserId: text("owner_user_id"),
   projectId: text("project_id").notNull().references(() => projects.id, { onDelete: "restrict" }).unique(),
   bindingId: text("binding_id").notNull().references(() => sandboxBindings.id, { onDelete: "restrict" }).unique(),
   installationId: text("installation_id").notNull(),

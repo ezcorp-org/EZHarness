@@ -33,13 +33,14 @@ async function database() {
       state TEXT NOT NULL, generation INTEGER NOT NULL);
     CREATE TABLE incus_qualification_fixtures (operation_id TEXT PRIMARY KEY, project_id TEXT NOT NULL,
       binding_id TEXT NOT NULL, installation_id TEXT NOT NULL, release_id TEXT NOT NULL,
-      connection_id TEXT NOT NULL, connection_revision INTEGER NOT NULL, preset_id TEXT NOT NULL);
+      connection_id TEXT NOT NULL, connection_revision INTEGER NOT NULL, preset_id TEXT NOT NULL,
+      owner_user_id TEXT);
     INSERT INTO projects VALUES ('project', 'incus-qualification');
     INSERT INTO sandbox_bindings VALUES ('binding', 'project', 3, 'STOPPED', 'STOPPED',
       'stop-operation', 'installation', 'release', 'connection', 2, 'preset');
     INSERT INTO provider_sandbox_operations VALUES ('stop-operation', 'binding', 'SUCCEEDED', 3);
     INSERT INTO incus_qualification_fixtures VALUES
-      ('fixture', 'project', 'binding', 'installation', 'release', 'connection', 2, 'preset');
+      ('fixture', 'project', 'binding', 'installation', 'release', 'connection', 2, 'preset', NULL);
   `);
   const db = drizzle(client);
   await up(db);

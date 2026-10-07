@@ -16,7 +16,7 @@ import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
   type ActiveExtensionRelease } from "../extensions/release-process";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
-import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
+import { assertIncusQualificationOwner, IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, IncusQualificationStore, type IncusImageReceipt,
   type IncusQualificationScope } from "./incus-qualification";
 import { incusGuestFailureCauseCode, INCUS_WITNESS_GUEST_OPERATIONS, type HostIncusLiveWitness, type LiveFixtureHandle, type LiveFixtureInspection } from "./incus-live-cases";
 import { observeIncusResourceEnforcement, type IncusNetworkTarget } from "./incus-live-resource-probes";
@@ -29,6 +29,7 @@ import { ProviderConnectionStore, type ProviderConnectionCredentials,
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { registerClaimedQualificationPreview } from "./incus-qualification-preview-permit";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
+import type { IncusPreviewTrafficDriver } from "./incus-preview-traffic";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt, type IncusSupervisorSelectedPin,
   requestIncusSupervisorRestart, releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
@@ -67,19 +68,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
    self.send_response(200); self.send_header("Content-Length",str(len(payload))); self.end_headers(); self.wfile.write(payload)
 class Server(socketserver.ThreadingMixIn,http.server.HTTPServer): daemon_threads=True
 Server(("127.0.0.1",4173),Handler).serve_forever()`;
-
-export interface IncusPreviewTrafficDriver {
-  ready(): Promise<boolean>;
-  handoff(input: { previewId: string; code: string }): Promise<{ status: number; cookie: string | null }>;
-  http(input: { previewId: string; cookie: string | null; path: string;
-    wrongHost?: boolean; malformedHost?: boolean }): Promise<{
-    status: number; body: Uint8Array; location: string | null;
-  }>;
-  webSocket(input: { previewId: string; cookie: string | null; path: string;
-    subprotocol: "vite-hmr"; challenge: string; wrongOrigin?: boolean }): Promise<{
-      status: number; subprotocol: string | null; reply: Uint8Array | null;
-    }>;
-}
 
 /** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
 export async function incusHostLiveWitnessReady(deps: {
@@ -152,6 +140,7 @@ export interface IncusHostLiveWitnessDependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
   fixtures?: IncusQualificationFixtureService;
+  qualificationOwnerId?: string;
   /** Replace only with a test seam that performs the same protected release call. */
   invokeGuest?: (installationId: string, bindingId: string, operation: SandboxProtocolOperation,
     input: Record<string, unknown>) => Promise<unknown>;
@@ -240,7 +229,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.db = deps.db ?? getDb();
     this.qualifications = deps.qualifications ?? new IncusQualificationStore({ db: this.db });
     this.fixtures = deps.fixtures ?? new IncusQualificationFixtureService({ db: this.db,
-      qualifications: this.qualifications });
+      qualifications: this.qualifications, qualificationOwnerId: deps.qualificationOwnerId });
     this.invokeGuest = deps.invokeGuest ?? invokeRelease;
     this.activeRelease = deps.activeRelease ?? (id => resolveActiveRelease(id, getReleaseRuntime()));
     this.resolveConnection = deps.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
@@ -334,9 +323,10 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     preset: SandboxPreset, challenge: string): Promise<LiveSandboxPreviewProof> {
     const traffic = this.previewTraffic;
     const backend = this.previewBackend;
-    if (!traffic || !(backend instanceof IncusSandboxPreviewBackend) || !await traffic.ready()) {
+    if (!traffic || !(backend instanceof IncusSandboxPreviewBackend)) {
       deny("preview app listener or Incus guest relay is unavailable");
     }
+    await traffic.ready();
     const { fixture, binding, scope: ownedScope, selected } = await this.owned(handle, true);
     if (preset.profile !== "persistent-web-compose.v1" || selected.preset.id !== preset.id
       || ownedScope.installationId !== scope.installationId || ownedScope.releaseId !== scope.releaseId
@@ -355,10 +345,12 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       || checkpoint.scope.connectionId !== scope.connectionId
       || checkpoint.scope.presetId !== scope.presetId
       || new Date(checkpoint.deadlineAt).getTime() <= this.now()) deny("preview restart claim changed");
+    if (!fixture.ownerUserId) deny("qualification project owner is unavailable");
+    await assertIncusQualificationOwner(this.db, fixture.ownerUserId);
     const [owner] = await this.db.select().from(projectMembers)
-      .where(and(eq(projectMembers.projectId, fixture.projectId), eq(projectMembers.role, "owner")))
-      .orderBy(projectMembers.userId).limit(1);
-    if (!owner) deny("qualification project owner is unavailable");
+      .where(and(eq(projectMembers.projectId, fixture.projectId),
+        eq(projectMembers.userId, fixture.ownerUserId), eq(projectMembers.role, "owner"))).limit(1);
+    if (!owner) deny("qualification project owner changed");
     const context = await this.context(scope, preset);
     const workspaceBinding: SandboxWorkspaceBinding = {
       projectId: fixture.projectId, workspaceId: fixture.bindingId, connectionId: fixture.connectionId,
@@ -448,11 +440,17 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         readCurrent: async () => {
           const current = await checkpointStore.get(runId);
           const owned = await this.owned(handle, true).catch(() => null);
+          const ownerCurrent = await assertIncusQualificationOwner(this.db, fixture.ownerUserId!)
+            .then(() => true).catch(() => false);
+          const [member] = ownerCurrent ? await this.db.select({ userId: projectMembers.userId })
+            .from(projectMembers).where(and(eq(projectMembers.projectId, fixture.projectId),
+              eq(projectMembers.userId, fixture.ownerUserId!), eq(projectMembers.role, "owner"))).limit(1) : [];
           const active = await this.activeRelease(fixture.installationId).catch(() => null);
           const connection = await this.resolveConnection({ connectionId: fixture.connectionId,
             providerInstallationId: fixture.installationId, providerReleaseId: fixture.releaseId,
             revision: fixture.connectionRevision }).catch(() => null);
-          if (!current || !owned || current.state !== "CLAIMED"
+          if (!current || !owned || !member || owned.fixture.ownerUserId !== fixture.ownerUserId
+            || current.state !== "CLAIMED"
             || new Date(current.deadlineAt).getTime() <= this.now()
             || owned.selected.snapshot.release.releaseDigest !== workspaceBinding.releaseDigest
             || active?.installation.id !== fixture.installationId
@@ -469,7 +467,7 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       const handoff = await traffic.handoff({ previewId, code: mintOneTimeCode({ previewId, userId: owner.userId }) });
       if (handoff.status !== 302 || !handoff.cookie) deny("preview one-time handoff failed");
       const cookie = handoff.cookie;
-      const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+      const digest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
       const challengeSha256 = digest(Buffer.from(challenge));
       const positive = await traffic.http({ previewId, cookie, path: "/proof" });
       const socket = await traffic.webSocket({ previewId, cookie, path: "/proof",

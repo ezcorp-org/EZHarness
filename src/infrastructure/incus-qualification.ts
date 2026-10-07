@@ -10,9 +10,9 @@ import {
 } from "@ezcorp/extension-contract";
 import { and, desc, eq, sql } from "drizzle-orm";
 import { getDb, type Database, type DbTransaction } from "../db/connection";
-import { incusQualificationFixtures, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
+import { incusQualificationFixtures, projectMembers, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
   sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
-  type SandboxOperation } from "../db/schema";
+  users, type SandboxOperation } from "../db/schema";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
 import { digest } from "../../scripts/incus/model";
@@ -337,11 +337,26 @@ export class IncusQualificationOperationUnsettledError extends Error {
 export interface IncusQualificationFixtureDependencies {
   db?: Database;
   qualifications?: IncusQualificationStore;
+  /** The interactive admin who initiated this Compose qualification run. */
+  qualificationOwnerId?: string;
   assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
   admission?: SandboxAdmissionStore;
   controller?: SandboxController;
   inspect?: IncusFeatureServiceDependencies["inspect"];
   now?: () => number;
+}
+
+/** The browser session's admin identity is checked before any fixture effect.
+ * The same ID is persisted as owner of each disposable fixture project. */
+export async function assertIncusQualificationOwner(db: Database, userId: string): Promise<void> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(userId)) {
+    throw new Error("Interactive qualification owner is invalid");
+  }
+  const [operator] = await db.select({ id: users.id, role: users.role, status: users.status }).from(users)
+    .where(eq(users.id, userId)).limit(1);
+  if (operator?.role !== "admin" || operator.status !== "active") {
+    throw new Error("Interactive qualification owner is not an active admin");
+  }
 }
 
 function uniqueViolation(error: unknown): boolean {
@@ -365,10 +380,12 @@ export class IncusQualificationFixtureService {
   private readonly now: () => number;
   private readonly fixtureLocks = new Map<string, Promise<void>>();
   private readonly assertCurrentScope: ProviderConnectionStore["assertCurrentScope"];
+  private readonly qualificationOwnerId: string | undefined;
 
   constructor(deps: IncusQualificationFixtureDependencies = {}) {
     this.db = deps.db ?? getDb();
     this.qualifications = deps.qualifications ?? new IncusQualificationStore({ db: this.db });
+    this.qualificationOwnerId = deps.qualificationOwnerId;
     this.admission = deps.admission ?? new SandboxAdmissionStore(this.db);
     this.controller = deps.controller ?? new SandboxController(this.db,
       new IncusSandboxProviderDispatcher(new IncusMethodCaller()));
@@ -532,6 +549,11 @@ export class IncusQualificationFixtureService {
 
   private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     const selected = await this.qualifications.authorizeFixture(scope);
+    const compose = selected.preset.profile === "persistent-web-compose.v1";
+    if (compose && !this.qualificationOwnerId) {
+      throw new Error("Interactive qualification owner is unavailable");
+    }
+    if (compose) await assertIncusQualificationOwner(this.db, this.qualificationOwnerId!);
     const identity = qualificationFixtureIdentity(scope, operationId);
     const projectId = `incus-qual-project-${identity}`;
     const bindingId = `incus-qual-binding-${identity}`;
@@ -544,8 +566,17 @@ export class IncusQualificationFixtureService {
             releaseDigest: selected.snapshot.release.releaseDigest,
             generation: selected.snapshot.installation.generation,
             revision: selected.connection.revision }, tx);
+          if (compose) {
+            const [operator] = await tx.select({ role: users.role, status: users.status }).from(users)
+              .where(eq(users.id, this.qualificationOwnerId!)).limit(1);
+            if (operator?.role !== "admin" || operator.status !== "active") {
+              throw new Error("Interactive qualification owner changed before fixture creation");
+            }
+          }
           await tx.insert(projects).values({ id: projectId, name: projectId, purpose: "incus-qualification",
             path: `/__incus_qualification__/${identity}` });
+          if (compose) await tx.insert(projectMembers).values({ projectId,
+            userId: this.qualificationOwnerId!, role: "owner" });
           await tx.insert(sandboxBindings).values({ id: bindingId, projectId,
             providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
             connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
@@ -553,6 +584,7 @@ export class IncusQualificationFixtureService {
             presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
             desiredState: "STOPPED", observedState: "UNKNOWN" });
           await tx.insert(incusQualificationFixtures).values({ operationId, projectId, bindingId,
+            ownerUserId: compose ? this.qualificationOwnerId : null,
             installationId: scope.installationId, releaseId: scope.releaseId,
             connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
             presetId: scope.presetId, presetDigest: selected.presetDigest,
@@ -567,6 +599,15 @@ export class IncusQualificationFixtureService {
     }
     if (!row || row.projectId !== projectId || row.bindingId !== bindingId) {
       throw new Error("Incus qualification fixture identity changed");
+    }
+    if (compose) {
+      if (row.ownerUserId !== this.qualificationOwnerId) {
+        throw new Error("Interactive qualification owner changed");
+      }
+      const [owner] = await this.db.select({ userId: projectMembers.userId }).from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, this.qualificationOwnerId!), eq(projectMembers.role, "owner"))).limit(1);
+      if (!owner) throw new Error("Interactive qualification owner changed");
     }
     this.assertFixture(row, scope, selected.connection.revision,
       selected.presetDigest, selected.effectiveSettingsDigest);
