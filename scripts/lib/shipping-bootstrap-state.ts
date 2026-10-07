@@ -4,6 +4,7 @@ import { bundledInstallationId } from "../../src/extensions/bundled-bootstrap";
 import type { InstallationState, LifecycleOperation } from "../../src/extensions/v4/types";
 import {
   BUNDLED_BOOTSTRAP_POLICY,
+  type BundledBootstrapBuild,
   type BundledBootstrapPolicy,
   BundledBootstrapProgress,
   type BundledBootstrapProgressSummary,
@@ -89,6 +90,19 @@ function summarizeBootstrap(
   };
 }
 
+/** Every bundled installation's lifecycle state, by name (the server's installation id, else the deterministic bundled id). */
+async function inspectBundledInstallations(client: HarnessClient, names: ReadonlySet<string>): Promise<Array<{ name: string; installationId: string; state: InstallationState }>> {
+  const extensions = await client.listExtensions();
+  const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
+  const installations = [...names].map(name => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
+  if (new Set(installations.map(({ installationId }) => installationId)).size !== names.size) throw new Error("Candidate bootstrap installation IDs are not unique");
+  return Promise.all(installations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
+}
+
+function bundledNames(): Set<string> {
+  return new Set(resolveBundledExtensions().map(({ name }) => name));
+}
+
 export type BundledBootstrapWaitOptions = {
   requireObservedPending?: boolean;
   policy?: BundledBootstrapPolicy;
@@ -102,7 +116,7 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: Bu
   const sleep = options.sleep ?? Bun.sleep;
   const policy = options.policy ?? BUNDLED_BOOTSTRAP_POLICY;
   const startedAtMs = now();
-  const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
+  const bootstrapNames = bundledNames();
   const observer: BundledBootstrapObserver = {
     startedAt: new Date(startedAtMs).toISOString(),
     policy,
@@ -114,12 +128,7 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: Bu
   let initialPending = 0;
   let maximumPending = 0;
   for (;;) {
-    const extensions = await client.listExtensions();
-    const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
-    const lifecycleInstallations = [...bootstrapNames].map(name => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
-    const lifecycleIds = lifecycleInstallations.map(({ installationId }) => installationId);
-    if (new Set(lifecycleIds).size !== bootstrapNames.size) throw new Error("Candidate bootstrap installation IDs are not unique");
-    const states = await Promise.all(lifecycleInstallations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
+    const states = await inspectBundledInstallations(client, bootstrapNames);
     const pending = states.reduce((count, { state }) => count + Object.values(state.operations).filter(operation => isPendingBuildState(operation.state)).length, 0);
     maximumPending = Math.max(maximumPending, pending);
     if (pending > 0 && initialPending === 0) initialPending = pending;
@@ -132,6 +141,49 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: Bu
     const verdict = progress.observe(states.map(({ name, state }) => latestBuild(name, state)), now());
     if (idleChecks === 2) return { ...latest, progress: progress.summary() };
     if (verdict) throw new BundledBootstrapTimeoutError(latest, observer, verdict);
+    await sleep(1_000);
+  }
+}
+
+export class BuildWaitTimeoutError extends Error {
+  constructor(
+    public readonly operationId: string,
+    public readonly verdict: BundledBootstrapVerdict,
+  ) {
+    super(`Build ${operationId} did not finish: ${describeBundledBootstrapVerdict(verdict)}`);
+    this.name = "BuildWaitTimeoutError";
+  }
+}
+
+/**
+ * Wait until one build verifies with a release, and return its installation's state. Every build shares the
+ * one runner with the bundled bootstrap, so a build requested while the bootstrap runs waits behind its whole chain (the
+ * historical upgrade's candidate staged 28 bundled builds just before its user build). The wait therefore ends on NO
+ * PROGRESS of that queue (bundled-bootstrap-progress.ts), never on a flat wall clock.
+ */
+export async function waitForBuildVerified(
+  client: HarnessClient,
+  installationId: string,
+  operationId: string,
+  options: Pick<BundledBootstrapWaitOptions, "policy" | "now" | "sleep"> = {},
+): Promise<InstallationState> {
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? Bun.sleep;
+  const progress = new BundledBootstrapProgress(now(), options.policy ?? BUNDLED_BOOTSTRAP_POLICY);
+  const names = bundledNames();
+  for (;;) {
+    const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: 30_000 });
+    const operation = state.operations[operationId];
+    if (!operation) throw new Error(`Build ${operationId} disappeared from installation ${installationId}`);
+    if (!isPendingBuildState(operation.state)) {
+      if (operation.state !== "verified") throw new Error(`Build ${operationId} ended ${operation.state}: ${JSON.stringify(operation.diagnostics)}`);
+      if (!operation.releaseId || !state.releases[operation.releaseId]) throw new Error(`Build ${operationId} verified without a release`);
+      return state;
+    }
+    const awaited: BundledBootstrapBuild = { name: `build ${operationId}`, operationId, state: operation.state, updatedAt: operation.updatedAt, leaseUntil: operation.lease?.until ?? null };
+    const queue = await inspectBundledInstallations(client, names);
+    const verdict = progress.observe([awaited, ...queue.map(({ name, state: bundled }) => latestBuild(name, bundled))], now());
+    if (verdict) throw new BuildWaitTimeoutError(operationId, verdict);
     await sleep(1_000);
   }
 }

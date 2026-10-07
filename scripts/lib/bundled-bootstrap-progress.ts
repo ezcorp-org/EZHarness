@@ -1,6 +1,7 @@
 /**
  * The one deadline policy for every observer of the bundled bootstrap: the production proofs
- * (scripts/lib/shipping-bootstrap-state.ts) and the real-server e2e setups
+ * (scripts/lib/shipping-bootstrap-state.ts), the proofs' single-build wait behind the bootstrap's queue
+ * (waitForBuildVerified, read by production-lifecycle-client.ts waitVerified) and the real-server e2e setups
  * (web/e2e/fixtures/bundled-bootstrap.ts). Pure: no I/O, no clock of its own.
  *
  * The server builds the bundled extensions ONE AT A TIME through its single isolated runner (by
