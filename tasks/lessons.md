@@ -688,3 +688,16 @@
   settings and marker metadata as well as transport restoration and abort.
   A working connection does not prove that temporary service settings were
   removed. Test runtime-bound configuration hashes, not just preview hashes.
+- Diagnostic clients must use the real helper protocol in local tests. A
+  plausible mock can miss required top-level boot IDs and terminal-state
+  names. After START succeeds, correct observation of that saved handle;
+  never start another process to repair a read request. Preserve the first
+  wrapper failure separately from facts recovered later.
+- A local memory test is not a reproduction unless its reclaim and fault
+  evidence match the server failure. File-cache charge ownership can make
+  the same executable behave differently across cgroups. Record this limit
+  before using a fast local OOM result to justify an image change.
+- Matching two saved binary hashes is not a reproducible-build procedure.
+  Record the complete compiler argument vector, specs, linker selection and
+  static inputs. Run the documented build from a fresh output directory and
+  compare its bytes before calling the provenance complete.

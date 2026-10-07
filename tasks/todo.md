@@ -1,4 +1,16 @@
-# Active completion — 3 October 2026
+# Current completion — 6 October 2026 resumed session
+
+- [x] Recheck access: server SSH and Incus are available; local TCP sockets work; isolated app and runner are active.
+- [x] Confirm installed app source `6d2572d9f179d14c9912618981be993accdc9219`, manifest `b8efab47997cc92b839586e0792e888c656a1d4ae98be6a94b8ec8ce3545c229`.
+- [x] Recover the reviewed native asset work. Commit `1b8506673` has a new 59,704-byte artifact, SHA-256 `be1051effa23cd55790a7ad070eded71f3702fe22c54fb8f56e0cd97c28c5247`; byte-identical rebuild, five native tests, 129/129 measured C lines and 47 coverage guard tests pass. The prior server diagnostic tested a different prototype.
+- [ ] Complete and independently review native staging through the existing bounded file and helper process contracts. Keep memory targets, deadlines, OOM and health requirements unchanged.
+- [ ] Build and verify the integrated app, preserve current state during its guarded update, and qualify the exact new native artifact on the server.
+- [ ] Complete ten consecutive feature lifecycles with fresh qualification between clean batches, restart, denied access, retention and independent cleanup/accounting proof.
+- [ ] Pass final-source local and hosted gates, update PR #303, and complete independent review. Do not merge or publicly release without authorization.
+
+Current boundary: one complete native feature workflow and cleanup already passed on provider 0.1.5. Memory qualification remains unreliable: the installed Python candidate failed its later controlled run. The new native artifact has local validation only. PR #303 remains open and draft; all 51 hosted checks passed for `eafae1446`, not the later allocator and native changes. The historical checkpoints below retain their original observations and failures.
+
+# Historical completion record — from 3 October 2026
 
 ## Current next steps — 6 October, corrected image/provider source and installed app e02641500
 
@@ -3230,6 +3242,12 @@ validation but do not require another app deployment.
   provider, image and connection. No database restore was used.
 - [ ] Run the controlled live comparison and retain failure evidence. One
   positive result alone does not establish reliability.
+  Run `fb66` failed with the same memory inspection deadline. The candidate
+  is not a fix. Verified process records show sustained major faults in the
+  load and both Python supervisors. Original STOP settled; a distinct
+  destroy succeeded, and physical inventory is empty. Final accounting and
+  healthy resume passed independent review. Review a native load process with bounded resident code/stack
+  before another implementation; do not increase deadlines or waive OOM.
 - [ ] Once the candidate is supported by evidence, complete ten lifecycle
   tests in batches of at most three with fresh qualification and accounting.
 
@@ -3238,3 +3256,34 @@ Review boundary: hosted PR integration checks passed all 51 checks for
   interrupted by host memory pressure. Neither that interruption nor the
   failed qualification is a pass. No deadline increase or OOM waiver is part
   of this candidate.
+
+### Native memory-load candidate
+
+- [x] Test a bounded native process locally. Its locked control memory stays
+  below 1 MiB; the stress payload remains unlocked. Local 4 GiB tests did
+  not reproduce the server's reclaim stall, so they prove feasibility only.
+- [x] Read actual helper-child security and memory-lock limits. The original
+  wrapper failed; facts were recovered from the same process without START
+  replay. Its temporary guest was removed.
+- [x] Run one reviewed server diagnostic with the native process. The owned
+  kernel OOM killed the intended child, the strict helper checks passed,
+  cleanup removed the guest, and the app stayed healthy. Raw helper frames
+  were not exported before deletion; this is not full qualification proof.
+- [x] Produce and review a reproducible native artifact within the existing
+  64 KiB file limit. Do not widen that limit or add a runtime compiler.
+  The canonical 59,704-byte artifact `be1051ef` passed independent parser,
+  lock and actual rebuild checks. Its server qualification remains pending.
+- [x] Implement and independently review the narrow production staging seam.
+  Native coverage measured 129/129 lines; five native tests and 47 coverage
+  guard tests passed. The TypeScript integration passed 55 tests and 645
+  assertions, including the real binary transport and same-file execution.
+  Native and integration commits are `216491973` and `cb047485d` on this
+  branch. Both workers used separate worktrees and normal commit hooks.
+- [ ] Run combined repository gates, verify the actual staged bundle and
+  normal-user asset loading, then update the isolated app.
+- [ ] Pass production qualification and repeated lifecycles with full evidence.
+
+The initial 77,096-byte prototype could not use the 64 KiB file API. The
+reviewed smaller artifact can use the existing bounded file contract. No
+image or provider change is planned for this fixture. One native diagnostic
+passed in less than three seconds, but reliability is not yet proved.
