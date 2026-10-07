@@ -122,6 +122,7 @@ FULL_VITEST_EXIT=0
 PROVIDER_EXIT=0
 WORKER_EXIT=0
 WEB_UTILITY_EXIT=0
+NATIVE_MEMORY_STRESS_EXIT=0
 WEB_VITEST_SOURCE_GUARD_EXIT=0
 BROWSER_RECEIPT_EXIT=0
 HOST_POOL_MS=0
@@ -268,6 +269,7 @@ run_legs() {
   # bottom of this file) walks the same registry — so a leg that dies without
   # writing an lcov is named, instead of silently vanishing from the merge
   # glob. See the registry's header for why the silent skip was so expensive.
+  register_leg native-memory-stress cov_native_memory_stress
   register_leg sdk cov_sdk
   register_leg harness-client cov_hc
   register_leg suggest cov_suggest
@@ -287,6 +289,15 @@ run_legs() {
   # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
   # ONE definition shared with the orphan-drift meta-test, so a leg's set
   # can never drift from what the meta-test credits it with running.
+
+  # Native C: real GCC/gcov statements and compiled fault-boundary tests.
+  await_leg_slot
+  (
+    set +e
+    python3 "$SCRIPT_DIR/incus/native-memory-stress-coverage.py" --output "${LEG_COV_DIR[native-memory-stress]}/lcov.info" > "$legs/native-memory-stress.out" 2>&1
+    echo "$?" > "$legs/native-memory-stress.code"
+  ) &
+  running=$((running + 1))
 
   # SDK: top-level test/ + co-located entities/__tests__/ (the canonical
   # coverage for entities/{validate,tools,storage,slug}.ts). mock.module-free,
@@ -441,7 +452,7 @@ run_legs() {
   # Print each leg's captured output sequentially (no interleaving), then
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
-  local printed_legs=(sdk hc suggest aikit providers api-client empty-node-shim worker web-utility)
+  local printed_legs=(native-memory-stress sdk hc suggest aikit providers api-client empty-node-shim worker web-utility)
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
@@ -453,6 +464,12 @@ run_legs() {
   for leg in sdk hc suggest aikit; do
     tally "$(cat "$legs/$leg.out" 2>/dev/null)"
   done
+
+  NATIVE_MEMORY_STRESS_EXIT=$(cat "$legs/native-memory-stress.code" 2>/dev/null || echo 1)
+  if [ "$NATIVE_MEMORY_STRESS_EXIT" != "0" ]; then
+    FAILED_FILES+=("native memory stress coverage leg")
+    echo "--- FAIL: native memory stress coverage leg (exit $NATIVE_MEMORY_STRESS_EXIT) ---"
+  fi
 
   SDK_LEG_EXIT=$(cat "$legs/sdk.code" 2>/dev/null || echo 1)
   if [ "$SDK_LEG_EXIT" != "0" ]; then
@@ -664,7 +681,7 @@ if [ -n "$COVERAGE_LEGS_ONLY" ]; then
     exit 1
   fi
   if [ "$HC_EXIT" != "0" ] || [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || \
-     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
+     [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$NATIVE_MEMORY_STRESS_EXIT" != "0" ] || [ "$LEG_LCOV_EXIT" != "0" ]; then exit 1; fi
   exit 0
 fi
 
@@ -940,7 +957,7 @@ emit_full_timing_receipt
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$NATIVE_MEMORY_STRESS_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -953,7 +970,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT native_memory_stress=$NATIVE_MEMORY_STRESS_EXIT security=$SECURITY_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

@@ -775,11 +775,12 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
   }
 
   /** Execute the extracted real verdict with every unrelated producer green. */
-  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number } = {}): Run {
+  function runCoverageVerdict(body: string, exits: { sdk?: number; emptyNodeShim?: number; webUtility?: number; nativeMemoryStress?: number } = {}): Run {
     const sdk = exits.sdk ?? 0;
     const emptyNodeShim = exits.emptyNodeShim ?? 0;
     const webUtility = exits.webUtility ?? 0;
-    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
+    const nativeMemoryStress = exits.nativeMemoryStress ?? 0;
+    const proc = Bun.spawnSync(["bash", "-c", `set -u\nTOTAL_PASS=1\nTOTAL_FAIL=0\nSDK_LEG_EXIT=${sdk}\nFULL_VITEST_EXIT=0\nPROVIDER_EXIT=0\nAPI_CLIENT_EXIT=0\nWORKER_EXIT=0\nWEB_UTILITY_EXIT=${webUtility}\nNATIVE_MEMORY_STRESS_EXIT=${nativeMemoryStress}\nEMPTY_NODE_SHIM_EXIT=${emptyNodeShim}\nWEB_VITEST_SOURCE_GUARD_EXIT=0\nBROWSER_RECEIPT_EXIT=0\nHC_EXIT=0\nAIKIT_EXIT=0\nLEG_LCOV_EXIT=0\nCHECK_EXIT=0\nSECURITY_EXIT=0\nSUGGEST_LEG_EXIT=0\nSTILL_FAILED=()\n${body}`], { cwd: REPO_ROOT });
     return { code: proc.exitCode, stdout: proc.stdout.toString(), stderr: proc.stderr.toString() };
   }
 
@@ -822,7 +823,7 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(src).not.toContain("coverage gate below is authoritative");
   });
 
-  test("SDK assertion failures execute non-zero leg-only and full verdicts", async () => {
+  test("SDK and native assertion failures execute non-zero leg-only and full verdicts", async () => {
     const src = await runner;
     const legsOnlyStart = src.indexOf('if [ -n "$COVERAGE_LEGS_ONLY" ]');
     const shardStart = src.indexOf("# Build the host file list (sliced for shard mode).");
@@ -837,6 +838,7 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(legsRed.code).toBe(1);
     expect(legsRed.stdout).toContain("::error::sdk coverage leg failed (exit 1)");
     expect(runCoverageVerdict(legsVerdict).code).toBe(0);
+    expect(runCoverageVerdict(legsVerdict, { nativeMemoryStress: 1 }).code).toBe(1);
 
     const tail = await fullModeTail();
     const fullVerdictStart = tail.indexOf("COVERAGE_FAILED=0");
@@ -850,6 +852,9 @@ describe("test-coverage.sh: full mode reports BOTH verdicts", () => {
     expect(fullRed.code).toBe(1);
     expect(fullRed.stdout).toContain("COVERAGE: FAILED (check=0 sdk=1");
     expect(runCoverageVerdict(fullVerdict).code).toBe(0);
+    const nativeRed = runCoverageVerdict(fullVerdict, { nativeMemoryStress: 1 });
+    expect(nativeRed.code).toBe(1);
+    expect(nativeRed.stdout).toContain("native_memory_stress=1");
     expect(fullVerdict).not.toContain("tolerated (not gated here): sdk=");
   });
 

@@ -1,4 +1,6 @@
 {
+  "src/infrastructure/incus-guest/memory-stress.c": 100,
+  "src/infrastructure/incus-memory-stress-asset.ts": 100,
   "src/infrastructure/incus-cleanup-stop-policy.ts": 100,
   "src/infrastructure/incus-create-readback-policy.ts": 100,
   "extensions/incus-sandbox/adapter.ts": 100,
