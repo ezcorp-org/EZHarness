@@ -129,6 +129,12 @@ test("four resource loads require kernel evidence and healthy host and neighbor 
   expect(value.calls.filter(call => call === "host")).toHaveLength(8);
   expect(value.calls.filter(call => call === "neighbor")).toHaveLength(8);
   expect(value.calls.filter(call => call === "pool")).toHaveLength(2);
+  expect(value.calls).toEqual([
+    "host", "neighbor", "memory", "host", "neighbor",
+    "host", "neighbor", "cpu", "host", "neighbor",
+    "host", "neighbor", "pids", "host", "neighbor",
+    "host", "neighbor", "pool", "disk", "host", "neighbor", "pool",
+  ]);
 });
 
 test("missing kernel evidence, forged identity, or unhealthy neighbor denies qualification", async () => {

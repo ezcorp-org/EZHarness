@@ -3467,3 +3467,14 @@ GREEN: same full real-auth spec, restored fix, fresh isolated fixture.
 Final package coverage rerun:96passed/0failed,285assertions, all added
 cancellation executable lines have positive hits. No retries/timeouts/gates
 changed. No live application or GitHub mutations.
+
+# Hosted limit-probe complexity repair — 7 October 2026
+
+- [x] Reproduce hosted CC31 from the canonical AST scorer and focused real coverage.
+- [x] Move cohesive limit-probe phases into small helpers, preserving validation and call order.
+- [x] Run focused behavior tests, real coverage, complexity, lint and type checks.
+- [x] Commit the change and record receipts.
+
+Plan review: Refactor the probe orchestration at its natural boundaries. Keep the per-resource load order, short-circuit health checks, failure wrapping, CPU diagnostic, storage checks and all guest constraints exact. No host workload is authorized.
+
+Review: The focused real Bun producer measured 51/51 orchestration lines before the change and the canonical scorer reported CC31. After extraction it measured 120/120 source lines, with CC13 for orchestration, CC17 for proof validation and CC3 for guest execution. All 16 limit tests pass (243 assertions), including exact per-resource call order. Full typecheck, focused Biome and diff whitespace check pass. A focused-only LCOV cannot prove the repository-wide changed gate; the integration owner holds that full-run proof.

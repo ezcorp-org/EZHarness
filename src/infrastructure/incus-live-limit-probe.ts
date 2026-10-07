@@ -214,6 +214,36 @@ function reviewed(resource: Resource, preset: SandboxPreset): number {
     : resource === "pids" ? preset.limits.pids : preset.limits.diskBytes;
 }
 
+async function runLimitLoad(handle: LiveFixtureHandle, resource: Resource, attempted: number,
+  limit: number, deps: IncusLimitProbeDependencies): Promise<LiveCommandResult> {
+  try {
+    const argv = ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)];
+    if (resource === "memory") {
+      const path = await deps.prepareMemoryLoad(handle);
+      requireLimit(/^ezh-memory-probe-[a-f0-9]{64}$/.test(path), "native memory asset path changed");
+      argv.push(path);
+    }
+    return await deps.runGuest(handle, argv, TIMEOUT_MS);
+  } catch (error) { throw new IncusLimitLoadFailure(resource, error); }
+}
+
+function requireLoadProof(resource: Resource, attempted: number, limit: number, run: LiveCommandResult): void {
+  requireLimit(run.exitCode === 0 && run.stderr.length === 0 && run.stdout.length <= 4096,
+    `${resource} load did not finish cleanly`);
+  let proof: Record<string, unknown>;
+  try { proof = JSON.parse(run.stdout); }
+  catch { throw new Error(`Incus limit probe unavailable: ${resource} load returned invalid JSON`); }
+  if (resource === "cpu" && (proof?.contained !== true || !cpuEvidence(proof.detail as Record<string, unknown>, limit, attempted))) {
+    throw new IncusCpuLoadProofError(incusCpuLoadDiagnostic(proof?.detail));
+  }
+  requireLimit(proof && typeof proof === "object" && !Array.isArray(proof)
+    && proof.resource === resource && proof.attempted === attempted
+    && proof.observedLimit === limit && proof.contained === true
+    && proof.detail && typeof proof.detail === "object" && !Array.isArray(proof.detail)
+    && evidence(resource, proof.detail as Record<string, unknown>, attempted, limit),
+  `${resource} load did not prove containment`);
+}
+
 /** Performs real over-limit guest loads and independently rechecks host and neighbor after each. */
 export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: SandboxPreset,
   facts: LiveEnforcementFacts, deps: IncusLimitProbeDependencies): Promise<LiveLimitLoadFact[]> {
@@ -230,30 +260,7 @@ export async function exerciseIncusLimits(handle: LiveFixtureHandle, preset: San
     if (resource === "disk") requireLimit(Number.isSafeInteger(poolFreeBefore)
       && poolFreeBefore! > attempted + 32 * 1024 * 1024,
     "host storage pool has insufficient independent free space for the quota probe");
-    let run: LiveCommandResult;
-    try {
-      const argv = ["python3", "-c", LIMIT_PROBE_SCRIPT, resource, String(attempted), String(limit)];
-      if (resource === "memory") {
-        const path = await deps.prepareMemoryLoad(handle);
-        requireLimit(/^ezh-memory-probe-[a-f0-9]{64}$/.test(path), "native memory asset path changed");
-        argv.push(path);
-      }
-      run = await deps.runGuest(handle, argv, TIMEOUT_MS);
-    } catch (error) { throw new IncusLimitLoadFailure(resource, error); }
-    requireLimit(run.exitCode === 0 && run.stderr.length === 0 && run.stdout.length <= 4096,
-      `${resource} load did not finish cleanly`);
-    let proof: Record<string, unknown>;
-    try { proof = JSON.parse(run.stdout); }
-    catch { throw new Error(`Incus limit probe unavailable: ${resource} load returned invalid JSON`); }
-    if (resource === "cpu" && (proof?.contained !== true || !cpuEvidence(proof.detail as Record<string, unknown>, limit, attempted))) {
-      throw new IncusCpuLoadProofError(incusCpuLoadDiagnostic(proof?.detail));
-    }
-    requireLimit(proof && typeof proof === "object" && !Array.isArray(proof)
-      && proof.resource === resource && proof.attempted === attempted
-      && proof.observedLimit === limit && proof.contained === true
-      && proof.detail && typeof proof.detail === "object" && !Array.isArray(proof.detail)
-      && evidence(resource, proof.detail as Record<string, unknown>, attempted, limit),
-    `${resource} load did not prove containment`);
+    requireLoadProof(resource, attempted, limit, await runLimitLoad(handle, resource, attempted, limit, deps));
     const hostHealthy = await deps.hostHealthy();
     const neighborHealthy = await deps.neighborHealthy();
     requireLimit(hostHealthy && neighborHealthy, `${resource} load affected host or neighbor`);
