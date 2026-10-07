@@ -13,6 +13,7 @@
  * there). Here we mock token/registry so we exercise the wiring.
  */
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import type { SandboxPreviewConnectRequest } from "$server/runtime/workspaces/target";
 
 const verifyPreviewToken = vi.fn();
 const getServablePreview = vi.fn();
@@ -166,7 +167,7 @@ describe("tryBridgePreviewWebSocket", () => {
 
   test("a failed Bun upgrade aborts and closes the attached guest stream", async () => {
     const close = vi.fn(async () => { throw new Error("guest already closed"); });
-    const connectWebSocket = vi.fn(async () => ({ protocol: "vite-hmr", send: async () => {},
+    const connectWebSocket = vi.fn(async (_request: SandboxPreviewConnectRequest) => ({ protocol: "vite-hmr", send: async () => {},
       messages: (async function* () {})(), close }));
     setupSandbox(connectWebSocket);
     const server = { upgrade: vi.fn(() => false) };

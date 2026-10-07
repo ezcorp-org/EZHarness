@@ -3413,3 +3413,14 @@ Review: The canonical Node/Vitest V8 producer reproduced 146/163 covered lines w
 
 Plan review: tests only; preserve existing authority policy. Separate Sol work owns WebSocket bridge coverage.
 Review: three new tests plus the existing host preview witness pass (4 tests, 34 assertions). The new coverage hits lines25 and71. Target source is byte-identical to frozen5bc16; combining prior and new line evidence accounts for45/45 lines, but this is diagnostic only and does not replace the final committed-HEAD gate. Full typecheck and Biome pass. Independent Sol review passed with a separate three-test run and canonical two-file host coverage shard. Repaired cleanup fixture coverage independently passed88tests/324assertions and432/432lines. Production source and gates are unchanged.
+
+# WebSocket bridge test typing repair — 7 October 2026
+
+- [x] Reproduce the Svelte check error on exact 9b7 source.
+- [x] Type the failed-upgrade mock with the real sandbox connection request type.
+- [x] Run Svelte check, focused V8 coverage, test typecheck, lint, and commit hook.
+- [x] Obtain independent review and commit the test-only repair.
+
+Plan review: Keep the assertion that the failed upgrade aborts the guest connection. Change only the mock type; do not alter production or coverage policy.
+
+Review: On exact 9b7, `bun run --cwd web check` failed with two errors at the zero-argument mock call, then passed with 0 errors and 0 warnings after typing its request as `SandboxPreviewConnectRequest`. The abort assertion remains. Focused Node/Vitest V8 coverage passes 27/27 tests and 163/163 bridge lines. Test typecheck and focused Biome pass. No production or coverage policy changed.
