@@ -13,9 +13,14 @@ function traffic(port: number, previewHost = "localhost") {
   } });
 }
 
+function boundPort(server: { port?: number }): number {
+  if (!server.port) throw new Error("Test preview listener has no port");
+  return server.port;
+}
+
 test("real Bun app route proves ready, one-time handoff, bounded HTTP and vite-hmr WebSocket", async () => {
   let closed = 0;
-  const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
+  const server = Bun.serve<{ large: boolean }>({ hostname: "127.0.0.1", port: 0,
     fetch(request, bunServer) {
       const url = new URL(request.url);
       const previewHost = `${PREVIEW_ID}.preview.localhost:${bunServer.port}`;
@@ -37,11 +42,11 @@ test("real Bun app route proves ready, one-time handoff, bounded HTTP and vite-h
       if (url.pathname === "/large") return new Response("x".repeat(512 * 1024 + 1));
       return new Response("guest page");
     },
-    websocket: { message(socket, message) { socket.send((socket.data as { large?: boolean })?.large
+    websocket: { message(socket, message) { socket.send(socket.data.large
       ? "x".repeat(8 * 1024 + 1) : message); }, close() { closed++; } },
   });
   try {
-    const driver = traffic(server.port);
+    const driver = traffic(boundPort(server));
     await driver.ready();
     const handoff = await driver.handoff({ previewId: PREVIEW_ID, code: CODE });
     expect(handoff).toEqual({ status: 302, cookie: COOKIE });
@@ -81,8 +86,8 @@ test("traffic driver refuses missing preview origin and an unready app before an
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
     fetch: () => new Response("not ready", { status: 503 }) });
   try {
-    await expect(traffic(server.port, "").ready()).rejects.toThrow("not configured");
-    const driver = traffic(server.port);
+    await expect(traffic(boundPort(server), "").ready()).rejects.toThrow("not configured");
+    const driver = traffic(boundPort(server));
     await expect(driver.ready()).rejects.toThrow("not ready");
     await expect(driver.handoff({ previewId: PREVIEW_ID, code: CODE })).rejects.toThrow("not ready");
   } finally { server.stop(true); }
@@ -93,7 +98,7 @@ test("traffic driver rejects caller paths, credentials and oversized challenges 
   const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
     fetch: request => { hits++; return new Response(new URL(request.url).pathname === "/api/ready" ? "ready" : "effect"); } });
   try {
-    const driver = traffic(server.port);
+    const driver = traffic(boundPort(server));
     await driver.ready();
     expect(hits).toBe(1);
     await expect(driver.http({ previewId: PREVIEW_ID, cookie: "evil=secret", path: "/page" })).rejects.toThrow("cookie");

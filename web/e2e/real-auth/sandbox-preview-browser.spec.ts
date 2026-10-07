@@ -9,6 +9,11 @@ test("a browser uses the sandbox preview HTTP and WebSocket routes, then loses a
   const app = new URL(APP);
   const origin = `${app.protocol}//${previewId}.preview.localhost:${app.port}`;
   try {
+    for (const host of [`invalid.preview.invalid:${app.port}`, `invalid!.preview.localhost:${app.port}`]) {
+      const deniedHost = await request.get(`${APP}/proof`, { headers: { Host: host }, maxRedirects: 0 });
+      expect(deniedHost.status()).toBe(404);
+      expect(await deniedHost.text()).not.toContain("Sandbox preview browser proof");
+    }
     const opened = await page.goto(`${origin}/__open?c=${encodeURIComponent(code)}`);
     expect(opened?.status()).toBe(200);
     expect(page.url()).toBe(`${origin}/`);
