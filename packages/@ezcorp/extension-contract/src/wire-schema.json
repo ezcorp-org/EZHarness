@@ -1647,7 +1647,6 @@
     },
     "LiveSandboxPresetQualification": {
       "additionalProperties": false,
-      "description": "Connection-specific live qualification used before Ready/workload selection.",
       "properties": {
         "backendVersion": {
           "type": "string"
@@ -1669,6 +1668,9 @@
         },
         "presetId": {
           "type": "string"
+        },
+        "previewProof": {
+          "$ref": "#/definitions/LiveSandboxPreviewProof"
         },
         "producer": {
           "const": "live-provider",
@@ -1706,6 +1708,195 @@
       ],
       "type": "object"
     },
+    "LiveSandboxPreviewProof": {
+      "additionalProperties": false,
+      "description": "Connection-specific live qualification used before Ready/workload selection.",
+      "properties": {
+        "challengeSha256": {
+          "type": "string"
+        },
+        "connectionId": {
+          "type": "string"
+        },
+        "denied": {
+          "additionalProperties": false,
+          "properties": {
+            "expired": {
+              "type": "number"
+            },
+            "hostLoopback": {
+              "type": "number"
+            },
+            "malformed": {
+              "type": "number"
+            },
+            "management": {
+              "type": "number"
+            },
+            "missingAuth": {
+              "type": "number"
+            },
+            "revoked": {
+              "type": "number"
+            },
+            "stopped": {
+              "type": "number"
+            },
+            "webSocketWrongOwner": {
+              "type": "number"
+            },
+            "wrongGeneration": {
+              "type": "number"
+            },
+            "wrongOwner": {
+              "type": "number"
+            },
+            "wrongPort": {
+              "type": "number"
+            },
+            "wrongSandbox": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "missingAuth",
+            "wrongOwner",
+            "wrongSandbox",
+            "wrongGeneration",
+            "wrongPort",
+            "expired",
+            "malformed",
+            "revoked",
+            "stopped",
+            "hostLoopback",
+            "management",
+            "webSocketWrongOwner"
+          ],
+          "type": "object"
+        },
+        "effectiveSettingsDigest": {
+          "type": "string"
+        },
+        "endpointId": {
+          "type": "string"
+        },
+        "expiresAt": {
+          "type": "string"
+        },
+        "generation": {
+          "type": "number"
+        },
+        "helperDigest": {
+          "type": "string"
+        },
+        "httpBodySha256": {
+          "type": "string"
+        },
+        "httpStatus": {
+          "type": "number"
+        },
+        "imageDigest": {
+          "type": "string"
+        },
+        "operationId": {
+          "type": "string"
+        },
+        "ownerId": {
+          "type": "string"
+        },
+        "port": {
+          "type": "number"
+        },
+        "presetDigest": {
+          "type": "string"
+        },
+        "presetId": {
+          "type": "string"
+        },
+        "relay": {
+          "additionalProperties": false,
+          "properties": {
+            "destination": {
+              "const": "pinned-guest-loopback",
+              "type": "string"
+            },
+            "hostConnectAttempts": {
+              "type": "number"
+            },
+            "httpRequests": {
+              "type": "number"
+            },
+            "instanceId": {
+              "type": "string"
+            },
+            "managementConnectAttempts": {
+              "type": "number"
+            },
+            "port": {
+              "type": "number"
+            },
+            "webSocketConnections": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "destination",
+            "instanceId",
+            "port",
+            "httpRequests",
+            "webSocketConnections",
+            "hostConnectAttempts",
+            "managementConnectAttempts"
+          ],
+          "type": "object"
+        },
+        "releaseDigest": {
+          "type": "string"
+        },
+        "sandboxId": {
+          "type": "string"
+        },
+        "version": {
+          "const": 1,
+          "type": "number"
+        },
+        "webSocketMessageSha256": {
+          "type": "string"
+        },
+        "webSocketStatus": {
+          "type": "number"
+        },
+        "webSocketSubprotocol": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "connectionId",
+        "presetId",
+        "releaseDigest",
+        "presetDigest",
+        "effectiveSettingsDigest",
+        "imageDigest",
+        "helperDigest",
+        "sandboxId",
+        "operationId",
+        "generation",
+        "endpointId",
+        "ownerId",
+        "port",
+        "expiresAt",
+        "challengeSha256",
+        "httpStatus",
+        "httpBodySha256",
+        "webSocketStatus",
+        "webSocketMessageSha256",
+        "webSocketSubprotocol",
+        "relay",
+        "denied"
+      ],
+      "type": "object"
+    },
     "LiveSandboxQualificationCase": {
       "anyOf": [
         {
@@ -1717,6 +1908,10 @@
         },
         {
           "const": "SP06",
+          "type": "string"
+        },
+        {
+          "const": "SP09",
           "type": "string"
         }
       ]

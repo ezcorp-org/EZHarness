@@ -3,6 +3,7 @@ import {
   sandboxPresetDigest,
   validateLiveSandboxPresetQualification,
   type LiveSandboxPresetQualification,
+  type LiveSandboxPreviewProof,
   type LiveSandboxQualificationResult,
   type SandboxCompatibilityObservation,
   type SandboxPreset,
@@ -46,6 +47,7 @@ export interface IncusLiveCaseEvidence {
   verifiedAt: string;
   validUntil: string;
   cases: LiveSandboxQualificationResult[];
+  previewProof?: LiveSandboxPreviewProof;
 }
 
 export interface IncusQualificationDependencies {
@@ -239,6 +241,15 @@ export class IncusQualificationStore {
       || cases.observation.architecture !== probe.architecture) {
       throw new Error("Live Incus artifact observation changed");
     }
+    const preview = cases.previewProof;
+    if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
+      || preview.connectionId !== scope.connectionId || preview.presetId !== scope.presetId
+      || preview.releaseDigest !== selected.snapshot.release.releaseDigest
+      || preview.presetDigest !== selected.presetDigest
+      || preview.effectiveSettingsDigest !== selected.effectiveSettingsDigest
+      || preview.imageDigest !== selected.preset.imageDigest || preview.helperDigest !== selected.helperDigest)) {
+      throw new Error("Live Incus preview proof changed or is unavailable");
+    }
     const qualification: LiveSandboxPresetQualification = {
       producer: "live-provider", connectionId: scope.connectionId, providerId: "incus",
       presetId: scope.presetId, profile: selected.preset.profile,
@@ -246,6 +257,7 @@ export class IncusQualificationStore {
       effectiveSettingsDigest: selected.effectiveSettingsDigest,
       backendVersion: probe.backendVersion,
       verifiedAt: cases.verifiedAt, validUntil: cases.validUntil, cases: cases.cases,
+      ...(preview ? { previewProof: preview } : {}),
     };
     await validateLiveSandboxPresetQualification(selected.preset, qualification, {
       providerId: "incus", releaseDigest: selected.snapshot.release.releaseDigest,
@@ -299,6 +311,9 @@ export class IncusQualificationStore {
         || probe.backendApi !== observation?.backendApi || probe.backendVersion !== observation?.backendVersion
         || probe.architecture !== observation?.architecture || !compatible(selected.preset, observation)
         || probe.backendVersion !== (row.qualification as LiveSandboxPresetQualification)?.backendVersion) return null;
+      const preview = (row.qualification as LiveSandboxPresetQualification)?.previewProof;
+      if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
+        || preview.helperDigest !== selected.helperDigest || preview.imageDigest !== selected.preset.imageDigest)) return null;
       return await validateLiveSandboxPresetQualification(selected.preset, row.qualification, {
         providerId: "incus", releaseDigest: selected.snapshot.release.releaseDigest,
         connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,

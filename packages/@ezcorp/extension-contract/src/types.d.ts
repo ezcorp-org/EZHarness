@@ -549,7 +549,7 @@ export interface SandboxPresetResolution {
   effectiveSettingsDigest: string;
 }
 export type CandidateSandboxQualificationCase = "SP01" | "SP02" | "SP03" | "SP05" | "SP07" | "SP08";
-export type LiveSandboxQualificationCase = CandidateSandboxQualificationCase | "SP04" | "SP06";
+export type LiveSandboxQualificationCase = CandidateSandboxQualificationCase | "SP04" | "SP06" | "SP09";
 export interface CandidateSandboxQualificationResult {
   caseId: CandidateSandboxQualificationCase;
   status: "passed" | "failed" | "skipped";
@@ -571,6 +571,52 @@ export interface SandboxPresetQualification {
   cases: CandidateSandboxQualificationResult[];
 }
 /** Connection-specific live qualification used before Ready/workload selection. */
+export interface LiveSandboxPreviewProof {
+  version: 1;
+  connectionId: string;
+  presetId: string;
+  releaseDigest: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  imageDigest: string;
+  helperDigest: string;
+  sandboxId: string;
+  operationId: string;
+  generation: number;
+  endpointId: string;
+  ownerId: string;
+  port: number;
+  expiresAt: string;
+  challengeSha256: string;
+  httpStatus: number;
+  httpBodySha256: string;
+  webSocketStatus: number;
+  webSocketMessageSha256: string;
+  webSocketSubprotocol: string;
+  relay: {
+    destination: "pinned-guest-loopback";
+    instanceId: string;
+    port: number;
+    httpRequests: number;
+    webSocketConnections: number;
+    hostConnectAttempts: number;
+    managementConnectAttempts: number;
+  };
+  denied: {
+    missingAuth: number;
+    wrongOwner: number;
+    wrongSandbox: number;
+    wrongGeneration: number;
+    wrongPort: number;
+    expired: number;
+    malformed: number;
+    revoked: number;
+    stopped: number;
+    hostLoopback: number;
+    management: number;
+    webSocketWrongOwner: number;
+  };
+}
 export interface LiveSandboxPresetQualification {
   producer: "live-provider";
   connectionId: string;
@@ -584,6 +630,7 @@ export interface LiveSandboxPresetQualification {
   verifiedAt: string;
   validUntil: string;
   cases: LiveSandboxQualificationResult[];
+  previewProof?: LiveSandboxPreviewProof;
 }
 export interface LiveSandboxQualificationContext {
   providerId: string;

@@ -1,11 +1,12 @@
 import { IncusLimitLoadFailure, incusLimitResource, IncusCpuLoadProofError, incusCpuLoadDiagnostic, type IncusCpuLoadDiagnostic } from "./incus-live-limit-probe";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   sandboxPresetDigest,
   sandboxProviderMethodSchemas,
   type SandboxCompatibilityObservation,
   type SandboxPreset,
   type SandboxProtocolOperation,
+  type LiveSandboxPreviewProof,
 } from "@ezcorp/extension-contract";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import { IncusQualificationOperationUnsettledError, type IncusLiveCaseEvidence, type IncusQualificationScope } from "./incus-qualification";
@@ -113,6 +114,10 @@ export interface HostIncusLiveWitness {
   run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number): Promise<LiveCommandResult>;
   writeFile(handle: LiveFixtureHandle, path: string, bytes: Uint8Array): Promise<void>;
   readFile(handle: LiveFixtureHandle, path: string): Promise<Uint8Array>;
+  /** Host-only preview path for the exact claimed fixture. It must exercise the
+   * authenticated app origin and stop the guest before returning. */
+  exercisePreviewAndStop?(handle: LiveFixtureHandle, scope: IncusQualificationScope,
+    preset: SandboxPreset, challenge: string): Promise<LiveSandboxPreviewProof>;
   /** Must restart the host controller process and reopen this exact stopped fixture. */
   restartController(handle: LiveFixtureHandle): Promise<{ beforeProcessId: string; afterProcessId: string }>;
   /** Deliberately loses one fixture destroy effect, records failed cleanup,
@@ -370,8 +375,8 @@ async function prepareGuestForRestart(witness: HostIncusLiveWitness, preset: San
   assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
 }
 
-async function finishGuestAfterRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
-  primary: LiveFixtureHandle, token: string): Promise<void> {
+async function finishGuestAfterRestart(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
+  preset: SandboxPreset, primary: LiveFixtureHandle, token: string): Promise<LiveSandboxPreviewProof | undefined> {
   const marker = `ezh-${token}`;
   assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
   await witness.setPower(primary, "running");
@@ -380,17 +385,44 @@ async function finishGuestAfterRestart(witness: HostIncusLiveWitness, preset: Sa
     requireFact(new TextDecoder().decode(await witness.readFile(primary, MARKER_PATH)) === marker,
       "retained workspace changed after restart");
   }
+  if (preset.profile === "persistent-web-compose.v1") {
+    requireFact(witness.exercisePreviewAndStop, "host preview witness is unavailable");
+    const challenge = randomUUID();
+    const proof = await witness.exercisePreviewAndStop(primary, scope, preset, challenge);
+    const challengeSha256 = createHash("sha256").update(challenge).digest("hex");
+    requireFact(proof.sandboxId === primary.sandboxId && proof.operationId === primary.operationId
+      && proof.connectionId === scope.connectionId && proof.presetId === preset.id
+      && proof.imageDigest === preset.imageDigest && preset.helperDigests.includes(proof.helperDigest)
+      && proof.challengeSha256 === challengeSha256 && proof.httpStatus === 200
+      && proof.httpBodySha256 === challengeSha256 && proof.webSocketStatus === 101
+      && proof.webSocketMessageSha256 === challengeSha256 && proof.webSocketSubprotocol === "vite-hmr"
+      && [proof.denied.missingAuth, proof.denied.wrongOwner, proof.denied.expired,
+        proof.denied.malformed, proof.denied.revoked].every(status => status === 404)
+      && [proof.denied.wrongSandbox, proof.denied.wrongGeneration, proof.denied.wrongPort,
+        proof.denied.stopped, proof.denied.hostLoopback, proof.denied.management]
+        .every(status => status === 502)
+      && proof.denied.webSocketWrongOwner === 403
+      && proof.relay.destination === "pinned-guest-loopback"
+      && proof.relay.instanceId === primary.sandboxId && proof.relay.port === proof.port
+      && proof.relay.httpRequests >= 1 && proof.relay.webSocketConnections >= 1
+      && proof.relay.hostConnectAttempts === 0 && proof.relay.managementConnectAttempts === 0,
+    "guest preview traffic or denial proof is incomplete");
+    assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
+    return proof;
+  }
   await witness.setPower(primary, "stopped");
+  return undefined;
 }
 
 async function exerciseGuestAndRestart(witness: HostIncusLiveWitness, preset: SandboxPreset,
-  primary: LiveFixtureHandle, token: string, composeFixtureImageRef?: string): Promise<void> {
+  scope: IncusQualificationScope, primary: LiveFixtureHandle, token: string,
+  composeFixtureImageRef?: string): Promise<LiveSandboxPreviewProof | undefined> {
   await prepareGuestForRestart(witness, preset, primary, token, composeFixtureImageRef);
   const restart = await witness.restartController(primary);
   requireFact(stableId(restart.beforeProcessId) && stableId(restart.afterProcessId)
     && restart.beforeProcessId !== restart.afterProcessId,
   "controller did not restart and reconnect");
-  await finishGuestAfterRestart(witness, preset, primary, token);
+  return finishGuestAfterRestart(witness, scope, preset, primary, token);
 }
 
 async function destroyAndRecoverFixtures(witness: HostIncusLiveWitness, scope: IncusQualificationScope,
@@ -447,12 +479,15 @@ async function observeLiveStart(witness: HostIncusLiveWitness, scope: IncusQuali
 }
 
 function caseEvidence(observed: Awaited<ReturnType<HostIncusLiveWitness["observe"]>>,
-  now: () => number): IncusLiveCaseEvidence {
+  now: () => number, previewProof?: LiveSandboxPreviewProof): IncusLiveCaseEvidence {
   const verifiedAt = new Date(now()).toISOString();
   const validUntil = new Date(now() + 60 * 60 * 1000).toISOString();
   return { observation: observed.observation, observedProfile: observed.profile,
     observedImageDigest: observed.imageDigest, observedHelperDigest: observed.helperDigest,
-    verifiedAt, validUntil, cases: CASE_IDS.map(caseId => ({ caseId, status: "passed" as const })) };
+    verifiedAt, validUntil,
+    cases: [...CASE_IDS, ...(previewProof ? ["SP09" as const] : [])]
+      .map(caseId => ({ caseId, status: "passed" as const })),
+    ...(previewProof ? { previewProof } : {}) };
 }
 
 /** Start one run. The supervisor terminates this process after accepting the saved checkpoint. */
@@ -506,13 +541,14 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
     primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
   let failure: unknown;
   let observed: Awaited<ReturnType<HostIncusLiveWitness["observe"]>> | undefined;
+  let previewProof: LiveSandboxPreviewProof | undefined;
   try {
     const unrelated = await witness.findFixture(scope, `qual-unrelated-${run.runId}`);
     requireFact(unrelated.sandboxId !== primary.sandboxId, "unrelated fixture was adopted");
     state.unrelated = unrelated;
     observed = await observeLiveStart(witness, scope, preset);
     assertInspection(await witness.inspectFixture(unrelated), unrelated, preset, "stopped");
-    await finishGuestAfterRestart(witness, preset, primary, run.runId);
+    previewProof = await finishGuestAfterRestart(witness, scope, preset, primary, run.runId);
     requireFact(now() < continuationDeadlineMs, "qualification continuation deadline expired");
     await destroyAndRecoverFixtures(witness, scope, preset, run.runId, state);
     requireFact(now() < continuationDeadlineMs, "qualification continuation deadline expired");
@@ -524,7 +560,7 @@ export async function resumeDurableIncusLiveCases(options: IncusLiveRunnerOption
     "Incus live fixture cleanup is unverified");
   if (failure) throw failure;
   requireFact(observed, "live observation is unavailable");
-  return caseEvidence(observed, options.now ?? Date.now);
+  return caseEvidence(observed, options.now ?? Date.now, previewProof);
 }
 
 /** Produces SP01–SP08 only from ordered host actions and concrete observations.
@@ -544,11 +580,13 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
     const state: FixtureRunState = { primary: null, unrelated: null, recovery: null,
       primaryDestroyed: false, unrelatedDestroyed: false, recoveryDestroyed: false };
     let failure: unknown;
+    let previewProof: LiveSandboxPreviewProof | undefined;
     let cleanupErrors: unknown[] = [];
     try {
       await createLiveFixtures(witness, scope, preset, fixtureToken, state);
       requireFact(state.primary, "primary fixture was not created");
-      await exerciseGuestAndRestart(witness, preset, state.primary, fixtureToken, options.composeFixtureImageRef);
+      previewProof = await exerciseGuestAndRestart(witness, preset, scope, state.primary,
+        fixtureToken, options.composeFixtureImageRef);
       await destroyAndRecoverFixtures(witness, scope, preset, fixtureToken, state);
     } catch (error) {
       failure = error;
@@ -561,6 +599,6 @@ export function createIncusLiveCaseRunner(options: IncusLiveRunnerOptions):
       "Incus live fixture cleanup is unverified");
     if (failure) throw failure;
 
-    return caseEvidence(observed, now);
+    return caseEvidence(observed, now, previewProof);
   };
 }

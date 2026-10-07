@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { LIVE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
@@ -32,11 +33,11 @@ const observation: SandboxCompatibilityObservation = {
 };
 const certificatePem = readFileSync(new URL("./incus-transport/test-server.pem", import.meta.url), "utf8");
 const certificateSha256 = createHash("sha256").update(new X509Certificate(certificatePem).raw).digest("hex");
-const imageReceipt = (): IncusImageReceipt => ({
+const imageReceipt = (selectedPreset = preset): IncusImageReceipt => ({
   providerReleaseId: scope.releaseId, providerReleaseDigest: snapshot.release.releaseDigest,
   connectionId: scope.connectionId, connectionRevision: revision, state: "verified",
   recipe: { ...structuredClone(recipeTemplate), profile: { ...recipeTemplate.profile, name: "ezharness" },
-    guestImage: { ...recipeTemplate.guestImage, fingerprint: preset.imageDigest,
+    guestImage: { ...recipeTemplate.guestImage, fingerprint: selectedPreset.imageDigest,
       sourceFingerprint: "a".repeat(64), helperSha256: guestHelperSha256(),
       pythonPackageVersion: "3.12.1", dockerArchiveSha256: "b".repeat(64), composeSha256: "c".repeat(64) } } as IncusSetupRecipe,
 });
@@ -63,20 +64,21 @@ const cases = (): IncusLiveCaseEvidence => ({
   validUntil: new Date(now + 60_000).toISOString(),
   cases: LIVE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: caseStatus })),
 });
+const probeResult = () => ({
+  serverCertificateSha256: certificateSha256, project: "sandbox", profile: "ezharness",
+  helperVersion: "unverified", backendApi: negativeProbe ? "unsupported" : observation.backendApi,
+  backendVersion: observation.backendVersion, architecture: observation.architecture,
+  storageDriver: "unverified", isolation: observation.isolation, nestedCompose: false,
+  controls: { restrictedProject: true, unprivileged: false, projectLimits: false, privateNetwork: false,
+    workspaceRoot: "/workspace" as const, explicitGuestUser: false, atomicFileReplace: false,
+    durableProcesses: false, boundedOutput: false, endpointProxy: false },
+});
 const store = new IncusQualificationStore({ db,
   activeRelease: async () => snapshot,
   connectionRevision: async () => revision,
   imageReceipt: async () => imageReceipt(),
   resolveConnection: async () => connection(),
-  probe: async () => { probeCalls++; return {
-    serverCertificateSha256: certificateSha256, project: "sandbox", profile: "ezharness",
-    helperVersion: "unverified", backendApi: negativeProbe ? "unsupported" : observation.backendApi,
-    backendVersion: observation.backendVersion, architecture: observation.architecture,
-    storageDriver: "unverified", isolation: observation.isolation, nestedCompose: false,
-    controls: { restrictedProject: true, unprivileged: false, projectLimits: false, privateNetwork: false,
-      workspaceRoot: "/workspace", explicitGuestUser: false, atomicFileReplace: false,
-      durableProcesses: false, boundedOutput: false, endpointProxy: false },
-  }; },
+  probe: async () => { probeCalls++; return probeResult(); },
   runLiveCases: async () => cases(),
   now: () => now,
 });
@@ -115,6 +117,51 @@ describe("host Incus qualification store", () => {
     expect(saved.cases).toHaveLength(8);
     expect(probeCalls).toBe(1);
     expect(await store.load(scope)).toEqual(saved);
+  });
+
+  test("Compose rejects the old eight-case receipt and legacy saved row", async () => {
+    const composePreset = manifest.sandboxProviders![0]!.presets[1]!;
+    const composeScope = { ...scope, presetId: composePreset.id };
+    const composeStore = new IncusQualificationStore({ db,
+      activeRelease: async () => snapshot,
+      connectionRevision: async () => revision,
+      imageReceipt: async () => imageReceipt(composePreset),
+      resolveConnection: async () => connection(),
+      probe: async () => probeResult(),
+      runLiveCases: async () => cases(),
+      now: () => now,
+    });
+    const selected = await composeStore.authorizeFixture(composeScope);
+    const oldCases = { ...cases(), observedProfile: composePreset.profile };
+    await expect(composeStore.recordVerified(composeScope, oldCases)).rejects.toThrow("preview proof");
+    expect(await composeStore.load(composeScope)).toBeNull();
+    const challengeSha256 = "a".repeat(64);
+    const previewProof = {
+      version: 1 as const, connectionId: composeScope.connectionId, presetId: composePreset.id,
+      releaseDigest: snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
+      effectiveSettingsDigest: selected.effectiveSettingsDigest, imageDigest: composePreset.imageDigest,
+      helperDigest: selected.helperDigest, sandboxId: "fixture-1", operationId: "qual-primary-1",
+      generation: 1, endpointId: "endpoint-1", ownerId: "owner-1", port: 4173,
+      expiresAt: new Date(now + 30_000).toISOString(), challengeSha256,
+      httpStatus: 200, httpBodySha256: challengeSha256, webSocketStatus: 101,
+      webSocketMessageSha256: challengeSha256, webSocketSubprotocol: "vite-hmr",
+      relay: { destination: "pinned-guest-loopback" as const, instanceId: "fixture-1", port: 4173,
+        httpRequests: 1, webSocketConnections: 1, hostConnectAttempts: 0, managementConnectAttempts: 0 },
+      denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
+        wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
+        hostLoopback: 502, management: 502, webSocketWrongOwner: 403 },
+    };
+    const evidence: IncusLiveCaseEvidence = { ...oldCases, previewProof,
+      cases: [...oldCases.cases, { caseId: "SP09", status: "passed" }] };
+    const saved = await composeStore.recordVerified(composeScope, evidence);
+    expect(saved.previewProof).toEqual(previewProof);
+    expect(await composeStore.load(composeScope)).toEqual(saved);
+    const legacy = { ...saved, cases: saved.cases.slice(0, 8) };
+    delete legacy.previewProof;
+    await db.execute(sql`UPDATE incus_live_qualifications SET qualification = ${JSON.stringify(legacy)}::jsonb
+      WHERE installation_id = ${composeScope.installationId} AND connection_id = ${composeScope.connectionId}
+      AND preset_id = ${composeScope.presetId}`);
+    expect(await composeStore.load(composeScope)).toBeNull();
   });
 
   test("stale connection revision, expiry, and changed release deny a persisted row", async () => {

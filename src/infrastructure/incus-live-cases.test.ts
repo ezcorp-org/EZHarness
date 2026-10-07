@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { IncusLiveWitnessError } from "./incus-host-live-witness";
 import { IncusLimitLoadFailure, IncusCpuLoadProofError } from "./incus-live-limit-probe";
 import { expect, test } from "bun:test";
@@ -154,6 +155,55 @@ test("the runner emits cases only after ordered host observations and cleanup", 
   expect(result.cases.map(item => item.caseId)).toEqual(["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"]);
   expect(result.cases.every(item => item.status === "passed")).toBe(true);
   expect(value.destroyed).toHaveLength(2);
+});
+
+test("Compose needs a real HTTP and WebSocket preview witness before SP09", async () => {
+  const compose = { ...INCUS_PRESETS[1]!, imageDigest: preset.imageDigest };
+  const composeScope = { ...scope, presetId: compose.id };
+  const composeWitness = () => {
+    const result = witness({ observe: async () => ({ observation: { ...observation, nestedCompose: true },
+      profile: compose.profile, imageDigest: compose.imageDigest, helperDigest: GUEST_HELPER_SHA256 }),
+      run: async (_handle, argv) => ({ exitCode: 0,
+        stdout: argv[0] === "docker" ? "ezh-compose-ok" : String(argv.at(-1)), stderr: "" }),
+    });
+    const inspect = result.value.inspectFixture;
+    result.value.inspectFixture = async handle => ({ ...await inspect(handle), profile: compose.profile });
+    return result;
+  };
+  const absent = composeWitness();
+  const image = `docker.io/library/busybox@sha256:${"a".repeat(64)}`;
+  await expect(createIncusLiveCaseRunner({ witness: absent.value, composeFixtureImageRef: image })
+    (composeScope, compose)).rejects.toThrow("preview witness is unavailable");
+  expect(absent.destroyed).toHaveLength(2);
+
+  const facts = composeWitness();
+  let seenRunning = false;
+  facts.value.exercisePreviewAndStop = async (handle, selectedScope, selectedPreset, challenge) => {
+    seenRunning = facts.states.get(handle.sandboxId) === "running"
+      && selectedScope.presetId === compose.id && selectedPreset.id === compose.id;
+    facts.states.set(handle.sandboxId, "stopped");
+    const hash = createHash("sha256").update(challenge).digest("hex");
+    return { version: 1, connectionId: selectedScope.connectionId, presetId: compose.id,
+      releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64), imageDigest: compose.imageDigest,
+      helperDigest: GUEST_HELPER_SHA256, sandboxId: handle.sandboxId,
+      operationId: handle.operationId, generation: 1, endpointId: "endpoint-1", ownerId: "owner-1",
+      port: 4173, expiresAt: new Date(Date.now() + 30_000).toISOString(), challengeSha256: hash,
+      httpStatus: 200, httpBodySha256: hash, webSocketStatus: 101,
+      webSocketMessageSha256: hash, webSocketSubprotocol: "vite-hmr",
+      relay: { destination: "pinned-guest-loopback", instanceId: handle.sandboxId, port: 4173,
+        httpRequests: 1, webSocketConnections: 1, hostConnectAttempts: 0, managementConnectAttempts: 0 },
+      denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
+        wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
+        hostLoopback: 502, management: 502, webSocketWrongOwner: 403 },
+    };
+  };
+  const result = await createIncusLiveCaseRunner({ witness: facts.value, composeFixtureImageRef: image })
+    (composeScope, compose);
+  expect(seenRunning).toBe(true);
+  expect(result.cases.at(-1)?.caseId).toBe("SP09");
+  expect(result.previewProof?.httpBodySha256).toBe(result.previewProof?.challengeSha256);
+  expect(facts.destroyed).toHaveLength(2);
 });
 
 test("persistent workspace bytes must survive the controller restart", async () => {

@@ -13,6 +13,7 @@ export const VALIDATOR_VERSION = "4.0.0";
 export const SANDBOX_PROFILES = ["linux-exec.v1", "persistent-web-compose.v1"] as const;
 export const CANDIDATE_SANDBOX_QUALIFICATION_CASES = ["SP01", "SP02", "SP03", "SP05", "SP07", "SP08"] as const;
 export const LIVE_SANDBOX_QUALIFICATION_CASES = ["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"] as const;
+export const PERSISTENT_WEB_COMPOSE_LIVE_CASES = [...LIVE_SANDBOX_QUALIFICATION_CASES, "SP09"] as const;
 const sandboxProviderMethodDefinitions = {
   describe: ["SandboxProviderDescribeInput", "SandboxProviderDescribeResult"],
   preflight: ["SandboxProviderPreflightInput", "SandboxProviderPreflightResult"],
@@ -1469,7 +1470,39 @@ export async function validateLiveSandboxPresetQualification(preset: SandboxPres
   if (qualification.producer !== "live-provider" || qualification.providerId !== context.providerId || qualification.connectionId !== context.connectionId || qualification.presetId !== preset.id || qualification.profile !== preset.profile || qualification.releaseDigest !== context.releaseDigest || qualification.presetDigest !== await sandboxPresetDigest(preset) || qualification.effectiveSettingsDigest !== context.effectiveSettingsDigest) throw new ContractError("INVALID_QUALIFICATION", "Live sandbox qualification does not match its connection, release, preset, or settings");
   if (!sandboxRequirementPattern.test(qualification.backendVersion)) throw new ContractError("INVALID_QUALIFICATION", "Invalid live sandbox backend version");
   validateQualificationTime(qualification.verifiedAt, qualification.validUntil, context.now ?? Date.now());
-  validateQualificationCases(qualification.cases, LIVE_SANDBOX_QUALIFICATION_CASES);
+  const needsPreview = preset.profile === "persistent-web-compose.v1";
+  validateQualificationCases(qualification.cases, needsPreview ? PERSISTENT_WEB_COMPOSE_LIVE_CASES : LIVE_SANDBOX_QUALIFICATION_CASES);
+  const proof = qualification.previewProof;
+  if (needsPreview !== !!proof) throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof does not match the profile");
+  if (proof) {
+    const denied = proof.denied;
+    const authDenied = [denied.missingAuth, denied.wrongOwner, denied.expired,
+      denied.malformed, denied.revoked];
+    const targetDenied = [denied.wrongSandbox, denied.wrongGeneration, denied.wrongPort,
+      denied.stopped, denied.hostLoopback, denied.management];
+    if (proof.version !== 1 || proof.connectionId !== context.connectionId
+      || proof.presetId !== preset.id || proof.releaseDigest !== context.releaseDigest
+      || proof.presetDigest !== qualification.presetDigest
+      || proof.effectiveSettingsDigest !== context.effectiveSettingsDigest
+      || proof.imageDigest !== preset.imageDigest || !preset.helperDigests.includes(proof.helperDigest)
+      || !sandboxRequirementPattern.test(proof.sandboxId) || !sandboxRequirementPattern.test(proof.operationId)
+      || !sandboxRequirementPattern.test(proof.endpointId) || !sandboxRequirementPattern.test(proof.ownerId)
+      || !Number.isSafeInteger(proof.generation) || proof.generation < 1
+      || !Number.isSafeInteger(proof.port) || proof.port < 1 || proof.port > 65535
+      || !utcTimestampPattern.test(proof.expiresAt) || !Number.isFinite(Date.parse(proof.expiresAt))
+      || !digestPattern.test(proof.challengeSha256) || proof.httpStatus !== 200
+      || proof.httpBodySha256 !== proof.challengeSha256 || proof.webSocketStatus !== 101
+      || proof.webSocketMessageSha256 !== proof.challengeSha256 || proof.webSocketSubprotocol !== "vite-hmr"
+      || authDenied.some(status => status !== 404) || targetDenied.some(status => status !== 502)
+      || denied.webSocketWrongOwner !== 403
+      || proof.relay.destination !== "pinned-guest-loopback"
+      || proof.relay.instanceId !== proof.sandboxId || proof.relay.port !== proof.port
+      || !Number.isSafeInteger(proof.relay.httpRequests) || proof.relay.httpRequests < 1
+      || !Number.isSafeInteger(proof.relay.webSocketConnections) || proof.relay.webSocketConnections < 1
+      || proof.relay.hostConnectAttempts !== 0 || proof.relay.managementConnectAttempts !== 0) {
+      throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof is incomplete or mismatched");
+    }
+  }
   return qualification;
 }
 

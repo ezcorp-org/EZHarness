@@ -707,3 +707,4 @@
   Record the complete compiler argument vector, specs, linker selection and
   static inputs. Run the documented build from a fresh output directory and
   compare its bytes before calling the provenance complete.
+- A denied preview result is not proof merely because its HTTP status is 4xx or 5xx. Pin each expected route result, reject generic 500 for identity and expiry gates, and require separate destination observations before claiming host or management isolation.

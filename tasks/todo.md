@@ -3323,3 +3323,14 @@ passed in less than three seconds, but reliability is not yet proved.
 Plan review: keep transport and qualification in their assigned worktrees. The app bridge must never turn a sandbox descriptor into a host URL. Vite HMR requires the allowlisted `vite-hmr` subprotocol. A qualified transport and active release are still required before production enables this path.
 
 Review so far: before the change, the app bridge returned 403 and did not call Bun upgrade for an owned, current sandbox preview. After the change, 45 focused app tests and 30 Bun tests pass, including guest-frame revocation, stale generation, fixture-lease isolation, slow-send flood, and fixed guest HTTP redirect behavior. Biome and Svelte check pass on touched files. Production build and browser E2E proof remain open until transport/startup wiring is integrated.
+
+### Incus Compose preview qualification — 6 October 2026
+
+- [x] Reproduce acceptance of an SP01–SP08 Compose qualification with `endpointProxy: false` in the existing store test.
+- [ ] Define one bounded host preview proof for the exact qualification scope and guest fixture.
+- [ ] Require real HTTP and WebSocket challenge results and denial facts before the live runner emits SP09.
+- [ ] Require SP09 and its proof for persistent-web-compose in the shared contract and saved-row load; keep linux-exec SP01–SP08.
+- [ ] Test false and legacy evidence, normal and durable runner paths, and profile-specific contract behavior.
+- [ ] Run focused tests, typecheck, and source review; commit the qualification milestone.
+
+Review: pending.
