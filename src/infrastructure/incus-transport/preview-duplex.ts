@@ -20,8 +20,13 @@ let activeConnections = 0;
 // loopback port. The host constructs and validates the WebSocket wire protocol.
 export const PREVIEW_GUEST_RELAY = `import os,select,signal,socket
 signal.alarm(int(os.environ["EZH_PREVIEW_LIFETIME_SECONDS"]))
+ready,_,_=select.select([0],[],[],10)
+if not ready: raise SystemExit(1)
+first=os.read(0,65536)
+if not first: raise SystemExit(1)
 s=socket.create_connection(("127.0.0.1",int(os.environ["EZH_PREVIEW_PORT"])),timeout=3)
 try:
+ s.sendall(first)
  while True:
   ready,_,_=select.select([0,s],[],[],3)
   if not ready: continue
@@ -71,6 +76,8 @@ export type IncusPreviewAuthorize = (request: IncusPreviewDuplexRequest) => Prom
 export interface IncusPreviewTransportDependencies {
   http?: PinnedFetch;
   websocket?: typeof openPinnedWebSocket;
+  /** Test-only shortening. A caller cannot extend the 30s setup limit. */
+  setupTimeoutMs?: number;
 }
 
 function assertRequest(request: IncusPreviewDuplexRequest): string {
@@ -183,6 +190,15 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
   authorize: IncusPreviewAuthorize, dependencies: IncusPreviewTransportDependencies = {}): Promise<GuestPreviewDuplex> {
   const path = assertRequest(request);
   const release = reserve(request.binding, request.previewId);
+  const setupController = new AbortController();
+  const setupLimit = Math.min(30_000, Math.max(1, dependencies.setupTimeoutMs ?? 30_000));
+  const setupTimer = setTimeout(() => setupController.abort(), setupLimit);
+  const cancelSetup = () => setupController.abort();
+  request.signal.addEventListener("abort", cancelSetup, { once: true });
+  const setupDeadline = new Promise<never>((_, reject) => {
+    setupController.signal.addEventListener("abort", () => reject(new Error("Incus preview setup ended")), { once: true });
+  });
+  if (request.signal.aborted) setupController.abort();
   let readyResolve!: (value: GuestPreviewDuplex) => void;
   let readyReject!: (reason: unknown) => void;
   let delivered = false;
@@ -207,10 +223,10 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
   };
   settled = (async () => {
     try {
-      const approved = await authorize(request);
+      const approved = await Promise.race([authorize(request), setupDeadline]);
       assertAuthority(request, approved);
       await approved.revalidate();
-      const signal = AbortSignal.any([request.signal, approved.scope.signal ?? request.signal]);
+      const signal = AbortSignal.any([request.signal, approved.scope.signal ?? request.signal, setupController.signal]);
       await withPreviewSession(approved.connections, { ...approved.scope, signal }, dependencies.http ?? verifiedHttpsRequest,
         approved.command, async session => {
           const project = encodeURIComponent(session.connection.project);
@@ -312,6 +328,7 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
               close,
             };
             delivered = true;
+            clearTimeout(setupTimer);
             readyResolve(duplex);
             let checking = false;
             const guard = setInterval(() => {
@@ -329,6 +346,8 @@ export async function connectIncusPreviewDuplex(request: IncusPreviewDuplexReque
     } catch (error) {
       if (!delivered) readyReject(error);
     } finally {
+      clearTimeout(setupTimer);
+      request.signal.removeEventListener("abort", cancelSetup);
       closed = true;
       release();
       finish();

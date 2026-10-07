@@ -60,7 +60,7 @@ function decodeClientFrame(frame: Buffer): { opcode: number; body: Buffer } {
 }
 
 function fixture(options: { generation?: string; selectProtocol?: string | null; onRevalidate?: () => void;
-  deadlineOffsetMs?: number } = {}) {
+  deadlineOffsetMs?: number; stallHandshake?: boolean; setupTimeoutMs?: number } = {}) {
   const channels = [new Channel(), new Channel(), new Channel(), new Channel()];
   const calls: string[] = [];
   let lastExec: Record<string, unknown> | undefined;
@@ -78,10 +78,12 @@ function fixture(options: { generation?: string; selectProtocol?: string | null;
     expect(id).toBe(operationId);
     const index = Object.values(tokens).indexOf(token);
     expect(index).toBeGreaterThanOrEqual(0);
+    _session.signal.addEventListener("abort", () => channels[index]!.close(), { once: true });
     return channels[index]!;
   };
   channels[0]!.onSend = buffer => {
     if (buffer.subarray(0, 4).toString() === "GET ") {
+      if (options.stallHandshake) return;
       const header = buffer.toString("latin1");
       const key = /Sec-WebSocket-Key: (\S+)/.exec(header)?.[1];
       expect(key).toBeDefined();
@@ -108,7 +110,8 @@ function fixture(options: { generation?: string; selectProtocol?: string | null;
       serverCertificatePem: cert, clientCertificatePem: "client", privateKeyPem: "private" }) },
     async revalidate() { revalidations++; options.onRevalidate?.(); },
   };
-  const connect = (input = request()) => connectIncusPreviewDuplex(input, async () => authority, { http: http as never, websocket });
+  const connect = (input = request()) => connectIncusPreviewDuplex(input, async () => authority,
+    { http: http as never, websocket, setupTimeoutMs: options.setupTimeoutMs });
   return { connect, authority, channels, calls, http, lastExec: () => lastExec, revalidations: () => revalidations };
 }
 
@@ -297,3 +300,35 @@ test("preview-only session accepts a long HMR stream without widening ordinary R
   await duplex.close();
   expect(MAX_PREVIEW_SESSION_MS).toBe(900_000);
 });
+
+test("stalled guest handshakes release the global slot after the short setup deadline", async () => {
+  const stalled = Array.from({ length: 8 }, () => fixture({ stallHandshake: true, setupTimeoutMs: 25 }));
+  await Promise.all(stalled.map((f, index) => expect(f.connect({ ...request(), previewId: `stall-${index}` })).rejects.toThrow()));
+  expect(stalled.every(f => f.channels.every(channel => channel.closed))).toBe(true);
+  const next = fixture();
+  const duplex = await next.connect({ ...request(), previewId: "after-stall" });
+  await duplex.close();
+});
+
+test("established duplex stays open after its short setup timer", async () => {
+  const f = fixture({ setupTimeoutMs: 25 });
+  const duplex = await f.connect();
+  await Bun.sleep(60);
+  await duplex.send("still open");
+  expect((await duplex.messages[Symbol.asyncIterator]().next()).value).toBe("still open");
+  await duplex.close();
+});
+
+test("fixed guest relay exits before opening a socket when no Incus stdin arrives", async () => {
+  const child = Bun.spawn(["/run/current-system/sw/bin/python3", "-I", "-S", "-u", "-c", PREVIEW_GUEST_RELAY], {
+    env: { ...process.env, EZH_PREVIEW_PORT: "4173", EZH_PREVIEW_LIFETIME_SECONDS: "20" },
+    stdin: "pipe", stdout: "pipe", stderr: "pipe",
+  });
+  try {
+    const exitCode = await Promise.race([child.exited, Bun.sleep(12_000).then(() => { throw new Error("Guest attach watchdog did not exit"); })]);
+    expect(exitCode).toBe(1);
+  } finally {
+    child.kill();
+    child.stdin.end();
+  }
+}, 15_000);
