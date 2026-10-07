@@ -1,5 +1,11 @@
 # Lessons
 
+- Run full repository gates in a clean, fixed worktree. Progress edits in the integration worktree invalidate browser coverage attestation, even when only task documents change. Record the gate's actual source and process before resuming work after compaction; do not launch a duplicate suite.
+
+- Run every new maintenance preflight against the actual installed files before any service action. Fake order tests do not catch real file sizes or ownership. Reuse the existing bundle verifier; a generic 64 KiB helper-file limit rejected a valid 15.9 MB manifest before accounting could start.
+
+- Measure full bundle verification before choosing a maintenance timeout. Repeated inventories of a large bundle can exceed a short wrapper limit. Use an owned process group with durable phase receipts; after timeout, inspect completed effects and resume only the verified unfinished suffix. Do not change workload test deadlines to solve maintenance timing.
+
 - Put a required guard and its dependent effect in one fail-closed sequential caller. A separate tool call can run even after an earlier call exits nonzero. Check the exact host and measured resource before admission; preserve any already-admitted operation and inspect its original handle instead of replaying it.
 
 - Strip inherited GIT_* variables from Git fixture subprocesses. Commit hooks export repository and index paths; a temporary working directory alone does not isolate Git. Test with poisoned variables and verify the real repository HEAD, staged paths, commit scope and local configuration after hooks. The first failing fixture also overwrote shared user.name/email; restore only proven affected keys from pre-failure evidence.
