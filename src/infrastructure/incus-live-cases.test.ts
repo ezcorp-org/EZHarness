@@ -191,11 +191,12 @@ test("Compose needs a real HTTP and WebSocket preview witness before SP09", asyn
       port: 4173, expiresAt: new Date(Date.now() + 30_000).toISOString(), challengeSha256: hash,
       httpStatus: 200, httpBodySha256: hash, webSocketStatus: 101,
       webSocketMessageSha256: hash, webSocketSubprotocol: "vite-hmr",
-      relay: { destination: "pinned-guest-loopback", instanceId: handle.sandboxId, port: 4173,
-        httpRequests: 1, webSocketConnections: 1, hostConnectAttempts: 0, managementConnectAttempts: 0 },
+      redirectStatus: 302, redirectLocation: "http://127.0.0.1:1/",
+      dispatch: { backend: "incus", instanceId: handle.sandboxId, port: 4173,
+        httpRequests: 1, webSocketConnections: 1 },
       denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
         wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
-        hostLoopback: 502, management: 502, webSocketWrongOwner: 403 },
+        wrongHost: 404, webSocketWrongOwner: 403, webSocketWrongOrigin: 403 },
     };
   };
   const result = await createIncusLiveCaseRunner({ witness: facts.value, composeFixtureImageRef: image })

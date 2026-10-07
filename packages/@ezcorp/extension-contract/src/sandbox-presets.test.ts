@@ -1,25 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import type { ExtensionManifestV4, LiveSandboxPresetQualification, LiveSandboxPreviewProof, SandboxPreset, SandboxPresetQualification } from "./types";
-import { composeSandboxPreset as composePreset, linuxSandboxPreset as linuxPreset, manifestWithSandboxPresets as manifestWith, SANDBOX_FIXTURE_NOW as NOW, SANDBOX_FIXTURE_RELEASE_DIGEST as RELEASE_DIGEST, SANDBOX_FIXTURE_SETTINGS_DIGEST as EFFECTIVE_SETTINGS_DIGEST, sandboxFixtureManifest as baseManifest } from "./sandbox-presets.fixture";
+import type { ExtensionManifestV4, LiveSandboxPresetQualification, SandboxPreset, SandboxPresetQualification } from "./types";
+import { composeSandboxPreset as composePreset, linuxSandboxPreset as linuxPreset, liveComposePreviewProof, manifestWithSandboxPresets as manifestWith, SANDBOX_FIXTURE_NOW as NOW, SANDBOX_FIXTURE_RELEASE_DIGEST as RELEASE_DIGEST, SANDBOX_FIXTURE_SETTINGS_DIGEST as EFFECTIVE_SETTINGS_DIGEST, sandboxFixtureManifest as baseManifest } from "./sandbox-presets.fixture";
 import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, LIVE_SANDBOX_QUALIFICATION_CASES, PERSISTENT_WEB_COMPOSE_LIVE_CASES, sandboxPresetDigest, validateCandidateSandboxPresetQualifications, validateLiveSandboxPresetQualification, validateManifest, validateWire } from "./validation";
-
-async function previewProof(preset: SandboxPreset): Promise<LiveSandboxPreviewProof> {
-  return {
-    version: 1, connectionId: "connection-1", presetId: preset.id,
-    releaseDigest: RELEASE_DIGEST, presetDigest: await sandboxPresetDigest(preset),
-    effectiveSettingsDigest: EFFECTIVE_SETTINGS_DIGEST, imageDigest: preset.imageDigest,
-    helperDigest: preset.helperDigests[0]!, sandboxId: "fixture-1", operationId: "qual-primary-1",
-    generation: 1, endpointId: "endpoint-1", ownerId: "owner-1", port: 4173,
-    expiresAt: "2026-09-21T11:30:00.000Z", challengeSha256: "a".repeat(64),
-    httpStatus: 200, httpBodySha256: "a".repeat(64), webSocketStatus: 101,
-    webSocketMessageSha256: "a".repeat(64), webSocketSubprotocol: "vite-hmr",
-    relay: { destination: "pinned-guest-loopback", instanceId: "fixture-1", port: 4173,
-      httpRequests: 1, webSocketConnections: 1, hostConnectAttempts: 0, managementConnectAttempts: 0 },
-    denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
-      wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
-      hostLoopback: 502, management: 502, webSocketWrongOwner: 403 },
-  };
-}
 
 async function candidateQualification(preset: SandboxPreset, overrides: Partial<SandboxPresetQualification> = {}): Promise<SandboxPresetQualification> {
   return {
@@ -51,7 +33,7 @@ async function liveQualification(preset: SandboxPreset, overrides: Partial<LiveS
     validUntil: "2026-09-21T13:00:00.000Z",
     cases: (preset.profile === "persistent-web-compose.v1" ? PERSISTENT_WEB_COMPOSE_LIVE_CASES : LIVE_SANDBOX_QUALIFICATION_CASES)
       .map(caseId => ({ caseId, status: "passed" })),
-    ...(preset.profile === "persistent-web-compose.v1" ? { previewProof: await previewProof(preset) } : {}),
+    ...(preset.profile === "persistent-web-compose.v1" ? { previewProof: await liveComposePreviewProof(preset) } : {}),
     ...overrides,
   };
 }
@@ -164,7 +146,7 @@ describe("sandbox preset qualification", () => {
     await expect(validateLiveSandboxPresetQualification(preset, { ...evidence, previewProof: { ...evidence.previewProof!, webSocketStatus: 502 } }, context)).rejects.toThrow();
     await expect(validateLiveSandboxPresetQualification(preset, { ...evidence, previewProof: { ...evidence.previewProof!, denied: { ...evidence.previewProof!.denied, wrongOwner: 200 } } }, context)).rejects.toThrow();
     await expect(validateLiveSandboxPresetQualification(preset, { ...evidence, previewProof: { ...evidence.previewProof!, denied: { ...evidence.previewProof!.denied, wrongOwner: 500 } } }, context)).rejects.toThrow();
-    await expect(validateLiveSandboxPresetQualification(preset, { ...evidence, previewProof: { ...evidence.previewProof!, relay: { ...evidence.previewProof!.relay, hostConnectAttempts: 1 } } }, context)).rejects.toThrow();
+    await expect(validateLiveSandboxPresetQualification(preset, { ...evidence, previewProof: { ...evidence.previewProof!, dispatch: { ...evidence.previewProof!.dispatch, instanceId: "other" } } }, context)).rejects.toThrow();
     const linux = linuxPreset();
     const linuxEvidence = await liveQualification(linux);
     expect((await validateLiveSandboxPresetQualification(linux, linuxEvidence, context)).cases).toHaveLength(8);

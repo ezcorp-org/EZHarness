@@ -1,10 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
 import { lstat, realpath } from "node:fs/promises";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { resolveSandboxPreset, sandboxPresetDigest, validateSandboxProviderMethodExchange,
   type SandboxPreset, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
+import type { LiveSandboxPreviewProof } from "@ezcorp/extension-contract";
 import { getDb, type Database } from "../db/connection";
-import { incusQualificationFixtures, sandboxBindings, type SandboxOperation } from "../db/schema";
+import { incusQualificationFixtures, projectMembers, previewSessions, sandboxBindings, type SandboxOperation } from "../db/schema";
+import { createConversation, deleteConversation } from "../db/queries/conversations";
+import { createPreviewSession, revokePreview } from "../db/queries/preview-sessions";
+import { mintOneTimeCode, signPreviewToken } from "../runtime/preview/preview-token";
+import { registerQualificationPreviewTarget } from "../runtime/preview/preview-target";
+import { sameSandboxWorkspaceBinding, sandboxWorkspaceTarget, workspaceTargetReference,
+  type SandboxPreviewBackend, type SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { releaseRows } from "../db/queries/extension-releases";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease,
   type ActiveExtensionRelease } from "../extensions/release-process";
@@ -20,6 +27,8 @@ import { HostIncusLiveReadback, type LiveReadbackContext } from "./incus-transpo
 import { ProviderConnectionStore, type ProviderConnectionCredentials,
   type ProviderConnectionScope } from "./provider-connections/store";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
+import { registerClaimedQualificationPreview } from "./incus-qualification-preview-permit";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import { requestIncusSupervisorReadiness, requestIncusSupervisorReceipt, type IncusSupervisorSelectedPin,
   requestIncusSupervisorRestart, releaseTerminalIncusQualification } from "./incus-qualification-supervisor-client";
@@ -33,6 +42,44 @@ const POLL_MS = 100;
 const CONTROL_DENIALS = ["unsupported", "missingControl", "drift", "unqualified"] as const;
 type ControlDenial = (typeof CONTROL_DENIALS)[number];
 const guestOperations = new Set<SandboxProtocolOperation>(INCUS_WITNESS_GUEST_OPERATIONS);
+const PREVIEW_PORT = 4173;
+const PREVIEW_PYTHON = `import base64,hashlib,http.server,os,socketserver
+class Handler(http.server.BaseHTTPRequestHandler):
+ def log_message(self,*args): pass
+ def do_GET(self):
+  if self.path=="/redirect":
+   self.send_response(302); self.send_header("Location","http://127.0.0.1:1/"); self.end_headers(); return
+  if self.path!="/proof": self.send_error(404); return
+  payload=os.environ["EZH_QUAL_CHALLENGE"].encode()
+  if self.headers.get("Upgrade","").lower()=="websocket":
+   key=self.headers.get("Sec-WebSocket-Key","")
+   if not key or self.headers.get("Sec-WebSocket-Protocol")!="vite-hmr": self.send_error(403); return
+   accept=base64.b64encode(hashlib.sha1((key+"258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).decode()
+   self.send_response(101); self.send_header("Upgrade","websocket"); self.send_header("Connection","Upgrade")
+   self.send_header("Sec-WebSocket-Accept",accept); self.send_header("Sec-WebSocket-Protocol","vite-hmr"); self.end_headers()
+   first=self.rfile.read(2)
+   if len(first)!=2 or first[1]&128==0 or first[1]&127>125: return
+   mask=self.rfile.read(4); size=first[1]&127; encoded=self.rfile.read(size)
+   value=bytes(byte^mask[index%4] for index,byte in enumerate(encoded))
+   if value!=payload: return
+   self.wfile.write(bytes([129,len(payload)])+payload); self.wfile.flush()
+  else:
+   self.send_response(200); self.send_header("Content-Length",str(len(payload))); self.end_headers(); self.wfile.write(payload)
+class Server(socketserver.ThreadingMixIn,http.server.HTTPServer): daemon_threads=True
+Server(("127.0.0.1",4173),Handler).serve_forever()`;
+
+export interface IncusPreviewTrafficDriver {
+  ready(): Promise<boolean>;
+  handoff(input: { previewId: string; code: string }): Promise<{ status: number; cookie: string | null }>;
+  http(input: { previewId: string; cookie: string | null; path: string;
+    wrongHost?: boolean; malformedHost?: boolean }): Promise<{
+    status: number; body: Uint8Array; location: string | null;
+  }>;
+  webSocket(input: { previewId: string; cookie: string | null; path: string;
+    subprotocol: "vite-hmr"; challenge: string; wrongOrigin?: boolean }): Promise<{
+      status: number; subprotocol: string | null; reply: Uint8Array | null;
+    }>;
+}
 
 /** This checks operator wiring before allocation. Only the full live run can publish SP evidence. */
 export async function incusHostLiveWitnessReady(deps: {
@@ -142,6 +189,9 @@ export interface IncusHostLiveWitnessDependencies {
     attemptReadiness(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void>;
     reconcileFromReopenedController(scope: IncusQualificationScope, handle: LiveFixtureHandle): Promise<void>;
   };
+  /** This is the real app listener traffic driver and the production Incus relay. */
+  previewTraffic?: IncusPreviewTrafficDriver;
+  previewBackend?: IncusSandboxPreviewBackend;
   supervisorSocketPath?: string;
   now?: () => number;
 }
@@ -181,6 +231,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
   private readonly controlProbe: IncusHostLiveWitnessDependencies["controlProbe"];
   private readonly resourceNetwork: IncusHostLiveWitnessDependencies["resourceNetwork"];
   private readonly cleanupRecovery: IncusHostLiveWitnessDependencies["cleanupRecovery"];
+  private readonly previewTraffic: IncusHostLiveWitnessDependencies["previewTraffic"];
+  private readonly previewBackend: IncusHostLiveWitnessDependencies["previewBackend"];
   private readonly now: () => number;
   private readonly supervisorSocketPath: string | undefined;
 
@@ -195,6 +247,8 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     this.readSetup = deps.readSetup ?? (id => readSetup(this.db, id));
     this.backend = deps.backend ?? new HostIncusLiveReadback(new ProviderConnectionStore(this.db));
     this.controlProbe = deps.controlProbe;
+    this.previewTraffic = deps.previewTraffic;
+    this.previewBackend = deps.previewBackend;
     this.resourceNetwork = deps.resourceNetwork ?? new IncusLiveNetworkProbe({ db: this.db });
     this.now = deps.now ?? Date.now;
     this.supervisorSocketPath = deps.supervisorSocketPath ?? process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
@@ -271,6 +325,256 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     if (selected.connection.revision !== fixture.connectionRevision || selected.presetDigest !== fixture.presetDigest
       || selected.effectiveSettingsDigest !== fixture.effectiveSettingsDigest) deny("reviewed fixture settings changed");
     return { fixture, binding, scope, selected };
+  }
+
+  /** SP09 uses the real preview registry, token handoff, app listener, and
+   * guest loopback relay. The temporary fixture route exists only for this
+   * claimed run and is removed even when a request fails. */
+  async exercisePreviewAndStop(handle: LiveFixtureHandle, scope: IncusQualificationScope,
+    preset: SandboxPreset, challenge: string): Promise<LiveSandboxPreviewProof> {
+    const traffic = this.previewTraffic;
+    const backend = this.previewBackend;
+    if (!traffic || !(backend instanceof IncusSandboxPreviewBackend) || !await traffic.ready()) {
+      deny("preview app listener or Incus guest relay is unavailable");
+    }
+    const { fixture, binding, scope: ownedScope, selected } = await this.owned(handle, true);
+    if (preset.profile !== "persistent-web-compose.v1" || selected.preset.id !== preset.id
+      || ownedScope.installationId !== scope.installationId || ownedScope.releaseId !== scope.releaseId
+      || ownedScope.connectionId !== scope.connectionId || ownedScope.presetId !== scope.presetId
+      || !/^[0-9a-f-]{36}$/.test(challenge) || !handle.operationId.startsWith("qual-primary-")) {
+      deny("preview fixture scope or challenge changed");
+    }
+    const runId = handle.operationId.slice("qual-primary-".length);
+    const checkpointStore = new IncusQualificationCheckpointStore(this.db);
+    const checkpoint = await checkpointStore.get(runId);
+    if (checkpoint?.state !== "CLAIMED" || checkpoint.fixtureOperationId !== handle.operationId
+      || checkpoint.bindingId !== handle.sandboxId || checkpoint.generation !== binding.generation
+      || checkpoint.connectionRevision !== fixture.connectionRevision
+      || checkpoint.scope.installationId !== scope.installationId
+      || checkpoint.scope.releaseId !== scope.releaseId
+      || checkpoint.scope.connectionId !== scope.connectionId
+      || checkpoint.scope.presetId !== scope.presetId
+      || new Date(checkpoint.deadlineAt).getTime() <= this.now()) deny("preview restart claim changed");
+    const [owner] = await this.db.select().from(projectMembers)
+      .where(and(eq(projectMembers.projectId, fixture.projectId), eq(projectMembers.role, "owner")))
+      .orderBy(projectMembers.userId).limit(1);
+    if (!owner) deny("qualification project owner is unavailable");
+    const context = await this.context(scope, preset);
+    const workspaceBinding: SandboxWorkspaceBinding = {
+      projectId: fixture.projectId, workspaceId: fixture.bindingId, connectionId: fixture.connectionId,
+      providerId: "incus", generation: binding.generation, presetId: preset.id,
+      releaseDigest: selected.snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
+      effectiveSettingsDigest: selected.effectiveSettingsDigest,
+    };
+    let previewId = "";
+    let httpRequests = 0;
+    let webSocketConnections = 0;
+    let observedInstanceId = "";
+    let observedPort = 0;
+    const exact = (request: { previewId: string; binding: Readonly<SandboxWorkspaceBinding>; targetPort: number | null }) =>
+      request.previewId === previewId && request.targetPort === PREVIEW_PORT
+      && sameSandboxWorkspaceBinding(request.binding, workspaceBinding);
+    const observedBackend: SandboxPreviewBackend = {
+      open: request => backend.open(request), close: request => backend.close(request),
+      serve: async request => {
+        const response = await backend.serve(request);
+        if (exact(request)) {
+          observedInstanceId = request.binding.workspaceId;
+          observedPort = request.targetPort!;
+          httpRequests++;
+        }
+        return response;
+      },
+      connectWebSocket: async request => {
+        const socket = await backend.connectWebSocket(request);
+        if (exact(request)) {
+          observedInstanceId = request.binding.workspaceId;
+          observedPort = request.targetPort!;
+          webSocketConnections++;
+        }
+        return socket;
+      },
+    };
+    const target = sandboxWorkspaceTarget(workspaceBinding, {
+      execute: async () => { throw new Error("Qualification preview cannot run workspace tools"); },
+      previews: observedBackend,
+    });
+    const registered: Array<{ id: string; target: typeof target }> = [];
+    let conversationId: string | undefined;
+    let dispose: (() => void) | undefined;
+    let stopped = false;
+    let primaryFailure: unknown;
+    let proofResult: LiveSandboxPreviewProof | undefined;
+    const cleanupFailures: unknown[] = [];
+    const createRow = async (candidate: typeof target, port: number, ttlMs = 90_000) => {
+      const row = await createPreviewSession({ userId: owner.userId, conversationId: conversationId!,
+        kind: "dynamic", targetPort: port, ttlMs, workspaceTarget: candidate });
+      registered.push({ id: row.id, target: candidate });
+      return row;
+    };
+    const status = async (id: string, cookie: string | null, options: {
+      path?: string; wrongHost?: boolean; malformedHost?: boolean;
+    } = {}) => (await traffic.http({ previewId: id, cookie, path: options.path ?? "/proof",
+      wrongHost: options.wrongHost, malformedHost: options.malformedHost })).status;
+    try {
+      // The only server process is in the already claimed guest, on guest loopback.
+      const started = await this.guest(handle, "processes.start", {
+        argv: ["python3", "-u", "-c", PREVIEW_PYTHON], cwd: ".",
+        env: [{ name: "EZH_QUAL_CHALLENGE", value: challenge }], processDeadlineMs: this.now() + 110_000,
+      });
+      if (typeof started.processId !== "string" || typeof started.bootId !== "string") {
+        deny("preview guest service did not start");
+      }
+      let listening = false;
+      for (let attempt = 0; attempt < 8 && !listening; attempt++) {
+        try {
+          const probe = await this.run(handle, ["python3", "-c",
+            "import socket; s=socket.create_connection(('127.0.0.1',4173),1); s.close()"], 3000);
+          listening = probe.exitCode === 0;
+        } catch { await Bun.sleep(100); }
+      }
+      if (!listening) deny("preview guest loopback service is unavailable");
+      const conversation = await createConversation(fixture.projectId,
+        { title: "Qualification preview", userId: owner.userId, test: true });
+      conversationId = conversation.id;
+      const row = await createRow(target, PREVIEW_PORT);
+      previewId = row.id;
+      dispose = await registerClaimedQualificationPreview({
+        key: { previewId, userId: owner.userId, conversationId, binding: workspaceBinding, targetPort: PREVIEW_PORT },
+        runId, nonce: checkpoint.nonce, fixtureOperationId: handle.operationId,
+        connectionRevision: fixture.connectionRevision, releaseDigest: workspaceBinding.releaseDigest,
+        expiresAtMs: Math.min(this.now() + 100_000, new Date(checkpoint.deadlineAt).getTime()), target,
+      }, { register: registerQualificationPreviewTarget, now: this.now,
+        readCurrent: async () => {
+          const current = await checkpointStore.get(runId);
+          const owned = await this.owned(handle, true).catch(() => null);
+          const active = await this.activeRelease(fixture.installationId).catch(() => null);
+          const connection = await this.resolveConnection({ connectionId: fixture.connectionId,
+            providerInstallationId: fixture.installationId, providerReleaseId: fixture.releaseId,
+            revision: fixture.connectionRevision }).catch(() => null);
+          if (!current || !owned || current.state !== "CLAIMED"
+            || new Date(current.deadlineAt).getTime() <= this.now()
+            || owned.selected.snapshot.release.releaseDigest !== workspaceBinding.releaseDigest
+            || active?.installation.id !== fixture.installationId
+            || active?.release.id !== fixture.releaseId
+            || active?.installation.activeReleaseId !== fixture.releaseId
+            || connection?.id !== fixture.connectionId || connection?.revision !== fixture.connectionRevision
+            || connection?.revokedAt || connection?.configuration.kind !== "incus") return null;
+          return { runId: current.runId, nonce: current.nonce, state: current.state,
+            fixtureOperationId: current.fixtureOperationId, fixtureBindingId: current.bindingId,
+            fixtureGeneration: current.generation, connectionRevision: current.connectionRevision,
+            releaseDigest: owned.selected.snapshot.release.releaseDigest, binding: workspaceBinding,
+            running: owned.binding.desiredState === "RUNNING" && owned.binding.observedState === "RUNNING" };
+        } });
+      const handoff = await traffic.handoff({ previewId, code: mintOneTimeCode({ previewId, userId: owner.userId }) });
+      if (handoff.status !== 302 || !handoff.cookie) deny("preview one-time handoff failed");
+      const cookie = handoff.cookie;
+      const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+      const challengeSha256 = digest(Buffer.from(challenge));
+      const positive = await traffic.http({ previewId, cookie, path: "/proof" });
+      const socket = await traffic.webSocket({ previewId, cookie, path: "/proof",
+        subprotocol: "vite-hmr", challenge });
+      const redirect = await traffic.http({ previewId, cookie, path: "/redirect" });
+      const wrongOwnerCookie = `__ezpreview=${await signPreviewToken({ previewId, userId: randomUUID() })}`;
+      const deniedMissingAuth = await status(previewId, null);
+      const deniedWrongOwner = await status(previewId, wrongOwnerCookie);
+      const deniedMalformed = await status(previewId, cookie, { malformedHost: true });
+      const deniedWrongHost = await status(previewId, cookie, { wrongHost: true });
+      const deniedWebSocketWrongOwner = (await traffic.webSocket({ previewId, cookie: wrongOwnerCookie,
+        path: "/proof", subprotocol: "vite-hmr", challenge })).status;
+      const deniedWebSocketWrongOrigin = (await traffic.webSocket({ previewId, cookie,
+        path: "/proof", subprotocol: "vite-hmr", challenge, wrongOrigin: true })).status;
+      // Change the same leased row, so these are binding and port checks,
+      // not merely an unregistered preview-id denial.
+      const mismatched = async (change: Partial<SandboxWorkspaceBinding>, port: number) => {
+        const reference = workspaceTargetReference(sandboxWorkspaceTarget(
+          { ...workspaceBinding, ...change }, target.backend));
+        const [changed] = await this.db.update(previewSessions)
+          .set({ workspaceTarget: reference, targetPort: port })
+          .where(and(eq(previewSessions.id, previewId), eq(previewSessions.userId, owner.userId)))
+          .returning({ id: previewSessions.id });
+        if (!changed) deny("preview mutation lost its owned row");
+        try { return await status(previewId, cookie); }
+        finally {
+          const [restored] = await this.db.update(previewSessions)
+            .set({ workspaceTarget: workspaceTargetReference(target), targetPort: PREVIEW_PORT })
+            .where(and(eq(previewSessions.id, previewId), eq(previewSessions.userId, owner.userId)))
+            .returning({ id: previewSessions.id });
+          if (!restored) deny("preview row restoration failed");
+        }
+      };
+      const deniedWrongSandbox = await mismatched({ workspaceId: randomUUID() }, PREVIEW_PORT);
+      const deniedWrongGeneration = await mismatched({ generation: workspaceBinding.generation + 1 }, PREVIEW_PORT);
+      const deniedWrongPort = await mismatched({}, PREVIEW_PORT + 1);
+      const expiring = await createRow(target, PREVIEW_PORT, 1500);
+      const expiringCookie = `__ezpreview=${await signPreviewToken({ previewId: expiring.id, userId: owner.userId })}`;
+      await Bun.sleep(Math.max(0, expiring.expiresAt.getTime() - this.now() + 1));
+      const deniedExpired = await status(expiring.id, expiringCookie);
+      const revoked = await createRow(target, PREVIEW_PORT);
+      const revokedCookie = `__ezpreview=${await signPreviewToken({ previewId: revoked.id, userId: owner.userId })}`;
+      if (!await revokePreview(revoked.id, owner.userId, new Date(), target)) deny("preview revoke failed");
+      const deniedRevoked = await status(revoked.id, revokedCookie);
+      await this.setPower(handle, "stopped");
+      stopped = true;
+      const deniedStopped = await status(previewId, cookie);
+      if (positive.status !== 200 || digest(positive.body) !== challengeSha256
+        || socket.status !== 101 || socket.subprotocol !== "vite-hmr" || !socket.reply
+        || digest(socket.reply) !== challengeSha256 || redirect.status !== 302
+        || redirect.location !== "http://127.0.0.1:1/"
+        || [deniedMissingAuth, deniedWrongOwner, deniedMalformed, deniedWrongHost,
+          deniedExpired, deniedRevoked].some(value => value !== 404)
+        || [deniedWrongSandbox, deniedWrongGeneration, deniedWrongPort, deniedStopped].some(value => value !== 502)
+        || deniedWebSocketWrongOwner !== 403 || deniedWebSocketWrongOrigin !== 403
+        || httpRequests < 2 || webSocketConnections < 1
+        || observedInstanceId !== handle.sandboxId || observedPort !== PREVIEW_PORT) {
+        deny("preview route proof is incomplete");
+      }
+      proofResult = { version: 1, connectionId: scope.connectionId, presetId: preset.id,
+        releaseDigest: workspaceBinding.releaseDigest, presetDigest: workspaceBinding.presetDigest,
+        effectiveSettingsDigest: workspaceBinding.effectiveSettingsDigest, imageDigest: preset.imageDigest,
+        helperDigest: context.helperDigest, sandboxId: handle.sandboxId, operationId: handle.operationId,
+        generation: binding.generation, endpointId: previewId, ownerId: owner.userId, port: PREVIEW_PORT,
+        expiresAt: row.expiresAt.toISOString(), challengeSha256, httpStatus: positive.status,
+        httpBodySha256: digest(positive.body), webSocketStatus: socket.status,
+        webSocketMessageSha256: digest(socket.reply), webSocketSubprotocol: socket.subprotocol,
+        redirectStatus: redirect.status, redirectLocation: redirect.location,
+        dispatch: { backend: "incus", instanceId: observedInstanceId, port: observedPort,
+          httpRequests, webSocketConnections },
+        denied: { missingAuth: deniedMissingAuth, wrongOwner: deniedWrongOwner,
+          wrongSandbox: deniedWrongSandbox, wrongGeneration: deniedWrongGeneration,
+          wrongPort: deniedWrongPort, expired: deniedExpired, malformed: deniedMalformed,
+          revoked: deniedRevoked, stopped: deniedStopped, wrongHost: deniedWrongHost,
+          webSocketWrongOwner: deniedWebSocketWrongOwner, webSocketWrongOrigin: deniedWebSocketWrongOrigin } };
+    } catch (error) {
+      primaryFailure = error;
+    } finally {
+      try { dispose?.(); }
+      catch (error) { cleanupFailures.push(error); }
+      for (const item of registered.reverse()) {
+        try {
+          if (!await revokePreview(item.id, owner.userId, new Date(), item.target)) {
+            cleanupFailures.push(new Error("Qualification preview row could not be revoked"));
+          }
+        } catch (error) { cleanupFailures.push(error); }
+      }
+      if (conversationId) {
+        try {
+          if (!await deleteConversation(conversationId)) {
+            cleanupFailures.push(new Error("Qualification conversation was not deleted"));
+          }
+        } catch (error) { cleanupFailures.push(error); }
+      }
+      if (!stopped) {
+        try { await this.setPower(handle, "stopped"); }
+        catch (error) { cleanupFailures.push(error); }
+      }
+    }
+    if (cleanupFailures.length) throw new AggregateError(
+      primaryFailure === undefined ? cleanupFailures : [primaryFailure, ...cleanupFailures],
+      "Qualification preview cleanup is unverified");
+    if (primaryFailure !== undefined) throw primaryFailure;
+    if (!proofResult) deny("preview proof was not produced");
+    return proofResult;
   }
 
   private async guest(handle: LiveFixtureHandle, operation: SandboxProtocolOperation,

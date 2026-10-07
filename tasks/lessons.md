@@ -715,3 +715,5 @@
   A resource/restart test cannot qualify authenticated previews. Reject old
   incomplete receipts when a missing mandatory check is discovered.
 - A denied preview result is not proof merely because its HTTP status is 4xx or 5xx. Pin each expected route result, reject generic 500 for identity and expiry gates, and require separate destination observations before claiming host or management isolation.
+- Do not turn an audited fixed route into a claimed network observation. Record only the binding, port, and completed calls seen by the production dispatch wrapper; keep source review and SP04 network evidence separate.
+- To test a permit's binding or port check, change the same leased preview row and restore it in `finally`. A different preview ID proves only that an unregistered row is denied.

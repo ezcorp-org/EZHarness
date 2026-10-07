@@ -1724,13 +1724,7 @@
             "expired": {
               "type": "number"
             },
-            "hostLoopback": {
-              "type": "number"
-            },
             "malformed": {
-              "type": "number"
-            },
-            "management": {
               "type": "number"
             },
             "missingAuth": {
@@ -1742,10 +1736,16 @@
             "stopped": {
               "type": "number"
             },
+            "webSocketWrongOrigin": {
+              "type": "number"
+            },
             "webSocketWrongOwner": {
               "type": "number"
             },
             "wrongGeneration": {
+              "type": "number"
+            },
+            "wrongHost": {
               "type": "number"
             },
             "wrongOwner": {
@@ -1768,9 +1768,38 @@
             "malformed",
             "revoked",
             "stopped",
-            "hostLoopback",
-            "management",
-            "webSocketWrongOwner"
+            "wrongHost",
+            "webSocketWrongOwner",
+            "webSocketWrongOrigin"
+          ],
+          "type": "object"
+        },
+        "dispatch": {
+          "additionalProperties": false,
+          "properties": {
+            "backend": {
+              "const": "incus",
+              "type": "string"
+            },
+            "httpRequests": {
+              "type": "number"
+            },
+            "instanceId": {
+              "type": "string"
+            },
+            "port": {
+              "type": "number"
+            },
+            "webSocketConnections": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "backend",
+            "instanceId",
+            "port",
+            "httpRequests",
+            "webSocketConnections"
           ],
           "type": "object"
         },
@@ -1813,42 +1842,11 @@
         "presetId": {
           "type": "string"
         },
-        "relay": {
-          "additionalProperties": false,
-          "properties": {
-            "destination": {
-              "const": "pinned-guest-loopback",
-              "type": "string"
-            },
-            "hostConnectAttempts": {
-              "type": "number"
-            },
-            "httpRequests": {
-              "type": "number"
-            },
-            "instanceId": {
-              "type": "string"
-            },
-            "managementConnectAttempts": {
-              "type": "number"
-            },
-            "port": {
-              "type": "number"
-            },
-            "webSocketConnections": {
-              "type": "number"
-            }
-          },
-          "required": [
-            "destination",
-            "instanceId",
-            "port",
-            "httpRequests",
-            "webSocketConnections",
-            "hostConnectAttempts",
-            "managementConnectAttempts"
-          ],
-          "type": "object"
+        "redirectLocation": {
+          "type": "string"
+        },
+        "redirectStatus": {
+          "type": "number"
         },
         "releaseDigest": {
           "type": "string"
@@ -1892,7 +1890,9 @@
         "webSocketStatus",
         "webSocketMessageSha256",
         "webSocketSubprotocol",
-        "relay",
+        "redirectStatus",
+        "redirectLocation",
+        "dispatch",
         "denied"
       ],
       "type": "object"

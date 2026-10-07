@@ -593,14 +593,14 @@ export interface LiveSandboxPreviewProof {
   webSocketStatus: number;
   webSocketMessageSha256: string;
   webSocketSubprotocol: string;
-  relay: {
-    destination: "pinned-guest-loopback";
+  redirectStatus: number;
+  redirectLocation: string;
+  dispatch: {
+    backend: "incus";
     instanceId: string;
     port: number;
     httpRequests: number;
     webSocketConnections: number;
-    hostConnectAttempts: number;
-    managementConnectAttempts: number;
   };
   denied: {
     missingAuth: number;
@@ -612,9 +612,9 @@ export interface LiveSandboxPreviewProof {
     malformed: number;
     revoked: number;
     stopped: number;
-    hostLoopback: number;
-    management: number;
+    wrongHost: number;
     webSocketWrongOwner: number;
+    webSocketWrongOrigin: number;
   };
 }
 export interface LiveSandboxPresetQualification {

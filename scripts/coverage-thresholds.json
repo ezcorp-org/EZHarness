@@ -50,6 +50,7 @@
   "src/infrastructure/incus-operator/service.ts": 100,
   "src/infrastructure/incus-qualification.ts": 100,
   "src/infrastructure/incus-qualification-checkpoint.ts": 100,
+  "src/infrastructure/incus-qualification-preview-permit.ts": 100,
   "src/infrastructure/incus-qualification-continuation.ts": 100,
   "src/infrastructure/incus-qualification-supervisor-client.ts": 100,
   "src/infrastructure/incus-preview-backend.ts": 100,

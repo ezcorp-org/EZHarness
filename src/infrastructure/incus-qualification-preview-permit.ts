@@ -6,6 +6,7 @@ export interface QualificationPreviewPermitKey {
   userId: string;
   conversationId: string;
   binding: SandboxWorkspaceBinding;
+  targetPort: number;
 }
 
 export interface QualificationPreviewPermitState {
@@ -42,6 +43,7 @@ export async function registerClaimedQualificationPreview(input: {
 }): Promise<() => void> {
   const now = deps.now ?? Date.now;
   if (!input.key.previewId || !input.key.userId || !input.key.conversationId
+    || !Number.isSafeInteger(input.key.targetPort) || input.key.targetPort < 1024 || input.key.targetPort > 65535
     || !input.runId || !input.nonce || !input.fixtureOperationId
     || !Number.isSafeInteger(input.connectionRevision) || input.connectionRevision < 1
     || !/^[a-f0-9]{64}$/.test(input.releaseDigest)
@@ -54,7 +56,7 @@ export async function registerClaimedQualificationPreview(input: {
   const current = async (): Promise<SandboxWorkspaceTarget | undefined> => {
     if (now() >= input.expiresAtMs) return undefined;
     const value = await deps.readCurrent().catch(() => null);
-    if (!value || value.state !== "CLAIMED" || value.runId !== input.runId || value.nonce !== input.nonce
+    if (value?.state !== "CLAIMED" || value.runId !== input.runId || value.nonce !== input.nonce
       || value.fixtureOperationId !== input.fixtureOperationId
       || value.fixtureBindingId !== input.key.binding.workspaceId
       || value.fixtureGeneration !== input.key.binding.generation

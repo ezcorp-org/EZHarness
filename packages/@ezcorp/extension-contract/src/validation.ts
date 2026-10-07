@@ -1477,9 +1477,9 @@ export async function validateLiveSandboxPresetQualification(preset: SandboxPres
   if (proof) {
     const denied = proof.denied;
     const authDenied = [denied.missingAuth, denied.wrongOwner, denied.expired,
-      denied.malformed, denied.revoked];
+      denied.malformed, denied.revoked, denied.wrongHost];
     const targetDenied = [denied.wrongSandbox, denied.wrongGeneration, denied.wrongPort,
-      denied.stopped, denied.hostLoopback, denied.management];
+      denied.stopped];
     if (proof.version !== 1 || proof.connectionId !== context.connectionId
       || proof.presetId !== preset.id || proof.releaseDigest !== context.releaseDigest
       || proof.presetDigest !== qualification.presetDigest
@@ -1493,13 +1493,13 @@ export async function validateLiveSandboxPresetQualification(preset: SandboxPres
       || !digestPattern.test(proof.challengeSha256) || proof.httpStatus !== 200
       || proof.httpBodySha256 !== proof.challengeSha256 || proof.webSocketStatus !== 101
       || proof.webSocketMessageSha256 !== proof.challengeSha256 || proof.webSocketSubprotocol !== "vite-hmr"
+      || proof.redirectStatus !== 302 || proof.redirectLocation !== "http://127.0.0.1:1/"
       || authDenied.some(status => status !== 404) || targetDenied.some(status => status !== 502)
-      || denied.webSocketWrongOwner !== 403
-      || proof.relay.destination !== "pinned-guest-loopback"
-      || proof.relay.instanceId !== proof.sandboxId || proof.relay.port !== proof.port
-      || !Number.isSafeInteger(proof.relay.httpRequests) || proof.relay.httpRequests < 1
-      || !Number.isSafeInteger(proof.relay.webSocketConnections) || proof.relay.webSocketConnections < 1
-      || proof.relay.hostConnectAttempts !== 0 || proof.relay.managementConnectAttempts !== 0) {
+      || denied.webSocketWrongOwner !== 403 || denied.webSocketWrongOrigin !== 403
+      || proof.dispatch.backend !== "incus"
+      || proof.dispatch.instanceId !== proof.sandboxId || proof.dispatch.port !== proof.port
+      || !Number.isSafeInteger(proof.dispatch.httpRequests) || proof.dispatch.httpRequests < 1
+      || !Number.isSafeInteger(proof.dispatch.webSocketConnections) || proof.dispatch.webSocketConnections < 1) {
       throw new ContractError("INVALID_QUALIFICATION", "Sandbox preview proof is incomplete or mismatched");
     }
   }

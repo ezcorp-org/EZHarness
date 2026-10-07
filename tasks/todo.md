@@ -3327,13 +3327,15 @@ Review so far: before the change, the app bridge returned 403 and did not call B
 ### Incus Compose preview qualification — 6 October 2026
 
 - [x] Reproduce acceptance of an SP01–SP08 Compose qualification with `endpointProxy: false` in the existing store test.
-- [ ] Define one bounded host preview proof for the exact qualification scope and guest fixture.
-- [ ] Require real HTTP and WebSocket challenge results and denial facts before the live runner emits SP09.
-- [ ] Require SP09 and its proof for persistent-web-compose in the shared contract and saved-row load; keep linux-exec SP01–SP08.
-- [ ] Test false and legacy evidence, normal and durable runner paths, and profile-specific contract behavior.
+- [x] Define a bounded host preview proof for the exact qualification scope and guest fixture. The final live run is still pending.
+- [x] Require HTTP and WebSocket challenge results and named denial facts before the live runner emits SP09.
+- [x] Require SP09 and its proof for persistent-web-compose in the shared contract and saved-row load; keep linux-exec SP01–SP08.
+- [x] Test false and legacy evidence, normal and durable runner paths, and profile-specific contract behavior.
 - [ ] Run focused tests, typecheck, and source review; commit the qualification milestone.
 
-Review: pending.
+Review: 70 focused tests passed after the SP09 contract change. Backend typecheck passed.
+The host witness still needs durable initiating-owner integration, focused consumer
+tests, independent review, and a live root-operated qualification.
 ### Incus preview qualification traffic client
 
 - [x] Check configuration and a real app readiness route before fixture allocation; pin the approved origin address.

@@ -1,6 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
 import { loadIncusMemoryStressAsset } from "./incus-memory-stress-asset";
-import { generateKeyPairSync } from "node:crypto";
+import { generateKeyPairSync, randomUUID } from "node:crypto";
 import { chmod, mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -13,6 +13,7 @@ import type { Database } from "../db/connection";
 import { incusQualificationFixtures } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { IncusHostLiveWitness, IncusLiveWitnessError, incusHostLiveWitnessReady } from "./incus-host-live-witness";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import { IncusLiveNetworkProbe } from "./incus-live-network-probe";
 import { IncusQualificationContinuation } from "./incus-qualification-continuation";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
@@ -85,6 +86,25 @@ test("every unmeasured host probe denies instead of reporting a passing fact", a
   ]) await expect(call()).rejects.toThrow("Incus live witness unavailable");
   await expect(witness.exerciseLimits(handle, handle)).rejects.toThrow("two distinct running fixtures");
   await expect(witness.observeEnforcement(handle, handle)).rejects.toThrow("two distinct fixtures");
+});
+
+test("Compose preview qualification rejects missing app listener and relay before any fixture read", async () => {
+  const fixture = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: {} as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService });
+  await expect(fixture.exercisePreviewAndStop(handle, scope, INCUS_PRESETS[0]!, randomUUID()))
+    .rejects.toThrow("preview app listener or Incus guest relay is unavailable");
+  const guarded = new IncusHostLiveWitness({ db: {} as Database,
+    qualifications: {} as IncusQualificationStore,
+    fixtures: {} as IncusQualificationFixtureService,
+    previewBackend: new IncusSandboxPreviewBackend({} as never),
+    previewTraffic: { ready: async () => false,
+      handoff: async () => { throw new Error("unreachable"); },
+      http: async () => { throw new Error("unreachable"); },
+      webSocket: async () => { throw new Error("unreachable"); } },
+  });
+  await expect(guarded.exercisePreviewAndStop(handle, scope, INCUS_PRESETS[0]!, randomUUID()))
+    .rejects.toThrow("preview app listener or Incus guest relay is unavailable");
 });
 
 test("restart handoff stays bound to the saved fixture and rejects a changed claimed scope", async () => {

@@ -7,6 +7,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { LIVE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
+import { liveComposePreviewProof } from "../../packages/@ezcorp/extension-contract/src/sandbox-presets.fixture";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import recipeTemplate from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -135,22 +136,11 @@ describe("host Incus qualification store", () => {
     const oldCases = { ...cases(), observedProfile: composePreset.profile };
     await expect(composeStore.recordVerified(composeScope, oldCases)).rejects.toThrow("preview proof");
     expect(await composeStore.load(composeScope)).toBeNull();
-    const challengeSha256 = "a".repeat(64);
-    const previewProof = {
-      version: 1 as const, connectionId: composeScope.connectionId, presetId: composePreset.id,
-      releaseDigest: snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
-      effectiveSettingsDigest: selected.effectiveSettingsDigest, imageDigest: composePreset.imageDigest,
-      helperDigest: selected.helperDigest, sandboxId: "fixture-1", operationId: "qual-primary-1",
-      generation: 1, endpointId: "endpoint-1", ownerId: "owner-1", port: 4173,
-      expiresAt: new Date(now + 30_000).toISOString(), challengeSha256,
-      httpStatus: 200, httpBodySha256: challengeSha256, webSocketStatus: 101,
-      webSocketMessageSha256: challengeSha256, webSocketSubprotocol: "vite-hmr",
-      relay: { destination: "pinned-guest-loopback" as const, instanceId: "fixture-1", port: 4173,
-        httpRequests: 1, webSocketConnections: 1, hostConnectAttempts: 0, managementConnectAttempts: 0 },
-      denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
-        wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
-        hostLoopback: 502, management: 502, webSocketWrongOwner: 403 },
-    };
+    const previewProof = await liveComposePreviewProof(composePreset, {
+      connectionId: composeScope.connectionId, releaseDigest: snapshot.release.releaseDigest,
+      presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+      helperDigest: selected.helperDigest, expiresAt: new Date(now + 30_000).toISOString(),
+    });
     const evidence: IncusLiveCaseEvidence = { ...oldCases, previewProof,
       cases: [...oldCases.cases, { caseId: "SP09", status: "passed" }] };
     const saved = await composeStore.recordVerified(composeScope, evidence);

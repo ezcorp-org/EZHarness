@@ -1,4 +1,5 @@
-import type { ExtensionManifestV4, SandboxPreset } from "./types";
+import type { ExtensionManifestV4, LiveSandboxPreviewProof, SandboxPreset } from "./types";
+import { sandboxPresetDigest } from "./validation";
 
 export const SANDBOX_FIXTURE_NOW = Date.parse("2026-09-21T12:00:00.000Z");
 export const SANDBOX_FIXTURE_RELEASE_DIGEST = "a".repeat(64);
@@ -47,4 +48,26 @@ export function composeSandboxPreset(id = "default-compose"): SandboxPreset {
 
 export function manifestWithSandboxPresets(presets: SandboxPreset[], profiles = [...new Set(presets.map(preset => preset.profile))]): ExtensionManifestV4 {
   return { ...sandboxFixtureManifest, sandboxProviders: [{ id: "incus", profiles, presets }] };
+}
+
+/** Contract fixture only. Live qualification must obtain each fact from the host witness. */
+export async function liveComposePreviewProof(preset: SandboxPreset,
+  overrides: Partial<LiveSandboxPreviewProof> = {}): Promise<LiveSandboxPreviewProof> {
+  return {
+    version: 1, connectionId: "connection-1", presetId: preset.id,
+    releaseDigest: SANDBOX_FIXTURE_RELEASE_DIGEST, presetDigest: await sandboxPresetDigest(preset),
+    effectiveSettingsDigest: SANDBOX_FIXTURE_SETTINGS_DIGEST, imageDigest: preset.imageDigest,
+    helperDigest: preset.helperDigests[0]!, sandboxId: "fixture-1", operationId: "qual-primary-1",
+    generation: 1, endpointId: "endpoint-1", ownerId: "owner-1", port: 4173,
+    expiresAt: "2026-09-21T11:30:00.000Z", challengeSha256: "a".repeat(64),
+    httpStatus: 200, httpBodySha256: "a".repeat(64), webSocketStatus: 101,
+    webSocketMessageSha256: "a".repeat(64), webSocketSubprotocol: "vite-hmr",
+    redirectStatus: 302, redirectLocation: "http://127.0.0.1:1/",
+    dispatch: { backend: "incus", instanceId: "fixture-1", port: 4173,
+      httpRequests: 1, webSocketConnections: 1 },
+    denied: { missingAuth: 404, wrongOwner: 404, wrongSandbox: 502, wrongGeneration: 502,
+      wrongPort: 502, expired: 404, malformed: 404, revoked: 404, stopped: 502,
+      wrongHost: 404, webSocketWrongOwner: 403, webSocketWrongOrigin: 403 },
+    ...overrides,
+  };
 }

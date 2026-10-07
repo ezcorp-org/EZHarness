@@ -396,16 +396,16 @@ async function finishGuestAfterRestart(witness: HostIncusLiveWitness, scope: Inc
       && proof.challengeSha256 === challengeSha256 && proof.httpStatus === 200
       && proof.httpBodySha256 === challengeSha256 && proof.webSocketStatus === 101
       && proof.webSocketMessageSha256 === challengeSha256 && proof.webSocketSubprotocol === "vite-hmr"
+      && proof.redirectStatus === 302 && proof.redirectLocation === "http://127.0.0.1:1/"
       && [proof.denied.missingAuth, proof.denied.wrongOwner, proof.denied.expired,
-        proof.denied.malformed, proof.denied.revoked].every(status => status === 404)
+        proof.denied.malformed, proof.denied.revoked, proof.denied.wrongHost].every(status => status === 404)
       && [proof.denied.wrongSandbox, proof.denied.wrongGeneration, proof.denied.wrongPort,
-        proof.denied.stopped, proof.denied.hostLoopback, proof.denied.management]
+        proof.denied.stopped]
         .every(status => status === 502)
-      && proof.denied.webSocketWrongOwner === 403
-      && proof.relay.destination === "pinned-guest-loopback"
-      && proof.relay.instanceId === primary.sandboxId && proof.relay.port === proof.port
-      && proof.relay.httpRequests >= 1 && proof.relay.webSocketConnections >= 1
-      && proof.relay.hostConnectAttempts === 0 && proof.relay.managementConnectAttempts === 0,
+      && proof.denied.webSocketWrongOwner === 403 && proof.denied.webSocketWrongOrigin === 403
+      && proof.dispatch.backend === "incus"
+      && proof.dispatch.instanceId === primary.sandboxId && proof.dispatch.port === proof.port
+      && proof.dispatch.httpRequests >= 1 && proof.dispatch.webSocketConnections >= 1,
     "guest preview traffic or denial proof is incomplete");
     assertInspection(await witness.inspectFixture(primary), primary, preset, "stopped");
     return proof;
