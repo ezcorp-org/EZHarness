@@ -11,7 +11,8 @@ import { handlePreviewRequest } from "../runtime/preview/preview-proxy";
 import { decideWebSocketUpgrade } from "../runtime/preview/preview-ws";
 import { resolveCurrentPreviewSandboxTarget } from "../runtime/preview/preview-target";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
-import { IncusHostLiveWitness, type IncusPreviewTrafficDriver } from "./incus-host-live-witness";
+import { IncusHostLiveWitness } from "./incus-host-live-witness";
+import type { IncusPreviewTrafficDriver } from "./incus-preview-traffic";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 
