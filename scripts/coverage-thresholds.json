@@ -53,6 +53,7 @@
   "src/infrastructure/incus-qualification-continuation.ts": 100,
   "src/infrastructure/incus-qualification-supervisor-client.ts": 100,
   "src/infrastructure/incus-preview-backend.ts": 100,
+  "src/infrastructure/incus-preview-authority.ts": 100,
   "src/infrastructure/incus-startup.ts": 100,
   "src/infrastructure/incus-supervisor-public-key.ts": 100,
   "src/infrastructure/incus-transport/guest.ts": 100,
