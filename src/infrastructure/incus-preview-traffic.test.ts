@@ -65,6 +65,7 @@ test("real Bun app route proves ready, one-time handoff, bounded HTTP and vite-h
     await expect(driver.http({ previewId: PREVIEW_ID, cookie: handoff.cookie, path: "/large" }))
       .rejects.toThrow("limit");
     expect((await driver.http({ previewId: OTHER_ID, cookie: handoff.cookie, path: "/page" })).status).toBe(404);
+    expect((await driver.http({ previewId: PREVIEW_ID, cookie: null, path: "/page" })).status).toBe(403);
     expect((await driver.http({ previewId: PREVIEW_ID, cookie: handoff.cookie, path: "/page", wrongHost: true })).status).toBe(404);
     expect((await driver.http({ previewId: PREVIEW_ID, cookie: handoff.cookie, path: "/page", malformedHost: true })).status).toBe(404);
     const denied = await driver.webSocket({ previewId: PREVIEW_ID, cookie: "__ezpreview=wrong", path: "/hmr",

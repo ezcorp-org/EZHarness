@@ -21,7 +21,7 @@ type Origin = { address: string; family: number; protocol: "http:" | "https:"; p
 export interface IncusPreviewTrafficDriver {
   ready(): Promise<void>;
   handoff(input: { previewId: string; code: string }): Promise<{ status: number; cookie: string }>;
-  http(input: { previewId: string; cookie: string; path: string; wrongHost?: boolean; malformedHost?: boolean }): Promise<{
+  http(input: { previewId: string; cookie: string | null; path: string; wrongHost?: boolean; malformedHost?: boolean }): Promise<{
     status: number; body: Uint8Array; location: string | null }>;
   webSocket(input: { previewId: string; cookie: string; path: string; subprotocol: "vite-hmr";
     challenge: string; wrongOrigin?: boolean }): Promise<{ status: number; subprotocol: string | null; reply: string }>;
@@ -232,7 +232,7 @@ export function createIncusPreviewTrafficDriver(config: { env?: Record<string, s
       const host = wrongHost ? `invalid.preview.invalid${origin.portSuffix}`
         : malformedHost ? `invalid!.preview.${origin.previewBaseHost}${origin.portSuffix}` : target.host;
       const response = await boundedGet(origin, host, boundedPath(path), MAX_HTTP_BYTES,
-        { Cookie: previewCookie(cookie) });
+        cookie === null ? {} : { Cookie: previewCookie(cookie) });
       return { status: response.status, body: response.body,
         location: typeof response.headers.location === "string" ? response.headers.location : null };
     },
