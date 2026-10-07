@@ -247,28 +247,40 @@ describe("servePreviewRequest dynamic passthrough (Phase 3a)", () => {
       expect(response.status).toBe(200);
       expect(await response.text()).toBe("fixture page");
       expect(resolve).toHaveBeenCalledOnce();
-      resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding, backend: null });
+      // The claimed qualification project is hidden from the user-purpose lookup.
+      getProject.mockResolvedValue(undefined);
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(200);
       expect(resolve).toHaveBeenCalledTimes(2);
+      getConversation.mockResolvedValue({ id: "conversation-1", userId: "other", projectId: "project-1" });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledTimes(2);
+      getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "other-project" });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
+      expect(resolve).toHaveBeenCalledTimes(2);
+      getConversation.mockResolvedValue({ id: "conversation-1", userId: "u1", projectId: "project-1" });
+      getProject.mockResolvedValue({ id: "project-1" });
+      resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox", binding, backend: null });
+      expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(200);
+      expect(resolve).toHaveBeenCalledTimes(3);
       resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "sandbox",
         binding: { ...binding, generation: 8 }, backend: null });
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(resolve).toHaveBeenCalledTimes(3);
       resolveProjectWorkspaceTarget.mockResolvedValue({ kind: "local" });
       getServablePreview.mockResolvedValue({ ...row, workspaceTarget: { kind: "sandbox",
         binding: { ...binding, generation: 8 } } });
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(resolve).toHaveBeenCalledTimes(3);
       getServablePreview.mockResolvedValue({ ...row, targetPort: 4173 });
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(resolve).toHaveBeenCalledTimes(3);
       getServablePreview.mockResolvedValue({ ...row, expiresAt: new Date(0) });
       expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-      expect(resolve).toHaveBeenCalledTimes(2);
+      expect(resolve).toHaveBeenCalledTimes(3);
     } finally { dispose(); }
     getServablePreview.mockResolvedValue(row);
     expect((await servePreviewRequest(request, { previewId: VALID_ID })).status).toBe(502);
-    expect(serve).toHaveBeenCalledTimes(2);
+    expect(serve).toHaveBeenCalledTimes(3);
   });
 
   test("an authorized sandbox preview uses the current project binding and guest backend", async () => {

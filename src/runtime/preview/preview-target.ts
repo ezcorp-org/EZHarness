@@ -56,7 +56,10 @@ export async function resolveCurrentPreviewSandboxTarget(row: PreviewRegistryRow
       return undefined;
     }
     const project = await getProject(conversation.projectId);
-    if (!project) return undefined;
+    // Qualification fixtures use a separate project purpose and are hidden
+    // from the normal user-project lookup. Only their exact claimed lease may
+    // supply a preview after the conversation owner and project match above.
+    if (!project) return await resolveQualificationPreviewTarget(row);
     try {
       const current = await resolveProjectWorkspaceTarget(project, "preview access");
       if (current.kind === "sandbox") {
