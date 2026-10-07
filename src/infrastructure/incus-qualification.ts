@@ -421,6 +421,30 @@ export class IncusQualificationFixtureService {
     return { row, binding };
   }
 
+  /** Resume can allocate the recovery fixture only for the original admin.
+   * The claimed primary fixture, not a new session, supplies that identity. */
+  async ownerForResume(scope: IncusQualificationScope, checkpoint: {
+    runId: string; fixtureOperationId: string; bindingId: string;
+    generation: number; connectionRevision: number;
+  }): Promise<string> {
+    if (checkpoint.fixtureOperationId !== `qual-primary-${checkpoint.runId}`) {
+      throw new Error("Incus qualification primary fixture changed");
+    }
+    const { row, binding } = await this.ownedFixture(scope, checkpoint.fixtureOperationId);
+    const identity = qualificationFixtureIdentity(scope, checkpoint.fixtureOperationId);
+    if (row.projectId !== `incus-qual-project-${identity}` || row.bindingId !== checkpoint.bindingId
+      || binding.id !== checkpoint.bindingId || binding.generation !== checkpoint.generation
+      || row.connectionRevision !== checkpoint.connectionRevision || !row.ownerUserId) {
+      throw new Error("Incus qualification resume owner is unavailable");
+    }
+    await assertIncusQualificationOwner(this.db, row.ownerUserId);
+    const [owner] = await this.db.select({ userId: projectMembers.userId }).from(projectMembers)
+      .where(and(eq(projectMembers.projectId, row.projectId),
+        eq(projectMembers.userId, row.ownerUserId), eq(projectMembers.role, "owner"))).limit(1);
+    if (!owner) throw new Error("Incus qualification resume owner changed");
+    return row.ownerUserId;
+  }
+
   /** Read only the durable state owned by this exact operator fixture. */
   async status(scope: IncusQualificationScope, operationId: string) {
     const { row, binding } = await this.ownedFixture(scope, operationId);

@@ -89,11 +89,14 @@ export async function resumePendingIncusQualification(deps: QualificationContinu
   try {
     const qualifications = deps.qualifications ?? new IncusQualificationStore({ db });
     const selected = await qualifications.authorizeFixture(pending.scope);
+    const qualificationOwnerId = selected.preset.profile === "persistent-web-compose.v1"
+      ? await new IncusQualificationFixtureService({ db }).ownerForResume(pending.scope, pending)
+      : undefined;
     // This is an existing claimed run: the supervisor must keep its active-run
     // readiness fence. Resume uses the durable checkpoint and receipt path instead.
     const witness = deps.createWitness
-      ? await deps.createWitness(pending.scope, pending.runId, db)
-      : await qualificationWitness(pending.scope, pending.runId, db, qualificationProbeRoot());
+      ? await deps.createWitness(pending.scope, pending.runId, db, { qualificationOwnerId })
+      : await qualificationWitness(pending.scope, pending.runId, db, qualificationProbeRoot(), qualificationOwnerId);
     const evidence = await (deps.resume ?? resumeDurableIncusLiveCases)({ witness,
       composeFixtureImageRef: process.env.EZCORP_INCUS_COMPOSE_FIXTURE_IMAGE_REF },
     pending.scope, selected.preset, { runId: pending.runId, nonce: pending.nonce });

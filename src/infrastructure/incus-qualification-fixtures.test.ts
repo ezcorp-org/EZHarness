@@ -24,6 +24,7 @@ import { IncusQualificationCheckpointStore, currentProcessIdentity, observationD
 import { IncusFeatureService } from "./incus-feature-service";
 import { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
 import { IncusQualificationOperationUnsettledError, IncusQualificationFixtureService, type IncusQualificationScope, type IncusQualificationStore } from "./incus-qualification";
+import { type createIncusQualificationWitness, resumePendingIncusQualification } from "./incus-startup";
 
 const opened: PGlite[] = [];
 const scope: IncusQualificationScope = { installationId: "installation", releaseId: "release",
@@ -156,6 +157,108 @@ test("Compose fixture binds the initiating active admin through restart and reje
   await expect(service.create(composeScope, "compose-owned"))
     .rejects.toThrow("Interactive qualification owner changed");
   expect(dispatches).toHaveLength(1);
+});
+
+test("post-restart Compose recovery uses only the claimed primary fixture owner", async () => {
+  const compose = INCUS_PRESETS[1]!;
+  const composeScope = { ...scope, presetId: compose.id };
+  const { db, service, fixtureServiceDeps, dispatches } = await setup(true, false, 1, null, 3,
+    { preset: compose, qualificationOwnerId: "admin-one" });
+  await db.insert(schema.users).values({ id: "admin-one", email: "admin@example.test",
+    passwordHash: "test", name: "Admin", role: "admin", status: "active" });
+  expect((await service.create(composeScope, "qual-primary-run")).state).toBe("SUCCEEDED");
+  expect((await service.create(composeScope, "qual-unrelated-run")).state).toBe("SUCCEEDED");
+  const replacement = new IncusQualificationFixtureService({ ...fixtureServiceDeps,
+    qualificationOwnerId: undefined });
+  await expect(replacement.create(composeScope, "qual-recovery-run"))
+    .rejects.toThrow("Interactive qualification owner is unavailable");
+  expect(dispatches).toHaveLength(2);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(2);
+  const primary = await replacement.status(composeScope, "qual-primary-run");
+  const checkpoint = { runId: "run", fixtureOperationId: "qual-primary-run",
+    bindingId: primary.fixture.bindingId, generation: primary.binding.generation,
+    connectionRevision: primary.fixture.connectionRevision };
+  const owner = await replacement.ownerForResume(composeScope, checkpoint);
+  expect(owner).toBe("admin-one");
+  const resumed = new IncusQualificationFixtureService({ ...fixtureServiceDeps,
+    qualificationOwnerId: owner });
+  expect((await resumed.create(composeScope, "qual-recovery-run")).state).toBe("SUCCEEDED");
+  expect(dispatches).toHaveLength(3);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(3);
+});
+
+test("replacement startup passes the saved owner into real recovery fixture creation", async () => {
+  const compose = INCUS_PRESETS[1]!;
+  const composeScope = { ...scope, presetId: compose.id };
+  const { db, service, fixtureServiceDeps, qualifications, dispatches } = await setup(true, false, 1, null, 3,
+    { preset: compose, qualificationOwnerId: "admin-one" });
+  await db.insert(schema.users).values({ id: "admin-one", email: "admin@example.test",
+    passwordHash: "test", name: "Admin", role: "admin", status: "active" });
+  await service.create(composeScope, "qual-primary-run");
+  await service.create(composeScope, "qual-unrelated-run");
+  const primary = await service.status(composeScope, "qual-primary-run");
+  const pending = { runId: "run", nonce: "saved-nonce", scope: composeScope,
+    fixtureOperationId: "qual-primary-run", bindingId: primary.fixture.bindingId,
+    generation: primary.binding.generation, connectionRevision: primary.fixture.connectionRevision };
+  const evidence = { cases: [{ caseId: "SP09", status: "passed" }] };
+  let recorded = false;
+  await resumePendingIncusQualification({ db,
+    checkpoints: { pending: async () => pending, fail: async () => { throw new Error("unexpected failure"); } } as never,
+    qualifications: { authorizeFixture: qualifications.authorizeFixture.bind(qualifications),
+      recordVerified: async (_scope: unknown, result: unknown) => { expect(result).toBe(evidence); recorded = true; } } as never,
+    createWitness: async (_scope, _runId, _db, options: Parameters<typeof createIncusQualificationWitness>[3]) => {
+      const owner = options?.qualificationOwnerId;
+      return new IncusHostLiveWitness({ db, qualifications,
+        fixtures: new IncusQualificationFixtureService({ ...fixtureServiceDeps,
+          qualificationOwnerId: owner }) });
+    },
+    resume: async ({ witness }) => {
+      const recovered = await witness.createFixture(composeScope, compose, "qual-recovery-run", false);
+      expect(recovered.operationId).toBe("qual-recovery-run");
+      return evidence as never;
+    },
+    releaseTerminal: async () => {},
+  });
+  expect(recorded).toBe(true);
+  expect(dispatches).toHaveLength(3);
+});
+
+test("resume owner read rejects changed checkpoint, membership and admin before recovery create", async () => {
+  const compose = INCUS_PRESETS[1]!;
+  const composeScope = { ...scope, presetId: compose.id };
+  const { db, service, fixtureServiceDeps, dispatches } = await setup(true, false, 1, null, 2,
+    { preset: compose, qualificationOwnerId: "admin-one" });
+  await db.insert(schema.users).values({ id: "admin-one", email: "admin@example.test",
+    passwordHash: "test", name: "Admin", role: "admin", status: "active" });
+  await service.create(composeScope, "qual-primary-run");
+  const replacement = new IncusQualificationFixtureService({ ...fixtureServiceDeps,
+    qualificationOwnerId: undefined });
+  const primary = await replacement.status(composeScope, "qual-primary-run");
+  const checkpoint = { runId: "run", fixtureOperationId: "qual-primary-run",
+    bindingId: primary.fixture.bindingId, generation: primary.binding.generation,
+    connectionRevision: primary.fixture.connectionRevision };
+  for (const changed of [
+    { ...checkpoint, fixtureOperationId: "qual-primary-other" },
+    { ...checkpoint, bindingId: "different-binding" },
+    { ...checkpoint, generation: checkpoint.generation + 1 },
+    { ...checkpoint, connectionRevision: checkpoint.connectionRevision + 1 },
+  ]) await expect(replacement.ownerForResume(composeScope, changed)).rejects.toThrow();
+  await expect(replacement.ownerForResume({ ...composeScope, connectionId: "other" }, checkpoint))
+    .rejects.toThrow("fixture is unavailable");
+  await db.update(schema.incusQualificationFixtures).set({ ownerUserId: null })
+    .where(eq(schema.incusQualificationFixtures.operationId, checkpoint.fixtureOperationId));
+  await expect(replacement.ownerForResume(composeScope, checkpoint)).rejects.toThrow("owner is unavailable");
+  await db.update(schema.incusQualificationFixtures).set({ ownerUserId: "admin-one" })
+    .where(eq(schema.incusQualificationFixtures.operationId, checkpoint.fixtureOperationId));
+  await db.update(schema.users).set({ status: "inactive" }).where(eq(schema.users.id, "admin-one"));
+  await expect(replacement.ownerForResume(composeScope, checkpoint)).rejects.toThrow("not an active admin");
+  await db.update(schema.users).set({ status: "active" }).where(eq(schema.users.id, "admin-one"));
+  await db.delete(schema.projectMembers).where(eq(schema.projectMembers.projectId, primary.fixture.projectId));
+  await db.insert(schema.projectMembers).values({ projectId: primary.fixture.projectId,
+    userId: "admin-two", role: "owner" });
+  await expect(replacement.ownerForResume(composeScope, checkpoint)).rejects.toThrow("owner changed");
+  expect(dispatches).toHaveLength(1);
+  expect(await db.select().from(schema.incusQualificationFixtures)).toHaveLength(1);
 });
 
 test("fixture migration adds the durable owner column to an existing table", async () => {
