@@ -726,6 +726,8 @@
 - Before adding a scoped worktree plan, check whether `tasks/todo.md` is tracked and append to it. An `Add File` patch can replace an existing plan and erase prior task history.
 - A revocation test must first prove the stream was allowed and active. Otherwise a denial during initial authorization can make a later-frame recheck test pass without exercising that recheck.
 - A test mock with a zero-argument callback has `mock.calls` tuples of length zero, even if production invokes it with a request. Type the callback with the real request contract and run the web Svelte check; backend test typecheck alone can miss this web test error.
+- Compare the local gate with the actual hosted quality consumer. ci-local does not run CRAP. After complexity repairs, run scoped and full-PR canonical CRAP against fresh exact-source merged coverage; preserve both reports because the scorer overwrites its output.
+- Before acting on a repeated exact setup approval, compare saved completion receipts and the current management binding. Do not replay a once-only Apply that already succeeded, or run a packet whose pinned application source has changed.
 
 - Each new test must create its own required durable state. Run every added
   test alone with its name filter before claiming independence; a full-file

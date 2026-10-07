@@ -3519,3 +3519,14 @@ coverage. Integration root independently reviews and runs final combined gates.
 Review correction: both new storetests failed alone (exit1, missing saved
 receipt). Each now records and reads its own valid receipt before negative
 controls. Verify each namefilter independently and wholefile before amendment.
+
+## Combined complexity gate handoff — 7 October 2026
+
+- [x] Integrate three reviewed commits covering all four reported functions; preserve all appended task notes.
+- [x] Run normal integration hooks; the API store suite passes 12/0/46 and witness suite passes 23/0/164.
+- [x] Confirm exact setup eb3761bb remains verified through a supported read-only management request; do not replay its completed Apply.
+- [ ] Freeze the committed combined source and hand one isolated full local gate to API.
+- [ ] With fresh exact-source merged coverage, retain both scoped repair and full-PR canonical CRAP results.
+- [ ] Review actual final exits, push the verified source, and obtain exact-head hosted CI results.
+
+Review: All four refactors have independent review and focused real coverage. Whole-source final verification is pending. Hosted 4de60 finished with 49 checks passing and one CRAP failure; all coverage and browser gates passed on that older source. API owns the next single full local gate in a new isolated worktree. No gate thresholds, retries or exclusions changed. These authoritative server/contract changes require a rebuilt deployment; installed f078 remains separate evidence. Provider 0.1.6 approval, live qualification and ten cycles remain pending.
