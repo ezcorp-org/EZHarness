@@ -3346,4 +3346,23 @@ tests, independent review, and a live root-operated qualification.
 
 Plan review: the witness owns preview rows, fixture permit, and scenario results. This client owns only fixed app-origin traffic from host configuration. Its method inputs cannot choose a destination, method, or headers.
 
+### Combined preview integration and release checks — 7 October 2026
+
+- [x] Reuse reviewed Bun/Vite fix `2912ff9ba`; leave the API team's frozen verification tree unchanged.
+- [x] Integrate reviewed bounded guest transport, authenticated app routing, exact fixture lease, and app-origin traffic driver.
+- [x] Require SP09 before host preflight advertises Compose preview support; 35 host authority/broker/transport tests pass.
+- [x] Add a real-auth browser consumer and deterministic clean-bundle contract build.
+- [x] Persist and recheck the initiating administrator before fixture allocation and after restart.
+- [ ] Validate combined startup, qualification route, complete host witness, migration, and build behavior.
+- [ ] Run the committed browser consumer against the combined production build.
+- [ ] Freeze the combined commit and hand final repository gates to the API verification team.
+- [ ] Build and review the isolated app bundle and exact provider release; apply through the existing guarded flows.
+- [ ] Run real Incus HTTP/WebSocket qualification, ten feature lifecycles, cleanup/accounting, and leakage checks.
+- [ ] Update PR303 with exact source, test evidence, and remaining limits.
+
+Plan review: root owns live actions; agents own isolated implementation and independent review.
+The existing `2912` results remain baseline evidence. No later source, live preview, or ten-cycle pass is inferred from them.
+Combined production backend and focused regression type checks pass. Startup: 13 tests / 63 assertions;
+qualification API: 17 tests / 185 assertions. Host witness positive consumer and built-browser checks remain open.
+
 Review so far: Bun 1.3.14's node:http shim returned a WebSocket 101 through the ordinary response event, and writing a masked frame to that response socket did not reach the Bun server. The real consumer test failed. The client now uses a bounded raw net/tls handshake for WebSocket and keeps node:http/https for readiness, handoff and HTTP. The same test now passes real `vite-hmr` echo and observed socket close. It also proves wrong Host, malformed Host, wrong Origin, denied cookie, redirect without follow, and oversized HTTP and WebSocket denial. The new source has 100% line coverage in the focused run. Review also found that a matching pre-proof sandbox without `previews` blocked the exact fixture lease; the regression was red at 502 and now passes while a mismatched sandbox remains denied. Full app/browser evidence is owned by the other agents.
