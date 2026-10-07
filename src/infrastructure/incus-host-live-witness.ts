@@ -527,20 +527,56 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       await this.setPower(handle, "stopped");
       stopped = true;
       const deniedStopped = await status(previewId, cookie);
-      const positiveTrafficVerified = () => positive.status === 200
-        && digest(positive.body) === challengeSha256
-        && socket.status === 101 && socket.subprotocol === "vite-hmr" && !!socket.reply
-        && digest(socket.reply) === challengeSha256 && redirect.status === 302
-        && redirect.location === "http://127.0.0.1:1/";
-      const deniedTrafficVerified = () =>
+      const positiveChecks = {
+        httpStatus: positive.status === 200,
+        httpBodyMatches: digest(positive.body) === challengeSha256,
+        webSocketStatus: socket.status === 101,
+        webSocketProtocolMatches: socket.subprotocol === "vite-hmr",
+        webSocketReplyPresent: !!socket.reply,
+        webSocketReplyMatches: !!socket.reply && digest(socket.reply) === challengeSha256,
+        redirectStatus: redirect.status === 302,
+        redirectLocationMatches: redirect.location === "http://127.0.0.1:1/",
+      };
+      const deniedStatuses = {
+        missingAuth: deniedMissingAuth, wrongOwner: deniedWrongOwner, malformed: deniedMalformed,
+        wrongHost: deniedWrongHost, expired: deniedExpired, revoked: deniedRevoked,
+        wrongSandbox: deniedWrongSandbox, wrongGeneration: deniedWrongGeneration,
+        wrongPort: deniedWrongPort, stopped: deniedStopped,
+        webSocketWrongOwner: deniedWebSocketWrongOwner, webSocketWrongOrigin: deniedWebSocketWrongOrigin,
+      };
+      const dispatchChecks = {
+        httpRequests: httpRequests >= 2, webSocketConnections: webSocketConnections >= 1,
+        instanceMatches: observedInstanceId === handle.sandboxId, portMatches: observedPort === PREVIEW_PORT,
+      };
+      const positiveTrafficVerified = Object.values(positiveChecks).every(Boolean);
+      const deniedTrafficVerified =
         [deniedMissingAuth, deniedWrongOwner, deniedMalformed, deniedWrongHost,
           deniedExpired, deniedRevoked].every(value => value === 404)
         && [deniedWrongSandbox, deniedWrongGeneration, deniedWrongPort, deniedStopped]
           .every(value => value === 502)
         && deniedWebSocketWrongOwner === 403 && deniedWebSocketWrongOrigin === 403;
-      const dispatchVerified = () => httpRequests >= 2 && webSocketConnections >= 1
-        && observedInstanceId === handle.sandboxId && observedPort === PREVIEW_PORT;
-      if (!positiveTrafficVerified() || !deniedTrafficVerified() || !dispatchVerified()) {
+      const dispatchVerified = Object.values(dispatchChecks).every(Boolean);
+      if (!positiveTrafficVerified || !deniedTrafficVerified || !dispatchVerified) {
+        const statusCode = (value: number) => Number.isInteger(value) && value >= 100 && value <= 599
+          ? value : null;
+        const boundedCount = (value: number) => Number.isSafeInteger(value) && value >= 0
+          ? Math.min(value, 1_000) : null;
+        logger.child("incus.witness").warn("Preview route proof failed", {
+          positive: { httpStatus: statusCode(positive.status), httpBodyMatches: positiveChecks.httpBodyMatches,
+            webSocketStatus: statusCode(socket.status),
+            webSocketProtocolMatches: positiveChecks.webSocketProtocolMatches,
+            webSocketReplyPresent: positiveChecks.webSocketReplyPresent,
+            webSocketReplyMatches: positiveChecks.webSocketReplyMatches,
+            redirectStatus: statusCode(redirect.status),
+            redirectLocationMatches: positiveChecks.redirectLocationMatches },
+          denied: Object.fromEntries(Object.entries(deniedStatuses)
+            .map(([name, value]) => [name, statusCode(value)])),
+          dispatch: { httpRequests: boundedCount(httpRequests),
+            webSocketConnections: boundedCount(webSocketConnections),
+            instanceMatches: dispatchChecks.instanceMatches, portMatches: dispatchChecks.portMatches },
+          checks: { positive: positiveTrafficVerified, denied: deniedTrafficVerified,
+            dispatch: dispatchVerified },
+        });
         deny("preview route proof is incomplete");
       }
       proofResult = { version: 1, connectionId: scope.connectionId, presetId: preset.id,

@@ -15,6 +15,7 @@ import { IncusHostLiveWitness } from "./incus-host-live-witness";
 import type { IncusPreviewTrafficDriver } from "./incus-preview-traffic";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
+import { logger } from "../logger";
 
 afterAll(async () => { connectionTest.setState(null, null); await closeTestDb(); });
 
@@ -165,6 +166,50 @@ test("SP09 host witness uses the real registry and token gates, then removes its
     expect(rows).toHaveLength(3);
     expect(rows.every(row => row.status === "revoked")).toBe(true);
     expect(await db.select().from(conversations)).toHaveLength(0);
+    const warnings: Array<{ message: string; detail: Record<string, unknown> }> = [];
+    const originalHttp = traffic.http;
+    let firstPositive = true;
+    let wrongOwner = true;
+    traffic.http = async request => {
+      const response = await originalHttp(request);
+      if (firstPositive && request.cookie && request.path === "/proof") {
+        firstPositive = false;
+        return { ...response, body: new TextEncoder().encode("secret-body-canary") };
+      }
+      if (!request.cookie && request.path === "/proof") return { ...response, status: 503 };
+      if (wrongOwner && request.cookie && request.path === "/proof") {
+        wrongOwner = false;
+        return { ...response, status: Number.POSITIVE_INFINITY };
+      }
+      return response;
+    };
+    const child = logger.child("incus.witness");
+    const warn = spyOn(logger, "child").mockImplementation(() => ({ ...child,
+      warn: (message: string, detail?: Record<string, unknown>) => {
+        warnings.push({ message, detail: detail ?? {} });
+      } }));
+    running = true;
+    try {
+      await expect(witness.exercisePreviewAndStop(handle, scope, preset, challenge))
+        .rejects.toThrow("preview route proof is incomplete");
+    } finally {
+      warn.mockRestore();
+      traffic.http = originalHttp;
+    }
+    const [diagnostic] = warnings.filter(item => item.message === "Preview route proof failed");
+    expect(diagnostic).toBeDefined();
+    expect(diagnostic!.detail).toMatchObject({
+      positive: { httpStatus: 200, httpBodyMatches: false },
+      denied: { missingAuth: 503, wrongOwner: null },
+      checks: { positive: false, denied: false },
+    });
+    const safeLog = JSON.stringify(diagnostic);
+    for (const secret of [challenge, "secret-body-canary", handle.sandboxId,
+      ownerId, projectId, "__ezpreview=", "http://127.0.0.1:1/"]) {
+      expect(safeLog).not.toContain(secret);
+    }
+    expect(running).toBe(false);
+    expect((await db.select().from(previewSessions)).every(row => row.status === "revoked")).toBe(true);
     const events: string[] = [];
     running = true;
     internal.guest = async (_handle, operation) => {
