@@ -674,6 +674,70 @@ function processOutput(offset: number, eof: boolean) {
 const processTerminal = { ok: true, process: { processId: "process-1", sandboxId: handle.sandboxId, bootId: "boot-1",
   state: "succeeded", startedAt: "2026-09-23T12:00:00.000Z", finishedAt: "2026-09-23T12:00:01.000Z", exitCode: 0, signal: null } };
 
+test("a quick guest probe remains observable after slow control calls", async () => {
+  const h = await processObservationHarness(async (operation, input) => {
+    h.advance(2_000);
+    if (operation === "processes.start") return processStarted;
+    if (operation === "processes.readOutput") return processOutput(Number((input.cursor as { offsetBytes: number }).offsetBytes), true);
+    return { ...processTerminal, process: { ...processTerminal.process, finishedAt: new Date(1_001_000).toISOString() } };
+  });
+  expect(await h.candidate.run(handle, ["python3", "-c", "pass"], 3_000, 1_013_000))
+    .toEqual({ exitCode: 0, stdout: "o", stderr: "" });
+  expect(h.calls.map(c => c.operation)).toEqual(["processes.start", "processes.readOutput", "processes.inspect"]);
+  expect(h.calls[0]!.input.processDeadlineMs).toBe(1_003_000);
+  expect(h.calls.map(c => c.input.rpcDeadlineMs)).toEqual([1_003_000, 1_013_000, 1_013_000]);
+});
+
+test("observation grace never accepts guest work completed after its deadline", async () => {
+  const h = await processObservationHarness(async (operation, input) => {
+    h.advance(2_000);
+    if (operation === "processes.start") return processStarted;
+    if (operation === "processes.readOutput") return processOutput(Number((input.cursor as { offsetBytes: number }).offsetBytes), true);
+    return { ...processTerminal, process: { ...processTerminal.process, finishedAt: new Date(1_004_000).toISOString() } };
+  });
+  await expect(h.candidate.run(handle, ["python3", "-c", "pass"], 3_000, 1_013_000))
+    .rejects.toThrow("guest process exceeded its work deadline");
+  expect(h.calls.filter(c => c.operation === "processes.start")).toHaveLength(1);
+});
+
+test("whole-second completion timestamps cannot hide a late finish", async () => {
+  const h = await processObservationHarness(async operation => operation === "processes.start" ? processStarted
+    : operation === "processes.readOutput" ? processOutput(0, true)
+    : { ...processTerminal, process: { ...processTerminal.process,
+      finishedAt: new Date(1_003_000).toISOString() } });
+  h.advance(500);
+  await expect(h.candidate.run(handle, ["true"], 3_000, 1_013_500))
+    .rejects.toThrow("guest process exceeded its work deadline");
+  expect(h.calls[0]!.input.processDeadlineMs).toBe(1_003_500);
+});
+
+test("observation grace denies missing completion time, missing EOF, and unknown outcomes", async () => {
+  const missingTime = await processObservationHarness(async (operation, input) => {
+    if (operation === "processes.start") return processStarted;
+    if (operation === "processes.readOutput") return processOutput(Number((input.cursor as { offsetBytes: number }).offsetBytes), true);
+    return { ...processTerminal, process: { ...processTerminal.process, finishedAt: "invalid" } };
+  });
+  await expect(missingTime.candidate.run(handle, ["true"], 3_000, 1_013_000))
+    .rejects.toThrow("Invalid sandbox process finishedAt");
+
+  const missingEof = await processObservationHarness(async (operation, input) => {
+    if (operation === "processes.start") return processStarted;
+    missingEof.advance(5_000);
+    if (operation === "processes.readOutput") return processOutput(Number((input.cursor as { offsetBytes: number }).offsetBytes), false);
+    return { ...processTerminal, process: { ...processTerminal.process, finishedAt: new Date(1_001_000).toISOString() } };
+  });
+  await expect(missingEof.candidate.run(handle, ["true"], 3_000, 1_013_000))
+    .rejects.toThrow("guest process deadline expired");
+  expect(missingEof.calls.filter(c => c.operation === "processes.start")).toHaveLength(1);
+
+  const unknown = await processObservationHarness(async operation => operation === "processes.start" ? processStarted
+    : { ok: false, error: { code: "OUTCOME_UNKNOWN", message: "private", retryable: false,
+      operationId: "unknown-read" } });
+  await expect(unknown.candidate.run(handle, ["true"], 3_000, 1_013_000))
+    .rejects.toThrow("Only a mutating sandbox operation can have an unknown outcome");
+  expect(unknown.calls.map(c => c.operation)).toEqual(["processes.start", "processes.readOutput"]);
+});
+
 test("7700 delayed observation reconciles only reads within the original 110 second process budget", async () => {
   // Actual7700 inspect expired at15:39:25; the same guest killed its load at15:40:02,
   // before its original110-second managed-process deadline. Never start the load twice.

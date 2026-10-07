@@ -40,6 +40,11 @@ import { incusSupervisorPublicKeyPem } from "./incus-supervisor-public-key";
 
 const MAX_FILE_BYTES = 64 * 1024;
 const POLL_MS = 100;
+const PREVIEW_PROBE_PROCESS_MS = 3_000;
+const PROCESS_OBSERVATION_GRACE_MS = 10_000;
+const PREVIEW_SERVER_PROCESS_MS = 110_000;
+const PREVIEW_READINESS_MS = 40_000;
+const PREVIEW_PROOF_RESERVE_MS = 60_000;
 const CONTROL_DENIALS = ["unsupported", "missingControl", "drift", "unqualified"] as const;
 type ControlDenial = (typeof CONTROL_DENIALS)[number];
 const guestOperations = new Set<SandboxProtocolOperation>(INCUS_WITNESS_GUEST_OPERATIONS);
@@ -424,19 +429,15 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       wrongHost: options.wrongHost, malformedHost: options.malformedHost })).status;
     try {
       // The only server process is in the already claimed guest, on guest loopback.
+      const serverProcessDeadline = this.now() + PREVIEW_SERVER_PROCESS_MS;
       const started = await this.guest(handle, "processes.start", {
         argv: ["python3", "-u", "-c", PREVIEW_PYTHON], cwd: ".",
-        env: [{ name: "EZH_QUAL_CHALLENGE", value: challenge }], processDeadlineMs: this.now() + 110_000,
+        env: [{ name: "EZH_QUAL_CHALLENGE", value: challenge }], processDeadlineMs: serverProcessDeadline,
       });
       if (typeof started.processId !== "string" || typeof started.bootId !== "string") {
         deny("preview guest service did not start");
       }
-      const listening = await waitForPreviewGuestLoopback(async () => {
-        const probe = await this.run(handle, ["python3", "-c",
-          `import socket; s=socket.create_connection(('127.0.0.1',${PREVIEW_PORT}),1); s.close()`], 3000);
-        return probe.exitCode === 0;
-      });
-      if (!listening) deny("preview guest loopback service is unavailable");
+      await this.assertPreviewReady(handle, started.processId, started.bootId, serverProcessDeadline);
       const conversation = await createConversation(fixture.projectId,
         { title: "Qualification preview", userId: owner.userId, test: true });
       conversationId = conversation.id;
@@ -588,6 +589,57 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     if (primaryFailure !== undefined) throw primaryFailure;
     if (!proofResult) deny("preview proof was not produced");
     return proofResult;
+  }
+
+  private async assertPreviewReady(handle: LiveFixtureHandle, serverProcessId: string,
+    serverBootId: string, serverProcessDeadline: number): Promise<void> {
+    const readinessDeadline = Math.min(this.now() + PREVIEW_READINESS_MS,
+      serverProcessDeadline - PREVIEW_PROOF_RESERVE_MS);
+    let lastProbeCause = "no_probe";
+    const listening = await waitForPreviewGuestLoopback(async () => {
+      const now = this.now();
+      if (now + PREVIEW_PROBE_PROCESS_MS >= readinessDeadline) {
+        lastProbeCause = "readiness_budget_expired";
+        return false;
+      }
+      try {
+        const probe = await this.run(handle, ["python3", "-c",
+          `import socket; s=socket.create_connection(('127.0.0.1',${PREVIEW_PORT}),1); s.close()`],
+        PREVIEW_PROBE_PROCESS_MS,
+        Math.min(now + PREVIEW_PROBE_PROCESS_MS + PROCESS_OBSERVATION_GRACE_MS, readinessDeadline));
+        lastProbeCause = probe.exitCode === 0 ? "none" : "nonzero_exit";
+        return probe.exitCode === 0;
+      } catch (error) {
+        lastProbeCause = error instanceof IncusLiveWitnessError ? error.code ?? "witness_error" : "unexpected_error";
+        throw error;
+      }
+    });
+    if (listening) return;
+    const server = await this.previewServerDiagnostic(handle, serverProcessId, serverBootId,
+      serverProcessDeadline);
+    logger.child("incus.witness").warn("Preview guest readiness failed", { lastProbeCause, ...server });
+    deny("preview guest loopback service is unavailable");
+  }
+
+  private async previewServerDiagnostic(handle: LiveFixtureHandle, processId: string,
+    bootId: string, serverProcessDeadline: number): Promise<{
+      serverState: string; serverExitCode: number | null; inspectCause: string;
+    }> {
+    const result = { serverState: "unavailable", serverExitCode: null as number | null, inspectCause: "none" };
+    try {
+      if (this.now() >= serverProcessDeadline) deny("preview server observation deadline expired");
+      const inspected = await this.guest(handle, "processes.inspect", { processId, bootId },
+        Math.min(this.now() + PREVIEW_PROBE_PROCESS_MS, serverProcessDeadline));
+      const process = inspected.process as Record<string, unknown> | undefined;
+      if (process?.processId !== processId || process.bootId !== bootId
+        || process.sandboxId !== handle.sandboxId) deny("preview server process identity changed");
+      if (["running", "succeeded", "failed", "cancelled", "timed_out", "interrupted"]
+        .includes(String(process.state))) result.serverState = String(process.state);
+      if (Number.isSafeInteger(process.exitCode)) result.serverExitCode = Number(process.exitCode);
+    } catch (error) {
+      result.inspectCause = error instanceof IncusLiveWitnessError ? error.code ?? "witness_error" : "unexpected_error";
+    }
+    return result;
   }
 
   private async guest(handle: LiveFixtureHandle, operation: SandboxProtocolOperation,
@@ -947,10 +999,17 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
     return bytes;
   }
 
-  async run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number): ReturnType<HostIncusLiveWitness["run"]> {
+  async run(handle: LiveFixtureHandle, argv: readonly string[], timeoutMs: number,
+    observationDeadlineMs?: number): ReturnType<HostIncusLiveWitness["run"]> {
     if (!argv.length || argv.some(arg => typeof arg !== "string") || !Number.isSafeInteger(timeoutMs)
       || timeoutMs < 1 || timeoutMs > 120_000) deny("invalid guest process request");
     const deadline = this.now() + timeoutMs;
+    if (observationDeadlineMs !== undefined && (!Number.isSafeInteger(observationDeadlineMs)
+      || observationDeadlineMs <= deadline
+      || observationDeadlineMs > deadline + PROCESS_OBSERVATION_GRACE_MS)) {
+      deny("invalid guest process observation deadline");
+    }
+    const observationDeadline = observationDeadlineMs ?? deadline;
     const start = await this.guest(handle, "processes.start", { argv: [...argv], cwd: ".",
       env: [], processDeadlineMs: deadline });
     if (typeof start.processId !== "string" || typeof start.bootId !== "string") deny("guest process identity missing");
@@ -965,10 +1024,10 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
       let deadlineCount = 0;
       let lastDeadlineError: IncusLiveWitnessError | undefined;
       try {
-        while (this.now() < deadline) {
+        while (this.now() < observationDeadline) {
           try {
-            const value = await this.guest(handle, operation, payload, deadline);
-            if (this.now() >= deadline) deny("guest process deadline expired");
+            const value = await this.guest(handle, operation, payload, observationDeadline);
+            if (this.now() >= observationDeadline) deny("guest process deadline expired");
             return value;
           }
           catch (error) {
@@ -984,11 +1043,12 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         throw lastDeadlineError ?? new IncusLiveWitnessError("guest process deadline expired");
       } finally {
         if (deadlineCount) logger.child("incus.witness").warn("Guest process observation deadline summary", {
-          operation, causeCode: lastDeadlineError?.code, deadlineCount, firstDeadlineAt, lastDeadlineAt, processDeadlineMs: deadline,
+          operation, causeCode: lastDeadlineError?.code, deadlineCount, firstDeadlineAt, lastDeadlineAt,
+          processDeadlineMs: deadline, observationDeadlineMs: observationDeadline,
         });
       }
     };
-    while (this.now() < deadline) {
+    while (this.now() < observationDeadline) {
       const output = await observe("processes.readOutput", { processId: start.processId,
         bootId: start.bootId, cursor: { sandboxId: handle.sandboxId, processId: start.processId,
           bootId: start.bootId, offsetBytes: offset }, maxBytes: MAX_FILE_BYTES });
@@ -1009,6 +1069,14 @@ export class IncusHostLiveWitness implements HostIncusLiveWitness {
         || process.bootId !== start.bootId) deny("guest process identity changed");
       if (["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(process.state))) {
         if (!Number.isSafeInteger(process.exitCode)) deny("guest process exit is unavailable");
+        // The helper records whole seconds. The entire reported second must precede
+        // the work deadline; a completion later within that second is ambiguous.
+        const finishedSecond = Date.parse(String(process.finishedAt));
+        if (observationDeadlineMs !== undefined && Number(process.exitCode) === 0
+          && (process.state !== "succeeded" || !Number.isFinite(finishedSecond)
+            || finishedSecond + 1_000 > deadline)) {
+          deny("guest process exceeded its work deadline");
+        }
         terminalExitCode = Number(process.exitCode);
       }
       if (terminalExitCode !== null && output.eof === true) return { exitCode: terminalExitCode, stdout, stderr };

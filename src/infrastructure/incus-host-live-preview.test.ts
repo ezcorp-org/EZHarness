@@ -126,7 +126,7 @@ test("SP09 host witness uses the real registry and token gates, then removes its
   const internal = witness as unknown as {
     owned: (_handle: typeof handle, requireRunning: boolean) => Promise<unknown>;
     context: () => Promise<unknown>;
-    guest: () => Promise<unknown>;
+    guest: (_handle: typeof handle, operation: string, input: Record<string, unknown>) => Promise<unknown>;
   };
   internal.owned = async (_handle, requireRunning) => {
     if (requireRunning && !running) throw new Error("stopped");
@@ -135,8 +135,16 @@ test("SP09 host witness uses the real registry and token gates, then removes its
     scope, selected };
   };
   internal.context = async () => ({ helperDigest: preset.helperDigests[0]! });
-  internal.guest = async () => ({ processId: "guest-server", bootId: "guest-boot" });
-  witness.run = async () => ({ exitCode: 0, stdout: "", stderr: "" } as never);
+  let serverDeadline = 0;
+  let probeObservationDeadline = 0;
+  internal.guest = async (_handle, operation, input) => {
+    if (operation === "processes.start") serverDeadline = Number(input.processDeadlineMs);
+    return { processId: "guest-server", bootId: "guest-boot" };
+  };
+  witness.run = async (_handle, _argv, _timeout, observationDeadline) => {
+    probeObservationDeadline = observationDeadline!;
+    return { exitCode: 0, stdout: "", stderr: "" };
+  };
   witness.setPower = async () => { running = false; };
   try {
     const proof = await witness.exercisePreviewAndStop(handle, scope, preset, challenge);
@@ -149,12 +157,27 @@ test("SP09 host witness uses the real registry and token gates, then removes its
       expired: 404, revoked: 404, stopped: 502, webSocketWrongOwner: 403,
       webSocketWrongOrigin: 403 });
     expect(served).toEqual(["/proof", "/redirect"]);
+    expect(probeObservationDeadline).toBeLessThanOrEqual(serverDeadline - 60_000);
+    expect(probeObservationDeadline).toBeGreaterThan(serverDeadline - 110_000);
     expect(running).toBe(false);
     expect(await db.select().from(projectMembers)).toHaveLength(1);
     const rows = await db.select().from(previewSessions);
     expect(rows).toHaveLength(3);
     expect(rows.every(row => row.status === "revoked")).toBe(true);
     expect(await db.select().from(conversations)).toHaveLength(0);
+    const events: string[] = [];
+    running = true;
+    internal.guest = async (_handle, operation) => {
+      events.push(operation);
+      if (operation === "processes.start") return { processId: "guest-server", bootId: "guest-boot" };
+      return { process: { processId: "guest-server", bootId: "guest-boot",
+        sandboxId: handle.sandboxId, state: "running", exitCode: null } };
+    };
+    witness.run = async () => ({ exitCode: 1, stdout: "", stderr: "" });
+    witness.setPower = async () => { events.push("power.stop"); running = false; };
+    await expect(witness.exercisePreviewAndStop(handle, scope, preset, challenge))
+      .rejects.toThrow("preview guest loopback service is unavailable");
+    expect(events).toEqual(["processes.start", "processes.inspect", "power.stop"]);
   } finally {
     checkpoint.mockRestore();
     if (previousSecret === undefined) delete process.env.EZCORP_JWT_SECRET;
