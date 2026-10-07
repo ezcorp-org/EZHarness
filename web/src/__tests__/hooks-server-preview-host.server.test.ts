@@ -35,7 +35,10 @@ function eventFor(host: string) {
 }
 
 describe("preview Host dispatch at the app handler", () => {
-  beforeEach(() => { process.env.EZCORP_PREVIEW_APP_HOST = "ezcorp.example.com"; });
+  beforeEach(() => {
+    process.env.EZCORP_PREVIEW_APP_HOST = "ezcorp.example.com";
+    delete process.env.EZCORP_PUBLIC_URL;
+  });
 
   test.each([
     "invalid!.preview.ezcorp.example.com",
@@ -60,6 +63,24 @@ describe("preview Host dispatch at the app handler", () => {
     const resolve = vi.fn(async () => new Response("app"));
     await expect(handle({ event: eventFor("app.preview.example.com"), resolve } as never))
       .rejects.toMatchObject({ status: 302 });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("keeps preview dispatch disabled when no preview app Host is configured", async () => {
+    delete process.env.EZCORP_PREVIEW_APP_HOST;
+    const resolve = vi.fn(async () => new Response("app"));
+    await expect(handle({ event: eventFor("app.preview.example.com"), resolve } as never))
+      .rejects.toMatchObject({ status: 302 });
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("keeps a separate public app Host on app routing", async () => {
+    process.env.EZCORP_PREVIEW_APP_HOST = "previews.example.com";
+    process.env.EZCORP_PUBLIC_URL = "https://app.preview.example.com";
+    const resolve = vi.fn(async () => new Response("app"));
+    await expect(handle({ event: eventFor("app.preview.example.com"), resolve } as never))
+      .rejects.toMatchObject({ status: 302 });
+    expect((await handle({ event: eventFor("invalid.preview.invalid"), resolve } as never)).status).toBe(404);
     expect(resolve).not.toHaveBeenCalled();
   });
 

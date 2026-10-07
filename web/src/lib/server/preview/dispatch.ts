@@ -68,7 +68,13 @@ export function matchPreviewOrigin(request: Request): ParsedPreviewHost | null {
 export function isUnmatchedPreviewOrigin(request: Request): boolean {
   const host = request.headers.get("host")?.split(":")[0]?.toLowerCase();
   const configuredHost = appHost()?.split(":")[0]?.toLowerCase();
-  return Boolean(host?.includes(PREVIEW_HOST_INFIX) && host !== configuredHost);
+  if (!configuredHost || !host?.includes(PREVIEW_HOST_INFIX) || host === configuredHost) return false;
+  try {
+    if (host === new URL(process.env.EZCORP_PUBLIC_URL ?? "").hostname.toLowerCase()) return false;
+  } catch {
+    // An absent or invalid public URL cannot identify an ordinary app Host.
+  }
+  return true;
 }
 
 export function previewNotFound(): Response {
