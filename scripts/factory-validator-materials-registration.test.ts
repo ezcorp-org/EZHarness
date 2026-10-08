@@ -6,7 +6,7 @@ function registrationIssues(workflow: string, thresholds: string): string[] {
     ["PostgreSQL and S3 conformance", "./tests/postgres/factory-validator-materials.test.ts"],
     ["package preparation conformance", "./tests/postgres/factory-package-preparation.test.ts"],
     ["coverage artifact", "name: lcov-cov-factory-storage"],
-    ["coverage receipt", "path: coverage-factory-storage/lcov.info"],
+    ["coverage receipt", "path: coverage-factory-storage/lcov_factory_storage.info"],
     ["missing-report failure", "if-no-files-found: error"],
   ] as const;
   const sources = [

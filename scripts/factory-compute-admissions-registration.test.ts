@@ -5,7 +5,7 @@ function registrationIssues(workflow: string, producer: string, thresholds: stri
   const required = [
     ["coverage producer", "bash scripts/factory-compute-admissions-coverage.sh"],
     ["coverage artifact", "name: lcov-cov-factory-compute-admissions"],
-    ["coverage receipt", "path: coverage-factory-compute-admissions/lcov.info"],
+    ["coverage receipt", "path: coverage-factory-compute-admissions/lcov_factory_compute_admissions.info"],
     ["missing-report failure", "if-no-files-found: error"],
   ] as const;
   const producerRequired = [

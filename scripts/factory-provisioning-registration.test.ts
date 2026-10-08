@@ -6,7 +6,7 @@ function registrationIssues(workflow: string, producer: string): string[] {
     ["real PostgreSQL producer invocation", 'FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" COV_OUT=coverage-factory-provisioning bash scripts/factory-provisioning-coverage.sh'],
     ["real factory assurance test", 'FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 30000 ./tests/postgres/factory-assurance.test.ts'],
     ["coverage artifact", "name: lcov-cov-factory-provisioning"],
-    ["coverage receipt", "path: coverage-factory-provisioning/lcov.info"],
+    ["coverage receipt", "path: coverage-factory-provisioning/lcov_factory_provisioning.info"],
     ["missing-report failure", "if-no-files-found: error"],
   ] as const;
   const producerRequired = [
