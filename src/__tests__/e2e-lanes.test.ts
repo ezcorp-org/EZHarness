@@ -18,7 +18,7 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -677,20 +677,33 @@ Bun.serve({ hostname: "127.0.0.1", port: Number(process.argv[process.argv.indexO
   });
 });
 
+function privateNamespaceInstaller(code: string, root: string, source: string) {
+  return code.replace("owner_uid = 0", "owner_uid = os.getuid()")
+    .replaceAll("/usr/local/libexec/ezcorp-ci-namespace", join(root, "usr/local/libexec/ezcorp-ci-namespace"))
+    .replaceAll("/etc/apparmor.d/ezcorp-ci-namespace", join(root, "etc/apparmor.d/ezcorp-ci-namespace"))
+    .replaceAll("/usr/bin/unshare", source)
+    .replace("for directory in reversed(path.parents):", `for directory in reversed([item for item in path.parents if item == pathlib.Path(${JSON.stringify(root)}) or pathlib.Path(${JSON.stringify(root)}) in item.parents]):`);
+}
+
 describe("runner CI namespace prerequisites", () => {
-  function setupProbe(mapping: string, missingTool = false, namespaceExit = 0, install = false) {
+  function setupProbe(mapping: string, missingTool = false, namespaceExit = 0, install = false, apparmor = false, parserExit = 0) {
     const root = mkdtempSync(join(tmpdir(), "runner-ci-namespace-"));
     const bin = join(root, "bin");
     mkdirSync(bin);
     mkdirSync(join(root, "scripts/lib"), { recursive: true });
     writeFileSync(join(root, "scripts/lib/extension-runner-conmon.sh"), "install_extension_runner_conmon() { :; }\n");
     writeFileSync(join(root, "scripts/lib/extension-runner-delegation.sh"), "configure_extension_runner_delegation() { export XDG_RUNTIME_DIR=fixture DBUS_SESSION_BUS_ADDRESS=fixture; }\n");
-    const script = readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8")
+    writeFileSync(join(root, "apparmor-enabled"), apparmor ? "Y" : "N");
+    mkdirSync(join(root, "etc/apparmor.d"), { recursive: true });
+    mkdirSync(join(root, "usr/local"), { recursive: true });
+    const script = privateNamespaceInstaller(readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8"), root, join(bin, "unshare"))
       .replaceAll('"/etc/$mapping"', '"$repo_root/$mapping"')
-      .replace("-x /usr/bin/apt-get", '-x "$repo_root/bin/apt-get"');
+      .replace("-x /usr/bin/apt-get", '-x "$repo_root/bin/apt-get"')
+      .replaceAll("/sys/module/apparmor/parameters/enabled", join(root, "apparmor-enabled"));
     writeFileSync(join(root, "scripts/setup-extension-runner-ci.sh"), script);
     for (const file of ["subuid", "subgid"]) writeFileSync(join(root, file), mapping);
     const commands: Record<string, string> = {
+      'apparmor_parser': `echo "apparmor-parser $*" >> '${root}/calls'; exit ${parserExit}`,
       id: 'if [ "$1" = "-u" ]; then echo 1000; else echo runner; fi',
       podman: 'if [ "$1" = info ]; then echo /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1; fi', bun: "echo fixture-image", flock: "exit 0", setpriv: "exit 0",
       unshare: `if [ "$1" = "--version" ]; then echo "unshare from util-linux 2.39.3"; exit 0; fi
@@ -717,8 +730,8 @@ printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${ro
     }
     try {
       const result = Bun.spawnSync([BASH!, join(root, "scripts/setup-extension-runner-ci.sh"), install ? "--install" : "--probe"],
-        { env: { ...process.env, CI: "true", PATH: bin }, stdout: "pipe", stderr: "pipe" });
-      return { mappings: ["subuid", "subgid"].map(file => readFileSync(join(root, file), "utf8")), code: result.exitCode, error: result.stderr.toString(), calls: existsSync(join(root, "calls")) ? readFileSync(join(root, "calls"), "utf8") : "" };
+        { env: { ...process.env, CI: "true", PATH: bin, GITHUB_PATH: join(root, "github-path"), GITHUB_ENV: join(root, "github-env") }, stdout: "pipe", stderr: "pipe" });
+      return { published: existsSync(join(root, "github-path")) ? readFileSync(join(root, "github-path"), "utf8") : "", mappings: ["subuid", "subgid"].map(file => readFileSync(join(root, file), "utf8")), code: result.exitCode, error: result.stderr.toString(), calls: existsSync(join(root, "calls")) ? readFileSync(join(root, "calls"), "utf8") : "" };
     } finally { rmSync(root, { recursive: true, force: true }); }
   }
 
@@ -785,4 +798,71 @@ printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${ro
     expect(result.error).toContain('capname="sys_admin"');
   });
 
+  test("AppArmor setup publishes its private executable only after the required probe passes", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 0, true, true);
+    expect(result.code, result.error).toBe(0);
+    expect(result.calls).toContain("apparmor-parser --replace");
+    expect(result.calls).toEndWith("namespace-probe\n");
+    expect(result.published).toEndWith("/usr/local/libexec/ezcorp-ci-namespace\n");
+  });
+
+  test.each(["parser", "probe"])("AppArmor %s failure aborts before publishing PATH", failed => {
+    const result = setupProbe("runner:100000:65536\n", false, failed === "probe" ? 17 : 0, true, true, failed === "parser" ? 19 : 0);
+    expect(result.code).not.toBe(0);
+    expect(result.published).toBe("");
+    if (failed === "parser") expect(result.calls).not.toContain("namespace-probe");
+  });
+
+});
+
+
+describe("CI AppArmor namespace installation", () => {
+  function installFixture(unsafe?: "parent-symlink" | "binary-symlink" | "profile-writable") {
+    const root = mkdtempSync(join(tmpdir(), "ci-apparmor-install-"));
+    const prefix = join(root, "usr/local/libexec/ezcorp-ci-namespace");
+    const profile = join(root, "etc/apparmor.d/ezcorp-ci-namespace");
+    mkdirSync(prefix, { recursive: true });
+    mkdirSync(dirname(profile), { recursive: true });
+    mkdirSync(join(root, "usr/bin"), { recursive: true });
+    const source = join(root, "usr/bin/unshare");
+    writeFileSync(source, "fixture executable bytes", { mode: 0o755 });
+    if (unsafe === "parent-symlink") {
+      rmSync(prefix, { recursive: true });
+      symlinkSync(join(root, "usr/bin"), prefix);
+    }
+    if (unsafe === "binary-symlink") symlinkSync(source, join(prefix, "unshare"));
+    if (unsafe === "profile-writable") {
+      writeFileSync(profile, "preserve unsafe profile");
+      chmodSync(profile, 0o666);
+    }
+    const helper = readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8");
+    const payload = helper.split("<<'PYAPPARMOR'\n")[1]!.split("\nPYAPPARMOR")[0]!;
+    // Exercise the real installer in a private filesystem under this test UID.
+    // Only the root identity and filesystem root change; all safety checks run.
+    const code = privateNamespaceInstaller(payload, root, source);
+    try {
+      const result = Bun.spawnSync(["python3", "-c", code], { stdout: "pipe", stderr: "pipe" });
+      return { code: result.exitCode, error: result.stderr.toString(),
+        binary: unsafe ? "" : readFileSync(join(prefix, "unshare"), "utf8"),
+        mode: unsafe ? 0 : statSync(join(prefix, "unshare")).mode & 0o777,
+        profile: existsSync(profile) ? readFileSync(profile, "utf8") : "", prefix };
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+
+  test("copies exact bytes and permits only its fixed executable", () => {
+    const result = installFixture();
+    expect(result.code, result.error).toBe(0);
+    expect(result.binary).toBe("fixture executable bytes");
+    expect(result.mode).toBe(0o755);
+    expect(result.profile).toContain(`profile ezcorp-ci-namespace ${result.prefix}/unshare flags=(unconfined)`);
+    expect(result.profile).toContain("userns,");
+    expect(result.profile).not.toContain("/usr/bin/unshare");
+  });
+
+  test.each(["parent-symlink", "binary-symlink", "profile-writable"] as const)("rejects unsafe existing installation: %s", unsafe => {
+    const result = installFixture(unsafe);
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("Unsafe CI namespace installation path");
+    if (unsafe === "profile-writable") expect(result.profile).toBe("preserve unsafe profile");
+  });
 });

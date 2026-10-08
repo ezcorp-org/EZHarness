@@ -52,6 +52,59 @@ except (OSError, ValueError) as error:
 PYMAP
 }
 
+configure_namespace_apparmor() {
+  if [[ ! -r /sys/module/apparmor/parameters/enabled ]] ||
+     [[ "$(</sys/module/apparmor/parameters/enabled)" != Y ]]; then
+    return
+  fi
+  # Ubuntu 24.04 userns restrictions attach an LSM profile even with valid
+  # mappings and CAP_SYS_ADMIN. Permit only our root-owned CI executable;
+  # retain the distro profile and every global AppArmor/sysctl setting.
+  sudo python3 - <<'PYAPPARMOR'
+import os, pathlib, stat, tempfile
+owner_uid = 0
+prefix = pathlib.Path("/usr/local/libexec/ezcorp-ci-namespace")
+profile = pathlib.Path("/etc/apparmor.d/ezcorp-ci-namespace")
+source = pathlib.Path("/usr/bin/unshare")
+def safe(path, directory=False):
+    metadata = path.lstat()
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(metadata.st_mode) or metadata.st_uid != owner_uid or metadata.st_mode & 0o022:
+        raise ValueError(f"Unsafe CI namespace installation path: {path}")
+def parents(path):
+    for directory in reversed(path.parents):
+        safe(directory, True)
+    safe(path, True)
+def write(path, payload, mode):
+    parents(path.parent)
+    if path.exists() or path.is_symlink():
+        safe(path)
+    descriptor, temporary = tempfile.mkstemp(prefix=".namespace-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(payload)
+            os.fchmod(output.fileno(), mode)
+        os.replace(temporary, path)
+        safe(path)
+        if path.read_bytes() != payload:
+            raise ValueError(f"CI namespace installation bytes differ: {path}")
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+parents(source.parent)
+safe(source)
+for directory in (prefix.parent, prefix):
+    if not directory.exists() and not directory.is_symlink():
+        parents(directory.parent)
+        directory.mkdir(mode=0o755)
+    parents(directory)
+write(prefix / "unshare", source.read_bytes(), 0o755)
+write(profile, b"abi <abi/4.0>,\ninclude <tunables/global>\nprofile ezcorp-ci-namespace /usr/local/libexec/ezcorp-ci-namespace/unshare flags=(unconfined) {\n  userns,\n}\n", 0o644)
+PYAPPARMOR
+  sudo apparmor_parser --replace /etc/apparmor.d/ezcorp-ci-namespace
+  export PATH="/usr/local/libexec/ezcorp-ci-namespace:$PATH"
+}
+
 diagnose_namespace_restriction() {
   local context
   context='
@@ -139,10 +192,14 @@ if [[ "$mode" == "--install" ]]; then
     exit 1
   fi
   sudo apt-get update
-  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux ca-certificates curl
+  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux apparmor ca-certificates curl
   source "$repo_root/scripts/lib/extension-runner-conmon.sh"
   install_extension_runner_conmon
+  configure_namespace_apparmor
   verify_namespace_prerequisites
+  if [[ -n "${GITHUB_PATH:-}" && "$PATH" == /usr/local/libexec/ezcorp-ci-namespace:* ]]; then
+    printf '%s\n' /usr/local/libexec/ezcorp-ci-namespace >> "$GITHUB_PATH"
+  fi
   source "$repo_root/scripts/lib/extension-runner-delegation.sh"
   configure_extension_runner_delegation
   if [[ "$(podman info --format '{{.Host.Conmon.Path}}')" != /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1 ]]; then
