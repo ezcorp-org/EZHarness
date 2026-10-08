@@ -4,7 +4,7 @@
  * after the old process exits; verify runs as the operator before signing. */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { createHash, X509Certificate } from "node:crypto";
-import { inspectIncus, readIncusHostPolicyDigest } from "./inspect";
+import { bindProtectedSshIdentity, inspectIncus, readIncusHostPolicyDigest } from "./inspect";
 import { verifyAdmissionControls } from "./plan";
 import { bootstrapFromEnvironment } from "../../src/infrastructure/incus-operator/service";
 import { readCapacityObservation } from "../../src/infrastructure/incus-operator/capacity";
@@ -238,7 +238,7 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
     durable: value.durable, backend });
 }
 
-async function admissionReadiness(pin: IncusSupervisorSelectedPin): Promise<unknown> {
+async function admissionReadiness(pin: IncusSupervisorSelectedPin, sshExecutionIdentity: unknown): Promise<unknown> {
   const config = operatorConfig();
   requireOperatorPin(config, pin);
   const providerClient = config.context.recipe.providerClient;
@@ -248,6 +248,7 @@ async function admissionReadiness(pin: IncusSupervisorSelectedPin): Promise<unkn
   const bootstrap = bootstrapFromEnvironment();
   requireFact(bootstrap && bootstrap.endpoint === new URL(config.transportConnection.endpoint).origin,
     "protected bootstrap endpoint changed");
+  bindProtectedSshIdentity(bootstrap.ssh, sshExecutionIdentity);
   const inventory = await inspectIncus(bootstrap.ssh);
   requireFact(verifyAdmissionControls(config.context.recipe, inventory, [config.context.preset]).length === 0,
     "protected host controls changed");
@@ -262,8 +263,8 @@ async function admissionReadiness(pin: IncusSupervisorSelectedPin): Promise<unkn
 }
 
 const input = JSON.parse(await Bun.stdin.text());
-if (input.phase === "admissionReadiness" && Object.keys(input).sort().join() === "expectedPin,phase") {
-  process.stdout.write(JSON.stringify({ ready: "admission.v2", observation: await admissionReadiness(input.expectedPin) }) + "\n");
+if (input.phase === "admissionReadiness" && Object.keys(input).sort().join() === "expectedPin,phase,sshExecutionIdentity") {
+  process.stdout.write(JSON.stringify({ ready: "admission.v2", observation: await admissionReadiness(input.expectedPin, input.sshExecutionIdentity) }) + "\n");
 } else if (input.phase === "readiness" && (Object.keys(input).sort().join() === "phase"
   || Object.keys(input).sort().join() === "expectedPin,phase")) {
   requireFact(process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH?.startsWith("/")

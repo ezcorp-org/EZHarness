@@ -3605,3 +3605,14 @@ Review: Actual two-invite RED reproduced the strict Copy Link ambiguity. All fiv
 - [x] Run all four typecheck legs, 34 focused tests, build, Biome, and independent source review.
 
 Review: DELETE requires admin scope, exact origin (or scoped key), and a closed private-ID body; registry/docs include the method. The form uses the API email schema and denies blank/invalid-domain values. Focused route coverage is 32/32 lines; highest route CRAP is 7. Six real-auth cases pass. Full PR coverage is not claimed; successful visual attachment replay remains active.
+
+### Protected receipt SSH identity and retained guests — 8 October 2026
+
+- [x] Reproduce root SSH key rejection and prove that Bun child uid/gid options do not change credentials.
+- [x] Preserve root config/TLS reads and bind the protected supervisor service identity only to SSH children through fixed setpriv with cleared groups.
+- [x] Test real child identity, unchanged SSH arguments/input, malformed identity denial, no fallback, and the legacy receipt protocol.
+- [x] Permit existing guests during read-only admission while preserving strict empty-host setup and all host-control/capacity checks.
+- [x] Run the complete read-only receipt against the real server: original 33457 exited 0 in 5156 ms with empty stderr. No database or sandbox effect occurred.
+- [ ] Complete final combined local/hosted gates, deploy, and prove installed UI readiness, retained guests, restart, and cleanup.
+
+Review: normal focused identity/setup/receipt tests passed 40 tests and 450 assertions; two supplemental root-only tests were skipped in that nonroot run and passed separately as part of four root tests with 33 assertions. The binding has 10/10 measured lines, scoped CRAP 11; modified SSH callback CRAP 4. Standard quality globs exclude scripts/incus, so these explicit scores are reported separately. Retained-guest setup tests passed 36/36, admission tests 8/8, feature-service tests 19/19, and all typecheck legs passed. The actual server proof covers the empty-host read-only path; current installed admission and UI remain pending.

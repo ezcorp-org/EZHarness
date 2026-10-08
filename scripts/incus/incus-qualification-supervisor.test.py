@@ -422,9 +422,10 @@ class SupervisorTest(unittest.TestCase):
             root = Path(directory); key = root / "key.pem"
             key.write_text("private fixture"); key.chmod(0o600)
             verifier = root / "verifier.py"
-            verifier.write_text("import json,sys\nmessage=json.load(sys.stdin)\nassert message['phase']=='admissionReadiness'\nprint(json.dumps({'ready':'admission.v2','observation':{'echo':message['expectedPin']}}))\n")
+            verifier.write_text("import json,sys\nmessage=json.load(sys.stdin)\nassert message['phase']=='admissionReadiness'\nassert set(message)=={'phase','expectedPin','sshExecutionIdentity'}\nassert message['sshExecutionIdentity']=={'uid':62040,'gid':62040}\nprint(json.dumps({'ready':'admission.v2','observation':{'echo':message['expectedPin']}}))\n")
             supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
                 os.getuid(), os.getgid(), key, ["authority"], [sys.executable, "-B", str(verifier)], enforce_distinct_uid=False)
+            supervisor.app_uid = 62040; supervisor.app_gid = 62040
             pin = {"scope": {"installationId": "installation", "releaseId": "release",
                 "connectionId": "connection", "presetId": "preset"}, "connectionRevision": 1,
                 "presetDigest": "a"*64, "effectiveSettingsDigest": "b"*64,
@@ -443,7 +444,8 @@ class SupervisorTest(unittest.TestCase):
                 supervisor.child_identity = {"pid": child.pid, "startTicks": "wrong"}
                 with self.assertRaisesRegex(ValueError, "authority unavailable"):
                     supervisor.admission_readiness(message)
-                for changed in [dict(message, version=1), dict(message, extra=True), dict(message, expectedPin={})]:
+                for changed in [dict(message, version=1), dict(message, extra=True), dict(message, expectedPin={}),
+                                dict(message, sshExecutionIdentity={"uid": 0, "gid": 0})]:
                     with self.assertRaises(ValueError):
                         supervisor.admission_readiness(changed)
                 child.terminate()

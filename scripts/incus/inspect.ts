@@ -8,6 +8,22 @@ export type RemoteRunner = (argv: readonly string[], stdin?: string) => Promise<
 export const SSH_GATE_COMMAND = "ezh-incus-operator-v1";
 export const SSH_GATE_MAX_REQUEST_BYTES = 64 * 1024;
 
+type SshExecutionIdentity = Readonly<{ uid: number; gid: number }>;
+const sshExecutionIdentities = new WeakMap<IncusConnection, SshExecutionIdentity>();
+
+/** Only the root receipt loader can bind its protected supervisor identity. */
+export function bindProtectedSshIdentity(connection: IncusConnection, value: unknown): IncusConnection {
+  const identity = value as Partial<SshExecutionIdentity> | null;
+  if (process.geteuid?.() !== 0 || !identity || typeof identity !== "object"
+    || Object.keys(identity).sort().join() !== "gid,uid"
+    || !Number.isSafeInteger(identity.uid) || !Number.isSafeInteger(identity.gid)
+    || identity.uid! <= 0 || identity.gid! <= 0 || identity.uid! > 0xffff_fffe || identity.gid! > 0xffff_fffe) {
+    throw new Error("Protected SSH execution identity is invalid");
+  }
+  sshExecutionIdentities.set(connection, Object.freeze({ uid: identity.uid!, gid: identity.gid! }));
+  return connection;
+}
+
 export function sshGateRequest(argv: readonly string[], stdin?: string, planDigest?: string): string {
   if (planDigest !== undefined && !/^[a-f0-9]{64}$/.test(planDigest)) throw new Error("Invalid Incus SSH plan digest");
   const request = `${JSON.stringify({ version: 1, argv, ...(stdin === undefined ? {} : { stdin }),
@@ -109,7 +125,12 @@ function executeSsh(connection: IncusConnection, command: string, request?: stri
     "-o", `UserKnownHostsFile=${connection.sshKnownHostsFile}`, connection.sshTarget, command,
   ];
   return new Promise<CommandResult>((resolve) => {
-    const child = spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
+    const identity = sshExecutionIdentities.get(connection);
+    // Bun 1.3.14 ignores spawn uid/gid options. Use the host credential boundary.
+    const child = identity
+      ? spawn("/run/current-system/sw/bin/setpriv", [`--reuid=${identity.uid}`, `--regid=${identity.gid}`,
+        "--clear-groups", "--", "/run/current-system/sw/bin/ssh", ...args], { stdio: ["pipe", "pipe", "pipe"] })
+      : spawn("ssh", args, { stdio: ["pipe", "pipe", "pipe"] });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
     let size = 0;

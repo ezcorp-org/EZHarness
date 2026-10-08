@@ -1253,7 +1253,8 @@ class Supervisor:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try:
             stdout, _stderr = verifier.communicate(
-                canonical({"phase": "admissionReadiness", "expectedPin": message["expectedPin"]}) + b"\n", timeout=8)
+                canonical({"phase": "admissionReadiness", "expectedPin": message["expectedPin"],
+                           "sshExecutionIdentity": {"uid": self.app_uid, "gid": self.app_gid}}) + b"\n", timeout=8)
         except subprocess.TimeoutExpired:
             os.killpg(verifier.pid, signal.SIGKILL)
             verifier.communicate()
