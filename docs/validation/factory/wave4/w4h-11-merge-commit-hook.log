@@ -1,0 +1,24 @@
+Checked 9 files in 20ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/lib/bundled-bootstrap-progress.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 32 expect() calls
+Ran 13 tests across 1 file. [375.00ms]
+  bun: scripts/lib/shipping-bootstrap-state.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 2207 expect() calls
+Ran 12 tests across 1 file. [412.00ms]
+  bun: src/__tests__/e2e-bundled-bootstrap-wait.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 10 expect() calls
+Ran 6 tests across 1 file. [373.00ms]
+[detached HEAD 000f75d10] merge: wp/w4h-11-bootstrap-deadline 16f1228db into integ/w00 (bundled bootstrap progress deadline)

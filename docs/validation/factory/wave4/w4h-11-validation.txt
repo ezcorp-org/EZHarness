@@ -1,0 +1,79 @@
+ACCEPT wp/w4h-11-bootstrap-deadline at 16f1228db
+validator-7, 2026-10-08. Base 1bc5f63c7 (ancestor of integ/w00). Hold: /tmp/factory-platform-evidence/validator-7/hold-w4h-11.sh
+(lock-free legs; snapshot /tmp/v5-snaps/validator-7-w4h-11, removed). Logs: validator-7/w4h-11/{hold.log,results.jsonl,logs/}.
+Pins: bun and bunx 1.4.2 (the tree's .bun-version). Node v24.21.0 (host; no pinned 24.14.1 exists in /tmp/factory-tools; see F6).
+Shared config 888c78b9e94ea660 = accepted baseline at start and end. No host OOM in the hold window. Heavy lock not taken.
+
+LEG RESULTS
+1  identity: 4 commits, all archy noreply as author and committer. tree review: 11 files, 1 flag (coverage-thresholds.json:
+   one added 100 key for the new file; no weakening). prune scan (w00/prune-scan.sh a4a59601cec26963): "clean (2 hit(s))".
+   receipt scan: 109 owner receipts, 0 missing (they name 88de7acce; 88de7acce..16f1228db changes only the gate file).
+2  unit union (= hook-mapped set): progress 13/0, state 12/0, e2e helper 6/0 = 31 pass, 0 void. Reader alone:
+   production-image-lifecycle-launch.integration.test.ts 6/0. Guard set (w00/guard-suites.sh): 39 files, 500 pass, 0 fail.
+3  red at base (2c4a535e4's test version): green at 2c4a535e4 13/0; on base sources RED 7 fail / 6 pass, no load error
+   (the 3 helper tests fail by assertion; 4 state tests time out because the base wait ignores the fake clock).
+   88de7acce cannot be shown red at b8a443fb3 by its tests (they import its new exports: load error); proven by mutants 8-10
+   and by the owner's E2E red at b8a443fb3 (r5-b8a443fb3: recovery "Build d57c5921... did not finish within six minutes").
+4  mutants (each over the 3 suites, 31 tests):
+   m1 progress does not reset the stall clock RED | m2 lease ignored RED | m3 stall test on total elapsed RED |
+   m4 message drops the unverified names RED | m5 safety net drops the lease RED | m6 web helper never observes KILLED BY HANG
+   (no deadline: the wait never ends; timeout 600 s; no OOM; see F4) | m7 web flat 600 s back RED |
+   m8 build wait ignores the bundled queue RED | m9 build wait ignores its own lease RED | m10 build wait flat 360 s back RED |
+   m11 bootstrap wait flat 360 s back RED | m12 lifecycle-client delegation broken: SURVIVES the units (expected; F3).
+5  coverage (binding: per-file lcov; repo new-file/patch gates exit 0 and are vacuous for scripts/lib and web/e2e):
+   bundled-bootstrap-progress.ts 71/71 (changed 71/71); shipping-bootstrap-state.ts 116/116 (changed 61/61);
+   web/e2e/fixtures/bundled-bootstrap.ts 47/48 (changed 13/13; line 107 uncovered, outside every hunk);
+   production-lifecycle-client.ts and verify-shipping-delivery.ts: no unit lcov record (F2, F3).
+6  CRAP (gate's scoreFile, my lcov; logs/crap-touched-rerun.log): 46 functions, worst 14.0 (web helper waitForBundledBootstrap,
+   cc 14, 97%); then 13.0 and 12.0 (the two waiters, 100%). Max 30. (Owner's report says 13.0; F5.)
+7  gate-integrity: base leg PASS; origin/main leg exactly the 8 expected findings (findings-match PASS against
+   w00/expected-integ-findings-vs-main.txt 9ec5cdcb...). No new line.
+8  lint 0 errors (2 warnings, both in files outside this diff: scripts/setup-factory-python-base.test.ts:101,
+   tests/postgres/helpers/factory-recovery-databases.ts:50); check-factory-boundaries 0; check-boundaries 0.
+9  typecheck (tc rule, lock-free, no holder, mem 19.1 GiB before, lowest 15.5, VmHWM 3.5 GiB) exit 0 incl. Python;
+   svelte-check exit 0: 620 files, 0 errors, 0 warnings (VmHWM 0.5 GiB).
+10 review: the fix ends every bootstrap-chain wait on no progress (stall 120 s from the later of the last change and a live
+   lease), one policy read by all four observers; all 28 still must verify; the error names each unverified build, its state
+   and its time since the last transition. The sweep's result holds on my spot check: the only build wait in the shipping
+   proofs is the shared one; the other fixed waits I read (verify-docker-upgrade.sh wait_ready, shipping-effect-client waitFor,
+   verify-shipping-delivery waitFor 120 s, verify-shipping-embeddings 180 s) are readiness/health waits, not build waits.
+11 R5 (owner, read): every leg rc 0 once at 88de7acce, 4 CPUs, host_oom 0; the snapshot tree 9fa35f00 equals 88de7acce's
+   tree (receipts' source_revision e1bcb1eec is the harness's one-commit snapshot of it). My own extraction of every
+   bootstrap wait record: resources 28/28 elapsed 309.7 s; content (legacy-adoption) 28/28 289.0 s; delivery r2 28/28
+   364.6 s; recovery initial 28/28 292.4 s and r1 1.2 s; max stall clock 1.06-1.08 s of 120 s; net 1544 s. Recovery's
+   historical-upgrade passed (its build wait is the 88de7acce path). Content try 1 rc 1 under a 50-kill host OOM = void.
+   3.0-CPU legs: dropped by ruling; b8a443fb3's run shows resources and content green at 3.0 (not at the head).
+   No independent heavy leg: not needed (R5 receipts are complete and consistent; the logic is proven by units and mutants).
+
+FINDINGS (none blocks; the coordinator decides follow-ups)
+F1 The safety net (1544 s for 28 builds) is longer than the production suite's own per-proof cap
+   (scripts/verify-shipping-production-suite.sh:113-114: 15 min, runtime-resources 25 min = 1500 s). In the suite the named
+   safety-net verdict can never fire: a slow but progressing chain is cut by `timeout` with no list of unverified builds, and a
+   stall that starts after about 13 min also ends by the cap. The gate file does not mention the cap. Suggested leftover: size the
+   net below the cap, or derive the cap from the policy (one place).
+F2 verify-shipping-delivery.ts (2 changed lines) has no unit lcov and the report's coverage statement omits it. The R2 call ran in
+   R5 delivery (it wrote bundled-bootstrap-r2.json); the catch line that adds the verdict to the timeout receipt ran nowhere
+   (typechecked only).
+F3 production-lifecycle-client.ts: the one-line delegation to waitForBuildVerified is E2E-only (m12 survives the units). It ran
+   in R5 resources, content (legacy-adoption) and recovery (historical-upgrade), all green; CRAP of the arrow is at most 2.
+F4 m6 is killed by a hang, not by an assertion: without observe the helper has no deadline, so the stall test never ends.
+F5 Report accuracy: CRAP worst is 14.0 at the head (report: 13.0).
+F6 Node: common.md pins 24.14.1, but no pinned Node exists on this host; the owner's and my typecheck ran under host 24.21.0.
+F7 Two lint warnings in untouched files (leg 8) predate this package.
+
+ADDENDUM (validator-7, 2026-10-08T03:46Z, after the coordinator's answers to my four points; the verdict stays ACCEPT)
+A1 R5 at 4 CPUs only is the ruled standard (outer quota does not change the rate above the guest's 2-CPU cap). Judged on the
+   4-CPU receipts (leg 11): all green. The 3.0 note in leg 11 is information only.
+A2 F3 is WITHDRAWN as a finding by the coordinator's ruling: the one-line delegation in production-lifecycle-client.ts
+   (waitVerified -> waitForBuildVerified) takes the E2E receipt as its coverage evidence:
+   /tmp/factory-platform-evidence/w4h-11/r5/hold-20261008T025542Z/receipts-recovery-c4/summary.tsv
+   (historical-upgrade exit 0, 2026-10-08T03:15:53Z-03:20:28Z, at 88de7acce; snapshot tree 9fa35f00 = 88de7acce's tree).
+   The 100-percent per-file standard holds for the two waiter files (116/116, 71/71).
+A3 F6 is RESOLVED: my typecheck and svelte-check reran at 16f1228db under the pinned Node v24.14.1
+   (/tmp/factory-tools/node-24.14.1, official tarball, SHASUMS256 OK, recorded in w00/node-24.14.1.sha256) with bun 1.4.2,
+   tc rule lock-free: typecheck exit 0 (incl. tests-typecheck and Python; mem 18.8 GiB before, lowest 13.7, VmHWM 3.5 GiB);
+   svelte-check exit 0, 620 files, 0 errors, 0 warnings (waited 2 checks for heavy-lock holder 4178315, then mem 18.4 GiB).
+   No OOM. Logs: validator-7/w4h-11-tc/{hold.log,results.jsonl,logs/}; script validator-7/hold-w4h-11-tc.sh.
+A4 Sweep classification, call-graph check and stopped queue entries: judged as reported, with the handoff rulings.
+Open findings after this addendum: F1 (safety net longer than the suite's per-proof cap), F2 (verify-shipping-delivery.ts
+2 lines, no unit lcov, omitted from the report), F4, F5, F7. None blocks.
