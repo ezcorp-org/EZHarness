@@ -1,0 +1,23 @@
+#!/usr/bin/env python3
+# wave4i-3 push receipt (integrator-5, lead's word 2026-10-08 ~08:1xZ). Every hash computed here from the file.
+import hashlib, json
+W = '/tmp/factory-platform-evidence/w00'; P = W + '/wave4i-3/push'
+h = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()[:16]
+x = {
+ "push": "second push of the wave: feat/composable-factory-platform 1bc5f63c7 -> 1b96d27306cf3a21661e16a70f61f5e4837b2bcd (plain git push, exit 0 at 07:26:49Z, first try; pre-push hook: typecheck 61 s incl. mypy --strict on the 2 locked Python projects, svelte-check 620 files 0 errors 0 warnings; never --no-verify or --force)",
+ "steps": {
+  "1 pre-checks": "pre-checks.log 07:24:15Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch (only a forced update of origin/evidence/pr-303, not ours); HEAD = origin/feat = 1bc5f63c7; ancestor of integ/w00 1b96d2730; config-check rc 0; 32 commits ahead",
+  "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating 1bc5f63c7..1b96d2730 Fast-forward",
+  "3 installs": "installs-step.log / installs.log: resource gate green (disk 302G, mem 15 GiB, swap 2.4 GiB); bun and bunx 1.4.2; w00/installs-lib.sh " + h(W + '/installs-lib.sh') + " frozen_installs exit 0 (root 18 packages, web 6 + svelte-kit sync, gate-integrity deps no changes, six package builds); status empty",
+  "4 push": "push.sh " + h(P + '/push.sh') + " through w00/tc-gate.sh " + h(W + '/tc-gate.sh') + " lock-free: GREEN at 07:25:34Z (MemAvailable 16.1 GiB, no heavy holder), lowest 12.2 GiB during the hook; push exit 0; HEAD = origin/feat = 1b96d2730",
+  "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid 1b96d2730, MERGEABLE, mergeStateStatus BLOCKED (checks queued at read time)",
+  "6 hosted": "ci 37743486763 (completed, failure; 58 jobs) and deps-audit 37743489742 (success). vs 37383355593: red 9 -> 3, fixed 6, same 49, still red 3, green->red 0; vs 37138524741: red 20 -> 3, fixed 17. Still red: Gate integrity (A, the 8, label), Factory runner readiness precheck (A, FACTORY_RUNNER_READ_TOKEN), Per-file coverage gate (C, NEW CAUSE: seven lcov-cov-* producer artifacts each upload lcov.info into one merge-multiple download folder, six producers' records lost; latent since the producers first succeeded; package W4H-15 opened by the coordinator). Details: wave4i-3-push-ci-37743486763-classification.md."},
+ "failedLog": "full --log-failed: ci-37743486763/all-failed.log sha256 " + h(P + '/ci-37743486763/all-failed.log') + " (stays in the evidence dir); committed: the ruled excerpt (w00/push-log-excerpt.py " + h(W + '/push-log-excerpt.py') + ") and the Per-file coverage gate's whole job log (its cause lines sit outside the excerpt window)",
+ "hostEvents": ["none during the push window (07:24-08:05Z): 0 host OOM kills; the wave's host events up to the combined run are in wave4i-3.json",
+                "shared .git/config: accepted baseline 29e61b63b05624e9 (a branch-only change accepted by the 2026-10-03 rule at the wave4i-3 receipts) at every step"],
+ "tooling": {"push.sh": h(P + '/push.sh'), "installs.sh": h(P + '/installs.sh'), "w00/installs-lib.sh": h(W + '/installs-lib.sh'), "w00/tc-gate.sh": h(W + '/tc-gate.sh'),
+             "w00/bun-pin.sh": h(W + '/bun-pin.sh'), "w00/resource-gate.sh": h(W + '/resource-gate.sh'), "w00/wave4i-2/hosted-compare.py": h(W + '/wave4i-2/hosted-compare.py'),
+             "w00/push-log-excerpt.py": h(W + '/push-log-excerpt.py'), "w00/wave4i/push-checklist.md": h(W + '/wave4i/push-checklist.md'),
+             "baseline 37383355593": h(W + '/wave4i-3/hosted-baseline-37383355593.tsv'), "baseline 37138524741": h(W + '/wave4i-2/hosted-baseline-37138524741.tsv')},
+ "receiptsBy": "integrator-5"}
+json.dump(x, open(P + '/receipts/wave4i-3-push.json', 'w'), indent=2); print('ok')
