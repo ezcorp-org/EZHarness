@@ -643,7 +643,9 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
     await database.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
     const db = drizzle(database, { schema });
     await addSandboxController(db);
-    await database.exec("INSERT INTO projects (id,name,path) VALUES ('project', 'project', '/work/project')");
+    // This fixture exercises the qualification transport path. User admission
+    // requires a full baseline and is checked by the native broker action tests.
+    await database.exec("INSERT INTO projects (id,name,path,purpose) VALUES ('project', 'project', '/work/project', 'incus-qualification')");
     const manifest = structuredClone(incusManifest);
     if (legacyProducer) {
       manifest.version = "0.1.3";
@@ -672,7 +674,6 @@ async function exerciseAdapterLifecycle(faultMode?: "consume" | "expire", pendin
     if (fault) {
       await database.exec("CREATE TABLE provider_connections (id TEXT PRIMARY KEY, revision INTEGER NOT NULL, provider_installation_id TEXT NOT NULL, provider_release_id TEXT NOT NULL, endpoint TEXT NOT NULL, server_certificate_pem TEXT NOT NULL, project TEXT NOT NULL, configuration JSONB, client_certificate_pem TEXT NOT NULL, private_key_ciphertext TEXT NOT NULL, revoked_at TIMESTAMPTZ, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
       await addQualificationFixtures(db);
-      await db.update(schema.projects).set({ purpose: "incus-qualification" });
       await db.insert(schema.providerConnections).values({ id: "connection-a", revision: 1, providerInstallationId: "installation-a", providerReleaseId: "release-a", endpoint: connection.endpoint, serverCertificatePem, project: "sandbox", clientCertificatePem: connection.clientCertificatePem, privateKeyCiphertext: "test-not-a-secret" });
     }
     const writes: string[] = [];

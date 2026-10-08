@@ -1,4 +1,8 @@
 {
+  "web/e2e/signup-token.spec.ts": [
+    "web/src/lib/components/settings/InvitesSection.svelte",
+    "web/src/routes/(auth)/signup/[token]/+page.svelte"
+  ],
   "web/e2e/personal-github-import.spec.ts": [
     "web/src/lib/components/GithubSandboxImport.svelte",
     "web/src/lib/components/ProjectSandboxPanel.svelte"

@@ -3580,3 +3580,11 @@ Contract review passed. Targeted core: 51/51 tests; new migration, contract and 
 - [x] Review the narrow diff, record the result here, and commit it on the auth branch.
 
 Review: On the original e330 code, the browser test failed because the clipboard URL pointed to `/api/auth/invite/<token>`. With the fix, all five real-auth signup browser cases pass, including the copied-link journey to the actual signup form. The component suite passes 9/9, the E2E lane contract passes 22/22, the production build runs in the browser fixture, and Svelte reports 0 errors and 0 warnings. The captured signup form is visually sound. Solpreview independently reviewed the final source bytes and passed the fix.
+
+# Final gate fixture corrections, 2026-10-08
+
+- [x] Reproduce lifecycle and evidence catalog failures at ee839.
+- [x] Correct qualification transport fixture purpose and map actual invite evidence.
+- [x] Run focused tests and full typecheck; obtain independent review before commit.
+
+Review: Reproduced thirteen real broker lifecycle fixture failures and the missing signup evidence entry. Explicit qualification project purpose matches production fixture allocation. Lifecycle45/45, real user boundary34/34, evidence catalog7/7, full typecheck all four legs, scoped lint and diff checks pass. Readiness owner independently reviewed source; no production or gate policy changed.
