@@ -91,9 +91,10 @@ test("every immutable authority identity drifts closed without another full run"
   await expect(f.service.check(admissionPin.scope)).rejects.toThrow("qualification_expired");
   f.source.observation.hostPolicyDigest = "4".repeat(64);
   for (const key of ["backendVersion", "architecture", "backendApi", "storageDriver", "isolation"] as const) {
-    const old = f.source.observation.backend[key]; f.source.observation.backend[key] = "changed";
+    const old = f.source.observation.backend;
+    f.source.observation.backend = { ...old, [key]: "changed" } as typeof old;
     await expect(f.service.check(admissionPin.scope)).rejects.toThrow("qualification_expired");
-    f.source.observation.backend[key] = old;
+    f.source.observation.backend = old;
   }
   f.selected.connection.revision++;
   await expect(f.service.check(admissionPin.scope)).rejects.toThrow("qualification_expired");

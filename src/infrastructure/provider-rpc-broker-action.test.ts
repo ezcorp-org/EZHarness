@@ -994,7 +994,7 @@ for (const kind of ["CREATE", "START"] as const) test(`native user ${kind} reche
   let validUntil = Date.now() + 15_000;
   const authorize = spyOn(IncusAdmissionReadinessService.prototype, "assertDispatch").mockImplementation(async (binding, operation) => {
     expect(binding.id).toBe("binding"); expect(operation.id).toBe(input.requestId);
-    return { validUntil } as Awaited<ReturnType<IncusAdmissionReadinessService["assertDispatch"]>>;
+    return { validUntil } as Awaited<ReturnType<InstanceType<typeof IncusAdmissionReadinessService>["assertDispatch"]>>;
   });
   try {
     selected = action();
@@ -1014,7 +1014,7 @@ for (const kind of ["CREATE", "START"] as const) test(`native user ${kind} reche
       return { request: async () => { throw new Error("expired admission reached transport"); } };
     });
     // Expire after the fresh check, during transport construction.
-    authorize.mockImplementation(async () => ({ get validUntil() { return validUntil; } }) as Awaited<ReturnType<IncusAdmissionReadinessService["assertDispatch"]>>);
+    authorize.mockImplementation(async () => ({ get validUntil() { return validUntil; } }) as Awaited<ReturnType<InstanceType<typeof IncusAdmissionReadinessService>["assertDispatch"]>>);
     validUntil = Date.now() + 15_000; selected = action();
     expect(await delayed.request(selected, { command: selected.expectedCommand }, input.rpcDeadlineMs))
       .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });

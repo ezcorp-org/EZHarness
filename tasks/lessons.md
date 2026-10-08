@@ -742,3 +742,5 @@
 - Python importlib can write bytecode into an installed source directory during a read-only audit. Use `python3 -B` and `sys.dont_write_bytecode = True` before importing protected deployed modules. Do not import an installed module as root without this guard.
 
 - Preserve tracked task history. Inspect the existing tasks/todo.md before editing; append a scoped task plan instead of replacing the file.
+
+- 2026-10-08: Scoped production type checks do not prove test types. Run the repository full typecheck before a final source handoff. Use `InstanceType<typeof DynamicallyImportedClass>` for a dynamic class type, and replace a typed observation object when a negative test changes a field across a discriminated union.

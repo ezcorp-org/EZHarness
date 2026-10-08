@@ -325,7 +325,7 @@ test("claimed qualification prepares baseline before atomically storing receipt 
   const events: string[] = [];
   const prepare = spyOn(IncusAdmissionReadinessService.prototype, "prepareBaseline").mockImplementation(async (selected, runId, qualification) => {
     expect(selected).toEqual(scope); expect(runId).toBe("claimed"); events.push("prepare");
-    return { scope: selected, runId, qualification } as Awaited<ReturnType<IncusAdmissionReadinessService["prepareBaseline"]>>;
+    return { scope: selected, runId, qualification } as Awaited<ReturnType<InstanceType<typeof IncusAdmissionReadinessService>["prepareBaseline"]>>;
   });
   const record = spyOn(IncusAdmissionReadinessService.prototype, "recordBaseline").mockImplementation(async (_prepared, transaction) => {
     expect(transaction).not.toBe(db); events.push("baseline");
