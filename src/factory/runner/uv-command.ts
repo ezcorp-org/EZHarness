@@ -28,9 +28,10 @@ export function resolveUvBinary(which: Which = Bun.which, probe: Probe = probeCo
     const found = which(tool);
     if (!found) continue;
     if (tool === "uv") return found;
+    // The probe runs exactly the binary `which` found, never a second PATH lookup of its name.
     const located = tool === "nix-shell"
-      ? probe(["nix-shell", "-p", "uv", "--run", "command -v uv"])
-      : probe(["nix", "shell", "nixpkgs#uv", "-c", "sh", "-c", "command -v uv"]);
+      ? probe([found, "-p", "uv", "--run", "command -v uv"])
+      : probe([found, "shell", "nixpkgs#uv", "-c", "sh", "-c", "command -v uv"]);
     if (located.startsWith("/")) return located;
     throw new UvUnavailableError(`${tool} is on PATH but did not provide uv`);
   }
