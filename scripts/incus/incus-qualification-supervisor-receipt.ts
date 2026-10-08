@@ -5,7 +5,7 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
 import { createHash, X509Certificate } from "node:crypto";
 import { inspectIncus, readIncusHostPolicyDigest } from "./inspect";
-import { createSetupPlan, verifySetupPlan } from "./plan";
+import { verifyAdmissionControls } from "./plan";
 import { bootstrapFromEnvironment } from "../../src/infrastructure/incus-operator/service";
 import { readCapacityObservation } from "../../src/infrastructure/incus-operator/capacity";
 import type { IncusSupervisorSelectedPin } from "../../src/infrastructure/incus-qualification-supervisor-client";
@@ -249,8 +249,7 @@ async function admissionReadiness(pin: IncusSupervisorSelectedPin): Promise<unkn
   requireFact(bootstrap && bootstrap.endpoint === new URL(config.transportConnection.endpoint).origin,
     "protected bootstrap endpoint changed");
   const inventory = await inspectIncus(bootstrap.ssh);
-  const plan = createSetupPlan(config.context.recipe, inventory, [config.context.preset]);
-  requireFact(verifySetupPlan(plan, config.context.recipe, inventory, [config.context.preset]).length === 0,
+  requireFact(verifyAdmissionControls(config.context.recipe, inventory, [config.context.preset]).length === 0,
     "protected host controls changed");
   const resolver = { resolveForHost: async () => config.transportConnection };
   const readback = new HostIncusLiveReadback(resolver);

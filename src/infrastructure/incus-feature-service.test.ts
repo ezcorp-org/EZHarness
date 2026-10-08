@@ -937,6 +937,16 @@ test("daily admission uses unchanged baseline and read-only readiness after full
   expect(f.dispatches).toHaveLength(1);
   expect(f.dispatches[0]!.kind).toBe("CREATE");
   expect(reads - before).toBe(2);
+  await service.reconcile();
+  expect((await service.start({ bindingId: binding.id, idempotencyScope: "daily", idempotencyKey: "start" })).state)
+    .toBe("DISPATCHED");
+  await service.reconcile();
+  const second = await service.prepareProject({ name: "Second daily guest", ownerUserId: "admin",
+    idempotencyKey: "second-daily-project", installationId: "installation",
+    connectionId: "connection", presetId: f.preset.id });
+  expect((await service.create({ bindingId: second.binding.id, idempotencyScope: "daily",
+    idempotencyKey: "second-create" })).state).toBe("DISPATCHED");
+  expect(f.dispatches.map(item => item.kind)).toEqual(["CREATE", "START", "CREATE"]);
   expect(original.validUntil).toBe("2026-09-23T11:00:00Z");
   const [baseline] = releaseRows<{ proofDigest: string }>(await f.db.execute(sql`SELECT proof_digest AS "proofDigest" FROM incus_admission_baselines`));
   expect(baseline!.proofDigest).toBe(digest(original));

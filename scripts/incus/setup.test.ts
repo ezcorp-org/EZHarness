@@ -11,7 +11,7 @@ import { digest, inventoryFingerprint, type IncusInventory, type IncusSetupPlan,
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
 import { inspectIncus, readIncusHostPolicyDigest, sshGateRequest, verifyKnownHostPin, sshOwnedNeighborChallenge, operatorSshFromEnvironment, OWNED_NEIGHBOR_COMMAND, sshRunner } from "./inspect";
 import { createOwnedNeighborChallengeSshPolicy, ownedNeighborScope, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
-import { createImageBootstrapPlan, createSetupPlan, setupReviewInventoryFingerprint, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
+import { createImageBootstrapPlan, createSetupPlan, setupReviewInventoryFingerprint, validateRecipe, verifyAdmissionControls, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
 
 const pem = "-----BEGIN CERTIFICATE-----\nZmFrZQ==\n-----END CERTIFICATE-----\n";
@@ -970,6 +970,33 @@ test("verification names every missing postcondition", () => {
   expect(failures).toContain("unverified:compose-profile");
   expect(failures).toContain("unverified:https-listener");
   expect(failures).toContain("unverified:provider-client");
+});
+
+test("admission checks deployed controls with an existing guest; setup stays empty-host only", () => {
+  const source = checkedInRecipe as IncusSetupRecipe;
+  const reviewed: IncusSetupRecipe = { ...source, providerClient: { name: "engine", certificateFingerprint: "b".repeat(64),
+    certificatePem: pem, projects: [source.project.name], restricted: true } };
+  const base = bootstrapInventory({ images: [{ fingerprint: source.guestImage!.fingerprint!, aliases: [source.guestImage!.alias] }] });
+  const planned = createSetupPlan(reviewed, base);
+  expect(planned.status).toBe("ready");
+  const expected = (id: string) => planned.steps.find(step => step.id === id)!.inspect.expected;
+  const deployed = bootstrapInventory({
+    images: base.images,
+    server: { ...base.server, httpsAddresses: [reviewed.server.httpsAddress] },
+    storagePools: [{ ...expected("storage-pool") as IncusInventory["storagePools"][number], description: "", status: "Created" }],
+    networks: [{ ...expected("managed-network") as IncusInventory["networks"][number], description: "", status: "Created" }],
+    projects: [{ ...expected("restricted-project") as IncusInventory["projects"][number] }],
+    profiles: [{ name: reviewed.profile.name, project: reviewed.project.name, description: reviewed.profile.description,
+      config: reviewed.profile.config, devices: reviewed.profile.devices }],
+    trust: [{ ...expected("provider-client") as IncusInventory["trust"][number] }],
+    instances: [{ name: "ezh-" + "a".repeat(32), project: reviewed.project.name, status: "Running", type: "container" }],
+  });
+  expect(createSetupPlan(reviewed, deployed).blockedReasons).toContain("instances_present");
+  expect(verifyAdmissionControls(reviewed, deployed)).toEqual([]);
+  expect(verifySetupPlan(createSetupPlan(reviewed, deployed), reviewed, deployed)).toContain("plan_blocked:instances_present");
+  expect(verifyAdmissionControls(reviewed, { ...deployed, server: { ...deployed.server, serviceActive: false } }))
+    .toContain("plan_blocked:incus_not_ready");
+  expect(verifyAdmissionControls(reviewed, { ...deployed, projects: [] })).toContain("unverified:restricted-project");
 });
 
 test("owned-neighbor SSH uses the pinned fixed command and bounded private stdin", async () => {

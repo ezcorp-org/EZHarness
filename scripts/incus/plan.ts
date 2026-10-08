@@ -367,3 +367,16 @@ export function verifySetupPlan(plan: IncusSetupPlan, recipe: IncusSetupRecipe, 
   }
   return [...new Set(failures)].sort();
 }
+
+const SETUP_ONLY_EMPTY_HOST_FAILURES = new Set([
+  "plan_blocked:instances_present", "current_state:instances_present",
+]);
+
+/** Recheck every deployed setup control while existing guests use the host.
+ * Empty-host admission is a setup/apply rule; live capacity is checked separately. */
+export function verifyAdmissionControls(recipe: IncusSetupRecipe, inventory: IncusInventory,
+  presets?: readonly SandboxPreset[]): string[] {
+  const plan = createSetupPlan(recipe, inventory, presets);
+  return verifySetupPlan(plan, recipe, inventory, presets)
+    .filter(failure => !SETUP_ONLY_EMPTY_HOST_FAILURES.has(failure));
+}
