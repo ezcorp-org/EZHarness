@@ -753,3 +753,5 @@
 - 2026-10-08: Register every new HTTP method in src/api-registry.ts, even when the path already exists. Bind its scope and body schema in the docs schema map; verify route contract before source freeze.
 
 - Reuse the API email schema in the form. Native email validity accepts domains that the API rejects. Test `a@b` as well as blank input.
+
+- Inspect the captured form before source freeze. In a bottom-aligned form grid, put shared help below the grid so inputs and buttons stay aligned. Use one explicit working directory per edit/build call.

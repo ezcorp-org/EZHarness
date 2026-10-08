@@ -61,11 +61,10 @@
 	description="Create invite links for new users. Links expire after 7 days."
 >
 	<!-- Create invite form -->
-	<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end mb-4">
+	<div class="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-end">
 		<div class="flex-1">
 			<label for="settings-invite-email" class="block text-xs text-[var(--color-text-secondary)] mb-1">Email (required)</label>
 			<input id="settings-invite-email" type="email" required aria-describedby="invite-email-help" autocomplete="off" bind:value={inviteEmail} placeholder="user@example.com" class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:outline-none" />
-			<p id="invite-email-help" class="text-xs text-[var(--color-text-muted)] mt-1">Enter a valid email address to create an invite.</p>
 		</div>
 		<div>
 			<label for="invite-role" class="block text-xs text-[var(--color-text-secondary)] mb-1">Role</label>
@@ -76,6 +75,8 @@
 		</div>
 		<button onclick={createInvite} disabled={!inviteEmailValid} class="disabled:opacity-50 disabled:cursor-not-allowed rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-500 transition-colors">Create Invite</button>
 	</div>
+
+	<p id="invite-email-help" class="text-xs text-[var(--color-text-muted)] mt-1 mb-4">Enter a valid email address to create an invite.</p>
 
 	{#if loadingInvites}
 		<p class="text-sm text-[var(--color-text-secondary)]">Loading...</p>
