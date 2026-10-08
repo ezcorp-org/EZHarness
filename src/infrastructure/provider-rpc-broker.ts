@@ -345,10 +345,16 @@ export class ProviderRpcBroker {
       || setup.providerReleaseDigest !== scope.releaseDigest || setup.connectionId !== scope.connectionId
       || setup.connectionRevision !== scope.revision) return undefined;
     const { IncusQualificationStore } = await import("./incus-qualification");
-    const qualification = await new IncusQualificationStore({ db: this.db }).load({
-      installationId: scope.installationId, releaseId: scope.releaseId,
-      connectionId: scope.connectionId, presetId,
-    });
+    const qualifications = new IncusQualificationStore({ db: this.db });
+    const qualificationScope = { installationId: scope.installationId, releaseId: scope.releaseId,
+      connectionId: scope.connectionId, presetId };
+    let qualification = await qualifications.load(qualificationScope);
+    if (!qualification) {
+      try {
+        const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+        qualification = (await new IncusAdmissionReadinessService(this.db, qualifications).check(qualificationScope, false)).qualification;
+      } catch { return undefined; }
+    }
     const image = setup.recipe?.guestImage;
     if (!qualification || qualification.presetDigest !== payload.presetDigest
       || qualification.effectiveSettingsDigest !== payload.effectiveSettingsDigest

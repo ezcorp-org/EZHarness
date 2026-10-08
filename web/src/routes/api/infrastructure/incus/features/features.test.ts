@@ -1,6 +1,7 @@
 import { expect, mock, test } from "bun:test";
 import { projects, sandboxBindings, sandboxOperations } from "../../../../../../../src/db/schema";
 
+const { IncusAdmissionReadinessError } = await import("../../../../../../../src/infrastructure/incus-admission-contract");
 const errors = await import("../../../../../../../src/infrastructure/incus-feature-service");
 const calls: string[] = [];
 const project = { id: "project-a", purpose: "user" as "user" | "incus-qualification" };
@@ -32,7 +33,7 @@ validIncusProjectName: (value: unknown) => typeof value === "string" && value.tr
 IncusFeatureService: class {
   constructor(private readonly deps: { loadQualification: (scope: unknown) => Promise<unknown> }) {}
   async prepare(input: Record<string, unknown>) { calls.push(`prepare:${input.projectId}`); if (!await this.deps.loadQualification({})) throw new Error("Live Incus preset qualification is unavailable"); return binding; }
-  async prepareProject(input: Record<string, unknown>) { calls.push(`prepareProject:${input.ownerUserId}:${input.idempotencyKey}`); return { project: { id: "guest-project", name: input.name }, binding }; }
+  async prepareProject(input: Record<string, unknown>) { if (input.idempotencyKey === "readiness") throw new IncusAdmissionReadinessError("readiness_unavailable"); calls.push(`prepareProject:${input.ownerUserId}:${input.idempotencyKey}`); return { project: { id: "guest-project", name: input.name }, binding }; }
   async create(input: Record<string, unknown>) { calls.push(`create:${input.bindingId}`); return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity", operation: null } : { state: "DISPATCHED", operation }; }
   async start(input: Record<string, unknown>) { calls.push(`start:${input.bindingId}`); return { state: "QUEUED", reason: "capacity", operation: null }; }
   async stop(input: Record<string, unknown>) { calls.push(`stop:${input.bindingId}`); return operation; }
@@ -202,4 +203,12 @@ test("running disposal gives Stop guidance and malformed recovery cannot select 
   calls.length = 0;
   expect((await POST(event(admin, { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-destroy", stopOperationId: "forged-stop" }))).status).toBe(400);
   expect(calls).toEqual([]);
+});
+
+
+test("feature route reports fresh readiness failure as a safe admission denial", async () => {
+  const response = await POST(event(admin, { action: "prepareProject", name: "Daily project", installationId: "install-a",
+    connectionId: "connection-a", presetId: "preset-a", idempotencyKey: "readiness" }));
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "readiness_unavailable" });
 });

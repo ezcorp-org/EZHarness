@@ -1,5 +1,6 @@
 import { beforeEach, expect, mock, test } from "bun:test";
 import { ContractError } from "@ezcorp/extension-contract";
+import { IncusAdmissionReadinessError } from "../../../../../../../src/infrastructure/incus-admission-contract";
 
 let rows: unknown[][];
 let queries = 0;
@@ -19,6 +20,12 @@ mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: ()
   return active;
 } }));
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { return qualification; } } }));
+mock.module("$server/infrastructure/incus-admission-readiness", () => ({ IncusAdmissionReadinessService: class {
+  async check() {
+    if (!qualification) throw new IncusAdmissionReadinessError("qualification_expired");
+    return { qualification, validUntil: Date.parse(qualification.validUntil), baselineRunId: "baseline-run" };
+  }
+} }));
 const { GET } = await import("./+server");
 const admin = { user: { role: "admin" }, authMethod: "session" };
 const request = (locals: unknown = admin) => GET({ locals } as Parameters<typeof GET>[0]);
@@ -40,8 +47,8 @@ test("lists current environments with explicit missing qualification and no cach
   const response = await request();
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(await response.json()).toEqual({ environments: [{ ...connection, label: "Development · compose", releaseGeneration: 3,
-    presetId: "compose", profile: preset.profile, limits: preset.limits, qualified: false, qualificationValidUntil: null,
-    qualificationState: "not_qualified", qualificationRunId: null, blockedReason: "Run qualification before creating a sandbox." }],
+    presetId: "compose", profile: preset.profile, limits: preset.limits, qualified: false, qualificationValidUntil: null, fullQualificationValidUntil: null, admissionReason: "qualification_expired",
+    qualificationState: "not_qualified", qualificationRunId: null, lastQualificationRunId: null, baselineRunId: null, blockedReason: "Run qualification before creating a sandbox." }],
     projects: [{ id: "project", name: "Project" }], features: [], truncated: false });
 });
 
@@ -56,7 +63,10 @@ test("shows saved running, expired, failed, and qualified outcomes", async () =>
   qualification = { validUntil: "2999-01-01T00:00:00Z" };
   rows = [[connection], [], [], []];
   expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: true,
-    qualificationState: "qualified", qualificationValidUntil: qualification.validUntil, blockedReason: null });
+    qualificationState: "qualified", qualificationValidUntil: new Date(qualification.validUntil).toISOString(), blockedReason: null });
+  rows = [[connection], [], [], [{ ...run, state: "FAILED" }]];
+  expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: true,
+    qualificationRunId: "baseline-run", baselineRunId: "baseline-run", lastQualificationRunId: "run" });
   rows = [[connection], [], [], [run]];
   expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: false, qualificationState: "running" });
 });

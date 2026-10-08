@@ -78,6 +78,14 @@ export async function requestIncusSupervisorReadiness(socketPath: string, expect
   return response.ready === true && response.protocol === "incus-qualification.v1";
 }
 
+/** Existing protected supervisor; this read never allocates a fixture or restarts. */
+export async function requestIncusAdmissionReadiness(socketPath: string,
+  expectedPin: IncusSupervisorSelectedPin): Promise<import("./incus-admission-contract").IncusAdmissionObservation> {
+  const { validateIncusAdmissionObservation } = await import("./incus-admission-contract");
+  return validateIncusAdmissionObservation(await exchange(socketPath,
+    { version: 2, action: "admissionReadiness", expectedPin }, READINESS_TIMEOUT_MS), expectedPin);
+}
+
 export async function requestIncusSupervisorReceipt(socketPath: string, runId: string,
   nonce: string, afterDigest: string, deadlineMs: number): Promise<SignedRestartHandoff> {
   const remainingMs = deadlineMs - Date.now();

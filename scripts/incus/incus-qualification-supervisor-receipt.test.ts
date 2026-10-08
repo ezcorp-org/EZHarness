@@ -153,6 +153,9 @@ test("receipt verifier snapshots the stopped fixture and computes a pinned backe
     expect(await invoke({ phase: "readiness", expectedPin }, env)).toMatchObject({
       status: 0, stdout: '{"ready":"receipt.v1"}\n',
     });
+    // The new phase must not treat legacy structural readiness as dynamic evidence.
+    expect((await invoke({ phase: "admissionReadiness", expectedPin }, env)).status).not.toBe(0);
+    expect((await invoke({ phase: "admissionReadiness", expectedPin: { ...expectedPin, extra: true } }, env)).status).not.toBe(0);
     expect((await invoke({ phase: "readiness", expectedPin: {
       ...expectedPin, scope: { ...scope, releaseId: "approved-new-release" },
     } }, env)).status).not.toBe(0);

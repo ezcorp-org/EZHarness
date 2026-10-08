@@ -1,3 +1,5 @@
+import { IncusAdmissionReadinessService } from "$server/infrastructure/incus-admission-readiness";
+import { IncusAdmissionReadinessError } from "$server/infrastructure/incus-admission-contract";
 import { json } from "@sveltejs/kit";
 import { ContractError } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -88,7 +90,19 @@ export const GET: RequestHandler = async ({ locals }) => {
         if (environments.length === pageSize) { truncated = true; break; }
         const scope = { installationId: connection.installationId, releaseId: connection.releaseId,
           connectionId: connection.connectionId, presetId: preset.id };
-        const qualification = await qualifications.load(scope);
+        let qualification = await qualifications.load(scope);
+        const fullQualificationValidUntil = qualification?.validUntil ?? null;
+        let admissionReason: "qualification_expired" | "readiness_unavailable" | "capacity_full" | null = null;
+        let admissionValidUntil: string | null = null;
+        let baselineRunId: string | null = null;
+        try {
+          const ready = await new IncusAdmissionReadinessService(db, qualifications).check(scope);
+          qualification = ready.qualification;
+          baselineRunId = ready.baselineRunId;
+          admissionValidUntil = new Date(ready.validUntil).toISOString();
+        } catch (error) {
+          admissionReason = error instanceof IncusAdmissionReadinessError ? error.code : "readiness_unavailable";
+        }
         const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt"
           FROM incus_qualification_runs WHERE scope = ${JSON.stringify(scope)}::jsonb
           AND connection_revision = ${connection.connectionRevision}
@@ -98,11 +112,15 @@ export const GET: RequestHandler = async ({ locals }) => {
         const failed = run && run.state !== "COMPLETED" && !running;
         environments.push({ ...connection, releaseGeneration: active.installation.generation,
           presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile, limits: preset.limits,
-          qualified: qualification !== null && !running, qualificationValidUntil: qualification?.validUntil ?? null,
-          qualificationState: running ? "running" : qualification ? "qualified" : failed ? "failed" : "not_qualified",
-          qualificationRunId: run?.runId ?? null,
-          blockedReason: running ? "Qualification is running." : qualification ? null
-            : "Run qualification before creating a sandbox." });
+          qualified: admissionReason === null && !running, qualificationValidUntil: admissionValidUntil,
+          fullQualificationValidUntil: fullQualificationValidUntil ?? qualification?.validUntil ?? null, admissionReason,
+          qualificationState: running ? "running" : admissionReason === null ? "qualified" : failed ? "failed" : "not_qualified",
+          qualificationRunId: running ? run?.runId ?? null : admissionReason === null ? baselineRunId : run?.runId ?? null,
+          lastQualificationRunId: run?.runId ?? null, baselineRunId,
+          blockedReason: running ? "Qualification is running." : admissionReason === null ? null
+            : admissionReason === "qualification_expired" ? "Run qualification before creating a sandbox."
+              : admissionReason === "capacity_full" ? "The Incus host has no free capacity."
+                : "Host readiness is unavailable. Retry the readiness check." });
       }
     }
     return json({ environments, projects: projects.slice(0, pageSize), features: features.slice(0, pageSize), truncated },

@@ -1,9 +1,30 @@
 {
   "socket": "/run/ezharness-incus-control/control.sock",
-  "appCommand": ["/run/current-system/sw/bin/bun", "/opt/ezharness/server.js"],
+  "appCommand": [
+    "/opt/ezharness/bin/bun",
+    "/opt/ezharness/web/build/index.js"
+  ],
   "appUid": 1234,
   "appGid": 1234,
   "key": "/var/lib/ezharness-incus-supervisor/handoff-ed25519.pem",
-  "authorityCommand": ["/run/current-system/sw/bin/bun", "/opt/ezharness/scripts/incus/incus-qualification-supervisor-authorize.ts"],
-  "receiptAuthorityCommand": ["/run/current-system/sw/bin/false"]
+  "authorityCommand": [
+    "/run/current-system/sw/bin/bun",
+    "/opt/ezharness/scripts/incus/incus-qualification-supervisor-authorize.ts"
+  ],
+  "receiptAuthorityCommand": [
+    "/run/current-system/sw/bin/false"
+  ],
+  "admissionAuthority": {
+    "bundleRoot": "/opt/ezharness",
+    "serviceFiles": [
+      "/etc/ezharness/incus-supervisor.json",
+      "/etc/systemd/system/ezharness-qual-supervisor.service",
+      "/etc/ezharness/qualification.env"
+    ],
+    "policyFiles": [
+      "/etc/ezharness/incus-receipt-authority.json",
+      "/etc/ezharness/incus-fault-authority.json",
+      "/var/lib/ezharness-incus-supervisor/handoff-ed25519.pem"
+    ]
+  }
 }

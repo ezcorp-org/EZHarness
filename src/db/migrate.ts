@@ -3058,6 +3058,8 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await completeIncusQualificationRuns(db);
   const { up: addIncusNoeffectRecoveries } = await import("./migrations/add-incus-noeffect-recoveries");
   await addIncusNoeffectRecoveries(db);
+  const { up: addIncusAdmissionReadiness } = await import("./migrations/add-incus-admission-readiness");
+  await addIncusAdmissionReadiness(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);

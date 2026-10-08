@@ -286,6 +286,13 @@ export class IncusQualificationStore {
       connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,
       now: this.now(),
     });
+    let admissionBaseline: import("./incus-admission-readiness").PreparedIncusAdmissionBaseline | undefined;
+    let admissionService: import("./incus-admission-readiness").IncusAdmissionReadinessService | undefined;
+    if (claimedRun && process.env.EZCORP_INCUS_SUPERVISOR_SOCKET) {
+      const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+      admissionService = new IncusAdmissionReadinessService(this.db, this);
+      admissionBaseline = await admissionService.prepareBaseline(scope, claimedRun.runId, qualification);
+    }
     const persist = async (database: Database) => {
       await database.execute(sql`INSERT INTO incus_live_qualifications (
       installation_id, release_id, release_digest, connection_id, connection_revision,
@@ -305,6 +312,7 @@ export class IncusQualificationStore {
       probe_observation = EXCLUDED.probe_observation, live_observation = EXCLUDED.live_observation,
       qualification = EXCLUDED.qualification,
       verified_at = EXCLUDED.verified_at, valid_until = EXCLUDED.valid_until, updated_at = NOW()`);
+      if (admissionBaseline) await admissionService!.recordBaseline(admissionBaseline, database);
       if (claimedRun) await new IncusQualificationCheckpointStore(this.db).complete({
         ...claimedRun, scope }, database);
     };
@@ -314,12 +322,23 @@ export class IncusQualificationStore {
   }
 
   async load(scope: IncusQualificationScope): Promise<LiveSandboxPresetQualification | null> {
+    return this.loadValidated(scope);
+  }
+
+  /** Historical SP validation requires an exact separately captured baseline digest. */
+  async loadBaselineProof(scope: IncusQualificationScope, proofDigest: string): Promise<LiveSandboxPresetQualification | null> {
+    return this.loadValidated(scope, proofDigest);
+  }
+
+  private async loadValidated(scope: IncusQualificationScope, proofDigest?: string): Promise<LiveSandboxPresetQualification | null> {
     try {
       const [row] = releaseRows<QualificationRow>(await this.db.execute(sql`SELECT ${columns}
         FROM incus_live_qualifications WHERE installation_id = ${scope.installationId}
           AND connection_id = ${scope.connectionId} AND preset_id = ${scope.presetId}`));
       if (!row || row.releaseId !== scope.releaseId
-        || new Date(row.validUntil).getTime() <= this.now()) return null;
+        || proofDigest !== undefined && (!/^[a-f0-9]{64}$/.test(proofDigest) || digest(row.qualification) !== proofDigest)) return null;
+      const validationTime = proofDigest === undefined ? this.now() : new Date(row.verifiedAt).getTime();
+      if (!Number.isFinite(validationTime) || new Date(row.validUntil).getTime() <= validationTime) return null;
       const selected = await this.current(scope);
       if (row.releaseDigest !== selected.snapshot.release.releaseDigest
         || row.connectionRevision !== selected.connection.revision
@@ -339,7 +358,7 @@ export class IncusQualificationStore {
       return await validateLiveSandboxPresetQualification(selected.preset, row.qualification, {
         providerId: "incus", releaseDigest: selected.snapshot.release.releaseDigest,
         connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,
-        now: this.now(),
+        now: validationTime,
       });
     } catch {
       return null;
@@ -523,7 +542,7 @@ export class IncusQualificationFixtureService {
         if (this.now() >= deadline) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
         operation = await this.controller.inspectOperation(operationId);
       }
-      if (operation.state === "SUCCEEDED" || operation.state === "FAILED") {
+      if (["SUCCEEDED", "FAILED"].includes(operation.state)) {
         await this.recordOperationObservation(scope, row, operation);
         return operation;
       }
@@ -595,6 +614,10 @@ export class IncusQualificationFixtureService {
 
   private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
     const selected = await this.qualifications.authorizeFixture(scope);
+    if (operationId.startsWith("qual-primary-") && process.env.EZCORP_INCUS_SUPERVISOR_SOCKET) {
+      const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+      await new IncusAdmissionReadinessService(this.db, this.qualifications).capture(scope, operationId.slice("qual-primary-".length));
+    }
     const compose = selected.preset.profile === "persistent-web-compose.v1";
     if (compose && !this.qualificationOwnerId) {
       throw new Error("Interactive qualification owner is unavailable");

@@ -3559,3 +3559,16 @@ Review: The real-auth browser case failed before the fix with the generic Local 
 Review: Pending. Live packet reviews retain priority.
 
 Review: Browser RED kept Qualified after expiry. Final-source targeted real-auth Chromium browser GREEN1/1, evidence captured; component suites54/54, Svelte check0 errors/0 warnings, scoped Biome/diff passed. Backend owner independently reviewed and requested missing-deadline denial, now covered. Broader gates belong to root. Local4387 fixture stopped; no live server changes.
+
+## 2026-10-08 daily Incus readiness
+
+# Daily Incus readiness
+- [x] Inspect qualification and service authority boundaries.
+- [x] Write exact contract and missing authority boundary.
+- [x] Independent contract review.
+- [x] Reproduce expiry at service boundary with targeted tests.
+- [x] Implement reviewed baseline/readiness authority and migration.
+- [ ] Prove drift, timeout, coalescing, races, cleanup, and source coverage.
+
+## Review
+Contract review passed. Targeted core: 51/51 tests; new migration, contract and readiness source at 100% lines/functions. Python supervisor 100/100, protected authority 4/4, SSH gate 28/28, SSH client 1/1, preview/RPC 19/19, receipt pipeline 2/2, management 6 unit + 1 real database. Scoped typecheck and Biome pass. Final independent implementation review and combined patch coverage remain pending. No live API, SSH, service or deployment actions performed.

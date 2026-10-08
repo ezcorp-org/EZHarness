@@ -145,6 +145,7 @@ describe("host Incus qualification store", () => {
       cases: [...oldCases.cases, { caseId: "SP09", status: "passed" }] };
     const saved = await composeStore.recordVerified(composeScope, evidence);
     expect(saved.previewProof).toEqual(previewProof);
+    expect(await composeStore.loadBaselineProof(composeScope, (await import("../../scripts/incus/model")).digest(saved))).toEqual(saved);
     expect(await composeStore.load(composeScope)).toEqual(saved);
     const legacy = { ...saved, cases: saved.cases.slice(0, 8) };
     delete legacy.previewProof;
@@ -297,4 +298,20 @@ test("default host probe requires a persisted host connection before live cases"
     runLiveCases: async () => { liveCaseCalls++; return cases(); }, now: () => now });
   await expect(defaults.recordVerified(scope)).rejects.toThrow();
   expect(liveCaseCalls).toBe(0);
+});
+
+test("a separately pinned baseline validates the unchanged full receipt after its expiry", async () => {
+  const original = await store.recordVerified(scope);
+  const originalDigest = (await import("../../scripts/incus/model")).digest(original);
+  const previous = now;
+  now += 3_600_000;
+  try {
+    expect(await store.load(scope)).toBeNull();
+    expect(await store.loadBaselineProof(scope, originalDigest)).toEqual(original);
+    expect(await store.loadBaselineProof(scope, "f".repeat(64))).toBeNull();
+    expect(await store.loadBaselineProof(scope, "invalid")).toBeNull();
+    revision++;
+    expect(await store.loadBaselineProof(scope, originalDigest)).toBeNull();
+    revision--;
+  } finally { now = previous; }
 });

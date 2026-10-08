@@ -9,7 +9,7 @@ import checkedInRecipe from "./recipe.json";
 import imageBuildTemplate from "./recipe.template.json";
 import { digest, inventoryFingerprint, type IncusInventory, type IncusSetupPlan, type IncusSetupRecipe } from "./model";
 import { applyImageBootstrapPlan, applySetupPlan, classifyApplyResult, inspectStep } from "./apply";
-import { inspectIncus, sshGateRequest, verifyKnownHostPin, sshOwnedNeighborChallenge, operatorSshFromEnvironment, OWNED_NEIGHBOR_COMMAND, sshRunner } from "./inspect";
+import { inspectIncus, readIncusHostPolicyDigest, sshGateRequest, verifyKnownHostPin, sshOwnedNeighborChallenge, operatorSshFromEnvironment, OWNED_NEIGHBOR_COMMAND, sshRunner } from "./inspect";
 import { createOwnedNeighborChallengeSshPolicy, ownedNeighborScope, createReadOnlySshGatePolicy, createSshGatePolicy } from "./ssh-gate-policy";
 import { createImageBootstrapPlan, createSetupPlan, setupReviewInventoryFingerprint, validateRecipe, verifyImageBootstrapPlan, verifySetupPlan } from "./plan";
 import { guestHelperSha256 } from "../../src/infrastructure/incus-guest/protocol";
@@ -989,13 +989,29 @@ Path(${JSON.stringify(receipt)}).write_text(json.dumps({"argv":sys.argv[1:],"req
 if request.get("action")=="stall":
  print("READY",flush=True)
  while True: time.sleep(60)
-print(json.dumps({"version":1,"supported":True}))
+override=Path(${JSON.stringify(receipt + ".response")})
+if sys.argv[-1]=="ezh-incus-admission-authority-v1" and override.exists():
+ print(override.read_text())
+else: print(json.dumps({"version":1,"hostPolicyDigest":"a"*64} if sys.argv[-1]=="ezh-incus-admission-authority-v1" else {"version":1,"supported":True}))
 `;
     await writeFile(join(directory, "ssh"), script);
     await chmod(join(directory, "ssh"), 0o700);
     process.env.PATH = `${directory}:${previousPath}`;
     const connection = { sshTarget: "dev@host.example", sshIdentityFile: "/key", sshKnownHostsFile: knownHosts,
       sshHostKeySha256: `SHA256:${fingerprint}`, sshMode: "reviewed-envelope-v1" as const };
+    expect(await readIncusHostPolicyDigest(connection)).toBe("a".repeat(64));
+    const authorityRequest = JSON.parse(await readFile(receipt, "utf8"));
+    expect(authorityRequest.request).toEqual({ version: 1 });
+    expect(authorityRequest.argv.at(-1)).toBe("ezh-incus-admission-authority-v1");
+    await expect(readIncusHostPolicyDigest({ ...connection, sshMode: undefined })).rejects.toThrow("Reviewed");
+    for (const response of [{ version: 1 }, { version: 2, hostPolicyDigest: "a".repeat(64) },
+      { version: 1, hostPolicyDigest: "bad" }, { version: 1, hostPolicyDigest: "a".repeat(64), extra: true }]) {
+      await writeFile(`${receipt}.response`, JSON.stringify(response));
+      await expect(readIncusHostPolicyDigest(connection)).rejects.toThrow("incomplete");
+    }
+    await writeFile(`${receipt}.response`, "x".repeat(4097));
+    await expect(readIncusHostPolicyDigest(connection)).rejects.toThrow("unavailable");
+
     const request = { version: 1, action: "capabilities" };
     const response = await sshOwnedNeighborChallenge(connection, request, new AbortController().signal);
     expect(response.exitCode).toBe(0);

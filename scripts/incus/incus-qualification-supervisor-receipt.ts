@@ -3,7 +3,11 @@
  * The snapshot phase runs as the app UID
  * after the old process exits; verify runs as the operator before signing. */
 import { closeSync, constants, fstatSync, openSync, readFileSync } from "node:fs";
-import { createHash } from "node:crypto";
+import { createHash, X509Certificate } from "node:crypto";
+import { inspectIncus, readIncusHostPolicyDigest } from "./inspect";
+import { createSetupPlan, verifySetupPlan } from "./plan";
+import { bootstrapFromEnvironment } from "../../src/infrastructure/incus-operator/service";
+import { readCapacityObservation } from "../../src/infrastructure/incus-operator/capacity";
 import type { IncusSupervisorSelectedPin } from "../../src/infrastructure/incus-qualification-supervisor-client";
 import type { RestartHandoffPayload } from "../../src/infrastructure/incus-qualification-checkpoint";
 import { HostIncusLiveReadback, type LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
@@ -234,8 +238,34 @@ async function verify(payload: Omit<RestartHandoffPayload, "afterDigest">, value
     durable: value.durable, backend });
 }
 
+async function admissionReadiness(pin: IncusSupervisorSelectedPin): Promise<unknown> {
+  const config = operatorConfig();
+  requireOperatorPin(config, pin);
+  const providerClient = config.context.recipe.providerClient;
+  requireFact(providerClient && providerClient.certificateFingerprint === createHash("sha256")
+    .update(new X509Certificate(config.transportConnection.clientCertificatePem).raw).digest("hex"),
+    "protected provider client identity changed");
+  const bootstrap = bootstrapFromEnvironment();
+  requireFact(bootstrap && bootstrap.endpoint === new URL(config.transportConnection.endpoint).origin,
+    "protected bootstrap endpoint changed");
+  const inventory = await inspectIncus(bootstrap.ssh);
+  const plan = createSetupPlan(config.context.recipe, inventory, [config.context.preset]);
+  requireFact(verifySetupPlan(plan, config.context.recipe, inventory, [config.context.preset]).length === 0,
+    "protected host controls changed");
+  const resolver = { resolveForHost: async () => config.transportConnection };
+  const readback = new HostIncusLiveReadback(resolver);
+  const [image, capacity, hostPolicyDigest] = await Promise.all([
+    readback.image(config.context),
+    readCapacityObservation(bootstrap.ssh, inventory, config.context.recipe.storage.name),
+    readIncusHostPolicyDigest(bootstrap.ssh),
+  ]);
+  return { backend: image.observation, capacity, hostPolicyDigest };
+}
+
 const input = JSON.parse(await Bun.stdin.text());
-if (input.phase === "readiness" && (Object.keys(input).sort().join() === "phase"
+if (input.phase === "admissionReadiness" && Object.keys(input).sort().join() === "expectedPin,phase") {
+  process.stdout.write(JSON.stringify({ ready: "admission.v2", observation: await admissionReadiness(input.expectedPin) }) + "\n");
+} else if (input.phase === "readiness" && (Object.keys(input).sort().join() === "phase"
   || Object.keys(input).sort().join() === "expectedPin,phase")) {
   requireFact(process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH?.startsWith("/")
     && !process.env.DATABASE_URL, "isolated PGlite path required");

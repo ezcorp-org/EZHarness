@@ -362,5 +362,33 @@ class OwnedNeighborChallengeTest(unittest.TestCase):
                 gate.neighbor_query("/1.0/projects/ezharness", gate.time.monotonic() + 20)
         with self.assertRaises(gate.Denied): gate.neighbor_query("/1.0/projects/ezharness", 0)
 
+class AdmissionAuthorityGateTest(unittest.TestCase):
+    def test_closed_command_rejects_paths_shell_and_partial_request_before_reads(self):
+        for original, raw in [("sh", b'{"version":1}\n'),
+                (gate.ADMISSION_AUTHORITY_COMMAND, b'{"version":1,"path":"/etc/shadow"}\n'),
+                (gate.ADMISSION_AUTHORITY_COMMAND, b'{"version":2}\n'),
+                (gate.ADMISSION_AUTHORITY_COMMAND, b''),
+                (gate.ADMISSION_AUTHORITY_COMMAND, b'{"version":1}\nid')]:
+            with self.subTest(original=original, raw=raw), self.assertRaisesRegex(gate.Denied, "invalid admission authority request"):
+                gate.observe_admission_authority(original, raw, "/etc/group")
+
+    def test_actual_root_protected_files_and_nixos_identity_are_read_only(self):
+        from unittest.mock import patch
+        with patch.object(gate, "__file__", "/etc/passwd"):
+            result = gate.observe_admission_authority(gate.ADMISSION_AUTHORITY_COMMAND, b'{"version":1}\n', "/etc/group")
+            self.assertEqual(set(result), {"version", "hostPolicyDigest"})
+            self.assertEqual(result["version"], 1)
+            self.assertRegex(result["hostPolicyDigest"], r"^[a-f0-9]{64}$")
+            self.assertEqual(result, gate.observe_admission_authority(gate.ADMISSION_AUTHORITY_COMMAND, b'{"version":1}\n', "/etc/group"))
+
+    def test_writable_ancestor_and_unprotected_source_fail_closed(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = pathlib.Path(directory) / "policy"
+            path.write_text("policy")
+            with self.assertRaisesRegex(gate.Denied, "parent is not protected"):
+                gate.protected_admission_bytes(str(path))
+        with self.assertRaisesRegex(gate.Denied, "exact protected path"):
+            gate.protected_admission_bytes("relative")
+
 if __name__ == "__main__":
     unittest.main()

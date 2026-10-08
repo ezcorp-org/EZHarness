@@ -1,3 +1,5 @@
+import { IncusAdmissionReadinessService } from "$server/infrastructure/incus-admission-readiness";
+import { IncusAdmissionReadinessError } from "$server/infrastructure/incus-admission-contract";
 import { json } from "@sveltejs/kit";
 import { desc, eq } from "drizzle-orm";
 import { checkProjectRole, requireAdminSession } from "$server/auth/middleware";
@@ -65,7 +67,7 @@ async function scopedBinding(bindingId: string, projectId: string): Promise<type
 
 function service(): IncusFeatureService {
   const qualifications = new IncusQualificationStore({ db: getDb() });
-  return new IncusFeatureService({ loadQualification: scope => qualifications.load(scope) });
+  return new IncusFeatureService({ admissionReadiness: new IncusAdmissionReadinessService(getDb(), qualifications), loadQualification: scope => qualifications.load(scope) });
 }
 
 /** Public receipt only: internal journal counters and provider error text are not API data. */
@@ -76,6 +78,7 @@ function publicOperation(operation: typeof sandboxOperations.$inferSelect) {
 }
 
 function safeFailure(error: unknown): Response {
+  if (error instanceof IncusAdmissionReadinessError) return json({ code: error.code, message: "Incus admission requires current qualification and host readiness." }, { status: 409 });
   if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
   if (error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });
   const message = error instanceof Error ? error.message : "";

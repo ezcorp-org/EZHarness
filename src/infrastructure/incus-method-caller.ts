@@ -4,7 +4,7 @@ import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readbac
 import { eq } from "drizzle-orm";
 import { RunnerError } from "@ezcorp/extension-runner";
 import { getDb } from "../db/connection";
-import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { projects, sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import { getReleaseRuntime, ReleaseProcess, resolveActiveRelease } from "../extensions/release-process";
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
 import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -108,7 +108,8 @@ async function assertJournalIntent(current: SandboxBinding, receipt: SandboxOper
 
 /** Host-only method caller. A provider worker cannot supply this authority. */
 export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
-  constructor(private readonly retiredCleanup: typeof callRetiredIncusCleanup = callRetiredIncusCleanup) {}
+  constructor(private readonly retiredCleanup: typeof callRetiredIncusCleanup = callRetiredIncusCleanup,
+    private readonly admissionReadiness?: (binding: SandboxBinding, operation: SandboxOperation) => Promise<void>) {}
 
   async call(scope: IncusDispatchScope, method: string, input: Record<string, unknown>): Promise<unknown> {
     const lifecycleOperations: SandboxProtocolOperation[] = [
@@ -133,6 +134,19 @@ export class IncusMethodCaller implements HostAuthorizedIncusMethodCaller {
     }
     if (snapshot.installation.generation < 1) {
       throw new IncusDispatchAuthorizationError("RELEASE_CHANGED");
+    }
+    if (operation !== "lifecycle.inspectOperation" && ["CREATE", "START"].includes(receipt.kind)) {
+      const [project] = await getDb().select({ purpose: projects.purpose }).from(projects).where(eq(projects.id, current.projectId)).limit(1);
+      if (project?.purpose === "user") {
+        const [{ IncusAdmissionReadinessService }, { IncusQualificationStore }] = await Promise.all([
+          import("./incus-admission-readiness"), import("./incus-qualification")]);
+        try {
+          if (this.admissionReadiness) await this.admissionReadiness(current, receipt);
+          else await new IncusAdmissionReadinessService(getDb(), new IncusQualificationStore({ db: getDb() })).assertDispatch(current, receipt);
+        } catch {
+          throw new IncusDispatchAuthorizationError("READINESS_UNAVAILABLE");
+        }
+      } else if (project?.purpose !== "incus-qualification") throw new IncusDispatchAuthorizationError("SCOPE_INVALID");
     }
     const runtime = getReleaseRuntime();
     const process = new ReleaseProcess(scope.installationId, runtime);

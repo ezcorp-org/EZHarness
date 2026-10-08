@@ -8,6 +8,7 @@ from that exact child process, verified with SO_PEERCRED and /proc start ticks.
 import argparse
 import base64
 import hashlib
+import importlib.util
 import json
 import os
 import pwd
@@ -247,6 +248,9 @@ class Supervisor:
         self.recovery_hold_path = self.key_path.with_name(self.key_path.name + ".noeffect-hold")
         self.authority_command = authority_command
         self.receipt_authority_command = receipt_authority_command
+        self.admission_config_path = None
+        self.admission_authority_config = None
+        self.admission_authority = None
         self.child = None
         self.pending = None
         self.claimed = None
@@ -292,6 +296,15 @@ class Supervisor:
     def start_child(self):
         if self.recovery_held():
             raise RuntimeError("recovery held for operator review")
+        if self.admission_authority_config is not None:
+            authority_path = Path(__file__).with_name("incus-admission-authority.py")
+            spec = importlib.util.spec_from_file_location("incus_admission_authority", authority_path)
+            module = importlib.util.module_from_spec(spec)
+            sys.dont_write_bytecode = True
+            spec.loader.exec_module(module)
+            self.admission_authority = module.AdmissionAuthority(
+                self.admission_authority_config, self.app_command,
+                supervisor_config_path=self.admission_config_path)
         self.child = subprocess.Popen(self.app_command, close_fds=True, start_new_session=True,
                                       preexec_fn=self.drop_app_privileges)
         self.child_identity = identity(self.child.pid)
@@ -1227,6 +1240,36 @@ class Supervisor:
         # used_runs and fault_armed intentionally remain replay fences.
         return {"released": True}
 
+    def admission_readiness(self, message):
+        if not isinstance(message, dict) or set(message) != {"version", "action", "expectedPin"} \
+                or message.get("version") != 2 or message.get("action") != "admissionReadiness":
+            raise ValueError("invalid admission readiness request")
+        validate_readiness_pin(message["expectedPin"])
+        if self.admission_authority is None or self.child is None or self.child_exited() \
+                or identity(self.child.pid) != self.child_identity:
+            raise ValueError("protected admission authority unavailable")
+        before = self.admission_authority.observe()
+        verifier = subprocess.Popen(self.receipt_authority_command, stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            stdout, _stderr = verifier.communicate(
+                canonical({"phase": "admissionReadiness", "expectedPin": message["expectedPin"]}) + b"\n", timeout=8)
+        except subprocess.TimeoutExpired:
+            os.killpg(verifier.pid, signal.SIGKILL)
+            verifier.communicate()
+            raise ValueError("protected admission readback timed out")
+        if verifier.returncode != 0 or len(stdout) > 16384:
+            raise ValueError("protected admission readback unavailable")
+        observation = json.loads(stdout)
+        if not isinstance(observation, dict) or set(observation) != {"ready", "observation"} \
+                or observation["ready"] != "admission.v2":
+            raise ValueError("protected admission readback incomplete")
+        after = self.admission_authority.observe()
+        if before != after:
+            raise ValueError("protected admission authority changed")
+        return {"version": 2, "ready": True, "authority": after,
+                "selectedPin": message["expectedPin"], "observation": observation["observation"]}
+
     def readiness(self, message):
         if not isinstance(message, dict) or set(message) not in (
                 {"version", "action"}, {"version", "action", "expectedPin"}) \
@@ -1319,6 +1362,8 @@ class Supervisor:
                             send_message(connection, self.fault(message))
                         elif message.get("action") == "terminal":
                             send_message(connection, self.terminal(message))
+                        elif message.get("action") == "admissionReadiness":
+                            send_message(connection, self.admission_readiness(message))
                         elif message.get("action") == "readiness":
                             send_message(connection, self.readiness(message))
                         else:
@@ -1382,7 +1427,7 @@ def main():
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
                 "receiptAuthorityCommand"}
-    optional = {"operatorSocket", "recoveryCommand", "recoveryFenceCommand",
+    optional = {"admissionAuthority", "operatorSocket", "recoveryCommand", "recoveryFenceCommand",
                 "faultAuthorityCommand", "recoveryAbortCommand", "recoveryRequestPath",
                 "recoveryAbortStoppedUnits", "recoveryAbortRunnerUid", "recoveryRestoreCommand",
                 "recoveryRestoreJournalPath", "recoveryRestoreConfigPath",
@@ -1464,6 +1509,8 @@ def main():
         supervisor.recovery_fence_command = config.get("recoveryFenceCommand")
     supervisor.recovery_request_path = config.get("recoveryRequestPath")
     supervisor.fault_authority_command = config.get("faultAuthorityCommand")
+    supervisor.admission_authority_config = config.get("admissionAuthority")
+    supervisor.admission_config_path = args.config
     if config.get("recoveryAbortCommand") or config.get("recoveryRestoreCommand"):
         units = config.get("recoveryAbortStoppedUnits")
         runner_uid = config.get("recoveryAbortRunnerUid")

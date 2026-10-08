@@ -335,6 +335,42 @@ async function usage(
   return row ? vectorFrom(row) : zeroVector();
 }
 
+async function lockAdmissionResources(transaction: DbTransaction, binding: SandboxBinding) {
+  const host = await lockHost(transaction, binding.providerInstallationId, binding.connectionId);
+  const quota = await lockQuota(transaction, binding.projectId);
+  const [reservation] = await transaction.select().from(sandboxReservations)
+    .where(eq(sandboxReservations.bindingId, binding.id)).limit(1).for("update");
+  return { host, quota, reservation };
+}
+
+function admissionRejectionReason(binding: SandboxBinding, input: SandboxAdmissionInput,
+  { host, quota, reservation }: Awaited<ReturnType<typeof lockAdmissionResources>>): SandboxAdmissionReason | null {
+  if (binding.generation !== input.generation) return "STALE_GENERATION";
+  if (binding.tombstonedAt) return "BINDING_TOMBSTONED";
+  if (!host) return "HOST_CAPACITY_NOT_CONFIGURED";
+  if (!quota) return "PROJECT_QUOTA_NOT_CONFIGURED";
+  if (quota.providerInstallationId !== binding.providerInstallationId || quota.connectionId !== binding.connectionId) {
+    return "PROJECT_QUOTA_HOST_MISMATCH";
+  }
+  if (input.kind === "START" && !reservation) return "RESERVATION_NOT_FOUND";
+  if (reservation?.diskState === "RELEASE_REQUESTED" || reservation?.diskState === "RELEASED") {
+    return "CLEANUP_PENDING";
+  }
+  if (input.kind === "START" && reservation?.computeState === "RELEASE_REQUESTED") {
+    return "STOP_OUTCOME_PENDING";
+  }
+  if (input.kind === "START" && reservation?.computeState === "RESERVED") {
+    return "COMPUTE_ALREADY_RESERVED";
+  }
+  if (input.kind === "START" && reservation?.diskBytes !== input.resources.diskBytes) {
+    return "RETAINED_DISK_MISMATCH";
+  }
+  if (input.kind === "CREATE" && reservation) {
+    return reservation.cleanupRequestedAt ? "CLEANUP_PENDING" : "COMPUTE_ALREADY_RESERVED";
+  }
+  return null;
+}
+
 export class SandboxAdmissionStore {
   constructor(private readonly db: Database) {}
 
@@ -428,12 +464,39 @@ export class SandboxAdmissionStore {
     else await this.db.transaction(write);
   }
 
-  async requestAdmission(input: SandboxAdmissionInput): Promise<SandboxAdmissionRequest> {
-    assertAdmissionInput(input);
-    return this.#decide(input, null);
+  /** Reauthorize an already charged admission after queue delay or process restart. */
+  async authorizeReservedAdmission(input: Omit<SandboxAdmissionInput, "resources">,
+    guard: (transaction: DbTransaction) => Promise<void>): Promise<void> {
+    await this.db.transaction(async (transaction: DbTransaction) => {
+      const binding = await lockBinding(transaction, input.bindingId);
+      const { host, quota, reservation } = await lockAdmissionResources(transaction, binding);
+      const [admission] = await transaction.select().from(sandboxAdmissionRequests).where(and(
+        eq(sandboxAdmissionRequests.bindingId, binding.id), eq(sandboxAdmissionRequests.idempotencyScope, input.idempotencyScope),
+        eq(sandboxAdmissionRequests.idempotencyKey, input.idempotencyKey))).for("update");
+      if (!host || !quota || !reservation || !admission || admission.state !== "ADMITTED"
+        || binding.tombstonedAt || binding.generation !== input.generation || admission.generation !== input.generation
+        || reservation.generation !== input.generation || admission.kind !== input.kind
+        || reservation.computeState !== "RESERVED" || reservation.diskState !== "RESERVED"
+        || quota.providerInstallationId !== binding.providerInstallationId || quota.connectionId !== binding.connectionId) {
+        throw new SandboxAdmissionError("RESERVATION_NOT_FOUND", "Saved admission no longer owns current reserved capacity");
+      }
+      const zero = { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 };
+      const projectUsed = await usage(transaction, sql`project_id = ${binding.projectId}`);
+      const hostUsed = await usage(transaction, sql`provider_installation_id = ${binding.providerInstallationId} AND connection_id = ${binding.connectionId}`);
+      if (firstCapacityExcess(projectUsed, zero, vectorFrom(quota), "PROJECT")
+        || firstCapacityExcess(hostUsed, zero, usableCapacity(host), "HOST")) {
+        throw new SandboxAdmissionError("RESERVATION_NOT_FOUND", "Saved admission exceeds current quota or capacity");
+      }
+      await guard(transaction);
+    });
   }
 
-  async retryAdmission(id: string): Promise<SandboxAdmissionRequest> {
+  async requestAdmission(input: SandboxAdmissionInput, guard?: (transaction: DbTransaction) => Promise<void>): Promise<SandboxAdmissionRequest> {
+    assertAdmissionInput(input);
+    return this.#decide(input, null, guard);
+  }
+
+  async retryAdmission(id: string, guard?: (transaction: DbTransaction) => Promise<void>): Promise<SandboxAdmissionRequest> {
     const existing = await this.getAdmission(id);
     if (!existing) throw new SandboxAdmissionError("ADMISSION_REQUEST_NOT_FOUND", `Admission request ${id} does not exist`);
     if (existing.state !== "QUEUED") return existing;
@@ -450,10 +513,10 @@ export class SandboxAdmissionStore {
         diskBytes: existing.diskBytes,
         executionSlots: existing.executionSlots,
       },
-    }, existing.id);
+    }, existing.id, guard);
   }
 
-  async #decide(input: SandboxAdmissionInput, retryId: string | null): Promise<SandboxAdmissionRequest> {
+  async #decide(input: SandboxAdmissionInput, retryId: string | null, guard?: (transaction: DbTransaction) => Promise<void>): Promise<SandboxAdmissionRequest> {
     const payloadHash = requestHash(input);
     return this.db.transaction(async (transaction: DbTransaction) => {
       const binding = await lockBinding(transaction, input.bindingId);
@@ -469,33 +532,16 @@ export class SandboxAdmissionStore {
         return existing;
       }
 
-      const host = await lockHost(transaction, binding.providerInstallationId, binding.connectionId);
-      const quota = await lockQuota(transaction, binding.projectId);
-      const [reservation] = await transaction.select().from(sandboxReservations)
-        .where(eq(sandboxReservations.bindingId, binding.id)).limit(1).for("update");
+      const { host, quota, reservation } = await lockAdmissionResources(transaction, binding);
+
+      await guard?.(transaction);
 
       const decideCapacity = async (): Promise<{ state: "ADMITTED" | "QUEUED" | "REJECTED"; reason: SandboxAdmissionReason | null }> => {
         let state: "ADMITTED" | "QUEUED" | "REJECTED" = "REJECTED";
         let reason: SandboxAdmissionReason | null = null;
         let increment = input.resources;
-        if (binding.generation !== input.generation) reason = "STALE_GENERATION";
-        else if (binding.tombstonedAt) reason = "BINDING_TOMBSTONED";
-        else if (!host) reason = "HOST_CAPACITY_NOT_CONFIGURED";
-        else if (!quota) reason = "PROJECT_QUOTA_NOT_CONFIGURED";
-        else if (quota.providerInstallationId !== binding.providerInstallationId || quota.connectionId !== binding.connectionId) {
-          reason = "PROJECT_QUOTA_HOST_MISMATCH";
-        } else if (input.kind === "START" && !reservation) reason = "RESERVATION_NOT_FOUND";
-        else if (reservation?.diskState === "RELEASE_REQUESTED" || reservation?.diskState === "RELEASED") {
-          reason = "CLEANUP_PENDING";
-        } else if (input.kind === "START" && reservation?.computeState === "RELEASE_REQUESTED") {
-          reason = "STOP_OUTCOME_PENDING";
-        } else if (input.kind === "START" && reservation?.computeState === "RESERVED") {
-          reason = "COMPUTE_ALREADY_RESERVED";
-        } else if (input.kind === "START" && reservation?.diskBytes !== input.resources.diskBytes) {
-          reason = "RETAINED_DISK_MISMATCH";
-        } else if (input.kind === "CREATE" && reservation) {
-          reason = reservation.cleanupRequestedAt ? "CLEANUP_PENDING" : "COMPUTE_ALREADY_RESERVED";
-        } else if (host && quota) {
+        reason = admissionRejectionReason(binding, input, { host, quota, reservation });
+        if (!reason && host && quota) {
           const projectLimit = vectorFrom(quota);
           const hostLimit = usableCapacity(host);
           reason = firstRequestExcess(input.resources, projectLimit, "PROJECT")

@@ -1,3 +1,4 @@
+import type { IncusAdmissionReady, IncusAdmissionReadinessService } from "./incus-admission-readiness";
 import { hasRetainedDestroyNoEffectEvidence } from "./incus-fenced-cleanup-recovery";
 import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
 import { createHash, randomUUID } from "node:crypto";
@@ -33,6 +34,7 @@ export interface IncusFeatureServiceDependencies {
   connectionRevision?: (connectionId: string) => Promise<number | null>;
   assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
   /** Must read host-produced SP01–SP08 evidence; absent evidence denies provisioning. */
+  admissionReadiness?: IncusAdmissionReadinessService;
   loadQualification: (scope: { installationId: string; releaseId: string; connectionId: string; presetId: string }) => Promise<LiveSandboxPresetQualification | null>;
   inspect?: (installationId: string, bindingId: string, input: Record<string, unknown>) => Promise<unknown>;
   retiredCleanup?: typeof callRetiredIncusCleanup;
@@ -184,7 +186,7 @@ export class IncusFeatureService {
 
   private async approved(input: PrepareIncusFeatureInput, expected?: SandboxBinding, requireQualification = true): Promise<{
     snapshot: ActiveExtensionRelease; connection: ProviderConnectionCredentials; preset: SandboxPreset;
-    qualification: LiveSandboxPresetQualification | null; presetDigest: string; effectiveSettingsDigest: string;
+    readiness?: IncusAdmissionReady; qualification: LiveSandboxPresetQualification | null; presetDigest: string; effectiveSettingsDigest: string;
   }> {
     const snapshot = await this.activeRelease(input.installationId);
     if (snapshot.installation.id !== input.installationId || snapshot.release.id !== snapshot.installation.activeReleaseId
@@ -214,25 +216,28 @@ export class IncusFeatureService {
         presetId: input.presetId, presetDigest: digest, effectiveSettingsDigest });
     }
     let qualification: LiveSandboxPresetQualification | null = null;
+    let readiness: IncusAdmissionReady | undefined;
     if (requireQualification) {
-      qualification = await this.deps.loadQualification({
+      const scope = {
         installationId: input.installationId, releaseId: snapshot.release.id,
         connectionId: input.connectionId, presetId: input.presetId,
-      });
+      };
+      readiness = await this.deps.admissionReadiness?.check(scope);
+      qualification = readiness?.qualification ?? await this.deps.loadQualification(scope);
       if (!qualification) throw new Error("Live Incus preset qualification is unavailable");
       if (qualification.effectiveSettingsDigest !== effectiveSettingsDigest) {
         throw new Error("Live Incus preset qualification changed settings");
       }
       await this.assertReady(snapshot.release, qualification, { providerId: "incus", presetId: input.presetId,
         connectionId: input.connectionId, effectiveSettingsDigest,
-        now: this.now() });
+        now: readiness?.verifiedAt ?? this.now() });
     }
     if (expected && (expected.profile !== preset.profile || expected.presetId !== preset.id
       || expected.presetDigest !== digest || expected.effectiveSettingsDigest !== effectiveSettingsDigest
       || expected.connectionId !== input.connectionId || expected.providerInstallationId !== input.installationId)) {
       throw new Error("Incus feature binding changed");
     }
-    return { snapshot, connection, preset, qualification, presetDigest: digest, effectiveSettingsDigest };
+    return { snapshot, connection, preset, qualification, readiness, presetDigest: digest, effectiveSettingsDigest };
   }
 
   /** A fixture destroy is cleared only by the original journaled operation,
@@ -394,7 +399,7 @@ export class IncusFeatureService {
 
   private async createApprovedBinding(input: PrepareIncusFeatureInput, approved: {
     snapshot: ActiveExtensionRelease; connection: ProviderConnectionCredentials; preset: SandboxPreset;
-    presetDigest: string; effectiveSettingsDigest: string;
+    presetDigest: string; effectiveSettingsDigest: string; readiness?: IncusAdmissionReady;
   }, transaction: DbTransaction): Promise<SandboxBinding> {
     await this.assertCurrentScope({ connectionId: input.connectionId,
       providerInstallationId: input.installationId,
@@ -402,6 +407,7 @@ export class IncusFeatureService {
       releaseDigest: approved.snapshot.release.releaseDigest,
       generation: approved.snapshot.installation.generation,
       revision: approved.connection.revision }, transaction);
+    if (approved.readiness) this.deps.admissionReadiness!.assertDeadline(approved.readiness);
     const id = randomUUID();
     return this.controller.createBinding({ id, projectId: input.projectId,
       providerInstallationId: input.installationId, providerReleaseId: approved.snapshot.release.id,
@@ -458,7 +464,7 @@ export class IncusFeatureService {
     if (fixture) throw new Error("Incus feature binding is unavailable");
   }
 
-  private async readyBinding(id: string, requireQualification = true): Promise<{ binding: SandboxBinding; preset: SandboxPreset }> {
+  private async readyBinding(id: string, requireQualification = true): Promise<{ binding: SandboxBinding; preset: SandboxPreset; readiness?: IncusAdmissionReady }> {
     const binding = await this.controller.getBinding(id);
     if (!binding?.connectionRevision || !binding.presetId || !binding.resourceKey
       || binding.resourceKey !== binding.id || binding.tombstonedAt) {
@@ -467,7 +473,7 @@ export class IncusFeatureService {
     const approved = await this.approved({ projectId: binding.projectId,
       installationId: binding.providerInstallationId, connectionId: binding.connectionId,
       presetId: binding.presetId }, binding, requireQualification);
-    return { binding, preset: approved.preset };
+    return { binding, preset: approved.preset, readiness: approved.readiness };
   }
 
   private async existing(request: IncusFeatureRequest, kind: SandboxOperation["kind"]): Promise<SandboxOperation | null> {
@@ -488,9 +494,10 @@ export class IncusFeatureService {
     await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "CREATE");
     if (replay) return { state: "DISPATCHED", operation: replay };
-    const { binding, preset } = await this.readyBinding(request.bindingId);
+    const { binding, preset, readiness } = await this.readyBinding(request.bindingId);
     const admission = await this.admission.requestAdmission({ ...request, kind: "CREATE",
-      generation: binding.generation, resources: resources(preset) });
+      generation: binding.generation, resources: resources(preset) }, readiness
+        ? transaction => this.deps.admissionReadiness!.claim(binding.id, request, readiness, transaction) : undefined);
     if (admission.state !== "ADMITTED") return { state: admission.state, reason: admission.reason, operation: null };
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "CREATE",
       generation: binding.generation,
@@ -504,10 +511,11 @@ export class IncusFeatureService {
     await this.assertUserBinding(request.bindingId);
     const replay = await this.existing(request, "START");
     if (replay) return { state: "DISPATCHED", operation: replay };
-    const { binding, preset } = await this.readyBinding(request.bindingId);
+    const { binding, preset, readiness } = await this.readyBinding(request.bindingId);
     const expectedGeneration = await this.providerGeneration(binding, "stopped");
     const admission = await this.admission.requestAdmission({ ...request, kind: "START",
-      generation: binding.generation, resources: resources(preset) });
+      generation: binding.generation, resources: resources(preset) }, readiness
+        ? transaction => this.deps.admissionReadiness!.claim(binding.id, request, readiness, transaction) : undefined);
     if (admission.state !== "ADMITTED") return { state: admission.state, reason: admission.reason, operation: null };
     const operation = await this.controller.requestAndDispatch({ ...request, kind: "START",
       generation: binding.generation, payload: { expectedGeneration } });

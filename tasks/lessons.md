@@ -738,3 +738,6 @@
 
 - When a real browser test adds a side assertion for an existing API, read its actual status and body before fixing an expected value. I guessed the generic sandbox route's status and message twice, which delayed the Project Settings UI proof. Keep the browser test focused on the user-visible defect; retain observed side-route evidence separately.
 - Search dedicated operator pages before calling a feature's UI absent. The Incus management page already owned qualified Compose selection and lifecycle controls; the real gap was the Incus project's generic Settings card.
+- Python importlib can write bytecode into an installed source directory during a read-only audit. Use `python3 -B` and `sys.dont_write_bytecode = True` before importing protected deployed modules. Do not import an installed module as root without this guard.
+
+- Preserve tracked task history. Inspect the existing tasks/todo.md before editing; append a scoped task plan instead of replacing the file.

@@ -417,6 +417,37 @@ supervisor.serve()
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_admission_v2_uses_real_child_and_verifier_and_rejects_drift(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); key = root / "key.pem"
+            key.write_text("private fixture"); key.chmod(0o600)
+            verifier = root / "verifier.py"
+            verifier.write_text("import json,sys\nmessage=json.load(sys.stdin)\nassert message['phase']=='admissionReadiness'\nprint(json.dumps({'ready':'admission.v2','observation':{'echo':message['expectedPin']}}))\n")
+            supervisor = MODULE.Supervisor(str(root / "control.sock"), ["true"],
+                os.getuid(), os.getgid(), key, ["authority"], [sys.executable, "-B", str(verifier)], enforce_distinct_uid=False)
+            pin = {"scope": {"installationId": "installation", "releaseId": "release",
+                "connectionId": "connection", "presetId": "preset"}, "connectionRevision": 1,
+                "presetDigest": "a"*64, "effectiveSettingsDigest": "b"*64,
+                "imageFingerprint": "c"*64, "helperSha256": "d"*64}
+            message = {"version": 2, "action": "admissionReadiness", "expectedPin": pin}
+            authority = {"securitySourceDigest": "a"*64, "supervisorServiceDigest": "b"*64, "hostPolicyDigest": "c"*64}
+            with subprocess.Popen([sys.executable, "-B", "-c", "import time; time.sleep(30)"]) as child:
+                supervisor.child = child; supervisor.child_identity = MODULE.identity(child.pid)
+                supervisor.admission_authority = mock.Mock()
+                supervisor.admission_authority.observe.return_value = authority
+                self.assertEqual(supervisor.admission_readiness(message), {"version": 2, "ready": True,
+                    "authority": authority, "selectedPin": pin, "observation": {"echo": pin}})
+                supervisor.admission_authority.observe.side_effect = [authority, dict(authority, hostPolicyDigest="d"*64)]
+                with self.assertRaisesRegex(ValueError, "authority changed"):
+                    supervisor.admission_readiness(message)
+                supervisor.child_identity = {"pid": child.pid, "startTicks": "wrong"}
+                with self.assertRaisesRegex(ValueError, "authority unavailable"):
+                    supervisor.admission_readiness(message)
+                for changed in [dict(message, version=1), dict(message, extra=True), dict(message, expectedPin={})]:
+                    with self.assertRaises(ValueError):
+                        supervisor.admission_readiness(changed)
+                child.terminate()
+
     def test_terminal_claim_release_requires_exact_host_report_and_preserves_replay_fences(self):
         with tempfile.TemporaryDirectory() as directory:
             key = Path(directory) / "key.pem"

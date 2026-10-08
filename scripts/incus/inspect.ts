@@ -73,6 +73,18 @@ export function sshRunner(connection: IncusConnection, planDigest?: string): Rem
   };
 }
 
+/** Fixed read-only host policy identity; the caller cannot choose a path. */
+export async function readIncusHostPolicyDigest(connection: IncusConnection): Promise<string> {
+  if (connection.sshMode !== "reviewed-envelope-v1") throw new Error("Reviewed SSH mode is required");
+  await verifyKnownHostPin(connection);
+  const result = await executeSsh(connection, "ezh-incus-admission-authority-v1", '{"version":1}\n', 5_000, 4096);
+  if (result.exitCode !== 0 || result.timedOut || result.stderr.trim()) throw new Error("Incus host policy authority is unavailable");
+  const value = JSON.parse(result.stdout) as { version?: unknown; hostPolicyDigest?: unknown };
+  if (value.version !== 1 || typeof value.hostPolicyDigest !== "string" || !/^[a-f0-9]{64}$/.test(value.hostPolicyDigest)
+    || Object.keys(value).sort().join() !== "hostPolicyDigest,version") throw new Error("Incus host policy authority is incomplete");
+  return value.hostPolicyDigest;
+}
+
 export const OWNED_NEIGHBOR_COMMAND = "ezh-incus-owned-neighbor-challenge-v1";
 
 /** Only this fixed command can send the reviewed neighbor-control envelope. */

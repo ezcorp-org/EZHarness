@@ -35,7 +35,7 @@ export interface HostAuthorizedIncusMethodCaller {
 
 /** Only proven failures before any provider effect may be marked failed. */
 export class IncusDispatchAuthorizationError extends Error {
-  constructor(readonly code: "RELEASE_REVOKED" | "RELEASE_CHANGED" | "CONNECTION_REVOKED" | "CONNECTION_CHANGED" | "SCOPE_INVALID" | "ARTIFACT_UNAVAILABLE") {
+  constructor(readonly code: "RELEASE_REVOKED" | "RELEASE_CHANGED" | "CONNECTION_REVOKED" | "CONNECTION_CHANGED" | "SCOPE_INVALID" | "ARTIFACT_UNAVAILABLE" | "READINESS_UNAVAILABLE") {
     super(code);
     this.name = "IncusDispatchAuthorizationError";
   }

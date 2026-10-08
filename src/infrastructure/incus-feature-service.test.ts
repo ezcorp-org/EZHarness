@@ -835,3 +835,41 @@ test("uncertain fixture destroy denies Ready until the original operation confir
     await rm(root, { recursive: true, force: true });
   }
 }, DB_TEST_TIMEOUT_MS);
+
+test("daily admission uses unchanged baseline and read-only readiness after full receipt expiry", async () => {
+  const f = await fixture(); await f.configureAdmission();
+  const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+  const { up: addReadiness } = await import("../db/migrations/add-incus-admission-readiness");
+  const { admissionObservation } = await import("./__tests__/incus-admission-observation");
+  await addReadiness(f.db);
+  const scope = { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: f.preset.id };
+  const original = (await f.serviceDependencies.loadQualification(scope))!;
+  f.connection.serverCertificatePem = await Bun.file(new URL("./incus-transport/test-server.pem", import.meta.url)).text();
+  let now = f.serviceDependencies.now!();
+  let reads = 0;
+  const presetDigest = await sandboxPresetDigest(f.preset);
+  const qualifications = { authorizeFixture: async () => ({ snapshot: { ...await f.serviceDependencies.activeRelease!("installation"),
+    installation: { ...(await f.serviceDependencies.activeRelease!("installation")).installation, generation: 1 } },
+    connection: f.connection, preset: f.preset, presetDigest,
+    effectiveSettingsDigest: original.effectiveSettingsDigest, helperDigest: "a".repeat(64) }),
+    loadBaselineProof: async () => original };
+  const readiness = new IncusAdmissionReadinessService(f.db, qualifications, { now: () => now,
+    assertCurrentScope: f.serviceDependencies.assertCurrentScope,
+    read: async pin => { reads++; return admissionObservation(pin, now); } });
+  await readiness.capture(scope, "daily-run");
+  await readiness.recordBaseline(await readiness.prepareBaseline(scope, "daily-run", original));
+  const service = new IncusFeatureService({ ...f.serviceDependencies, now: () => now,
+    admissionReadiness: readiness, loadQualification: async () => null });
+  now = Date.parse(original.validUntil) + 3_600_000;
+  const before = reads;
+  const binding = await service.prepare({ projectId: "project", ...scope });
+  const effect = await service.create({ bindingId: binding.id, idempotencyScope: "daily", idempotencyKey: "create" });
+  expect(effect.state).toBe("DISPATCHED");
+  expect(f.dispatches).toHaveLength(1);
+  expect(f.dispatches[0]!.kind).toBe("CREATE");
+  expect(reads - before).toBe(2);
+  expect(original.validUntil).toBe("2026-09-23T11:00:00Z");
+  const [baseline] = releaseRows<{ proofDigest: string }>(await f.db.execute(sql`SELECT proof_digest AS "proofDigest" FROM incus_admission_baselines`));
+  expect(baseline!.proofDigest).toBe(digest(original));
+  expect(await f.db.select().from(schema.incusQualificationFixtures)).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);

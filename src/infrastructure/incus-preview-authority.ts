@@ -29,8 +29,16 @@ export interface IncusPreviewAuthorityDependencies {
 
 export async function incusPreviewQualified(binding: SandboxBinding, db: Database = getDb()): Promise<boolean> {
   if (binding.profile !== "persistent-web-compose.v1" || !binding.presetId) return false;
-  const proof = await new IncusQualificationStore({ db }).load({ installationId: binding.providerInstallationId,
-    releaseId: binding.providerReleaseId, connectionId: binding.connectionId, presetId: binding.presetId });
+  const qualifications = new IncusQualificationStore({ db });
+  const scope = { installationId: binding.providerInstallationId,
+    releaseId: binding.providerReleaseId, connectionId: binding.connectionId, presetId: binding.presetId };
+  let proof = await qualifications.load(scope);
+  if (!proof) {
+    try {
+      const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+      proof = (await new IncusAdmissionReadinessService(db, qualifications).check(scope, false)).qualification;
+    } catch { return false; }
+  }
   return !!proof && proof.presetDigest === binding.presetDigest
     && proof.effectiveSettingsDigest === binding.effectiveSettingsDigest;
 }

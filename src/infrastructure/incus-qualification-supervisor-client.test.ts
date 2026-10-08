@@ -3,7 +3,7 @@ import { createServer, type Server } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart, requestIncusSupervisorReadiness, requestIncusSupervisorTerminal,
+import { requestIncusAdmissionReadiness, requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart, requestIncusSupervisorReadiness, requestIncusSupervisorTerminal,
   type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
 import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
 
@@ -161,4 +161,20 @@ test("selected readiness uses the same bounded authenticated exchange and carrie
   expect(await requestIncusSupervisorReadiness(path, expectedPin)).toBe(true);
   const denied = await server('{"error":"operator receipt verifier is unavailable"}\n');
   await expect(requestIncusSupervisorReadiness(denied, expectedPin)).rejects.toThrow("verifier is unavailable");
+});
+
+
+test("daily client uses a closed v2 frame over an actual Unix socket", async () => {
+  const { admissionPin, admissionObservation } = await import("./__tests__/incus-admission-observation");
+  const observation = admissionObservation();
+  const socket = await server(input => {
+    expect(input).toEqual({ version: 2, action: "admissionReadiness", expectedPin: admissionPin });
+    return `${JSON.stringify(observation)}\n`;
+  });
+  expect(await requestIncusAdmissionReadiness(socket, admissionPin)).toEqual(observation);
+  for (const response of [{ ready: true, protocol: "incus-qualification.v1" },
+    { ...observation, observation: {} }, { ...observation, extra: true }]) {
+    await expect(requestIncusAdmissionReadiness(await server(`${JSON.stringify(response)}\n`), admissionPin))
+      .rejects.toThrow("readiness_unavailable");
+  }
 });

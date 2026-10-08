@@ -70,7 +70,7 @@ async function fixture(kind: "CREATE" | "START" | "STOP" | "DESTROY" = "CREATE")
   return new IncusMethodCaller(async (_db, _binding, operation) => {
     retiredCalls.push(operation);
     return { ok: true, retired: true };
-  });
+  }, async () => {});
 }
 afterEach(async () => { await Promise.all(databases.splice(0).map(client => client.close())); });
 
@@ -237,4 +237,20 @@ test("retained cleanup permits only its linked STOP and exact readback", async (
   await database.update(schema.sandboxCleanupRecoveries).set({ state: "COMPLETED" });
   await expect(caller.call(scope, "incus/lifecycle/inspectOperation", { ...common, operationId: "provider-operation" })).rejects.toMatchObject({ code: "SCOPE_INVALID" });
   expect(calls).toHaveLength(2);
+}, DB_TEST_TIMEOUT_MS);
+
+test("missing or drifted user admission is a proven failure before provider transport", async () => {
+  await fixture();
+  const closed = new IncusMethodCaller();
+  await expect(closed.call(scope, "incus/lifecycle/create", create)).rejects.toMatchObject({ code: "READINESS_UNAVAILABLE" });
+  expect(calls).toHaveLength(0);
+  const { IncusSandboxProviderDispatcher } = await import("../sandboxes/incus-dispatcher");
+  const { SandboxController } = await import("../sandboxes/controller");
+  const controller = new SandboxController(database, new IncusSandboxProviderDispatcher(closed, () => scope.deadlineMs - 30_000));
+  await database.update(schema.sandboxOperations).set({ state: "JOURNALED", providerOperationId: null });
+  const failed = await controller.executeOperation(scope.operationId);
+  expect(failed.state).toBe("FAILED");
+  expect(failed.errorCode).toBe("READINESS_UNAVAILABLE");
+  expect(failed.providerOperationId).toBeNull();
+  expect(calls).toHaveLength(0);
 }, DB_TEST_TIMEOUT_MS);

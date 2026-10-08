@@ -3,6 +3,7 @@
 
 import hashlib
 import ipaddress
+from pathlib import Path
 import socket
 import json
 import os
@@ -16,6 +17,7 @@ import sys
 import tempfile
 import time
 
+ADMISSION_AUTHORITY_COMMAND = "ezh-incus-admission-authority-v1"
 ORIGINAL_COMMAND = "ezh-incus-operator-v1"
 OBSERVE_COMMAND = "ezh-incus-noeffect-observe-v1"
 NEIGHBOR_COMMAND = "ezh-incus-owned-neighbor-challenge-v1"
@@ -424,6 +426,43 @@ def observe_owned_neighbor(policy, original, request):
         result.update({"instance": request["instance"], "address": request["address"], "port": request["port"], "reachable": reachable})
     return result
 
+def protected_admission_bytes(name):
+    path = Path(name)
+    if not path.is_absolute() or path.resolve(strict=True) != path:
+        raise Denied("admission authority requires an exact protected path")
+    for parent in (path, *path.parents):
+        status = parent.stat()
+        if status.st_uid != 0 or status.st_mode & 0o022:
+            raise Denied("admission authority parent is not protected")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    try:
+        before = os.fstat(descriptor)
+        if not stat.S_ISREG(before.st_mode) or before.st_size > MAX_POLICY:
+            raise Denied("admission authority file is not protected")
+        with os.fdopen(descriptor, "rb", closefd=False) as source:
+            payload = source.read(MAX_POLICY + 1)
+        after = os.fstat(descriptor)
+        fields = ("st_dev", "st_ino", "st_mode", "st_uid", "st_gid", "st_size", "st_mtime_ns", "st_ctime_ns")
+        if any(getattr(before, key) != getattr(after, key) for key in fields) or len(payload) != before.st_size:
+            raise Denied("admission authority file changed")
+        return payload
+    finally:
+        os.close(descriptor)
+
+
+def observe_admission_authority(original, raw, policy_path):
+    if original != ADMISSION_AUTHORITY_COMMAND or raw != b'{"version":1}\n':
+        raise Denied("invalid admission authority request")
+    facts = [[name, hashlib.sha256(protected_admission_bytes(name)).hexdigest()]
+             for name in (str(Path(__file__).resolve()), policy_path)]
+    system = str(Path("/run/current-system").resolve(strict=True))
+    if not re.fullmatch(r"/nix/store/[a-z0-9]{32}-nixos-system-[^/]+", system):
+        raise Denied("active NixOS authority unavailable")
+    facts.append(["activeSystem", system])
+    digest = hashlib.sha256(json.dumps(facts, separators=(",", ":")).encode()).hexdigest()
+    return {"version": 1, "hostPolicyDigest": digest}
+
+
 def main():
     if len(sys.argv) != 2:
         raise Denied("policy path is required")
@@ -432,6 +471,11 @@ def main():
     if len(raw) > MAX_REQUEST:
         raise Denied("SSH request is too large")
     policy = read_policy(sys.argv[1])
+    if original == ADMISSION_AUTHORITY_COMMAND:
+        validate_policy(policy)
+        result = observe_admission_authority(original, raw, sys.argv[1])
+        sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
+        return 0
     if original == NEIGHBOR_COMMAND:
         result = observe_owned_neighbor(policy, original, json.loads(raw))
         sys.stdout.write(json.dumps(result, separators=(",", ":")) + "\n")
