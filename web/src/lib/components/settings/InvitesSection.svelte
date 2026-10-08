@@ -40,7 +40,7 @@
 	}
 
 	function copyInviteLink(invite: InviteEntry) {
-		const url = `${window.location.origin}/api/auth/invite/${invite.token}`;
+		const url = `${window.location.origin}/signup/${invite.token}`;
 		navigator.clipboard.writeText(url);
 		copiedInviteId = invite.id;
 		setTimeout(() => { copiedInviteId = null; }, 2000);

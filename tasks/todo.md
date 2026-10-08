@@ -3572,3 +3572,11 @@ Review: Browser RED kept Qualified after expiry. Final-source targeted real-auth
 
 ## Review
 Contract review passed. Targeted core: 51/51 tests; new migration, contract and readiness source at 100% lines/functions. Python supervisor 100/100, protected authority 4/4, SSH gate 28/28, SSH client 1/1, preview/RPC 19/19, receipt pipeline 2/2, management 6 unit + 1 real database. Scoped typecheck and Biome pass. Final independent implementation review and combined patch coverage remain pending. No live API, SSH, service or deployment actions performed.
+# Invite copy link, 2026-10-08 (isolated auth branch)
+
+- [x] Add a real-auth browser test that copies an admin invite and opens its signup page; verify it fails on the current code.
+- [x] Change the copied URL to the public signup route and update the component expectation.
+- [x] Run the focused browser, component, static, and build checks; inspect visual evidence.
+- [x] Review the narrow diff, record the result here, and commit it on the auth branch.
+
+Review: On the original e330 code, the browser test failed because the clipboard URL pointed to `/api/auth/invite/<token>`. With the fix, all five real-auth signup browser cases pass, including the copied-link journey to the actual signup form. The component suite passes 9/9, the E2E lane contract passes 22/22, the production build runs in the browser fixture, and Svelte reports 0 errors and 0 warnings. The captured signup form is visually sound. Solpreview independently reviewed the final source bytes and passed the fix.

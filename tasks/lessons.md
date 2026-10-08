@@ -69,6 +69,7 @@
 - Pin the old Incus client identity from the live trust entry's certificate DER digest. A release digest or a copied value from another review packet is not an authority fingerprint.
 
 - Before a dedicated-UID cutover, inspect the actual isolated app process tree and source parent. A dev-owned `/tmp` parent cannot hold a root-only quarantine; move the stopped database into a root-owned private parent before making copies, and require a loaded unit for the old app and runner.
+- For a UI action that copies a link, prove the copied URL opens the intended page in an anonymous browser. A successful API token lookup does not prove the invitee can sign up.
 
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 

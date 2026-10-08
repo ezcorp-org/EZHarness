@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 
 async function createInvite(request: APIRequestContext) {
 	const email = `signup-${crypto.randomUUID()}@example.com`;
@@ -10,11 +11,11 @@ async function createInvite(request: APIRequestContext) {
 	return invite;
 }
 
-async function openSignup(page: Page, token: string) {
+async function openSignup(page: Page, token: string, url = `/signup/${token}`) {
 	// The API request fixture retains its admin session; this browser becomes
 	// the invited visitor and executes the real server load without a cookie.
 	await page.context().clearCookies();
-	await page.goto(`/signup/${token}`);
+	await page.goto(url);
 	await expect(page.getByRole("heading", { name: "Join EZCorp" })).toBeVisible();
 }
 
@@ -24,6 +25,22 @@ async function fillSignup(page: Page) {
 }
 
 test.describe("Signup Token Page — real invite and session", () => {
+	test("an admin's copied invite opens the signup form for an anonymous visitor @evidence", async ({ page, request, baseURL }, testInfo) => {
+		const invite = await createInvite(request);
+		await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+		await page.goto("/settings/admin");
+		const invites = page.locator("#invites");
+		await expect(invites.getByText(invite.email)).toBeVisible();
+		await invites.getByRole("button", { name: "Copy Link" }).click();
+		const copied = await page.evaluate(() => navigator.clipboard.readText());
+		expect(new URL(copied).origin).toBe(new URL(baseURL!).origin);
+		expect(new URL(copied).pathname).toBe(`/signup/${invite.token}`);
+
+		await openSignup(page, invite.token, copied);
+		await expect(page.getByLabel("Email", { exact: true })).toHaveValue(invite.email);
+		await captureEvidence(page, testInfo, "copied-invite-signup-form");
+	});
+
 	test("invalid token redirects an anonymous visitor to login", async ({ page }) => {
 		await page.context().clearCookies();
 		await page.goto(`/signup/missing-${crypto.randomUUID()}`);

@@ -121,7 +121,7 @@ describe("InvitesSection copy link", () => {
 		expect(getByText("alice@example.com")).toBeInTheDocument();
 
 		await fireEvent.click(getByText("Copy Link"));
-		expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/api/auth/invite/tok-xyz`);
+		expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/signup/tok-xyz`);
 		expect(getByText("Copied!")).toBeInTheDocument();
 
 		await vi.advanceTimersByTimeAsync(2000);
