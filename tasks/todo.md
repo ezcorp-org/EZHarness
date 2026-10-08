@@ -3644,3 +3644,22 @@ Review: existing request-boundary tests pass 25/25, with 32/32 executable lines 
 - [x] Apply review fixes, commit, and report evidence.
 
 Review: independent reviewer approved frozen v3 diff `e42561f33758a6dedd9d60ae76d397b52e3d4f94a443b56693397e1d9b484908`. Actual mounted supervisor startup passed on NixOS and Ubuntu 24.04, including UID/GID 62040 child launch and mount drift denial. Pinned Bun wrapper: 6 passed, 0 failed; stage suite: 17 passed; authority suite: 5 passed. Changed executable Python coverage: 43/43; maximum touched production function CRAP: 11. Python compilation, wrapper build, Biome, and diff checks passed. No live service or host root changes.
+
+## Readiness request budget — isolated Sol6.1 source freeze
+
+- [x] Reproduce the complete managed Bun client and supervisor socket path before the fix.
+- [x] Keep original failed receipts and state that they do not prove the earlier live failure's cause.
+- [x] Preserve a safe readiness code and finite internal failure reason through capture and preparation.
+- [x] Keep both full scans, runtime identity, twelve-second client timeout and fifteen-second proof lifetime.
+- [x] Add the total success deadline and guarantee readback cleanup after a timeout race.
+- [x] Remove duplicate per-entry metadata reads; preserve enumeration limits and reject duplicate paths.
+- [x] Check current source with focused tests, fresh coverage, canonical host complexity, types and Svelte checks.
+- [ ] Obtain final independent review and make the ordinary commit.
+
+Review: the protected installed-tree benchmark measured the exact prior scanner
+candidate at about 20% faster. The final authority adds only enumeration-count
+and duplicate-path guards. This measurement does not promise that every readback
+within its component limit can finish before the total deadline. The slow refusal
+fixture remains unchanged. The positive control uses real fixture scans to avoid
+a narrow scheduling margin. Future deployment, qualification and browser-lane
+results remain separate from this source proof.

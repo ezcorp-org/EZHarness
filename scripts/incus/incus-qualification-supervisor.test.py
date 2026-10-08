@@ -417,6 +417,83 @@ supervisor.serve()
 
 
 class SupervisorTest(unittest.TestCase):
+    def test_admission_budget_is_shared_and_timeout_kills_and_reaps_verifier(self):
+        for error, reason in [(TimeoutError("secret"), "deadline_exceeded"),
+                              (subprocess.TimeoutExpired("secret", 1), "deadline_exceeded"),
+                              (MODULE.AdmissionAuthorityRejected("secret"), "authority_rejected"),
+                              (ValueError("secret"), "unavailable"),
+                              (OSError("secret"), "unavailable")]:
+            self.assertEqual(MODULE.admission_failure_reason(error), reason)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory); key = root / "key"
+            key.write_text("fixture"); key.chmod(0o600)
+            supervisor = MODULE.Supervisor(str(root / "control"), ["unused"], os.getuid(), os.getgid(),
+                key, ["unused"], [sys.executable, "-B", "-c", "import time; time.sleep(60)"], enforce_distinct_uid=False)
+            pin = {"scope": {"installationId": "installation", "releaseId": "release", "connectionId": "connection", "presetId": "preset"},
+                "connectionRevision": 1, "presetDigest": "a"*64, "effectiveSettingsDigest": "b"*64,
+                "imageFingerprint": "c"*64, "helperSha256": "d"*64}
+            message = {"version": 2, "action": "admissionReadiness", "expectedPin": pin}
+            authority = {"securitySourceDigest": "a"*64, "supervisorServiceDigest": "b"*64, "hostPolicyDigest": "c"*64}
+            with subprocess.Popen([sys.executable, "-B", "-c", "import time; time.sleep(60)"]) as child:
+                supervisor.child = child; supervisor.child_identity = MODULE.identity(child.pid)
+                supervisor.admission_authority = mock.Mock()
+                supervisor.admission_authority.observe.return_value = authority
+                with mock.patch.object(MODULE, "ADMISSION_READINESS_SECONDS", 0.01), \
+                        mock.patch.object(MODULE.os, "killpg", wraps=os.killpg) as kill:
+                    with self.assertRaisesRegex(TimeoutError, "readback timed out"):
+                        supervisor._admission_readiness(message)
+                    kill.assert_called_once()
+                    self.assertEqual(kill.call_args.args[1], signal.SIGKILL)
+                    with self.assertRaises(ProcessLookupError): os.kill(kill.call_args.args[0], 0)
+                    self.assertEqual(supervisor.admission_authority.observe.call_count, 1)
+                now = [100.0]
+                def late_observation(_deadline):
+                    now[0] += 11
+                    return authority
+                supervisor.admission_authority.observe.side_effect = late_observation
+                with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: now[0]), \
+                        mock.patch.object(MODULE.subprocess, "Popen") as launch:
+                    with self.assertRaisesRegex(TimeoutError, "readiness timed out"):
+                        supervisor._admission_readiness(message)
+                    launch.assert_not_called()
+                supervisor.receipt_authority_command = [sys.executable, "-B", "-c",
+                    "import json; print(json.dumps({'ready':'admission.v2','observation':{}}))"]
+                counts = [0]
+                def observations(_deadline):
+                    counts[0] += 1
+                    if counts[0] == 2: now[0] += 11
+                    return authority
+                supervisor.admission_authority.observe.side_effect = observations
+                with mock.patch.object(MODULE.time, "monotonic", side_effect=lambda: now[0]), \
+                        mock.patch.object(supervisor, "sign_payload") as signing:
+                    with self.assertRaisesRegex(TimeoutError, "readiness timed out"):
+                        supervisor._admission_readiness(message)
+                    self.assertEqual(counts[0], 2)
+                    signing.assert_not_called()
+                supervisor.admission_authority.observe.side_effect = None
+                for failure in (subprocess.TimeoutExpired("fixture", 1), OSError("private credential")):
+                    with subprocess.Popen([sys.executable, "-B", "-c", "pass" if isinstance(failure, subprocess.TimeoutExpired) else "import time; time.sleep(60)"],
+                            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True) as verifier:
+                        real_communicate = verifier.communicate
+                        attempts = [0]
+                        def raced_communicate(*args, **kwargs):
+                            attempts[0] += 1
+                            if attempts[0] == 1:
+                                if isinstance(failure, subprocess.TimeoutExpired): verifier.wait(timeout=5)
+                                raise failure
+                            return real_communicate(*args, **kwargs)
+                        with mock.patch.object(MODULE.subprocess, "Popen", return_value=verifier), \
+                                mock.patch.object(verifier, "communicate", side_effect=raced_communicate):
+                            reason = "deadline_exceeded" if isinstance(failure, subprocess.TimeoutExpired) else "unavailable"
+                            with self.assertRaisesRegex(ValueError, "^readiness_unavailable:"+reason+"$"):
+                                supervisor.admission_readiness(message)
+                            self.assertEqual(attempts[0], 2)
+                            self.assertIsNotNone(verifier.returncode)
+                supervisor.admission_authority.observe.side_effect = ValueError("private credential: verifier integrity rejection")
+                with self.assertRaisesRegex(ValueError, "^readiness_unavailable:authority_rejected$"):
+                    supervisor.admission_readiness(message)
+                child.terminate()
+
     def test_admission_v2_uses_real_child_and_verifier_and_rejects_drift(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory); key = root / "key.pem"
@@ -439,15 +516,22 @@ class SupervisorTest(unittest.TestCase):
                 self.assertEqual(supervisor.admission_readiness(message), {"version": 2, "ready": True,
                     "authority": authority, "selectedPin": pin, "observation": {"echo": pin}})
                 supervisor.admission_authority.observe.side_effect = [authority, dict(authority, hostPolicyDigest="d"*64)]
-                with self.assertRaisesRegex(ValueError, "authority changed"):
+                with self.assertRaisesRegex(ValueError, "readiness_unavailable:authority_rejected"):
                     supervisor.admission_readiness(message)
                 supervisor.child_identity = {"pid": child.pid, "startTicks": "wrong"}
-                with self.assertRaisesRegex(ValueError, "authority unavailable"):
+                with self.assertRaisesRegex(ValueError, "readiness_unavailable:authority_rejected"):
                     supervisor.admission_readiness(message)
                 for changed in [dict(message, version=1), dict(message, extra=True), dict(message, expectedPin={}),
                                 dict(message, sshExecutionIdentity={"uid": 0, "gid": 0})]:
                     with self.assertRaises(ValueError):
                         supervisor.admission_readiness(changed)
+                supervisor.child_identity = MODULE.identity(child.pid)
+                supervisor.admission_authority.observe.side_effect = None
+                for source in ["raise SystemExit(1)", "print('x'*16385)", "print('[]')", "print('{}')",
+                        "print('{\"ready\":\"wrong\",\"observation\":{}}')"]:
+                    supervisor.receipt_authority_command = [sys.executable, "-B", "-c", source]
+                    with self.assertRaisesRegex(ValueError, "^readiness_unavailable:unavailable$"):
+                        supervisor.admission_readiness(message)
                 child.terminate()
 
     def test_terminal_claim_release_requires_exact_host_report_and_preserves_replay_fences(self):

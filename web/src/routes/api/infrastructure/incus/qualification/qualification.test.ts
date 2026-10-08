@@ -313,6 +313,27 @@ test("qualification preparation failure exposes only a safe stage and cleanup re
   } finally { preparationError = null; witnessReady = false; }
 });
 
+test("readiness cause reaches HTTP 409 while only a finite reason reaches private warnings", async () => {
+  witnessReady = true;
+  process.env.EZCORP_INCUS_CONTROL_PROBE_ROOT = "/private/probe";
+  try {
+    for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable", "private credential", null]) {
+      warnings.length = 0;
+      preparationError = new IncusQualificationPreparationError("fixtures", "confirmed", "readiness_unavailable", null, null,
+        reason as "deadline_exceeded");
+      Object.assign(preparationError, { message: "private credential", cause: new Error("private stderr") });
+      const response = await POST(event(admin, { ...scope, action: "qualify" }));
+      expect(response.status).toBe(409);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: "qualification_preparation_failed", stage: "fixtures", cleanup: "confirmed", causeCode: "readiness_unavailable" });
+      expect(body).not.toHaveProperty("readinessReason");
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.fields).toMatchObject({ readinessReason: reason === "deadline_exceeded" || reason === "authority_rejected" ? reason : "unavailable" });
+      expect(JSON.stringify({ body, warnings })).not.toContain("private");
+    }
+  } finally { preparationError = null; witnessReady = false; }
+});
+
 test("CPU failure response and logger expose only bounded numeric measurement fields", async () => {
   const cpuLoad = { throttledDelta: 0, elapsedMs: 4000, quotaMicros: 200000, periodMicros: 100000,
     cpusetCount: 32, affinityCount: 32, outsideCpuCount: 0, workerCount: 3, workerFailures: 0, workerCpuUsec: 7_000_000,

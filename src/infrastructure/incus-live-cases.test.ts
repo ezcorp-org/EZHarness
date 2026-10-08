@@ -4,6 +4,10 @@ import { IncusLimitLoadFailure, IncusCpuLoadProofError } from "./incus-live-limi
 import { expect, test } from "bun:test";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { IncusQualificationOperationUnsettledError } from "./incus-qualification";
+import { IncusAdmissionReadinessError } from "./incus-admission-contract";
+import { IncusAdmissionReadinessService } from "./incus-admission-readiness";
+import { admissionPin, admissionSelection } from "./__tests__/incus-admission-observation";
+import type { Database } from "../db/connection";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import {
   beginDurableIncusLiveCases,
@@ -383,12 +387,40 @@ test("preparation diagnostic distinguishes failed cleanup without exposing provi
 
 
 test("preparation cause classification accepts only literal assertions and known typed codes", () => {
+  expect(incusPreparationCauseCode(new IncusAdmissionReadinessError("readiness_unavailable"))).toBe("readiness_unavailable");
+  expect(INCUS_PREPARATION_CAUSE_CODES.has("readiness_unavailable")).toBe(true);
+  expect(incusPreparationCauseCode(Object.assign(new Error("private credential"), { code: "readiness_unavailable" }))).toBe("unclassified");
   expect(incusPreparationCauseCode(new Error("Incus resource probe unavailable: guest reached a forbidden network target"))).toBe("guest_reached_a_forbidden_network_target");
   expect(incusPreparationCauseCode(Object.assign(new Error("private credential"), { code: "PERMISSION_DENIED" }))).toBe("PERMISSION_DENIED");
   for (const value of [null, "secret", new Error("private credential"), new Error("Incus resource probe unavailable: private credential"), Object.assign(new Error("secret"), { code: "secret-code" })]) {
     expect(incusPreparationCauseCode(value)).toBe("unclassified");
   }
   expect(INCUS_PREPARATION_CAUSE_CODES.has("secret-code")).toBe(false);
+});
+
+test("real initial capture failure retains its safe reason through preparation without allocation", async () => {
+  for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable"] as const) {
+    let allocations = 0;
+    const readiness = new IncusAdmissionReadinessService({} as Database, {
+      authorizeFixture: async () => admissionSelection({ ...admissionPin, scope }),
+      loadBaselineProof: async () => null,
+    }, { read: async () => { throw new IncusAdmissionReadinessError("readiness_unavailable", reason); } });
+    const original = witness({ createFixture: async () => {
+      await readiness.capture(scope, "qual-run");
+      allocations++;
+      throw new Error("allocation must not run");
+    } });
+    const durable: DurableIncusLiveWitness = { ...original.value,
+      findFixture: async () => { throw new Error("lookup must not run"); },
+      beginRestart: async () => { throw new Error("restart must not run"); },
+      claimRestart: async () => { throw new Error("claim must not run"); } };
+    await expect(beginDurableIncusLiveCases({ witness: durable }, scope, preset,
+      { runId: "qual-run", nonce: "nonce", deadlineMs: Date.now()+60_000 })).rejects.toMatchObject({
+      stage: "fixtures", cleanup: "confirmed", causeCode: "readiness_unavailable", readinessReason: reason,
+    });
+    expect(allocations).toBe(0);
+    expect(original.destroyed).toHaveLength(0);
+  }
 });
 
 test("missing reviewed neighbor control fails before any fixture allocation", async () => {

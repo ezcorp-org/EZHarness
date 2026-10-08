@@ -5,6 +5,7 @@ import json
 import os
 import stat
 import sys
+import time
 from pathlib import Path
 
 
@@ -12,9 +13,18 @@ def canonical(value):
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
+class AuthorityIntegrityError(ValueError):
+    pass
+
+
 def require(condition, message):
     if not condition:
-        raise ValueError("Incus admission authority: " + message)
+        raise AuthorityIntegrityError("Incus admission authority: " + message)
+
+
+def check_deadline(deadline):
+    if deadline is not None and time.monotonic() >= deadline:
+        raise TimeoutError("protected admission readiness timed out")
 
 
 def protected_path(path, owner=0):
@@ -60,6 +70,7 @@ def signature(status):
 
 
 class AdmissionAuthority:
+    validation_error = AuthorityIntegrityError
     def __init__(self, config, app_command, owner=0, supervisor_config_path=None,
                  *, app_uid=None, app_gid=None):
         required = {"bundleRoot", "serviceFiles", "policyFiles"}
@@ -90,30 +101,37 @@ class AdmissionAuthority:
         self.security_digest = hashlib.sha256((self.root / self.verifier.MANIFEST).read_bytes()).hexdigest()
         self.launch_service_digest = file_digest(config["serviceFiles"], owner, supervisor_config_path)
 
-    def snapshot(self):
+    def snapshot(self, deadline=None):
         facts = {}
-        paths = self.verifier.immutable_paths(self.root)
-        require(len(paths) <= 120000, "bundle closure too large")
-        for path in paths:
-            status = path.lstat()
+        for count, (path, status) in enumerate(self.verifier.immutable_entries(self.root), start=1):
+            check_deadline(deadline)
+            require(count <= 120000, "bundle closure too large")
+            relative = str(path.relative_to(self.root))
+            require(relative not in facts, "bundle enumeration repeated a path")
             require(status.st_uid == self.owner, "bundle owner changed")
             if not stat.S_ISLNK(status.st_mode):
                 require(not status.st_mode & 0o022, "bundle became writable")
-            facts[str(path.relative_to(self.root))] = signature(status)
+            facts[relative] = signature(status)
         return facts
 
     def runtime_identity(self):
         if self.runtime_source is None:
             return None
-        return self.verifier.check_bound_runtime(self.root, self.runtime_source,
-                                                self.app_uid, self.app_gid, self.owner)
+        try:
+            return self.verifier.check_bound_runtime(self.root, self.runtime_source,
+                                                    self.app_uid, self.app_gid, self.owner)
+        except ValueError as error:
+            raise AuthorityIntegrityError(str(error)) from None
 
-    def observe(self):
+    def observe(self, deadline=None):
+        check_deadline(deadline)
         require(self.runtime_identity() == self.launch_runtime_identity,
                 "runtime binding changed; restart required")
-        require(self.snapshot() == self.launch_files, "loaded app closure changed; restart required")
+        require(self.snapshot(deadline) == self.launch_files, "loaded app closure changed; restart required")
         service = file_digest(self.config["serviceFiles"], self.owner, self.supervisor_config_path)
         require(service == self.launch_service_digest, "loaded service changed; restart required")
+        policy = file_digest(self.config["policyFiles"], self.owner)
+        check_deadline(deadline)
         return {"securitySourceDigest": self.security_digest,
                 "supervisorServiceDigest": service,
-                "hostPolicyDigest": file_digest(self.config["policyFiles"], self.owner)}
+                "hostPolicyDigest": policy}

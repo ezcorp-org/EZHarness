@@ -35,12 +35,15 @@ const READINESS_TIMEOUT_MS = 12_000;
 const RECEIPT_TIMEOUT_MS = 40_000;
 const FAULT_TIMEOUT_MS = 20_000;
 
+class SupervisorTimeoutError extends Error {}
+class SupervisorResponseError extends Error {}
+
 async function exchange(socketPath: string, message: unknown, timeoutMs: number): Promise<unknown> {
   if (!socketPath.startsWith("/") || !socketPath.length) throw new Error("Incus supervisor socket is unavailable");
   return await new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let received = "";
-    const timeout = setTimeout(() => socket.destroy(new Error("Incus supervisor timed out")), timeoutMs);
+    const timeout = setTimeout(() => socket.destroy(new SupervisorTimeoutError("Incus supervisor timed out")), timeoutMs);
     const finish = (error?: Error, value?: unknown) => {
       clearTimeout(timeout);
       socket.destroy();
@@ -55,7 +58,7 @@ async function exchange(socketPath: string, message: unknown, timeoutMs: number)
       if (end < 0) return;
       try {
         const response = JSON.parse(received.slice(0, end)) as { error?: unknown };
-        if (typeof response.error === "string") finish(new Error(response.error));
+        if (typeof response.error === "string") finish(new SupervisorResponseError(response.error));
         else finish(undefined, response);
       } catch { finish(new Error("Incus supervisor response is invalid")); }
     });
@@ -81,9 +84,15 @@ export async function requestIncusSupervisorReadiness(socketPath: string, expect
 /** Existing protected supervisor; this read never allocates a fixture or restarts. */
 export async function requestIncusAdmissionReadiness(socketPath: string,
   expectedPin: IncusSupervisorSelectedPin): Promise<import("./incus-admission-contract").IncusAdmissionObservation> {
-  const { validateIncusAdmissionObservation } = await import("./incus-admission-contract");
-  return validateIncusAdmissionObservation(await exchange(socketPath,
-    { version: 2, action: "admissionReadiness", expectedPin }, READINESS_TIMEOUT_MS), expectedPin);
+  const { validateIncusAdmissionObservation, IncusAdmissionReadinessError, incusReadinessFailureReason } = await import("./incus-admission-contract");
+  try {
+    return validateIncusAdmissionObservation(await exchange(socketPath,
+      { version: 2, action: "admissionReadiness", expectedPin }, READINESS_TIMEOUT_MS), expectedPin);
+  } catch (error) {
+    throw new IncusAdmissionReadinessError("readiness_unavailable", error instanceof SupervisorTimeoutError ? "deadline_exceeded"
+      : incusReadinessFailureReason(error instanceof SupervisorResponseError && error.message.startsWith("readiness_unavailable:")
+        ? error.message.slice("readiness_unavailable:".length) : undefined));
+  }
 }
 
 export async function requestIncusSupervisorReceipt(socketPath: string, runId: string,

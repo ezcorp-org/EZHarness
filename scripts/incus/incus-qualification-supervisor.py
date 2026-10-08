@@ -85,7 +85,30 @@ AUTHORIZE_TIMEOUT_SECONDS = 10
 SNAPSHOT_TIMEOUT_SECONDS = 30
 VERIFY_TIMEOUT_SECONDS = 30
 SIGN_TIMEOUT_SECONDS = 5
+# Leave IPC time inside the managed client's unchanged twelve-second deadline.
+ADMISSION_READINESS_SECONDS = 11
 PROCESS_FENCE_TIMEOUT_SECONDS = 5
+
+
+class AdmissionAuthorityRejected(ValueError):
+    pass
+
+
+def admission_failure_reason(error, authority_error=()):
+    if isinstance(error, (TimeoutError, subprocess.TimeoutExpired)):
+        return "deadline_exceeded"
+    if isinstance(error, (AdmissionAuthorityRejected, FileNotFoundError, PermissionError)) or isinstance(error, authority_error):
+        return "authority_rejected"
+    return "unavailable"
+
+
+def finish_admission_verifier(verifier):
+    try:
+        os.killpg(verifier.pid, signal.SIGKILL)
+    except ProcessLookupError:
+        pass
+    finally:
+        verifier.communicate()
 
 
 def identity(pid):
@@ -1242,33 +1265,54 @@ class Supervisor:
         return {"released": True}
 
     def admission_readiness(self, message):
+        try:
+            return self._admission_readiness(message)
+        except (ValueError, OSError, subprocess.SubprocessError) as error:
+            reason = admission_failure_reason(error, getattr(type(self.admission_authority), "validation_error", ()))
+            raise ValueError("readiness_unavailable:" + reason) from None
+
+    def observe_admission_authority(self, deadline):
+        try:
+            return self.admission_authority.observe(deadline)
+        except ValueError:
+            raise AdmissionAuthorityRejected("protected admission authority rejected") from None
+
+    def _admission_readiness(self, message):
+        deadline = time.monotonic() + ADMISSION_READINESS_SECONDS
         if not isinstance(message, dict) or set(message) != {"version", "action", "expectedPin"} \
                 or message.get("version") != 2 or message.get("action") != "admissionReadiness":
             raise ValueError("invalid admission readiness request")
         validate_readiness_pin(message["expectedPin"])
         if self.admission_authority is None or self.child is None or self.child_exited() \
                 or identity(self.child.pid) != self.child_identity:
-            raise ValueError("protected admission authority unavailable")
-        before = self.admission_authority.observe()
+            raise AdmissionAuthorityRejected("protected admission authority unavailable")
+        before = self.observe_admission_authority(deadline)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("protected admission readiness timed out")
         verifier = subprocess.Popen(self.receipt_authority_command, stdin=subprocess.PIPE,
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, start_new_session=True)
         try:
             stdout, _stderr = verifier.communicate(
                 canonical({"phase": "admissionReadiness", "expectedPin": message["expectedPin"],
-                           "sshExecutionIdentity": {"uid": self.app_uid, "gid": self.app_gid}}) + b"\n", timeout=8)
+                           "sshExecutionIdentity": {"uid": self.app_uid, "gid": self.app_gid}}) + b"\n", timeout=min(8, remaining))
         except subprocess.TimeoutExpired:
-            os.killpg(verifier.pid, signal.SIGKILL)
-            verifier.communicate()
-            raise ValueError("protected admission readback timed out")
+            finish_admission_verifier(verifier)
+            raise TimeoutError("protected admission readback timed out")
+        except BaseException:
+            finish_admission_verifier(verifier)
+            raise
         if verifier.returncode != 0 or len(stdout) > 16384:
             raise ValueError("protected admission readback unavailable")
         observation = json.loads(stdout)
         if not isinstance(observation, dict) or set(observation) != {"ready", "observation"} \
                 or observation["ready"] != "admission.v2":
             raise ValueError("protected admission readback incomplete")
-        after = self.admission_authority.observe()
+        after = self.observe_admission_authority(deadline)
         if before != after:
-            raise ValueError("protected admission authority changed")
+            raise AdmissionAuthorityRejected("protected admission authority changed")
+        if time.monotonic() >= deadline:
+            raise TimeoutError("protected admission readiness timed out")
         return {"version": 2, "ready": True, "authority": after,
                 "selectedPin": message["expectedPin"], "observation": observation["observation"]}
 

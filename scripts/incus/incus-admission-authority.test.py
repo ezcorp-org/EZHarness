@@ -9,6 +9,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -63,6 +64,56 @@ class AdmissionAuthorityTests(unittest.TestCase):
             authority.observe()
         with self.assertRaisesRegex(ValueError, "release file inventory changed"):
             self.authority()
+
+    def test_fresh_snapshot_preserves_all_paths_metadata_and_deadline(self):
+        authority = self.authority()
+        expected = {str(path.relative_to(self.root)): AUTHORITY.signature(path.lstat())
+                    for path in authority.verifier.immutable_paths(self.root)}
+        with mock.patch.object(Path, "lstat", wraps=None) as direct_stat:
+            direct_stat.side_effect = AssertionError("duplicate per-path lstat")
+            # scandir supplies every child status; only the root requires Path.lstat.
+            direct_stat.side_effect = lambda: self.root.stat(follow_symlinks=False)
+            self.assertEqual(authority.snapshot(), expected)
+            self.assertEqual(direct_stat.call_count, 1)
+        self.assertEqual(authority.snapshot(time.monotonic()+10), expected)
+        with self.assertRaises(TimeoutError):
+            authority.observe(time.monotonic())
+        with mock.patch.object(AUTHORITY, "file_digest", side_effect=lambda *_args: "x"), \
+                mock.patch.object(AUTHORITY.time, "monotonic", side_effect=[1, *([1]*len(expected)), 12]):
+            authority.launch_service_digest = "x"
+            with self.assertRaises(TimeoutError):
+                authority.observe(11)
+
+    def test_fresh_snapshot_rejects_membership_type_root_and_same_size_content_drift(self):
+        mutations = [lambda: (self.root / "added").write_text("new"),
+                     lambda: (self.root / "web/build/index.js").unlink(),
+                     lambda: self.root.chmod(0o700),
+                     lambda: (self.root / "web/build/index.js").write_bytes(b"x" * (self.root / "web/build/index.js").stat().st_size),
+                     lambda: self.replace_directory_with_link()]
+        for mutate in mutations:
+            with self.subTest(mutation=mutate):
+                authority = self.authority()
+                mutate()
+                with self.assertRaisesRegex(ValueError, "loaded app closure changed"):
+                    authority.observe()
+                self.tearDown()
+                self.setUp()
+
+    def test_snapshot_bounds_enumeration_even_with_duplicate_paths(self):
+        authority = self.authority()
+        status = self.root.lstat()
+        with mock.patch.object(authority.verifier, "immutable_entries", return_value=iter([(self.root, status)]*2)):
+            with self.assertRaisesRegex(ValueError, "enumeration repeated a path"):
+                authority.snapshot()
+        entries = ((self.root / str(index), status) for index in range(120001))
+        with mock.patch.object(authority.verifier, "immutable_entries", return_value=entries):
+            with self.assertRaisesRegex(ValueError, "closure too large"):
+                authority.snapshot()
+
+    def replace_directory_with_link(self):
+        directory = self.root / "web/build"
+        directory.rename(self.root / "moved-build")
+        directory.symlink_to(self.root / "moved-build", target_is_directory=True)
 
     def test_service_controls_drift_and_only_exact_terminal_fields_are_transient(self):
         authority = self.authority()

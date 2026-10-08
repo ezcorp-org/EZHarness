@@ -1,5 +1,4 @@
 import { afterEach, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { sql } from "drizzle-orm";
@@ -12,8 +11,7 @@ import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { releaseRows } from "../db/queries/extension-releases";
 import { digest } from "../../scripts/incus/model";
 import { IncusAdmissionReadinessService } from "./incus-admission-readiness";
-import type { IncusQualificationStore } from "./incus-qualification";
-import { admissionPin, admissionObservation } from "./__tests__/incus-admission-observation";
+import { admissionPin, admissionObservation, admissionSelection } from "./__tests__/incus-admission-observation";
 
 const databases: PGlite[] = [];
 afterEach(async () => { await Promise.all(databases.splice(0).map(db => db.close())); });
@@ -28,10 +26,7 @@ async function fixture() {
   let partial = false;
   let gate: Promise<void> | undefined;
   const source = admissionObservation(admissionPin, now);
-  const selected = { snapshot: { installation: { generation: 1 }, release: { releaseDigest: "release-digest" } },
-    connection: { revision: 1, serverCertificatePem: readFileSync(new URL("./incus-transport/test-server.pem", import.meta.url), "utf8"), project: "project", configuration: { profile: "profile" } },
-    preset: { imageDigest: admissionPin.imageFingerprint, limits: { memoryBytes: 1024, cpuMillis: 1000, pids: 10, diskBytes: 4096 } },
-    presetDigest: admissionPin.presetDigest, effectiveSettingsDigest: admissionPin.effectiveSettingsDigest, helperDigest: admissionPin.helperSha256 } as Awaited<ReturnType<IncusQualificationStore["authorizeFixture"]>>;
+  const selected = admissionSelection();
   const qualification = { verifiedAt: new Date(now - 60_000).toISOString(), validUntil: new Date(now + 60_000).toISOString(), backendVersion: "6.0.6" } as LiveSandboxPresetQualification;
   const qualifications = { authorizeFixture: async () => selected,
     loadBaselineProof: async (_scope: unknown, proofDigest: string) => missing || proofDigest !== digest(qualification) ? null : qualification };
@@ -78,6 +73,19 @@ test("capture is idempotent and drift cannot replace original run authority", as
   await expect(f.service.prepareBaseline(admissionPin.scope, "run", { ...f.qualification, backendVersion: "changed" })).rejects.toThrow("qualification_expired");
   await expect(f.service.prepareBaseline(admissionPin.scope, "missing", f.qualification)).rejects.toThrow("qualification_expired");
   await expect(f.service.prepareBaseline(admissionPin.scope, "run", f.qualification)).rejects.toThrow("qualification_expired");
+});
+
+test("initial capture sanitizes transport failure before saving authority", async () => {
+  const f = await fixture();
+  f.setFail(true);
+  await expect(f.service.capture(admissionPin.scope, "failed-capture")).rejects.toMatchObject({
+    name: "IncusAdmissionReadinessError", code: "readiness_unavailable", message: "readiness_unavailable", reason: "unavailable",
+  });
+  const deadline = new IncusAdmissionReadinessService(f.db, f.qualifications, { ...f.deps, timeoutMs: 1, read: () => new Promise(() => {}) });
+  await expect(deadline.capture(admissionPin.scope, "expired-capture")).rejects.toMatchObject({
+    code: "readiness_unavailable", reason: "deadline_exceeded",
+  });
+  expect((await f.db.execute(sql`SELECT * FROM incus_qualification_authority_captures`)).rows).toHaveLength(0);
 });
 
 test("every immutable authority identity drifts closed without another full run", async () => {

@@ -19,10 +19,17 @@ export interface IncusAdmissionObservation {
   observation: { backend: SandboxCompatibilityObservation; capacity: CapacityObservation; hostPolicyDigest: string };
 }
 
+export type IncusReadinessFailureReason = "deadline_exceeded" | "authority_rejected" | "unavailable";
+export function incusReadinessFailureReason(value: unknown): IncusReadinessFailureReason {
+  return value === "deadline_exceeded" || value === "authority_rejected" ? value : "unavailable";
+}
+
 export class IncusAdmissionReadinessError extends Error {
-  constructor(readonly code: "qualification_expired" | "readiness_unavailable" | "capacity_full") {
+  readonly reason: IncusReadinessFailureReason;
+  constructor(readonly code: "qualification_expired" | "readiness_unavailable" | "capacity_full", reason?: IncusReadinessFailureReason) {
     super(code);
     this.name = "IncusAdmissionReadinessError";
+    this.reason = incusReadinessFailureReason(reason);
   }
 }
 

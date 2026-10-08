@@ -680,13 +680,16 @@ test("Incus project Settings points to its operator controls, not Local sandbox 
 });
 
 
-test("qualification failure shows the safe diagnostic and does not repeat the run", async ({ page }) => {
+for (const diagnostic of [
+	{ stage: "enforcement", causeCode: "guest_reached_a_forbidden_network_target" },
+	{ stage: "fixtures", causeCode: "readiness_unavailable" },
+]) test(`qualification ${diagnostic.causeCode} shows the safe diagnostic and does not repeat the run`, async ({ page }) => {
 	await mockManagement(page);
 	let attempts = 0;
-	const message = "Qualification failed during enforcement (guest_reached_a_forbidden_network_target); cleanup confirmed. Inspect the saved fixtures before starting another run.";
+	const message = `Qualification failed during ${diagnostic.stage} (${diagnostic.causeCode}); cleanup confirmed. Inspect the saved fixtures before starting another run.`;
 	await page.route("**/api/infrastructure/incus/qualification", route => {
 		attempts++;
-		return route.fulfill({ status: 409, json: { code: "qualification_preparation_failed", stage: "enforcement", causeCode: "guest_reached_a_forbidden_network_target", cleanup: "confirmed", message } });
+		return route.fulfill({ status: 409, json: { code: "qualification_preparation_failed", ...diagnostic, cleanup: "confirmed", message } });
 	});
 	await page.goto("/extensions/incus-management");
 	await page.getByRole("button", { name: "Prepare qualification…" }).click();

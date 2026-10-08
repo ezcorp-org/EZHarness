@@ -178,3 +178,28 @@ test("daily client uses a closed v2 frame over an actual Unix socket", async () 
       .rejects.toThrow("readiness_unavailable");
   }
 });
+
+test("admission errors expose only finite reasons from private supervisor replies", async () => {
+  const { admissionPin } = await import("./__tests__/incus-admission-observation");
+  for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable", "private credential", null, {}]) {
+    const socket = await server(`${JSON.stringify({ error: typeof reason === "string" ? `readiness_unavailable:${reason}` : "private stderr credential", reason })}\n`);
+    await expect(requestIncusAdmissionReadiness(socket, admissionPin)).rejects.toMatchObject({
+      name: "IncusAdmissionReadinessError", code: "readiness_unavailable", message: "readiness_unavailable",
+      reason: reason === "deadline_exceeded" || reason === "authority_rejected" ? reason : "unavailable",
+    });
+  }
+  await expect(requestIncusAdmissionReadiness("relative", admissionPin)).rejects.toMatchObject({ reason: "unavailable" });
+});
+
+test("admission client closes on its unchanged deadline and reports a typed timeout", async () => {
+  const { admissionPin } = await import("./__tests__/incus-admission-observation");
+  const socket = await server(() => null);
+  const realTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms: number, ...args: unknown[]) =>
+    realTimer(callback, ms === 12_000 ? 0 : ms, ...args)) as typeof setTimeout);
+  try {
+    await expect(requestIncusAdmissionReadiness(socket, admissionPin)).rejects.toMatchObject({
+      name: "IncusAdmissionReadinessError", code: "readiness_unavailable", message: "readiness_unavailable", reason: "deadline_exceeded",
+    });
+  } finally { timer.mockRestore(); }
+});

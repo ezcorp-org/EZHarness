@@ -3,6 +3,7 @@ import { IncusStopRequiredError, IncusCleanupRecoveryUnavailableError } from "$s
 import { randomUUID } from "node:crypto";
 import { json } from "@sveltejs/kit";
 import { logger } from "$server/logger";
+import { incusReadinessFailureReason } from "$server/infrastructure/incus-admission-contract";
 import { requireAdminSession } from "$server/auth/middleware";
 import { incusHostLiveWitnessReady } from "$server/infrastructure/incus-host-live-witness";
 import { beginDurableIncusLiveCases, IncusQualificationPreparationError, INCUS_PREPARATION_CAUSE_CODES } from "$server/infrastructure/incus-live-cases";
@@ -17,6 +18,9 @@ const preparationStages = new Set(["fixtures", "enforcement", "limit_loads", "gu
 const unsettledStates = new Set(["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]);
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
 function isIdentifier(value: unknown): value is string { return typeof value === "string" && identifier.test(value); }
+function readinessFailureLog(error: IncusQualificationPreparationError) {
+  return error.causeCode === "readiness_unavailable" ? { readinessReason: incusReadinessFailureReason(error.readinessReason) } : {};
+}
 type Action = "create" | "status" | "destroy" | "start" | "stop" | "qualify" | "recoverCleanup";
 const fields = ["action", "installationId", "releaseId", "connectionId", "presetId", "operationId"];
 
@@ -101,7 +105,8 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       const cpuLoad = incusCpuLoadDiagnostic(error.cpuLoad);
       const limitResource = error.stage === "limit_loads" ? incusLimitResource(error.limitResource) : null;
       const diagnostic = { ...(limitResource ? { limitResource } : {}), stage: error.stage, cleanup: error.cleanup, causeCode: error.causeCode, ...(cpuLoad ? { cpuLoad } : {}) };
-      log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic });
+      log.warn("Incus qualification preparation failed", { runId: input.operationId, ...diagnostic,
+        ...readinessFailureLog(error) });
       return json({ code: "qualification_preparation_failed", ...diagnostic,
         message: `Qualification failed during ${diagnostic.stage} (${diagnostic.causeCode}); cleanup ${diagnostic.cleanup}. Inspect the saved fixtures before starting another run.` }, { status: 409 });
     }

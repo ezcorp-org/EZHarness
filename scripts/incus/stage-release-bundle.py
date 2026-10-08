@@ -71,18 +71,26 @@ def extract_head(source, target):
         members.extractall(target, filter="data")
 
 
-def immutable_paths(root):
+def immutable_entries(root):
+    """Fresh metadata for every immutable entry; never follow directory links."""
     def visit(directory):
-        for path in directory.iterdir():
-            mode = path.lstat().st_mode
-            if directory == root and path.name == RUNTIME_DIR:
-                require(stat.S_ISDIR(mode), "runtime directory must not be a symlink or file")
-                continue
-            yield path
-            if stat.S_ISDIR(mode):
-                yield from visit(path)
+        with os.scandir(directory) as entries:
+            for entry in entries:
+                path = Path(entry.path)
+                status = entry.stat(follow_symlinks=False)
+                if directory == root and entry.name == RUNTIME_DIR:
+                    require(stat.S_ISDIR(status.st_mode), "runtime directory must not be a symlink or file")
+                    continue
+                yield path, status
+                if stat.S_ISDIR(status.st_mode):
+                    yield from visit(path)
 
-    return [root, *sorted(visit(root))]
+    yield root, root.lstat()
+    yield from visit(root)
+
+
+def immutable_paths(root):
+    return sorted(path for path, _status in immutable_entries(root))
 
 
 def normalize_modes(root):

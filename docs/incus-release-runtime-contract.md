@@ -22,6 +22,26 @@ Admission records the runtime device and inode at launch. Each observation
 checks the mount contract and that original identity. Replacing both source and
 target requires a service restart.
 
+Each readiness request scans the complete immutable tree before and after the
+protected readback. Each scan reads fresh metadata once per entry, including
+the root and symbolic links. It rejects duplicate paths and more than 120000
+entries. It does not reuse metadata from an earlier request.
+
+The readback has an eight-second maximum inside an eleven-second total success
+deadline. Both scans count against that total. A readback within its own limit
+can still fail if the complete request is late. The client keeps its twelve-second
+timeout, and the admission proof keeps its fifteen-second lifetime. Scan deadline
+checks are cooperative; the client still closes the socket if a filesystem call
+stalls. A timed-out readback process group is killed and the process is reaped.
+
+Readiness failure uses the public cause `readiness_unavailable`. Private structured
+warnings distinguish only `deadline_exceeded`, `authority_rejected`, and
+`unavailable`. Raw verifier errors do not enter that response or warning.
+
+The complete managed Bun client/socket regression is
+`scripts/incus/incus-admission-readiness-consumer.test.py`. It covers composed
+deadlines, immutable changes between scans, and malformed readback output.
+
 The actual mount/startup regression is in
 `scripts/incus/incus-admission-authority.test.py`. It runs through the real
 supervisor, verifier, privilege drop, and child process. It is also included in

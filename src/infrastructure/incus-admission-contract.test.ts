@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { admissionAuthority, IncusAdmissionReadinessError, validateIncusAdmissionObservation } from "./incus-admission-contract";
+import { admissionAuthority, IncusAdmissionReadinessError, incusReadinessFailureReason, validateIncusAdmissionObservation } from "./incus-admission-contract";
 import { admissionPin, admissionObservation } from "./__tests__/incus-admission-observation";
 
 
@@ -8,6 +8,10 @@ test("v2 admission closes every authority and dynamic observation field", () => 
   expect(validateIncusAdmissionObservation(valid, admissionPin)).toBe(valid);
   expect(admissionAuthority(valid)).toMatchObject({ ...valid.authority, remoteHostPolicyDigest: "4".repeat(64) });
   expect(new IncusAdmissionReadinessError("capacity_full").code).toBe("capacity_full");
+  for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable"] as const) {
+    expect(new IncusAdmissionReadinessError("readiness_unavailable", reason).reason).toBe(reason);
+  }
+  for (const reason of [undefined, null, {}, "private credential"]) expect(incusReadinessFailureReason(reason)).toBe("unavailable");
   const invalid: unknown[] = [null, [], true, { ready: true, protocol: "incus-qualification.v1" }, { ...valid, version: 1 }, { ...valid, ready: false }, { ...valid, extra: true },
     { ...valid, authority: null }, { ...valid, authority: { ...valid.authority, extra: true } }, { ...valid, authority: { ...valid.authority, securitySourceDigest: "bad" } },
     { ...valid, selectedPin: { ...admissionPin, connectionRevision: 2 } }, { ...valid, observation: null }, { ...valid, observation: { ...valid.observation, extra: true } }];

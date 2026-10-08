@@ -757,3 +757,5 @@
 - Inspect the captured form before source freeze. In a bottom-aligned form grid, put shared help below the grid so inputs and buttons stay aligned. Use one explicit working directory per edit/build call.
 
 - Prove credential changes at the actual consumer. Bun 1.3.14 ignores child_process uid/gid options. Test effective UID/GID and supplementary groups. Keep protected config reads in the root parent, and run SSH through fixed setpriv as the configured service user. Preserve the key's ownership, mode, and bytes. Run the complete read-only receipt before source freeze, and retain legacy protocol tests when changing the internal request schema.
+
+- Keep wall-clock positive controls well inside production deadlines. Preserve the measured slow refusal arm, but use actual fixture work for the happy path; test tight deadline boundaries with a fixed clock. A passing positive control with only a few hundred milliseconds of scheduling margin can fail in a loaded CI pool.

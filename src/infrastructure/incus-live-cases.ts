@@ -10,6 +10,7 @@ import {
 } from "@ezcorp/extension-contract";
 import { GUEST_HELPER_SHA256 } from "./incus-guest/protocol";
 import { IncusQualificationOperationUnsettledError, type IncusLiveCaseEvidence, type IncusQualificationScope } from "./incus-qualification";
+import { IncusAdmissionReadinessError, type IncusReadinessFailureReason } from "./incus-admission-contract";
 
 const CASE_IDS = ["SP01", "SP02", "SP03", "SP04", "SP05", "SP06", "SP07", "SP08"] as const;
 const QUALIFICATION_PHASE_MS = 20 * 60_000;
@@ -303,7 +304,7 @@ export function incusGuestFailureCauseCode(operation: unknown, code: unknown): s
   return typeof operation === "string" && typeof code === "string"
     ? guestFailureCodes.get(`${operation}:${code}`) ?? "guest_action_failed" : "guest_action_failed";
 }
-export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", ...preparationAssertions.values(), ...preparationProviderCodes, ...guestFailureCodes.values()]);
+export const INCUS_PREPARATION_CAUSE_CODES: ReadonlySet<string> = new Set(["unclassified", "readiness_unavailable", ...preparationAssertions.values(), ...preparationProviderCodes, ...guestFailureCodes.values()]);
 function originalPreparationFailure(error: unknown): unknown {
   return error instanceof IncusLimitLoadFailure ? error.failure() : error;
 }
@@ -313,6 +314,7 @@ function preservedPreparationFailure(error: unknown): IncusQualificationOperatio
 }
 export function incusPreparationCauseCode(error: unknown): string {
   error = originalPreparationFailure(error);
+  if (error instanceof IncusAdmissionReadinessError && error.code === "readiness_unavailable") return error.code;
   if (!(error instanceof Error)) return "unclassified";
   const diagnosticCode = (error as Error & { code?: unknown }).code;
   if (typeof diagnosticCode === "string" && guestFailureCauseCodes.has(diagnosticCode)) return diagnosticCode;
@@ -322,7 +324,7 @@ export function incusPreparationCauseCode(error: unknown): string {
 }
 /** Safe diagnostic fields only. The original provider exception is not projected. */
 export class IncusQualificationPreparationError extends Error {
-  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null, readonly limitResource: LiveLimitLoadFact["resource"] | null = null) {
+  constructor(readonly stage: IncusQualificationPreparationStage, readonly cleanup: "confirmed" | "unverified", readonly causeCode = "unclassified", readonly cpuLoad: IncusCpuLoadDiagnostic | null = null, readonly limitResource: LiveLimitLoadFact["resource"] | null = null, readonly readinessReason?: IncusReadinessFailureReason) {
     super("Incus qualification preparation failed");
   }
 }
@@ -524,7 +526,8 @@ export async function beginDurableIncusLiveCases(options: IncusLiveRunnerOptions
   const errors = preservedFailure ? [] : await cleanupLiveFixtures(witness, state);
   if (preservedFailure) throw preservedFailure;
   throw new IncusQualificationPreparationError(stage, errors.length ? "unverified" : "confirmed", incusPreparationCauseCode(failure), failure instanceof IncusCpuLoadProofError ? incusCpuLoadDiagnostic(failure.diagnostic) : null,
-    failure instanceof IncusLimitLoadFailure ? incusLimitResource(failure.resource) : null);
+    failure instanceof IncusLimitLoadFailure ? incusLimitResource(failure.resource) : null,
+    failure instanceof IncusAdmissionReadinessError ? failure.reason : undefined);
 }
 
 /** Called only in the replacement app process, with a fresh witness and database connection. */

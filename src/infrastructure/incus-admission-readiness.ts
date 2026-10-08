@@ -71,9 +71,11 @@ export class IncusAdmissionReadinessService {
       let timer: ReturnType<typeof setTimeout>;
       try {
         const observation = await Promise.race([read(pin), new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new IncusAdmissionReadinessError("readiness_unavailable")), timeoutMs);
+          timer = setTimeout(() => reject(new IncusAdmissionReadinessError("readiness_unavailable", "deadline_exceeded")), timeoutMs);
         })]);
         return validateIncusAdmissionObservation(observation, pin);
+      } catch (error) {
+        throw error instanceof IncusAdmissionReadinessError ? error : new IncusAdmissionReadinessError("readiness_unavailable");
       } finally { clearTimeout(timer!); }
     };
   }
