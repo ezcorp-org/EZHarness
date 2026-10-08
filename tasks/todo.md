@@ -5914,3 +5914,12 @@ Added (w00/wave4h/leftover-additions.md, coordinator 2026-10-04, and the W4H mer
 - [x] Hook noise: scripts/lib/hook-lib.sh "printf: Broken pipe" (grep -q early close) was fixed by W4H-3 (491b7cc22): 8 lines in the
       W4H-5 hook log, 0 in every hook log from the W4H-3 merge on (W4H-3, W10c, W4H-1, W4H-3b, W4H-3c).
 - [x] W4H-3c: scripts/**/*.test.ts join the CI typecheck program (merged 392dac7dd).
+
+## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
+
+- [ ] R1 reproduce red in the W4H-6 runner-shaped container (resources and content shards, the hosted job's steps), with the per-installation timeline.
+- [ ] R2 root cause from the timeline: (a) total wall clock, (b) a stall, or (c) both.
+- [ ] R3 fix at the root: the wait ends on no progress (a live lease is expected silence); the total is a safety net sized from the measured 4-CPU rate, named once and read by every caller (the delivery proof's copied 480 s goes); the timeout error names each installation's state and elapsed time.
+- [ ] R4 unit tests (fake clock, fake client): progress keeps the wait alive, no progress ends it, the error names the stuck installations; 100 percent of new and changed lines.
+- [ ] R5 green in the same container: content, resources, delivery and recovery shards, one run each.
+- [ ] Legs: typecheck, lint, hook-mapped suites with lcov, new-file and patch coverage, CRAP, guard set, gate-integrity, prune scan.

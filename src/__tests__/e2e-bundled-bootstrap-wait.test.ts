@@ -2,8 +2,9 @@
  * The real-server global setups wait here before any spec builds. The wait
  * must count only unfinished build operations of live installations, ignore
  * a staging burst that has not finished, fail closed when nothing is ever
- * staged or the builds never settle, and report the server's own words when
- * the control API refuses.
+ * staged or the builds stop moving (the shared progress policy,
+ * scripts/lib/bundled-bootstrap-progress.ts), keep waiting while they move,
+ * and report the server's own words when the control API refuses.
  */
 import { describe, expect, test } from "bun:test";
 import { waitForBundledBootstrap, readBundledBootstrapStatus } from "../../web/e2e/fixtures/bundled-bootstrap";
@@ -45,7 +46,9 @@ describe("readBundledBootstrapStatus", () => {
       { id: "d", builds: ["failed", "cancelled"] },
       { id: "gone", uninstalled: true, builds: ["queued"] },
     ]]);
-    expect(await readBundledBootstrapStatus(server.request, "http://server")).toEqual({ installations: 4, pending: 3 });
+    const status = await readBundledBootstrapStatus(server.request, "http://server");
+    expect(status).toMatchObject({ installations: 4, pending: 3 });
+    expect(status.builds.map(({ name, operationId, state }) => [name, operationId, state])).toEqual([["a", "build-0", "queued"], ["b", "build-0", "building"], ["c", "build-0", "verifying"], ["d", "build-0", "failed"]]);
     expect(server.calls[0]).toEqual({ tool: "extensions_workspace", input: { action: "list" } });
     expect(server.calls.filter((call) => call.tool === "extensions_inspect").map((call) => call.input.installationId)).toEqual(["a", "b", "c", "d"]);
   });
@@ -71,9 +74,20 @@ describe("waitForBundledBootstrap", () => {
     await expect(waitForBundledBootstrap(server.request, "http://server", { ...server.options, stagingTimeoutMs: 3_000 })).rejects.toThrow(/No bundled installation was staged within 3000ms/);
   });
 
-  test("fails closed when builds never settle within the settle bound", async () => {
+  test("fails closed when the builds stop moving for the shared stall limit, naming each unverified build", async () => {
     const server = fakeServer([[{ id: "a", builds: ["queued", "building"] }]]);
-    await expect(waitForBundledBootstrap(server.request, "http://server", { ...server.options, settleTimeoutMs: 4_000 })).rejects.toThrow(/did not settle within 4000ms \(2 pending across 1 installations\)/);
+    await expect(waitForBundledBootstrap(server.request, "http://server", server.options)).rejects.toThrow(
+      /did not settle \(2 pending across 1 installations\): no build changed state for 120\.0 s \(stall limit 120\.0 s\); 0 of 1 verified after 120\.0 s, .*not verified: a queued$/,
+    );
+  });
+
+  test("keeps waiting past the old flat 600 s while the builds keep moving", async () => {
+    // Twenty serial builds: the shared safety net is 20 x 38 s + 360 s + 120 s = 1240 s, well past 700 s.
+    const ids = Array.from({ length: 20 }, (_, index) => `ext-${index}`);
+    const moving: Snapshot[] = Array.from({ length: 700 }, (_, poll) => ids.map((id) => ({ id, builds: [poll % 2 === 0 ? "queued" : "building"] })));
+    const done: Snapshot = ids.map((id) => ({ id, builds: ["verified"] }));
+    const server = fakeServer([...moving, done, done]);
+    expect(await waitForBundledBootstrap(server.request, "http://server", server.options)).toEqual({ installations: 20, pending: 0, elapsedMs: 701_000 });
   });
 
   test("surfaces the control API's own refusal instead of polling through it", async () => {

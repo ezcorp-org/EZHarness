@@ -17,6 +17,15 @@
  * `NODE_ENV=production` keeps `/api/__test/**` closed.
  */
 import type { InstallationRecord, InstallationState } from "../../../src/extensions/v4/types";
+import {
+  BUNDLED_BOOTSTRAP_POLICY,
+  type BundledBootstrapBuild,
+  type BundledBootstrapPolicy,
+  BundledBootstrapProgress,
+  describeBundledBootstrapVerdict,
+  isPendingBuildState,
+  latestBuild,
+} from "../../../scripts/lib/bundled-bootstrap-progress";
 
 export interface BundledBootstrapStatus {
   /** Live installations the administrator owns; at setup time, the bundled ones. */
@@ -24,11 +33,13 @@ export interface BundledBootstrapStatus {
   /** Their build operations still queued, building or verifying. */
   pending: number;
 }
+/** The status plus each installation's newest build, for the shared progress clock. */
+export interface BundledBootstrapProgressStatus extends BundledBootstrapStatus { builds: BundledBootstrapBuild[] }
 export interface BundledBootstrapWaitOptions {
   /** Upper bound for the first installation to appear at all; fails closed. */
   stagingTimeoutMs?: number;
-  /** Upper bound for every build to leave queued/building/verifying. */
-  settleTimeoutMs?: number;
+  /** The settle policy; the shared one (scripts/lib/bundled-bootstrap-progress.ts) by default. */
+  policy?: BundledBootstrapPolicy;
   pollMs?: number;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
@@ -41,11 +52,9 @@ export interface ControlRequest {
 }
 
 const DEFAULT_STAGING_TIMEOUT_MS = 90_000;
-const DEFAULT_SETTLE_TIMEOUT_MS = 600_000;
 const DEFAULT_POLL_MS = 2_000;
 /** Consecutive quiet polls required, so a staging burst still in progress is not read as settled. */
 const QUIET_POLLS = 2;
-const PENDING_BUILD = /^(queued|building|verifying)$/;
 
 async function control<T>(request: ControlRequest, baseURL: string, tool: string, input: Record<string, unknown>): Promise<T> {
   const response = await request.post(`${baseURL}/api/extensions/control`, { data: { tool, input } });
@@ -53,14 +62,16 @@ async function control<T>(request: ControlRequest, baseURL: string, tool: string
   return (await response.json()) as T;
 }
 
-export async function readBundledBootstrapStatus(request: ControlRequest, baseURL: string): Promise<BundledBootstrapStatus> {
+export async function readBundledBootstrapStatus(request: ControlRequest, baseURL: string): Promise<BundledBootstrapProgressStatus> {
   const installations = (await control<InstallationRecord[]>(request, baseURL, "extensions_workspace", { action: "list" })).filter((installation) => !installation.uninstalled);
   let pending = 0;
+  const builds: BundledBootstrapBuild[] = [];
   for (const installation of installations) {
     const state = await control<InstallationState>(request, baseURL, "extensions_inspect", { installationId: installation.id });
-    pending += Object.values(state.operations).filter((operation) => operation.kind === "build" && PENDING_BUILD.test(operation.state)).length;
+    pending += Object.values(state.operations).filter((operation) => operation.kind === "build" && isPendingBuildState(operation.state)).length;
+    builds.push(latestBuild(installation.id, state));
   }
-  return { installations: installations.length, pending };
+  return { installations: installations.length, pending, builds };
 }
 
 export async function waitForBundledBootstrap(
@@ -69,15 +80,16 @@ export async function waitForBundledBootstrap(
   options: BundledBootstrapWaitOptions = {},
 ): Promise<BundledBootstrapWaitResult> {
   const stagingTimeoutMs = options.stagingTimeoutMs ?? DEFAULT_STAGING_TIMEOUT_MS;
-  const settleTimeoutMs = options.settleTimeoutMs ?? DEFAULT_SETTLE_TIMEOUT_MS;
   const pollMs = options.pollMs ?? DEFAULT_POLL_MS;
   const now = options.now ?? Date.now;
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const startedAt = now();
+  const progress = new BundledBootstrapProgress(startedAt, options.policy ?? BUNDLED_BOOTSTRAP_POLICY);
   let quietPolls = 0;
   for (;;) {
-    const status = await readBundledBootstrapStatus(request, baseURL);
-    const elapsedMs = now() - startedAt;
+    const { builds, ...status } = await readBundledBootstrapStatus(request, baseURL);
+    const nowMs = now();
+    const elapsedMs = nowMs - startedAt;
     if (status.installations > 0 && status.pending === 0) {
       quietPolls += 1;
       if (quietPolls >= QUIET_POLLS) return { ...status, elapsedMs };
@@ -87,8 +99,9 @@ export async function waitForBundledBootstrap(
     if (status.installations === 0 && elapsedMs >= stagingTimeoutMs) {
       throw new Error(`No bundled installation was staged within ${stagingTimeoutMs}ms; the real server did not run its bundled bootstrap.`);
     }
-    if (elapsedMs >= settleTimeoutMs) {
-      throw new Error(`Bundled bootstrap builds did not settle within ${settleTimeoutMs}ms (${status.pending} pending across ${status.installations} installations).`);
+    const verdict = status.installations > 0 ? progress.observe(builds, nowMs) : null;
+    if (verdict) {
+      throw new Error(`Bundled bootstrap builds did not settle (${status.pending} pending across ${status.installations} installations): ${describeBundledBootstrapVerdict(verdict)}`);
     }
     await sleep(pollMs);
   }
