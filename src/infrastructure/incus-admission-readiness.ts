@@ -213,17 +213,18 @@ export class IncusAdmissionReadinessService {
     if (claimed?.baselineDigest !== ready.baselineDigest) throw new IncusAdmissionReadinessError("readiness_unavailable");
   }
 
-  async assertDispatch(binding: SandboxBinding, operation: SandboxOperation): Promise<void> {
+  async assertDispatch(binding: SandboxBinding, operation: SandboxOperation): Promise<IncusAdmissionReady> {
     const [claim] = releaseRows<{ baselineDigest: string; validUntil: Date | string }>(await this.db.execute(sql`
       SELECT baseline_digest AS "baselineDigest", valid_until AS "validUntil" FROM incus_admission_claims
       WHERE binding_id = ${binding.id} AND idempotency_scope = ${operation.idempotencyScope} AND idempotency_key = ${operation.idempotencyKey}`));
     if (!claim) throw new IncusAdmissionReadinessError("readiness_unavailable");
     const current = await this.check({ installationId: binding.providerInstallationId, releaseId: binding.providerReleaseId,
-      connectionId: binding.connectionId, presetId: binding.presetId! });
+      connectionId: binding.connectionId, presetId: binding.presetId! }, false);
     requireSame(claim.baselineDigest, current.baselineDigest, "readiness_unavailable");
     await new SandboxAdmissionStore(this.db).authorizeReservedAdmission({ bindingId: binding.id,
       generation: operation.generation, kind: operation.kind as "CREATE" | "START",
       idempotencyScope: operation.idempotencyScope, idempotencyKey: operation.idempotencyKey },
       transaction => this.claim(binding.id, operation, current, transaction));
+    return current;
   }
 }

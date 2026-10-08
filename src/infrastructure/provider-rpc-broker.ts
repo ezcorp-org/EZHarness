@@ -9,7 +9,7 @@ import { ContractError, canonicalJson, sandboxPresetDigest, validateSandboxProvi
 import { and, eq, sql, or, isNull, not, inArray, gte, exists } from "drizzle-orm";
 import { getDb, type Database } from "../db/connection";
 import { releaseRows } from "../db/queries/extension-releases";
-import { sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
+import { projects, sandboxBindings, sandboxOperations, sandboxCleanupRecoveries, sandboxReservations, type SandboxBinding, type SandboxOperation } from "../db/schema";
 import type { ActiveExtensionRelease } from "../extensions/release-process";
 import { HostIncusProbeTransport, type HostConnectionResolver, type HostConnectionScope } from "./incus-transport/transport";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
@@ -661,14 +661,40 @@ export class ProviderRpcBroker {
     await controller.recordProviderObservation(identity.requestId, observation.operationId, outcome, scope.settlementScope);
   }
 
+  private async authorizeAdmissionDispatch(scope: PreparedIncusProbe): Promise<(() => void) | undefined> {
+    if (!isAction(scope) || scope.operation !== "lifecycle.create"
+      && !(scope.operation === "lifecycle.setPower" && (scope.expectedCommand.payload as Record<string, unknown>).desiredState === "running")) return;
+    try {
+      const [binding] = await this.database.select().from(sandboxBindings).where(eq(sandboxBindings.id, scope.bindingId)).limit(1);
+      const [project] = binding ? await this.database.select({ purpose: projects.purpose }).from(projects)
+        .where(eq(projects.id, binding.projectId)).limit(1) : [];
+      if (project?.purpose === "incus-qualification") return;
+      if (!binding || project?.purpose !== "user") throw new Error("Admission scope unavailable");
+      const [operation] = await this.database.select().from(sandboxOperations)
+        .where(eq(sandboxOperations.id, scope.expectedCommand.idempotency?.requestId ?? "")).limit(1);
+      if (!operation || operation.bindingId !== binding.id || operation.generation !== binding.generation
+        || operation.kind !== (scope.operation === "lifecycle.create" ? "CREATE" : "START")) throw new Error("Admission journal unavailable");
+      const [{ IncusAdmissionReadinessService }, { IncusQualificationStore }] = await Promise.all([
+        import("./incus-admission-readiness"), import("./incus-qualification")]);
+      const service = new IncusAdmissionReadinessService(this.database, new IncusQualificationStore({ db: this.database }));
+      const ready = await service.assertDispatch(binding, operation);
+      return () => service.assertDeadline(ready);
+    } catch {
+      throw new IncusTransportError("permission", "Current Incus admission readiness is unavailable", { effect: "none" });
+    }
+  }
+
   private async requestTransport(scope: PreparedIncusProbe, reviewedScope: PreparedIncusProbe,
     transportCommand: IncusTransportRequest, deadline: number, signal?: AbortSignal): Promise<JsonValue> {
+    const assertAdmissionDeadline = await this.authorizeAdmissionDispatch(scope);
     const observation = isAction(scope) && lifecycleObservationOperations.has(scope.operation) ? await this.reserveObservation(scope) : undefined;
       try {
         const dispatchSignal = observation ? AbortSignal.any([observation.abort.signal, ...(signal ? [signal] : [])]) : signal;
         const transport = isAction(scope)
           ? this.actionTransportFactory(scope, dispatchSignal, id => this.recordLifecycleAcceptance(scope, id), observation => this.recordLifecycleTerminal(scope, observation))
           : this.transportFactory(reviewedScope, signal);
+        try { assertAdmissionDeadline?.(); }
+        catch { throw new IncusTransportError("permission", "Incus admission readiness expired before transport", { effect: "none" }); }
         const invocation = transport.request({ ...transportCommand, deadlineMs: Math.min(transportCommand.deadlineMs, deadline) });
         if (observation) observation.dispatch = invocation;
         return await invocation as JsonValue;

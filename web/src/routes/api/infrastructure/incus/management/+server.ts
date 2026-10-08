@@ -26,6 +26,46 @@ interface FeatureRow {
   cleanupConfirmedAt: Date | null; operation: { id: string } | null; cleanupJournal: CleanupJournal;
 }
 
+type ActiveRelease = Awaited<ReturnType<typeof resolveActiveRelease>>;
+type Preset = NonNullable<ActiveRelease["release"]["manifest"]["sandboxProviders"]>[number]["presets"][number];
+
+async function environmentStatus(db: ReturnType<typeof getDb>, qualifications: IncusQualificationStore,
+  connection: Connection, active: ActiveRelease, preset: Preset) {
+  const scope = { installationId: connection.installationId, releaseId: connection.releaseId,
+    connectionId: connection.connectionId, presetId: preset.id };
+  let qualification = await qualifications.load(scope);
+  const fullQualificationValidUntil = qualification?.validUntil ?? null;
+  let admissionReason: "qualification_expired" | "readiness_unavailable" | "capacity_full" | null = null;
+  let admissionValidUntil: string | null = null;
+  let baselineRunId: string | null = null;
+  try {
+    const ready = await new IncusAdmissionReadinessService(db, qualifications).check(scope);
+    qualification = ready.qualification;
+    baselineRunId = ready.baselineRunId;
+    admissionValidUntil = new Date(ready.validUntil).toISOString();
+  } catch (error) {
+    admissionReason = error instanceof IncusAdmissionReadinessError ? error.code : "readiness_unavailable";
+  }
+  const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt"
+    FROM incus_qualification_runs WHERE scope = ${JSON.stringify(scope)}::jsonb
+    AND connection_revision = ${connection.connectionRevision}
+    ORDER BY deadline_at DESC, run_id DESC LIMIT 1`));
+  const running = run && ["AWAITING_RESTART", "CLAIMED"].includes(run.state)
+    && new Date(run.deadlineAt).getTime() > Date.now();
+  const failed = run && run.state !== "COMPLETED" && !running;
+  return { ...connection, releaseGeneration: active.installation.generation,
+    presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile, limits: preset.limits,
+    qualified: admissionReason === null && !running, qualificationValidUntil: admissionValidUntil,
+    fullQualificationValidUntil: fullQualificationValidUntil ?? qualification?.validUntil ?? null, admissionReason,
+    qualificationState: running ? "running" : admissionReason === null ? "qualified" : failed ? "failed" : "not_qualified",
+    qualificationRunId: running ? run?.runId ?? null : admissionReason === null ? baselineRunId : run?.runId ?? null,
+    lastQualificationRunId: run?.runId ?? null, baselineRunId,
+    blockedReason: running ? "Qualification is running." : admissionReason === null ? null
+      : admissionReason === "qualification_expired" ? "Run qualification before creating a sandbox."
+        : admissionReason === "capacity_full" ? "The Incus host has no free capacity."
+          : "Host readiness is unavailable. Verify the upgraded supervisor, reviewed SSH gate and authority configuration, then retry readiness." };
+}
+
 /** Read-only operator view. Actions recheck authority and qualification before admission. */
 export const GET: RequestHandler = async ({ locals }) => {
   const admin = requireAdminSession(locals);
@@ -88,39 +128,7 @@ export const GET: RequestHandler = async ({ locals }) => {
       if (provider?.protocolMajor !== 1) continue;
       for (const preset of provider.presets) {
         if (environments.length === pageSize) { truncated = true; break; }
-        const scope = { installationId: connection.installationId, releaseId: connection.releaseId,
-          connectionId: connection.connectionId, presetId: preset.id };
-        let qualification = await qualifications.load(scope);
-        const fullQualificationValidUntil = qualification?.validUntil ?? null;
-        let admissionReason: "qualification_expired" | "readiness_unavailable" | "capacity_full" | null = null;
-        let admissionValidUntil: string | null = null;
-        let baselineRunId: string | null = null;
-        try {
-          const ready = await new IncusAdmissionReadinessService(db, qualifications).check(scope);
-          qualification = ready.qualification;
-          baselineRunId = ready.baselineRunId;
-          admissionValidUntil = new Date(ready.validUntil).toISOString();
-        } catch (error) {
-          admissionReason = error instanceof IncusAdmissionReadinessError ? error.code : "readiness_unavailable";
-        }
-        const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt"
-          FROM incus_qualification_runs WHERE scope = ${JSON.stringify(scope)}::jsonb
-          AND connection_revision = ${connection.connectionRevision}
-          ORDER BY deadline_at DESC, run_id DESC LIMIT 1`));
-        const running = run && ["AWAITING_RESTART", "CLAIMED"].includes(run.state)
-          && new Date(run.deadlineAt).getTime() > Date.now();
-        const failed = run && run.state !== "COMPLETED" && !running;
-        environments.push({ ...connection, releaseGeneration: active.installation.generation,
-          presetId: preset.id, label: `${connection.label} · ${preset.id}`, profile: preset.profile, limits: preset.limits,
-          qualified: admissionReason === null && !running, qualificationValidUntil: admissionValidUntil,
-          fullQualificationValidUntil: fullQualificationValidUntil ?? qualification?.validUntil ?? null, admissionReason,
-          qualificationState: running ? "running" : admissionReason === null ? "qualified" : failed ? "failed" : "not_qualified",
-          qualificationRunId: running ? run?.runId ?? null : admissionReason === null ? baselineRunId : run?.runId ?? null,
-          lastQualificationRunId: run?.runId ?? null, baselineRunId,
-          blockedReason: running ? "Qualification is running." : admissionReason === null ? null
-            : admissionReason === "qualification_expired" ? "Run qualification before creating a sandbox."
-              : admissionReason === "capacity_full" ? "The Incus host has no free capacity."
-                : "Host readiness is unavailable. Retry the readiness check." });
+        environments.push(await environmentStatus(db, qualifications, connection, active, preset));
       }
     }
     return json({ environments, projects: projects.slice(0, pageSize), features: features.slice(0, pageSize), truncated },

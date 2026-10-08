@@ -1362,3 +1362,26 @@ for (const mode of ["pending", "unconsumed_unknown", "expired_arm", "permission_
     expect((await fixture.admission.getReservation(handle.sandboxId))?.diskState).not.toBe("RELEASED");
   });
 }
+
+
+test("primary qualification captures protected authority before allocating any fixture", async () => {
+  const { service, dispatches, db } = await setup();
+  const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+  const previous = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = "/fixture/control.sock";
+  const capture = spyOn(IncusAdmissionReadinessService.prototype, "capture").mockRejectedValue(new Error("protected authority unavailable"));
+  try {
+    await expect(service.create(scope, "qual-primary-daily")).rejects.toThrow("protected authority unavailable");
+    expect(dispatches).toHaveLength(0);
+    expect(await db.select().from(schema.projects)).toHaveLength(0);
+    capture.mockImplementation(async (selected, runId) => {
+      expect(selected).toEqual(scope); expect(runId).toBe("daily"); expect(dispatches).toHaveLength(0);
+    });
+    expect((await service.create(scope, "qual-primary-daily")).state).toBe("SUCCEEDED");
+    expect(dispatches).toHaveLength(1);
+  } finally {
+    capture.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+    else process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = previous;
+  }
+});

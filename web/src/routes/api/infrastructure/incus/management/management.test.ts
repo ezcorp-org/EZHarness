@@ -5,6 +5,7 @@ import { IncusAdmissionReadinessError } from "../../../../../../../src/infrastru
 let rows: unknown[][];
 let queries = 0;
 let fail = false;
+let admissionFailure: "qualification_expired" | "readiness_unavailable" | "capacity_full" | null = null;
 let qualification: { validUntil: string } | null;
 let active: Record<string, unknown>;
 const connection = { installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1, label: "Development", setupId: null };
@@ -22,6 +23,7 @@ mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: ()
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { return qualification; } } }));
 mock.module("$server/infrastructure/incus-admission-readiness", () => ({ IncusAdmissionReadinessService: class {
   async check() {
+    if (admissionFailure) throw new IncusAdmissionReadinessError(admissionFailure);
     if (!qualification) throw new IncusAdmissionReadinessError("qualification_expired");
     return { qualification, validUntil: Date.parse(qualification.validUntil), baselineRunId: "baseline-run" };
   }
@@ -32,7 +34,7 @@ const request = (locals: unknown = admin) => GET({ locals } as Parameters<typeof
 
 beforeEach(() => {
   rows = [[connection], [{ id: "project", name: "Project" }], [], []]; queries = 0; fail = false;
-  qualification = null;
+  qualification = null; admissionFailure = null;
   active = { installation: { generation: 3 }, release: { id: "release", manifest: { sandboxProviders: [{ id: "incus", kind: "sandbox", protocolMajor: 1, presets: [preset] }] } } };
 });
 
@@ -103,4 +105,14 @@ test("sanitizes failures without leaking database diagnostics", async () => {
   const broken = await request();
   expect(broken.status).toBe(503);
   expect(await broken.text()).not.toContain("SECRET");
+});
+
+
+test("readonly host failure and capacity exhaustion keep full qualification distinct", async () => {
+  qualification = { validUntil: "2999-01-01T00:00:00Z" };
+  for (const reason of ["readiness_unavailable", "capacity_full"] as const) {
+    admissionFailure = reason; rows = [[connection], [], [], []];
+    expect((await (await request()).json()).environments[0]).toMatchObject({ qualified: false,
+      admissionReason: reason, qualificationValidUntil: null, fullQualificationValidUntil: qualification.validUntil });
+  }
 });

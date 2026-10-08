@@ -78,7 +78,9 @@ function publicOperation(operation: typeof sandboxOperations.$inferSelect) {
 }
 
 function safeFailure(error: unknown): Response {
-  if (error instanceof IncusAdmissionReadinessError) return json({ code: error.code, message: "Incus admission requires current qualification and host readiness." }, { status: 409 });
+  if (error instanceof IncusAdmissionReadinessError) return json({ code: error.code, message: error.code === "readiness_unavailable"
+    ? "Verify the upgraded supervisor, reviewed SSH gate and authority configuration, then retry readiness."
+    : "Incus admission requires current qualification and free host capacity." }, { status: 409 });
   if (error instanceof IncusStopRequiredError) return json({ code: "stop_required", message: "Stop this sandbox before disposal." }, { status: 409 });
   if (error instanceof IncusCleanupRecoveryUnavailableError) return json({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." }, { status: 409 });
   const message = error instanceof Error ? error.message : "";

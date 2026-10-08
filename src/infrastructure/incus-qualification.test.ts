@@ -315,3 +315,30 @@ test("a separately pinned baseline validates the unchanged full receipt after it
     revision--;
   } finally { now = previous; }
 });
+
+test("claimed qualification prepares baseline before atomically storing receipt and completion", async () => {
+  const { spyOn } = await import("bun:test");
+  const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+  const { IncusQualificationCheckpointStore } = await import("./incus-qualification-checkpoint");
+  const previous = process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = "/fixture/control.sock";
+  const events: string[] = [];
+  const prepare = spyOn(IncusAdmissionReadinessService.prototype, "prepareBaseline").mockImplementation(async (selected, runId, qualification) => {
+    expect(selected).toEqual(scope); expect(runId).toBe("claimed"); events.push("prepare");
+    return { scope: selected, runId, qualification } as Awaited<ReturnType<IncusAdmissionReadinessService["prepareBaseline"]>>;
+  });
+  const record = spyOn(IncusAdmissionReadinessService.prototype, "recordBaseline").mockImplementation(async (_prepared, transaction) => {
+    expect(transaction).not.toBe(db); events.push("baseline");
+  });
+  const complete = spyOn(IncusQualificationCheckpointStore.prototype, "complete").mockImplementation(async (claim, transaction) => {
+    expect(claim).toEqual({ runId: "claimed", nonce: "nonce", scope }); expect(transaction).not.toBe(db); events.push("complete");
+  });
+  try {
+    expect(await store.recordVerified(scope, cases(), { runId: "claimed", nonce: "nonce" })).toMatchObject({ producer: "live-provider" });
+    expect(events).toEqual(["prepare", "baseline", "complete"]);
+  } finally {
+    prepare.mockRestore(); record.mockRestore(); complete.mockRestore();
+    if (previous === undefined) delete process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+    else process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = previous;
+  }
+});

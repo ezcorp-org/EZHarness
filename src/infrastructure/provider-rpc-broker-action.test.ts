@@ -34,7 +34,7 @@ async function setup(reply: (command: IncusTransportRequest) => unknown = () => 
   await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
-  await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/project" });
+  await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/project", purpose: "incus-qualification" });
   const controller = new SandboxController(db, {
     dispatch: async () => { throw new Error("unexpected dispatch"); },
     inspectOperation: async () => { throw new Error("unexpected inspection"); },
@@ -457,7 +457,7 @@ async function observationFixture() {
     const bindingId = `observation-${index}`;
     const id = `observation-journal-${index}`;
     const [original] = await fixture.db.select().from(schema.sandboxBindings).where(eq(schema.sandboxBindings.id, "binding"));
-    await fixture.db.insert(schema.projects).values({ id: bindingId, name: bindingId, path: `/work/${bindingId}` });
+    await fixture.db.insert(schema.projects).values({ id: bindingId, name: bindingId, path: `/work/${bindingId}`, purpose: "incus-qualification" });
     const [binding] = await fixture.db.insert(schema.sandboxBindings).values({ ...original!, id: bindingId, projectId: bindingId,
       resourceKey: bindingId, currentOperationId: id, desiredState: recovery ? "ABSENT" : "STOPPED",
       observedState: "UNKNOWN", tombstonedAt: recovery ? new Date(now) : null }).returning();
@@ -974,4 +974,49 @@ test("two controllers preserve active START through stable and native acceptance
   expect(await controller.inspectOperation(id)).toMatchObject({ state: "OUTCOME_UNKNOWN", providerOperationId: nativeId });
   expect(inspections).toBe(1);
   await broker.stopObservations();
+});
+
+for (const kind of ["CREATE", "START"] as const) test(`native user ${kind} rechecks readiness after worker delay and denies expired proof before transport`, async () => {
+  const { broker, calls, scope, db, connections } = await setup(() => ({ ok: true }));
+  await db.update(schema.projects).set({ purpose: "user" });
+  const input = { providerId: "incus", connectionId: "connection", sandboxId: "binding", rpcDeadlineMs: Date.now() + 30_000,
+    requestId: "daily-create", idempotencyKey: "daily-create", desiredState: "running", profile: "linux-exec.v1", presetId: "incus-linux-exec-v1",
+    presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64), limits: {} };
+  await db.insert(schema.sandboxOperations).values({ id: input.requestId, bindingId: "binding", kind, generation: 1,
+    idempotencyScope: "feature", idempotencyKey: input.idempotencyKey, payloadHash: "daily", requestPayload: {}, state: "DISPATCHING" });
+  await db.update(schema.sandboxBindings).set({ currentOperationId: input.requestId });
+  const action = () => scope(kind === "CREATE" ? "lifecycle.create" : "lifecycle.setPower", input);
+  let selected = action();
+  expect(await broker.request(selected, { command: selected.expectedCommand }, input.rpcDeadlineMs))
+    .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });
+  expect(calls).toHaveLength(0);
+  const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+  let validUntil = Date.now() + 15_000;
+  const authorize = spyOn(IncusAdmissionReadinessService.prototype, "assertDispatch").mockImplementation(async (binding, operation) => {
+    expect(binding.id).toBe("binding"); expect(operation.id).toBe(input.requestId);
+    return { validUntil } as Awaited<ReturnType<IncusAdmissionReadinessService["assertDispatch"]>>;
+  });
+  try {
+    selected = action();
+    expect(await broker.request(selected, { command: selected.expectedCommand }, input.rpcDeadlineMs)).toMatchObject({ ok: true });
+    expect(calls).toHaveLength(1);
+    const [original] = await db.select().from(schema.sandboxBindings).where(eq(schema.sandboxBindings.id, "binding"));
+    await db.insert(schema.projects).values({ id: "foreign", name: "foreign", path: "/work/foreign" });
+    await db.insert(schema.sandboxBindings).values({ ...original!, id: "foreign", projectId: "foreign", resourceKey: "foreign", currentOperationId: null });
+    await db.update(schema.sandboxOperations).set({ bindingId: "foreign" }).where(eq(schema.sandboxOperations.id, input.requestId));
+    selected = action();
+    expect(await broker.request(selected, { command: selected.expectedCommand }, input.rpcDeadlineMs))
+      .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });
+    expect(calls).toHaveLength(1);
+    await db.update(schema.sandboxOperations).set({ bindingId: "binding" }).where(eq(schema.sandboxOperations.id, input.requestId));
+    const delayed = new ProviderRpcBroker(connections, undefined, db, () => {
+      validUntil = Date.now() - 1;
+      return { request: async () => { throw new Error("expired admission reached transport"); } };
+    });
+    // Expire after the fresh check, during transport construction.
+    authorize.mockImplementation(async () => ({ get validUntil() { return validUntil; } }) as Awaited<ReturnType<IncusAdmissionReadinessService["assertDispatch"]>>);
+    validUntil = Date.now() + 15_000; selected = action();
+    expect(await delayed.request(selected, { command: selected.expectedCommand }, input.rpcDeadlineMs))
+      .toMatchObject({ ok: false, error: { kind: "permission", effect: "none" } });
+  } finally { authorize.mockRestore(); }
 });

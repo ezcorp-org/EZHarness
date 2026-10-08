@@ -176,6 +176,8 @@ test("a delayed dispatch renews the same baseline under actual quota and reserva
   const operation = await controller.journalOperation({ ...request, payload: {} });
   await expect(f.service.assertDispatch(binding, { ...operation, idempotencyKey: "missing" })).rejects.toThrow("readiness_unavailable");
   f.setNow(f.getNow() + 3_600_000);
+  f.source.observation.capacity.availableMemoryBytes = 0;
+  f.source.observation.capacity.poolFreeBytes = 0;
   await f.service.assertDispatch(binding, operation);
   const [claim] = releaseRows<{ validUntil: Date }>(await f.db.execute(sql`SELECT valid_until AS "validUntil" FROM incus_admission_claims`));
   expect(new Date(claim!.validUntil).getTime()).toBe(f.getNow() + 15_000);
