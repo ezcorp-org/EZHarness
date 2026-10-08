@@ -747,3 +747,9 @@
 
 - 2026-10-08: Real-auth files share durable database state. Scope row actions to the unique record created by the case and test with another valid record present. Do not assume one Copy Link button.
 - 2026-10-08: Default Playwright startup rebuilds generated artifacts. Use a separate worktree for focused reproduction while a frozen full gate consumes its mapped build; never modify its generated outputs.
+
+- 2026-10-08: Direct Playwright browser coverage must run from web/, because the fixture resolves build/client relative to process.cwd(). Check the supported command cwd and exact coverage OUTPUT variable before expensive global setup. Preserve pre-test setup failures separately from browser failures.
+
+- 2026-10-08: Register every new HTTP method in src/api-registry.ts, even when the path already exists. Bind its scope and body schema in the docs schema map; verify route contract before source freeze.
+
+- Reuse the API email schema in the form. Native email validity accepts domains that the API rejects. Test `a@b` as well as blank input.

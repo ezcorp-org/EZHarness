@@ -102,6 +102,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // SCOPE. Minting an invite carries a `role`, so a nominally read-only
   // admin-role key could otherwise hand out an ADMIN invite.
   { method: "POST", path: "/api/auth/invite", description: "Create user invitation link (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "createInviteSchema" },
+  { method: "DELETE", path: "/api/auth/invite", description: "Delete an invitation by private ID (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "deleteInviteSchema" },
   { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations (admin role + admin scope)", category: "auth", scope: "admin", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
   // Had the SAME defect F5 fixed for invite, and is fixed the same way:

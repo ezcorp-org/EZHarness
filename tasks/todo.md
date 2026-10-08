@@ -3597,3 +3597,11 @@ Review: Reproduced thirteen real broker lifecycle fixture failures and the missi
 - [x] Obtain independent source review and commit test-only correction.
 
 Review: Actual two-invite RED reproduced the strict Copy Link ambiguity. All five real signup browser cases pass after exact email-row selection; full typecheck passes all four legs. Readiness owner independently reviewed the diff. Three network-affected browser cases also pass unchanged in a separate replay. Production source, locks, and the installed release bundle remain unchanged.
+
+## Hosted invite coverage follow-up
+- [x] Reproduce exact hosted missed declaration lines24/37 from saved LCOV; component9tests already green.
+- [x] Add real admin create/delete UI journey with durable API/reload checks.
+- [x] Run six real-auth browser cases; create/delete persisted checks pass.
+- [x] Run all four typecheck legs, 34 focused tests, build, Biome, and independent source review.
+
+Review: DELETE requires admin scope, exact origin (or scoped key), and a closed private-ID body; registry/docs include the method. The form uses the API email schema and denies blank/invalid-domain values. Focused route coverage is 32/32 lines; highest route CRAP is 7. Six real-auth cases pass. Full PR coverage is not claimed; successful visual attachment replay remains active.
