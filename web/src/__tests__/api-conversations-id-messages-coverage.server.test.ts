@@ -238,7 +238,10 @@ beforeEach(() => {
     }),
   );
   vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
-  streamChat.mockReturnValue({ catch: (_cb: any) => Promise.resolve() } as any);
+  streamChat.mockImplementation((_conversationId: string, _content: string, options: { runId: string; onRunRegistered?: () => void }) => {
+    options.onRunRegistered?.();
+    return Promise.resolve({ id: options.runId });
+  });
 
   // Attachment-pipeline defaults — most tests don't ship files so these
   // only matter when a test opts into multipart.
@@ -605,10 +608,9 @@ describe("POST — EZ Actions", () => {
 // ── POST handler — streamPromise.catch logs error without throwing ──
 
 describe("POST — streamChat rejection is logged via streamPromise.catch", () => {
-  test("rejected streamChat doesn't crash the response", async () => {
+  test("rejected streamChat fails admission without returning a run ID", async () => {
     // streamChat returns a rejected promise — the route attaches a
-    // `.catch` handler that just logs. The HTTP response still returns
-    // 200 because the route doesn't await the stream completion.
+    // `.catch` handler that logs; before registration, the response is 503.
     let rejected: Promise<unknown>;
     streamChat.mockImplementation(() => {
       rejected = Promise.reject(new Error("stream boom"));
@@ -622,7 +624,7 @@ describe("POST — streamChat rejection is logged via streamPromise.catch", () =
     const res = await POST(
       makeJsonPostEvent({ body: { content: "hi" } }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(streamChat).toHaveBeenCalledTimes(1);
     // Wait one microtask so the route's `.catch` handler runs and the
     // log line is emitted — proves the catch arm executed at least once

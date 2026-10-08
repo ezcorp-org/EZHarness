@@ -1044,6 +1044,8 @@ export class AgentExecutor {
     options: { projectId?: string; workingDir?: string; workspaceTarget?: import("./workspaces/target").WorkspaceTarget; provider?: string; model?: string; tier?: import("./tier-classifier").RoutingTier; system?: string; runId?: string; parentMessageId?: string; agentConfigId?: string; permissionMode?: import("./tools/types").PermissionMode; thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh"; modeId?: string; orchestrationDepth?: number; toolRestriction?: "all" | "read-only" | "none"; allowedTools?: string[]; deniedTools?: string[]; readOnlyAllowedTools?: string[]; memberOverrides?: Map<string, import("../types").TeamMemberOverrides>; subAgentMembers?: import("../types").TeamMember[]; attachments?: import("../chat/attachments/content-builder").StagedAttachment[]; commandResolver?: import("./mention-wiring").CommandResolver;
       /** Authenticated run-start principal supplied by host routes, never request input. */
       workspacePrincipal?: import("./workspaces/target").SandboxWorkspacePrincipal;
+      /** Called once the run and its ownership are visible, including the durable row. */
+      onRunRegistered?: () => void;
       /**
        * ── Per-API-key tool policy (Boundary 3) ──────────────────────────
        * Two scalars, BOTH defaulting to undefined so that a cookie session
@@ -1122,8 +1124,18 @@ export class AgentExecutor {
     };
 
     if (this.persist) {
-      await dbRuns.insertRun(run, options.projectId, undefined, conversationId);
+      try {
+        await dbRuns.insertRun(run, options.projectId, undefined, conversationId);
+      } catch (error) {
+        // No run started, and no durable row exists. Clear the reservation so a retry can start.
+        this.controllers.delete(run.id);
+        this.runs.delete(run.id);
+        this.workspaceTargets.delete(run.id);
+        this.runConversations.delete(run.id);
+        throw error;
+      }
     }
+    options.onRunRegistered?.();
 
     this.bus.emit("run:start", { run, runId: run.id });
     this.bus.emit("run:status", { runId: run.id, status: "Loading conversation history..." });

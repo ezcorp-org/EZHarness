@@ -14,6 +14,8 @@ afterAll(() => {
 
 // ── Mocks (must precede any import that touches these modules) ──────
 let fixtureProjectId: string | null = null;
+let insertRunGate: Promise<void> | null = null;
+let insertRunCompleted = false;
 
 mock.module("../db/queries/conversations", () => ({
   getConversationPath: async () => [],
@@ -35,7 +37,7 @@ mock.module("../db/queries/active-runs", () => ({
 }));
 
 mock.module("../db/queries/runs", () => ({
-  insertRun: async () => {},
+  insertRun: async () => { await insertRunGate; insertRunCompleted = true; },
   updateRun: async () => {},
   insertLog: async () => {},
   listRuns: async () => [],
@@ -78,11 +80,13 @@ const mockRegistry = {
 // Re-establish all mocks before each test to survive concurrent restoreModuleMocks()
 beforeEach(() => {
   fixtureProjectId = null;
+  insertRunGate = null;
+  insertRunCompleted = false;
   mock.module("../db/connection", () => ({
     getDb: () => ({
       select: () => ({ from: () => ({ where: () => Object.assign(Promise.resolve([]), { limit: async () => [] }) }) }),
       insert: () => ({ values: async () => ({}) }),
-      update: () => ({ set: () => ({ where: async () => ({}) }) }),
+      update: () => ({ set: () => ({ where: () => Object.assign(Promise.resolve({}), { returning: async () => [] }) }) }),
       delete: () => ({ where: async () => ({}) }),
     }),
     getPglite: () => null,
@@ -197,6 +201,61 @@ import { EventBus } from "../runtime/events";
 // ── Tests ───────────────────────────────────────────────────────────
 
 describe("AgentExecutor.streamChat", () => {
+  test("a failed durable insert leaves no active run and permits a retry", async () => {
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>(), { persist: true });
+    let failInsert!: (error: Error) => void;
+    insertRunGate = new Promise<void>((_resolve, reject) => { failInsert = reject; });
+    const firstRunId = crypto.randomUUID();
+    const first = exec.streamChat("conv-1", "Hi", { runId: firstRunId });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(exec.getActiveRunForConversation("conv-1")?.id).toBe(firstRunId);
+
+    failInsert(new Error("database unavailable"));
+    await expect(first).rejects.toThrow("database unavailable");
+    expect(exec.getActiveRunForConversation("conv-1")).toBeUndefined();
+
+    insertRunGate = null;
+    const stopAfterRegistration = new Error("retry registered");
+    let registered = false;
+    await expect(exec.streamChat("conv-1", "Retry", {
+      runId: crypto.randomUUID(),
+      onRunRegistered: () => { registered = true; throw stopAfterRegistration; },
+    })).rejects.toBe(stopAfterRegistration);
+    expect(registered).toBe(true);
+  });
+
+  test("registers a run only after durable insert and in-memory ownership", async () => {
+    let releaseInsert!: () => void;
+    insertRunGate = new Promise<void>((resolve) => { releaseInsert = resolve; });
+    const exec = new AgentExecutor(new Map(), new EventBus<AgentEvents>(), { persist: true });
+    const runId = crypto.randomUUID();
+    const stopAfterRegistration = new Error("registration observed");
+    let acknowledged = false;
+    let durableAtAck = false;
+    let ownerAtAck: Promise<string | undefined> | undefined;
+    let runAtAck: Promise<unknown> | undefined;
+    const stream = exec.streamChat("conv-1", "Hi", {
+      runId,
+      onRunRegistered: () => {
+        acknowledged = true;
+        durableAtAck = insertRunCompleted;
+        ownerAtAck = exec.getRunConversationId(runId);
+        runAtAck = exec.getRun(runId);
+        throw stopAfterRegistration;
+      },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(acknowledged).toBe(false);
+    expect(exec.getActiveRunForConversation("conv-1")?.id).toBe(runId);
+    releaseInsert();
+    await expect(stream).rejects.toBe(stopAfterRegistration);
+    expect(acknowledged).toBe(true);
+    expect(durableAtAck).toBe(true);
+    expect(await ownerAtAck).toBe("conv-1");
+    expect((await (runAtAck as Promise<{ id: string }>))?.id).toBe(runId);
+  });
+
   test("streamChat yields tokens and completes run", async () => {
     // Mock Agent to emit specific text chunks
     setupPiAiMocks({ textChunks: ["Hello", " world"] });

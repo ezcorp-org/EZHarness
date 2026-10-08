@@ -605,6 +605,8 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 
   const executor = getExecutor();
   const runId = crypto.randomUUID();
+  let acknowledgeRun!: () => void;
+  const registered = new Promise<void>((resolve) => { acknowledgeRun = resolve; });
   log.debug("streamChat starting", {
     content: body.content.slice(0, 120),
     attachments: stagedAttachments.length,
@@ -621,6 +623,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
     provider,
     model,
     runId,
+    onRunRegistered: acknowledgeRun,
     parentMessageId: userMessage.id,
     agentConfigId: conv.agentConfigId ?? undefined,
     modeId: conv.modeId ?? undefined,
@@ -675,6 +678,17 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
           error: err instanceof Error ? err.message : String(err),
         });
       });
+  }
+
+  // A returned ID must already be visible to GET /api/runs/[id]?wait=1.
+  // Workspace admission and durable insertion happen inside streamChat.
+  try {
+    await Promise.race([
+      registered,
+      streamPromise.then(() => { throw new Error("Chat run finished before registration"); }),
+    ]);
+  } catch {
+    return errorJson(503, "Chat run could not start");
   }
 
   const userMessageWithAttachments =

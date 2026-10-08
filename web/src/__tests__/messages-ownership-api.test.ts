@@ -173,7 +173,10 @@ mock.module("$lib/server/security/resource-quotas", () => ({
 // chains lifecycle handlers onto it.
 const settled = Promise.resolve();
 const mockStreamChat = mock(
-  (_cid: string, _content: string, _opts: { model?: string; provider?: string }) => settled,
+  (_cid: string, _content: string, opts: { model?: string; provider?: string; onRunRegistered?: () => void }) => {
+    opts.onRunRegistered?.();
+    return settled;
+  },
 );
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({ streamChat: mockStreamChat }),
@@ -273,7 +276,10 @@ beforeEach(() => {
   mockGetActiveRun.mockReset();
   mockGetActiveRun.mockImplementation(async () => mockActiveRun);
   mockStreamChat.mockReset();
-  mockStreamChat.mockImplementation(() => settled);
+  mockStreamChat.mockImplementation((_cid, _content, opts) => {
+    opts.onRunRegistered?.();
+    return settled;
+  });
 });
 
 // ── The widened access: non-admin ROOT owner on a userId=null sub ────

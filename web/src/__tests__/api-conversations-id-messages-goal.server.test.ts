@@ -52,11 +52,15 @@ const createMessage = vi.fn();
 const insertAttachment = vi.fn();
 const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
-const streamChat = vi.fn(
-  (_conversationId: string, _userMessage: string, _options: Record<string, unknown>) => ({
-    catch: () => Promise.resolve(),
-  }),
-);
+const registeredStream = (
+  _conversationId: string,
+  _userMessage: string,
+  options: Record<string, unknown>,
+) => {
+  (options.onRunRegistered as (() => void) | undefined)?.();
+  return Promise.resolve({ id: options.runId });
+};
+const streamChat = vi.fn(registeredStream);
 const checkTokenBudget = vi.fn();
 const checkPermissionModeCeiling = vi.fn();
 const logWarn = vi.fn();
@@ -212,7 +216,7 @@ beforeEach(() => {
   );
   vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true });
 	checkPermissionModeCeiling.mockResolvedValue(null);
-  streamChat.mockReturnValue({ catch: () => Promise.resolve() });
+  streamChat.mockImplementation(registeredStream);
   goalHostMock = makeFakeGoalHost();
 });
 
