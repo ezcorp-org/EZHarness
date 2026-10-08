@@ -24,8 +24,10 @@ Branch `wp/w4h-15-coverage-artifact-names` from integ/w00 `1b96d2730`. Evidence 
 
 Each of the seven producers renames its LCOV to `lcov_<producer>.info` in a step just before its upload, and the upload
 path names that file. This is the convention the surviving artifacts already use. The gate job, its download and its
-merge command are byte-unchanged. Four registration tests pinned the old `path: …/lcov.info` text, and their needles now
-name the new files. `scripts/lib/ci-registration.ts` gains two type-only fields (step `with`, job `uses`).
+merge command are byte-unchanged. Each rename step sits directly before its upload in the same job, and neither carries an
+`if:`, so both run under the same default condition. The new names (`lcov_factory_*.info`) match the gate's merge glob
+`coverage-artifacts/*.info` and fall into no other consumer's glob (`lcov_web_vitest_*.info`). Four registration tests
+pinned the old `path: …/lcov.info` text; the change there is needle text only, naming the new files. `scripts/lib/ci-registration.ts` gains two type-only fields (step `with`, job `uses`).
 `scripts/fixtures/podman-guest-jobs/base/db-postgres.yml` is a byte copy of a historical workflow and stays as it is.
 
 New guard `scripts/lcov-artifact-names-registration.test.ts`: it finds every download step that merges artifacts by
@@ -58,9 +60,10 @@ single-file `.info` uploads, because a directory upload's file names come from i
 - [x] G5 (R2): the local merge of renamed copies keeps every record. CHECK: `bash w4h-15/merge-repro.sh renamed`.
   EXPECT: 0 overwrites, 0 missing SF. EVIDENCE: `w4h-15/logs/r2-merge-repro-renamed.log`: 0 overwrites, 0 missing,
   check-coverage failures 70 → 4 (`w4h-15/repro/check-coverage-renamed.log`). The 4 are listed under "Open".
-- [x] G6 (R3): actionlint on both workflows. CHECK: actionlint 1.7.12 with shellcheck 0.11.0 (nix-shell), base copies
-  against the head. EXPECT: no new finding. EVIDENCE: `w4h-15/logs/r3-actionlint-compare.log`: the same 3 findings in both,
-  for custom self-hosted labels `factory-gpu`/`factory-real` at ci.yml:186/215/253 (no actionlint.yaml declares them).
+- [x] G6 (R3): actionlint over every workflow (9 files). CHECK: actionlint 1.7.12 with shellcheck 0.11.0 (nix-shell) on
+  `git archive 1b96d2730 .github` and on the head. EXPECT: no new finding. EVIDENCE: `w4h-15/logs/r3-actionlint-all.log`
+  (the first run on the two edited files: `w4h-15/logs/r3-actionlint-compare.log`): the same 3 findings in both, for
+  custom self-hosted labels `factory-gpu`/`factory-real` at ci.yml:186/215/253 (no actionlint.yaml declares them).
 - [x] G7 (R3): light legs at 28c04b874. CHECK: `bash w4h-15/final-legs.sh` (`w4h-15/logs/final-legs.log`). EXPECT: units,
   new-file and patch against integ/w00, CRAP, guard set, lint, boundaries and lanes green; gate-integrity base clean, main =
   the 8 standing lines. EVIDENCE:
@@ -71,6 +74,11 @@ single-file `.info` uploads, because a directory upload's file names come from i
     `w4h-12/logs/final-gate-integrity-origin_main.log`, no new line.
   - New-file and patch against origin/main are red. They are informational and cover the whole branch; no file of this
     diff is listed.
+- [x] G7b (R3): the guard set (41 files) and the 26 workflow-reading files rerun INSIDE the heavy lock at f1774df59, because
+  both lists exceed ten files. The first runs (G4, G7) were lock-free, following the guard-set rule in common.md. CHECK:
+  `GATED_FLOCK_EXIT_FILE=w4h-15/heavy.exit bash w00/gated-flock.sh w4h-15-guard … bash w4h-15/guard-locked.sh`. EXPECT: 0 fail.
+  EVIDENCE: `w4h-15/logs/r3-guard-locked.log` (wrapper) and `w4h-15/logs/r3-guard-locked-output.log`: guard 511 pass,
+  2 skip, 0 fail; readers 296 pass, 11 skip, 0 fail; heavy.exit 0.
 - [x] G8 (R3): typecheck under the typecheck memory rule. CHECK: `bash w4h-15/typecheck.sh`, which refuses to start below
   16 GiB available or with a hold running, and samples memory. Retried each minute until the rule held
   (`w4h-15/logs/r3-typecheck-wait.log`). EXPECT: rc=0. EVIDENCE: `w4h-15/logs/r3-typecheck.log`: started at 16 GiB with no
@@ -87,3 +95,19 @@ them, so the hosted gate stays red after this package until a hosted producer co
 - src/factory/runner/uv-command.ts: 91.30%, lines 20-21 missed.
 - src/factory/reference-data/publication.ts: listed in thresholds, with no LCOV data.
 Reported to the coordinator. The decision and the package are the coordinator's.
+
+Where they are measured (one search each, no code change):
+- pack.ts, materials.ts and publication.ts: locally by the combined runner's leg `factory-reference-data`
+  (scripts/combined-runner-legs.json:35, command `COV_OUT=coverage-shard bash scripts/factory-reference-data-coverage.sh`).
+  That script runs the reference-data unit suites (materials, guest, pack among them), `journey.integration.test.ts` and
+  `tests/postgres/factory-reference-data.test.ts` under coverage. The leg's own record says "CI GAP: no workflow runs this
+  producer": it needs the pinned PyArrow data image, which no registry holds. The decision on record is the user's (ruling
+  2026-09-27 16:36Z): publish the image by digest, point pinned.json at it, then run the producer in a db-postgres.yml job.
+  scripts/check-factory-lanes.ts:185-188 binds `journey.integration.test.ts` to a factory-real lane with the image pin
+  `src/factory/reference-data/image/pinned.json` as its precondition.
+- uv-command.ts lines 20-21 (the default `probeCommand`, which spawns the real tool): the hosted step that runs the real
+  `uvCommand` is ci.yml:130 (`python-runner.integration.test.ts` in factory-runner-contracts), and that step runs without
+  coverage. Which local producer reaches these lines was not traced further.
+- Should a hosted producer cover them? For the three reference-data files, the existing user decision answers it: yes, the
+  same producer, once the image is published. For uv-command.ts the open choice is whether ci.yml:130 runs under coverage or
+  a unit test drives the default probe. Both are the coordinator's and the user's to decide.
