@@ -133,6 +133,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     const installationId = "11111111-1111-4111-8111-111111111111";
     const releaseId = "22222222-2222-4222-8222-222222222222";
     const connectionId = "33333333-3333-4333-8333-333333333333";
+		const connectionConfiguration = { kind: "incus", profile: "ezharness",
+			helperVersion: "0.1.6", guestUser: "sandbox" } as const;
 		// This test route persists the same harmless provider identity that the
 		// production binding lookup reads. No live endpoint or credential is used.
 		await getDb().execute(sql`INSERT INTO extension_release_installations (id, owner_id, scope, payload)
@@ -140,7 +142,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		await getDb().insert(providerConnections).values({ id: connectionId, revision: 1,
 			providerInstallationId: installationId, providerReleaseId: releaseId,
 			endpoint: "https://incus.invalid:8443/", project: "e2e-only",
-			configuration: { kind: "incus" }, serverCertificatePem: "e2e-only",
+			configuration: connectionConfiguration, serverCertificatePem: "e2e-only",
 			clientCertificatePem: "e2e-only", privateKeyCiphertext: "e2e-only" }).onConflictDoNothing();
     const preset = INCUS_PRESETS.find(item => item.profile === "persistent-web-compose.v1")!;
     const presetDigest = await sandboxPresetDigest(preset);
@@ -156,7 +158,7 @@ export const POST: RequestHandler = async ({ request, locals }) => {
       connectionRevision: async () => 1,
       resolveConnection: async () => ({ id: connectionId, revision: 1, providerInstallationId: installationId,
         providerReleaseId: releaseId, endpoint: "https://incus.invalid:8443/", serverCertificatePem: "e2e-server",
-        project: "ezharness", configuration: { kind: "incus", profile: "ezharness", helperVersion: "0.1.0", guestUser: "sandbox" },
+		project: "ezharness", configuration: connectionConfiguration,
         clientCertificatePem: "e2e-client", privateKeyPem: "e2e-private", revokedAt: null }),
       loadQualification: async () => ({ producer: "live-provider", connectionId, providerId: "incus", presetId: preset.id,
         profile: preset.profile, releaseDigest: "e2e-incus-release", presetDigest, effectiveSettingsDigest,

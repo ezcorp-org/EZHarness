@@ -649,7 +649,7 @@ test("a management-created Incus project opens chat and saves its own conversati
 	expect(await persisted.json()).toMatchObject({ id: conversation.id, projectId: prepared.project.id });
 });
 
-test("Incus project Settings points to its operator controls, not Local sandbox Create", async ({ page, request }) => {
+test("Incus project Settings points to its operator controls, not Local sandbox Create @evidence", async ({ page, request }, testInfo) => {
 	const seeded = await request.post("/api/__test/seed", { data: { incusProject: true, projectName: "Incus settings regression" } });
 	expect(seeded.status()).toBe(201);
 	const { project } = await seeded.json() as { project: { id: string } };
@@ -672,6 +672,7 @@ test("Incus project Settings points to its operator controls, not Local sandbox 
 	await expect(page.getByRole("heading", { name: "Incus sandbox" })).toBeVisible();
 	await expect(page.getByRole("link", { name: "Manage Incus sandbox" })).toHaveAttribute("href", "/extensions/incus-management");
 	await expect(page.getByTestId("project-sandbox-panel")).toHaveCount(0);
+	await captureEvidence(page, testInfo, "incus-project-settings", { fullPage: true });
 
 	await page.goto(`/project/${localProject.id}/settings`);
 	await expect(page.getByTestId("project-sandbox-panel")).toBeVisible();
