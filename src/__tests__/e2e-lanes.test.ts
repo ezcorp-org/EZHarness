@@ -693,7 +693,13 @@ describe("runner CI namespace prerequisites", () => {
     const commands: Record<string, string> = {
       id: 'if [ "$1" = "-u" ]; then echo 1000; else echo runner; fi',
       podman: 'if [ "$1" = info ]; then echo /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1; fi', bun: "echo fixture-image", flock: "exit 0", setpriv: "exit 0",
-      unshare: `echo namespace-probe >> '${root}/calls'; exit ${namespaceExit}`,
+      unshare: `if [ "$1" = "--version" ]; then echo "unshare from util-linux 2.39.3"; exit 0; fi
+case "$*" in *"--propagation unchanged"*)
+  echo namespace-diagnostic >> '${root}/calls'
+  echo '{"context":"mapped-namespace","CapEff":"0000000000000000"}'
+  exit 0;; esac
+echo namespace-probe >> '${root}/calls'; exit ${namespaceExit}`,
+      journalctl: `echo "journalctl $*" >> '${root}/calls'; echo 'apparmor="DENIED" operation="capable" capname="sys_admin"'`,
       newgidmap: "exit 0", "apt-get": "exit 0", sudo: 'exec "$@"',
       usermod: `case "$1" in --add-subuids) mapping=subuid;; --add-subgids) mapping=subgid;; *) exit 9;; esac
 range_start=\${2%-*}; range_end=\${2#*-}
@@ -732,8 +738,11 @@ printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${ro
   test("valid mappings run the namespace probe and propagate failure", () => {
     const result = setupProbe("runner:100000:65536\n", false, 17);
     expect(result.code).not.toBe(0);
-    expect(result.calls).toBe("namespace-probe\n");
+    expect(result.calls).toBe("namespace-probe\nnamespace-diagnostic\n");
     expect(result.error).toContain("namespace mount probe failed");
+    expect(result.error).toContain("unshare from util-linux 2.39.3");
+    expect(result.error).toContain('"context": "host"');
+    expect(result.error).toContain('"context":"mapped-namespace"');
   });
   test.each([62041, 63536])("valid mapping of %d IDs completes the normal setup path", count => {
     const result = setupProbe(`runner:100000:${count}\nother:200000:65536\n`);
@@ -767,6 +776,13 @@ printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${ro
     expect(result.code).not.toBe(0);
     expect(result.mappings).toEqual([mapping, mapping]);
     expect(result.calls).toBe("");
+  });
+
+  test("failed install probe records bounded AppArmor audit without passing", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 17, true);
+    expect(result.code).toBe(1);
+    expect(result.calls).toContain('journalctl --dmesg --no-pager --since 2 minutes ago --grep apparmor="DENIED" --output cat');
+    expect(result.error).toContain('capname="sys_admin"');
   });
 
 });

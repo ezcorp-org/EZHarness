@@ -52,6 +52,40 @@ except (OSError, ValueError) as error:
 PYMAP
 }
 
+diagnose_namespace_restriction() {
+  local context
+  context='
+import json, pathlib, platform, sys
+paths = ["/proc/self/uid_map", "/proc/self/gid_map", "/proc/self/attr/current",
+         "/sys/module/apparmor/parameters/enabled",
+         "/proc/sys/kernel/apparmor_restrict_unprivileged_userns",
+         "/proc/sys/kernel/unprivileged_userns_clone"]
+result = {"context": sys.argv[1], "kernel": platform.release()}
+for name in paths:
+    try:
+        result[name] = pathlib.Path(name).read_text().strip()
+    except OSError as error:
+        result[name] = {"unavailable": error.errno}
+try:
+    result["status"] = [line for line in pathlib.Path("/proc/self/status").read_text().splitlines()
+                        if line.split(":", 1)[0] in ("Uid", "Gid", "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb", "NoNewPrivs", "Seccomp")]
+except OSError as error:
+    result["status"] = {"unavailable": error.errno}
+print(json.dumps(result, sort_keys=True))
+'
+  echo "Namespace failure diagnostics (the required probe still fails):" >&2
+  unshare --version >&2 || true
+  python3 -c "$context" host >&2 || true
+  # Diagnostic only: keep the same user mapping while avoiding the failed
+  # propagation operation long enough to inspect capabilities and LSM label.
+  timeout 5s unshare --user --map-root-user --map-auto --mount --propagation unchanged \
+    python3 -c "$context" mapped-namespace >&2 || true
+  if [[ "$mode" == "--install" ]] && command -v journalctl >/dev/null; then
+    timeout 5s sudo journalctl --dmesg --no-pager --since "2 minutes ago" \
+      --grep 'apparmor="DENIED"' --output cat >&2 || true
+  fi
+}
+
 verify_namespace_prerequisites() {
   local executable mapping range_start range_end
   for executable in podman python3 flock setpriv bun unshare newuidmap newgidmap timeout; do
@@ -93,6 +127,7 @@ with tempfile.TemporaryDirectory(prefix="ez-runner-namespace-probe-") as tempora
             raise OSError(ctypes.get_errno(), "namespace unmount failed")
 PYNS
   then
+    diagnose_namespace_restriction
     echo "User namespace mount probe failed; enable Linux user namespaces and permit unshare/newuidmap/newgidmap for this CI account." >&2
     exit 1
   fi
