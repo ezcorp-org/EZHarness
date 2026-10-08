@@ -26,12 +26,15 @@ async function fillSignup(page: Page) {
 
 test.describe("Signup Token Page — real invite and session", () => {
 	test("an admin's copied invite opens the signup form for an anonymous visitor @evidence", async ({ page, request, baseURL }, testInfo) => {
+		const otherInvite = await createInvite(request); // Another valid invite can remain from a prior real-auth case.
 		const invite = await createInvite(request);
 		await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 		await page.goto("/settings/admin");
 		const invites = page.locator("#invites");
-		await expect(invites.getByText(invite.email)).toBeVisible();
-		await invites.getByRole("button", { name: "Copy Link" }).click();
+		await expect(invites.getByText(otherInvite.email, { exact: true })).toBeVisible();
+		const inviteRow = invites.getByText(invite.email, { exact: true }).locator("../..");
+		await expect(inviteRow).toBeVisible();
+		await inviteRow.getByRole("button", { name: "Copy Link", exact: true }).click();
 		const copied = await page.evaluate(() => navigator.clipboard.readText());
 		expect(new URL(copied).origin).toBe(new URL(baseURL!).origin);
 		expect(new URL(copied).pathname).toBe(`/signup/${invite.token}`);

@@ -744,3 +744,6 @@
 - Preserve tracked task history. Inspect the existing tasks/todo.md before editing; append a scoped task plan instead of replacing the file.
 
 - 2026-10-08: Scoped production type checks do not prove test types. Run the repository full typecheck before a final source handoff. Use `InstanceType<typeof DynamicallyImportedClass>` for a dynamic class type, and replace a typed observation object when a negative test changes a field across a discriminated union.
+
+- 2026-10-08: Real-auth files share durable database state. Scope row actions to the unique record created by the case and test with another valid record present. Do not assume one Copy Link button.
+- 2026-10-08: Default Playwright startup rebuilds generated artifacts. Use a separate worktree for focused reproduction while a frozen full gate consumes its mapped build; never modify its generated outputs.

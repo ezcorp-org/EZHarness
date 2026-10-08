@@ -3588,3 +3588,12 @@ Review: On the original e330 code, the browser test failed because the clipboard
 - [x] Run focused tests and full typecheck; obtain independent review before commit.
 
 Review: Reproduced thirteen real broker lifecycle fixture failures and the missing signup evidence entry. Explicit qualification project purpose matches production fixture allocation. Lifecycle45/45, real user boundary34/34, evidence catalog7/7, full typecheck all four legs, scoped lint and diff checks pass. Readiness owner independently reviewed source; no production or gate policy changed.
+
+# Shared invite fixture correction, 2026-10-08
+
+- [x] Reproduce copied-invite failure with two real pending invites.
+- [x] Select the exact newly created invite row; retain clipboard and signup assertions.
+- [x] Prove RED/GREEN, run focused real browser cases and full typecheck.
+- [x] Obtain independent source review and commit test-only correction.
+
+Review: Actual two-invite RED reproduced the strict Copy Link ambiguity. All five real signup browser cases pass after exact email-row selection; full typecheck passes all four legs. Readiness owner independently reviewed the diff. Three network-affected browser cases also pass unchanged in a separate replay. Production source, locks, and the installed release bundle remain unchanged.
