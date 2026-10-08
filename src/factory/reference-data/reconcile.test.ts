@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FactoryValidatorClaimReport, FactoryValidatorVerdict } from "@ezcorp/factory-sdk";
 import { validateFactoryValidatorClaimReport } from "@ezcorp/factory-sdk";
+import { REFERENCE_DATA_GOLDEN_CSV as GOLDEN_CSV } from "../../__tests__/helpers/factory-reference-data-world";
 import { REFERENCE_DATA_HEADER, REFERENCE_DATA_LIMITS } from "./csv";
 import { referenceDataPartitionName } from "./manifest";
 import { reconcileReferenceData, REFERENCE_DATA_CLAIM_IDS, type ReferenceDataClaimId, type ReferenceDataExportPart } from "./reconcile";
@@ -17,7 +18,6 @@ import { reconcileReferenceData, REFERENCE_DATA_CLAIM_IDS, type ReferenceDataCla
  */
 
 const FIXTURES = join(import.meta.dir, "fixtures/parquet");
-const GOLDEN_CSV = `${REFERENCE_DATA_HEADER}\na,alpha,100\nb,beta,250\nc,alpha,50\n`;
 const MEASURED_AT = 1_700_000_000_000;
 
 async function fixture(name: string): Promise<Uint8Array> {
