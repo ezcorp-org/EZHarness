@@ -52,7 +52,11 @@ resources script line 242, runs verify-shipping-bootstrap.ts with W4H-11's progr
 `waitForAppConnections` (up to 150 polls of 100 ms) runs after the build wait in each cycle. It adds at most about 15 s per cycle
 (about 150 s at the default 10 cycles), counted against the production-proof-shard's 75-minute timeout (ci.yml:666), not against the
 bootstrap budget. #329 ships no test; no test file reads the script; it is outside the coverage gates' source scope
-(`isSourceFile` false). Covered here by typecheck and lint; the resources proof itself was not run (container leg, not ordered).
+(`isSourceFile` false). Coordinator ruling (2026-10-08): the containerized resources proof is NOT run in this package. #329 is main's
+own fix, the wave never touched its file, and it arrives byte-equal: the blob at the head is `29bde5859950`, the same as at `e3309906d`
+(the wave's `a56c88c02a62` equals `beaff68c8`'s; 0 wave commits touched it). E/p329-byte-equal.txt. Local evidence: typecheck, lint,
+byte-equality and the diff read above. Its runtime proof is the hosted "Production proof (resources)" job (ci.yml
+`production-proof-shard`, shard `resources`) on the next push.
 
 ## Red and green
 - [x] G1 red at the raw merge (markers in place, installs from the base so no red is a missing-module red): all 7 legs red, each on a
@@ -62,9 +66,11 @@ bootstrap budget. #329 ships no test; no test file reads the script; it is outsi
   audit-deps 0. E/green-resolved.log (script E/conflict-legs.sh).
 
 ## Legs at the head (`de8fa57ec`)
-- [x] Typecheck under the memory rule (lock-free; no holder; one at a time): `bun run typecheck` all programs (backend, web, tests and
-  web-e2e, Python mypy --strict) exit 0, MemAvailable 17.2 GiB before, lowest 15.0 GiB; svelte-check 620 files 0 errors 0 warnings,
-  17.0 GiB lowest. E/tc.log, E/tc-record.log.
+- [x] Typecheck under the memory rule (lock-free; no holder; one at a time), pinned Node 24.14.1 (/tmp/factory-tools/node-24.14.1)
+  and Bun 1.4.2: `bun run typecheck` all programs (backend, web, tests and web-e2e, Python mypy --strict) exit 0, MemAvailable 17.8 GiB
+  before, lowest 14.3 GiB; svelte-check 620 files 0 errors 0 warnings, lowest 16.2 GiB. E/tc.log, E/tc-record.log. Disclosure: the
+  first typecheck, web build and install-builds ran with the system Node 24.21.0 on PATH (all green); they are kept as
+  E/*-VOID-system-node-24.21.0.log and were re-run under the Node pin (env.sh now asserts it).
 - [x] Lint 0 (6111 files); boundaries 0 violations; factory boundaries pass. E/head-legs.log.
 - [x] Guard set (w00/guard-suites.sh): 40 files, 507 pass, 2 skip, 0 fail. E/head-legs.log, E/guard-list.txt.
 - [x] Gate integrity: vs origin/main the 8 standing findings, equal to w00/expected-integ-findings-vs-main.txt (findings-match PASS);
@@ -73,8 +79,13 @@ bootstrap budget. #329 ships no test; no test file reads the script; it is outsi
   bundled-bootstrap-progress (13), shipping-bootstrap-state (12), e2e-bundled-bootstrap-wait (6), and the conflict-leg suites.
   New-file and patch vs `000f75d10` PASSED (no source file in scope changes). Vs `e3309906d` both fail across the whole wave (a 10-suite
   LCOV cannot measure the wave; the binding run is wave4i-3); none of the merge's 13 changed files is named. E/cov-run.log, E/cov/.
-- [x] Web build exit 0 (bun and bunx 1.4.2). E/web-build.log.
+- [x] Web build exit 0 (Node 24.14.1; bun and bunx 1.4.2). Frozen installs and package builds re-run under the Node pin: exit 0,
+  no changes. E/web-build.log, E/installs-resolved.log.
 - [x] Prune scan: no prune subcommand (2 candidates, both this package's own log line). Config: 888c78b9e94ea660 = accepted baseline,
   before and after every git command. E/head-legs.log.
 - [x] Migrations: not run; main changed no schema or migration file.
-- [x] Hook count per commit: the merge 0 test files; this docs commit 0.
+- [x] Hook count per commit: the merge 0 test files; the docs commits 0.
+
+## Leftover
+- sprintf-js moderate advisory GHSA-hp3w-g68c-fv3c (root lockfile), below the high floor of `scripts/audit-deps.ts`: not blocking, not
+  fixed here; for the leftover list (coordinator, 2026-10-08).
