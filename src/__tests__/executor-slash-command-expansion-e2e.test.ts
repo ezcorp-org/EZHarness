@@ -140,6 +140,7 @@ mock.module("$lib/server/context", () => ({
           llmVisiblePrompt = await applyCommandExpansion(userMessage, options.commandResolver);
         }
         streamChatCalls.push({ conversationId, userMessage, options, llmVisiblePrompt });
+        options.onRunRegistered?.();
         return { id: "run-test", status: "success" } as any;
       })();
       inflightStreamChats.push(p);

@@ -43,7 +43,9 @@ const streamChatCalls: Array<Record<string, unknown>> = [];
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
     streamChat: async (..._args: unknown[]) => {
-      streamChatCalls.push((_args[2] ?? {}) as Record<string, unknown>);
+      const options = (_args[2] ?? {}) as Record<string, unknown> & { onRunRegistered?: () => void };
+      streamChatCalls.push(options);
+      options.onRunRegistered?.();
       return { id: "run-test", status: "success" };
     },
   }),

@@ -33,6 +33,8 @@ mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
     streamChat: async (...args: any[]) => {
       streamChatCalls.push(args);
+      // The real executor acknowledges only after the run is registered.
+      args[2]?.onRunRegistered?.();
       return { id: "run-test", status: "success" } as any;
     },
   }),

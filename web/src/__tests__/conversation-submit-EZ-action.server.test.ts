@@ -36,7 +36,10 @@ const createMessage = vi.fn();
 const insertAttachment = vi.fn();
 const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
-const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
+const streamChat = vi.fn((_conversationId: string, _content: string, options: { onRunRegistered?: () => void; runId?: string }) => {
+  options.onRunRegistered?.();
+  return Promise.resolve({ id: options.runId });
+});
 const checkTokenBudget = vi.fn();
 const getEzAction = vi.fn();
 
