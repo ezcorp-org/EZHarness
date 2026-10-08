@@ -5888,6 +5888,17 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
 - [x] wave4i-2 combined run at 1c84df6d5 (binding coverage judgement vs beaff68c8): runner part green except gate-integrity (the 8 expected lines);
       standalone coverage producers shard 30068/0 and extras 1454/0; after-runner re-run green (browser lanes mock-full 1466, evidence 394,
       fresh-setup 7, real-auth 108, factory-services 13); merged lcov of the final gates f73fe033c1d5cee4 over 2383 files (runner interim merge 0ab908e0f9d79cde over 2297, before the browser lcov joined); final gates green on both passes (vs origin/main: gates.txt 5546a3218bef5bf1, new-file 460 files, patch 517 files, global floor margin 8.08, gate-integrity = the 8 expected lines, findings-match PASS; vs 1992630f3: gates.txt 14d9cb03a1819cda, gate-integrity PASSED); receipts 71838dfa3 (81 receipt files; SHA256SUMS 1995→2076, append-only).
+- [x] W4H-13 (hook git-env e2e case; the fix 48da9c886 was already on integ): validator-6 ACCEPT fccacb8fa83f69d5 at 196552004; merge fb2813ce4 / receipts
+      ae697c49d. main hotfix PR #326 (fc495fd2b + 61ac99c27) by session ezharness-dc.
+- [x] W4H-12 (external-postgres runner setup; image_unavailable; visible twins): validator-5 ACCEPT a4d1f5c98e0342f5 at d364e11ad; merge 738de9d0b /
+      receipts 0363f883a. Reverted on evidence: the storage-action XDG change (r6-xdg) and the setup-before-storage rule (r7-order inconclusive).
+- [x] W4H-11 (bundled bootstrap progress deadline; a second flat waiter found by the recovery proof and fixed in 88de7acce): validator-7 ACCEPT 04d728012e109874 at 16f1228db; merge 000f75d10 / receipts 3c6e53340.
+- [x] W4H-14 main sync (W-SYNC-3): origin/main e3309906d merged at de8fa57ec (5 conflicts per the accepted table; locks byte-unchanged under the pinned
+      install; no pin lowered); validator-8 ACCEPT 0e4af9601ee44974 at 00c979687 (append-only carry from 600685b24); merge 05af60ade / receipts 6b9ff91ac.
+- [x] wave4i-3 combined run at 6b9ff91ac (binding coverage judgement vs origin/main e3309906d): runner 39/39 legs, 49468 tests, both coverage
+      producers in-run (cov-shard 30103/0 over 2023 files); gate-integrity = the 8 expected lines; after-runner and the six browser lanes green;
+      final gates green (merged lcov dc11870132ec7aee over 2384 files; new-file 460, patch 518, per-file 2233, floor margin 8.08; gates.txt
+      3817700c7ff8c68a); second pass vs 1c84df6d5 green (11aafe3390b821d7); receipts ec87d22e4.
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -5914,6 +5925,26 @@ Added (w00/wave4h/leftover-additions.md, coordinator 2026-10-04, and the W4H mer
 - [x] Hook noise: scripts/lib/hook-lib.sh "printf: Broken pipe" (grep -q early close) was fixed by W4H-3 (491b7cc22): 8 lines in the
       W4H-5 hook log, 0 in every hook log from the W4H-3 merge on (W4H-3, W10c, W4H-1, W4H-3b, W4H-3c).
 - [x] W4H-3c: scripts/**/*.test.ts join the CI typecheck program (merged 392dac7dd).
+
+Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftover-additions.md):
+- [ ] Bundled-bootstrap safety net (1544 s for 28 builds) exceeds the production-proof suite's per-proof `timeout` caps (15 / 25 min): align the
+      caps or make the cap print the policy's state (W4H-11 F1).
+- [ ] scripts/verify-shipping-delivery.ts: the timeout-receipt catch path has no unit test (W4H-11 F2); scripts/verify-extension-container.ts:40
+      has an unused flat 240 s build wait.
+- [ ] Pinned Node for local legs: /tmp/factory-tools/node-24.14.1 is installed with the SHASUMS256 match but the list's GPG signature is unchecked.
+- [ ] Install race on many-CPU hosts: @ezcorp/sdk's `prepare` ran before @ezcorp/extension-contract's re2js was linked under a 32-CPU install with
+      lifecycle scripts ("Cannot find module 're2js'"); fix the workspace build order, not a CPU pin.
+- [ ] Local Podman replays of the production proofs: the pinned conmon 2.2.1 is built without journald, so a rootless Podman 4.x host with the journald
+      log driver cannot start a container without an explicit --log-driver (the runner is immune; the proofs' compose apps are not).
+- [ ] scripts/setup-git-hooks.sh re-stamps the SHARED .git/config on every install (`git config extensions.worktreeConfig true`); make the write
+      conditional so an mtime dates a real change.
+- [ ] .gitignore line 8 (bare `tasks`) ignores a directory the repo tracks (todo, lessons, 115 gate files force-added): replace with the real intent.
+- [ ] Hook-lib hardening notes from the PR #326 review (comment placement; the unit case pointing GIT_DIR at the real git dir; `--local-env-vars`
+      option; compgen fail-open; comment dates).
+- [ ] `svelte-check --tsgo` peaks at 8–15 GB; a `check:light` or a heap cap for constrained hosts.
+- [ ] CI ordering: running setup-extension-runner-ci.sh --install AFTER the factory-storage `up` failed (rc 1, log lost); reproduce with the log kept.
+- [ ] audit-deps moderate advisory below the floor: sprintf-js (GHSA-hp3w-g68c-fv3c).
+- [ ] Legacy-adoption under podman: `$ENGINE build --load` is Docker-only (verify-legacy-adoption.sh:89; build-archived-image.sh).
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
 

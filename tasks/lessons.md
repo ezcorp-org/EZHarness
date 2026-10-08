@@ -2027,6 +2027,9 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   the trigger job ended when it launched the detached after-2 stage, so nobody watched it; its green result sat unseen for 3 hours.)
 - A producer that runs legs with coverage on needs its own memory floor (15 GiB available at start, resource-gate.sh / gated-flock.sh), or
   the gate inside the lock times out (exit 96). The floor is named in the brief, never lowered.
+- Background notices do not wake an idle teammate: while a hold runs, keep a foreground poll of its exit file at most 10 minutes apart
+  (integrator-4, twice: wave4i-2 after-2 and the W4H-12 hold).
+- Never suggest a host-wide memory action (swapoff, drop_caches, kills of others' processes); report the gate figures only (integrator-4).
 
 #### Coordinator (team-lead)
 - When a wrapper replaces another, check the files its callers used to write: W4H-5's publish refused because heavy.exit was gone with the
@@ -2037,6 +2040,10 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Commands handed to the user are zsh-safe: literal pid lists; `$P` does not split in zsh.
 - Silence is a signal, not a wait: when a report is overdue, read the exit files and logs (heavy.exit, *.exit, trigger.log) before waiting
   longer. (2026-10-05: extras and after-2 were green at 18:32Z and 19:22Z; found at 22:15Z.)
+- A brief cites the file at the BASE, not a peer's read of another branch (W4H-13: the hook fix was already on integ; main's line numbers were quoted).
+- Shared git config: the mtime dates nothing (install hooks re-stamp it); snapshot the content hash with the time at every hold.
+- Attribute a process to its session (cwd, parent, cmdline) before naming it to the user: the tsgo OOM killer of 2026-10-05/06 was the team's own
+  `svelte-check --tsgo` legs, blamed for a day on the user's editor. Rule added: typecheck legs gated on memory, never two at once.
 
 #### Validators (validator-5, validator-6; from their pending-lesson.md files, 2026-10-05; the GATE_TRIES=1 line kept once)
 - Inside the heavy lock, check the resource gate once (GATE_TRIES=1) and exit 75 on red; wait for the gate only outside the lock, through
@@ -2053,6 +2060,22 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   because scripts/**/*.test.ts were in no program, until W4H-3c added them.
 - Record a load-sensitive timeout as a flake on the leftover list, with its time, limit and host load; rerun it once only to show the
   cause, never retry it into green without saying so.
+
+#### Owners and validators of the W4H-11…14 round (pending-lesson.md files, 2026-10-06…08; condensed)
+- A ruling that closes a line of inquiry is followed, not re-argued; read every queued coordinator message before queueing a heavy leg
+  (W4H-11 queued three forbidden base runs by reporting before reading).
+- A heavy harness classifies a leg that dies on a signal while the kernel log shows host OOM kills as VOID with its own exit code that the queue
+  wrapper never re-queues; a resumed hold re-queues only the legs not yet green at the head.
+- A fix whose rule is "one policy read by every caller" is proven by a sweep of the remaining fixed deadlines and a call-graph check BEFORE the
+  commit (W4H-11's first fix missed production-lifecycle-client.ts; the recovery proof found it).
+- Files bind-mounted into a rootless runner container are 0644 (the container's user is a subordinate id; 0600 voided a run); a snapshot's tree is
+  compared with `git add -A --force` so ignored tracked files are kept; the snapshot's init/config chain aborts if any GIT_* variable is set.
+- Remove each scratch container in its own `podman rm -f -v` call and log any survivor by name; a hold's cleanup runs on EVERY exit path including
+  the gate's exit 75 (an early exit left a 5.8 GB image untagged).
+- A test that runs a tool with GIT_DIR = the real git dir asserts the real config is byte-equal afterwards.
+- A command matcher matches command tokens, never paths: a typecheck gate caught a test file whose name contains "tsgo" and waited inside its
+  own hold (validator-8); kill by pid only, never by pattern (validator-6).
+- When a queued job should end within minutes, watch its exit file in the turn and report at once; background notices reach an idle owner late.
 
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
