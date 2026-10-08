@@ -18,7 +18,7 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
@@ -675,4 +675,98 @@ Bun.serve({ hostname: "127.0.0.1", port: Number(process.argv[process.argv.indexO
     expect(job).toContain("bash scripts/run-kokoro-realmodel-e2e.sh");
     expect(job).not.toContain("continue-on-error: true");
   });
+});
+
+describe("runner CI namespace prerequisites", () => {
+  function setupProbe(mapping: string, missingTool = false, namespaceExit = 0, install = false) {
+    const root = mkdtempSync(join(tmpdir(), "runner-ci-namespace-"));
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(root, "scripts/lib"), { recursive: true });
+    writeFileSync(join(root, "scripts/lib/extension-runner-conmon.sh"), "install_extension_runner_conmon() { :; }\n");
+    writeFileSync(join(root, "scripts/lib/extension-runner-delegation.sh"), "configure_extension_runner_delegation() { export XDG_RUNTIME_DIR=fixture DBUS_SESSION_BUS_ADDRESS=fixture; }\n");
+    const script = readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8")
+      .replaceAll('"/etc/$mapping"', '"$repo_root/$mapping"')
+      .replace("-x /usr/bin/apt-get", '-x "$repo_root/bin/apt-get"');
+    writeFileSync(join(root, "scripts/setup-extension-runner-ci.sh"), script);
+    for (const file of ["subuid", "subgid"]) writeFileSync(join(root, file), mapping);
+    const commands: Record<string, string> = {
+      id: 'if [ "$1" = "-u" ]; then echo 1000; else echo runner; fi',
+      podman: 'if [ "$1" = info ]; then echo /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1; fi', bun: "echo fixture-image", flock: "exit 0", setpriv: "exit 0",
+      unshare: `echo namespace-probe >> '${root}/calls'; exit ${namespaceExit}`,
+      newgidmap: "exit 0", "apt-get": "exit 0", sudo: 'exec "$@"',
+      usermod: `case "$1" in --add-subuids) mapping=subuid;; --add-subgids) mapping=subgid;; *) exit 9;; esac
+range_start=\${2%-*}; range_end=\${2#*-}
+printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${root}/'"$mapping"`,
+    };
+    if (!missingTool) commands.newuidmap = "exit 0";
+    for (const [name, body] of Object.entries(commands)) {
+      writeFileSync(join(bin, name), `#!${BASH}\n${body}\n`, { mode: 0o755 });
+    }
+    for (const name of ["bash", "dirname", "awk", "python3", "timeout"]) {
+      const executable = Bun.which(name);
+      if (!executable) throw new Error(`Required fixture tool: ${name}`);
+      // Keep the PATH closed so a missing tool cannot resolve from the host.
+      symlinkSync(executable, join(bin, name));
+    }
+    try {
+      const result = Bun.spawnSync([BASH!, join(root, "scripts/setup-extension-runner-ci.sh"), install ? "--install" : "--probe"],
+        { env: { ...process.env, CI: "true", PATH: bin }, stdout: "pipe", stderr: "pipe" });
+      return { mappings: ["subuid", "subgid"].map(file => readFileSync(join(root, file), "utf8")), code: result.exitCode, error: result.stderr.toString(), calls: existsSync(join(root, "calls")) ? readFileSync(join(root, "calls"), "utf8") : "" };
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+
+  test("short existing subordinate mappings fail before any namespace operation", () => {
+    const result = setupProbe("runner:100000:1000\nother:200000:65536\n");
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("62041 contiguous subordinate");
+    expect(result.calls).toBe("");
+  });
+
+  test("missing namespace tool fails with an actionable error", () => {
+    const result = setupProbe("runner:100000:65536\n", true);
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("newuidmap");
+  });
+
+  test("valid mappings run the namespace probe and propagate failure", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 17);
+    expect(result.code).not.toBe(0);
+    expect(result.calls).toBe("namespace-probe\n");
+    expect(result.error).toContain("namespace mount probe failed");
+  });
+  test.each([62041, 63536])("valid mapping of %d IDs completes the normal setup path", count => {
+    const result = setupProbe(`runner:100000:${count}\nother:200000:65536\n`);
+    expect(result.code, result.error).toBe(0);
+    expect(result.calls).toBe("namespace-probe\n");
+  });
+
+  test.each([
+    "runner:100000:65536\n1000:200000:65536\n",
+    "runner:100000:65536\nother:120000:65536\n",
+    "runner:100000:bogus\n",
+    "runner:100000:62040\n",
+  ])("ambiguous or malformed allocation fails before namespace probe: %s", mapping => {
+    const result = setupProbe(mapping);
+    expect(result.code).not.toBe(0);
+    expect(result.calls).toBe("");
+  });
+
+  test("install provisions absent account after other allocations without duplicates", () => {
+    const result = setupProbe("other:200000:65536\n", false, 0, true);
+    expect(result.code, result.error).toBe(0);
+    expect(result.mappings).toEqual([
+      "other:200000:65536\nrunner:265536:65536\n",
+      "other:200000:65536\nrunner:265536:65536\n",
+    ]);
+  });
+
+  test("install preserves a short existing allocation and fails instead of appending", () => {
+    const mapping = "runner:100000:1000\nother:200000:65536\n";
+    const result = setupProbe(mapping, false, 0, true);
+    expect(result.code).not.toBe(0);
+    expect(result.mappings).toEqual([mapping, mapping]);
+    expect(result.calls).toBe("");
+  });
+
 });

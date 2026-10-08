@@ -33,7 +33,7 @@ PYTHONDONTWRITEBYTECODE=1 python3 scripts/incus/incus-admission-authority.test.p
 
 This test requires Linux, util-linux `unshare`, `newuidmap` and `newgidmap`,
 unprivileged user and mount namespaces, and a subordinate UID/GID range of at
-least 62040 IDs for the test user. It uses a private mount namespace and root
+least 62041 IDs for the test user. It uses a private mount namespace and root
 folder. It binds the available Python runtime directories, including `/usr` and
 `/lib` on Ubuntu or `/nix/store` on NixOS. A missing prerequisite fails the test;
 it does not skip the regression. The test changes no host service or host root
