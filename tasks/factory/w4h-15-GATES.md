@@ -37,6 +37,11 @@ single-file `.info` uploads, because a directory upload's file names come from i
 
 ## Gates
 
+Commit note: `tasks/todo.md` is a tracked file, yet `git add tasks/todo.md` refused it with the ignored-path hint from the bare
+`tasks` rule at .gitignore:8. It was force-added (`-f`) for that reason only. The gate file is force-added for the same rule
+(established practice). The .gitignore leftover stands.
+
+
 - [x] G1 (R1): red first, on today's workflows. CHECK: `bash w4h-15/r1-red.sh` (workflows unchanged against 1b96d2730;
   ci.yml sha256 f6dd2962…, db-postgres.yml 86f8fd6c…). EXPECT: rc=1, naming the seven. EVIDENCE: `w4h-15/logs/r1-red.log`:
   1 pass, 3 fail, the line "ci.yml coverage (Per-file coverage gate): lcov.info is written into coverage-artifacts by
