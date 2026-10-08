@@ -185,15 +185,23 @@ async function sample(cycle: number, store: string, runnerPid: string, appProces
   }, fdSnapshot };
 }
 
-async function waitForAppSseCleanup(pid: string, baselineConnections: number): Promise<CleanupObservation> {
+async function waitForAppConnections(pid: string, baselineConnections: number, maxPolls: number): Promise<CleanupObservation> {
   const started = Date.now();
   let remainingConnections = baselineConnections;
-  for (let poll = 1; poll <= 20; poll++) {
+  let polls = 0;
+  while (polls < maxPolls) {
+    polls++;
     remainingConnections = await appEstablishedTcpConnections(pid);
-    if (remainingConnections <= baselineConnections) return { baselineConnections, remainingConnections, polls: poll, durationMs: Date.now() - started };
-    if (poll < 20) await Bun.sleep(100);
+    if (remainingConnections <= baselineConnections) break;
+    if (polls < maxPolls) await Bun.sleep(100);
   }
-  throw new Error(`App retained ${remainingConnections} established port-3000 connections above its pre-SSE ${baselineConnections} after reader cancellation.`);
+  return { baselineConnections, remainingConnections, polls, durationMs: Date.now() - started };
+}
+
+async function waitForAppSseCleanup(pid: string, baselineConnections: number): Promise<CleanupObservation> {
+  const cleanup = await waitForAppConnections(pid, baselineConnections, 20);
+  if (cleanup.remainingConnections > baselineConnections) throw new Error(`App retained ${cleanup.remainingConnections} established port-3000 connections above its pre-SSE ${baselineConnections} after reader cancellation.`);
+  return cleanup;
 }
 
 async function reconnectRuntimeEvents(origin: string, cookie: string): Promise<void> {
@@ -329,6 +337,11 @@ for (let cycle = 1; cycle <= count; cycle++) {
   const disabled = await inspect(installationId);
   if (disabled.installation.enabled || disabled.installation.activeReleaseId !== releaseId) throw new Error(`Cycle ${cycle} disable changed release history or remained enabled.`);
   activeReleaseId = releaseId;
+  // Transient port-3000 connections (the image health check, a fresh
+  // keep-alive socket from this proof's API client) can briefly exceed the
+  // pre-SSE count. Let them close before sampling; a leaked connection stays
+  // open and still fails the strict checks below.
+  await waitForAppConnections(appProcessPid, appConnectionsBeforeSse, 150);
   const measured = await sample(cycle, store, runnerPid, appProcessPid, appContainer);
   const after = { ...measured.observed, sseCleanup };
   const fdSnapshot = measured.fdSnapshot;
