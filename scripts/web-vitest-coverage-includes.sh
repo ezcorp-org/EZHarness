@@ -272,6 +272,7 @@ web_vitest_coverage_args() {
     "--coverage.include=src/lib/components/DelegationConsentDialog.svelte"
     "--coverage.include=src/**/tool-calls/**/output/+server.ts"
     "--coverage.include=src/**/mcp-servers/*/+server.ts"
+    "--coverage.include=src/routes/api/auth/invite/+server.ts"
     "--coverage.include=src/**/auth/invite/*/+server.ts"
     "--coverage.include=src/**/api/conversations/+server.ts"
     "--coverage.include=src/**/api/extensions/+server.ts"

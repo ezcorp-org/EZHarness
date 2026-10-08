@@ -3620,8 +3620,17 @@ Review: normal focused identity/setup/receipt tests passed 40 tests and 450 asse
 ### Admission complexity guard extraction — 8 October 2026
 
 - [x] Reproduce canonical approved() complexity failure with real final coverage.
-- [x] Extract expected-binding guard with identical order and errors.
+- [x] Extract connection-identity guard with identical order and errors.
 - [x] Run focused real-service coverage, canonical scorer, full typecheck, and Biome.
-- [ ] Present stable diff and evidence for independent review before commit.
+- [x] Obtain independent review and commit with normal hooks.
 
-Review: Baseline canonical approved() score 31 at 100% line coverage. Pure connection guard extraction preserves its exact condition, error, and call order. Fresh service coverage: approved() score 25, new assertApprovedConnection score 7, both 100%; 62 service functions scored, zero violations. Feature tests 19/19 (234 assertions), readiness tests 8/8 (51 assertions), all typecheck legs and full Biome passed. No full gate run. Canonical --changed before commit sees zero files because it compares base...HEAD, so scoped evidence uses exact canonical scorer on the unmodified service record selected from fresh LCOV. Await independent review before normal commit.
+Review: Baseline canonical approved() score 31 at 100% line coverage. Pure connection guard extraction preserves its exact condition, error, and call order. Fresh service coverage: approved() score 25, new assertApprovedConnection score 7, both 100%; 62 service functions scored, zero violations. Feature tests 19/19 (234 assertions), readiness tests 8/8 (51 assertions), all typecheck legs and full Biome passed. Independent review and normal commit hooks passed. The committed canonical changed-function check scores both functions at 100% with zero violations. No full gate was run in this isolated repair.
+
+### Invite DELETE coverage producer — 8 October 2026
+
+- [x] Reproduce missing collection-route coverage in the canonical V8 filter.
+- [x] Retain existing route tests and add the collection route to the V8 include manifest.
+- [x] Verify fresh coverage, merged missing-line hits, scoped CRAP, web check, and repository lint.
+- [x] Obtain independent review and commit.
+
+Review: existing request-boundary tests pass 25/25, with 32/32 executable lines and 22/22 branches covered. The canonical filter removed this route because only the token route matched the manifest. The added include retains collection coverage. Fresh filtered coverage merged with the previous full-gate route covers all reported misses; DELETE CRAP is 7 at 100% coverage. Web check has zero errors and warnings; Biome passes 5006 files. No source, test, threshold, exclusion, or timeout changes. The coverage manifest requires CODEOWNER review in the PR. A new full gate was not run in this isolated repair.
