@@ -1,6 +1,5 @@
 import adapter from 'svelte-adapter-bun';
 import { fileURLToPath } from 'node:url';
-import { ensureBunWebSocketHook } from '../scripts/ensure-bun-websocket-hook.js';
 
 const bunAdapter = adapter();
 
@@ -8,6 +7,8 @@ const previewAdapter = {
 	...bunAdapter,
 	async adapt(builder) {
 		await bunAdapter.adapt(builder);
+		// Stryker loads this config from a web-only sandbox but never runs adapt().
+		const { ensureBunWebSocketHook } = await import('../scripts/ensure-bun-websocket-hook.js');
 		await ensureBunWebSocketHook(fileURLToPath(new URL('./build/server/', import.meta.url)));
 	}
 };
