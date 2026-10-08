@@ -3548,3 +3548,14 @@ Review: Chromium browser RED received a portless link despite a mocked server UR
 - [x] Run focused browser, route, component, type and lint checks.
 
 Review: The real-auth browser case failed before the fix with the generic Local sandbox card and editable host-path field. It now passes 1/1 with a real seeded binding and matching harmless test connection. An ordinary project with a lookalike path remains local; the Incus project shows preset, last observed state and the admin management link, without local controls. The generic local status route returned its fail-closed 503 in this fixture. Focused route/resolver/component tests passed 17/17; route registry and scope checks passed 7/7; Svelte check reported 0 errors and 0 warnings; scoped Biome and diff checks passed. Independent source review passed after the provider-identity correction. No live Incus or installed app was touched.
+
+# Incus idle expiry UI (Sol6.1 review lane)
+
+- [x] Reproduce stale idle expiry in a real browser before code changes.
+- [x] Coordinate the readiness API response and implement a minimal expiry refresh.
+- [x] Prove deterministic clock behavior, evidence browser test, and focused checks.
+- [x] Obtain independent backend-owner source review.
+
+Review: Pending. Live packet reviews retain priority.
+
+Review: Browser RED kept Qualified after expiry. Final-source targeted real-auth Chromium browser GREEN1/1, evidence captured; component suites54/54, Svelte check0 errors/0 warnings, scoped Biome/diff passed. Backend owner independently reviewed and requested missing-deadline denial, now covered. Broader gates belong to root. Local4387 fixture stopped; no live server changes.

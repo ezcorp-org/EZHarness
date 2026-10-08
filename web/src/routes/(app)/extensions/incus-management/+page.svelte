@@ -17,6 +17,8 @@
 		qualificationState?: "qualified" | "running" | "failed" | "not_qualified";
 		qualificationRunId?: string | null;
 		qualificationValidUntil: string | null;
+		fullQualificationValidUntil?: string | null;
+		admissionReason?: "qualification_expired" | "readiness_unavailable" | "capacity_full" | null;
 		blockedReason: string | null;
 		limits?: { memoryBytes: number; cpuMillis: number; diskBytes: number; pids: number };
 		active?: boolean;
@@ -75,6 +77,8 @@
 	let destroyBinding = $state("");
 	let recoveryReview = $state<{ bindingId: string; failedDestroyOperationId: string } | null>(null);
 	let pollTimer: ReturnType<typeof setInterval> | undefined;
+	let expiryTimer: ReturnType<typeof setTimeout> | undefined;
+	let mounted = false;
 
 	const eligibleEnvironments = $derived(snapshot.environments.filter(item => item.active !== false));
 	const selected = $derived(eligibleEnvironments.find(item => environmentKey(item) === selectedEnvironment));
@@ -125,12 +129,39 @@
 		return payload as Record<string, unknown>;
 	}
 
+	function expireAdmission(): void {
+		const now = Date.now();
+		snapshot = { ...snapshot, environments: snapshot.environments.map(environment => {
+			if (!environment.qualified || environment.qualificationValidUntil
+				&& Number.isFinite(Date.parse(environment.qualificationValidUntil))
+				&& Date.parse(environment.qualificationValidUntil) > now) return environment;
+			return { ...environment, qualified: false, qualificationState: "not_qualified",
+				admissionReason: "readiness_unavailable", blockedReason: "Readiness expired or incomplete. Retry readiness." };
+		}) };
+	}
+
+	function refreshExpiredAdmission(): void {
+		expireAdmission();
+		void load({ quiet: true });
+	}
+
+	function scheduleAdmissionExpiry(): void {
+		if (expiryTimer) clearTimeout(expiryTimer);
+		if (!mounted) return;
+		const deadlines = snapshot.environments.filter(environment => environment.qualified && environment.qualificationValidUntil)
+			.map(environment => Date.parse(environment.qualificationValidUntil!)).filter(Number.isFinite);
+		if (deadlines.length) expiryTimer = setTimeout(refreshExpiredAdmission,
+			Math.min(2_147_483_647, Math.max(0, Math.min(...deadlines) - Date.now())));
+	}
+
 	async function load({ quiet = false }: { quiet?: boolean } = {}) {
 		if (!quiet) loading = true;
 		try {
 			const data = await request("/api/infrastructure/incus/management") as unknown as Snapshot;
 			snapshot = { environments: data.environments ?? [], projects: data.projects ?? [], features: data.features ?? [], truncated: data.truncated };
 			if (!selectedEnvironment && snapshot.environments.length) selectedEnvironment = environmentKey(snapshot.environments[0]!);
+			expireAdmission();
+			scheduleAdmissionExpiry();
 			syncQualificationDraft();
 			if (projectDraft?.projectId && snapshot.features.some(feature => feature.projectId === projectDraft!.projectId
 				&& feature.operation?.kind === "CREATE" && feature.operation.state === "SUCCEEDED"
@@ -550,6 +581,8 @@
 	}
 
 	onMount(() => {
+		mounted = true;
+		window.addEventListener("focus", refreshExpiredAdmission);
 		restoreQualificationDraft();
 		restoreProjectDraft();
 		restoreMutationKeys();
@@ -560,7 +593,12 @@
 			if (qualificationDraft?.phase === "running" || snapshot.environments.some(environment => environment.qualificationState === "running")
 				|| snapshot.features.some(isPending)) void load({ quiet: true });
 		}, 5_000);
-		return () => { if (pollTimer) clearInterval(pollTimer); };
+		return () => {
+			mounted = false;
+			if (pollTimer) clearInterval(pollTimer);
+			if (expiryTimer) clearTimeout(expiryTimer);
+			window.removeEventListener("focus", refreshExpiredAdmission);
+		};
 	});
 </script>
 
@@ -595,11 +633,14 @@
 						</div>
 						<p class="qualification-date">{connectionLabel(environment)}</p>
 						<p class="qualification-date">{dateLabel(environment.qualificationValidUntil)}</p>
+						{#if environment.fullQualificationValidUntil}<p class="qualification-date">Full qualification: {dateLabel(environment.fullQualificationValidUntil)}</p>{/if}
 						<p class="qualification-date">Limits: {resourceLabel(environment)}</p>
 						{#if environment.blockedReason}<p class="blocked-reason">{environment.blockedReason}</p>{/if}
 						<div class="env-actions">
 							<button class="quiet" onclick={() => selectedEnvironment = environmentKey(environment)} aria-pressed={selectedEnvironment === environmentKey(environment)}>Use this environment</button>
-							{#if !environment.qualified && environment.qualificationState !== "running" && !qualificationDraft}
+							{#if !environment.qualified && (environment.admissionReason === "readiness_unavailable" || environment.admissionReason === "capacity_full")}
+							<button class="secondary" disabled={loading || !!busy} onclick={() => void load()}>Retry readiness</button>
+							{:else if !environment.qualified && environment.qualificationState !== "running" && !qualificationDraft}
 							<button class="secondary" disabled={!!busy || !!recoveryWarning} onclick={() => void planQualification(environment)}>{busy === "probe-plan" && qualifyEnvironment === environmentKey(environment) ? "Planning…" : "Prepare qualification…"}</button>
 							{:else if !environment.qualified && qualificationDraft && !draftMatchesTarget}
 							<span class="muted">Finish the current fixture cleanup before preparing another environment.</span>

@@ -52,7 +52,10 @@ function serve(options: {
 	return { calls, setFeature: (value: ReturnType<typeof feature>) => { current = value; } };
 }
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+	localStorage.clear();
+	vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-09-25T00:00:00Z"));
+});
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("Incus management recovery", () => {

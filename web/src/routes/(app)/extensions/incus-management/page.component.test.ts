@@ -53,7 +53,7 @@ function setup(options: { feature?: ReturnType<typeof feature> | null; failManag
 		if (url.endsWith("/management")) {
 			if (options.failManagement) return response({ error: "Management service unavailable" }, 503);
 			return response({ environments: [{ ...environment, qualified, qualificationState: qualified ? "qualified" : environment.qualificationState,
-				qualificationRunId: runId, blockedReason: qualified ? null : environment.blockedReason }], projects: [project], features: currentFeature ? [currentFeature] : [] });
+				qualificationRunId: runId, qualificationValidUntil: qualified ? "2027-01-01T00:00:00Z" : null, blockedReason: qualified ? null : environment.blockedReason }], projects: [project], features: currentFeature ? [currentFeature] : [] });
 		}
 		if (url.endsWith("/probe-fixtures")) {
 			if (body?.action === "plan") return response({ plan: { digest: planDigest, directory: "/srv/fixtures", profile: environment.profile,
@@ -159,4 +159,75 @@ describe("Incus management page", () => {
 		expect(calls.map(call => call.body?.action)).toEqual(["plan", "apply", "status"]);
 		expect(view.queryByRole("button", { name: "Cancel" })).not.toBeInTheDocument();
 	});
+});
+
+
+test("expires idle admission locally and reloads; clears timers on unmount", async () => {
+	const now = new Date("2026-10-08T14:00:00Z");
+	vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+	vi.setSystemTime(now);
+	let reads = 0;
+	vi.stubGlobal("fetch", vi.fn(async () => {
+		reads += 1;
+		if (reads > 1) throw new Error("Readiness unavailable");
+		return response({ environments: [{ ...environment, qualified: true, qualificationState: "qualified",
+			qualificationValidUntil: "2026-10-08T14:00:10Z" }], projects: [project], features: [] });
+	}));
+	try {
+		const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(view.getByText("Qualified", { exact: true })).toBeVisible();
+		await vi.advanceTimersByTimeAsync(9_999);
+		expect(reads).toBe(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(view.getByText("Not qualified", { exact: true })).toBeVisible();
+		expect(reads).toBe(2);
+		expect(view.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
+		view.unmount();
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect(reads).toBe(2);
+	} finally { vi.useRealTimers(); }
+});
+
+test.each(["readiness_unavailable", "capacity_full"])("offers readonly retry for %s", async admissionReason => {
+	vi.stubGlobal("fetch", vi.fn(async () => response({ environments: [{ ...environment, admissionReason }], projects: [], features: [] })));
+	const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+	await waitFor(() => expect(view.getByRole("button", { name: "Retry readiness" })).toBeVisible());
+	expect(view.queryByRole("button", { name: "Prepare qualification…" })).not.toBeInTheDocument();
+});
+
+
+test("rejects an expired server deadline and refreshes on focus", async () => {
+	vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout", "setInterval", "clearInterval"] });
+	vi.setSystemTime(new Date("2026-10-08T14:00:00Z"));
+	let reads = 0;
+	vi.stubGlobal("fetch", vi.fn(async () => {
+		reads += 1;
+		return response({ environments: [{ ...environment, qualified: true, qualificationState: "qualified",
+			qualificationValidUntil: "2026-10-08T13:59:00Z" }], projects: [], features: [] });
+	}));
+	try {
+		const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+		await vi.advanceTimersByTimeAsync(0);
+		expect(view.getByText("Not qualified", { exact: true })).toBeVisible();
+		await vi.advanceTimersByTimeAsync(20_000);
+		expect(reads).toBe(1);
+		await fireEvent.focus(window);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(reads).toBe(2);
+		view.unmount();
+		await fireEvent.focus(window);
+		expect(reads).toBe(2);
+	} finally { vi.useRealTimers(); }
+});
+
+
+test.each([null, "invalid", "2026-10-08T13:59:00Z"])("denies incomplete or expired admission deadline %s", async qualificationValidUntil => {
+	vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-08T14:00:00Z"));
+	vi.stubGlobal("fetch", vi.fn(async () => response({ environments: [{ ...environment, qualified: true,
+		qualificationState: "qualified", qualificationValidUntil }], projects: [], features: [] })));
+	const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+	await waitFor(() => expect(view.container.querySelector(".environment-card .pill")).toHaveTextContent("Not qualified"));
+	expect(view.getByRole("button", { name: "Retry readiness" })).toBeVisible();
+	expect(view.getByRole("button", { name: "Create project sandbox" })).toBeDisabled();
 });

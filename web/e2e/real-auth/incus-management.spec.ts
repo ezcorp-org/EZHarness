@@ -724,3 +724,27 @@ test("stale operator readiness refuses qualification and keeps sandbox creation 
 	await expect(page.locator(".feature-card")).toHaveCount(0);
 	await captureEvidence(page, testInfo, "incus-selected-readiness-refused", { fullPage: true });
 });
+
+
+test("idle qualification refreshes after expiry @evidence", async ({ page }, testInfo) => {
+	const now = new Date("2026-10-08T14:00:00.000Z");
+	await page.clock.install({ time: now });
+	await mockManagement(page, { initiallyQualified: true });
+	let expired = false;
+	let reads = 0;
+	await page.route("**/api/infrastructure/incus/management", route => {
+		reads += 1;
+		return route.fulfill({ json: { environments: [{ ...environment, qualified: !expired,
+			qualificationState: expired ? "not_qualified" : "qualified",
+			qualificationValidUntil: expired ? null : "2026-10-08T14:00:10.000Z",
+			blockedReason: expired ? "Qualification expired." : null }], projects: [project], features: [] } });
+	});
+	await page.goto("/extensions/incus-management");
+	await expect(page.locator(".environment-card .pill")).toHaveText("Qualified");
+	const before = reads;
+	expired = true;
+	await page.clock.fastForward(15_000);
+	await expect(page.locator(".environment-card .pill")).toHaveText("Not qualified");
+	expect(reads).toBeGreaterThan(before);
+	await captureEvidence(page, testInfo, "incus-idle-expiry");
+});
