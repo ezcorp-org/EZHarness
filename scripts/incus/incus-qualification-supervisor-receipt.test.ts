@@ -2,7 +2,7 @@ import { afterAll, expect, spyOn, test } from "bun:test";
 import { createServer } from "node:https";
 import { createServer as createUnixServer, type AddressInfo } from "node:net";
 import { generateKeyPairSync } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
@@ -51,6 +51,69 @@ async function invoke(input: object, env: Record<string, string>) {
   return { status, stdout, stderr };
 }
 
+function receiptConfiguration(presetDigest: string, endpoint: string) {
+  const transportConnection = { endpoint, serverCertificatePem: certificates.read("server-cert.pem"),
+      project: recipe.project.name, clientCertificatePem: certificates.read("client-cert.pem"),
+      privateKeyPem: certificates.read("client-key.pem") };
+  const context = { scope: { installationId: scope.installationId,
+      releaseId: scope.releaseId, connectionId: scope.connectionId },
+    connection: { revision: 2, project: recipe.project.name, serverCertificatePem: certificates.read("server-cert.pem"),
+      configuration: { profile: recipe.profile.name, helperVersion: "0.1.0", guestUser: "sandbox" } },
+    preset, presetDigest, effectiveSettingsDigest: "a".repeat(64), recipe };
+  return { context, transportConnection };
+}
+
+// These independent negative cases each keep the existing 30-second budget.
+// A fresh real receipt process checks every case; database cases stay sequential below.
+const readinessRejections = [
+  "legacy admission readiness", "extra admission pin", "stale approved release",
+  "installationId", "releaseId", "connectionId", "presetId", "connection revision",
+  "preset digest", "settings digest", "image fingerprint", "helper digest",
+  "extra pin field", "extra scope field", "zero revision", "unsafe revision",
+  "malformed helper digest", "unsafe release", "null pin", "array pin",
+];
+test.each(readinessRejections.map((name, index) => [name, index] as const))("receipt readiness rejects %s", async (_name, index) => {
+  const root = await mkdtemp(join(tmpdir(), "incus-receipt-readiness-"));
+  try {
+    const presetDigest = await sandboxPresetDigest(preset);
+    const config = receiptConfiguration(presetDigest, "https://127.0.0.1:1");
+    const configPath = join(root, "connection.json");
+    await writeFile(configPath, JSON.stringify(config), { mode: 0o600 });
+    const expectedPin = { scope, connectionRevision: 2, presetDigest,
+      effectiveSettingsDigest: config.context.effectiveSettingsDigest,
+      imageFingerprint: preset.imageDigest, helperSha256: recipe.guestImage.helperSha256 };
+    const changedPins = [
+      ...["installationId", "releaseId", "connectionId", "presetId"].map(key => ({
+        ...expectedPin, scope: { ...scope, [key]: "wrong" },
+      })),
+      { ...expectedPin, connectionRevision: 1 },
+      ...["presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperSha256"]
+        .map(key => ({ ...expectedPin, [key]: "f".repeat(64) })),
+      { ...expectedPin, extra: true }, { ...expectedPin, scope: { ...scope, extra: true } },
+      { ...expectedPin, connectionRevision: 0 }, { ...expectedPin, connectionRevision: Number.MAX_SAFE_INTEGER + 1 },
+      { ...expectedPin, helperSha256: "malformed" }, { ...expectedPin, scope: { ...scope, releaseId: "../wrong" } },
+      null, [],
+    ];
+    const input = index === 0 ? { phase: "admissionReadiness", expectedPin }
+      : index === 1 ? { phase: "admissionReadiness", expectedPin: { ...expectedPin, extra: true } }
+      : index === 2 ? { phase: "readiness", expectedPin: {
+        ...expectedPin, scope: { ...scope, releaseId: "approved-new-release" } } }
+      : { phase: "readiness", expectedPin: changedPins[index - 3] };
+    const dbPath = join(root, "db");
+    const result = await invoke(input, { EZCORP_INCUS_SUPERVISOR_DB_PATH: dbPath,
+      EZCORP_INCUS_RECEIPT_CONFIG: configPath });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout).toBe("");
+    const denial = index < 2 ? "operator receipt phase is invalid"
+      : index < 12 ? "operator receipt denied: operator pin does not match fixture"
+      : "operator receipt denied: invalid selected readiness pin";
+    expect(result.stderr).toContain(`error: ${denial}`);
+    await expect(stat(dbPath)).rejects.toMatchObject({ code: "ENOENT" });
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}, 30_000);
+
 test("receipt verifier snapshots the stopped fixture and computes a pinned backend digest", async () => {
   const root = await mkdtemp(join(tmpdir(), "incus-receipt-"));
   const dbPath = join(root, "db");
@@ -97,15 +160,7 @@ test("receipt verifier snapshots the stopped fixture and computes a pinned backe
   try {
     await new Promise<void>(resolve => server.listen(0, "127.0.0.1", resolve));
     const port = (server.address() as AddressInfo).port;
-    const serverCertificatePem = certificates.read("server-cert.pem");
-    const transportConnection = { endpoint: `https://127.0.0.1:${port}`, serverCertificatePem,
-      project: recipe.project.name, clientCertificatePem: certificates.read("client-cert.pem"),
-      privateKeyPem: certificates.read("client-key.pem") };
-    const context = { scope: { installationId: scope.installationId,
-      releaseId: scope.releaseId, connectionId: scope.connectionId },
-    connection: { revision: 2, project: recipe.project.name, serverCertificatePem,
-      configuration: { profile: recipe.profile.name, helperVersion: "0.1.0", guestUser: "sandbox" } },
-    preset, presetDigest, effectiveSettingsDigest: "a".repeat(64), recipe };
+    const { context, transportConnection } = receiptConfiguration(presetDigest, `https://127.0.0.1:${port}`);
     await writeFile(configPath, JSON.stringify({ context, transportConnection }), { mode: 0o600 });
     const db = new PGlite(dbPath);
     await db.waitReady;
@@ -153,24 +208,6 @@ test("receipt verifier snapshots the stopped fixture and computes a pinned backe
     expect(await invoke({ phase: "readiness", expectedPin }, env)).toMatchObject({
       status: 0, stdout: '{"ready":"receipt.v1"}\n',
     });
-    // The new phase must not treat legacy structural readiness as dynamic evidence.
-    expect((await invoke({ phase: "admissionReadiness", expectedPin }, env)).status).not.toBe(0);
-    expect((await invoke({ phase: "admissionReadiness", expectedPin: { ...expectedPin, extra: true } }, env)).status).not.toBe(0);
-    expect((await invoke({ phase: "readiness", expectedPin: {
-      ...expectedPin, scope: { ...scope, releaseId: "approved-new-release" },
-    } }, env)).status).not.toBe(0);
-    for (const changed of [
-      ...["installationId", "releaseId", "connectionId", "presetId"].map(key => ({
-        ...expectedPin, scope: { ...scope, [key]: "wrong" },
-      })),
-      { ...expectedPin, connectionRevision: 1 },
-      ...["presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperSha256"]
-        .map(key => ({ ...expectedPin, [key]: "f".repeat(64) })),
-      { ...expectedPin, extra: true }, { ...expectedPin, scope: { ...scope, extra: true } },
-      { ...expectedPin, connectionRevision: 0 }, { ...expectedPin, connectionRevision: Number.MAX_SAFE_INTEGER + 1 },
-      { ...expectedPin, helperSha256: "malformed" }, { ...expectedPin, scope: { ...scope, releaseId: "../wrong" } },
-      null, [],
-    ]) expect((await invoke({ phase: "readiness", expectedPin: changed }, env)).status).not.toBe(0);
     expect(backendGets).toBe(0);
     const captured = await invoke({ phase: "snapshot", request: exactRequest }, env);
     expect(captured.status).toBe(0);
