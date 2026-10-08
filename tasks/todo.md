@@ -3539,3 +3539,12 @@ Review: All four refactors have independent review and focused real coverage. Wh
 - [x] Get independent review before root integrates; report exact source and test results.
 
 Review: Chromium browser RED received a portless link despite a mocked server URL on `localhost:4301`; after the fix, the full consent spec passed 6/6 against a fresh build. A final 3/3 browser run passed after adding an absolute HTTP(S) URL guard. Focused Vitest passed 28/28, web check found 0 errors and 0 warnings, and Biome and diff checks passed. Solcycle's independent source review passed. The live app and primary tree were not changed.
+
+# Incus project Settings handoff (isolated 7873 worktree)
+
+- [x] Reproduce the seeded Incus project's wrong Local sandbox card in a real-auth browser test.
+- [x] Resolve Incus project identity from its saved binding and matching Incus provider connection, with project access checks.
+- [x] Link Incus project Settings to the existing management controls; keep local and legacy sandbox behavior.
+- [x] Run focused browser, route, component, type and lint checks.
+
+Review: The real-auth browser case failed before the fix with the generic Local sandbox card and editable host-path field. It now passes 1/1 with a real seeded binding and matching harmless test connection. An ordinary project with a lookalike path remains local; the Incus project shows preset, last observed state and the admin management link, without local controls. The generic local status route returned its fail-closed 503 in this fixture. Focused route/resolver/component tests passed 17/17; route registry and scope checks passed 7/7; Svelte check reported 0 errors and 0 warnings; scoped Biome and diff checks passed. Independent source review passed after the provider-identity correction. No live Incus or installed app was touched.

@@ -732,3 +732,7 @@
 - Each new test must create its own required durable state. Run every added
   test alone with its name filter before claiming independence; a full-file
   pass can hide a dependency on an earlier test's saved receipt.
+# 2026-10-08 — Test the observed route response
+
+- When a real browser test adds a side assertion for an existing API, read its actual status and body before fixing an expected value. I guessed the generic sandbox route's status and message twice, which delayed the Project Settings UI proof. Keep the browser test focused on the user-visible defect; retain observed side-route evidence separately.
+- Search dedicated operator pages before calling a feature's UI absent. The Incus management page already owned qualified Compose selection and lifecycle controls; the real gap was the Incus project's generic Settings card.

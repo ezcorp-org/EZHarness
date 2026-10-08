@@ -316,6 +316,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/projects/:id", description: "Update project settings (project members and instance admins)", category: "projects", scope: "write" },
   { method: "DELETE", path: "/api/projects/:id", description: "Delete a project (project members and instance admins)", category: "projects", scope: "write" },
 	{ method: "GET", path: "/api/projects/:id/sandbox", description: "Read a project member's dedicated local sandbox status", category: "projects", scope: "read" },
+	{ method: "GET", path: "/api/projects/:id/incus-feature", description: "Read a project member's Incus feature binding kind", category: "projects", scope: "read" },
 	{ method: "POST", path: "/api/projects/:id/sandbox", description: "Admit a start, stop, or irreversible destroy action for a dedicated local sandbox", category: "projects", scope: "write" },
 	{ method: "POST", path: "/api/sandboxes", description: "Create a dedicated empty local sandbox project from a reviewed provider", category: "projects", scope: "write" },
 	{ method: "GET", path: "/api/sandboxes/providers", description: "List reviewed active local sandbox providers", category: "projects", scope: "read" },

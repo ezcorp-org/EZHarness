@@ -649,6 +649,35 @@ test("a management-created Incus project opens chat and saves its own conversati
 	expect(await persisted.json()).toMatchObject({ id: conversation.id, projectId: prepared.project.id });
 });
 
+test("Incus project Settings points to its operator controls, not Local sandbox Create", async ({ page, request }) => {
+	const seeded = await request.post("/api/__test/seed", { data: { incusProject: true, projectName: "Incus settings regression" } });
+	expect(seeded.status()).toBe(201);
+	const { project } = await seeded.json() as { project: { id: string } };
+	const ordinary = await request.post("/api/projects", { data: {
+		name: "Ordinary project with a similar path",
+		path: `/__incus_workspace_unavailable__/ordinary-${crypto.randomUUID()}`,
+	} });
+	expect(ordinary.status()).toBe(201);
+	const localProject = await ordinary.json() as { id: string };
+	const boundIdentity = await request.get(`/api/projects/${project.id}/incus-feature`);
+	expect(boundIdentity.status()).toBe(200);
+	expect(await boundIdentity.json()).toMatchObject({ kind: "incus", presetId: "incus-compose-v1", canManage: true });
+	const ordinaryIdentity = await request.get(`/api/projects/${localProject.id}/incus-feature`);
+	expect(ordinaryIdentity.status()).toBe(200);
+	expect(await ordinaryIdentity.json()).toEqual({ kind: "none" });
+	const genericStatus = await request.get(`/api/projects/${project.id}/sandbox`);
+	expect(genericStatus.status()).toBe(503);
+
+	await page.goto(`/project/${project.id}/settings`);
+	await expect(page.getByRole("heading", { name: "Incus sandbox" })).toBeVisible();
+	await expect(page.getByRole("link", { name: "Manage Incus sandbox" })).toHaveAttribute("href", "/extensions/incus-management");
+	await expect(page.getByTestId("project-sandbox-panel")).toHaveCount(0);
+
+	await page.goto(`/project/${localProject.id}/settings`);
+	await expect(page.getByTestId("project-sandbox-panel")).toBeVisible();
+	await expect(page.getByRole("heading", { name: "Incus sandbox" })).toHaveCount(0);
+});
+
 
 test("qualification failure shows the safe diagnostic and does not repeat the run", async ({ page }) => {
 	await mockManagement(page);
