@@ -723,6 +723,7 @@
   "web/src/lib/extensions/extension-sort.ts": 100,
   "web/src/routes/api/preview/[id]/token/+server.ts": 100,
   "web/src/routes/api/preview/consent/+server.ts": 100,
+  "web/src/routes/api/projects/[id]/incus-feature/+server.ts": 100,
   "web/src/lib/settings-nav.ts": 100,
   "web/src/lib/settings-search.ts": 100,
   "web/src/lib/settings-search-config.ts": 100,
