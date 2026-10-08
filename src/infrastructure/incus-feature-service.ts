@@ -203,11 +203,7 @@ export class IncusFeatureService {
     if (!revision || !Number.isSafeInteger(revision)) throw new Error("Approved Incus connection is unavailable");
     const connection = await this.resolveConnection({ connectionId: input.connectionId,
       providerInstallationId: input.installationId, providerReleaseId: snapshot.release.id, revision });
-    if (connection.id !== input.connectionId || connection.revision !== revision || connection.revokedAt
-      || connection.providerInstallationId !== input.installationId || connection.providerReleaseId !== snapshot.release.id
-      || connection.configuration.kind !== "incus") {
-      throw new Error("Approved Incus connection changed");
-    }
+    this.assertApprovedConnection(connection, input, revision, snapshot.release.id);
     const digest = await sandboxPresetDigest(preset);
     const effectiveSettingsDigest = setupDigest({ presetDigest: digest, connectionRevision: revision });
     if (requireQualification) {
@@ -238,6 +234,15 @@ export class IncusFeatureService {
       throw new Error("Incus feature binding changed");
     }
     return { snapshot, connection, preset, qualification, readiness, presetDigest: digest, effectiveSettingsDigest };
+  }
+
+  private assertApprovedConnection(connection: ProviderConnectionCredentials, input: PrepareIncusFeatureInput,
+    revision: number, releaseId: string): void {
+    if (connection.id !== input.connectionId || connection.revision !== revision || connection.revokedAt
+      || connection.providerInstallationId !== input.installationId || connection.providerReleaseId !== releaseId
+      || connection.configuration.kind !== "incus") {
+      throw new Error("Approved Incus connection changed");
+    }
   }
 
   /** A fixture destroy is cleared only by the original journaled operation,

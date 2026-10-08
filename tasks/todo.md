@@ -3616,3 +3616,12 @@ Review: DELETE requires admin scope, exact origin (or scoped key), and a closed 
 - [ ] Complete final combined local/hosted gates, deploy, and prove installed UI readiness, retained guests, restart, and cleanup.
 
 Review: normal focused identity/setup/receipt tests passed 40 tests and 450 assertions; two supplemental root-only tests were skipped in that nonroot run and passed separately as part of four root tests with 33 assertions. The binding has 10/10 measured lines, scoped CRAP 11; modified SSH callback CRAP 4. Standard quality globs exclude scripts/incus, so these explicit scores are reported separately. Retained-guest setup tests passed 36/36, admission tests 8/8, feature-service tests 19/19, and all typecheck legs passed. The actual server proof covers the empty-host read-only path; current installed admission and UI remain pending.
+
+### Admission complexity guard extraction — 8 October 2026
+
+- [x] Reproduce canonical approved() complexity failure with real final coverage.
+- [x] Extract expected-binding guard with identical order and errors.
+- [x] Run focused real-service coverage, canonical scorer, full typecheck, and Biome.
+- [ ] Present stable diff and evidence for independent review before commit.
+
+Review: Baseline canonical approved() score 31 at 100% line coverage. Pure connection guard extraction preserves its exact condition, error, and call order. Fresh service coverage: approved() score 25, new assertApprovedConnection score 7, both 100%; 62 service functions scored, zero violations. Feature tests 19/19 (234 assertions), readiness tests 8/8 (51 assertions), all typecheck legs and full Biome passed. No full gate run. Canonical --changed before commit sees zero files because it compares base...HEAD, so scoped evidence uses exact canonical scorer on the unmodified service record selected from fresh LCOV. Await independent review before normal commit.
