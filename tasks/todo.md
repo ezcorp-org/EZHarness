@@ -5954,3 +5954,18 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] R4 unit tests (fake clock, fake client): progress keeps the wait alive, no progress ends it, the error names the stuck installations; 100 percent of new and changed lines.
 - [ ] R5 green in the same container: content, resources, delivery and recovery shards, one run each.
 - [ ] Legs: typecheck, lint, hook-mapped suites with lcov, new-file and patch coverage, CRAP, guard set, gate-integrity, prune scan.
+
+## W4H-15 — the hosted Per-file coverage gate lost six producers' LCOV to one file name (branch `wp/w4h-15-coverage-artifact-names`; gates `tasks/factory/w4h-15-GATES.md`)
+
+- [x] R1: the new guard is red on the base workflows and names the seven `lcov-cov-*` producers that upload `lcov.info`. The merge
+  collision is reproduced on run 37743486763's own artifacts: 6 overwrites, 40 SF records lost, the gate red with 70 files.
+- [x] R2: each producer renames its LCOV to `lcov_<producer>.info` before upload (28c04b874). The gate job is unchanged. The guard
+  and the 26 workflow-reading test files are green, and the renamed local merge loses no record.
+- [x] R3: actionlint (no new finding), light legs, gate-integrity both legs (main = the 8 standing lines), prune scan and
+  typecheck (under the memory rule) are green at 28c04b874.
+- [ ] Open, outside the package: 4 files still fail the hosted gate once every record is present (pack.ts, materials.ts,
+  uv-command.ts, publication.ts). Reported to the coordinator.
+
+Review: the producers were correct; the gate's merged download dropped their files. A unique file name per producer fixes it
+without changing the gate. The fix also uncovers 4 real coverage gaps the collision was hiding, so the hosted gate stays red
+until another package closes them. Receipts: /tmp/factory-platform-evidence/w4h-15/report.txt (written once, at the end).
