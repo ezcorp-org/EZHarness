@@ -49,8 +49,9 @@ export function missingThresholds(thresholds: string, sources: readonly string[]
   return sources.filter((source) => !thresholds.includes(`"${source}": 100`)).map((source) => `${source} threshold`);
 }
 
-export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string; readonly env?: Readonly<Record<string, string>> }
-export interface WorkflowJob { readonly name?: string; readonly steps?: readonly WorkflowStep[] }
+export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string; readonly env?: Readonly<Record<string, string>>; readonly with?: Readonly<Record<string, string | number | boolean>> }
+/** A job runs steps, or calls a reusable workflow (`uses: ./.github/workflows/<file>`). */
+export interface WorkflowJob { readonly name?: string; readonly uses?: string; readonly steps?: readonly WorkflowStep[] }
 export interface Workflow { readonly file: string; readonly text: string; readonly jobs: Record<string, WorkflowJob> }
 
 /** Every workflow file in `dir`, sorted by name, with its text and its parsed jobs. */

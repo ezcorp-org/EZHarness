@@ -111,10 +111,13 @@ jobs:
         env:
           PYTHON_COVERAGE_OUT: coverage-factory-python
         run: bash scripts/python-quality.sh all
+      # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
+      - name: Name the LCOV for the merged coverage download
+        run: mv coverage-factory-python/lcov.info coverage-factory-python/lcov_factory_python.info
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lcov-cov-factory-python
-          path: coverage-factory-python/lcov.info
+          path: coverage-factory-python/lcov_factory_python.info
           retention-days: 3
           if-no-files-found: error
       # Both runners validate the SAME generated schema. Running them in one
@@ -152,10 +155,13 @@ jobs:
           COV_OUT: coverage-shard
           FACTORY_TEMPORAL_TEST_SERVER: /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
         run: bash scripts/factory-orchestrator-coverage.sh
+      # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
+      - name: Name the LCOV for the merged coverage download
+        run: mv coverage-shard/lcov.info coverage-shard/lcov_factory_orchestrator.info
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: lcov-cov-factory-orchestrator
-          path: coverage-shard/lcov.info
+          path: coverage-shard/lcov_factory_orchestrator.info
           retention-days: 3
           if-no-files-found: error
 
