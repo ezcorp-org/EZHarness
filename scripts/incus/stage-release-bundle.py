@@ -167,6 +167,50 @@ def check_empty_runtime_placeholder(root):
     require(not any((root / RUNTIME_DIR).iterdir()), "runtime placeholder must be empty")
 
 
+def check_runtime_directory(path, uid, gid, mode):
+    status = path.lstat()
+    require(stat.S_ISDIR(status.st_mode) and status.st_uid == uid
+            and status.st_gid == gid and stat.S_IMODE(status.st_mode) == mode,
+            f"unsafe bound runtime directory: {path}")
+    return status
+
+
+def is_exact_mountpoint(path):
+    for line in Path("/proc/self/mountinfo").read_text().splitlines():
+        mountpoint = line.split()[4]
+        for escaped, plain in ((r"\040", " "), (r"\011", "\t"),
+                               (r"\012", "\n"), (r"\134", "\\")):
+            mountpoint = mountpoint.replace(escaped, plain)
+        if mountpoint == str(path):
+            return True
+    return False
+
+
+def check_bound_runtime(root, source, app_uid, app_gid, owner=0):
+    require(isinstance(source, str) and source.startswith("/")
+            and type(app_uid) is int and app_uid > 0
+            and type(app_gid) is int and app_gid > 0,
+            "explicit bound runtime source and app identity required")
+    configured_source = source
+    source = Path(source)
+    require(str(source) == configured_source and source == source.resolve(strict=True)
+            and not source.is_relative_to(root),
+            "bound runtime source must be canonical and outside release")
+    check_runtime_directory(source.parent, owner, app_gid, 0o730)
+    for ancestor in source.parent.parents:
+        status = ancestor.stat()
+        require(status.st_uid == owner and not status.st_mode & 0o022,
+                "unsafe bound runtime ancestor")
+    source_status = check_runtime_directory(source, app_uid, app_gid, 0o700)
+    target = root / RUNTIME_DIR
+    target_status = check_runtime_directory(target, app_uid, app_gid, 0o700)
+    require(is_exact_mountpoint(target)
+            and (source_status.st_dev, source_status.st_ino)
+            == (target_status.st_dev, target_status.st_ino),
+            "configured runtime bind mount is missing or changed")
+    return source_status.st_dev, source_status.st_ino
+
+
 def remove_empty_runtime_dirs(root):
     def clean(directory):
         for path in directory.iterdir():
@@ -178,9 +222,12 @@ def remove_empty_runtime_dirs(root):
     clean(root / RUNTIME_DIR)
 
 
-def verify(root):
+def verify(root, *, runtime_source=None, app_uid=None, app_gid=None, owner=0):
     root = root.resolve(strict=True)
-    check_runtime_placeholder(root)
+    if runtime_source is None:
+        check_runtime_placeholder(root)
+    else:
+        check_bound_runtime(root, runtime_source, app_uid, app_gid, owner)
     check_safe_modes(root)
     document = json.loads((root / MANIFEST).read_text())
     require(set(document) == {"schema", "gitSha", "bunVersion", "bunSha256", "locks", "files"}

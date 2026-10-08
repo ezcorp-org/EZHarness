@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { join } from "node:path";
 
 for (const filename of ["incus-qualification-supervisor.test.py",
+  "incus-admission-authority.test.py", "stage-release-bundle.test.py",
   "incus-qualification-supervisor-fault.test.py",
   "incus-qualification-fault-authorize.test.py",
   "final-flow-cycle.test.py"]) test(filename, async () => {

@@ -304,7 +304,8 @@ class Supervisor:
             spec.loader.exec_module(module)
             self.admission_authority = module.AdmissionAuthority(
                 self.admission_authority_config, self.app_command,
-                supervisor_config_path=self.admission_config_path)
+                supervisor_config_path=self.admission_config_path,
+                app_uid=self.app_uid, app_gid=self.app_gid)
         self.child = subprocess.Popen(self.app_command, close_fds=True, start_new_session=True,
                                       preexec_fn=self.drop_app_privileges)
         self.child_identity = identity(self.child.pid)

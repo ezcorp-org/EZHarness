@@ -60,12 +60,18 @@ def signature(status):
 
 
 class AdmissionAuthority:
-    def __init__(self, config, app_command, owner=0, supervisor_config_path=None):
-        require(isinstance(config, dict) and set(config) == {
-            "bundleRoot", "serviceFiles", "policyFiles"}, "configuration incomplete")
+    def __init__(self, config, app_command, owner=0, supervisor_config_path=None,
+                 *, app_uid=None, app_gid=None):
+        required = {"bundleRoot", "serviceFiles", "policyFiles"}
+        require(isinstance(config, dict) and required <= set(config)
+                and not set(config) - required - {"runtimeSource"}, "configuration incomplete")
         self.owner = owner
         self.root = protected_path(config["bundleRoot"], owner)
         self.config = config
+        self.runtime_source = config.get("runtimeSource")
+        require("runtimeSource" not in config or isinstance(self.runtime_source, str),
+                "explicit runtime source required")
+        self.app_uid, self.app_gid = app_uid, app_gid
         self.supervisor_config_path = supervisor_config_path
         if supervisor_config_path is not None:
             require(supervisor_config_path in config["serviceFiles"], "supervisor configuration missing from service closure")
@@ -77,7 +83,9 @@ class AdmissionAuthority:
         self.verifier = importlib.util.module_from_spec(spec)
         sys.dont_write_bytecode = True
         spec.loader.exec_module(self.verifier)
-        self.verifier.verify(self.root)
+        self.verifier.verify(self.root, runtime_source=self.runtime_source,
+                             app_uid=app_uid, app_gid=app_gid, owner=owner)
+        self.launch_runtime_identity = self.runtime_identity()
         self.launch_files = self.snapshot()
         self.security_digest = hashlib.sha256((self.root / self.verifier.MANIFEST).read_bytes()).hexdigest()
         self.launch_service_digest = file_digest(config["serviceFiles"], owner, supervisor_config_path)
@@ -94,7 +102,15 @@ class AdmissionAuthority:
             facts[str(path.relative_to(self.root))] = signature(status)
         return facts
 
+    def runtime_identity(self):
+        if self.runtime_source is None:
+            return None
+        return self.verifier.check_bound_runtime(self.root, self.runtime_source,
+                                                self.app_uid, self.app_gid, self.owner)
+
     def observe(self):
+        require(self.runtime_identity() == self.launch_runtime_identity,
+                "runtime binding changed; restart required")
         require(self.snapshot() == self.launch_files, "loaded app closure changed; restart required")
         service = file_digest(self.config["serviceFiles"], self.owner, self.supervisor_config_path)
         require(service == self.launch_service_digest, "loaded service changed; restart required")

@@ -3634,3 +3634,13 @@ Review: Baseline canonical approved() score 31 at 100% line coverage. Pure conne
 - [x] Obtain independent review and commit.
 
 Review: existing request-boundary tests pass 25/25, with 32/32 executable lines and 22/22 branches covered. The canonical filter removed this route because only the token route matched the manifest. The added include retains collection coverage. Fresh filtered coverage merged with the previous full-gate route covers all reported misses; DELETE CRAP is 7 at 100% coverage. Web check has zero errors and warnings; Biome passes 5006 files. No source, test, threshold, exclusion, or timeout changes. The coverage manifest requires CODEOWNER review in the PR. A new full gate was not run in this isolated repair.
+
+## 2026-10-08 Mounted runtime admission fix
+
+- [x] Reproduce authority startup failure in a real bind mount namespace.
+- [x] Keep strict staging checks; add explicit bound runtime contract.
+- [x] Test actual supervisor startup and app privilege drop with valid and invalid mounts.
+- [x] Run focused checks and send frozen diff for independent review.
+- [x] Apply review fixes, commit, and report evidence.
+
+Review: independent reviewer approved frozen v3 diff `e42561f33758a6dedd9d60ae76d397b52e3d4f94a443b56693397e1d9b484908`. Actual mounted supervisor startup passed on NixOS and Ubuntu 24.04, including UID/GID 62040 child launch and mount drift denial. Pinned Bun wrapper: 6 passed, 0 failed; stage suite: 17 passed; authority suite: 5 passed. Changed executable Python coverage: 43/43; maximum touched production function CRAP: 11. Python compilation, wrapper build, Biome, and diff checks passed. No live service or host root changes.
