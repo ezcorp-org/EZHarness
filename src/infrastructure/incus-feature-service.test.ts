@@ -358,6 +358,75 @@ test("user project recovery preserves failed cleanup and charges until exact lin
   expect(await db.select().from(schema.sandboxCleanupRecoveries)).toHaveLength(1);
 }, DB_TEST_TIMEOUT_MS);
 
+test("linked destroy settled during recovery returns its exact completed receipt", async () => {
+  const { db, service, controller, admission, dispatches, provider, preset, configureAdmission, setProvider } = await fixture();
+  await configureAdmission();
+  const { binding } = await service.prepareProject({ name: "Concurrent recovery", ownerUserId: "admin",
+    idempotencyKey: "concurrent-recovery-project", installationId: "installation", connectionId: "connection", presetId: preset.id });
+  const request = (key: string) => ({ bindingId: binding.id, idempotencyScope: "concurrent-recovery", idempotencyKey: key });
+  await service.create(request("create"));
+  await service.reconcile();
+  await service.start(request("start"));
+  await service.reconcile();
+  setProvider("running", 2);
+  const originalDispatch = provider.dispatch;
+  provider.dispatch = async input => {
+    if (input.kind === "DESTROY" && input.idempotency.scope === "concurrent-recovery") {
+      dispatches.push(input);
+      return { outcome: "FAILED", errorCode: "REVISION_CONFLICT" };
+    }
+    if (input.kind === "DESTROY" && input.idempotency.scope === "sandbox-cleanup-recovery") {
+      dispatches.push(input);
+      return { outcome: "SUCCEEDED", observedState: "ABSENT" };
+    }
+    return originalDispatch(input);
+  };
+  await admission.markCleanupIntent(binding.id, binding.generation, "failed-cleanup-intent");
+  const failed = await controller.requestAndDispatch({ ...request("legacy-destroy"), generation: binding.generation,
+    kind: "DESTROY", payload: { expectedGeneration: 2 } });
+  expect(failed).toMatchObject({ state: "FAILED", errorCode: "REVISION_CONFLICT", providerOperationId: null });
+  const stop = await service.recoverCleanup(binding.id, failed.id);
+  expect(stop.recovery.state).toBe("STOP_REQUIRED");
+  setProvider("stopped", 3);
+  const execute = controller.executeOperation.bind(controller);
+  controller.executeOperation = async operationId => {
+    const operation = await execute(operationId);
+    if (operation.kind === "DESTROY" && operation.state === "SUCCEEDED") {
+      await service.settleCompletedOperation(operation.id);
+    }
+    return operation;
+  };
+  const result = await service.recoverCleanup(binding.id, failed.id);
+  expect(result.operation).toMatchObject({ kind: "DESTROY", state: "SUCCEEDED" });
+  expect(result.recovery).toMatchObject({ state: "COMPLETED", destroyOperationId: result.operation.id });
+  expect(await admission.getReservation(binding.id)).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect(dispatches.filter(item => item.kind === "DESTROY")).toHaveLength(2);
+  expect((await service.recoverCleanup(binding.id, failed.id)).recovery).toEqual(result.recovery);
+  const getBinding = controller.getBinding.bind(controller);
+  let staleRead = true;
+  controller.getBinding = async id => {
+    const current = await getBinding(id);
+    if (staleRead && current) {
+      staleRead = false;
+      return { ...current, cleanupConfirmedAt: null };
+    }
+    return current;
+  };
+  expect((await service.recoverCleanup(binding.id, failed.id)).recovery).toEqual(result.recovery);
+  controller.getBinding = getBinding;
+  await expect(service.recoverCleanup(binding.id, "unlinked-failure")).rejects.toMatchObject({ code: "CLEANUP_RECOVERY_UNAVAILABLE" });
+  await db.update(schema.sandboxReservations).set({ generation: binding.generation + 1 })
+    .where(eq(schema.sandboxReservations.bindingId, binding.id));
+  await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toMatchObject({ code: "CLEANUP_RECOVERY_UNAVAILABLE" });
+  await db.update(schema.sandboxReservations).set({ generation: binding.generation })
+    .where(eq(schema.sandboxReservations.bindingId, binding.id));
+  await db.update(schema.sandboxReservations).set({ diskState: "RESERVED" }).where(eq(schema.sandboxReservations.bindingId, binding.id));
+  await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toMatchObject({ code: "CLEANUP_RECOVERY_UNAVAILABLE" });
+  await db.update(schema.sandboxReservations).set({ diskState: "RELEASED" }).where(eq(schema.sandboxReservations.bindingId, binding.id));
+  await db.update(schema.sandboxBindings).set({ currentOperationId: failed.id }).where(eq(schema.sandboxBindings.id, binding.id));
+  await expect(service.recoverCleanup(binding.id, failed.id)).rejects.toMatchObject({ code: "CLEANUP_RECOVERY_UNAVAILABLE" });
+}, DB_TEST_TIMEOUT_MS);
+
 test("normal stopped project can recover a terminal native protected DELETE without erasing its receipt", async () => {
   const { db, service, controller, admission, provider, preset, configureAdmission, setProvider, connection } = await fixture();
   await configureAdmission();

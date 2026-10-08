@@ -731,9 +731,12 @@ export class IncusCleanupRecoveryService {
       ? recovery.stopOperationId : recovery.destroyOperationId);
     if (!operation) throw new IncusCleanupRecoveryUnavailableError();
     if (recovery.state === "COMPLETED") {
-      if (operation.state !== "SUCCEEDED" || operation.kind !== "DESTROY"
-        || binding.currentOperationId !== operation.id || binding.observedState !== "ABSENT"
-        || !binding.cleanupConfirmedAt) throw new IncusCleanupRecoveryUnavailableError();
+      const current = await this.controller.getBinding(bindingId);
+      if (!current) throw new IncusCleanupRecoveryUnavailableError();
+      await this.authorize(current);
+      if (!await settleLinkedCleanupRecovery(this.db, this.admission, current, operation)) {
+        throw new IncusCleanupRecoveryUnavailableError();
+      }
       return { recovery, operation };
     }
     await this.authorize(binding);
@@ -794,11 +797,20 @@ async function settleLinkedCleanupRecovery(db: Database, admission: SandboxAdmis
     return true;
   }
   if (operation.kind !== "DESTROY" || operation.state !== "SUCCEEDED" || binding.observedState !== "ABSENT"
-    || recovery.destroyOperationId !== operation.id || recovery.state !== "DESTROY_REQUIRED") {
+    || recovery.destroyOperationId !== operation.id) {
     throw new IncusCleanupRecoveryUnavailableError();
   }
   const reservation = await admission.getReservation(binding.id);
-  if (!reservation?.cleanupIntentId) throw new IncusCleanupRecoveryUnavailableError();
+  if (!reservation?.cleanupIntentId || reservation.generation !== binding.generation) {
+    throw new IncusCleanupRecoveryUnavailableError();
+  }
+  if (recovery.state === "COMPLETED") {
+    if (!binding.cleanupConfirmedAt || reservation.computeState !== "RELEASED" || reservation.diskState !== "RELEASED") {
+      throw new IncusCleanupRecoveryUnavailableError();
+    }
+    return true;
+  }
+  if (recovery.state !== "DESTROY_REQUIRED") throw new IncusCleanupRecoveryUnavailableError();
   await admission.recordObservedState(binding.id, binding.generation, "ABSENT", reservation.cleanupIntentId, operation.id);
   await db.update(sandboxCleanupRecoveries).set({ state: "COMPLETED", updatedAt: new Date() })
     .where(eq(sandboxCleanupRecoveries.id, recovery.id));
