@@ -33,6 +33,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
+COPY web/patches/ web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Install Playwright chromium + system deps

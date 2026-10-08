@@ -21,6 +21,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
+COPY web/patches/ web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Copy source and build
@@ -194,6 +195,7 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web production dependencies (needed by SvelteKit server at runtime)
 COPY web/package.json web/bun.lock web/
+COPY web/patches/ web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --production --frozen-lockfile --ignore-scripts
 
 # Copy backend source
