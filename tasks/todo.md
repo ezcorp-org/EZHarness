@@ -3530,3 +3530,12 @@ controls. Verify each namefilter independently and wholefile before amendment.
 - [ ] Review actual final exits, push the verified source, and obtain exact-head hosted CI results.
 
 Review: All four refactors have independent review and focused real coverage. Whole-source final verification is pending. Hosted 4de60 finished with 49 checks passing and one CRAP failure; all coverage and browser gates passed on that older source. API owns the next single full local gate in a new isolated worktree. No gate thresholds, retries or exclusions changed. These authoritative server/contract changes require a rebuilt deployment; installed f078 remains separate evidence. Provider 0.1.6 approval, live qualification and ten cycles remain pending.
+
+## Preview consent high-port link — 2026-10-08 (isolated 7873 branch)
+
+- [x] Reproduce the consent click and generated link at the nearest browser request boundary with a server-supplied `localhost:4301` preview URL.
+- [x] Make consent use the configured preview origin and the existing canonical URL builder; keep host, port, and one-time code behavior.
+- [x] Verify nondefault port, default port, split preview host, disabled origin, and ordinary app behavior with focused tests and web checks.
+- [x] Get independent review before root integrates; report exact source and test results.
+
+Review: Chromium browser RED received a portless link despite a mocked server URL on `localhost:4301`; after the fix, the full consent spec passed 6/6 against a fresh build. A final 3/3 browser run passed after adding an absolute HTTP(S) URL guard. Focused Vitest passed 28/28, web check found 0 errors and 0 warnings, and Biome and diff checks passed. Solcycle's independent source review passed. The live app and primary tree were not changed.

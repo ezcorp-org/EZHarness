@@ -64,6 +64,7 @@ function consentPayload(port: number) {
 
 interface ConsentMockOpts {
 	fail?: boolean;
+	openUrl?: string;
 }
 
 // Register the /api/preview/consent mock + recorder. MUST run AFTER
@@ -89,7 +90,7 @@ async function installConsentMock(
 		}
 		return route.fulfill({
 			status: 200,
-			json: { ok: true, action: body.action, previewId: "pid26label", code: "code123", subdomainLabel: "pid26label" },
+			json: { ok: true, action: body.action, previewId: "pid26label", code: "code123", subdomainLabel: "pid26label", openUrl: opts.openUrl ?? "http://pid26label.preview.localhost:4301/__open?c=code123" },
 		});
 	});
 	return { calls };
@@ -176,11 +177,18 @@ test.describe("secure preview — expose-consent card", () => {
 		const open = page.getByTestId("preview-consent-open");
 		await expect(open).toBeVisible({ timeout: 8000 });
 		const href = (await open.getAttribute("href")) ?? "";
-		expect(href).toContain("pid26label.preview.");
-		expect(href).toContain("/__open?c=code123");
+		expect(href).toBe("http://pid26label.preview.localhost:4301/__open?c=code123");
 
 		expect(calls).toHaveLength(1);
 		expect(calls[0]).toMatchObject({ action: "expose", conversationId: conv.id, port: 5173 });
+	});
+
+	test("Expose uses the configured split preview host instead of the app host", async ({ page, mockApi, emitSse }) => {
+		const openUrl = "https://pid26label.preview.previews.example.test:8443/__open?c=code123";
+		await navigateAndSurfaceCard(page, mockApi, emitSse, 5173, { openUrl });
+		await expect(page.getByTestId("preview-consent-card")).toBeVisible({ timeout: 8000 });
+		await page.getByTestId("preview-consent-expose").click();
+		await expect(page.getByTestId("preview-consent-open")).toHaveAttribute("href", openUrl);
 	});
 
 	test("Always expose POSTs action=always-expose (D3)", async ({ page, mockApi, emitSse }) => {

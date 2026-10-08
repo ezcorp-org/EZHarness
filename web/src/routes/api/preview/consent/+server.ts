@@ -5,6 +5,8 @@ import {
   setAlwaysExpose,
   clearAlwaysExpose,
 } from "$server/runtime/preview/preview-consent";
+import { resolvePreviewAppHost } from "$server/runtime/preview/preview-proxy";
+import { buildPreviewOpenUrl } from "$server/runtime/preview/preview-detection-bridge";
 
 // ── POST /api/preview/consent — requester consent action ───────────────
 //
@@ -75,6 +77,9 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     return bad(400, "A valid port is required");
   }
 
+  const previewHost = resolvePreviewAppHost();
+  if (!previewHost) return bad(503, "Preview origin is unavailable");
+
   // "Always expose" persists the per-conversation preference (scoped to
   // this requesting user) BEFORE exposing the current port.
   if (action === "always-expose") {
@@ -88,9 +93,15 @@ export const POST: RequestHandler = async ({ request, locals }) => {
     conversationId,
     port,
   });
+  const openUrl = buildPreviewOpenUrl(
+    subdomainLabel,
+    code,
+    previewHost,
+    process.env.FORCE_SECURE_COOKIES === "true",
+  );
 
   return new Response(
-    JSON.stringify({ ok: true, action, previewId, code, subdomainLabel }),
+    JSON.stringify({ ok: true, action, previewId, code, subdomainLabel, openUrl }),
     {
       status: 200,
       headers: {

@@ -82,18 +82,3 @@ export function buildConsentRequest(
 ): { conversationId: string; port: number; action: ConsentAction } {
   return { conversationId: data.conversationId, port: data.port, action };
 }
-
-/**
- * Compose the served preview URL from the API response's `subdomainLabel`.
- * The label is the opaque preview id; the host completes it into the
- * wildcard subdomain. `appHost` defaults to the current origin's host at
- * call time (the card passes window.location.host). Returns the
- * `/__open?c=<code>` handoff URL the browser opens to set the cookie.
- */
-export function buildOpenUrl(subdomainLabel: string, code: string, appHost: string, protocol = "https:"): string {
-  // Reuse the app's host suffix: <label>.preview.<host-without-port>.
-  // appHost may include a port (dev). Strip the app's own port and host
-  // prefix down to the registrable suffix used for *.preview.<host>.
-  const hostNoPort = appHost.split(":")[0] ?? appHost;
-  return `${protocol}//${subdomainLabel}.preview.${hostNoPort}/__open?c=${encodeURIComponent(code)}`;
-}

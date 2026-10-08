@@ -20,7 +20,6 @@
 		type PreviewConsentCardData,
 		type ConsentAction,
 		buildConsentRequest,
-		buildOpenUrl,
 	} from "./preview-consent-card-logic.js";
 
 	let { data }: { data: PreviewConsentCardData } = $props();
@@ -55,13 +54,20 @@
 				const body = (await res.json().catch(() => ({}))) as { error?: string };
 				throw new Error(body.error ?? `Request failed (${res.status})`);
 			}
-			const body = (await res.json()) as { subdomainLabel?: string; code?: string };
-			if (!body.subdomainLabel || !body.code) {
+			const body = (await res.json()) as { openUrl?: string };
+			if (typeof body.openUrl !== "string" || !body.openUrl) {
 				throw new Error("Malformed expose response");
 			}
-			const host = typeof window !== "undefined" ? window.location.host : "localhost";
-			const proto = typeof window !== "undefined" ? window.location.protocol : "https:";
-			openUrl = buildOpenUrl(body.subdomainLabel, body.code, host, proto);
+			let parsedUrl: URL;
+			try {
+				parsedUrl = new URL(body.openUrl);
+			} catch {
+				throw new Error("Malformed expose response");
+			}
+			if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+				throw new Error("Malformed expose response");
+			}
+			openUrl = body.openUrl;
 			phase = "exposed";
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
