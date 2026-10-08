@@ -41,6 +41,7 @@
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import ts from "typescript";
 
 const HOOKS_PATH = resolve(import.meta.dir, "../../../web/src/hooks.server.ts");
 const HOOKS_SRC = readFileSync(HOOKS_PATH, "utf8");
@@ -59,6 +60,55 @@ function extractPiSessionBlock(src: string): string {
   const start = src.indexOf("Migration bridge");
   expect(start).toBeGreaterThan(-1);
   return src.slice(start, start + 2000);
+}
+
+const hooksAst = ts.createSourceFile(HOOKS_PATH, HOOKS_SRC, ts.ScriptTarget.Latest, true);
+
+/** Read the real expiry branch as syntax, so logging and indentation cannot change its meaning. */
+function migrationExpiryBranches(): { expired: ts.Statement; live: ts.Statement } {
+  const matches: ts.IfStatement[] = [];
+  const visit = (node: ts.Node): void => {
+    if (ts.isIfStatement(node) && ts.isBinaryExpression(node.expression)) {
+      const { left, operatorToken, right } = node.expression;
+      if (operatorToken.kind === ts.SyntaxKind.GreaterThanToken &&
+          ts.isCallExpression(left) && ts.isPropertyAccessExpression(left.expression) &&
+          ts.isIdentifier(left.expression.expression) && left.expression.expression.text === "Date" &&
+          left.expression.name.text === "now" && left.arguments.length === 0 &&
+          ts.isIdentifier(right) && right.text === "PI_SESSION_MIGRATION_EXPIRES_AT") {
+        matches.push(node);
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(hooksAst);
+  expect(matches).toHaveLength(1);
+  expect(matches[0]?.elseStatement).toBeDefined();
+  return { expired: matches[0]!.thenStatement, live: matches[0]!.elseStatement! };
+}
+
+function callsIn(node: ts.Node): ts.CallExpression[] {
+  const calls: ts.CallExpression[] = [];
+  const visit = (child: ts.Node): void => {
+    if (ts.isCallExpression(child)) calls.push(child);
+    ts.forEachChild(child, visit);
+  };
+  visit(node);
+  return calls;
+}
+
+function setsCookie(call: ts.CallExpression, name: string, value: string): boolean {
+  return ts.isPropertyAccessExpression(call.expression) &&
+    call.expression.getText(hooksAst) === "event.cookies.set" &&
+    call.arguments.length >= 2 && ts.isStringLiteral(call.arguments[0]!) &&
+    call.arguments[0].text === name && ts.isStringLiteral(call.arguments[1]!) &&
+    call.arguments[1].text === value;
+}
+
+function assignsLegacySession(node: ts.Node): boolean {
+  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+      ts.isIdentifier(node.left) && node.left.text === "sessionToken" &&
+      ts.isIdentifier(node.right) && node.right.text === "legacyToken") return true;
+  return ts.forEachChild(node, assignsLegacySession) ?? false;
 }
 
 // ── (A) CORS source-level regression gates ──────────────────────────────
@@ -195,31 +245,23 @@ describe("sec-M4: pi_session migration bridge has a hard expiry (source)", () =>
   });
 
   test("post-expiry branch does NOT set ezcorp_session from the legacy cookie", () => {
-    // The pre-fix code unconditionally did
-    //   event.cookies.set("ezcorp_session", legacyToken, {...});
-    // Post-fix that line only runs in the `else` (pre-expiry) branch.
-    // We check that inside the expiry-guarded branch there is a
-    // `cookies.set("pi_session", "", ...)` purge with no accompanying
-    // `ezcorp_session` set in the same sub-block.
-    const block = extractPiSessionBlock(HOOKS_SRC);
-    // Locate the `if (Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT) { ... }` body.
-    const match = block.match(
-      /if\s*\(\s*Date\.now\(\)\s*>\s*PI_SESSION_MIGRATION_EXPIRES_AT\s*\)\s*\{([\s\S]*?)\n\s{8}\}\s*else/,
-    );
-    expect(match).not.toBeNull();
-    const expiredBranch = match![1];
-    expect(expiredBranch).toMatch(/cookies\.set\(\s*"pi_session"\s*,\s*""/);
-    expect(expiredBranch).not.toMatch(/cookies\.set\(\s*"ezcorp_session"/);
+    const { expired } = migrationExpiryBranches();
+    const calls = callsIn(expired);
+    expect(calls.filter((call) => setsCookie(call, "pi_session", ""))).toHaveLength(1);
+    expect(assignsLegacySession(expired)).toBe(false);
+    expect(calls.some((call) => ts.isIdentifier(call.expression) &&
+      call.expression.text === "setSessionCookie")).toBe(false);
+    expect(calls.some((call) => ts.isPropertyAccessExpression(call.expression) &&
+      call.expression.getText(hooksAst) === "event.cookies.set" &&
+      ts.isStringLiteral(call.arguments[0]) && call.arguments[0].text === "ezcorp_session")).toBe(false);
   });
 
   test("pre-expiry branch DOES promote legacy token to ezcorp_session", () => {
-    // Sanity-check the else branch still performs the migration in-window.
-    const block = extractPiSessionBlock(HOOKS_SRC);
-    const match = block.match(/else\s*\{([\s\S]*?)\n\s{6}\}/);
-    expect(match).not.toBeNull();
-    const liveBranch = match![1];
-    expect(liveBranch).toMatch(/sessionToken\s*=\s*legacyToken/);
-    expect(liveBranch).toMatch(/setSessionCookie\(\s*event\.cookies\s*,\s*legacyToken/);
+    const { live } = migrationExpiryBranches();
+    expect(assignsLegacySession(live)).toBe(true);
+    expect(callsIn(live).some((call) => ts.isIdentifier(call.expression) &&
+      call.expression.text === "setSessionCookie" &&
+      call.arguments.map((arg) => arg.getText(hooksAst)).join(",") === "event.cookies,legacyToken")).toBe(true);
   });
 });
 
