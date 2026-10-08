@@ -1,5 +1,7 @@
 # Lessons
 
+- A mutation report is not proof that mutants were tested. Check `testsCompleted` and run one active mutant directly when a score is unexpectedly zero. Stryker and Vitest must use the same nested-suite name separator in both the dry-run coverage hook and the mutant runner; pin a package patch and verify it after a frozen install.
+
 - Run full repository gates in a clean, fixed worktree. Progress edits in the integration worktree invalidate browser coverage attestation, even when only task documents change. Record the gate's actual source and process before resuming work after compaction; do not launch a duplicate suite.
 
 - Run every new maintenance preflight against the actual installed files before any service action. Fake order tests do not catch real file sizes or ownership. Reuse the existing bundle verifier; a generic 64 KiB helper-file limit rejected a valid 15.9 MB manifest before accounting could start.

@@ -25,6 +25,7 @@ describe("resolveWorkspaceBinding", () => {
 
 	test("fails closed for service errors and transport failures", async () => {
 		await expect(resolveWorkspaceBinding("project", "", vi.fn().mockResolvedValue(response({ error: "Unavailable" }, 503)))).resolves.toEqual({ kind: "unavailable", error: "Unavailable" });
+		await expect(resolveWorkspaceBinding("project", "", vi.fn().mockResolvedValue(response({}, 503)))).resolves.toEqual({ kind: "unavailable", error: "Could not verify this workspace." });
 		await expect(resolveWorkspaceBinding("project", "", vi.fn().mockRejectedValue(new Error("offline")))).resolves.toEqual({ kind: "unavailable", error: "Could not verify this workspace." });
 	});
 
@@ -42,5 +43,19 @@ describe("resolveWorkspaceBinding", () => {
 	test("fails closed for an unavailable provider connection or malformed identity", async () => {
 		await expect(resolveWorkspaceBinding("project", "/repo", vi.fn().mockResolvedValue(response({ kind: "unavailable" })))).resolves.toEqual({ kind: "unavailable", error: "Could not verify this workspace." });
 		await expect(resolveWorkspaceBinding("project", "/repo", vi.fn().mockResolvedValue(response({ kind: "incus", canManage: true })))).resolves.toEqual({ kind: "unavailable", error: "Could not verify this workspace." });
+	});
+
+	test("accepts a null preset but rejects malformed Incus identity fields", async () => {
+		const valid = { kind: "incus", canManage: true, presetId: null, observedState: "RUNNING" };
+		await expect(resolveWorkspaceBinding("project", "/repo", vi.fn().mockResolvedValue(response(valid)))).resolves.toEqual(valid);
+		for (const identity of [
+			{ ...valid, kind: "foreign" },
+			{ ...valid, canManage: "true" },
+			{ ...valid, presetId: 7 },
+			{ ...valid, presetId: undefined },
+			{ ...valid, observedState: 7 },
+		]) {
+			await expect(resolveWorkspaceBinding("project", "/repo", vi.fn().mockResolvedValue(response(identity)))).resolves.toEqual({ kind: "unavailable", error: "Could not verify this workspace." });
+		}
 	});
 });
