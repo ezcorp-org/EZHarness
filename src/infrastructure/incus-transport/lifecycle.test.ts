@@ -1132,3 +1132,43 @@ test("real async PATCH intent advances to one final power receipt only after its
 for (const outcome of ["DESTROY_PATCH", "DESTROY_PATCH_CANCEL"] as const) {
   test(`real destroy ${outcome === "DESTROY_PATCH" ? "failed" : "cancelled"} async tag intent keeps visible tags without issuing DELETE`, () => exerciseAdapterLifecycle(undefined, false, outcome));
 }
+
+
+test("real TLS redirect denial preserves uncertainty after a lifecycle write", async () => {
+  const requests: string[] = [];
+  let redirectReads = false;
+  let mutationArrived = false;
+  const server: Server = createServer({ cert: serverCertificatePem, key: serverKey, ca: clientCa, requestCert: true, rejectUnauthorized: true }, (request, response) => {
+    requests.push(`${request.method} ${request.url}`);
+    if (request.method !== "GET" || redirectReads) {
+      if (request.method !== "GET") mutationArrived = true;
+      response.writeHead(307, { location: "/1.0/redirect-target" });
+      response.end();
+    } else if (request.url?.includes("/profiles/")) {
+      response.setHeader("content-type", "application/json");
+      response.end(JSON.stringify({ type: "sync", status_code: 200, metadata: safeProfile }));
+    } else {
+      response.writeHead(404, { "content-type": "application/json" });
+      response.end(JSON.stringify({ type: "error", status_code: 404, metadata: {} }));
+    }
+  });
+  await new Promise<void>((resolve, reject) => { server.once("error", reject); server.listen(0, "127.0.0.1", resolve); });
+  const endpoint = `https://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  const transport = new HostIncusLifecycleTransport({ resolveForHost: async () => ({ ...connection, endpoint }) }, scope);
+  try {
+    const failure = await transport.request({ ...command, deadlineMs: Date.now() + 10_000 }).catch((error: unknown) => error) as IncusTransportError;
+    expect(mutationArrived).toBe(true);
+    expect(requests).toEqual([`GET /1.0/instances/${sandboxName}?project=sandbox`, "GET /1.0/profiles/ezharness?project=sandbox", "POST /1.0/instances?project=sandbox"]);
+    expect(failure).toMatchObject({ kind: "permission", effect: "unknown" });
+    expect(failure.operationId).toMatch(/^ezh-create-/);
+    requests.length = 0;
+    mutationArrived = false;
+    redirectReads = true;
+    await expect(transport.request({ ...command, deadlineMs: Date.now() + 10_000 })).rejects.toMatchObject({ kind: "permission", effect: "none" });
+    expect(mutationArrived).toBe(false);
+    expect(requests).toHaveLength(1);
+    requests.length = 0;
+    await expect(transport.request({ ...command, deadlineMs: Date.now() + 10_000, pins: { ...command.pins, project: "other" } })).rejects.toMatchObject({ kind: "permission", effect: "none" });
+    expect(requests).toHaveLength(0);
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
+}, 15_000);

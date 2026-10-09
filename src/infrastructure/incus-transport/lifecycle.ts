@@ -113,7 +113,7 @@ async function withSessionLimit<T>(connections: HostConnectionResolver, scope: H
       // Once a write is attempted, even a lost TLS reply can hide an Incus effect.
       if (method !== "GET") mutationAttempted = true;
       const response = await Promise.race([http(url.href, { method, body: body ? JSON.stringify(body) : undefined, headers: etag ? { "If-Match": etag } : undefined, redirect: "manual", proxy: false, decompress: false, signal: controller.signal, tls }), deadline]);
-      if (response.status >= 300 && response.status < 400) denied("Incus redirect denied");
+      if (response.status >= 300 && response.status < 400) throw new IncusTransportError("permission", "Incus redirect denied", { effect: mutationAttempted ? "unknown" : "none" });
       const envelope = await Promise.race([boundedJson(response, true), deadline]);
       return { status: response.status, envelope, etag: response.headers.get("etag") };
     } };
