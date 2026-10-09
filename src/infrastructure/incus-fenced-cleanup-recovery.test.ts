@@ -1141,9 +1141,85 @@ test("offline user recovery phase uses current durable rows, protected observer 
     await expect(handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem: "foreign" })).rejects.toThrow();
     const result = await handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem });
     expect(result).toHaveProperty("cleanupOperationId");
+    expect(await handleUserCreateRecoveryPhase({ phase: "inspect-user-create-settlement", receipt: f.signed, publicKeyPem,
+      cleanupOperationId: (result as { cleanupOperationId: string }).cleanupOperationId })).toEqual({ settled: true,
+        cleanupOperationId: (result as { cleanupOperationId: string }).cleanupOperationId, target: f.target,
+        resourceName: f.signed.payload.resourceName });
     await expect(handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem })).rejects.toThrow();
   } finally {
     ssh.mockRestore(); names.forEach((name, index) => { if (saved[index] === undefined) delete process.env[name]; else process.env[name] = saved[index]; });
     rmSync(directory, { recursive: true, force: true });
   }
+}, 30000);
+
+
+function userRecoveryAuthority(pins: import("./incus-create-noeffect-recovery").UserCreateRecoveryPins) {
+  const omitted = new Set(["projectHash", "ownerHash", "bindingHash", "operationHash", "reservationHash", "admissionHash", "admissionId"]);
+  return Object.fromEntries(Object.entries(pins).filter(([key]) => !omitted.has(key))) as import("./incus-create-noeffect-recovery").UserCreateRecoveryAuthority;
+}
+async function userRecoveryDatabaseRows(db: Awaited<ReturnType<typeof setup>>["db"]) {
+  return Promise.all([db.select().from(schema.projects), db.select().from(schema.projectMembers),
+    db.select().from(schema.sandboxBindings), db.select().from(schema.sandboxOperations),
+    db.select().from(schema.sandboxReservations), db.select().from(schema.sandboxAdmissionRequests),
+    db.select().from(schema.projectWorkspaceBindings), db.select().from(schema.providerConnections)]);
+}
+
+test("user recovery pin preparation reads exact typed state without changing rows and refuses missing or competing admission", async () => {
+  const { prepareUserCreateRecoveryPins, inspectUserCreateRecovery, applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup(), authority = userRecoveryAuthority(f.pins);
+  const before = await userRecoveryDatabaseRows(f.db);
+  const prepared = await prepareUserCreateRecoveryPins(f.db, f.target, authority);
+  expect(prepared).toEqual(f.pins);
+  expect(await userRecoveryDatabaseRows(f.db)).toEqual(before);
+  await inspectUserCreateRecovery(f.db, f.target, prepared);
+  await expect(prepareUserCreateRecoveryPins(f.db, { ...f.target, bindingId: "foreign" }, authority)).rejects.toThrow();
+  await expect(prepareUserCreateRecoveryPins(f.db, f.target, { ...authority, releaseDigest: "0".repeat(64) })).rejects.toThrow();
+  await expect(prepareUserCreateRecoveryPins(f.db, f.target, { ...authority, extra: true } as typeof authority)).rejects.toThrow();
+  const admission = before[5]![0]!;
+  await f.db.delete(schema.sandboxAdmissionRequests);
+  await expect(prepareUserCreateRecoveryPins(f.db, f.target, authority)).rejects.toThrow("allocation");
+  await f.db.insert(schema.sandboxAdmissionRequests).values(admission);
+  await f.db.insert(schema.sandboxAdmissionRequests).values({ ...admission, id: "competing-admission", idempotencyKey: "competing" });
+  await expect(prepareUserCreateRecoveryPins(f.db, f.target, authority)).rejects.toThrow("allocation");
+  await f.db.delete(schema.sandboxAdmissionRequests).where(eq(schema.sandboxAdmissionRequests.id, "competing-admission"));
+  expect(await userRecoveryDatabaseRows(f.db)).toEqual(before);
+  const payload = { ...f.signed.payload, ...prepared };
+  const signed = { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+  expect(await applyUserCreateRecovery(f.db, signed, publicKeyPem)).toBeString();
+}, 30000);
+
+test("user settlement inspection preserves expired signed history and rejects unrelated row or payload drift", async () => {
+  const { prepareUserCreateRecoveryPins, applyUserCreateRecovery, inspectUserCreateRecoverySettlement } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup();
+  const prepared = await prepareUserCreateRecoveryPins(f.db, f.target, userRecoveryAuthority(f.pins));
+  const payload = { ...f.signed.payload, ...prepared };
+  const signed = { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+  const cleanupId = await applyUserCreateRecovery(f.db, signed, publicKeyPem);
+  const expected = { settled: true, cleanupOperationId: cleanupId, target: f.target, resourceName: payload.resourceName };
+  const before = await userRecoveryDatabaseRows(f.db);
+  expect(await inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).toEqual(expected);
+  clock.mockReturnValue(payload.fenceUntilMs + 100000);
+  try {
+    expect(await inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).toEqual(expected);
+    await expect(applyUserCreateRecovery(f.db, signed, publicKeyPem)).rejects.toThrow("fence");
+    await expect(inspectUserCreateRecoverySettlement(f.db, { ...signed, signature: "forged" }, publicKeyPem, cleanupId)).rejects.toThrow();
+    await expect(inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, "foreign")).rejects.toThrow();
+    await f.db.update(schema.sandboxOperations).set({ errorMessage: "changed-original" }).where(eq(schema.sandboxOperations.id, operationId));
+    await expect(inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).rejects.toThrow("row changed");
+    await f.db.update(schema.sandboxOperations).set({ errorMessage: f.original.errorMessage }).where(eq(schema.sandboxOperations.id, operationId));
+    await f.db.update(schema.sandboxReservations).set({ stopIntentId: "unrelated-stop" });
+    await expect(inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).rejects.toThrow("state delta");
+    await f.db.update(schema.sandboxReservations).set({ stopIntentId: f.reservation.stopIntentId });
+    const cleanup = (await f.db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, cleanupId)))[0]!;
+    const altered = { ...cleanup.requestPayload, originalBinding: { ...(cleanup.requestPayload.originalBinding as Record<string, unknown>), resourceKey: "tampered" } };
+    await f.db.update(schema.sandboxOperations).set({ requestPayload: altered, payloadHash: operationPayloadHash({ bindingId, kind: "DESTROY", generation: 1,
+      idempotencyScope: cleanup.idempotencyScope, idempotencyKey: cleanup.idempotencyKey, payload: altered }) }).where(eq(schema.sandboxOperations.id, cleanupId));
+    await expect(inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).rejects.toThrow("row changed");
+    await f.db.update(schema.sandboxOperations).set({ requestPayload: cleanup.requestPayload, payloadHash: cleanup.payloadHash }).where(eq(schema.sandboxOperations.id, cleanupId));
+    await f.db.update(schema.providerConnections).set({ revokedAt: new Date() });
+    await expect(inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).rejects.toThrow();
+    await f.db.update(schema.providerConnections).set({ revokedAt: null });
+    expect(await inspectUserCreateRecoverySettlement(f.db, signed, publicKeyPem, cleanupId)).toEqual(expected);
+    expect(await userRecoveryDatabaseRows(f.db)).toEqual(before);
+  } finally { clock.mockReturnValue(now); }
 }, 30000);

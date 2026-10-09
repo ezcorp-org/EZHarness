@@ -504,14 +504,14 @@ class Supervisor:
 
     def recovery_stage(self, phase, value, deadline_ms):
         if phase not in ("durable", "backend", "apply", "restore", "abort", "inspect-abort",
-                         "inspect-admitted-restoration", "restore-admitted", "inspect-noeffect"):
+                         "inspect-admitted-restoration", "restore-admitted", "inspect-noeffect", "inspect-user-create-settlement"):
             raise ValueError("invalid operator recovery stage")
         command = self.recovery_abort_command if phase in ("abort", "inspect-abort") else self.recovery_command
         if phase in ("inspect-admitted-restoration", "restore-admitted"):
             command = self.recovery_restore_command
         if not command:
             raise ValueError("operator recovery command unavailable")
-        app_phase = phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect")
+        app_phase = phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect", "inspect-user-create-settlement")
         action = value.get("target", {}).get("action") or value.get("receipt", {}).get("payload", {}).get("action")
         drop = self.drop_app_privileges
         if app_phase and action == "recover-user-create":
@@ -775,7 +775,7 @@ class Supervisor:
         return request
 
     def restoration_stage(self, phase, value, deadline_ms):
-        if phase not in ("inspect-admitted-restoration", "restore-admitted", "inspect-noeffect"):
+        if phase not in ("inspect-admitted-restoration", "restore-admitted", "inspect-noeffect", "inspect-user-create-settlement"):
             raise ValueError("invalid admitted restoration stage")
         return self.recovery_stage(phase, value, deadline_ms)
 

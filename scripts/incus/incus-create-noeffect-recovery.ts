@@ -8,7 +8,7 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { IncusQualificationFixtureService } from "../../src/infrastructure/incus-qualification";
 import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
-  type NoEffectRecoveryReceipt, inspectUserCreateRecovery, applyUserCreateRecovery,
+  type NoEffectRecoveryReceipt, inspectUserCreateRecovery, applyUserCreateRecovery, inspectUserCreateRecoverySettlement,
   type UserCreateRecoveryTarget, type UserCreateRecoveryPins, type UserCreateRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
@@ -223,6 +223,13 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
 }
 
 export async function handleUserCreateRecoveryPhase(input: Record<string, unknown>): Promise<unknown> {
+  if (input.phase === "inspect-user-create-settlement") {
+    requireFact(Object.keys(input).sort().join() === "cleanupOperationId,phase,publicKeyPem,receipt", "user settlement inspection fields changed");
+    const key = trustedSupervisorSigner(input.publicKeyPem);
+    requireFact(typeof input.cleanupOperationId === "string", "user settlement operation required");
+    return withOfflineDb(db => inspectUserCreateRecoverySettlement(db, input.receipt as UserCreateRecoveryReceipt,
+      key, input.cleanupOperationId as string));
+  }
   if (input.phase === "durable") {
     requireFact(Object.keys(input).sort().join() === "phase,target", "user recovery fields changed");
     const target = input.target as UserCreateRecoveryTarget & { action: string; pins: UserCreateRecoveryPins };
