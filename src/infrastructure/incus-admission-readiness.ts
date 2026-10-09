@@ -87,7 +87,7 @@ export class IncusAdmissionReadinessService {
     requireSame(selected, pins(scope, await this.qualifications.authorizeFixture(scope)), "readiness_unavailable");
     const authority = admissionAuthority(observation);
     await this.db.execute(sql`INSERT INTO incus_qualification_authority_captures(run_id, scope, pins, authority)
-      VALUES (${runId}, ${JSON.stringify(scope)}::jsonb, ${JSON.stringify(selected)}::jsonb, ${JSON.stringify(authority)}::jsonb)
+      VALUES (${runId}, ${JSON.stringify(scope)}::text::jsonb, ${JSON.stringify(selected)}::text::jsonb, ${JSON.stringify(authority)}::text::jsonb)
       ON CONFLICT (run_id) DO NOTHING`);
     const [captured] = releaseRows<{ scope: unknown; pins: unknown; authority: unknown }>(await this.db.execute(sql`
       SELECT scope, pins, authority FROM incus_qualification_authority_captures WHERE run_id = ${runId}`));
@@ -109,11 +109,12 @@ export class IncusAdmissionReadinessService {
   async recordBaseline(prepared: PreparedIncusAdmissionBaseline, database: Database = this.db): Promise<void> {
     const { scope, runId, qualification, selected, authority } = prepared;
     this.assertDeadline(prepared);
-    requireSame(selected, pins(scope, await this.qualifications.authorizeFixture(scope)), "readiness_unavailable");
+    requireSame(selected, pins(scope, await this.qualifications.authorizeFixture(scope,
+      database === this.db ? undefined : database)), "readiness_unavailable");
     await database.execute(sql`INSERT INTO incus_admission_baselines
       (installation_id, connection_id, preset_id, run_id, proof_digest, pins, authority, verified_at)
       VALUES (${scope.installationId}, ${scope.connectionId}, ${scope.presetId}, ${runId}, ${digest(qualification)},
-      ${JSON.stringify(selected)}::jsonb, ${JSON.stringify(authority)}::jsonb, ${new Date(qualification.verifiedAt)})
+      ${JSON.stringify(selected)}::text::jsonb, ${JSON.stringify(authority)}::text::jsonb, ${new Date(qualification.verifiedAt)})
       ON CONFLICT (installation_id, connection_id, preset_id) DO UPDATE SET
       run_id = EXCLUDED.run_id, proof_digest = EXCLUDED.proof_digest, pins = EXCLUDED.pins,
       authority = EXCLUDED.authority, verified_at = EXCLUDED.verified_at`);

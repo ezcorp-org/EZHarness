@@ -1,17 +1,19 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { createHash, X509Certificate } from "node:crypto";
+import { createHash, generateKeyPairSync, sign, X509Certificate } from "node:crypto";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PGlite } from "@electric-sql/pglite";
+import { SQL } from "bun";
 import { sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
+import { drizzle as postgresDrizzle } from "drizzle-orm/bun-sql";
 import { LIVE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type SandboxCompatibilityObservation } from "@ezcorp/extension-contract";
 import { liveComposePreviewProof } from "../../packages/@ezcorp/extension-contract/src/sandbox-presets.fixture";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import recipeTemplate from "../../scripts/incus/recipe.json";
 import type { IncusSetupRecipe } from "../../scripts/incus/model";
-import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
+import { qualifySandboxRuntime, releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
 import { up } from "../db/migrations/add-incus-qualification";
 import { guestHelperSha256 } from "./incus-guest/protocol";
 import { IncusQualificationStore, type IncusQualificationScope, type IncusImageReceipt, type IncusLiveCaseEvidence } from "./incus-qualification";
@@ -43,8 +45,21 @@ const imageReceipt = (selectedPreset = preset): IncusImageReceipt => ({
       pythonPackageVersion: "3.12.1", dockerArchiveSha256: "b".repeat(64), composeSha256: "c".repeat(64) } } as IncusSetupRecipe,
 });
 
-const client = new PGlite();
-const db = drizzle(client);
+function terminalDatabase(directory?: string) {
+  const url = process.env.EZCORP_CONTINUATION_TEST_PG_URL;
+  if (!url) { const client = new PGlite(directory); return { client, db: drizzle(client) }; }
+  const destination = new URL(url);
+  if (destination.hostname !== "127.0.0.1" || destination.pathname !== "/continuation_fixture") {
+    throw new Error("Only the isolated loopback PostgreSQL fixture is allowed");
+  }
+  const postgres = new SQL(url, { max: 1 });
+  const client = { waitReady: Promise.resolve(),
+    query: async <T = Record<string, unknown>>(text: string, params: unknown[] = []): Promise<{ rows: T[] }> =>
+      ({ rows: await postgres.unsafe(text, params) as T[] }),
+    exec: (text: string) => postgres.unsafe(text).simple(), close: () => postgres.close() };
+  return { client, db: postgresDrizzle(postgres) as unknown as ReturnType<typeof drizzle> };
+}
+let { client, db } = terminalDatabase(process.env.EZCORP_CONTINUATION_DB_PATH);
 let now = Date.parse("2026-09-22T15:00:00Z");
 let revision = 1;
 let negativeProbe = false;
@@ -342,3 +357,211 @@ test("claimed qualification prepares baseline before atomically storing receipt 
     else process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = previous;
   }
 });
+
+test("claimed baseline persistence keeps unrelated database requests responsive", async () => {
+  if (process.env.EZCORP_CONTINUATION_DB_WORKER !== "1") {
+    const directory = mkdtempSync(join(tmpdir(), "incus-continuation-db-"));
+    const child = Bun.spawn([process.execPath, "test", import.meta.path, "--test-name-pattern",
+      "claimed baseline persistence keeps unrelated database requests responsive"], {
+      env: { ...process.env, EZCORP_CONTINUATION_DB_WORKER: "1", EZCORP_CONTINUATION_DB_PATH: directory,
+        EZCORP_ENCRYPTION_SECRET: "synthetic-terminal-database-fixture", EZCORP_ENCRYPTION_SALT: "synthetic-fixture-salt" },
+      stdout: "pipe", stderr: "pipe",
+    });
+    const timer = setTimeout(() => child.kill(), 15_000);
+    try {
+      const [exit, stdout, stderr] = await Promise.all([child.exited, new Response(child.stdout).text(), new Response(child.stderr).text()]);
+      console.log(stdout); console.error(stderr);
+      const { client: reopened } = terminalDatabase(directory); await reopened.waitReady;
+      try {
+        const qualification = await reopened.query("SELECT * FROM incus_live_qualifications");
+        const baseline = await reopened.query("SELECT * FROM incus_admission_baselines");
+        const run = await reopened.query<{ state: string }>("SELECT state FROM incus_qualification_runs");
+        expect(qualification.rows).toHaveLength(exit === 0 ? 1 : 0);
+        expect(baseline.rows).toHaveLength(exit === 0 ? 1 : 0);
+        expect(run.rows[0]?.state).toBe(exit === 0 ? "COMPLETED" : "CLAIMED");
+      } finally { await reopened.close(); }
+      expect(exit).toBe(0);
+    } finally { clearTimeout(timer); child.kill(); await child.exited; rmSync(directory, { recursive: true, force: true }); }
+    return;
+  }
+  const { IncusQualificationCheckpointStore, currentProcessIdentity, processIdentityKey,
+    observationDigest, restartHandoffSigningBytes } = await import("./incus-qualification-checkpoint");
+  const { checkpointTestObservation } = await import("./__tests__/incus-qualification-checkpoint-test-observation");
+  const handle = { operationId: "qual-primary-claimed-db", sandboxId: "primary-binding" };
+  const checkpointScope: IncusQualificationScope = JSON.parse(process.env.EZCORP_CONTINUATION_DB_SCOPE ?? JSON.stringify(scope));
+  const checkpointObservation = (processId: string) => {
+    const value = checkpointTestObservation(processId);
+    value.durable.fixture = { ...value.durable.fixture, ...checkpointScope, operationId: handle.operationId,
+      bindingId: handle.sandboxId, connectionRevision: 1 };
+    value.durable.binding = { ...value.durable.binding, id: handle.sandboxId, generation: 1 };
+    value.durable.operation = { ...value.durable.operation!, generation: 1 };
+    value.backend.sandboxId = handle.sandboxId;
+    return value;
+  };
+  if (process.env.EZCORP_CONTINUATION_DB_BEGIN === "1") {
+    const identity = currentProcessIdentity();
+    await new IncusQualificationCheckpointStore(db).begin({ runId: "claimed-db", nonce: "nonce", scope: checkpointScope, handle,
+      deadlineMs: Number(process.env.EZCORP_CONTINUATION_DB_DEADLINE),
+      before: checkpointObservation(processIdentityKey(identity)) });
+    console.log(JSON.stringify(identity));
+    return;
+  }
+  const { spyOn } = await import("bun:test");
+  const { up: addReleases } = await import("../db/migrations/add-extension-releases");
+  const { up: addConnections } = await import("../db/migrations/add-provider-connections");
+  const { up: addReadiness } = await import("../db/migrations/add-incus-admission-readiness");
+  const { up: addRuns } = await import("../db/migrations/add-incus-qualification-runs");
+  const { up: completeRuns } = await import("../db/migrations/complete-incus-qualification-runs");
+  const { up: addSetups } = await import("../db/migrations/add-incus-operator-setups");
+  const { configureReleaseRuntime } = await import("../extensions/release-process");
+  const { resolveExtensionReleaseSnapshot } = await import("../extensions/extension-lifecycle-service");
+  const { DatabaseLifecycleRepository } = await import("../db/queries/extension-releases");
+  const { ExtensionDataMigrations } = await import("../extensions/v4/data-migrations");
+  const { ProviderConnectionStore } = await import("./provider-connections/store");
+  const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+  const { admissionObservation } = await import("./__tests__/incus-admission-observation");
+  await addReleases(db); await addConnections(db); await addReadiness(db); await addSetups(db);
+  await client.exec("CREATE TABLE extension_storage(extension_id TEXT)");
+  await qualifySandboxRuntime(snapshot);
+  await client.query("INSERT INTO extension_release_installations VALUES ($1,$2,$3,$4)",
+    [snapshot.installation.id, snapshot.installation.ownerId, snapshot.installation.scope, JSON.stringify(snapshot.installation)]);
+  const approval = { id: "terminal-approval", releaseId: scope.releaseId, releaseDigest: snapshot.release.releaseDigest,
+    status: "consumed", expectedGeneration: snapshot.installation.generation - 1, principalId: snapshot.installation.ownerId,
+    scope: snapshot.installation.scope, grants: snapshot.installation.grants };
+  for (const [kind, value] of [["releases", snapshot.release], ["approvals", approval]] as const) {
+    await client.query("INSERT INTO extension_release_records VALUES ($1,$2,$3,$4)",
+      [scope.installationId, kind, value.id, JSON.stringify(value)]);
+  }
+  await new ProviderConnectionStore(db).create(connection());
+  const image = imageReceipt();
+  await client.query(`INSERT INTO incus_operator_setups(id,provider_installation_id,provider_release_id,
+    provider_release_digest,provider_generation,connection_id,connection_revision,planned_by,recipe,plan,state)
+    VALUES ('published',$1,$2,$3,$4,$5,1,'fixture',$6::text::jsonb,'{}','verified')`,
+  [scope.installationId,scope.releaseId,snapshot.release.releaseDigest,snapshot.installation.generation,scope.connectionId,JSON.stringify(image.recipe)]);
+  await client.exec(`CREATE TABLE projects(id TEXT PRIMARY KEY,purpose TEXT);
+    CREATE TABLE sandbox_bindings(id TEXT PRIMARY KEY,project_id TEXT,generation INTEGER,desired_state TEXT,
+      observed_state TEXT,current_operation_id TEXT,provider_installation_id TEXT,provider_release_id TEXT,
+      connection_id TEXT,connection_revision INTEGER,preset_id TEXT);
+    CREATE TABLE incus_qualification_fixtures(operation_id TEXT PRIMARY KEY,project_id TEXT,
+      binding_id TEXT,installation_id TEXT,release_id TEXT,connection_id TEXT,connection_revision INTEGER,preset_id TEXT);
+    CREATE TABLE provider_sandbox_operations(id TEXT PRIMARY KEY,binding_id TEXT,idempotency_scope TEXT,
+      idempotency_key TEXT,kind TEXT,state TEXT,generation INTEGER);
+    INSERT INTO projects VALUES ('fixture-project','incus-qualification');
+    INSERT INTO provider_sandbox_operations VALUES ('stop-operation','primary-binding',NULL,NULL,'STOP','SUCCEEDED',1);
+    INSERT INTO provider_sandbox_operations VALUES ('recovery-destroy','recovery-binding','incus-qualification',
+      'qual-recovery-claimed-db:destroy','DESTROY','SUCCEEDED',1)`);
+  await client.query("INSERT INTO sandbox_bindings VALUES ('primary-binding','fixture-project',1,'STOPPED','STOPPED','stop-operation',$1,$2,$3,1,$4)",
+    [scope.installationId,scope.releaseId,scope.connectionId,scope.presetId]);
+  for (const [operation, binding] of [[handle.operationId,handle.sandboxId],["qual-recovery-claimed-db","recovery-binding"]]) {
+    await client.query("INSERT INTO incus_qualification_fixtures VALUES ($1,'fixture-project',$2,$3,$4,$5,1,$6)",
+      [operation,binding,scope.installationId,scope.releaseId,scope.connectionId,scope.presetId]);
+  }
+  await addRuns(db); await completeRuns(db);
+  await client.close();
+  const deadlineMs = Date.now() + 60_000;
+  const writer = Bun.spawn([process.execPath,"test",import.meta.path,"--test-name-pattern",
+    "claimed baseline persistence keeps unrelated database requests responsive"], {
+    env: { ...process.env, EZCORP_CONTINUATION_DB_BEGIN: "1", EZCORP_CONTINUATION_DB_SCOPE: JSON.stringify(scope), EZCORP_CONTINUATION_DB_DEADLINE: String(deadlineMs) },
+    stdout: "pipe",stderr: "pipe" });
+  const writerTimer = setTimeout(() => writer.kill(),5_000);
+  let oldProcess: ReturnType<typeof currentProcessIdentity>;
+  try {
+    const [exit,stdout,stderr] = await Promise.all([writer.exited,new Response(writer.stdout).text(),new Response(writer.stderr).text()]);
+    expect(exit,stderr).toBe(0);
+    oldProcess = JSON.parse(stdout.trim().split("\n").find(line => line.startsWith("{"))!);
+  } finally { clearTimeout(writerTimer); writer.kill(); await writer.exited; }
+  ({ client,db } = terminalDatabase(process.env.EZCORP_CONTINUATION_DB_PATH));
+  await client.waitReady;
+  const repository = new DatabaseLifecycleRepository(db);
+  const migrations = new ExtensionDataMigrations(db, async () => { throw new Error("No migration effects in fixture"); });
+  configureReleaseRuntime({ runner: async () => { throw new Error("No extension worker effects in fixture"); },
+    resolve: (id, transaction) => resolveExtensionReleaseSnapshot(repository, migrations, id, transaction) });
+  const keys = generateKeyPairSync("ed25519");
+  const checkpoints = new IncusQualificationCheckpointStore(db,keys.publicKey.export({ type: "spki",format: "pem" }).toString());
+  const assertObjectColumns = async (table: string, columns: string[]) => {
+    const row = (await client.query<Record<string,string>>(`SELECT ${columns.map(column =>
+      `jsonb_typeof(${column}) AS ${column}`).join(",")} FROM ${table}`)).rows[0];
+    expect(row).toEqual(Object.fromEntries(columns.map(column => [column,"object"])));
+    console.log("Actual stored JSON object types:",table,row);
+  };
+  const pending = await checkpoints.get("claimed-db");
+  console.log("Actual checkpoint begin JSON types",(await client.query(`SELECT jsonb_typeof(scope) AS scope,
+    jsonb_typeof(before_observation) AS before,jsonb_typeof(old_process_identity) AS process FROM incus_qualification_runs`)).rows);
+  expect(pending?.scope).toEqual(scope);
+  await assertObjectColumns("incus_qualification_runs",["scope","before_observation","old_process_identity"]);
+  const newProcess = currentProcessIdentity();
+  const after = checkpointObservation(processIdentityKey(newProcess));
+  const payload = { version: 1 as const,runId: "claimed-db",nonce: "nonce",deadlineMs,scope,
+    fixtureOperationId: handle.operationId,bindingId: handle.sandboxId,generation: 1,connectionRevision: 1,
+    lastOperationId: "stop-operation",oldProcess,newProcess,beforeDigest: observationDigest(checkpointObservation(processIdentityKey(oldProcess))),
+    afterDigest: observationDigest(after) };
+  const receipt = { payload,signature: sign(null,restartHandoffSigningBytes(payload),keys.privateKey).toString("base64") };
+  await checkpoints.claim({ runId: "claimed-db",nonce: "nonce",receipt,after });
+  expect((await checkpoints.get("claimed-db"))?.receipt).toEqual(receipt);
+  await assertObjectColumns("incus_qualification_runs",["receipt","after_observation"]);
+  await expect(checkpoints.claim({ runId: "claimed-db",nonce: "nonce",receipt,after })).rejects.toThrow("unavailable");
+  const realStore = new IncusQualificationStore({ db, probe: async () => probeResult(), now: () => now });
+  const service = new IncusAdmissionReadinessService(db, realStore,
+    { read: async pin => admissionObservation(pin, Date.now()) });
+  await service.capture(scope, "claimed-db");
+  await assertObjectColumns("incus_qualification_authority_captures",["scope","pins","authority"]);
+  const originalPrepare = IncusAdmissionReadinessService.prototype.prepareBaseline;
+  const prepare = spyOn(IncusAdmissionReadinessService.prototype, "prepareBaseline")
+    .mockImplementation((selected, run, qualification) => originalPrepare.call(service, selected, run, qualification));
+  const originalRecord = IncusAdmissionReadinessService.prototype.recordBaseline;
+  let sharedQueryFinished = false;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: async () => {
+    await db.execute(sql`SELECT 1`); sharedQueryFinished = true; return new Response("database responsive");
+  } });
+  let deadline: ReturnType<typeof setTimeout> | undefined;
+  let request: Promise<Response> | undefined;
+  type Transaction = NonNullable<Parameters<typeof originalRecord>[1]>;
+  let mutate: ((transaction: Transaction) => Promise<unknown>) | undefined;
+  const record = spyOn(IncusAdmissionReadinessService.prototype, "recordBaseline").mockImplementation(async function(this: InstanceType<typeof IncusAdmissionReadinessService>, prepared, transaction) {
+    console.log("Actual recordVerified transaction entered actual recordBaseline; unrelated HTTP database read started");
+    sharedQueryFinished = false;
+    request = fetch(server.url);
+    deadline = setTimeout(() => {
+      console.log(JSON.stringify({ blockedBaselineAuthorization: true, unrelatedDatabaseReadFinished: sharedQueryFinished }));
+      process.exit(23);
+    }, 700);
+    await mutate?.(transaction!);
+    return originalRecord.call(this, prepared, transaction);
+  });
+  process.env.EZCORP_INCUS_SUPERVISOR_SOCKET = "/synthetic/unused.sock";
+  try {
+    const mutations: [string, (transaction: Transaction) => Promise<unknown>][] = [
+      ["generation", tx => tx.execute(sql`UPDATE extension_release_installations SET payload =
+        ${JSON.stringify({ ...snapshot.installation, generation: 2, acknowledgedGeneration: 2 })} WHERE id = ${scope.installationId}`)],
+      ["grants", tx => tx.execute(sql`UPDATE extension_release_records SET payload =
+        ${JSON.stringify({ ...approval, grants: ["unapproved-synthetic-grant"] })} WHERE kind = 'approvals' AND id = 'terminal-approval'`)],
+      ["approval revocation", tx => tx.execute(sql`UPDATE extension_release_records SET payload =
+        ${JSON.stringify({ ...approval, status: "revoked" })} WHERE kind = 'approvals' AND id = 'terminal-approval'`)],
+      ["connection revision", tx => tx.execute(sql`UPDATE provider_connections SET revision = revision + 1 WHERE id = ${scope.connectionId}`)],
+      ["connection settings", tx => tx.execute(sql`UPDATE provider_connections SET configuration =
+        jsonb_set(configuration,'{profile}','"changed"') WHERE id = ${scope.connectionId}`)],
+      ["published image", tx => tx.execute(sql`UPDATE incus_operator_setups SET recipe =
+        jsonb_set(recipe,'{guestImage,fingerprint}',${JSON.stringify("0".repeat(64))}::text::jsonb) WHERE id = 'published'`)],
+    ];
+    for (const [name, change] of mutations) {
+      mutate = change;
+      await expect(realStore.recordVerified(scope, cases(), { runId: "claimed-db", nonce: "nonce" })).rejects.toThrow();
+      clearTimeout(deadline);
+      expect((await request!).status).toBe(200); expect(sharedQueryFinished).toBe(true);
+      expect((await client.query("SELECT * FROM incus_live_qualifications")).rows).toHaveLength(0);
+      expect((await client.query("SELECT * FROM incus_admission_baselines")).rows).toHaveLength(0);
+      expect((await client.query<{ state: string }>("SELECT state FROM incus_qualification_runs")).rows[0]?.state).toBe("CLAIMED");
+      console.log("Uncommitted authority drift denied and terminal writes rolled back:", name);
+    }
+    mutate = undefined;
+    await realStore.recordVerified(scope, cases(), { runId: "claimed-db", nonce: "nonce" });
+    expect((await request!).status).toBe(200); expect(sharedQueryFinished).toBe(true);
+    await assertObjectColumns("incus_live_qualifications",["probe_observation","live_observation","qualification"]);
+    await assertObjectColumns("incus_admission_baselines",["pins","authority"]);
+    expect(await realStore.load(scope)).toMatchObject({ producer: "live-provider",connectionId: scope.connectionId });
+    console.log("Actual terminal persistence and unrelated HTTP database request completed");
+  } finally {
+    clearTimeout(deadline); server.stop(true); record.mockRestore(); prepare.mockRestore();
+    delete process.env.EZCORP_INCUS_SUPERVISOR_SOCKET;
+  }
+}, 25_000);

@@ -1,36 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding, resolveActiveRelease } from "../release-process";
-import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, sha256, validateManifest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
+import { sha256, validateManifest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
 import type { ActiveExtensionRelease, ReleaseRuntimeDependencies } from "../release-process";
 import { registerCallProvenance, releaseCallProvenance } from "../call-provenance";
 import type { InvocationContext, ReverseRpc, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { spyOn } from "bun:test";
-import { releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
+import { qualifySandboxRuntime, releaseRuntimeFixture } from "../../__tests__/helpers/release-runtime";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
 import { digestObject } from "../v4/blobs";
-import { sandboxPresetQualificationReleaseDigest } from "../v4/sandbox-preset-qualification";
 import { sandboxExtensionManifest } from "../../__tests__/helpers/sandbox-preset";
 import { incusManifest } from "../../../extensions/incus-sandbox/manifest";
 import type { PreparedIncusAction, PreparedIncusProbe, ProviderRpcBroker } from "../../infrastructure/provider-rpc-broker";
 
-async function qualifySandboxRuntime(snapshot: ActiveExtensionRelease): Promise<void> {
-  const release = snapshot.release;
-  delete release.verification;
-  const { id: _baseId, createdAt: _baseCreatedAt, releaseDigest: _baseDigest, ...releaseInput } = release;
-  release.releaseDigest = digestObject(releaseInput);
-  const verification: CandidateVerificationReport = {
-    catalog: "verified", smoke: "not_declared", capabilities: [],
-    sandboxPresetQualifications: await Promise.all(release.manifest.sandboxProviders![0]!.presets.map(async preset => ({
-      producer: "host" as const, providerId: "incus", presetId: preset.id, profile: preset.profile,
-      releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
-      verifiedAt: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
-      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" as const })),
-    }))),
-  };
-  release.verification = verification;
-  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
-  release.releaseDigest = digestObject(storedInput);
-}
 
 test("runtime resolution denies unqualified sandbox releases before worker startup", async () => {
   const fixture = releaseRuntimeFixture("sandbox-installation", sandboxExtensionManifest());

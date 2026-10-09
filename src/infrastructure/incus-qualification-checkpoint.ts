@@ -287,10 +287,10 @@ export class IncusQualificationCheckpointStore {
     await this.db.execute(sql`INSERT INTO incus_qualification_runs (
       run_id, fixture_operation_id, scope, binding_id, generation, connection_revision,
       last_operation_id, nonce, deadline_at, before_observation, before_digest, old_process_identity
-    ) VALUES (${input.runId}, ${input.handle.operationId}, ${JSON.stringify(input.scope)}::jsonb,
+    ) VALUES (${input.runId}, ${input.handle.operationId}, ${JSON.stringify(input.scope)}::text::jsonb,
       ${input.handle.sandboxId}, ${row.generation}, ${row.connectionRevision}, ${row.lastOperationId},
-      ${input.nonce}, ${new Date(input.deadlineMs)}, ${JSON.stringify(input.before)}::jsonb,
-      ${beforeDigest}, ${JSON.stringify(oldProcess)}::jsonb)`);
+      ${input.nonce}, ${new Date(input.deadlineMs)}, ${JSON.stringify(input.before)}::text::jsonb,
+      ${beforeDigest}, ${JSON.stringify(oldProcess)}::text::jsonb)`);
   }
 
   async get(runId: string): Promise<RunRow | null> {
@@ -366,7 +366,7 @@ export class IncusQualificationCheckpointStore {
     }
     const updated = releaseRows<{ runId: string }>(await transaction.execute(sql`UPDATE incus_qualification_runs
       SET state = 'COMPLETED' WHERE run_id = ${input.runId} AND nonce = ${input.nonce}
-        AND state = 'CLAIMED' AND scope = ${JSON.stringify(input.scope)}::jsonb
+        AND state = 'CLAIMED' AND scope = ${JSON.stringify(input.scope)}::text::jsonb
         AND receipt IS NOT NULL AND claimed_at IS NOT NULL
         AND EXISTS (SELECT 1 FROM incus_qualification_fixtures f
           JOIN provider_sandbox_operations o ON o.binding_id = f.binding_id
@@ -507,8 +507,8 @@ export class IncusQualificationCheckpointStore {
       return fail(error instanceof Error ? error.message : "Incus restart handoff failed");
     }
     const updated = releaseRows<{ runId: string }>(await this.db.execute(sql`UPDATE incus_qualification_runs
-      SET state = 'CLAIMED', receipt = ${JSON.stringify(input.receipt)}::jsonb,
-        after_observation = ${JSON.stringify(input.after)}::jsonb, claimed_at = NOW()
+      SET state = 'CLAIMED', receipt = ${JSON.stringify(input.receipt)}::text::jsonb,
+        after_observation = ${JSON.stringify(input.after)}::text::jsonb, claimed_at = NOW()
       WHERE run_id = ${input.runId} AND state = 'AWAITING_RESTART' AND nonce = ${input.nonce}
         AND deadline_at > ${new Date(this.now())} RETURNING run_id AS "runId"`));
     if (updated.length !== 1) throw new Error("Incus restart checkpoint was already claimed or expired");

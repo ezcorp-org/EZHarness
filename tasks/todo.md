@@ -3663,3 +3663,39 @@ within its component limit can finish before the total deadline. The slow refusa
 fixture remains unchanged. The positive control uses real fixture scans to avoid
 a narrow scheduling margin. Future deployment, qualification and browser-lane
 results remain separate from this source proof.
+
+
+# Qualification continuation database wait
+
+- [x] Read the frozen source and saved failure evidence only.
+- [x] Find the transaction → baseline → base-database authorization path.
+- [x] Reproduce real recordVerified + recordBaseline + authorization on PGlite in a bounded child.
+- [x] Prove an unrelated database/HTTP read is blocked by the same transaction.
+- [x] Propagate the same transaction through all authorization dependencies.
+- [x] Verify current scope, grants, generation, settings and rollback on both database drivers.
+- [ ] Obtain independent review, then commit with normal hooks.
+
+Scope: This worktree starts at5e1ccb. No installed source, services, API, SSH or live database handles. Original RED output must remain unchanged. Root owns live recovery.
+
+Review: the original5e PGlite consumer blocks in baseline authorization and
+starves an unrelated HTTP database query. Interrupting the bounded child rolls
+back both terminal writes and leaves the run CLAIMED. The fix forwards the exact
+transaction through release, connection and image authorization. Ordinary release
+reads keep their original undefined transaction context.
+
+The real PostgreSQL max1 consumer also exposed JSONB double encoding. The
+existing text-to-JSONB cast now covers the actual capture, baseline, qualification
+and restart checkpoint path. Legacy malformed string rows fail closed. No data
+migration or compatibility relaxation is included. Both real drivers pass actual
+checkpoint begin in an exited child, signed claim, replay denial, all-default
+runtime authorization, six uncommitted authority drift denials with rollback,
+terminal commit and stored-object round trips. The PostgreSQL container was
+stopped after the test; no installed or live services changed.
+
+Focused tests:63 passed. Biome: passed. Backend and web types: passed. The first
+test type check found a dynamic-import annotation error; the corrected test-only
+annotation passes the fresh test type check. Canonical changed production
+coverage:23/23 executable lines;14 touched functions; maximum CRAP24. The full
+focused coverage run and the separately instrumented real PGlite worker are both
+preserved. Original RED and all failed fixture receipts remain unchanged in
+.cache/continuation-db-*.

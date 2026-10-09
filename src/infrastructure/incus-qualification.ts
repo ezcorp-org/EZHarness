@@ -52,10 +52,10 @@ export interface IncusLiveCaseEvidence {
 
 export interface IncusQualificationDependencies {
   db?: Database;
-  activeRelease?: (installationId: string) => Promise<ActiveExtensionRelease>;
-  resolveConnection?: (scope: ProviderConnectionScope) => Promise<ProviderConnectionCredentials>;
-  connectionRevision?: (connectionId: string) => Promise<number | null>;
-  imageReceipt?: (installationId: string) => Promise<IncusImageReceipt | null>;
+  activeRelease?: (installationId: string, transaction?: Database) => Promise<ActiveExtensionRelease>;
+  resolveConnection?: (scope: ProviderConnectionScope, transaction?: Database) => Promise<ProviderConnectionCredentials>;
+  connectionRevision?: (connectionId: string, transaction?: Database) => Promise<number | null>;
+  imageReceipt?: (installationId: string, transaction?: Database) => Promise<IncusImageReceipt | null>;
   /** Read-only host transport observation, never a synthetic readiness verdict. */
   probe?: (scope: IncusQualificationScope, connection: ProviderConnectionCredentials,
     preset: SandboxPreset, presetDigest: string, effectiveSettingsDigest: string) => Promise<IncusProbeResult>;
@@ -217,25 +217,25 @@ export class IncusQualificationStore {
 
   constructor(private readonly deps: IncusQualificationDependencies = {}) {
     this.db = deps.db ?? getDb();
-    this.activeRelease = deps.activeRelease ?? (id => resolveActiveRelease(id, getReleaseRuntime()));
-    this.resolveConnection = deps.resolveConnection ?? (scope => new ProviderConnectionStore(this.db).resolveForHost(scope));
-    this.connectionRevision = deps.connectionRevision ?? (async id => (await new ProviderConnectionStore(this.db).getMetadata(id))?.revision ?? null);
-    this.imageReceipt = deps.imageReceipt ?? (id => latestImageReceipt(this.db, id));
+    this.activeRelease = deps.activeRelease ?? ((id, transaction) => resolveActiveRelease(id, getReleaseRuntime(), transaction));
+    this.resolveConnection = deps.resolveConnection ?? ((scope, transaction) => new ProviderConnectionStore(transaction ?? this.db).resolveForHost(scope));
+    this.connectionRevision = deps.connectionRevision ?? (async (id, transaction) => (await new ProviderConnectionStore(transaction ?? this.db).getMetadata(id))?.revision ?? null);
+    this.imageReceipt = deps.imageReceipt ?? ((id, transaction) => latestImageReceipt(transaction ?? this.db, id));
     this.probe = deps.probe ?? ((...args) => probeHost(this.db, ...args));
     this.now = deps.now ?? Date.now;
   }
 
-  private async current(scope: IncusQualificationScope): Promise<IncusQualificationSelection> {
-    const snapshot = await this.activeRelease(scope.installationId);
+  private async current(scope: IncusQualificationScope, transaction?: Database): Promise<IncusQualificationSelection> {
+    const snapshot = await this.activeRelease(scope.installationId, transaction);
     if (snapshot.installation.id !== scope.installationId || snapshot.release.id !== scope.releaseId
       || snapshot.installation.activeReleaseId !== scope.releaseId) throw new Error("Incus qualification release is unavailable");
     const provider = snapshot.release.manifest.sandboxProviders?.find(item => item.kind === "sandbox" && item.id === "incus");
     const preset = provider?.presets.find(item => item.id === scope.presetId);
     if (!preset || provider?.protocolMajor !== 1) throw new Error("Incus qualification preset is unavailable");
-    const revision = await this.connectionRevision(scope.connectionId);
+    const revision = await this.connectionRevision(scope.connectionId, transaction);
     if (!revision || !Number.isSafeInteger(revision)) throw new Error("Incus qualification connection is unavailable");
     const connection = await this.resolveConnection({ connectionId: scope.connectionId,
-      providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision });
+      providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision }, transaction);
     if (connection.id !== scope.connectionId || connection.revision !== revision || connection.revokedAt
       || connection.providerInstallationId !== scope.installationId || connection.providerReleaseId !== scope.releaseId
       || connection.configuration.kind !== "incus"
@@ -244,7 +244,7 @@ export class IncusQualificationStore {
     }
     const helperDigest = guestHelperSha256();
     if (!preset.helperDigests.includes(helperDigest)) throw new Error("Incus qualification helper is unavailable");
-    const receipt = await this.imageReceipt(scope.installationId);
+    const receipt = await this.imageReceipt(scope.installationId, transaction);
     if (!publishedImage(receipt, scope, snapshot.release.releaseDigest, revision, preset,
       helperDigest, connection.configuration.profile)) throw new Error("Incus qualification image is unpublished");
     const presetDigest = await sandboxPresetDigest(preset);
@@ -253,8 +253,8 @@ export class IncusQualificationStore {
   }
 
   /** Host fixture code reuses the exact release, connection and image gate. */
-  async authorizeFixture(scope: IncusQualificationScope): ReturnType<IncusQualificationStore["current"]> {
-    return this.current(scope);
+  async authorizeFixture(scope: IncusQualificationScope, transaction?: Database): ReturnType<IncusQualificationStore["current"]> {
+    return this.current(scope, transaction);
   }
 
   /** Evidence from a claimed durable run is verified again against this process's release and backend probe. */
@@ -301,8 +301,8 @@ export class IncusQualificationStore {
     ) VALUES (${scope.installationId}, ${scope.releaseId}, ${selected.snapshot.release.releaseDigest},
       ${scope.connectionId}, ${selected.connection.revision}, ${scope.presetId}, ${selected.presetDigest},
       ${selected.effectiveSettingsDigest}, ${selected.preset.profile}, ${selected.preset.imageDigest},
-      ${selected.helperDigest}, ${JSON.stringify(probe)}::jsonb, ${JSON.stringify(cases.observation)}::jsonb,
-      ${JSON.stringify(qualification)}::jsonb,
+      ${selected.helperDigest}, ${JSON.stringify(probe)}::text::jsonb, ${JSON.stringify(cases.observation)}::text::jsonb,
+      ${JSON.stringify(qualification)}::text::jsonb,
       ${new Date(cases.verifiedAt)}, ${new Date(cases.validUntil)})
     ON CONFLICT (installation_id, connection_id, preset_id) DO UPDATE SET
       release_id = EXCLUDED.release_id, release_digest = EXCLUDED.release_digest,
