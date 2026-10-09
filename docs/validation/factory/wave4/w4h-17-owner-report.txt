@@ -1,0 +1,52 @@
+W4H-17 report (owner w4h-17), written once at 2026-10-09T17:53:41Z. FREEZE after this file; later notes go to report-addendum.txt.
+
+Branch wp/w4h-17-import-outcome from integ/w00 3897fe923d371a61713636657103d13e73d92c6d. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-17.
+Commits (author and committer: archy <281643943+EZArchy@users.noreply.github.com>):
+  34461b8064a6039577580c7fa0d14cbb20a96ff3 test(e2e): wait for the factory import outcome before the success case ends (W4H-17)   hook: 0 suites, biome passed
+  bdafcbbfe3d92147e3b630b9486dd48fc931d356 docs(factory): W4H-17 gates and todo review (import outcome wait)   hook: 0 suites (docs only)
+Proof ref: proof/w4h-17-r1 = 85bb920a465e4d3cc09fd257319250360358c25a (R1 state, commit-tree, no hook).
+
+Result
+  R1: DA:199,0 reproduced with the old success case while the spec passed (14 passed). Same DA lines as the hosted lcov.
+  R2: the case waits for the import outcome (row, heading, cleared file input). Green at head DA:199,1. Both mutants red.
+  R3: mock-full lane 1466 passed; FactoryConsole.svelte 333/333. Hosted check-coverage over run 37960843272's 24 artifacts:
+      PASSED, 2234 enforced files, in the lead form and in validator-8's form. Control (hosted browser lcov alone): FAILED on line 199 only.
+  Legs: typecheck, lint, boundaries, lanes, prune, CRAP, new-file and patch vs integ (vacuous), gate-integrity integ rc 0 and main
+        exactly the 8, guard set 41 files 511 pass 2 skip 0 fail. Details and receipts: tasks/factory/w4h-17-GATES.md.
+Disclosures: the single-spec lcov conversion with a narrowed expected list (R1, R2); the loadDrafts mutant re-run (R2); replay tries
+  1 and 2 void by my own read-only chmod (R3); the R3 lane ran before the lead's "report R2 before R3" message reached me; 4 lint
+  warnings that predate the branch, not touched; new-file and patch vs origin/main red from inherited integ files (not required).
+Open: none in scope. Out of scope: the 4 lint warnings, and the note for validator-8 in pending-lesson.md.
+Scratch outside the evidence dir (mine): /tmp/w4h-17-snap-34461b806 (git-archive snapshot), /tmp/w4h-17-repro-{lead,v8,control}.
+
+File sha256
+  brief w00/briefs/w4h-17.md                          398e56194579e38e693d7d4d4c857d400736dba4c7e0cb569f3cf4a3ba595abb
+  gates tasks/factory/w4h-17-GATES.md (at bdafcbbfe)   84a7ce84c052b6b41bdee1a96824e38ac2b56496baa5fe97820ecb07d961084c
+  logs/r1-red-spec.log                                 a82c70c448f97120b46fc34e575bf859519152040ca62a7efa973985416ffd49
+  r1-red/lcov.info                                     c5066e96802c9a74583372c1185ba730b1ce6621b85371af870b6ddfe99409b9
+  hosted/run-37960843272-browser-lcov.info             cc7c25fbf85a4e8c0981746006eaba5d822825cb780f81a49e67082b76074ee9
+  r2-summary.txt                                       9bfac797d411d1fde03134d5060bc57e3aea6535d7c550b2c40ad81bce0b03b4
+  logs/r2-green-spec.log                               74ee1e61a1908fe1ca03169e4efb7b6de9fb4f449c14481096399aca53350cac
+  logs/r2-mutant-no-load-spec.log                      048cfe69c7496858e8204f144563b16a6b8985ad2cf8db4f7a1ede5c1e7823b6
+  logs/r2-mutant-no-open-spec.log                      fef87571651a34b63c718251d2fabace134729edf456e2fdad5d1fe2fe538e4a
+  logs/r3-mock-full-spec.log                           abfd07c9b8632a13de8a6aac75db4394d1d3af2dd57aeb72aa9719361da52784
+  r3-mock-full/lcov.info                               de4c9461610fde3931f02be9cfc97b0e8a00019a79e3939baf90bb5843b59c70
+  r3-hosted/browser-lcov-factory-console-replaced.info 3baee592909524dff2d98014a9578ca7d1f246fe35c195f53c4fee2245693678
+  r3-hosted/lane-lcov-snap-root.info                   7768c19558593a1fc28f21cbef8ad17556e518739bea8ea0503905c8481209fc
+  r3-hosted/replay.sh                                  26ecdb1662fc6fa2ebd898f53141f28ea94ad88756cff90936fa71a64ba46f03
+  r3-hosted/replace-record.py                          8fd6ede345b4aec8518fc62ee2a27679a0aa362680ab4f7b091ea8d536d82e8a
+  logs/r3-replay-summary.log                           7f83fd4a900d9f3a5567ade2da529cf6350a7b50869d99db6df6bc79799b0e51
+  logs/r3-replay-lead-check-coverage.log               dead8c96b46826792b23660acc1360f88f8d2dc66d25e7fe41572351f0a7a1e2
+  logs/r3-replay-v8-check-coverage.log                 dead8c96b46826792b23660acc1360f88f8d2dc66d25e7fe41572351f0a7a1e2
+  logs/r3-replay-control-check-coverage.log            2128ac5095ae4a3f4ca299951a950652574d66c4c1412f1983c62401a5d59ec1
+  artifacts-SHA256SUMS                                 72856daa8faa3a723a60a0f6a1610079b308e16c91d0290ce60c1acde37e4b0e
+  logs/final-legs.log                                  95fa7cfbc4c60491365c0657ecc9917852477c6580a7dd981d57334da45499b8
+  logs/typecheck.log                                   c379732a5d1c83446a3637352040c4c0dc9be757c129b4d86332dfcffe344973
+  heavy/heavy-batch.log                                50f3558e1b91344b759d45917ce339adf5cd2fe1e8338722f5922c90c89c2aed
+  heavy/heavy-guard-set.log                            50fdfefe5d00287d24ffaadc7bf9e16ad61ed326e5282f1abff77a30993f2d05
+  logs/final-gate-integrity-integ_w00.log              b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda
+  logs/final-gate-integrity-origin_main.log            258f14dafba2b14d0837fbfdf266be035e6463b11355d35785f0f31501b21dea
+  spec-cov.sh / spec-cov.sh.r1r2                       965ff32a75a066f8cf18633703d850c68d8a066b76c62b272400c43d98bea1ed / 37979ce57b42f85a5e31b3cb0fd535fc5f92aecafb237539a21c5cc364af65ed
+  r2.sh / r2.sh.run1                                   2c7bbf2ce5904839aadca30d48b61dd4b92de27bb4dcc108507b51f8e7702a88 / 8d450165aeffee4eddc729a88dbcf8e49f37618af762a3fd0aa226ead171fa73
+  validator-8/lcov-merge-repro.sh (read only)          7a3571b755bced175a5142aa67f30d6c6ba4d327c8d6b497fc85c8c4dd43bca0
+  pending-lesson.md                                    3cfc037b9b7fe1405709e38ac2fda4dc05554fda0bd0307e5f35b00af81b8007

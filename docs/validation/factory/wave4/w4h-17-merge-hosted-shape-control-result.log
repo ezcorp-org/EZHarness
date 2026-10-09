@@ -1,0 +1,3 @@
+Coverage gate FAILED (1 file(s) below threshold):
+  web/src/lib/factory/FactoryConsole.svelte: 99.70% < 100% — missed lines: 199
+control FAILS on exactly FactoryConsole.svelte:199 (as required)
