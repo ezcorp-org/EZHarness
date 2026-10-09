@@ -84,3 +84,15 @@ jobs:
         env:
           DB_POOL_MAX: "1"
         run: bun test ./tests/postgres/pool-one.test.ts
+
+      # Use a separate database for the actual terminal-continuation regression.
+      # Its fixture creates real Bun.SQL clients with max:1 and verifies that
+      # terminal writes and an unrelated HTTP database read both complete.
+      - name: Run one-connection Postgres continuation regression
+        env:
+          POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
+          DATABASE_URL: ""
+          EZCORP_CONTINUATION_TEST_PG_URL: postgres://postgres:postgres@127.0.0.1:5432/continuation_fixture
+        run: |
+          docker exec "$POSTGRES_CONTAINER_ID" psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 --command 'CREATE DATABASE continuation_fixture'
+          bun test ./src/infrastructure/incus-qualification.test.ts --test-name-pattern 'claimed baseline persistence keeps unrelated database requests responsive'
