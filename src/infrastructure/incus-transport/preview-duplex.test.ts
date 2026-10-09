@@ -9,6 +9,7 @@ import { connectIncusPreviewDuplex, PREVIEW_GUEST_RELAY, type IncusPreviewAuthor
   type IncusPreviewDuplexRequest } from "./preview-duplex";
 import { openPinnedWebSocket, type PinnedWebSocket } from "./pinned-websocket";
 import { PREVIEW_PYTHON } from "../incus-host-live-witness";
+import { hostPython3 } from "../../__tests__/helpers/python-runtime";
 
 const certificates = makeTestCertificates();
 afterAll(() => certificates.dispose());
@@ -29,12 +30,6 @@ const request = (): IncusPreviewDuplexRequest => ({ binding, previewId: "preview
 const operationId = "11111111-1111-1111-1111-111111111111";
 const tokens = { "0": "a".repeat(64), "1": "b".repeat(64), "2": "c".repeat(64), control: "d".repeat(64) };
 const reply = (value: unknown, status = 200) => Response.json({ type: status === 202 ? "async" : "sync", metadata: value }, { status });
-
-function hostPython3(): string {
-  const python3 = Bun.which("python3");
-  if (!python3) throw new Error("Preview relay tests require python3 on PATH");
-  return python3;
-}
 
 class Channel implements PinnedWebSocket {
   chunks: (Buffer | null)[] = [];

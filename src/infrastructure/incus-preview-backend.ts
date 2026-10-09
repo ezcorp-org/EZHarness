@@ -160,7 +160,7 @@ async function awaitGuest(call: GuestCall, processId: string, bootId: string, si
     const inspected = object(await call("process.inspect", { processId, bootId }));
     const process = object(inspected.process);
     if (process.state === "succeeded") return;
-    if (process.state !== "starting" && process.state !== "running") throw new Error("Sandbox preview process failed");
+    if (process.state !== "starting" && process.state !== "running" && process.state !== "unknown") throw new Error("Sandbox preview process failed");
     await Bun.sleep(500);
   }
   await call("process.cancel", { processId, bootId }).catch(() => undefined);

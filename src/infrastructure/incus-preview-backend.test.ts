@@ -1,7 +1,8 @@
 import { expect, spyOn, test } from "bun:test";
-import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
-import type { SandboxPreviewConnectRequest, SandboxPreviewServeRequest, SandboxWorkspaceBinding } from "../runtime/workspaces/target";
+import { createProviderSandboxWorkspaceBackend, type ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
+import { sandboxWorkspaceTarget, type SandboxPreviewConnectRequest, type SandboxPreviewServeRequest, type SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
+import { hostPython3 } from "../__tests__/helpers/python-runtime";
 
 const binding: SandboxWorkspaceBinding = {
   projectId: "project-a", workspaceId: "binding-a", connectionId: "connection-a", providerId: "incus",
@@ -207,4 +208,171 @@ test("preview cancellation reports unconfirmed cleanup rather than claiming the 
       await expect(backend.stopServer({ ...request, server: { processId: "server", bootId: "boot-a", port: 5173, expiresAt: 901000 } })).rejects.toThrow("unconfirmed");
     }
   } finally { sleep.mockRestore(); }
+});
+
+const PUBLICATION_PAUSE = `import importlib.util,json,os,pwd,sys,time
+spec=importlib.util.spec_from_file_location('helper',sys.argv[1])
+h=importlib.util.module_from_spec(spec);spec.loader.exec_module(h)
+original=h.update_state
+def update(directory,values):
+ if values.get('state') in ('succeeded','failed'):
+  with open(sys.argv[4],'w') as stream: json.dump(values,stream)
+  until=time.monotonic()+8
+  while not os.path.exists(sys.argv[5]):
+   if time.monotonic()>until: raise RuntimeError('Fixture publication deadline')
+   time.sleep(.01)
+ return original(directory,values)
+h.update_state=update
+request=json.load(sys.stdin);request['user']=pwd.getpwuid(os.geteuid()).pw_name
+print(json.dumps(h.handle(request,sys.argv[2],sys.argv[3])))`;
+
+test("preview HTTP waits for the real helper's terminal publication without repeating the guest request", async () => {
+  const { mkdtemp, mkdir, rm, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { handlePreviewRequest } = await import("../runtime/preview/preview-proxy");
+  const python3 = hostPython3();
+  const root = await mkdtemp(join(tmpdir(), "ez-preview-publication-"));
+  const workspace = join(root, "workspace");
+  const state = join(root, "state");
+  const published = join(root, "pending.json");
+  const release = join(root, "release");
+  await mkdir(workspace); await mkdir(state);
+  let requests = 0;
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => {
+    requests++;
+    return new Response("retained guest marker", { headers: { "Content-Type": "text/plain" } });
+  } });
+  const calls: Array<{ action: string; handle: Record<string, unknown>; observed?: string }> = [];
+  let process: { processId: string; bootId: string } | undefined;
+  let released: Promise<void> | undefined;
+  let lastObserved: string | undefined;
+  const caller: ProviderSandboxWorkspaceCaller = { async call(input) {
+    const child = Bun.spawn([python3, "-B", "-c", PUBLICATION_PAUSE,
+      new URL("./incus-guest/helper.py", import.meta.url).pathname, workspace, state, published, release],
+      { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    child.stdin.write(JSON.stringify({ version: "0.1.0", action: input.action, sandboxId: binding.workspaceId,
+      requestId: crypto.randomUUID(), idempotencyKey: crypto.randomUUID(), ...input.payload }));
+    child.stdin.end();
+    const [output, error, exit] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    expect(exit, error).toBe(0);
+    const result = JSON.parse(output);
+    calls.push({ action: input.action, handle: input.payload, observed: result.process?.state });
+    if (input.action === "process.start") process = { processId: result.processId, bootId: result.bootId };
+    if (input.action === "process.inspect") {
+      lastObserved = result.process.state;
+      if (lastObserved === "unknown" && !released) {
+        expect(JSON.parse(await readFile(published, "utf8"))).toMatchObject({ state: "succeeded", exitCode: 0 });
+        released = writeFile(release, "release\n");
+        await released;
+      }
+    }
+    if (input.action === "process.readOutput") expect(lastObserved).toBe("succeeded");
+    return result;
+  } };
+  try {
+    const backend = new IncusSandboxPreviewBackend(caller);
+    const target = sandboxWorkspaceTarget(binding, { ...createProviderSandboxWorkspaceBackend(caller), previews: backend });
+    const previewId = "0".repeat(26);
+    const response = await handlePreviewRequest({ previewId, requestPath: "/", cookieToken: "fixture-only",
+      request: new Request(`http://${previewId}.preview.localhost/`) }, {
+      verifyToken: async () => ({ previewId, userId: "user-a" }),
+      getServable: async () => ({ id: previewId, userId: "user-a", kind: "dynamic", staticPath: null, targetPort: server.port ?? null,
+        workspaceTarget: { kind: "sandbox", binding }, expiresAt: new Date(Date.now() + 60_000) }),
+      readFile: async () => { throw new Error("No host fallback"); }, resolveWorkspaceTarget: async () => target,
+    });
+    const receipt = { status: response.status, body: await response.text(), calls, requests,
+      terminalPending: JSON.parse(await readFile(published, "utf8")) };
+    if (globalThis.process.env.EZH_PREVIEW_PUBLICATION_RECEIPT) await writeFile(globalThis.process.env.EZH_PREVIEW_PUBLICATION_RECEIPT,
+      JSON.stringify(receipt, null, 2));
+    expect(receipt.status).toBe(200);
+    expect(receipt.body).toBe("retained guest marker");
+    expect(calls.filter(call => call.action === "process.start")).toHaveLength(1);
+    expect(requests).toBe(1);
+    expect(calls.some(call => call.observed === "unknown")).toBe(true);
+    expect(calls.some(call => call.observed === "succeeded")).toBe(true);
+    expect(calls.filter(call => call.action === "process.inspect" || call.action === "process.readOutput")
+      .every(call => call.handle.processId === process?.processId && call.handle.bootId === process?.bootId)).toBe(true);
+  } finally {
+    await writeFile(release, "release\n");
+    await released;
+    if (process) {
+      await caller.call({ binding, principal: { userId: "user-a" }, toolCallId: "owned-cleanup",
+        action: "process.cancel", payload: process });
+      let ended = false;
+      for (let attempt = 0; attempt < 30; attempt++) {
+        const result = await caller.call({ binding, principal: { userId: "user-a" }, toolCallId: "owned-inspect",
+          action: "process.inspect", payload: process }) as { process: { state: string } };
+        if (["succeeded", "failed", "cancelled", "timed_out"].includes(result.process.state)) { ended = true; break; }
+        await Bun.sleep(100);
+      }
+      expect(ended).toBe(true);
+    }
+    server.stop(true);
+    await rm(root, { recursive: true, force: true });
+  }
+}, 15_000);
+
+test("a permanently unknown preview handle stays bounded, cancels once and never reads output or starts again", async () => {
+  const calls: Array<Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]> = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input);
+    if (input.action === "process.start") return { ok: true, processId: "same-process", bootId: "same-boot" };
+    if (input.action === "process.inspect") return { ok: true, process: { state: "unknown" } };
+    if (input.action === "process.cancel") return { ok: true };
+    throw new Error("Output cannot prove completion");
+  } });
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
+  try {
+    await expect(backend.serve(preview(new Request("https://preview.example/")))).rejects.toThrow("deadline");
+    expect(calls.filter(call => call.action === "process.start")).toHaveLength(1);
+    expect(calls.filter(call => call.action === "process.inspect")).toHaveLength(24);
+    expect(calls.filter(call => call.action === "process.cancel")).toHaveLength(1);
+    expect(calls.some(call => call.action === "process.readOutput")).toBe(false);
+    expect(calls.slice(1).every(call => call.payload.processId === "same-process" && call.payload.bootId === "same-boot")).toBe(true);
+    expect(sleep.mock.calls.every(([delay]) => delay === 500)).toBe(true);
+  } finally { sleep.mockRestore(); }
+});
+
+test("an unknown preview that becomes failed, timed-out or cancelled never exposes output", async () => {
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
+  try {
+  for (const state of ["failed", "timed_out", "cancelled"]) {
+    const calls: string[] = [];
+    let inspected = 0;
+    const backend = new IncusSandboxPreviewBackend({ async call(input) {
+      calls.push(input.action);
+      if (input.action === "process.start") return { ok: true, processId: "same-process", bootId: "same-boot" };
+      if (input.action === "process.inspect") return { ok: true, process: { state: inspected++ === 0 ? "unknown" : state } };
+      throw new Error("No output from a refused process");
+    } });
+    await expect(backend.serve(preview(new Request("https://preview.example/")))).rejects.toThrow("failed");
+    expect(calls).toEqual(["process.start", "process.inspect", "process.inspect"]);
+  }
+  } finally { sleep.mockRestore(); }
+});
+
+test("cancellation during unknown polling cancels the same handle without another start or output", async () => {
+  const controller = new AbortController();
+  const calls: Array<Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]> = [];
+  const backend = new IncusSandboxPreviewBackend({ async call(input) {
+    calls.push(input);
+    if (input.action === "process.start") return { ok: true, processId: "same-process", bootId: "same-boot" };
+    if (input.action === "process.inspect") return { ok: true, process: { state: "unknown" } };
+    if (input.action === "process.cancel") return { ok: true };
+    throw new Error("Unexpected output");
+  } });
+  const sleep = spyOn(Bun, "sleep").mockImplementation(async () => { controller.abort(); });
+  try {
+    await expect(backend.serve(preview(new Request("https://preview.example/", { signal: controller.signal })))).rejects.toThrow("cancelled");
+    expect(calls.map(call => call.action)).toEqual(["process.start", "process.inspect", "process.cancel"]);
+    expect(calls[2]!.payload).toEqual({ processId: "same-process", bootId: "same-boot" });
+    expect(calls[2]!.signal).toBeUndefined();
+  } finally { sleep.mockRestore(); }
+});
+
+test("preview helper fixtures refuse a missing portable Python interpreter", () => {
+  const which = spyOn(Bun, "which").mockReturnValue(null);
+  try { expect(() => hostPython3()).toThrow("require python3 on PATH"); }
+  finally { which.mockRestore(); }
 });
