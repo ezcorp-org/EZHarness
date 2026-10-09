@@ -1,5 +1,5 @@
 import { IncusAdmissionReadinessService } from "$server/infrastructure/incus-admission-readiness";
-import { IncusAdmissionReadinessError } from "$server/infrastructure/incus-admission-contract";
+import { IncusAdmissionReadinessError, incusReadinessFailureReason } from "$server/infrastructure/incus-admission-contract";
 import { json } from "@sveltejs/kit";
 import { ContractError } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -10,9 +10,11 @@ import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-se
 import { getReleaseRuntime, resolveActiveRelease } from "$server/extensions/release-process";
 import { IncusQualificationStore } from "$server/infrastructure/incus-qualification";
 import { permitsFailedCleanupInspection } from "$server/infrastructure/incus-cleanup-stop-policy";
+import { logger } from "$server/logger";
 import type { RequestHandler } from "./$types";
 
 const pageSize = 100;
+const log = logger.child("api.incus.management");
 interface Connection {
   installationId: string; releaseId: string; connectionId: string; connectionRevision: number; label: string;
   setupId: string | null;
@@ -45,6 +47,12 @@ async function environmentStatus(db: ReturnType<typeof getDb>, qualifications: I
     admissionValidUntil = new Date(ready.validUntil).toISOString();
   } catch (error) {
     admissionReason = error instanceof IncusAdmissionReadinessError ? error.code : "readiness_unavailable";
+    if (admissionReason === "readiness_unavailable") {
+      log.warn("Incus admission readiness failed", {
+        causeCode: "readiness_unavailable",
+        readinessReason: incusReadinessFailureReason(error instanceof IncusAdmissionReadinessError ? error.reason : undefined),
+      });
+    }
   }
   const [run] = releaseRows<Run>(await db.execute(sql`SELECT run_id AS "runId", state, deadline_at AS "deadlineAt"
     FROM incus_qualification_runs WHERE scope = ${JSON.stringify(scope)}::jsonb
