@@ -5992,3 +5992,12 @@ until another package closes them. Receipts: /tmp/factory-platform-evidence/w4h-
 - [x] Legs: hook-mapped suites with lcov, new-file and patch against integ, CRAP, lint, boundaries, lanes, prune, gate-integrity on both legs, typecheck, guard set and the real reference-data producer under the lock (G6-G11).
 
 Review: the four files had no hosted producer. The image-bound journey was the only path into them, and hosted shards have uv on PATH. A guest double over the real W04 materials now drives the host side of the journey in every hosted coverage shard. A stand-in nix-shell drives the default probe. Writing those tests exposed two defects. First, an attempt directory leaked on any refusal raised after the attempt returned. Second, the probe re-resolved the bare tool name. Both are fixed. Lesson pending: w4h-16/pending-lesson.md.
+
+## W4H-17 — the FactoryConsole import race in the browser coverage lane (branch `wp/w4h-17-import-outcome` from integ/w00 3897fe923; gates `tasks/factory/w4h-17-GATES.md`)
+
+- [x] R1 reproduce DA:199,0 locally with the old success case while the spec passes (G1).
+- [x] R2 the success case waits for the import outcome (row, heading, cleared file input); mutants without loadDrafts and without openDraft go red (G2, G3).
+- [x] R3 the mock-full lane gives FactoryConsole.svelte 100 percent; the hosted check-coverage over run 37960843272's artifacts passes with the browser lcov replaced; the control stays red on line 199 (G4, G5).
+- [x] Legs: new-file and patch vs integ (vacuous), CRAP, lint, boundaries, lanes, prune, gate-integrity on both legs, typecheck, guard set under the lock (G6-G9).
+
+Review: the success case ended right after it saw the /import request, and the coverage fixture took coverage at teardown, so a late response left line 199 unhit. A test-only hold now forces the late response on every run, and the case waits for the outcome. The import creates its own draft so the outcome cannot be mistaken for the create step's state. No production change.

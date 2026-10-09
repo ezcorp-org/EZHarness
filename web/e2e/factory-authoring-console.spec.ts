@@ -6,6 +6,8 @@ import { factoryGraphProblems } from "./fixtures/factory-layout.js";
 
 const projectId = "factory-project";
 const factoryId = "catalog-enrichment-with-a-deliberately-long-definition-name";
+// The import creates a draft that no other step creates, so its listed row and opened editor prove the import settled.
+const importedFactoryId = "catalog-import";
 const digest = "a".repeat(64);
 const definitionDigest = "sha256:" + digest;
 type FailureOperation = "list" | "create" | "import" | "save" | "validate" | "export" | "archive" | "versions" | "publish" | "start";
@@ -61,10 +63,11 @@ function published(source: FactoryDefinition = historicalDefinition()): FactoryV
 	};
 }
 
-async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean; runs?: boolean; futureDraft?: boolean } = {}): Promise<{
+async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; diagnosticsWithoutNode?: boolean; noVersions?: boolean; releaseInbox?: boolean; runs?: boolean; futureDraft?: boolean; holdImport?: boolean } = {}): Promise<{
 	requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }>;
 	failNext(operation: FailureOperation): void;
 	conflictNext(): void;
+	releaseImport(): void;
 }> {
 	let current = details();
 	let conflict = options.conflictOnce ?? false;
@@ -72,6 +75,11 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 	const requests: Array<{ method: string; path: string; headers: Record<string, string>; body: unknown }> = [];
 	const failures = new Set<FailureOperation>();
 	let runRevision = 4;
+	let imported: FactoryDraftDetails | null = null;
+	const importedSummary = (): FactoryDraftSummary => ({ ...summary(1), factoryId: importedFactoryId });
+	// holdImport keeps the import response back until the test releases it, so the page's import is still in flight.
+	let releaseImport = () => {};
+	const importHeld = options.holdImport ? new Promise<void>(resolve => { releaseImport = resolve; }) : Promise.resolve();
 	// A different factory from the drafts above, so the page carries two genuinely distinct lists.
 	const runSummary = () => ({ runId: "run-remediation", factoryId: "reference.code.v1", factoryVersion: "1.0.0", definitionDigest, grantRevision: 1, revision: runRevision, status: "waiting", createdAtMs: 1_789_000_000_000, updatedAtMs: 1_789_000_100_000 });
 	let releaseInbox = options.releaseInbox ? [
@@ -170,7 +178,9 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		if (url.pathname.endsWith("/import") && method === "POST") {
 			const rejection = reject("import");
 			if (rejection) return rejection;
-			return respond(envelope({ kind: "draft.summary", resource: summary() }));
+			await importHeld;
+			imported = { ...importedSummary(), source: { ...definition(), id: importedFactoryId } };
+			return respond(envelope({ kind: "draft.summary", resource: importedSummary() }));
 		}
 		if (url.pathname.endsWith("/versions/0.1.0") && method === "GET") {
 			return respond(envelope({ kind: "version.details", resource: prior }));
@@ -218,7 +228,10 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		if (url.pathname.endsWith("/definitions") && method === "GET") {
 			const rejection = reject("list");
 			if (rejection) return rejection;
-			return respond(envelope({ kind: "draft.page", page: { items: [summary()] } }));
+			return respond(envelope({ kind: "draft.page", page: { items: imported ? [summary(), importedSummary()] : [summary()] } }));
+		}
+		if (imported && url.pathname.endsWith("/" + importedFactoryId) && method === "GET") {
+			return respond(envelope({ kind: "draft.details", resource: imported }));
 		}
 		return respond(envelope({ kind: "error", error: { code: "factory_not_found", message: "No mock route", retryable: false } }), 404);
 	});
@@ -226,6 +239,7 @@ async function routeFactoryApi(page: Page, options: { conflictOnce?: boolean; di
 		requests,
 		failNext: operation => failures.add(operation),
 		conflictNext: () => { conflict = true; },
+		releaseImport: () => releaseImport(),
 	};
 }
 
@@ -487,7 +501,7 @@ test.describe("factory authoring console", () => {
 
 	test("creates and imports through the current membership project", async ({ page, mockApi }) => {
 		await mockApi({ projects: [makeProject({ id: projectId, name: "Product Operations" })] });
-		const mocked = await routeFactoryApi(page);
+		const mocked = await routeFactoryApi(page, { holdImport: true });
 		await page.goto("/factories");
 		await expect(page.getByLabel("Factory project")).toHaveValue(projectId);
 		await page.getByLabel("New factory ID").fill("created-definition");
@@ -499,6 +513,15 @@ test.describe("factory authoring console", () => {
 		await expect.poll(() => mocked.requests.filter(item => item.path.endsWith("/import")).length).toBe(1);
 		const imported = mocked.requests.find(item => item.path.endsWith("/import"));
 		expect(imported?.body).toEqual({ format: "yaml", source: "schemaVersion: factory.v1" });
+
+		// The import response is still held, so the drafts list does not show the imported draft yet.
+		const importedRow = page.getByTestId("factory-console").getByRole("button", { name: new RegExp(importedFactoryId) });
+		await expect(importedRow).toHaveCount(0);
+		mocked.releaseImport();
+		// The outcome of the import: the reloaded list shows the draft, the editor opens it, and the file picker is cleared once the import settles.
+		await expect(importedRow).toBeVisible();
+		await expect(page.getByRole("heading", { level: 2, name: importedFactoryId })).toBeVisible();
+		await expect(page.locator('input[type="file"]')).toHaveValue("");
 	});
 
 	test("edits source and nodes, navigates nested graphs, and archives the draft", async ({ page, mockApi }) => {
