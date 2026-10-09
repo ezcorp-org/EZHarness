@@ -1,0 +1,439 @@
+﻿2026-10-09T20:26:23.2021071Z Current runner version: '2.337.0'
+2026-10-09T20:26:23.2040883Z ##[group]Runner Image Provisioner
+2026-10-09T20:26:23.2041589Z Hosted Compute Agent
+2026-10-09T20:26:23.2042055Z Version: 20261002.596
+2026-10-09T20:26:23.2042665Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+2026-10-09T20:26:23.2043269Z Build Date: 2026-10-02T22:28:27Z
+2026-10-09T20:26:23.2043959Z Worker ID: {6460af14-1730-49c0-ad60-e2bcb7dffbee}
+2026-10-09T20:26:23.2044613Z Region: centralus
+2026-10-09T20:26:23.2045062Z Cloud: Azure
+2026-10-09T20:26:23.2045550Z ##[endgroup]
+2026-10-09T20:26:23.2046944Z ##[group]Operating System
+2026-10-09T20:26:23.2047444Z Ubuntu
+2026-10-09T20:26:23.2047933Z 24.04.5
+2026-10-09T20:26:23.2048341Z LTS
+2026-10-09T20:26:23.2048766Z ##[endgroup]
+2026-10-09T20:26:23.2049209Z ##[group]Runner Image
+2026-10-09T20:26:23.2049679Z Image: ubuntu-24.04
+2026-10-09T20:26:23.2050405Z Version: 20261004.327.1
+2026-10-09T20:26:23.2051510Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+2026-10-09T20:26:23.2052797Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+2026-10-09T20:26:23.2053555Z ##[endgroup]
+2026-10-09T20:26:23.2054456Z ##[group]GITHUB_TOKEN Permissions
+2026-10-09T20:26:23.2056216Z Contents: read
+2026-10-09T20:26:23.2056711Z Metadata: read
+2026-10-09T20:26:23.2057135Z ##[endgroup]
+2026-10-09T20:26:23.2058713Z Secret source: Actions
+2026-10-09T20:26:23.2059424Z Cache mode: write
+2026-10-09T20:26:23.2060018Z Prepare workflow directory
+2026-10-09T20:26:23.2440908Z Prepare all required actions
+2026-10-09T20:26:23.2493037Z Getting action download info
+2026-10-09T20:26:23.4997305Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+2026-10-09T20:26:23.5978157Z Download action repository 'actions/setup-node@820762786026740c76f36085b0efc47a31fe5020' (SHA:820762786026740c76f36085b0efc47a31fe5020)
+2026-10-09T20:26:23.7318045Z Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+2026-10-09T20:26:23.9028225Z Complete job name: Factory Temporal integration
+2026-10-09T20:26:23.9588199Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+2026-10-09T20:26:23.9588997Z with:
+2026-10-09T20:26:23.9589386Z   repository: ezcorp-org/EZHarness
+2026-10-09T20:26:23.9592989Z   token: ***
+2026-10-09T20:26:23.9593433Z   ssh-strict: true
+2026-10-09T20:26:23.9593849Z   ssh-user: git
+2026-10-09T20:26:23.9594254Z   persist-credentials: true
+2026-10-09T20:26:23.9594675Z   clean: true
+2026-10-09T20:26:23.9595121Z   sparse-checkout-cone-mode: true
+2026-10-09T20:26:23.9595583Z   fetch-depth: 1
+2026-10-09T20:26:23.9595969Z   fetch-tags: false
+2026-10-09T20:26:23.9596379Z   show-progress: true
+2026-10-09T20:26:23.9596796Z   lfs: false
+2026-10-09T20:26:23.9597215Z   submodules: false
+2026-10-09T20:26:23.9597617Z   set-safe-directory: true
+2026-10-09T20:26:23.9598091Z   allow-unsafe-pr-checkout: false
+2026-10-09T20:26:23.9598880Z env:
+2026-10-09T20:26:23.9599300Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:23.9599969Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:23.9600662Z ##[endgroup]
+2026-10-09T20:26:24.0448712Z Syncing repository: ezcorp-org/EZHarness
+2026-10-09T20:26:24.0451144Z ##[group]Getting Git version info
+2026-10-09T20:26:24.0452162Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+2026-10-09T20:26:24.0453405Z [command]/usr/bin/git version
+2026-10-09T20:26:24.0528272Z git version 2.55.0
+2026-10-09T20:26:24.0542242Z ##[endgroup]
+2026-10-09T20:26:24.0551899Z Temporarily overriding HOME='/home/runner/work/_temp/ab8e2d84-041e-4334-9d67-879d3ba0b226' before making global git config changes
+2026-10-09T20:26:24.0553500Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-09T20:26:24.0557663Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-10-09T20:26:24.0597327Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+2026-10-09T20:26:24.0600065Z ##[group]Determining repository object format
+2026-10-09T20:26:24.0601564Z ##[endgroup]
+2026-10-09T20:26:24.0602488Z ##[group]Initializing the repository
+2026-10-09T20:26:24.0605703Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+2026-10-09T20:26:24.0711501Z hint: Using 'master' as the name for the initial branch. This default branch name
+2026-10-09T20:26:24.0726699Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+2026-10-09T20:26:24.0728688Z hint: to use in all of your new repositories, which will suppress this warning,
+2026-10-09T20:26:24.0729769Z hint: call:
+2026-10-09T20:26:24.0730706Z hint:
+2026-10-09T20:26:24.0731634Z hint: 	git config --global init.defaultBranch <name>
+2026-10-09T20:26:24.0732516Z hint:
+2026-10-09T20:26:24.0733528Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+2026-10-09T20:26:24.0734878Z hint: 'development'. The just-created branch can be renamed via this command:
+2026-10-09T20:26:24.0735730Z hint:
+2026-10-09T20:26:24.0736288Z hint: 	git branch -m <name>
+2026-10-09T20:26:24.0736914Z hint:
+2026-10-09T20:26:24.0737662Z hint: Disable this message with "git config set advice.defaultBranchName false"
+2026-10-09T20:26:24.0739110Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+2026-10-09T20:26:24.0741822Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+2026-10-09T20:26:24.0776630Z ##[endgroup]
+2026-10-09T20:26:24.0777350Z ##[group]Disabling automatic garbage collection
+2026-10-09T20:26:24.0782427Z [command]/usr/bin/git config --local gc.auto 0
+2026-10-09T20:26:24.0816117Z ##[endgroup]
+2026-10-09T20:26:24.0816977Z ##[group]Setting up auth
+2026-10-09T20:26:24.0817640Z Removing SSH command configuration
+2026-10-09T20:26:24.0822545Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-09T20:26:24.0859554Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-09T20:26:24.1161793Z Removing HTTP extra header
+2026-10-09T20:26:24.1172600Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-09T20:26:24.1194182Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-09T20:26:24.1344708Z Removing includeIf entries pointing to credentials config files
+2026-10-09T20:26:24.1347803Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-09T20:26:24.1369762Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-09T20:26:24.1523277Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+2026-10-09T20:26:24.1549361Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:26:24.1574120Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:26:24.1606359Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:26:24.1633285Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:26:24.1659908Z ##[endgroup]
+2026-10-09T20:26:24.1660819Z ##[group]Fetching the repository
+2026-10-09T20:26:24.1664284Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +085f750caf047ff7db72be7ee6117cd267a1f139:refs/remotes/pull/318/merge
+2026-10-09T20:26:28.6711453Z From https://github.com/ezcorp-org/EZHarness
+2026-10-09T20:26:28.6712834Z  * [new ref]         085f750caf047ff7db72be7ee6117cd267a1f139 -> pull/318/merge
+2026-10-09T20:26:28.6715404Z ##[endgroup]
+2026-10-09T20:26:28.6716351Z ##[group]Determining the checkout info
+2026-10-09T20:26:28.6721606Z ##[endgroup]
+2026-10-09T20:26:28.6722519Z [command]/usr/bin/git sparse-checkout disable
+2026-10-09T20:26:28.6780995Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+2026-10-09T20:26:28.6807262Z ##[group]Checking out the ref
+2026-10-09T20:26:28.6811273Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/318/merge
+2026-10-09T20:26:29.6998701Z Updating files:  65% (9583/14721)
+2026-10-09T20:26:29.7066570Z Updating files:  66% (9716/14721)
+2026-10-09T20:26:29.7151221Z Updating files:  67% (9864/14721)
+2026-10-09T20:26:29.7219868Z Updating files:  68% (10011/14721)
+2026-10-09T20:26:29.7297650Z Updating files:  69% (10158/14721)
+2026-10-09T20:26:29.7363229Z Updating files:  70% (10305/14721)
+2026-10-09T20:26:29.7437575Z Updating files:  71% (10452/14721)
+2026-10-09T20:26:29.7517425Z Updating files:  72% (10600/14721)
+2026-10-09T20:26:29.7562838Z Updating files:  73% (10747/14721)
+2026-10-09T20:26:29.7636495Z Updating files:  74% (10894/14721)
+2026-10-09T20:26:29.7726489Z Updating files:  75% (11041/14721)
+2026-10-09T20:26:29.7799704Z Updating files:  76% (11188/14721)
+2026-10-09T20:26:29.7871853Z Updating files:  77% (11336/14721)
+2026-10-09T20:26:29.7931988Z Updating files:  78% (11483/14721)
+2026-10-09T20:26:29.8008909Z Updating files:  79% (11630/14721)
+2026-10-09T20:26:29.8079434Z Updating files:  80% (11777/14721)
+2026-10-09T20:26:29.8156052Z Updating files:  81% (11925/14721)
+2026-10-09T20:26:29.8230866Z Updating files:  82% (12072/14721)
+2026-10-09T20:26:29.8339400Z Updating files:  83% (12219/14721)
+2026-10-09T20:26:29.8396144Z Updating files:  84% (12366/14721)
+2026-10-09T20:26:29.8462336Z Updating files:  85% (12513/14721)
+2026-10-09T20:26:29.8520767Z Updating files:  86% (12661/14721)
+2026-10-09T20:26:29.8579514Z Updating files:  87% (12808/14721)
+2026-10-09T20:26:29.8638219Z Updating files:  88% (12955/14721)
+2026-10-09T20:26:29.8699200Z Updating files:  89% (13102/14721)
+2026-10-09T20:26:29.8756997Z Updating files:  90% (13249/14721)
+2026-10-09T20:26:29.8819272Z Updating files:  91% (13397/14721)
+2026-10-09T20:26:29.8888201Z Updating files:  92% (13544/14721)
+2026-10-09T20:26:29.8944784Z Updating files:  93% (13691/14721)
+2026-10-09T20:26:29.9002514Z Updating files:  94% (13838/14721)
+2026-10-09T20:26:29.9057242Z Updating files:  95% (13985/14721)
+2026-10-09T20:26:29.9118048Z Updating files:  96% (14133/14721)
+2026-10-09T20:26:29.9173716Z Updating files:  97% (14280/14721)
+2026-10-09T20:26:29.9230839Z Updating files:  98% (14427/14721)
+2026-10-09T20:26:29.9291523Z Updating files:  99% (14574/14721)
+2026-10-09T20:26:29.9292202Z Updating files: 100% (14721/14721)
+2026-10-09T20:26:29.9292654Z Updating files: 100% (14721/14721), done.
+2026-10-09T20:26:29.9401586Z Note: switching to 'refs/remotes/pull/318/merge'.
+2026-10-09T20:26:29.9401891Z 
+2026-10-09T20:26:29.9402112Z You are in 'detached HEAD' state. You can look around, make experimental
+2026-10-09T20:26:29.9402705Z changes and commit them, and you can discard any commits you make in this
+2026-10-09T20:26:29.9403367Z state without impacting any branches by switching back to a branch.
+2026-10-09T20:26:29.9403698Z 
+2026-10-09T20:26:29.9404021Z If you want to create a new branch to retain commits you create, you may
+2026-10-09T20:26:29.9404591Z do so (now or later) by using -c with the switch command. Example:
+2026-10-09T20:26:29.9404862Z 
+2026-10-09T20:26:29.9405035Z   git switch -c <new-branch-name>
+2026-10-09T20:26:29.9405499Z 
+2026-10-09T20:26:29.9405699Z Or undo this operation with:
+2026-10-09T20:26:29.9405904Z 
+2026-10-09T20:26:29.9406074Z   git switch -
+2026-10-09T20:26:29.9406279Z 
+2026-10-09T20:26:29.9406602Z Turn off this advice by setting config variable advice.detachedHead to false
+2026-10-09T20:26:29.9406996Z 
+2026-10-09T20:26:29.9407411Z HEAD is now at 085f750 Merge 6df16debf34547bf8d92001c524e14ec4e9f5459 into e3309906d4cac4927290dc5da6473be4619ab889
+2026-10-09T20:26:29.9424665Z ##[endgroup]
+2026-10-09T20:26:29.9459695Z [command]/usr/bin/git log -1 --format=%H
+2026-10-09T20:26:29.9480570Z 085f750caf047ff7db72be7ee6117cd267a1f139
+2026-10-09T20:26:29.9731033Z Prepare all required actions
+2026-10-09T20:26:29.9731727Z Getting action download info
+2026-10-09T20:26:30.1564709Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+2026-10-09T20:26:30.5154135Z Download action repository 'actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9' (SHA:55cc8345863c7cc4c66a329aec7e433d2d1c52a9)
+2026-10-09T20:26:30.6767512Z ##[group]Run ./.github/actions/setup
+2026-10-09T20:26:30.6767788Z with:
+2026-10-09T20:26:30.6768044Z   web: false
+2026-10-09T20:26:30.6768246Z   sync: false
+2026-10-09T20:26:30.6768463Z   playwright: false
+2026-10-09T20:26:30.6768703Z env:
+2026-10-09T20:26:30.6768985Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:30.6769274Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:30.6769530Z ##[endgroup]
+2026-10-09T20:26:30.6817635Z ##[start-action display=Isolate runtime configuration between Bun processes;id=__self.__run]
+2026-10-09T20:26:30.6856714Z ##[group]Run echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+2026-10-09T20:26:30.6857172Z echo 'BUN_RUNTIME_TRANSPILER_CACHE_PATH=0' >> "$GITHUB_ENV"
+2026-10-09T20:26:30.7019147Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-09T20:26:30.7019539Z env:
+2026-10-09T20:26:30.7019778Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:30.7020400Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:30.7020664Z ##[endgroup]
+2026-10-09T20:26:30.7099634Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=28]
+2026-10-09T20:26:30.7102184Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__self.__oven-sh_setup-bun]
+2026-10-09T20:26:30.7348982Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+2026-10-09T20:26:30.7349251Z with:
+2026-10-09T20:26:30.7349409Z   bun-version-file: .bun-version
+2026-10-09T20:26:30.7349595Z   no-cache: false
+2026-10-09T20:26:30.7351458Z   token: ***
+2026-10-09T20:26:30.7351608Z env:
+2026-10-09T20:26:30.7351785Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:30.7352021Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:30.7352245Z ##[endgroup]
+2026-10-09T20:26:30.8445091Z Obtained version 1.4.2 from .bun-version
+2026-10-09T20:26:30.9800235Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+2026-10-09T20:26:31.7859070Z Received 35684133 of 35684133 (100.0%), 51.7 MBs/sec
+2026-10-09T20:26:31.7859677Z Cache Size: ~34 MB (35684133 B)
+2026-10-09T20:26:31.7883866Z [command]/usr/bin/tar -xf /home/runner/work/_temp/870451a8-f49f-4a71-be58-c7be8698bc76/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-10-09T20:26:31.9000796Z Cache restored successfully
+2026-10-09T20:26:31.9018758Z [command]/home/runner/.bun/bin/bun --revision
+2026-10-09T20:26:31.9050352Z 1.4.2+744846f84
+2026-10-09T20:26:31.9055389Z Using a cached version of Bun: 1.4.2+744846f84
+2026-10-09T20:26:31.9124270Z ##[end-action id=__self.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=1202]
+2026-10-09T20:26:31.9127769Z ##[start-action display=Cache bun global install cache;id=__self.__actions_cache]
+2026-10-09T20:26:32.0409364Z ##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+2026-10-09T20:26:32.0409624Z with:
+2026-10-09T20:26:32.0409779Z   path: ~/.bun/install/cache
+2026-10-09T20:26:32.0410590Z   key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-9d427dd29438d97af570a5fb26b59f3f19f2b9fc47075c3bbb073dec5834d0f1
+2026-10-09T20:26:32.0411243Z   restore-keys: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-
+
+2026-10-09T20:26:32.0411571Z   enableCrossOsArchive: false
+2026-10-09T20:26:32.0411754Z   fail-on-cache-miss: false
+2026-10-09T20:26:32.0411930Z   lookup-only: false
+2026-10-09T20:26:32.0412085Z   save-always: false
+2026-10-09T20:26:32.0412240Z env:
+2026-10-09T20:26:32.0412536Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:32.0412764Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:32.0412954Z ##[endgroup]
+2026-10-09T20:26:32.2743302Z Cache hit for: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-9d427dd29438d97af570a5fb26b59f3f19f2b9fc47075c3bbb073dec5834d0f1
+2026-10-09T20:26:33.3982326Z Received 121634816 of 354985299 (34.3%), 115.9 MBs/sec
+2026-10-09T20:26:34.3990946Z Received 327155712 of 354985299 (92.2%), 155.8 MBs/sec
+2026-10-09T20:26:34.5448464Z Received 354985299 of 354985299 (100.0%), 157.6 MBs/sec
+2026-10-09T20:26:34.5449875Z Cache Size: ~339 MB (354985299 B)
+2026-10-09T20:26:34.5499925Z [command]/usr/bin/tar -xf /home/runner/work/_temp/62c59148-16ee-4616-85c9-706e644c67c9/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+2026-10-09T20:26:36.3818967Z Cache restored successfully
+2026-10-09T20:26:36.3998112Z Cache restored from key: bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-9d427dd29438d97af570a5fb26b59f3f19f2b9fc47075c3bbb073dec5834d0f1
+2026-10-09T20:26:36.4053403Z ##[end-action id=__self.__actions_cache;outcome=success;conclusion=success;duration_ms=4492]
+2026-10-09T20:26:36.4056007Z ##[start-action display=Install root deps;id=__self.__run_2]
+2026-10-09T20:26:36.4154321Z ##[group]Run bun install --frozen-lockfile
+2026-10-09T20:26:36.4154732Z bun install --frozen-lockfile
+2026-10-09T20:26:36.4194861Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-09T20:26:36.4195141Z env:
+2026-10-09T20:26:36.4195339Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:36.4195607Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:36.4195819Z ##[endgroup]
+2026-10-09T20:26:36.4482352Z bun install v1.4.2 (744846f84)
+2026-10-09T20:26:36.4547147Z Resolving dependencies
+2026-10-09T20:26:36.7956333Z Resolved, downloaded and extracted [4]
+2026-10-09T20:26:40.6674097Z 
+2026-10-09T20:26:40.6674869Z $ bun run build:packages && bash scripts/setup-git-hooks.sh
+2026-10-09T20:26:40.6711333Z $ bun scripts/build-workspace-packages.ts
+2026-10-09T20:26:40.6824314Z build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+2026-10-09T20:26:40.6847172Z $ tsc -b tsconfig.build.json
+2026-10-09T20:26:40.7522941Z build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+2026-10-09T20:26:40.7542090Z $ bunx tsc -b tsconfig.build.json
+2026-10-09T20:26:40.8263184Z build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+2026-10-09T20:26:40.8278062Z $ bunx tsc -b tsconfig.build.json
+2026-10-09T20:26:42.7316396Z build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+2026-10-09T20:26:42.7337740Z $ tsc -b tsconfig.build.json
+2026-10-09T20:26:43.3096288Z build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+2026-10-09T20:26:43.3112484Z $ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+2026-10-09T20:26:43.3144167Z $ tsc -b tsconfig.build.json
+2026-10-09T20:26:45.1476305Z build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+2026-10-09T20:26:45.1502526Z $ bunx tsc -b tsconfig.build.json
+2026-10-09T20:26:46.4309636Z 
+2026-10-09T20:26:46.4310262Z + @biomejs/biome@2.5.14
+2026-10-09T20:26:46.4310543Z + @types/bun@1.4.2
+2026-10-09T20:26:46.4310710Z + @types/js-yaml@4.0.9
+2026-10-09T20:26:46.4310896Z + @types/node@26.6.3 (v26.6.5 available)
+2026-10-09T20:26:46.4311485Z + drizzle-kit@0.31.11
+2026-10-09T20:26:46.4311660Z + @aws-sdk/client-kms@3.1131.0
+2026-10-09T20:26:46.4311852Z + @aws-sdk/client-s3@3.1131.0
+2026-10-09T20:26:46.4312082Z + @balena/dockerignore@1.0.2
+2026-10-09T20:26:46.4312284Z + @earendil-works/pi-agent-core@0.87.1
+2026-10-09T20:26:46.4312491Z + @earendil-works/pi-ai@0.87.1
+2026-10-09T20:26:46.4312692Z + @electric-sql/pglite@0.5.8
+2026-10-09T20:26:46.4312888Z + @electric-sql/pglite-pgvector@0.0.9
+2026-10-09T20:26:46.4313085Z + @huggingface/transformers@4.3.0
+2026-10-09T20:26:46.4313280Z + @modelcontextprotocol/sdk@1.31.0
+2026-10-09T20:26:46.4313479Z + @zxing/library@0.23.0
+2026-10-09T20:26:46.4313754Z + drizzle-orm@0.45.3
+2026-10-09T20:26:46.4313917Z + exceljs@4.4.0
+2026-10-09T20:26:46.4314073Z + fast-png@8.0.0
+2026-10-09T20:26:46.4314224Z + file-type@22.1.1
+2026-10-09T20:26:46.4314383Z + jpeg-js@0.4.4
+2026-10-09T20:26:46.4314531Z + pdf-parse@2.4.5
+2026-10-09T20:26:46.4314684Z + yaml@2.9.1
+2026-10-09T20:26:46.4314855Z + typescript@5.9.3 (v7.0.2 available)
+2026-10-09T20:26:46.4314984Z 
+2026-10-09T20:26:46.4315063Z 481 packages installed [9.98s]
+2026-10-09T20:26:46.4333263Z ##[end-action id=__self.__run_2;outcome=success;conclusion=success;duration_ms=10027]
+2026-10-09T20:26:46.4335228Z ##[start-action display=Install web deps;id=__self.__run_3]
+2026-10-09T20:26:46.4341746Z ##[end-action id=__self.__run_3;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-09T20:26:46.4343383Z ##[start-action display=SvelteKit sync;id=__self.__run_4]
+2026-10-09T20:26:46.4346942Z ##[end-action id=__self.__run_4;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-09T20:26:46.4348366Z ##[start-action display=Cache Playwright browsers;id=__self.pw-cache]
+2026-10-09T20:26:46.4353764Z ##[end-action id=__self.pw-cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-09T20:26:46.4355467Z ##[start-action display=Install Playwright chromium;id=__self.__run_5]
+2026-10-09T20:26:46.4358468Z ##[end-action id=__self.__run_5;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-09T20:26:46.4360520Z ##[start-action display=Install Playwright system deps (browser-cache miss only);id=__self.__run_6]
+2026-10-09T20:26:46.4365564Z ##[end-action id=__self.__run_6;outcome=skipped;conclusion=skipped;duration_ms=0]
+2026-10-09T20:26:46.4491036Z ##[group]Run actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+2026-10-09T20:26:46.4491299Z with:
+2026-10-09T20:26:46.4491466Z   node-version-file: .node-version
+2026-10-09T20:26:46.4491670Z   check-latest: false
+2026-10-09T20:26:46.4493252Z   token: ***
+2026-10-09T20:26:46.4493423Z   package-manager-cache: true
+2026-10-09T20:26:46.4493646Z env:
+2026-10-09T20:26:46.4493830Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:46.4494057Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:46.4494245Z ##[endgroup]
+2026-10-09T20:26:46.5364195Z Node version file is not JSON file
+2026-10-09T20:26:46.5365870Z Resolved .node-version as 24.14.1
+2026-10-09T20:26:46.5373850Z Attempting to download 24.14.1...
+2026-10-09T20:26:47.2943059Z Acquiring 24.14.1 - x64 from https://github.com/actions/node-versions/releases/download/24.14.1-23521883727/node-24.14.1-linux-x64.tar.gz
+2026-10-09T20:26:47.7805797Z Extracting ...
+2026-10-09T20:26:47.7889644Z [command]/usr/bin/tar xz --strip 1 --warning=no-unknown-keyword --overwrite -C /home/runner/work/_temp/88726b8a-cf2c-422e-9e2c-4a5296183cee -f /home/runner/work/_temp/55336e16-a74b-4e46-bcf1-20c9f14444e0
+2026-10-09T20:26:48.7503162Z Adding to the cache ...
+2026-10-09T20:26:50.4683908Z ##[group]Environment details
+2026-10-09T20:26:50.6264607Z node: v24.14.1
+2026-10-09T20:26:50.6264895Z npm: 11.11.0
+2026-10-09T20:26:50.6265094Z yarn: 1.22.22
+2026-10-09T20:26:50.6265567Z ##[endgroup]
+2026-10-09T20:26:50.6368854Z ##[group]Run curl --fail --location --retry 3 --output /tmp/temporal-test-server.tar.gz \
+2026-10-09T20:26:50.6369315Z curl --fail --location --retry 3 --output /tmp/temporal-test-server.tar.gz \
+2026-10-09T20:26:50.6369810Z   https://github.com/temporalio/sdk-java/releases/download/v1.38.0/temporal-test-server_1.38.0_linux_amd64.tar.gz
+2026-10-09T20:26:50.6370776Z echo '41df834fe8e1ac59619e13908f41b63e4d1054f37634a2f89033d8cf6af71b96  /tmp/temporal-test-server.tar.gz' | sha256sum --check
+2026-10-09T20:26:50.6371239Z mkdir -p /tmp/factory-tools/temporal-test-server
+2026-10-09T20:26:50.6371594Z tar -xzf /tmp/temporal-test-server.tar.gz -C /tmp/factory-tools/temporal-test-server
+2026-10-09T20:26:50.6372075Z chmod u+x /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+2026-10-09T20:26:50.6407502Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-10-09T20:26:50.6407907Z env:
+2026-10-09T20:26:50.6408117Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:50.6408395Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:50.6408614Z ##[endgroup]
+2026-10-09T20:26:50.6526373Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+2026-10-09T20:26:50.6526812Z                                  Dload  Upload   Total   Spent    Left  Speed
+2026-10-09T20:26:50.6526983Z 
+2026-10-09T20:26:50.8639183Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+2026-10-09T20:26:50.8639896Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+2026-10-09T20:26:51.0938577Z 
+2026-10-09T20:26:51.1469076Z  39 25.5M   39 10.0M    0     0  22.6M      0  0:00:01 --:--:--  0:00:01 22.6M
+2026-10-09T20:26:51.1469587Z 100 25.5M  100 25.5M    0     0  51.7M      0 --:--:-- --:--:-- --:--:--  293M
+2026-10-09T20:26:51.1677200Z /tmp/temporal-test-server.tar.gz: OK
+2026-10-09T20:26:51.6029627Z ##[group]Run sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+2026-10-09T20:26:51.6030046Z sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+2026-10-09T20:26:51.6062610Z shell: /usr/bin/bash -e {0}
+2026-10-09T20:26:51.6062833Z env:
+2026-10-09T20:26:51.6063024Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:51.6063290Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:51.6063484Z ##[endgroup]
+2026-10-09T20:26:51.6221290Z ##[group]Run bash scripts/factory-orchestrator-coverage.sh
+2026-10-09T20:26:51.6221628Z bash scripts/factory-orchestrator-coverage.sh
+2026-10-09T20:26:51.6245082Z shell: /usr/bin/bash -e {0}
+2026-10-09T20:26:51.6245293Z env:
+2026-10-09T20:26:51.6245472Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:26:51.6245703Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:26:51.6245910Z   COV_OUT: coverage-shard
+2026-10-09T20:26:51.6246293Z   FACTORY_TEMPORAL_TEST_SERVER: /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+2026-10-09T20:26:51.6246688Z ##[endgroup]
+2026-10-09T20:29:24.3906861Z ℹ tests 92
+2026-10-09T20:29:24.3907391Z ℹ pass 92
+2026-10-09T20:29:24.3907606Z ℹ fail 0
+2026-10-09T20:29:24.9098570Z ##[group]Run mv coverage-shard/lcov.info coverage-shard/lcov_factory_orchestrator.info
+2026-10-09T20:29:24.9099095Z mv coverage-shard/lcov.info coverage-shard/lcov_factory_orchestrator.info
+2026-10-09T20:29:24.9131824Z shell: /usr/bin/bash -e {0}
+2026-10-09T20:29:24.9132034Z env:
+2026-10-09T20:29:24.9132220Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:29:24.9132466Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:29:24.9132661Z ##[endgroup]
+2026-10-09T20:29:24.9221353Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+2026-10-09T20:29:24.9221664Z with:
+2026-10-09T20:29:24.9221853Z   name: lcov-cov-factory-orchestrator
+2026-10-09T20:29:24.9222102Z   path: coverage-shard/lcov_factory_orchestrator.info
+2026-10-09T20:29:24.9222348Z   retention-days: 3
+2026-10-09T20:29:24.9222526Z   if-no-files-found: error
+2026-10-09T20:29:24.9222719Z   compression-level: 6
+2026-10-09T20:29:24.9222902Z   overwrite: false
+2026-10-09T20:29:24.9223076Z   include-hidden-files: false
+2026-10-09T20:29:24.9223274Z   archive: true
+2026-10-09T20:29:24.9223543Z env:
+2026-10-09T20:29:24.9223721Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+2026-10-09T20:29:24.9223975Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+2026-10-09T20:29:24.9224175Z ##[endgroup]
+2026-10-09T20:29:25.0301531Z With the provided path, there will be 1 file uploaded
+2026-10-09T20:29:25.0305845Z Artifact name is valid!
+2026-10-09T20:29:25.0307550Z Root directory input is valid!
+2026-10-09T20:29:25.3035437Z Uploading artifact: lcov-cov-factory-orchestrator.zip
+2026-10-09T20:29:25.3062307Z Beginning upload of artifact content to blob storage
+2026-10-09T20:29:25.4875153Z Uploaded bytes 11108
+2026-10-09T20:29:25.5296448Z Finished uploading artifact content to blob storage!
+2026-10-09T20:29:25.5297098Z SHA256 digest of uploaded artifact is bda4fa7cff2225523a5a1983be145f699793d02d75463f5f34e082720eafd096
+2026-10-09T20:29:25.5297623Z Finalizing artifact upload
+2026-10-09T20:29:25.8229985Z Artifact lcov-cov-factory-orchestrator successfully finalized. Artifact ID 11642993271
+2026-10-09T20:29:25.8230858Z Artifact lcov-cov-factory-orchestrator has been successfully uploaded! Final size is 11108 bytes. Artifact ID is 11642993271
+2026-10-09T20:29:25.8232701Z Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/37986983940/artifacts/11642993271
+2026-10-09T20:29:25.8353164Z Post job cleanup.
+2026-10-09T20:29:25.9242451Z Post job cleanup.
+2026-10-09T20:29:25.9245971Z ##[start-action display=Cache bun global install cache;id=__8951c7f9-cd68-4aed-832d-994b9c0ef5d8.__actions_cache]
+2026-10-09T20:29:26.0448682Z Post job cleanup.
+2026-10-09T20:29:26.1333047Z Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-9d427dd29438d97af570a5fb26b59f3f19f2b9fc47075c3bbb073dec5834d0f1, not saving cache.
+2026-10-09T20:29:26.1380796Z ##[end-action id=__8951c7f9-cd68-4aed-832d-994b9c0ef5d8.__actions_cache;outcome=success;conclusion=success;duration_ms=213]
+2026-10-09T20:29:26.1382880Z ##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__8951c7f9-cd68-4aed-832d-994b9c0ef5d8.__oven-sh_setup-bun]
+2026-10-09T20:29:26.1425188Z Post job cleanup.
+2026-10-09T20:29:26.2577217Z ##[end-action id=__8951c7f9-cd68-4aed-832d-994b9c0ef5d8.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=119]
+2026-10-09T20:29:26.2662969Z Post job cleanup.
+2026-10-09T20:29:26.3290279Z [command]/usr/bin/git version
+2026-10-09T20:29:26.3323832Z git version 2.55.0
+2026-10-09T20:29:26.3352584Z Temporarily overriding HOME='/home/runner/work/_temp/20b553c0-7da6-4e3f-ba02-10c7083eaae8' before making global git config changes
+2026-10-09T20:29:26.3353543Z Adding repository directory to the temporary git global config as a safe directory
+2026-10-09T20:29:26.3356717Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+2026-10-09T20:29:26.3379977Z Removing SSH command configuration
+2026-10-09T20:29:26.3385141Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-10-09T20:29:26.3409350Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-10-09T20:29:26.3589368Z Removing HTTP extra header
+2026-10-09T20:29:26.3590032Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-10-09T20:29:26.3613563Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-10-09T20:29:26.3778827Z Removing includeIf entries pointing to credentials config files
+2026-10-09T20:29:26.3783912Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-10-09T20:29:26.3803856Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-10-09T20:29:26.3811360Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-10-09T20:29:26.3812256Z includeif.gitdir:/github/workspace/.git.path
+2026-10-09T20:29:26.3812859Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-09T20:29:26.3814391Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+2026-10-09T20:29:26.3827991Z /home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:29:26.3837150Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-cee6626d\-2468\-4f7b\-a750\-807ff18a8f1f\.config
+2026-10-09T20:29:26.3907792Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+2026-10-09T20:29:26.3924861Z /home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:29:26.3931004Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-cee6626d\-2468\-4f7b\-a750\-807ff18a8f1f\.config
+2026-10-09T20:29:26.3957761Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+2026-10-09T20:29:26.3974947Z /github/runner_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:29:26.3979510Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-cee6626d\-2468\-4f7b\-a750\-807ff18a8f1f\.config
+2026-10-09T20:29:26.4004545Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+2026-10-09T20:29:26.4019593Z /github/runner_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config
+2026-10-09T20:29:26.4024094Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-cee6626d\-2468\-4f7b\-a750\-807ff18a8f1f\.config
+2026-10-09T20:29:26.4051831Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-10-09T20:29:26.4194666Z Removing credentials config '/home/runner/work/_temp/git-credentials-cee6626d-2468-4f7b-a750-807ff18a8f1f.config'
+2026-10-09T20:29:26.4298826Z Cleaning up orphan processes
