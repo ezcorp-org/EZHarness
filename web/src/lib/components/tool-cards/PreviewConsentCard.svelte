@@ -27,6 +27,7 @@
 	type Phase = "prompt" | "pending" | "exposed" | "ignored" | "error";
 	let phase = $state<Phase>("prompt");
 	let openUrl = $state<string | null>(null);
+	let readyUrl = $derived(data.openUrl ?? openUrl);
 	let errorMsg = $state<string | null>(null);
 
 	async function act(action: ConsentAction) {
@@ -85,7 +86,7 @@
 		</div>
 	</div>
 
-	{#if phase === "prompt" || phase === "pending"}
+	{#if !readyUrl && (phase === "prompt" || phase === "pending")}
 		<div class="ez-card__actions">
 			<button
 				class="ez-card__primary"
@@ -112,9 +113,9 @@
 				Always expose in this conversation
 			</button>
 		</div>
-	{:else if phase === "exposed"}
+	{:else if readyUrl || phase === "exposed"}
 		<div class="ez-card__actions">
-			<a class="ez-card__primary" data-testid="preview-consent-open" href={openUrl}>
+			<a class="ez-card__primary" data-testid="preview-consent-open" href={readyUrl}>
 				Open preview
 			</a>
 		</div>

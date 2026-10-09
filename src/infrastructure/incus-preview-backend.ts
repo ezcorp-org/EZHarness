@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
 import type { SandboxPreviewBackend, SandboxPreviewConnectRequest, SandboxPreviewServeRequest,
-  SandboxPreviewSocket } from "../runtime/workspaces/target";
+  SandboxPreviewSocket, SandboxPreviewServer, SandboxPreviewServerRequest, SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 
 const MAX_REQUEST_BYTES = 4 * 1024;
 const MAX_RESPONSE_BYTES = 512 * 1024;
@@ -11,6 +11,47 @@ const POLLS = 24;
 const ALLOWED_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
 const REQUEST_HEADERS = new Set(["accept", "accept-language", "content-type", "if-none-match", "if-modified-since", "range"]);
 const RESPONSE_HEADERS = new Set(["content-type", "cache-control", "location", "set-cookie", "etag", "last-modified", "content-encoding", "accept-ranges", "content-range"]);
+const SERVER_LIFETIME_MS = 15 * 60_000;
+const SERVER_READY_MS = 30_000;
+
+// The fixed launcher prints its kernel identity before untrusted server code
+// can write output. exec preserves that PID and the helper's process group.
+const SERVER_LAUNCH = `import json,os
+with open('/proc/self/stat') as f: start=f.read().rsplit(')',1)[1].split()[19]
+print('EZH_PREVIEW_PROCESS '+str(os.getpid())+' '+start,flush=True)
+argv=json.loads(os.environ['EZH_PREVIEW_ARGV'])
+os.execvp(argv[0],argv)`;
+
+// Enumerate only socket inodes held by this launched process group inside
+// the selected guest. Neither server output nor a URL selects a destination.
+const SERVER_PORTS = `import json,os
+pid,start=json.loads(os.environ['EZH_PREVIEW_PROCESS'])
+def identity():
+ with open('/proc/'+str(pid)+'/stat') as f: return f.read().rsplit(')',1)[1].split()[19]
+assert identity()==start and os.getpgid(pid)==pid
+entries=os.listdir('/proc'); assert len(entries)<=8192
+inodes=set()
+for name in entries:
+ if not name.isdecimal(): continue
+ try:
+  if os.getpgid(int(name))!=pid: continue
+  descriptors=os.listdir('/proc/'+name+'/fd'); assert len(descriptors)<=4096
+  for descriptor in descriptors:
+   try: link=os.readlink('/proc/'+name+'/fd/'+descriptor)
+   except FileNotFoundError: continue
+   if link.startswith('socket:['): inodes.add(link[8:-1])
+ except ProcessLookupError: continue
+ports=set()
+for path in ['/proc/net/tcp','/proc/net/tcp6']:
+ with open(path) as f:
+  rows=f.readlines(1024*1024); assert sum(map(len,rows))<1024*1024
+ for row in rows[1:]:
+  fields=row.split()
+  if fields[3]=='0A' and fields[9] in inodes:
+   port=int(fields[1].rsplit(':',1)[1],16)
+   if 1024<=port<=65535: ports.add(port)
+assert identity()==start and len(ports)<=16
+print(json.dumps(sorted(ports)))`;
 
 // The destination is fixed inside the guest. This script cannot use the
 // browser's Host header, a redirect target, or an arbitrary agent URL.
@@ -71,7 +112,7 @@ function boundedPath(requestPath: string, search: string): string {
 }
 
 type GuestAction = "process.start" | "process.inspect" | "process.readOutput" | "process.cancel";
-type GuestCall = (action: GuestAction, input: Record<string, unknown>) => Promise<unknown>;
+type GuestCall = (action: GuestAction, input: Record<string, unknown>, signal?: AbortSignal) => Promise<unknown>;
 
 async function guestPayload(request: SandboxPreviewServeRequest, now: number): Promise<string> {
   const port = positivePort(request.targetPort);
@@ -89,17 +130,21 @@ async function guestPayload(request: SandboxPreviewServeRequest, now: number): P
   return payload;
 }
 
-function guestCaller(caller: ProviderSandboxWorkspaceCaller, request: SandboxPreviewServeRequest): GuestCall {
+function guestCaller(caller: ProviderSandboxWorkspaceCaller, request: {
+  binding: Readonly<SandboxWorkspaceBinding>; userId: string; previewId: string;
+  request?: Request; signal?: AbortSignal;
+}): GuestCall {
   const requestId = `preview-${createHash("sha256").update(request.previewId).update(randomUUID()).digest("hex").slice(0, 48)}`;
   let sequence = 0;
-  return (action, input) => caller.call({ binding: request.binding, toolCallId: `${requestId}:${++sequence}`, action, payload: input,
+  return (action, input, signal) => caller.call({ binding: request.binding, toolCallId: `${requestId}:${++sequence}`, action, payload: input,
     principal: { userId: request.userId },
-    signal: action === "process.cancel" ? undefined : request.request.signal });
+    signal: signal ?? (action === "process.cancel" ? undefined : (request.request?.signal ?? request.signal)) });
 }
 
-async function startGuest(call: GuestCall, payload: string, now: number): Promise<{ processId: string; bootId: string }> {
-  const started = object(await call("process.start", { argv: ["python3", "-c", GUEST_HTTP], cwd: ".", user: "sandbox",
-    env: [{ name: "EZH_PREVIEW_REQUEST", value: payload }], processDeadlineMs: now + 12_000 }));
+async function startGuest(call: GuestCall, payload: string, now: number,
+  launch = { code: GUEST_HTTP, name: "EZH_PREVIEW_REQUEST", lifetime: 12_000 }): Promise<{ processId: string; bootId: string }> {
+  const started = object(await call("process.start", { argv: ["python3", "-c", launch.code], cwd: ".", user: "sandbox",
+    env: [{ name: launch.name, value: payload }], processDeadlineMs: now + launch.lifetime }));
   if (started.ok !== true || typeof started.processId !== "string" || typeof started.bootId !== "string") {
     throw new Error("Sandbox preview process did not start");
   }
@@ -122,7 +167,7 @@ async function awaitGuest(call: GuestCall, processId: string, bootId: string, si
   throw new Error("Sandbox preview process exceeded its deadline");
 }
 
-async function readGuestOutput(call: GuestCall, request: SandboxPreviewServeRequest,
+async function readGuestOutput(call: GuestCall, request: { binding: Readonly<SandboxWorkspaceBinding> },
                                processId: string, bootId: string): Promise<Buffer> {
   let cursor: Record<string, unknown> = { sandboxId: request.binding.workspaceId, processId, bootId, offsetBytes: 0 };
   const output: Buffer[] = [];
@@ -143,6 +188,54 @@ async function readGuestOutput(call: GuestCall, request: SandboxPreviewServeRequ
     if (page === 15) throw new Error("Sandbox preview output did not complete");
   }
   return Buffer.concat(output);
+}
+
+async function serverIdentity(call: GuestCall, processId: string, bootId: string,
+  binding: Readonly<SandboxWorkspaceBinding>, signal: AbortSignal): Promise<[number, string]> {
+  for (let attempt = 0; attempt < 24; attempt++) {
+    signal.throwIfAborted();
+    const value = object(await call("process.readOutput", { processId, bootId,
+      cursor: { sandboxId: binding.workspaceId, processId, bootId, offsetBytes: 0 }, maxBytes: 256 }));
+    if (value.ok !== true || value.gap || !Array.isArray(value.chunks)) throw new Error("Preview launch identity is unavailable");
+    const bytes = value.chunks.filter(raw => object(raw).stream === "stdout")
+      .map(raw => Buffer.from(String(object(raw).dataBase64), "base64"));
+    const line = Buffer.concat(bytes).toString("utf8").split("\n")[0]!;
+    const matched = /^EZH_PREVIEW_PROCESS ([1-9][0-9]{0,9}) ([0-9]{1,24})$/.exec(line);
+    if (matched) return [Number(matched[1]), matched[2]!];
+    if (value.eof === true) throw new Error("Preview server exited before discovery");
+    await Bun.sleep(100);
+  }
+  throw new Error("Preview launch identity exceeded its deadline");
+}
+
+async function cancelServerProcess(call: GuestCall, process: { processId: string; bootId: string }): Promise<void> {
+  const cleanup = AbortSignal.timeout(30_000);
+  if (object(await call("process.cancel", process, cleanup)).ok !== true) throw new Error("Preview process cancellation is unconfirmed");
+  for (let attempt = 0; attempt < 16; attempt++) {
+    cleanup.throwIfAborted();
+    const reply = object(await call("process.inspect", process, cleanup));
+    const state = object(reply.process).state;
+    if (["succeeded", "failed", "cancelled", "timed_out", "interrupted"].includes(String(state))) return;
+    await Bun.sleep(100);
+  }
+  throw new Error("Preview process cancellation is unconfirmed");
+}
+
+async function discoverServerPort(call: GuestCall, identity: [number, string],
+  request: SandboxPreviewServerRequest, signal: AbortSignal, now: () => number): Promise<number> {
+  for (let attempt = 0; attempt < 8; attempt++) {
+    signal.throwIfAborted();
+    const probe = await startGuest(call, JSON.stringify(identity), now(),
+      { code: SERVER_PORTS, name: "EZH_PREVIEW_PROCESS", lifetime: 5_000 });
+    try {
+      await awaitGuest(call, probe.processId, probe.bootId, signal);
+      const ports: unknown = JSON.parse((await readGuestOutput(call, request, probe.processId, probe.bootId)).toString("utf8"));
+      if (!Array.isArray(ports) || ports.length > 1) throw new Error("Preview server listener is ambiguous");
+      if (ports.length === 1) return positivePort(ports[0]);
+    } finally { await cancelServerProcess(call, probe); }
+    await Bun.sleep(250);
+  }
+  throw new Error("Preview server did not start listening");
 }
 
 function browserResponse(output: Buffer, method: string): Response {
@@ -166,6 +259,33 @@ function browserResponse(output: Buffer, method: string): Response {
 export class IncusSandboxPreviewBackend implements SandboxPreviewBackend {
   constructor(private readonly caller: ProviderSandboxWorkspaceCaller, private readonly now: () => number = Date.now,
     private readonly connectDuplex?: (request: SandboxPreviewConnectRequest) => Promise<SandboxPreviewSocket>) {}
+
+  async startServer(request: SandboxPreviewServerRequest): Promise<SandboxPreviewServer> {
+    if (!request.userId || !request.conversationId || !request.argv.length
+      || request.argv.length > 128 || request.argv.some(arg => !arg || arg.length > 8192 || arg.includes("\0"))) {
+      throw new Error("Sandbox preview launch is unavailable");
+    }
+    const signal = AbortSignal.any([AbortSignal.timeout(SERVER_READY_MS), ...(request.signal ? [request.signal] : [])]);
+    signal.throwIfAborted();
+    const call = guestCaller(this.caller, { ...request, previewId: `server-${randomUUID()}`, signal });
+    const launchedAt = this.now();
+    const started = await startGuest(call, JSON.stringify(request.argv), launchedAt,
+      { code: SERVER_LAUNCH, name: "EZH_PREVIEW_ARGV", lifetime: SERVER_LIFETIME_MS });
+    try {
+      const identity = await serverIdentity(call, started.processId, started.bootId, request.binding, signal);
+      const port = await discoverServerPort(call, identity, request, signal, this.now);
+      signal.throwIfAborted();
+      return { ...started, port, expiresAt: launchedAt + SERVER_LIFETIME_MS };
+    } catch (error) {
+      await cancelServerProcess(call, started);
+      throw error;
+    }
+  }
+
+  async stopServer(request: SandboxPreviewServerRequest & { server: SandboxPreviewServer }): Promise<void> {
+    const call = guestCaller(this.caller, { ...request, previewId: `server-stop-${randomUUID()}` });
+    await cancelServerProcess(call, { processId: request.server.processId, bootId: request.server.bootId });
+  }
 
   async open(request: Parameters<SandboxPreviewBackend["open"]>[0]): Promise<void> {
     positivePort(request.targetPort);

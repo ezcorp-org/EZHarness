@@ -21,6 +21,7 @@ export interface PreviewConsentCardData {
   port: number;
   title: string;
   summary: string;
+  openUrl?: string;
 }
 
 /** Extract a plain object from a tool-result `output` that may be a JSON
@@ -63,13 +64,22 @@ export function parseConsentCardResult(output: unknown): PreviewConsentCardData 
   const conversationId = typeof obj.conversationId === "string" ? obj.conversationId : "";
   const port = typeof obj.port === "number" ? obj.port : NaN;
   if (!conversationId || !Number.isInteger(port) || port <= 0) return null;
+  let openUrl: string | undefined;
+  if (obj.kind === "auto-exposed") {
+    if (typeof obj.openUrl !== "string") return null;
+    try {
+      const url = new URL(obj.openUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      openUrl = obj.openUrl;
+    } catch { return null; }
+  }
   const title = typeof obj.title === "string" && obj.title
     ? obj.title
     : `A site started on port ${port}`;
   const summary = typeof obj.summary === "string" && obj.summary
     ? obj.summary
     : "Expose it to your browser? Nothing is served until you choose.";
-  return { conversationId, port, title, summary };
+  return { conversationId, port, title, summary, ...(openUrl ? { openUrl } : {}) };
 }
 
 /** The consent actions the card posts to /api/preview/consent. */

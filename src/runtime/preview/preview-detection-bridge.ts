@@ -20,12 +20,12 @@
  *
  * Card render note (prior incident): a card without `cardType` won't render
  * (EzToolResultCard / ToolCardRouter). We set PREVIEW_CONSENT_CARD_TYPE so
- * the existing card pipeline picks it up. Dedup-by-id is the streaming
- * tool-call path's concern; this is a one-shot `tool:complete`, not a
- * `tool:start`, so it renders once.
+ * the existing card pipeline picks it up. A stable invocation id links the start and completion so the existing
+ * inline store can render the card after a chat run has ended.
  */
 
 import type { EventBus } from "../events";
+import { randomUUID } from "node:crypto";
 import type { AgentEvents } from "../../types";
 import { logger } from "../../logger";
 import {
@@ -81,17 +81,26 @@ export function emitDetectionDecision(
   let output: unknown;
   if (decision.kind === "auto-exposed") {
     const url = buildPreviewOpenUrl(decision.subdomainLabel, decision.code, opts.appHost, opts.secure);
+    if (!url) return null;
     output = {
       kind: "auto-exposed",
+      conversationId: event.conversationId,
       previewId: decision.previewId,
       port: decision.port,
-      url, // null when no app host is configured (preview origin disabled)
+      url,
+      openUrl: url,
     };
   } else {
     // consent-card
-    output = { kind: "consent-card", port: decision.port, card: decision.card };
+    output = { kind: "consent-card", ...decision.card };
   }
 
+  const invocationId = `preview-${randomUUID()}`;
+  bus.emit("tool:start", {
+    conversationId: event.conversationId, extensionId: PREVIEW_HOST_EXTENSION_ID,
+    toolName: "preview_detected", input: { port: event.port }, timestamp: Date.now(),
+    source: "inline", invocationId, cardType: PREVIEW_CONSENT_CARD_TYPE,
+  });
   const payload: AgentEvents["tool:complete"] = {
     conversationId: event.conversationId,
     extensionId: PREVIEW_HOST_EXTENSION_ID,
@@ -100,6 +109,7 @@ export function emitDetectionDecision(
     duration: 0,
     success: true,
     source: "inline",
+    invocationId,
     cardType: PREVIEW_CONSENT_CARD_TYPE,
   };
   bus.emit("tool:complete", payload);
@@ -131,7 +141,7 @@ export async function onPreviewDetected(
     secure?: () => boolean;
     decide?: (e: PreviewDetectedEvent) => Promise<DetectionDecision>;
   },
-): Promise<void> {
+): Promise<boolean> {
   const decide = deps.decide ?? decideOnDetection;
   let decision: DetectionDecision;
   try {
@@ -141,7 +151,7 @@ export async function onPreviewDetected(
       conversationId: event.conversationId,
       error: String((err as Error)?.message ?? err),
     });
-    return;
+    return false;
   }
 
   const bus = deps.getBus();
@@ -150,10 +160,10 @@ export async function onPreviewDetected(
       conversationId: event.conversationId,
       decision: decision.kind,
     });
-    return;
+    return false;
   }
-  emitDetectionDecision(bus, decision, event, {
+  return emitDetectionDecision(bus, decision, event, {
     appHost: deps.appHost(),
     secure: deps.secure?.() ?? false,
-  });
+  }) !== null;
 }

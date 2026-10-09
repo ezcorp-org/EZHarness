@@ -1,4 +1,9 @@
 import { stringifyToolOutput } from './tool-output.js';
+import { parseConsentCardResult } from './components/tool-cards/preview-consent-card-logic.js';
+
+const PREVIEW_EXTENSION = 'ezcorp-preview';
+const PREVIEW_CARD = 'ez-preview-consent';
+const PREVIEW_TOOL = 'preview_detected';
 
 export interface InlineToolCall {
   id: string;              // client-generated invocationId
@@ -50,6 +55,14 @@ class InlineToolStore {
     if (idx < 0) return;
 
     const call = this.calls[idx]!;
+    if (data.cardType === PREVIEW_CARD || call.extensionName === PREVIEW_EXTENSION) {
+      if (call.extensionName !== PREVIEW_EXTENSION || call.toolName !== PREVIEW_TOOL
+        || call.cardType !== PREVIEW_CARD || call.source !== 'inline') return;
+      if (eventType === 'tool:complete') {
+        const output = parseConsentCardResult(data.output);
+        if (!output || output.conversationId !== call.conversationId || output.port !== call.input.port) return;
+      }
+    }
     const updated = [...this.calls];
 
     switch (eventType) {
@@ -222,3 +235,21 @@ class InlineToolStore {
 }
 
 export const inlineToolStore = new InlineToolStore();
+
+/** Seed only host preview notifications; the ordinary subscriber then applies
+ * start/complete updates, including after a chat run has ended. */
+export function receivePreviewToolStart(event: { type: string; data: unknown }): void {
+  if (event.type !== 'tool:start' || !event.data || typeof event.data !== 'object') return;
+  const data = event.data as Record<string, unknown>;
+  if (data.toolName !== PREVIEW_TOOL || data.cardType !== PREVIEW_CARD
+    || data.extensionId !== PREVIEW_EXTENSION || data.source !== 'inline'
+    || typeof data.invocationId !== 'string' || !/^preview-[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/.test(data.invocationId)
+    || typeof data.conversationId !== 'string' || !data.conversationId) return;
+  const port = (data.input as { port?: unknown } | undefined)?.port;
+  if (typeof port !== 'number' || !Number.isInteger(port) || port < 1024 || port > 65535) return;
+  // A server notification cannot replace another invocation.
+  if (inlineToolStore.getById(data.invocationId)) return;
+  inlineToolStore.add({ id: data.invocationId, conversationId: data.conversationId,
+    extensionName: PREVIEW_EXTENSION, toolName: PREVIEW_TOOL, input: { port },
+    source: 'inline', cardType: PREVIEW_CARD });
+}

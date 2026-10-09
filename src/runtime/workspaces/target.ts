@@ -111,6 +111,22 @@ export interface SandboxPreviewSocket {
   close(): Promise<void>;
 }
 
+export interface SandboxPreviewServerRequest {
+  binding: Readonly<SandboxWorkspaceBinding>;
+  userId: string;
+  conversationId: string;
+  /** Selected by the host's conservative dev-command detector. */
+  argv: readonly string[];
+  signal?: AbortSignal;
+}
+
+export interface SandboxPreviewServer {
+  processId: string;
+  bootId: string;
+  port: number;
+  expiresAt: number;
+}
+
 /** Provider capability for an authenticated preview relay. The provider must
  * keep the registered port and binding pinned for the complete request. */
 export interface SandboxPreviewBackend {
@@ -118,6 +134,9 @@ export interface SandboxPreviewBackend {
   serve(request: SandboxPreviewServeRequest): Promise<Response>;
   close(request: SandboxPreviewCloseRequest): Promise<void>;
   connectWebSocket?(request: SandboxPreviewConnectRequest): Promise<SandboxPreviewSocket>;
+  /** Optional guest-only dev-server launch. No local fallback is allowed. */
+  startServer?(request: SandboxPreviewServerRequest): Promise<SandboxPreviewServer>;
+  stopServer?(request: SandboxPreviewServerRequest & { server: SandboxPreviewServer }): Promise<void>;
 }
 
 export interface SandboxWorkspacePrincipal { userId: string }

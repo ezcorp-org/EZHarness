@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import type { ProviderSandboxWorkspaceCaller } from "../runtime/workspaces/provider-backend";
 import type { SandboxPreviewConnectRequest, SandboxPreviewServeRequest, SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
@@ -137,4 +137,74 @@ test("fixed guest script makes one real loopback request and does not follow a r
     expect(response.headers.get("location")).toBe("https://outside.example/");
     expect(requests).toBe(1);
   } finally { server.stop(true); }
+});
+
+function serverHarness(options: { identity?: string; identityEof?: boolean; ports?: unknown; gap?: boolean;
+  emptyIdentity?: boolean; failedProbe?: boolean; cancelDenied?: boolean; cancellationNeverSettles?: boolean; lateIdentity?: boolean } = {}) {
+  const calls: Array<Parameters<ProviderSandboxWorkspaceCaller["call"]>[0]> = [];
+  let sequence = 0;
+  let identityReads = 0;
+  const caller: ProviderSandboxWorkspaceCaller = { call: async input => {
+    calls.push(input);
+    expect(input.binding).toBe(binding);
+    expect(input.principal).toEqual({ userId: "user-a" });
+    if (input.action === "process.start") return { ok: true, processId: ++sequence === 1 ? "server" : `probe-${sequence}`, bootId: "boot-a" };
+    if (input.action === "process.cancel") return { ok: !options.cancelDenied };
+    if (input.action === "process.inspect") return { ok: true, process: { state: options.cancellationNeverSettles ? "running" : options.failedProbe ? "failed" : "succeeded" } };
+    const identity = options.identity ?? "EZH_PREVIEW_PROCESS 1234 5678\n";
+    const output = input.payload.processId === "server" ? options.emptyIdentity || (options.lateIdentity && identityReads++ === 0) ? "" : identity : JSON.stringify(options.ports ?? [5173]);
+    return { ok: true, gap: options.gap, eof: input.payload.processId !== "server" || options.identityEof,
+      chunks: [{ stream: "stdout", dataBase64: Buffer.from(output).toString("base64") }] };
+  } };
+  return { calls, backend: new IncusSandboxPreviewBackend(caller, () => 1000), request: {
+    binding, userId: "user-a", conversationId: "conversation-a", argv: ["/bin/sh", "-c", "PORT=5173 bun run dev"],
+  } };
+}
+
+test("durable preview launch preserves guest argv, pins kernel listener identity, and independently reaps its probe and server", async () => {
+  const { backend, calls, request } = serverHarness({ lateIdentity: true });
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
+  try {
+    const server = await backend.startServer(request);
+    expect(server).toEqual({ processId: "server", bootId: "boot-a", port: 5173, expiresAt: 901000 });
+    expect(calls[0]!.payload).toMatchObject({ processDeadlineMs: 901000, env: [{ name: "EZH_PREVIEW_ARGV", value: JSON.stringify(request.argv) }] });
+    const probe = calls.find(call => call.action === "process.start" && call.payload.processDeadlineMs === 6000)!;
+    expect(probe.payload).toMatchObject({ env: [{ name: "EZH_PREVIEW_PROCESS", value: "[1234,\"5678\"]" }] });
+    expect(String((probe.payload.argv as string[])[2])).toContain("os.getpgid");
+    await backend.stopServer({ ...request, signal: AbortSignal.abort(), server });
+    const cleanup = calls.filter(call => call.action === "process.cancel");
+    expect(cleanup.map(call => call.payload.processId)).toEqual(["probe-2", "server"]);
+    expect(cleanup.every(call => call.signal && !call.signal.aborted)).toBe(true);
+  } finally { sleep.mockRestore(); }
+});
+
+test("preview launch rejects invalid requests before any guest dispatch", async () => {
+  const { backend, request, calls } = serverHarness();
+  for (const patch of [{ userId: "" }, { conversationId: "" }, { argv: [] }, { argv: ["x\0"] }, { argv: ["x".repeat(8193)] }, { argv: Array(129).fill("x") }, { signal: AbortSignal.abort() }]) {
+    await expect(backend.startServer({ ...request, ...patch })).rejects.toThrow();
+  }
+  expect(calls).toHaveLength(0);
+});
+
+test("preview discovery refuses missing, malformed, ambiguous, unsafe, or incomplete listener evidence and cancels owned effects", async () => {
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
+  try {
+    for (const options of [{ identity: "http://unrelated:5173", identityEof: true }, { emptyIdentity: true }, { gap: true },
+      { ports: [3000, 5173] }, { ports: [80] }, { ports: { port: 5173 } }, { ports: [] }, { failedProbe: true }]) {
+      const { backend, request, calls } = serverHarness(options);
+      await expect(backend.startServer(request)).rejects.toThrow();
+      expect(calls.filter(call => call.action === "process.cancel").at(-1)?.payload.processId).toBe("server");
+      expect(calls.at(-1)?.action).toBe("process.inspect");
+    }
+  } finally { sleep.mockRestore(); }
+});
+
+test("preview cancellation reports unconfirmed cleanup rather than claiming the process ended", async () => {
+  const sleep = spyOn(Bun, "sleep").mockResolvedValue(undefined);
+  try {
+    for (const options of [{ cancelDenied: true }, { cancellationNeverSettles: true }]) {
+      const { backend, request } = serverHarness(options);
+      await expect(backend.stopServer({ ...request, server: { processId: "server", bootId: "boot-a", port: 5173, expiresAt: 901000 } })).rejects.toThrow("unconfirmed");
+    }
+  } finally { sleep.mockRestore(); }
 });
