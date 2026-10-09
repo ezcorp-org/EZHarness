@@ -1,11 +1,12 @@
 import { expect, test } from "bun:test";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ReverseRpc, Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import type { FactoryRunnerAuthority, JsonValue, RunnerReference } from "@ezcorp/factory-sdk";
 import type { FactoryMaterialScope, FactoryScopedArtifactReader } from "../artifact-materials";
+import { completedReferenceDataResult, referenceDataGuestWrite } from "../../__tests__/helpers/factory-reference-data-guest-double";
 import { ReferenceDataGuestDirectory } from "./materials";
 import { dispatchReferenceDataAttempt, ReferenceDataPackError, REFERENCE_DATA_STEPS, type ReferenceDataJourneyOptions } from "./pack";
 
@@ -49,10 +50,6 @@ const materials = {
   },
 } as unknown as ReferenceDataJourneyOptions["materials"];
 
-function digestOf(bytes: Uint8Array): string {
-  return `sha256:${new Bun.CryptoHasher("sha256").update(bytes).digest("hex")}`;
-}
-
 /** A guest double. `answer` decides what the framed invoke returns. */
 function host(answer: (request: unknown) => unknown, options: { reverse?: boolean } = {}) {
   const starts: StartRequest[] = [];
@@ -80,29 +77,6 @@ function optionsFor(runner: Pick<Runner, "start">, workRoot: string): ReferenceD
   return { host: { runner, artifactDigest: "f".repeat(64), reference: REFERENCE }, materials, reader, scope: SCOPE, authority: AUTHORITY, workRoot };
 }
 
-function completed(report: Uint8Array): JsonValue {
-  return {
-    schemaVersion: "factory.runner.result.v1",
-    status: "completed",
-    journalCursor: -1,
-    operations: [],
-    resultDigest: digestOf(report).slice("sha256:".length),
-    output: { artifactId: "report.json", digest: digestOf(report), encodedBytes: report.byteLength },
-    usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 1, costMicros: "0" },
-    workspaceCheckpoint: { artifactId: "report.json.checkpoint", digest: digestOf(report), encodedBytes: report.byteLength, journalCursor: -1 },
-  } as unknown as JsonValue;
-}
-
-/**
- * Writes a file the way a GUEST would: straight into the flat material
- * directory, not through `stage`, which records a name as this host's input and
- * therefore excludes it from `produced()`.
- */
-async function guestWrote(directory: ReferenceDataGuestDirectory, name: string, bytes: Uint8Array): Promise<void> {
-  await writeFile(join(directory.root, name), bytes);
-  await chmod(join(directory.root, name), 0o644);
-}
-
 async function withDirectory<Result>(run: (directory: ReferenceDataGuestDirectory, workRoot: string) => Promise<Result>): Promise<Result> {
   const workRoot = await mkdtemp(join(tmpdir(), "refdata-pack-"));
   const directory = await ReferenceDataGuestDirectory.create(workRoot);
@@ -119,8 +93,8 @@ const command = (report: string) => ({ kind: "snapshotCsv", input: "in/source.cs
 test("a completed attempt carries its own material directory and returns the report the guest wrote", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode(JSON.stringify({ digest: `sha256:${"1".repeat(64)}`, totalBytes: 7 }));
-    await guestWrote(directory, "report.json", report);
-    const world = host(() => completed(report));
+    await referenceDataGuestWrite(directory.root, "report.json", report);
+    const world = host(() => completedReferenceDataResult(report));
     const attempt = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory);
     expect(attempt.export).toBe("snapshotCsv");
     expect(attempt.nodeInstanceId).toBe("node-a");
@@ -136,7 +110,7 @@ test("a completed attempt carries its own material directory and returns the rep
 
 test("a request the shared contract would not admit never reaches a guest", async () => {
   await withDirectory(async (directory, workRoot) => {
-    const world = host(() => completed(new Uint8Array([1])));
+    const world = host(() => completedReferenceDataResult(new Uint8Array([1])));
     const options = { ...optionsFor(world.runner, workRoot), authority: { ...AUTHORITY, nextOperationIndex: 5 } };
     await expect(dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_request_invalid" });
     expect(world.starts).toEqual([]);
@@ -167,12 +141,12 @@ test("an attempt that did not complete carries the guest's own reason", async ()
 test("a report the guest did not write, or wrote differently than it said, is refused", async () => {
   await withDirectory(async (directory, workRoot) => {
     const claimed = new TextEncoder().encode(JSON.stringify({ a: 1 }));
-    const absent = host(() => completed(claimed));
+    const absent = host(() => completedReferenceDataResult(claimed));
     await expect(dispatchReferenceDataAttempt(optionsFor(absent.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
 
     // Different bytes than the guest reported.
-    await guestWrote(directory, "report.json", new TextEncoder().encode(JSON.stringify({ a: 2 })));
-    const lying = host(() => completed(claimed));
+    await referenceDataGuestWrite(directory.root, "report.json", new TextEncoder().encode(JSON.stringify({ a: 2 })));
+    const lying = host(() => completedReferenceDataResult(claimed));
     await expect(dispatchReferenceDataAttempt(optionsFor(lying.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_guest_disagrees" });
   });
 });
@@ -181,8 +155,8 @@ test("a report that is not readable JSON, or not an object, is refused", async (
   for (const payload of ["{not json", "[1,2,3]", "\"text\""]) {
     await withDirectory(async (directory, workRoot) => {
       const bytes = new TextEncoder().encode(payload);
-      await guestWrote(directory, "report.json", bytes);
-      const world = host(() => completed(bytes));
+      await referenceDataGuestWrite(directory.root, "report.json", bytes);
+      const world = host(() => completedReferenceDataResult(bytes));
       await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_report_invalid" });
     });
   }
@@ -190,7 +164,7 @@ test("a report that is not readable JSON, or not an object, is refused", async (
 
 test("a guest that asks for a reverse capability it does not have is refused", async () => {
   await withDirectory(async (directory, workRoot) => {
-    const world = host(() => completed(new Uint8Array([1])), { reverse: true });
+    const world = host(() => completedReferenceDataResult(new Uint8Array([1])), { reverse: true });
     await expect(dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "node-a", command("report.json"), directory)).rejects.toMatchObject({ code: "reference_data_unexpected_output" });
   });
 });
@@ -198,8 +172,8 @@ test("a guest that asks for a reverse capability it does not have is refused", a
 test("the node instance of every step is deterministic, so two runs name the same nodes", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode("{}");
-    await guestWrote(directory, "report.json", report);
-    const world = host(() => completed(report));
+    await referenceDataGuestWrite(directory.root, "report.json", report);
+    const world = host(() => completedReferenceDataResult(report));
     const first = await dispatchReferenceDataAttempt(optionsFor(world.runner, workRoot), "snapshotCsv", "reference-data:snapshotCsv", command("report.json"), directory);
     expect(first.nodeInstanceId).toBe("reference-data:snapshotCsv");
     expect(first.requestDigest).toMatch(/^sha256:/);
@@ -232,18 +206,18 @@ test("a runner that refuses to start surfaces its own refusal rather than a repo
 test("the invocation deadline never outlives the attempt's own authority", async () => {
   await withDirectory(async (directory, workRoot) => {
     const report = new TextEncoder().encode("{}");
-    await guestWrote(directory, "report.json", report);
+    await referenceDataGuestWrite(directory.root, "report.json", report);
     const near = Date.now() + 5_000;
-    const world = host(() => completed(report));
+    const world = host(() => completedReferenceDataResult(report));
     const options = { ...optionsFor(world.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: near } };
     await dispatchReferenceDataAttempt(options, "snapshotCsv", "node-a", command("report.json"), directory);
     // The guest is never given longer than the attempt itself holds.
     expect(world.starts[0]?.context.deadline).toBeLessThanOrEqual(near);
-    const far = host(() => completed(report));
+    const far = host(() => completedReferenceDataResult(report));
     const generous = { ...optionsFor(far.runner, workRoot), authority: { ...AUTHORITY, deadlineAtMs: Date.now() + 86_400_000 } };
     const directory2 = await ReferenceDataGuestDirectory.create(workRoot);
     try {
-      await guestWrote(directory2, "report.json", report);
+      await referenceDataGuestWrite(directory2.root, "report.json", report);
       await dispatchReferenceDataAttempt(generous, "snapshotCsv", "node-a", command("report.json"), directory2);
       // And never longer than one execution's own ceiling either.
       expect(far.starts[0]?.context.deadline).toBeLessThan(Date.now() + 86_400_000);

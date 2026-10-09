@@ -3,10 +3,9 @@ import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { sql } from "drizzle-orm";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { buildLimits, filesDigest, PythonPodmanRunner } from "@ezcorp/extension-runner";
-import type { FactoryRunnerAuthority, RunnerReference } from "@ezcorp/factory-sdk";
+import type { RunnerReference } from "@ezcorp/factory-sdk";
 import { DeleteObjectCommand, GetObjectCommand } from "@aws-sdk/client-s3";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import type { S3ClientLike } from "../../factory/release-adapters";
@@ -14,12 +13,9 @@ import { factoryS3PublicationDirectory, S3FactoryManifestReleaseProvider, type F
 import { S3FactoryManifestReleaseProfile } from "../../factory/release-s3-scope";
 import type { FactoryReleaseClaim } from "../../factory/releases";
 import type { TransactionalDb } from "../../db/migrations/types";
-import { FileBlobStore } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
-import { FactoryArtifacts } from "../../factory/artifacts";
-import { FACTORY_MATERIAL_LIMITS, FactoryAttemptMaterials, FactoryScopedMaterials, type FactoryMaterialScope } from "../../factory/artifact-materials";
-import { EncryptedBlobStore, InstallationDataKey, StaticMasterKeyProvider, type InstallationKeyWrap, type InstallationKeyWrapStore } from "../../factory/encryption";
-import { FactoryExecutionJournal, type FactoryAttemptAuthority } from "../../factory/executions";
+import { FACTORY_MATERIAL_LIMITS, type FactoryScopedMaterials, type FactoryMaterialScope } from "../../factory/artifact-materials";
+import { REFERENCE_DATA_GOLDEN_CSV as GOLDEN_CSV, REFERENCE_DATA_TENANT as TENANT, referenceDataMaterialsWorld } from "./factory-reference-data-world";
 import { REFERENCE_DATA_HEADER, REFERENCE_DATA_LIMITS } from "../../factory/reference-data/csv";
 import {
   FACTORY_REFERENCE_DATA_ENTRYPOINT,
@@ -119,9 +115,7 @@ export async function* referenceDataBoundaryInput(totalBytes: number): AsyncGene
   if (blocks.length > 0) yield encoder.encode(blocks.join(""));
 }
 
-const TENANT = "reference-data-tenant";
 const MEASURED_AT = 1_700_000_000_000;
-export const GOLDEN_CSV = `${REFERENCE_DATA_HEADER}\na,alpha,100\nb,beta,250\nc,alpha,50\n`;
 
 function reference(digest: string): RunnerReference {
   return factoryReferenceDataRunner(`sha256:${digest}`);
@@ -178,41 +172,10 @@ async function fresh(): Promise<FactoryReferenceDataFixture> {
 }
 
 async function world(fixture: FactoryReferenceDataFixture, overrides: { artifactDigest?: string } = {}) {
-  const db = fixture.db;
-  const projectId = `refdata-project-${randomUUID()}`;
-  const runId = `refdata-run-${randomUUID()}`;
-  const attemptId = `refdata-attempt-${randomUUID()}`;
-  await db.execute(sql`INSERT INTO projects(id, name, path) VALUES (${projectId}, 'Reference data', ${`/tmp/${projectId}`})`);
-  await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, ${TENANT}, 6) ON CONFLICT (singleton) DO UPDATE SET tenant_id=EXCLUDED.tenant_id, execution_epoch=EXCLUDED.execution_epoch`);
-  await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES (${TENANT}, ${projectId})`);
-  await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${TENANT}, ${projectId}, ${runId}, ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
-  const authority: FactoryAttemptAuthority = {
-    attemptId, tenantId: TENANT, projectId, runId, nodeInstanceId: "reference-data", candidateGeneration: 0, attemptNumber: 1,
-    grantRevision: 1, reservationGeneration: 1, executionEpoch: 6, cancellationEpoch: 0, requestDigest: "a".repeat(64),
-    deadlineAt: new Date(Date.now() + 3_600_000),
-  };
-  await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status)
-    VALUES (${authority.attemptId},${authority.tenantId},${authority.projectId},${authority.runId},${authority.nodeInstanceId},${authority.candidateGeneration},${authority.attemptNumber},${authority.grantRevision},${authority.reservationGeneration},${authority.executionEpoch},${authority.cancellationEpoch},${authority.deadlineAt},${authority.requestDigest},'{}'::jsonb,'admitted')`);
-  const root = await mkdtemp(join(tmpdir(), "refdata-blobs-"));
-  directories.push(root);
-  const wraps: InstallationKeyWrap[] = [];
-  const store: InstallationKeyWrapStore = { async load() { return wraps; }, async save(value) { wraps.push(value); } };
-  const key = await InstallationDataKey.loadOrCreate("refdata-installation", store, new StaticMasterKeyProvider({ id: "operator", bytes: new Uint8Array(32).fill(5) }));
-  const blobs = new EncryptedBlobStore(fixture.blobs ?? new FileBlobStore(root), key, TENANT);
-  const artifacts = new FactoryArtifacts(db, blobs, TENANT);
-  const journal = new FactoryExecutionJournal(db, async () => {}, () => new Date());
-  const materials = new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority });
-  const reader = new FactoryScopedMaterials({ database: db, artifacts, blobs });
-  const scope: FactoryMaterialScope = { tenantId: TENANT, projectId, runId, attemptId, operationId: `${runId}:reference-data:0:0` };
-  const runnerAuthority: Omit<FactoryRunnerAuthority, "nodeInstanceId"> = {
-    attemptId, tenantId: TENANT, projectId, runId, candidateGeneration: 0, attemptNumber: 1, grantRevision: 1,
-    reservationGeneration: 1, executionEpoch: 6, cancellationEpoch: 0, deadlineAtMs: Date.now() + 3_600_000, nextOperationIndex: 0,
-  };
-  const workRoot = await mkdtemp(join(tmpdir(), "refdata-work-"));
-  directories.push(workRoot);
+  const { db, materials, reader, scope, authority, workRoot } = await referenceDataMaterialsWorld(fixture, directory => directories.push(directory));
   const options: ReferenceDataJourneyOptions = {
     host: { runner, artifactDigest: overrides.artifactDigest ?? artifactDigest, reference: reference("b".repeat(64)) },
-    materials, reader, scope, authority: runnerAuthority, workRoot,
+    materials, reader, scope, authority, workRoot,
   };
   return { db, options, materials, reader, scope, fixture };
 }

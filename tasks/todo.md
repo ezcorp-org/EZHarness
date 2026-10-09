@@ -5969,3 +5969,11 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 Review: the producers were correct; the gate's merged download dropped their files. A unique file name per producer fixes it
 without changing the gate. The fix also uncovers 4 real coverage gaps the collision was hiding, so the hosted gate stays red
 until another package closes them. Receipts: /tmp/factory-platform-evidence/w4h-15/report.txt (written once, at the end).
+## W4H-16 — hosted per-file coverage for pack.ts, materials.ts, publication.ts and uv-command.ts (branch `wp/w4h-16-hosted-coverage-gaps` from integ/w00 8ea96b0ed; gates `tasks/factory/w4h-16-GATES.md`)
+
+- [x] R1 reproduce the hosted gate's four failures from run 37743486763's artifacts and name the missed lines per file (G1).
+- [x] R2 unit suites a hosted shard runs, with no image, no network and no real tool: pack-journey, publication, and the uv default probe (G2-G4). Two defects found red first and fixed at the root; the coordinator's ruling accepted the scope widening.
+- [x] R3 the hosted check-coverage over the run's artifacts plus this branch's lcov passes; thresholds unchanged (G5).
+- [x] Legs: hook-mapped suites with lcov, new-file and patch against integ, CRAP, lint, boundaries, lanes, prune, gate-integrity on both legs, typecheck, guard set and the real reference-data producer under the lock (G6-G11).
+
+Review: the four files had no hosted producer. The image-bound journey was the only path into them, and hosted shards have uv on PATH. A guest double over the real W04 materials now drives the host side of the journey in every hosted coverage shard. A stand-in nix-shell drives the default probe. Writing those tests exposed two defects. First, an attempt directory leaked on any refusal raised after the attempt returned. Second, the probe re-resolved the bare tool name. Both are fixed. Lesson pending: w4h-16/pending-lesson.md.

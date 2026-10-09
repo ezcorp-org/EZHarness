@@ -323,92 +323,80 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
   const measured = await measureStream(input());
   const sealedInput = await sealReferenceDataMaterial(options.materials, { ...scopeFor(options, "source"), objectName: REFERENCE_DATA_INPUT_OBJECT, version: 1 }, REFERENCE_DATA_CSV_MEDIA_TYPE, measured.totalBytes, input());
 
-  const snapshotAttempt = await withDirectory(options, async directory => {
+  const snapshot = await withDirectory(options, async directory => {
     await directory.stage(ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT), readReferenceDataMaterial(options.reader, options.scope, sealedInput));
-    return {
-      directory,
-      attempt: await dispatchReferenceDataAttempt(options, "snapshotCsv", nodeInstance("snapshotCsv"), {
-        kind: "snapshotCsv",
-        input: ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT),
-        sourceVersion,
-        report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_SNAPSHOT_OBJECT),
-      }, directory),
-    };
+    const attempt = await dispatchReferenceDataAttempt(options, "snapshotCsv", nodeInstance("snapshotCsv"), {
+      kind: "snapshotCsv",
+      input: ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT),
+      sourceVersion,
+      report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_SNAPSHOT_OBJECT),
+    }, directory);
+    attempts.push(attempt);
+    // The guest hashed the bytes it was actually given. A disagreement with the
+    // sealed material means the two are not the same bytes, which is the one
+    // thing a snapshot exists to rule out.
+    if (attempt.report.digest !== sealedInput.digest || attempt.report.totalBytes !== sealedInput.totalBytes) {
+      throw new ReferenceDataPackError("reference_data_guest_disagrees", `The snapshot guest measured ${String(attempt.report.digest)} and the sealed input is ${sealedInput.digest}.`);
+    }
+    return sealReferenceDataMaterial(
+      options.materials,
+      { ...scopeFor(options, "source"), objectName: REFERENCE_DATA_SNAPSHOT_OBJECT, version: 1 },
+      REFERENCE_DATA_JSON_MEDIA_TYPE,
+      attempt.result.status === "completed" ? attempt.result.output.encodedBytes : 0,
+      directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_SNAPSHOT_OBJECT)),
+    );
   });
-  attempts.push(snapshotAttempt.attempt);
-  // The guest hashed the bytes it was actually given. A disagreement with the
-  // sealed material means the two are not the same bytes, which is the one
-  // thing a snapshot exists to rule out.
-  if (snapshotAttempt.attempt.report.digest !== sealedInput.digest || snapshotAttempt.attempt.report.totalBytes !== sealedInput.totalBytes) {
-    throw new ReferenceDataPackError("reference_data_guest_disagrees", `The snapshot guest measured ${String(snapshotAttempt.attempt.report.digest)} and the sealed input is ${sealedInput.digest}.`);
-  }
-  const snapshot = await sealReferenceDataMaterial(
-    options.materials,
-    { ...scopeFor(options, "source"), objectName: REFERENCE_DATA_SNAPSHOT_OBJECT, version: 1 },
-    REFERENCE_DATA_JSON_MEDIA_TYPE,
-    snapshotAttempt.attempt.result.status === "completed" ? snapshotAttempt.attempt.result.output.encodedBytes : 0,
-    snapshotAttempt.directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_SNAPSHOT_OBJECT)),
-  );
-  await snapshotAttempt.directory.dispose();
 
-  const parse = await withDirectory(options, async directory => {
-    await directory.stage(ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT), readReferenceDataMaterial(options.reader, options.scope, sealedInput));
-    return {
-      directory,
-      attempt: await dispatchReferenceDataAttempt(options, "parseCsv", nodeInstance("parseCsv"), {
-        kind: "parseCsv",
-        input: ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT),
-        // The material directory is flat, so a partition's name IS its path.
-        outputPrefix: "",
-        snapshotDigest: sealedInput.digest,
-        report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_PARTITIONS_OBJECT),
-      }, directory),
-    };
-  });
-  attempts.push(parse.attempt);
-  const declared = parse.attempt.report.partitions;
-  if (!Array.isArray(declared) || declared.length === 0 || declared.length > REFERENCE_DATA_LIMITS.maxPartitions) {
-    throw new ReferenceDataPackError("reference_data_report_invalid", `The parse step declared ${Array.isArray(declared) ? declared.length : 0} partition(s).`);
-  }
   const partitionMaterials: ReferenceDataMaterial[] = [];
   const declaredRows: number[] = [];
-  for (const [index, entry] of declared.entries()) {
-    const partition = entry as Record<string, JsonValue>;
-    if (partition.index !== index || typeof partition.rowCount !== "number" || typeof partition.name !== "string" || typeof partition.digest !== "string" || typeof partition.encodedBytes !== "number") {
-      throw new ReferenceDataPackError("reference_data_report_invalid", `Partition ${index} is not the declared shape.`);
+  await withDirectory(options, async directory => {
+    await directory.stage(ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT), readReferenceDataMaterial(options.reader, options.scope, sealedInput));
+    const attempt = await dispatchReferenceDataAttempt(options, "parseCsv", nodeInstance("parseCsv"), {
+      kind: "parseCsv",
+      input: ReferenceDataGuestDirectory.input(REFERENCE_DATA_INPUT_OBJECT),
+      // The material directory is flat, so a partition's name IS its path.
+      outputPrefix: "",
+      snapshotDigest: sealedInput.digest,
+      report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_PARTITIONS_OBJECT),
+    }, directory);
+    attempts.push(attempt);
+    const declared = attempt.report.partitions;
+    if (!Array.isArray(declared) || declared.length === 0 || declared.length > REFERENCE_DATA_LIMITS.maxPartitions) {
+      throw new ReferenceDataPackError("reference_data_report_invalid", `The parse step declared ${Array.isArray(declared) ? declared.length : 0} partition(s).`);
     }
-    declaredRows.push(partition.rowCount);
-    partitionMaterials.push(
-      await sealProduced(options, parse.directory, parse.attempt, partition.name, `partition-${String(index).padStart(5, "0")}.csv`, REFERENCE_DATA_CSV_MEDIA_TYPE, "partitions", {
-        digest: partition.digest,
-        encodedBytes: partition.encodedBytes,
-      }),
-    );
-  }
-  await parse.directory.dispose();
+    for (const [index, entry] of declared.entries()) {
+      const partition = entry as Record<string, JsonValue>;
+      if (partition.index !== index || typeof partition.rowCount !== "number" || typeof partition.name !== "string" || typeof partition.digest !== "string" || typeof partition.encodedBytes !== "number") {
+        throw new ReferenceDataPackError("reference_data_report_invalid", `Partition ${index} is not the declared shape.`);
+      }
+      declaredRows.push(partition.rowCount);
+      partitionMaterials.push(
+        await sealProduced(options, directory, attempt, partition.name, `partition-${String(index).padStart(5, "0")}.csv`, REFERENCE_DATA_CSV_MEDIA_TYPE, "partitions", {
+          digest: partition.digest,
+          encodedBytes: partition.encodedBytes,
+        }),
+      );
+    }
+  });
 
   const partitions: ReferenceDataPartitionRecord[] = [];
   for (const [index, partitionMaterial] of partitionMaterials.entries()) {
     const staged = ReferenceDataGuestDirectory.input(`partition-${String(index).padStart(5, "0")}.csv`);
-    const transform = await withDirectory(options, async directory => {
+    partitions.push(await withDirectory(options, async directory => {
       await directory.stage(staged, readReferenceDataMaterial(options.reader, options.scope, partitionMaterial));
-      return {
-        directory,
-        attempt: await dispatchReferenceDataAttempt(options, "transformPartition", nodeInstance("transformPartition", index), {
-          kind: "transformPartition",
-          input: staged,
-          output: ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)),
-          partitionIndex: index,
-          firstRowIndex: declaredRows.slice(0, index).reduce((sum, count) => sum + count, 0),
-          partitionDigest: partitionMaterial.digest,
-          report: ReferenceDataGuestDirectory.output(`part-${String(index).padStart(5, "0")}.summary.json`),
-        }, directory),
-      };
-    });
-    attempts.push(transform.attempt);
-    const parquet = await sealProduced(options, transform.directory, transform.attempt, ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)), referenceDataPartitionName(index), REFERENCE_DATA_PARQUET_MEDIA_TYPE, "export", reportedFile(transform.attempt.report, "file", "transformPartition"));
-    await transform.directory.dispose();
-    partitions.push(Object.freeze({ index, partition: partitionMaterial, parquet, summary: transform.attempt.report, rowCount: declaredRows[index] as number }));
+      const attempt = await dispatchReferenceDataAttempt(options, "transformPartition", nodeInstance("transformPartition", index), {
+        kind: "transformPartition",
+        input: staged,
+        output: ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)),
+        partitionIndex: index,
+        firstRowIndex: declaredRows.slice(0, index).reduce((sum, count) => sum + count, 0),
+        partitionDigest: partitionMaterial.digest,
+        report: ReferenceDataGuestDirectory.output(`part-${String(index).padStart(5, "0")}.summary.json`),
+      }, directory);
+      attempts.push(attempt);
+      const parquet = await sealProduced(options, directory, attempt, ReferenceDataGuestDirectory.output(referenceDataPartitionName(index)), referenceDataPartitionName(index), REFERENCE_DATA_PARQUET_MEDIA_TYPE, "export", reportedFile(attempt.report, "file", "transformPartition"));
+      return Object.freeze({ index, partition: partitionMaterial, parquet, summary: attempt.report, rowCount: declaredRows[index] as number });
+    }));
   }
 
   // One material for every partition's report, not one each. At C10's hundred
@@ -425,7 +413,7 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
     })(),
   );
 
-  const reduce = await withDirectory(options, async directory => {
+  const { manifest, dataset } = await withDirectory(options, async directory => {
     // The reduction's inputs are read back out of the sealed material, so it
     // reads durable bytes rather than whatever the host happens to still hold.
     const stored = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await concat(readReferenceDataMaterial(options.reader, options.scope, summaries)))) as unknown;
@@ -439,28 +427,26 @@ export async function runReferenceDataJourney(options: ReferenceDataJourneyOptio
       })());
       reports.push(name);
     }
+    const attempt = await dispatchReferenceDataAttempt(options, "orderedReduce", nodeInstance("orderedReduce"), {
+      kind: "orderedReduce",
+      reports,
+      snapshotDigest: sealedInput.digest,
+      snapshotBytes: sealedInput.totalBytes,
+      output: ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME),
+      report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_DATASET_OBJECT),
+    }, directory);
+    attempts.push(attempt);
     return {
-      directory,
-      attempt: await dispatchReferenceDataAttempt(options, "orderedReduce", nodeInstance("orderedReduce"), {
-        kind: "orderedReduce",
-        reports,
-        snapshotDigest: sealedInput.digest,
-        snapshotBytes: sealedInput.totalBytes,
-        output: ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME),
-        report: ReferenceDataGuestDirectory.output(REFERENCE_DATA_DATASET_OBJECT),
-      }, directory),
+      manifest: await sealProduced(options, directory, attempt, ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME), REFERENCE_DATA_MANIFEST_NAME, REFERENCE_DATA_MANIFEST_MEDIA_TYPE, "export", reportedFile(attempt.report, "file", "orderedReduce")),
+      dataset: await sealReferenceDataMaterial(
+        options.materials,
+        { ...scopeFor(options, "export"), objectName: REFERENCE_DATA_DATASET_OBJECT, version: 1 },
+        REFERENCE_DATA_JSON_MEDIA_TYPE,
+        attempt.result.status === "completed" ? attempt.result.output.encodedBytes : 0,
+        directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_DATASET_OBJECT)),
+      ),
     };
   });
-  attempts.push(reduce.attempt);
-  const manifest = await sealProduced(options, reduce.directory, reduce.attempt, ReferenceDataGuestDirectory.output(REFERENCE_DATA_MANIFEST_NAME), REFERENCE_DATA_MANIFEST_NAME, REFERENCE_DATA_MANIFEST_MEDIA_TYPE, "export", reportedFile(reduce.attempt.report, "file", "orderedReduce"));
-  const dataset = await sealReferenceDataMaterial(
-    options.materials,
-    { ...scopeFor(options, "export"), objectName: REFERENCE_DATA_DATASET_OBJECT, version: 1 },
-    REFERENCE_DATA_JSON_MEDIA_TYPE,
-    reduce.attempt.result.status === "completed" ? reduce.attempt.result.output.encodedBytes : 0,
-    reduce.directory.collect(ReferenceDataGuestDirectory.output(REFERENCE_DATA_DATASET_OBJECT)),
-  );
-  await reduce.directory.dispose();
 
   return Object.freeze({ input: sealedInput, snapshot, partitions: Object.freeze(partitions), summaries, manifest, dataset, attempts: Object.freeze(attempts) });
 }
@@ -470,13 +456,17 @@ function scopeFor(options: ReferenceDataJourneyOptions, operation: ReferenceData
   return { ...options.scope, operationId: referenceDataOperationId(options.scope.operationId, operation) };
 }
 
-async function withDirectory<Result extends { directory: ReferenceDataGuestDirectory }>(options: ReferenceDataJourneyOptions, run: (directory: ReferenceDataGuestDirectory) => Promise<Result>): Promise<Result> {
+/**
+ * Runs one step in a fresh attempt directory and removes it however the step
+ * ends. Everything that reads the guest's files - the checks and the seals -
+ * runs inside, so a refusal never leaves a guest's output on the host.
+ */
+async function withDirectory<Result>(options: ReferenceDataJourneyOptions, run: (directory: ReferenceDataGuestDirectory) => Promise<Result>): Promise<Result> {
   const directory = await ReferenceDataGuestDirectory.create(options.workRoot);
   try {
     return await run(directory);
-  } catch (error) {
+  } finally {
     await directory.dispose();
-    throw error;
   }
 }
 
