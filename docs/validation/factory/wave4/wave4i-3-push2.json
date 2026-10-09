@@ -1,0 +1,36 @@
+{
+  "push": "third push of the wave: feat/composable-factory-platform 1b96d2730 -> 3897fe923d371a61713636657103d13e73d92c6d (plain git push, exit 0 at 16:40:40Z 2026-10-09, first try; pre-push hook typecheck and svelte-check 620 files 0 errors; never --no-verify or --force). 15 commits since the last push (W4H-15 and W4H-16 merges, receipts, docs lines v3); 0 files under web/.",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 16:38:49Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch rc 0 (only a forced update of origin/evidence/pr-303, not ours); HEAD = origin/feat = 1b96d2730; ancestor of integ/w00 3897fe923; config-check rc 0 (29e61b63b05624e9); 15 commits ahead; disk 201G, MemAvailable 18.5 GiB, SwapFree 8.1 GiB",
+    "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating 1b96d2730..3897fe923 Fast-forward",
+    "3 installs": "installs-step.log / installs.log: resource gate green; bun and bunx 1.4.2; w00/installs-lib.sh 36e14c55cd666ed0 frozen_installs exit 0, every install --ignore-scripts (root, web + svelte-kit sync, gate-integrity deps: no changes; package builds); status empty",
+    "4 push": "push.sh 9cacb0b2b318b2cd through w00/tc-gate.sh lock-free: GREEN at 16:39:45Z (MemAvailable 18.4 GiB, no heavy holder), lowest 15.0 GiB during the hook; push exit 0; HEAD = origin/feat = 3897fe923",
+    "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid 3897fe923, MERGEABLE, mergeStateStatus BLOCKED (checks running at read time)",
+    "6 hosted": "ci 37960843272 (started 16:40:47Z; completed, failure; 58 jobs) and deps-audit 37960842459 (success). vs 37743486763: red 3 -> 2 plus 1 cancelled, same 55, green->red 0; vs 37138524741: red 20 -> 2 (+1 cancelled), fixed 17. Classification: wave4i-3-push2-ci-37960843272-classification.md."
+  },
+  "gateIntegrity": {
+    "attempt1": "job 113922972981 CANCELLED 16:40:51-16:50:51Z inside step 6 'Gate-integrity meta-check' (timeout-minutes: 5); GitHub holds no log ('log not found'; the log blob is absent): a one-off hosted-runner fault (coordinator's reading)",
+    "local": "the same step at 3897fe923 in the feature worktree (BASE_REF=origin/main, NODE_PATH as in ci.yml): exit 1 after 5 s with exactly the 8 standing findings (gi-local.log 44fed25c80b01a79)",
+    "attempt2": "on the coordinator's word, ONLY that job re-run (gh run rerun 37960843272 --job 113922972981): job 113938694955, 17:19:56-17:20:15Z, FAILURE at step 6 'Gate integrity FAILED (8 finding(s))'; findings-match vs w00/expected-integ-findings-vs-main.txt PASS (class A, the gate-change-approved label). Log 99275a32a522a8d2, steps json 46f641eea60be662"
+  },
+  "perFileCoverageGate": "class E (a race in the browser lane's coverage), latent behind W4H-15: every producer's records now arrive (W4H-15 works); the gate fails on one line, web/src/lib/factory/FactoryConsole.svelte 99.70% < 100%, missed line 199 (`await loadDrafts(projectId);`, importDraft's success path). This run's browser-route-coverage lcov: DA:197,2 DA:198,2 DA:199,0 DA:202,1 DA:204,1 (one of two imports never settled before the coverage snapshot); run 37743486763's had DA:199,1. Browser lcov NOT committed (302 KB): /tmp/integrator-5-ci-artifacts/run-37960843272-browser/lcov.info sha256 cc7c25fbf85a4e8c (artifact browser-route-coverage). Package W4H-17 opened by the coordinator.",
+  "failedLog": "full --log-failed: ci-37960843272/all-failed.log sha256 09d0fe9a1d45eaff (stays in the evidence dir); committed: the ruled excerpt (w00/push-log-excerpt.py 887368f0ceffe11e) and the Per-file coverage gate's whole job log",
+  "hostEvents": [
+    "2026-10-09 07:55Z systemd-tmpfiles-clean removed the pinned bunx link; restored by the coordinator before W4H-16 (recorded in w4h-16-merge.json)",
+    "none during the push window (16:38-17:20Z); shared .git/config at the accepted baseline 29e61b63b05624e9 at every step"
+  ],
+  "tooling": {
+    "push.sh": "9cacb0b2b318b2cd",
+    "installs.sh": "3d74069b7f580abd",
+    "gi-local.sh": "fdd3034346e12f20",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/tc-gate.sh": "84f8b66f0bd3faf0",
+    "w00/bun-pin.sh": "8efbd53ee7b13838",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "w00/push-log-excerpt.py": "887368f0ceffe11e",
+    "w00/findings-match.py": "de57fcec5cdcef56",
+    "baseline 37743486763 (made from its jobs json)": "cfcc68b24de3757f",
+    "baseline 37138524741": "074c4b968060d499"
+  },
+  "receiptsBy": "integrator-5"
+}
