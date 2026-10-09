@@ -498,6 +498,14 @@
 			|| feature.operation?.state === "OUTCOME_UNKNOWN";
 	}
 
+	function needsOperatorCreateRecovery(feature: Feature): boolean {
+		return feature.operation?.kind === "CREATE" && feature.operation.state === "FAILED" && isUnknown(feature);
+	}
+
+	function isReconcilable(feature: Feature): boolean {
+		return !needsOperatorCreateRecovery(feature) && (isUnknown(feature) || isPending(feature));
+	}
+
 	function isPending(feature: Feature): boolean {
 		return ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING"].includes(feature.operation?.state ?? "");
 	}
@@ -506,6 +514,7 @@
 		if (feature.tombstonedAt && feature.cleanupConfirmedAt) return "Disposed";
 		if (feature.tombstonedAt) return "Cleanup needs review";
 		if (isPending(feature)) return feature.operation?.state === "PROVIDER_PENDING" ? "Waiting for provider" : "In progress";
+		if (needsOperatorCreateRecovery(feature)) return "Operator recovery required";
 		if (isUnknown(feature)) return "Needs reconciliation";
 		return feature.observedState.toLowerCase();
 	}
@@ -683,7 +692,7 @@
 
 	<section class="panel" aria-labelledby="project-sandbox-title">
 		<div class="section-heading"><div><h2 id="project-sandbox-title">Project sandboxes</h2><p>Create a named project with one isolated Incus workspace.</p></div>
-			{#if snapshot.features.some(feature => isUnknown(feature) || isPending(feature))}<button class="secondary" disabled={!!busy} onclick={() => void reconcile()}>{busy === "reconcile" ? "Reconciling…" : "Reconcile pending work"}</button>{/if}
+			{#if snapshot.features.some(isReconcilable)}<button class="secondary" disabled={!!busy} onclick={() => void reconcile()}>{busy === "reconcile" ? "Reconciling…" : "Reconcile pending work"}</button>{/if}
 		</div>
 		{#if snapshot.truncated}<p class="blocked-reason">Some environments or projects are not shown. Narrow the list before creating a sandbox.</p>{/if}
 		{#if eligibleEnvironments.length}
@@ -719,7 +728,8 @@
 							{:else if !feature.tombstonedAt && !isUnknown(feature) && !isPending(feature)}<button class="danger-link" disabled={!!busy || !canDispose(feature)} onclick={() => void featureAction(feature, "destroy")}>Dispose…</button>{/if}
 						</div>
 						{#if !feature.tombstonedAt && feature.observedState === "RUNNING"}<p class="muted">Stop this sandbox before disposal.</p>{/if}
-						{#if isUnknown(feature) || isPending(feature)}<p class="muted">Refresh or reconcile the saved operation before another lifecycle action.</p>{/if}
+						{#if needsOperatorCreateRecovery(feature)}<p class="muted">This CREATE failed. Contact an operator for recovery before another lifecycle action.</p>
+						{:else if isUnknown(feature) || isPending(feature)}<p class="muted">Refresh or reconcile the saved operation before another lifecycle action.</p>{/if}
 						{#if feature.cleanupRecovery}<p class="operation">Saved cleanup recovery: {feature.cleanupRecovery.id}</p><p class="muted">{feature.cleanupRecovery.state} · Failed destroy: {feature.cleanupRecovery.failedDestroyOperationId} · Stop: {feature.cleanupRecovery.stopOperationId} · Dispose: {feature.cleanupRecovery.destroyOperationId}</p>{/if}
 						{#if recoveryReview?.bindingId === feature.bindingId}
 							<div class="confirm-box compact" role="group" aria-label={`Confirm cleanup recovery of ${feature.projectName}`}><strong>Stop first, then dispose this saved sandbox.</strong><p>This permanently removes its workspace data. Recovery uses saved operation {recoveryReview.failedDestroyOperationId} and its exact cleanup steps. It does not repeat the failed destroy request.</p>{#if failedCleanupId(feature) !== recoveryReview.failedDestroyOperationId}<p>The saved status changed. Refresh or reconcile before reviewing recovery again.</p>{/if}<div class="button-row"><button class="danger" disabled={!!busy || failedCleanupId(feature) !== recoveryReview.failedDestroyOperationId} onclick={() => void recoverCleanup(feature)}>Recover cleanup</button><button class="quiet" onclick={() => recoveryReview = null}>Cancel</button></div></div>

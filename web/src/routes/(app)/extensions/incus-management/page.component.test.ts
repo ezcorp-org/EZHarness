@@ -41,7 +41,7 @@ function feature(state: string, operation: Record<string, unknown> | null = null
 		observedState: state, operation, tombstonedAt: null as string | null, cleanupConfirmedAt: null as string | null };
 }
 
-function setup(options: { feature?: ReturnType<typeof feature> | null; failManagement?: boolean; loseApply?: boolean } = {}) {
+function setup(options: { feature?: ReturnType<typeof feature> | null; features?: ReturnType<typeof feature>[]; failManagement?: boolean; loseApply?: boolean } = {}) {
 	let currentFeature = options.feature ?? null;
 	let qualified = false;
 	let runId: string | null = null;
@@ -53,7 +53,7 @@ function setup(options: { feature?: ReturnType<typeof feature> | null; failManag
 		if (url.endsWith("/management")) {
 			if (options.failManagement) return response({ error: "Management service unavailable" }, 503);
 			return response({ environments: [{ ...environment, qualified, qualificationState: qualified ? "qualified" : environment.qualificationState,
-				qualificationRunId: runId, qualificationValidUntil: qualified ? "2027-01-01T00:00:00Z" : null, blockedReason: qualified ? null : environment.blockedReason }], projects: [project], features: currentFeature ? [currentFeature] : [] });
+				qualificationRunId: runId, qualificationValidUntil: qualified ? "2027-01-01T00:00:00Z" : null, blockedReason: qualified ? null : environment.blockedReason }], projects: [project], features: options.features ?? (currentFeature ? [currentFeature] : []) });
 		}
 		if (url.endsWith("/probe-fixtures")) {
 			if (body?.action === "plan") return response({ plan: { digest: planDigest, directory: "/srv/fixtures", profile: environment.profile,
@@ -129,6 +129,40 @@ describe("Incus management page", () => {
 		await waitFor(() => expect(view.getByText("Needs reconciliation")).toBeInTheDocument());
 		expect(view.queryByRole("button", { name: "Start" })).not.toBeInTheDocument();
 		expect(view.queryByRole("link", { name: "Open chat" })).not.toBeInTheDocument();
+	});
+
+	for (const state of ["UNKNOWN", "ERROR"]) {
+		test(`failed CREATE ${state} requires operator recovery but permits saved status refresh`, async () => {
+			const { calls } = setup({ feature: feature(state, { id: "failed-create", kind: "CREATE", state: "FAILED" }) });
+			const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+			await waitFor(() => expect(view.getByText("Operator recovery required")).toBeVisible());
+			expect(view.getByText("This CREATE failed. Contact an operator for recovery before another lifecycle action.")).toBeVisible();
+			expect(view.queryByRole("button", { name: "Reconcile pending work" })).not.toBeInTheDocument();
+			expect(view.queryByRole("button", { name: "Create guest" })).not.toBeInTheDocument();
+			await fireEvent.click(view.getByRole("button", { name: "Refresh status" }));
+			await waitFor(() => expect(calls.map(call => call.body?.action)).toEqual(["status"]));
+			expect(view.getByText("Operator recovery required")).toBeVisible();
+		});
+	}
+
+	for (const operationState of ["PROVIDER_PENDING", "OUTCOME_UNKNOWN"]) {
+		test(`mixed failed CREATE and ${operationState} retain reconciliation`, async () => {
+			const { calls } = setup({ features: [feature("UNKNOWN", { id: "failed-create", kind: "CREATE", state: "FAILED" }),
+				{ ...feature("UNKNOWN", { id: "pending-start", kind: "START", state: operationState }), bindingId: "pending-binding", projectId: "pending-project", projectName: "Pending sandbox" }] });
+			const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+			await waitFor(() => expect(view.getByText("Operator recovery required")).toBeVisible());
+			expect(view.getByText("Refresh or reconcile the saved operation before another lifecycle action.")).toBeVisible();
+			await fireEvent.click(view.getByRole("button", { name: "Reconcile pending work" }));
+			await waitFor(() => expect(calls.map(call => call.body?.action)).toEqual(["reconcile"]));
+		});
+	}
+
+	test("a settled failed CREATE no longer asks for operator recovery", async () => {
+		setup({ feature: { ...feature("ABSENT", { id: "failed-create", kind: "CREATE", state: "FAILED" }), tombstonedAt: "2026-10-09T00:00:00Z", cleanupConfirmedAt: "2026-10-09T00:00:01Z" } });
+		const view = render(Page, { props: { data: { operatorId: "admin-1" } } });
+		await waitFor(() => expect(view.getByText("Disposed")).toBeVisible());
+		expect(view.queryByText("Operator recovery required")).not.toBeInTheDocument();
+		expect(view.queryByRole("button", { name: "Reconcile pending work" })).not.toBeInTheDocument();
 	});
 
 	test("resumes an unrecorded qualification with its saved operation ID", async () => {

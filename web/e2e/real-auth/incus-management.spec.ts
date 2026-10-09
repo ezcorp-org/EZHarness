@@ -389,6 +389,47 @@ test("unknown provider outcomes block lifecycle actions until reconciliation", a
 	await expect(card.getByRole("button", { name: "Start" })).toHaveCount(0);
 });
 
+test("failed CREATE requires operator recovery and keeps status refresh @evidence", async ({ page }, testInfo) => {
+	const failed = feature("UNKNOWN", { id: "op-failed-create", kind: "CREATE", state: "FAILED", errorCode: "PERMISSION_DENIED" });
+	const fixture = await mockManagement(page, { initialFeature: failed });
+	await page.goto("/extensions/incus-management");
+	const card = page.locator(".feature-card");
+	await expect(card.getByText("Operator recovery required", { exact: true })).toBeVisible();
+	await expect(card).toContainText("This CREATE failed. Contact an operator for recovery before another lifecycle action.");
+	await expect(page.getByRole("button", { name: "Reconcile pending work" })).toHaveCount(0);
+	await expect(card.getByRole("button", { name: "Start" })).toHaveCount(0);
+	await expect(card.getByRole("button", { name: "Create guest" })).toHaveCount(0);
+	await expect(card.getByRole("link", { name: "Open chat" })).toHaveCount(0);
+	await card.getByRole("button", { name: "Refresh status" }).click();
+	await expect.poll(() => fixture.actions.filter(item => item.body.action === "status").length).toBe(1);
+	await expect(card.getByText("Operator recovery required", { exact: true })).toBeVisible();
+	expect(fixture.actions.map(item => item.body.action)).toEqual(["status"]);
+	await captureEvidence(page, testInfo, "incus-failed-create-operator-recovery", { fullPage: true });
+});
+
+for (const operationState of ["OUTCOME_UNKNOWN", "PROVIDER_PENDING"]) {
+	test(`failed CREATE alongside ${operationState} preserves Reconcile @evidence`, async ({ page }, testInfo) => {
+		const failed = feature("UNKNOWN", { id: "failed-create", kind: "CREATE", state: "FAILED" });
+		await mockManagement(page);
+		await page.route("**/api/infrastructure/incus/management", route => route.fulfill({ json: {
+			environments: [environment], projects: [project], features: [failed,
+				{ ...feature("UNKNOWN", { id: "pending-start", kind: "START", state: operationState }), bindingId: "pending-binding", projectId: "pending-project", projectName: "Pending sandbox" }],
+		} }));
+		const actions: unknown[] = [];
+		await page.route("**/api/infrastructure/incus/features", route => {
+			actions.push(route.request().postDataJSON());
+			return route.fulfill({ json: { reconciled: 1 } });
+		});
+		await page.goto("/extensions/incus-management");
+		await expect(page.getByText("Operator recovery required", { exact: true })).toBeVisible();
+		await expect(page.getByText("Refresh or reconcile the saved operation before another lifecycle action.")).toBeVisible();
+		await page.getByRole("button", { name: "Reconcile pending work" }).click();
+		await expect(page.getByRole("status")).toContainText("Reconciliation finished.");
+		expect(actions).toEqual([{ action: "reconcile", limit: 50 }]);
+		await captureEvidence(page, testInfo, `incus-failed-create-with-${operationState.toLowerCase()}`, { fullPage: true });
+	});
+}
+
 test("a failed environment refresh keeps the last approved view available", async ({ page }) => {
 	await mockManagement(page, { initiallyQualified: true });
 	await page.goto("/extensions/incus-management");
