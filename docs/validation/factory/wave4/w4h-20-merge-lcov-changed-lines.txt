@@ -1,0 +1,4 @@
+per-file lcov proof: merge 2e1008de8 vs base 31b9a8d93; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-20-lint-warnings/merged.lcov
+scripts/lib/ci-registration.ts: file 48/48 lines hit; added lines 8, instrumented 2, uncovered 0
+tests/postgres/helpers/factory-recovery-databases.ts: file 84/84 lines hit; added lines 7, instrumented 4, uncovered 0
+TOTAL instrumented added lines 6, uncovered 0
