@@ -49,6 +49,14 @@ export function missingThresholds(thresholds: string, sources: readonly string[]
   return sources.filter((source) => !thresholds.includes(`"${source}": 100`)).map((source) => `${source} threshold`);
 }
 
+/**
+ * The literal GitHub expression `${{ <expression> }}` as it appears in workflow text. A test that states workflow text
+ * builds it here, so the text is never a plain string that only looks like a JS template.
+ */
+export function ghExpr(expression: string): string {
+  return `\${{ ${expression} }}`;
+}
+
 export interface WorkflowStep { readonly uses?: string; readonly run?: string; readonly name?: string; readonly shell?: string; readonly env?: Readonly<Record<string, string>>; readonly with?: Readonly<Record<string, string | number | boolean>> }
 /** A job runs steps, or calls a reusable workflow (`uses: ./.github/workflows/<file>`). */
 export interface WorkflowJob { readonly name?: string; readonly uses?: string; readonly steps?: readonly WorkflowStep[] }

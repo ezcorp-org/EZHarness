@@ -38,6 +38,12 @@ function urlFor(name: string): string {
   return url.toString();
 }
 
+/** W12e: fail by name on an affected Bun without the flag at process start, before the first client opens. */
+function adminSql(): SQL {
+  assertBunSqlPipeliningOff();
+  return new SQL(adminUrl(), { max: 1 });
+}
+
 export interface FactoryOpenDatabase {
   readonly name: string;
   readonly client: SQL;
@@ -46,8 +52,7 @@ export interface FactoryOpenDatabase {
 }
 
 export class FactoryRecoveryDatabases {
-  // W12e: fail by name on an affected Bun without the flag at process start, before the first client opens.
-  private readonly admin = (assertBunSqlPipeliningOff(), new SQL(adminUrl(), { max: 1 }));
+  private readonly admin = adminSql();
   private readonly created: string[] = [];
 
   private fresh(label: string): string {
