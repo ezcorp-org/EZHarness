@@ -11,7 +11,7 @@ import { waitForProductionBootstrap, command, productionLifecycleClient, require
 import { echoSource, echoText } from "./lib/shipping-runtime-helpers";
 import { resourceRunConfig, resourceRunReachedTarget } from "./lib/shipping-runtime-resource-config";
 import { invokeExtensionOnceInFreshConversation } from "./lib/shipping-runtime-cycle-conversation";
-import { type FdClasses, type OpenDescriptor, type RelationDescriptor, fdClass, isPgliteRelationFile, isPgliteRelationPath, nonRelationPathGrew, relationDescriptorProblems } from "./lib/shipping-runtime-resource-accounting";
+import { type FdClasses, type OpenDescriptor, type RelationDescriptor, type RunnerFdSettle, fdClass, isPgliteRelationFile, isPgliteRelationPath, multisetDelta, nonRelationPathGrew, openDescriptorIdentity, relationDescriptorProblems, runnerFdFailureEvidence, settleRunnerFds } from "./lib/shipping-runtime-resource-accounting";
 
 type CleanupObservation = { baselineConnections: number; remainingConnections: number; polls: number; durationMs: number };
 type MappedPgliteFile = { address: string; permissions: string; offset: string; device: string; inode: string; path: string };
@@ -32,6 +32,7 @@ type FailureEvidence = {
   kernelMemory?: KernelMemorySnapshot;
   kernelMemoryError?: string;
   warmKernelMemory?: KernelMemorySnapshot;
+  runner?: ReturnType<typeof runnerFdFailureEvidence>;
 };
 type Sample = {
   cycle: number;
@@ -43,6 +44,7 @@ type Sample = {
   appFdClasses?: FdClasses;
   pgliteRelationDescriptors?: RelationDescriptor[];
   sseCleanup?: CleanupObservation;
+  runnerFdSettle?: RunnerFdSettle;
 };
 
 function sha256(value: string): string {
@@ -94,25 +96,8 @@ async function processFdSnapshot(pid: string): Promise<FdSnapshot> {
   return { classes, pgliteRelationDescriptors, descriptors };
 }
 
-function descriptorIdentity(descriptor: OpenDescriptor | MappedPgliteFile): string {
-  if ("target" in descriptor) return `${descriptor.class}\u0000${descriptor.target}\u0000${descriptor.device ?? ""}\u0000${descriptor.inode ?? ""}`;
-  return `${descriptor.address}\u0000${descriptor.permissions}\u0000${descriptor.offset}\u0000${descriptor.device}\u0000${descriptor.inode}\u0000${descriptor.path}`;
-}
-
-function multisetDelta<T extends OpenDescriptor | MappedPgliteFile>(before: T[], after: T[]): { added: T[]; removed: T[] } {
-  const remaining = new Map<string, T[]>();
-  for (const item of before) {
-    const identity = descriptorIdentity(item);
-    remaining.set(identity, [...(remaining.get(identity) ?? []), item]);
-  }
-  const added: T[] = [];
-  for (const item of after) {
-    const identity = descriptorIdentity(item);
-    const matches = remaining.get(identity);
-    if (matches?.length) matches.pop();
-    else added.push(item);
-  }
-  return { added, removed: [...remaining.values()].flat() };
+function mappedFileIdentity(file: MappedPgliteFile): string {
+  return `${file.address}\u0000${file.permissions}\u0000${file.offset}\u0000${file.device}\u0000${file.inode}\u0000${file.path}`;
 }
 
 async function mappedPgliteFiles(pid: string, pgliteDataRoot: string): Promise<MappedPgliteFile[]> {
@@ -250,6 +235,8 @@ const start = Date.now();
 const requestedMinimumDurationMs = config.mode === "duration" ? config.requestedMinimumDurationMs : undefined;
 const store = join(runRoot, "store");
 const initialSample = await sample(0, store, runnerPid, appProcessPid, appContainer);
+// fd number -> readlink target of the runner at the baseline; a failed runner FD check names each extra descriptor's kind against it.
+const runnerBaselineDescriptors = (await processFdSnapshot(runnerPid)).descriptors;
 const samples: Sample[] = [initialSample.observed];
 const baseline = samples[0]!;
 if (baseline.runnerContainers !== 0) throw new Error(`The owned runner began with ${baseline.runnerContainers} containers.`);
@@ -292,14 +279,14 @@ async function writeReceipt(completedCycles: number, failure?: FailureEvidence):
   await writeFile(join(required("EZ_PRODUCTION_RECEIPT_DIR"), "r4-resource-samples.json"), JSON.stringify(receipt) + "\n", { mode: 0o600 });
 }
 
-async function failResourceCheck(cycle: number, reason: string, observedSample: Sample, observedSnapshot: FdSnapshot): Promise<never> {
+async function failResourceCheck(cycle: number, reason: string, observedSample: Sample, observedSnapshot: FdSnapshot, runner?: FailureEvidence["runner"]): Promise<never> {
   const observed: FdEvidence = { descriptors: observedSnapshot.descriptors, mappedPgliteFiles: await mappedPgliteFiles(appProcessPid, pgliteDataRoot) };
   let kernelMemory: KernelMemorySnapshot | undefined;
   let kernelMemoryError: string | undefined;
   try { kernelMemory = await kernelMemorySnapshot(appProcessPid); } catch (error) { kernelMemoryError = String(error); }
   const warm = relationCacheWarmEvidence;
-  const descriptorDelta = warm ? multisetDelta(warm.descriptors, observed.descriptors) : { added: observed.descriptors, removed: [] };
-  const mappedPgliteFileDelta = warm ? multisetDelta(warm.mappedPgliteFiles, observed.mappedPgliteFiles) : { added: observed.mappedPgliteFiles, removed: [] };
+  const descriptorDelta = warm ? multisetDelta(warm.descriptors, observed.descriptors, openDescriptorIdentity) : { added: observed.descriptors, removed: [] };
+  const mappedPgliteFileDelta = warm ? multisetDelta(warm.mappedPgliteFiles, observed.mappedPgliteFiles, mappedFileIdentity) : { added: observed.mappedPgliteFiles, removed: [] };
   await writeReceipt(samples.length - 1, {
     cycle,
     reason,
@@ -313,6 +300,7 @@ async function failResourceCheck(cycle: number, reason: string, observedSample: 
     ...(warm ? { warm } : {}),
     ...(kernelMemory ? { kernelMemory } : { kernelMemoryError }),
     ...(relationCacheWarmKernelMemory ? { warmKernelMemory: relationCacheWarmKernelMemory } : {}),
+    ...(runner ? { runner } : {}),
   });
   throw new Error(reason);
 }
@@ -342,13 +330,17 @@ for (let cycle = 1; cycle <= count; cycle++) {
   // pre-SSE count. Let them close before sampling; a leaked connection stays
   // open and still fails the strict checks below.
   await waitForAppConnections(appProcessPid, appConnectionsBeforeSse, 150);
+  // The runner can close a finished cycle's socket or pipe a moment after the
+  // cycle ends. Wait for its FD count to EQUAL the baseline (bounded polls);
+  // a leak stays open and still fails the strict check below.
+  const runnerFdSettle = await settleRunnerFds(() => runnerFdCount(runnerPid), baseline.runnerFds);
   const measured = await sample(cycle, store, runnerPid, appProcessPid, appContainer);
-  const after = { ...measured.observed, sseCleanup };
+  const after = { ...measured.observed, sseCleanup, runnerFdSettle };
   const fdSnapshot = measured.fdSnapshot;
   after.appFdClasses = fdSnapshot.classes;
   after.pgliteRelationDescriptors = fdSnapshot.pgliteRelationDescriptors;
   if (after.runnerContainers !== 0) await failResourceCheck(cycle, `Cycle ${cycle} retained ${after.runnerContainers} owned runner containers.`, after, fdSnapshot);
-  if (after.runnerFds !== baseline.runnerFds) await failResourceCheck(cycle, `Cycle ${cycle} runner FDs ${after.runnerFds} did not return to baseline ${baseline.runnerFds}.`, after, fdSnapshot);
+  if (after.runnerFds !== baseline.runnerFds) await failResourceCheck(cycle, `Cycle ${cycle} runner FDs ${after.runnerFds} did not return to baseline ${baseline.runnerFds}.`, after, fdSnapshot, runnerFdFailureEvidence(runnerFdSettle, runnerBaselineDescriptors, (await processFdSnapshot(runnerPid)).descriptors));
   if (after.appEstablishedTcpConnections > appConnectionsBeforeSse) await failResourceCheck(cycle, `Cycle ${cycle} app TCP connections ${after.appEstablishedTcpConnections} exceeded its pre-SSE count ${appConnectionsBeforeSse}.`, after, fdSnapshot);
   const relationProblems = relationDescriptorProblems(pgliteDataRoot, fdSnapshot.pgliteRelationDescriptors);
   if (relationProblems.length) await failResourceCheck(cycle, `Cycle ${cycle} invalid PGlite relation descriptor: ${relationProblems[0]}`, after, fdSnapshot);

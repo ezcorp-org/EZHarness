@@ -6005,3 +6005,13 @@ Review: the four files had no hosted producer. The image-bound journey was the o
 - [x] Legs: new-file and patch vs integ (vacuous), CRAP, lint, boundaries, lanes, prune, gate-integrity on both legs, typecheck, guard set under the lock (G6-G9).
 
 Review: the success case ended right after it saw the /import request, and the coverage fixture took coverage at teardown, so a late response left line 199 unhit. A test-only hold now forces the late response on every run, and the case waits for the outcome. The import creates its own draft so the outcome cannot be mistaken for the create step's state. No production change.
+
+## W4H-18 — the runner-FD settle in the production resources proof (branch `wp/w4h-18-runner-fd-settle` from integ/w00 6df16debf; gates `tasks/factory/w4h-18-GATES.md`)
+
+- [x] R1 red first: the settle test is red at base (missing helper). The hosted receipt has no runner descriptor field. The base resources shard is green under the lock (the race depends on timing).
+- [x] R2 fix: a bounded settle to EQUALITY (150 polls × 100 ms) before the cycle sample. The strict check is byte-equal. The receipt names the kind of each extra runner descriptor and records the polls per cycle. The helpers are in the accounting lib, which has 100 percent line and function coverage.
+- [x] R2 mutants: polling removed, bound 0, kinds omitted, `<=` allowance and no wait all go RED.
+- [x] R3: the resources shard of the production suite at the head is green under the lock, with 1 settle poll in each of 10 cycles.
+- [x] Legs: lint, boundaries, gate-integrity (integ PASS, main = the 8), typecheck under the tc rule, guard set, prune scan, CRAP. New-file and patch are vacuous for scripts/.
+
+Review: the hosted red was a late close that the one-read check could not tell from a leak. The fix waits for equality and never allows a difference in either direction. A real leak still fails, now with its descriptor kinds in the receipt. The script's failure branch did not run live, and its logic is unit-covered in the lib.
