@@ -2077,6 +2077,17 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   own hold (validator-8); kill by pid only, never by pattern (validator-6).
 - When a queued job should end within minutes, watch its exit file in the turn and report at once; background notices reach an idle owner late.
 
+#### Owners, validator and coordinator of the W4H-15…16 round (2026-10-08 to 2026-10-09)
+- Owner: after report.txt, FREEZE. One gate-file commit, then no commit at all; disclosures go in report-addendum.txt or pending-lesson.md (w4h-15 moved its head twice after the verdict reading, so the verdict needed a CARRY line).
+- Owner: a test that exposes a defect in production code is a scope change. Report the defect with its red log and wait for the ruling before committing the fix (w4h-16 committed two root-cause fixes under a tests-only approval; accepted, but the ruling came after).
+- Validator: a pkill pattern must not match the validator's own shell; kill by pid only (validator-8 hit its own shell once).
+- Validator: own-pg.sh's EXIT trap binds to the shell that starts it. Never start it in a subshell; trace it with BASH_XTRACEFD in the same shell (a try of the W4H-16 journey leg lost its PostgreSQL at once).
+- Validator: a heredoc that carries backticks must be quoted ('EOF'), so nothing executes while the file is written.
+- Coordinator: attribute a memory hog by cwd and parent pid before naming a culprit; our own svelte-check --tsgo legs were the first OOM killer, other sessions' checks the second, the editor's tsserver the third.
+- Coordinator: a teammate that "asks again" may be reading a late batch, not ignoring the inbox; check the message timestamps before re-ruling (integrator-5 received five answers in one batch).
+- Coordinator: shared tools under /tmp age out. systemd-tmpfiles-clean removed the pinned `bunx` link after 10 days (2026-10-09) and a hold stopped at bun_pin; a 0-byte Bun 1.3.14 binary dates from the same daily window. Keep pinned toolchains and evidence outside /tmp, or exclude them in tmpfiles (root).
+- Coordinator: a CI-wiring-only or tests-only package gets a targeted merge hold, never a skipped one; the receipts name the no-combined-run risk. A package that turns out to change production code puts the real journey leg back into the hold.
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.

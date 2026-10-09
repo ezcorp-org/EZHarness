@@ -5899,6 +5899,13 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       producers in-run (cov-shard 30103/0 over 2023 files); gate-integrity = the 8 expected lines; after-runner and the six browser lanes green;
       final gates green (merged lcov dc11870132ec7aee over 2384 files; new-file 460, patch 518, per-file 2233, floor margin 8.08; gates.txt
       3817700c7ff8c68a); second pass vs 1c84df6d5 green (11aafe3390b821d7); receipts ec87d22e4.
+- [x] W4H-15 (hosted per-file coverage gate: seven lcov-cov-* producers shared the file name lcov.info; unique names + a registration test):
+      validator-8 ACCEPT at f1774df59 carried to f1b9efe1b; merge cf9f5927e / receipts 2737e385d. Hosted run 37743486763 at 1b96d2730: red 20 → 3
+      (Gate integrity label; FACTORY_RUNNER_READ_TOKEN; the coverage gate — now this fix plus 4 files measured only by the reference-data leg and the
+      uv probe step, pending the data-image publication decision).
+- [x] W4H-16 (hosted coverage for pack.ts, materials.ts, publication.ts and uv-command.ts lines 20-21 without the data image; two red-first fixes:
+      the attempt-directory leak on six refusal paths and the uv probe spawning the which() path): validator-8 ACCEPT 7e7407341887f7f7 at f80fcda35;
+      merge a214eda2b / receipts 9556a2911. Hosted run <W4H-16-HOSTED-RUN> at <W4H-16-PUSH-HEAD>: <W4H-16-HOSTED-RESULT>.
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -5945,6 +5952,14 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] CI ordering: running setup-extension-runner-ci.sh --install AFTER the factory-storage `up` failed (rc 1, log lost); reproduce with the log kept.
 - [ ] audit-deps moderate advisory below the floor: sprintf-js (GHSA-hp3w-g68c-fv3c).
 - [ ] Legacy-adoption under podman: `$ENGINE build --load` is Docker-only (verify-legacy-adoption.sh:89; build-archived-image.sh).
+- [ ] Three pre-existing assertion gaps named by validator-8's W4H-16 mutants on unchanged lines (non-blocking by the changed-lines ruling):
+      pack.ts sealProduced's digest-only disagreement (the tamper test also changes the size), the sealed-summaries count check, and
+      uv-command.ts `located.startsWith("/")` (no test makes the probe print a relative path). Add the three assertions.
+- [ ] Two pre-existing lint warnings: scripts/setup-factory-python-base.test.ts:101 and tests/postgres/helpers/factory-recovery-databases.ts:50
+      (unchanged since 8ea96b0ed; biome.json unchanged). Fix both.
+
+- [ ] Pinned toolchain and evidence live under /tmp (/tmp/factory-tools, /tmp/factory-platform-evidence) and age out under systemd-tmpfiles (10 days):
+      move them to a persistent path or add the tmpfiles exclusions (user, root). Restore the 0-byte Bun 1.3.14 binary from the release with its SHASUMS.
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
 
