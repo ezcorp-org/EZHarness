@@ -12,6 +12,10 @@ import { IncusQualificationStore } from "./incus-qualification";
 import { setupTestDb, closeTestDb } from "../__tests__/helpers/test-pglite";
 import { users, projects, conversations, previewSessions } from "../db/schema";
 import { eq } from "drizzle-orm";
+import { registerClaimedQualificationPreview } from "./incus-qualification-preview-permit";
+import { registerQualificationPreviewTarget } from "../runtime/preview/preview-target";
+import { sandboxWorkspaceTarget } from "../runtime/workspaces/target";
+import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
 
 async function fixture() {
   const now = Date.now();
@@ -54,6 +58,85 @@ async function fixture() {
     setQualified: (value: boolean) => { qualified = value; },
     setPermitted: (value: boolean) => { permitted = value; },
     revoke: () => { revoked = true; } };
+}
+
+async function claimedFixture() {
+  const f = await fixture();
+  let now = Date.now();
+  let ordinaryQualified = false;
+  let ordinaryCalls = 0;
+  const state = { runId: "claimed-run", nonce: "claimed-nonce", state: "CLAIMED",
+    fixtureOperationId: "claimed-operation", fixtureBindingId: f.request.binding.workspaceId,
+    fixtureGeneration: f.request.binding.generation, connectionRevision: 2,
+    releaseDigest: f.request.binding.releaseDigest!, binding: f.request.binding, running: true };
+  const target = sandboxWorkspaceTarget(f.request.binding, { execute: async () => { throw new Error("No guest execution in this fixture"); },
+    previews: new IncusSandboxPreviewBackend({} as never) });
+  const dispose = await registerClaimedQualificationPreview({
+    key: { previewId: f.request.previewId, userId: f.request.userId,
+      conversationId: f.row.conversationId, binding: f.request.binding, targetPort: f.request.targetPort! },
+    runId: state.runId, nonce: state.nonce, fixtureOperationId: state.fixtureOperationId,
+    connectionRevision: state.connectionRevision, releaseDigest: state.releaseDigest,
+    expiresAtMs: now + 60_000, target,
+  }, { register: registerQualificationPreviewTarget, readCurrent: async () => state, now: () => now });
+  const authorize = createIncusPreviewAuthorizer({ ...f.deps, fixturePermitted: undefined,
+    qualified: async () => { ordinaryCalls++; return ordinaryQualified; } });
+  return { ...f, authorize, state, dispose,
+    expire: () => { now += 60_000; }, ordinaryCalls: () => ordinaryCalls,
+    qualifyOrdinary: () => { ordinaryQualified = true; } };
+}
+
+test("a strict claimed fixture skips ordinary readiness and revalidates its current lease", async () => {
+  const f = await claimedFixture();
+  try {
+    const approved = await f.authorize(f.request);
+    expect(f.ordinaryCalls()).toBe(0);
+    await approved.revalidate();
+    expect(f.ordinaryCalls()).toBe(0);
+    f.state.running = false;
+    await expect(approved.revalidate()).rejects.toThrow("not qualified");
+    expect(f.ordinaryCalls()).toBe(1);
+    f.qualifyOrdinary();
+    await approved.revalidate();
+    expect(f.ordinaryCalls()).toBe(2);
+    f.revoke();
+    await expect(approved.revalidate()).rejects.toThrow("Member revoked");
+  } finally { f.dispose(); }
+});
+
+const staleClaims = {
+  state: "COMPLETED", runId: "other-run", nonce: "other-nonce", fixtureOperationId: "other-operation",
+  fixtureBindingId: "other-binding", fixtureGeneration: 4, connectionRevision: 3,
+  releaseDigest: "f".repeat(64), running: false,
+} as const;
+for (const [field, value] of Object.entries(staleClaims)) {
+  test(`a stale claimed preview ${field} falls back to fresh ordinary qualification`, async () => {
+    const f = await claimedFixture();
+    try {
+      Object.assign(f.state, { [field]: value });
+      await expect(f.authorize(f.request)).rejects.toThrow("not qualified");
+      expect(f.ordinaryCalls()).toBe(1);
+      f.qualifyOrdinary();
+      const approved = await f.authorize(f.request);
+      expect(f.ordinaryCalls()).toBe(2);
+      await approved.revalidate();
+      expect(f.ordinaryCalls()).toBe(3);
+    } finally { f.dispose(); }
+  });
+}
+for (const lifecycle of ["disposed", "expired"] as const) {
+  test(`a ${lifecycle} claimed preview falls back to fresh ordinary qualification`, async () => {
+    const f = await claimedFixture();
+    try {
+      if (lifecycle === "disposed") f.dispose(); else f.expire();
+      await expect(f.authorize(f.request)).rejects.toThrow("not qualified");
+      expect(f.ordinaryCalls()).toBe(1);
+      f.qualifyOrdinary();
+      const approved = await f.authorize(f.request);
+      expect(f.ordinaryCalls()).toBe(2);
+      await approved.revalidate();
+      expect(f.ordinaryCalls()).toBe(3);
+    } finally { f.dispose(); }
+  });
 }
 
 test("preview authority binds transport to the registered guest and keeps credentials host-only", async () => {

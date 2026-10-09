@@ -1,19 +1,25 @@
 import { afterAll, expect, spyOn, test } from "bun:test";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { sandboxPresetDigest } from "@ezcorp/extension-contract";
 import { INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { setupTestDb, closeTestDb } from "../__tests__/helpers/test-pglite";
 import { __test as connectionTest } from "../db/connection";
-import { conversations, previewSessions, projectMembers, projects, users } from "../db/schema";
-import { getServablePreview, isValidPreviewId } from "../db/queries/preview-sessions";
+import { conversations, previewSessions, projectMembers, projects, users, sandboxBindings } from "../db/schema";
+import { getServablePreview } from "../db/queries/preview-sessions";
 import { redeemOneTimeCode, signPreviewToken, verifyPreviewToken } from "../runtime/preview/preview-token";
 import { handlePreviewRequest } from "../runtime/preview/preview-proxy";
-import { decideWebSocketUpgrade } from "../runtime/preview/preview-ws";
 import { resolveCurrentPreviewSandboxTarget } from "../runtime/preview/preview-target";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
 import { IncusHostLiveWitness } from "./incus-host-live-witness";
 import type { IncusPreviewTrafficDriver } from "./incus-preview-traffic";
 import { IncusSandboxPreviewBackend } from "./incus-preview-backend";
+import { createIncusPreviewAuthorizer } from "./incus-preview-authority";
+import { IncusWorkspaceCaller } from "./incus-workspace-caller";
+import { createIncusPreviewTrafficDriver } from "./incus-preview-traffic";
+import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
+import { incusManifest } from "../../extensions/incus-sandbox/manifest";
+import { tryBridgePreviewWebSocket, createPreviewWebSocketHandler } from "../../web/src/lib/server/preview/ws-bridge";
 import type { IncusQualificationFixtureService, IncusQualificationStore } from "./incus-qualification";
 import { logger } from "../logger";
 
@@ -48,6 +54,28 @@ test("SP09 host witness uses the real registry and token gates, then removes its
     desiredState: "RUNNING", observedState: "RUNNING" };
   const selected = { preset, presetDigest, effectiveSettingsDigest: settingsDigest,
     snapshot: { release: { releaseDigest } }, connection: { revision: 1 } };
+  const { snapshot } = releaseRuntimeFixture(scope.installationId, structuredClone(incusManifest));
+  snapshot.release.id = scope.releaseId;
+  snapshot.release.releaseDigest = releaseDigest;
+  snapshot.installation.activeReleaseId = scope.releaseId;
+  await db.insert(sandboxBindings).values({ id: handle.sandboxId, projectId,
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    connectionId: scope.connectionId, connectionRevision: 1, resourceKey: handle.sandboxId,
+    generation: 1, profile: preset.profile, presetId: preset.id, presetDigest,
+    effectiveSettingsDigest: settingsDigest, desiredState: "RUNNING", observedState: "RUNNING" });
+  const caller = new IncusWorkspaceCaller({ db, resolveRelease: async () => snapshot,
+    resolveConnection: async () => ({ id: scope.connectionId, revision: 1,
+      providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revokedAt: null,
+      project: "ezharness", endpoint: "https://incus.example:8443",
+      serverCertificatePem: readFileSync(new URL("./incus-transport/test-server.pem", import.meta.url), "utf8"),
+      clientCertificatePem: "fixture-client", privateKeyPem: "fixture-key",
+      configuration: { kind: "incus", profile: "ezharness-feature", guestUser: "sandbox", helperVersion: "0.1.0" },
+    } as never) });
+  let ordinaryReadinessCalls = 0;
+  let releaseReadiness!: () => void;
+  const heldReadiness = new Promise<boolean>(resolve => { releaseReadiness = () => resolve(false); });
+  const authorizePreview = createIncusPreviewAuthorizer({ db, caller,
+    qualified: async () => { ordinaryReadinessCalls++; return heldReadiness; } });
   const backend = new IncusSandboxPreviewBackend({} as never);
   const served: string[] = [];
   backend.serve = async request => {
@@ -63,12 +91,37 @@ test("SP09 host witness uses the real registry and token gates, then removes its
     if (!running || request.targetPort !== 4173 || request.binding.workspaceId !== handle.sandboxId) {
       throw new Error("changed guest socket target");
     }
-    let sent = "";
-    return { protocol: "vite-hmr", send: async frame => { sent = String(frame); },
-      messages: (async function* () { yield sent; })(), close: async () => {} };
+    await authorizePreview(request);
+    const pending: string[] = [];
+    let closed = false;
+    let wake: (() => void) | undefined;
+    return { protocol: "vite-hmr", send: async frame => { pending.push(String(frame)); wake?.(); },
+      messages: (async function* () {
+        while (!closed) {
+          if (pending.length) { yield pending.shift()!; continue; }
+          await new Promise<void>(resolve => { wake = resolve; });
+        }
+      })(), close: async () => { closed = true; wake?.(); } };
   };
   const token = (cookie: string | null) => cookie?.startsWith("__ezpreview=")
     ? cookie.slice("__ezpreview=".length) : null;
+  const socketHandler = createPreviewWebSocketHandler();
+  const server = Bun.serve({ hostname: "127.0.0.1", port: 0,
+    async fetch(request, bunServer) {
+      if (new URL(request.url).pathname === "/api/ready") return new Response("ready");
+      const previewId = (request.headers.get("host") ?? "").split(".")[0]!;
+      return await tryBridgePreviewWebSocket(request, previewId, "localhost", {
+        server: { upgrade: (raw, options) => raw === request && bunServer.upgrade(request,
+          { data: options?.data, ...(options?.headers ? { headers: options.headers } : {}) }) }, request,
+      })
+        ?? new Response("Not found", { status: 404 });
+    }, websocket: { open: socketHandler.open, close: socketHandler.close,
+      message: (socket, frame) => socketHandler.message(socket,
+        typeof frame === "string" ? frame : Uint8Array.from(frame).buffer),
+    } });
+  const wireTraffic = createIncusPreviewTrafficDriver({ env: {
+    EZCORP_PUBLIC_URL: `http://127.0.0.1:${server.port}`, EZCORP_PREVIEW_APP_HOST: "localhost" } });
+  await wireTraffic.ready();
   const traffic: IncusPreviewTrafficDriver = {
     ready: async () => {},
     handoff: async ({ previewId, code }) => {
@@ -88,29 +141,7 @@ test("SP09 host witness uses the real registry and token gates, then removes its
       return { status: response.status, body: new Uint8Array(await response.arrayBuffer()),
         location: response.headers.get("location") };
     },
-    webSocket: async ({ previewId, cookie, path, challenge: socketChallenge, wrongOrigin }) => {
-      const decision = await decideWebSocketUpgrade({ previewId, requestPath: path,
-        cookieToken: token(cookie), origin: wrongOrigin ? "https://invalid.invalid"
-          : `http://${previewId}.preview.localhost`, appHost: "localhost" },
-      { verifyToken: verifyPreviewToken, getServable: getServablePreview, isValidPreviewId });
-      if (!decision.accept || !("kind" in decision) || decision.kind !== "sandbox") {
-        return { status: 403, subprotocol: null, reply: "" };
-      }
-      const target = await resolveCurrentPreviewSandboxTarget(decision.row);
-      if (target?.kind !== "sandbox" || !target.backend?.previews?.connectWebSocket) {
-        return { status: 403, subprotocol: null, reply: "" };
-      }
-      const socket = await target.backend.previews.connectWebSocket({ binding: target.binding,
-        previewId, userId: decision.userId, targetPort: decision.port, requestPath: path,
-        search: "", expiresAt: decision.row.expiresAt!, signal: new AbortController().signal,
-        subprotocol: "vite-hmr" });
-      await socket.send(socketChallenge);
-      for await (const reply of socket.messages) {
-        await socket.close();
-        return { status: 101, subprotocol: socket.protocol, reply: String(reply) };
-      }
-      throw new Error("guest socket did not answer");
-    },
+    webSocket: async request => wireTraffic.webSocket(request),
   };
   const checkpoint = spyOn(IncusQualificationCheckpointStore.prototype, "get")
     .mockImplementation(async () => ({ state: "CLAIMED", runId: "previewrun", nonce: "nonce",
@@ -151,6 +182,7 @@ test("SP09 host witness uses the real registry and token gates, then removes its
     const proof = await witness.exercisePreviewAndStop(handle, scope, preset, challenge);
     expect(proof.httpStatus).toBe(200);
     expect(proof.webSocketStatus).toBe(101);
+    expect(ordinaryReadinessCalls).toBe(0);
     expect(proof.dispatch).toMatchObject({ backend: "incus", instanceId: handle.sandboxId,
       port: 4173, httpRequests: 2, webSocketConnections: 1 });
     expect(proof.denied).toEqual({ missingAuth: 404, wrongOwner: 404, malformed: 404,
@@ -224,6 +256,8 @@ test("SP09 host witness uses the real registry and token gates, then removes its
       .rejects.toThrow("preview guest loopback service is unavailable");
     expect(events).toEqual(["processes.start", "processes.inspect", "power.stop"]);
   } finally {
+    releaseReadiness();
+    server.stop(true);
     checkpoint.mockRestore();
     if (previousSecret === undefined) delete process.env.EZCORP_JWT_SECRET;
     else process.env.EZCORP_JWT_SECRET = previousSecret;

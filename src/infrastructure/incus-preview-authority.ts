@@ -82,7 +82,8 @@ export function createIncusPreviewAuthorizer(deps: IncusPreviewAuthorityDependen
       : !!await resolveQualificationPreviewTarget(row);
     if (!preset || await sandboxPresetDigest(preset) !== binding.presetDigest
       || connection.configuration.kind !== "incus" || connection.configuration.guestUser !== "sandbox"
-      || (!await qualified(binding) && !await fixturePermitted())) {
+      // The claimed lease is independent of the baseline this run is still proving.
+      || (!await fixturePermitted() && !await qualified(binding))) {
       throw new Error("Incus preview profile is not qualified");
     }
     return { ...authorized, preset, row, binding: reference.binding };
