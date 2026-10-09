@@ -2381,5 +2381,45 @@ class StoppedUserCreateSignerTests(unittest.TestCase):
         self.assertTrue(self.supervisor.recovery_held())
 
 
+    def test_user_child_clears_groups_then_credentials_then_parent_death_signal(self):
+        events = []
+        libc = mock.Mock()
+        libc.prctl.side_effect = lambda *args: events.append(("prctl", args)) or 0
+        with mock.patch.object(MODULE.os, "geteuid", return_value=0), \
+                mock.patch.object(MODULE.os, "setgroups", side_effect=lambda groups: events.append(("groups", groups))), \
+                mock.patch.object(MODULE.os, "setgid", side_effect=lambda gid: events.append(("gid", gid))), \
+                mock.patch.object(MODULE.os, "setuid", side_effect=lambda uid: events.append(("uid", uid))), \
+                mock.patch.object(MODULE.ctypes, "CDLL", return_value=libc), \
+                mock.patch.object(MODULE.os, "getppid", return_value=999), \
+                mock.patch.object(MODULE.os, "_exit") as exit_child:
+            self.supervisor.drop_stopped_user_privileges(999)
+            self.assertEqual(events, [("groups", []), ("gid", self.supervisor.app_gid),
+                ("uid", self.supervisor.app_uid), ("prctl", (1, MODULE.signal.SIGKILL, 0, 0, 0))])
+            exit_child.assert_not_called()
+            self.supervisor.drop_stopped_user_privileges(1000)
+            exit_child.assert_called_once_with(127)
+            libc.prctl.return_value = -1
+            libc.prctl.side_effect = None
+            with self.assertRaisesRegex(OSError, "parent-death fence"):
+                self.supervisor.drop_stopped_user_privileges(999)
+
+
+    def test_only_user_database_phases_select_strict_child_boundary(self):
+        cases = [("durable", {"target": {"action": "recover-user-create"}}, "strict"),
+            ("apply", {"receipt": {"payload": {"action": "recover-user-create"}}}, "strict"),
+            ("backend", {"target": {"action": "recover-user-create"}}, "root"),
+            ("durable", {"target": {"action": "recover-noeffect"}}, "legacy")]
+        for phase, value, expected in cases:
+            with self.subTest(phase=phase, expected=expected), mock.patch.object(MODULE.subprocess, "run",
+                    return_value=subprocess.CompletedProcess([], 0, stdout=b'{"verified":true}')) as run:
+                self.supervisor.recovery_stage(phase, value, int(time.time() * 1000) + 10000)
+                setup = run.call_args.kwargs["preexec_fn"]
+                if expected == "strict":
+                    self.assertEqual(setup.func, self.supervisor.drop_stopped_user_privileges)
+                    self.assertEqual(setup.args, (os.getpid(),))
+                elif expected == "legacy": self.assertEqual(setup, self.supervisor.drop_app_privileges)
+                else: self.assertIsNone(setup)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,8 @@ from that exact child process, verified with SO_PEERCRED and /proc start ticks.
 
 import argparse
 import base64
+import ctypes
+from functools import partial
 import hashlib
 import importlib.util
 import json
@@ -319,6 +321,19 @@ class Supervisor:
             os.setgid(self.app_gid)
             os.setuid(self.app_uid)
 
+    def drop_stopped_user_privileges(self, expected_parent):
+        if os.geteuid() != 0:
+            raise PermissionError("stopped user recovery child requires root producer")
+        os.setgroups([])
+        os.setgid(self.app_gid)
+        os.setuid(self.app_uid)
+        libc = ctypes.CDLL(None, use_errno=True)
+        # Credential changes clear this setting. Install it after the UID drop.
+        if libc.prctl(1, signal.SIGKILL, 0, 0, 0) != 0:  # PR_SET_PDEATHSIG
+            raise OSError(ctypes.get_errno(), "parent-death fence unavailable")
+        if os.getppid() != expected_parent:
+            os._exit(127)
+
     def start_child(self):
         if self.recovery_held():
             raise RuntimeError("recovery held for operator review")
@@ -496,11 +511,16 @@ class Supervisor:
             command = self.recovery_restore_command
         if not command:
             raise ValueError("operator recovery command unavailable")
+        app_phase = phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect")
+        action = value.get("target", {}).get("action") or value.get("receipt", {}).get("payload", {}).get("action")
+        drop = self.drop_app_privileges
+        if app_phase and action == "recover-user-create":
+            drop = partial(self.drop_stopped_user_privileges, os.getpid())
         try:
             check = subprocess.run(command,
                 input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
                 timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
-                preexec_fn=self.drop_app_privileges if phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect") else None)
+                preexec_fn=drop if app_phase else None)
         except OSError:
             self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
             raise ValueError("independent operator recovery verifier failed") from None
