@@ -7,10 +7,14 @@ source-bound evidence. Preserve each result under its recorded release.
 
 At the 9 October handoff, the final candidate's installed daily workflow and
 baseline acceptance remain pending. The original G5 procedure below is retained
-as a historical reference. Its old smoke-cleanup prerequisites and new real-model
-turn are not added to the current acceptance scope. Current execution follows
-the reviewed handoff packet: a new full qualification with file, process and
-Compose checks, together with retained historical native-model evidence.
+as a historical reference. Its old smoke-cleanup prerequisites are not added to
+the current acceptance scope. Current execution follows the reviewed handoff
+packet: full qualification, plus up to three bounded native-agent turns for a
+fixture marker and owner-approved preview, then exact file readback after guest
+and app restart. These turns use the existing approved model connection and
+normal tool approvals. They do not authorize new credentials, unrelated work,
+or replay of an uncertain effect. Historical native-model evidence remains
+bound to its recorded source.
 
 Do not replay an uncertain operation or treat this historical procedure as
 permission to start another guest. See the
@@ -53,6 +57,6 @@ Use **Dispose** and its existing confirmation. Record the saved operation and te
 
 ## Evidence and limits
 
-Save sanitized request/response records, saved tool rows, guest/host observations, and browser screenshots. Bind all records to the exact release and project/workspace identities. Compose execution already proved on the smoke guest is separate evidence; rerun Compose through this project's `shell` tool if G5 requires the same project workflow. Do not infer automatic repository bootstrap, preview control, or process-log UI: those are not implemented.
+Save sanitized request/response records, saved tool rows, guest/host observations, and browser screenshots. Bind all records to the exact release and project/workspace identities. Compose execution already proved on the smoke guest is separate evidence; rerun Compose through this project's `shell` tool if G5 requires the same project workflow. This historical procedure does not itself prove automatic repository bootstrap, preview control, or process-log UI. Later implementation and live evidence must be assessed separately.
 
 The existing deterministic alternative is `HarnessClient.runScripted`: it scripts only the LLM HTTP boundary and executes the native tool loop. It requires the existing fail-closed test surface (`EZCORP_ALLOW_TEST_SURFACE=1`, `PI_E2E_REAL=1`, and nonproduction). Use only a separately reviewed disposable app if this surface is closed. Label that result as deterministic routing evidence, not a real-model run. `/api/tool-invoke` invokes extension tools and cannot substitute for native chat tool execution.

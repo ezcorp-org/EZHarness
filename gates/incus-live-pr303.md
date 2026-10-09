@@ -5,33 +5,47 @@ Scope: Review and apply a plan bound to the pinned provider release on the named
 ## Current handoff — 9 October 2026 UTC
 
 Frozen source `645b9c44fcd4409b9d30acb17dea44154e02934e` passed the required
-local fast run and [hosted CI run `37873345058`](https://github.com/ezcorp-org/EZHarness/actions/runs/37873345058). The fast run completed all
-12 steps. Hosted CI completed all 50 jobs and 51 PR checks, including the real
-one-connection Postgres continuation regression. Hosted coverage, new-file,
-changed-line and changed-function CRAP gates passed. These are source checks;
-the final full local gate remains pending.
+12-step fast run, all 14 full local gates, canonical complexity checks, and
+[hosted CI run `37873345058`](https://github.com/ezcorp-org/EZHarness/actions/runs/37873345058).
+Hosted CI completed all 50 jobs and 51 PR checks, including the real
+one-connection Postgres continuation regression. These results apply to that
+source; later changes still need their own validation.
 
-At this recorded handoff, the private app is stopped behind its ingress hold
-on the earlier `5e1ccb45` deployment. The retained qualification checkpoint is
-`CLAIMED`. The detached whole-run audit completed with actual exit `0`
-(receipt `c68a0238`). It verified all three fixture destroys as `SUCCEEDED`,
-their bindings as `ABSENT` with cleanup confirmed, and compute and disk
-reservations as `RELEASED`. Global unreleased charges and actionable work were
-zero under the existing compensated-original exclusion. Two historical
-compensated `OUTCOME_UNKNOWN` rows remain in the evidence; they were not erased
-or relabelled as successful operations. This audit does not complete the claimed
-checkpoint or prove qualification, a baseline or admission readiness.
-The new candidate is not yet installed and has no final installed baseline.
+Source645 also completed real qualification at 04:26 UTC on 9 October. Normal
+management readiness later failed despite its saved full proof. The old retained
+checkpoint was reconciled as `FAILED`; it is no longer an unresolved `CLAIMED`
+run. Historical compensated `OUTCOME_UNKNOWN` rows remain in the evidence and
+were not relabelled as successful operations.
 
-Earlier installed-app workflows and ten recovered feature cycles remain
-historical evidence for their recorded deployments. They do not establish the
-final candidate's qualification or daily readiness. Failed attempts, model
-errors, excluded runs and recovered results stay in the evidence.
+Diagnostic source `db80f5743653b95e44547de42928ca8992ab202f` is now installed
+and healthy behind the ingress hold. Independent checks verified database
+preservation, startup, runtime binding, and active provider0.1.6 generation8.
+Its fresh qualification run, `incus-diagnostic-db80-full-20261009-v1`, ended
+`FAILED` at 06:44 UTC with `Preview WebSocket headers are incomplete`.
+The failure is preserved. Its four owned local probe fixtures were removed,
+and native inventory showed zero guests. This inventory alone does not prove
+global database accounting cleanup. No current qualification or baseline is
+claimed for this deployment.
 
-Before closing the live gate, record guarded reconciliation and installation,
-completed qualification and its durable baseline, ordinary daily admission,
-restart persistence, installed UI/preview acceptance and final whole-run resource
-checks. Release private access only through the reviewed operator decision.
+The native sandbox preview registration and process-lifetime repair has passed
+focused tests and independent review. It is integrated in source24f4e but is not
+yet deployed. Sourcefe214 also integrates the reviewed qualification permission
+ordering repair: an active, strictly scoped qualification permission is checked
+before ordinary daily readiness. The real authenticated socket regression and
+41 focused tests passed without changing deadlines or access checks. A new live
+result is still required; neither repair is claimed to resolve the earlier
+readiness failure without that evidence.
+
+The historical ten-cycle audit passed the original criterion, which includes
+deliberate failure recovery. Those results remain bound to sourceff723, not the
+final candidate. No duplicate ten-cycle batch is required merely because some
+cycles exercised recovery. Failed attempts and excluded runs stay in the record.
+
+Before closing the live gate, verify the repaired source, complete qualification,
+prove ordinary daily admission and restart persistence, exercise the installed
+UI and authenticated preview, and record final resource checks. The bounded
+native-agent acceptance includes exact file retention before and after guest
+and app restart. Release private access only after the authorized workflow passes.
 Independent-provider portability, Infisical parity and native-worker completion
 are outside this Incus proof.
 

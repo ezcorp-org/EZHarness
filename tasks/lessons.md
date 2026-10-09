@@ -1,5 +1,11 @@
 # Lessons
 
+- Execute reviewed root helpers from protected staged paths or verified descriptor bytes. A hash check followed by reopening a file under a developer-owned ancestor does not prove the same execution boundary. Record any weaker boundary honestly and verify completed effects; do not replay a successful mutation to improve its receipt.
+
+- Keep test temporary directories short and outside Git worktrees. A long TMPDIR can exceed Unix socket limits; a nested directory can make a non-repository fixture discover the parent repository. Prove an environment failure with the same source under standard /tmp before changing code or restarting the owned gate.
+
+- Read acceptance criteria literally. Ten lifecycle tests that explicitly include failure recovery do not require ten fault-free runs. Audit failed and excluded attempts and their cleanup; retain the tested source identity instead of inventing a stronger gate or repeating accepted evidence.
+
 - A mutation report is not proof that mutants were tested. Check `testsCompleted` and run one active mutant directly when a score is unexpectedly zero. Stryker and Vitest must use the same nested-suite name separator in both the dry-run coverage hook and the mutant runner; pin a package patch and verify it after a frozen install.
 
 - Run full repository gates in a clean, fixed worktree. Progress edits in the integration worktree invalidate browser coverage attestation, even when only task documents change. Record the gate's actual source and process before resuming work after compaction; do not launch a duplicate suite.

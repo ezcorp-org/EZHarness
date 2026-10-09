@@ -5,17 +5,25 @@ This checklist supersedes the historical status below. Root owns live actions; e
 - [x] Reproduce the continuation transaction deadlock with a real file database and concurrent HTTP request.
 - [x] Fix transaction propagation and PostgreSQL JSON encoding; prove both database consumers and authorization failures. Independent review and normal commit hooks passed.
 - [x] Fix read-only verification of expired, completed cleanup. Prove the held two-stage supervisor recovery and denial cases. Independent review and normal commit hooks passed.
-- [x] Integrate both reviewed commits once. Current integration head: d520e643a.
-- [ ] Add the real PostgreSQL continuation consumer to the existing required PostgreSQL CI lane; independently review.
-- [ ] Freeze the combined source; run one required-fast gate and relevant coverage/complexity checks; build the exact bundle and push.
-- [ ] Review and execute bounded stop, preserve the stopped database, and inspect a detached copy to select recovery from actual state.
-- [ ] Recover the current run with corrected code under the public hold, preserving the original signed claim and process identity.
-- [ ] Run a new full live qualification and capture a valid baseline.
-- [ ] Run final local and hosted checks on the exact source while the baseline ages.
-- [ ] Prove the ordinary UI workflow, restart/resume, expired-proof behavior, failed-delete recovery, and final zero resources.
+- [x] Integrate both reviewed commits once; include the real PostgreSQL continuation consumer in the required PostgreSQL CI lane.
+- [x] Freeze source645b9, pass required-fast and focused quality checks, build and independently verify its exact bundle, and push. Hosted CI passed all 50 jobs, including the real PostgreSQL consumer.
+- [x] Execute the reviewed stop, preserve the database, and inspect a detached copy. Recover the old run with its original signed claim and process identity; do not restore or invent database state.
+- [x] Install source645b9 behind the hold and independently verify health, provider0.1.6 generation8, and the current process identities.
+- [x] Complete new real qualification incus-continuation-db-full-20261009-v1, persist its baseline and terminal COMPLETED state, clean its fixtures, and verify zero native guests. This includes backend file retention and authenticated preview assertions.
+- [x] Audit the historical ten completed lifecycle receipts, including the excluded attempt and its confirmed cleanup. Original acceptance includes deliberate failure recovery. Evidence is sourceff723, not ten current-source runs; no repeat batch is needed.
+- [x] Reproduce normal management readiness failure twice after successful qualification. Preserve the successful qualification and both failures; do not relax controls or guess the cause.
+- [x] Add independently reviewed finite diagnostic logging, with a real socket-to-management regression. Integrated source db80f5743; focused tests, web checks, coverage, complexity, and normal hooks passed. This is a diagnostic change, not the underlying fix.
+- [x] Build and independently verify the exact db80 diagnostic bundle. Complete its ordinary forward update, prove database preservation, and verify startup, provider generation8, runtime binding, and the hold. No new provider approval was needed.
+- [x] Preserve new db80 qualification failure at the preview WebSocket check. Record FAILED honestly, verify zero native guests, and remove the four owned local probe fixtures. Do not infer global database accounting from native inventory.
+- [x] Reproduce the incomplete-header failure through the real authenticated socket path and repair qualification permission ordering. Independently reviewed source0ab58 is integrated asfe214; 41 focused tests, 482 assertions, types, lint, changed-line coverage, and complexity checks passed. Existing deadlines and access checks remain. The repaired live run is still required before claiming resolution of the observed server failure.
+- [ ] Fix and verify the readiness cause against the real failing management path. Run a new source-bound qualification after any deployed source change.
+- [ ] Finish final-source repository validation. Frozen645 full local run24703 and all 50 hosted jobs passed; that evidence is baseline-only for later changes. Validate the combined final source, run the required-fast gate before the next push, and inspect hosted results.
+- [ ] Capture the valid current baseline in a detached copy, prove restart and aged-baseline admission, and preserve actual database/accounting evidence.
+- [ ] Prove the ordinary UI workflow, authenticated preview/consent, retained file content, same-guest restart/resume, failed-delete recovery, and final zero resources.
+- [x] Repair native sandbox-shell preview registration and process lifetime. Reproduce the real helper, event producer, parser, and UI store failures; reuse existing consent controls. Independently reviewed source53deb is integrated as24f4e. Focused tests, build, types, 170/170 changed-line coverage, and normal hooks passed. Live authenticated browser acceptance remains in the workflow task above.
 - [ ] Verify health and normal login, release the hold, and update the user guide and PR status with actual evidence.
 
-Review: the previous 5e source passed all 50 hosted jobs. Its live run created two guests and later removed them, but stalled before terminal persistence. This is not a successful final qualification. No live restart or new qualification has run after that stall.
+Review: source645 completed real qualification at 04:26 UTC, then normal management readiness failed at about11.4 seconds. Diagnostic source db80 is now installed and healthy behind the hold. Its fresh qualification failed at 06:44 UTC with incomplete preview WebSocket headers; this is separate evidence, not proof of the earlier readiness cause. The failed run and cleanup receipts are preserved. Native preview fix24f4e and qualification permission fixfe214 are integrated but not yet deployed. Frozen645 full local run24703 passed all14 gates and canonical complexity checks; the old invalid-TMPDIR run remains recorded as failed. Keep the hold until the final live workflow passes. Exact paths and hashes are in .cache/readiness-release/ROOT-LIVE-CURRENT.md.
 
 # Historical completion — 6 October 2026 resumed session
 
