@@ -2,6 +2,24 @@
 
 This checklist supersedes the historical status below. Root owns live actions; each Sol worker uses an isolated worktree.
 
+## Current UI failure — 9 October, 17:44 UTC
+
+- [x] Run the actual browser workflow after the saved qualification expires; preserve the first CREATE and its failure.
+- [x] Check native inventory: zero guests observed. Preserve the created local project/binding and failed operation; do not replay.
+- [x] Read bounded supervisor logs: eight admission readiness deadline failures. This does not yet prove the exact CREATE denial cause.
+- [x] Reproduce the ordinary CREATE timeout with the real supervisor/socket, PGlite, controller, and broker. The reviewed fix passed the same consumer and was integrated as b1ea7baf3. Deployment pending.
+- [x] Trace supervisor deadlines and measure one real management request: HTTP 200 in 9.299 seconds. The observation does not uniquely establish the earlier request's cause.
+- [x] Independently review operation effects, the signed failed-CREATE recovery, and the user guidance. Preserve actual failed-operation evidence; no live recovery has run.
+- [x] Repair proven post-write redirect classification. Real mTLS regression, focused tests, full types, lint, normal hooks, and independent review passed. Integrated as 35cc2b22f; deployment still pending.
+- [x] Add the reviewed operator recovery path for terminal failed user CREATE, reusing signed fencing, quiet-period, absence, backend-operation, and atomic accounting proofs. Integrated as c70f3b9b6; deployment pending.
+- [x] Integrate the separately reviewed recovery child boundary as 33feaae7e: clear supplementary groups, drop to the application identity, and stop the database child if its controller dies. Actual disposable PGlite process evidence proved identity, signal handling, termination, and unchanged database ownership.
+- [ ] Prepare the exact recovery row fingerprints through the shared repository inspector on a stopped detached copy. Do not infer them from public API metadata or use wrapper SQL.
+- [x] Replace misleading failed-CREATE reconciliation guidance with “Operator recovery required.” Keep status refresh and valid pending-operation reconciliation. Integrated as a17090c37; four browser cases and 59 component/recovery tests passed.
+- [ ] Freeze the combined source and run one final repository gate, including coverage and complexity. Build and independently verify the immutable release; keep prior source receipts intact.
+- [ ] Resolve the failed binding through the supported recovery path, then complete one actual UI/native-agent workflow, retained restart, cleanup, and user login.
+
+Review: deployed source 5e026 remains unchanged and repository checks remain green. The actual UI acceptance failed; no claim of completed user workflow or native model work.
+
 - [x] Reproduce the continuation transaction deadlock with a real file database and concurrent HTTP request.
 - [x] Fix transaction propagation and PostgreSQL JSON encoding; prove both database consumers and authorization failures. Independent review and normal commit hooks passed.
 - [x] Fix read-only verification of expired, completed cleanup. Prove the held two-stage supervisor recovery and denial cases. Independent review and normal commit hooks passed.

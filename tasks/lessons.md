@@ -1,5 +1,11 @@
 # Lessons
 
+- Keep the product scope explicit: these are persistent AI development sandboxes. The isolated EZHarness test instance validates that workflow; it is not an application hosting product.
+
+- Read the complete executed time check before stating a wait deadline. Qualification age starts at verifiedAt, not at a later snapshot capturedAt. Do not add a new wait to preserve an incorrect earlier estimate.
+
+- A failed browser workflow can still create local project and binding records. Check the saved request and operation before calling an attempt effect-free. An empty backend inventory is a bounded observation, not proof that the whole request made no changes.
+
 - Execute reviewed root helpers from protected staged paths or verified descriptor bytes. A hash check followed by reopening a file under a developer-owned ancestor does not prove the same execution boundary. Record any weaker boundary honestly and verify completed effects; do not replay a successful mutation to improve its receipt.
 
 - Keep test temporary directories short and outside Git worktrees. A long TMPDIR can exceed Unix socket limits; a nested directory can make a non-repository fixture discover the parent repository. Prove an environment failure with the same source under standard /tmp before changing code or restarting the owned gate.
