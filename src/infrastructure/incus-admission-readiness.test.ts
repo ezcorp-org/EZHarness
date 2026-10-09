@@ -154,6 +154,114 @@ test("capacity denial is distinct, partial data and bounded timeout are unavaila
   await expect(defaults.claim("binding", { idempotencyScope: "feature", idempotencyKey: "default" }, await f.service.check(admissionPin.scope))).rejects.toThrow();
 });
 
+test("mixed callers share a pending observation and retain independent capacity decisions", async () => {
+  const f = await fixture(); await f.baseline();
+  f.source.observation.capacity.availableMemoryBytes = 0;
+  let release!: () => void;
+  f.setGate(new Promise<void>(resolve => { release = resolve; }));
+  const other = new IncusAdmissionReadinessService(f.db, f.qualifications, f.deps);
+  const before = f.calls();
+  const checks = Promise.allSettled([f.service.check(admissionPin.scope), other.check(admissionPin.scope, false)]);
+  await new Promise(resolve => setTimeout(resolve, 0)); release();
+  const [capacity, dispatch] = await checks;
+  expect(capacity).toMatchObject({ status: "rejected", reason: { code: "capacity_full" } });
+  expect(dispatch).toMatchObject({ status: "fulfilled", value: { baselineRunId: "run" } });
+  expect(f.calls() - before).toBe(1);
+  const rows = releaseRows<{ failure: string | null; result: unknown }>(await f.db.execute(sql`SELECT failure,result FROM incus_admission_readiness`));
+  expect(rows).toHaveLength(2);
+  expect(rows.find(row => row.failure === "capacity_full")).toMatchObject({ result: null });
+  expect(rows.find(row => row.failure === null)?.result).not.toBeNull();
+  f.setGate(undefined);
+  await other.check(admissionPin.scope, false);
+  expect(f.calls() - before).toBe(2);
+});
+
+test("shared read failure is removed and expiry never extends a caller's authority", async () => {
+  const f = await fixture(); await f.baseline();
+  const before = f.calls();
+  for (const failure of ["unavailable", "expiry"] as const) {
+    let release!: () => void;
+    f.setGate(new Promise<void>(resolve => { release = resolve; }));
+    f.setFail(failure === "unavailable");
+    const checks = Promise.allSettled([f.service.check(admissionPin.scope), f.service.check(admissionPin.scope, false)]);
+    await new Promise(resolve => setTimeout(resolve, 0));
+    if (failure === "expiry") f.setNow(f.getNow() + 15_000);
+    release();
+    for (const result of await checks) expect(result).toMatchObject({ status: "rejected", reason: { code: "readiness_unavailable" } });
+    f.setGate(undefined); f.setFail(false);
+    expect((await f.service.check(admissionPin.scope, false)).baselineRunId).toBe("run");
+  }
+  expect(f.calls() - before).toBe(4);
+});
+
+test("changed baseline authority cannot join a pending read of the old baseline", async () => {
+  const f = await fixture(); await f.baseline();
+  const before = f.calls();
+  let release!: () => void;
+  f.setGate(new Promise<void>(resolve => { release = resolve; }));
+  const old = Promise.allSettled([f.service.check(admissionPin.scope)]);
+  await new Promise(resolve => setTimeout(resolve, 0));
+  await f.db.execute(sql`UPDATE incus_admission_baselines SET authority =
+    jsonb_set(authority, '{securitySourceDigest}', ${JSON.stringify("9".repeat(64))}::text::jsonb)`);
+  f.source.authority.securitySourceDigest = "9".repeat(64);
+  const current = f.service.check(admissionPin.scope, false);
+  await new Promise(resolve => setTimeout(resolve, 0)); release();
+  expect((await old)[0]).toMatchObject({ status: "rejected", reason: { code: "qualification_expired" } });
+  expect((await current).baselineRunId).toBe("run");
+  expect(f.calls() - before).toBe(2);
+});
+
+test("mixed callers cannot bypass post-read pin drift or extend a shared timeout", async () => {
+  const f = await fixture(); await f.baseline();
+  let release!: () => void;
+  f.setGate(new Promise<void>(resolve => { release = resolve; }));
+  let authorizations = 0;
+  f.qualifications.authorizeFixture = async () => { authorizations++; return f.selected; };
+  const drift = new IncusAdmissionReadinessService(f.db, f.qualifications, { ...f.deps, read: async pin => {
+    const observation = await f.deps.read(pin);
+    f.selected.connection.revision++;
+    return observation;
+  } });
+  const checks = Promise.allSettled([drift.check(admissionPin.scope), drift.check(admissionPin.scope, false)]);
+  while (authorizations < 2) await new Promise(resolve => setTimeout(resolve, 0));
+  release();
+  for (const result of await checks) {
+    expect(result).toMatchObject({ status: "rejected", reason: { code: "readiness_unavailable" } });
+  }
+  f.selected.connection.revision--;
+  f.setGate(new Promise(() => {}));
+  const short = new IncusAdmissionReadinessService(f.db, f.qualifications, { ...f.deps, timeoutMs: 50 });
+  const before = f.calls();
+  const first = Promise.allSettled([short.check(admissionPin.scope)]);
+  while (f.calls() === before) await new Promise(resolve => setTimeout(resolve, 0));
+  const other = Promise.allSettled([f.service.check(admissionPin.scope, false)]);
+  for (const result of [...await first, ...await other]) {
+    expect(result).toMatchObject({ status: "rejected", reason: { code: "readiness_unavailable", reason: "deadline_exceeded" } });
+  }
+  expect(f.calls() - before).toBe(1);
+  f.setGate(undefined);
+  expect((await f.service.check(admissionPin.scope)).baselineRunId).toBe("run");
+  expect(f.calls() - before).toBe(2);
+});
+
+test("a late mixed-policy joiner cannot extend the first reader's short proof", async () => {
+  const f = await fixture(); await f.baseline();
+  let release!: () => void;
+  f.setGate(new Promise<void>(resolve => { release = resolve; }));
+  let authorizations = 0;
+  f.qualifications.authorizeFixture = async () => { authorizations++; return f.selected; };
+  const started = f.getNow();
+  const before = f.calls();
+  const first = f.service.check(admissionPin.scope);
+  while (f.calls() === before) await new Promise(resolve => setTimeout(resolve, 0));
+  f.setNow(started + 10_000);
+  const other = f.service.check(admissionPin.scope, false);
+  while (authorizations < 2) await new Promise(resolve => setTimeout(resolve, 0));
+  release();
+  for (const ready of await Promise.all([first, other])) expect(ready.validUntil).toBe(started + 15_000);
+  expect(f.calls() - before).toBe(1);
+});
+
 test("baseline commit checks deadline and unchanged source without another network read", async () => {
   const f = await fixture(); await f.baseline();
   const prepared = await f.service.prepareBaseline(admissionPin.scope, "run", f.qualification);

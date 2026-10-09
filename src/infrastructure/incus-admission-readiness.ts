@@ -32,6 +32,7 @@ export interface PreparedIncusAdmissionBaseline {
   validUntil: number;
 }
 interface ReadyResult { ready: IncusAdmissionReady; observation: IncusAdmissionObservation }
+interface PendingObservation { observation: IncusAdmissionObservation; validUntil: number }
 export interface IncusAdmissionReadinessDependencies {
   now?: () => number;
   assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
@@ -39,7 +40,7 @@ export interface IncusAdmissionReadinessDependencies {
   read?: (pin: IncusSupervisorSelectedPin) => Promise<IncusAdmissionObservation>;
 }
 const READY_LIFETIME_MS = 15_000;
-const inFlight = new WeakMap<Database, Map<string, Promise<ReadyResult>>>();
+const inFlight = new WeakMap<Database, Map<string, Promise<PendingObservation>>>();
 
 function pins(scope: IncusQualificationScope, selected: Selection): Pins {
   if (!Number.isSafeInteger(selected.snapshot.installation.generation) || selected.snapshot.installation.generation < 1) throw new IncusAdmissionReadinessError("readiness_unavailable");
@@ -131,17 +132,23 @@ export class IncusAdmissionReadinessService {
   async check(scope: IncusQualificationScope, requireCapacity = true): Promise<IncusAdmissionReady> {
     const baseline = await this.baseline(scope);
     const key = digest({ scope, baseline, requireCapacity });
+    const { ready } = await this.observe(scope, baseline, key, requireCapacity);
+    this.assertDeadline(ready);
+    requireSame(baseline.pins, pins(scope, await this.qualifications.authorizeFixture(scope)), "readiness_unavailable");
+    return ready;
+  }
+
+  /** Share only pending reads of identical authority, never a caller's decision. */
+  private readObservation(scope: IncusQualificationScope, baseline: Baseline, validUntil: number): Promise<PendingObservation> {
+    const key = digest({ scope, baseline });
     let pending = inFlight.get(this.db);
     if (!pending) { pending = new Map(); inFlight.set(this.db, pending); }
     let result = pending.get(key);
     if (!result) {
-      result = this.observe(scope, baseline, key, requireCapacity).finally(() => pending!.delete(key));
+      result = this.read(baseline.pins.pin).then(observation => ({ observation, validUntil })).finally(() => pending!.delete(key));
       pending.set(key, result);
     }
-    const { ready } = await result;
-    this.assertDeadline(ready);
-    requireSame(baseline.pins, pins(scope, await this.qualifications.authorizeFixture(scope)), "readiness_unavailable");
-    return ready;
+    return result;
   }
 
   assertDeadline(ready: { validUntil: number }): void {
@@ -156,11 +163,11 @@ export class IncusAdmissionReadinessService {
       requireSame(baseline.pins, pins(scope, selected));
       const qualification = await this.qualifications.loadBaselineProof(scope, baseline.proofDigest);
       if (!qualification) throw new IncusAdmissionReadinessError("qualification_expired");
-      const observation = await this.read(baseline.pins.pin);
+      const { observation, validUntil } = await this.readObservation(scope, baseline, start + READY_LIFETIME_MS);
       requireSame(baseline.authority, admissionAuthority(observation));
       requireSame(observation.observation.backend.backendVersion, qualification.backendVersion);
       requireSame(baseline.pins, pins(scope, await this.qualifications.authorizeFixture(scope)), "readiness_unavailable");
-      const ready = { qualification, baselineDigest, baselineRunId: baseline.runId, validUntil: start + READY_LIFETIME_MS,
+      const ready = { qualification, baselineDigest, baselineRunId: baseline.runId, validUntil: Math.min(start + READY_LIFETIME_MS, validUntil),
         verifiedAt: new Date(baseline.verifiedAt).getTime(), pins: baseline.pins };
       this.assertDeadline(ready);
       this.assertObservationTime(observation);

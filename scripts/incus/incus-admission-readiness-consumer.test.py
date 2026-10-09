@@ -43,7 +43,7 @@ writeFileSync(process.env.RESULT, JSON.stringify({...result, elapsedMs:performan
 while(true) await Bun.sleep(100);
 '''
 
-def server(directory, delay, scenario):
+def server(directory, delay, scenario, client=CLIENT):
     fixture = FIXTURE.AdmissionAuthorityTests()
     fixture.setUp()
     try:
@@ -66,6 +66,8 @@ def server(directory, delay, scenario):
                     log.write(json.dumps({'phase':'authority', 'seconds':time.monotonic()-started})+'\n')
         authority.observe = observe
         root = Path(directory)
+        delay_file = root / 'receipt-delay'
+        delay_file.write_text('0')
         key = root / 'key'
         key.write_text('fixture-only'); key.chmod(0o600)
         receipt = root / 'receipt.py'
@@ -73,6 +75,10 @@ def server(directory, delay, scenario):
             'hostPolicyDigest':'4'*64,
             'backend':{'backendApi':'incus.v1','backendVersion':'6.0.6','architecture':'amd64','storageDriver':'zfs','isolation':'container','nestedCompose':True},
             'capacity':{'hostId':'host','capturedAt':'2026-10-08T12:00:00Z','availableMemoryBytes':100000,'poolFreeBytes':100000,'availablePids':1000,'cpuThreads':8}}) + "}))\n")
+        if scenario == 'contention':
+            receipt.write_text(receipt.read_text().replace('time.sleep('+str(delay)+')',
+                'open('+repr(str(root/'receipt-started'))+',"w").write("started")\ntime.sleep(float(open('+repr(str(delay_file))+').read()))').replace(
+                "'2026-10-08T12:00:00Z'", "__import__('datetime').datetime.now(__import__('datetime').timezone.utc).isoformat()"))
         if scenario == 'mutation':
             receipt.write_text('from pathlib import Path\nPath(' + repr(str(fixture.root/'web/build/index.js')) + ').write_text("private credential")\n' + receipt.read_text())
         if scenario == 'malformed':
@@ -82,9 +88,10 @@ def server(directory, delay, scenario):
         environment = dict(os.environ, CLIENT_SOURCE=str(ROOT/'src/infrastructure/incus-qualification-supervisor-client.ts'),
             FIXTURE_SOURCE=str(ROOT/'src/infrastructure/__tests__/incus-admission-observation.ts'),
             CONTROL=str(root/'control'), RESULT=str(root/'result'),
+            RECEIPT_DELAY_FILE=str(delay_file),
             CHECK_PRIVATE_REPLY='no' if scenario in ('latency', 'normal') else 'yes')
         supervisor = SUPERVISOR.Supervisor(str(root/'control'),
-            [shutil.which('bun'), '-e', CLIENT], os.getuid(), os.getgid(), key,
+            [shutil.which('bun'), '-e', client], os.getuid(), os.getgid(), key,
             ['unused'], [sys.executable, '-B', str(receipt)], enforce_distinct_uid=False)
         supervisor.admission_authority = authority
         os.environ.update(environment)

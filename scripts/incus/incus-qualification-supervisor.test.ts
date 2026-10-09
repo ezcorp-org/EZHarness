@@ -6,8 +6,9 @@ for (const filename of ["incus-qualification-supervisor.test.py",
   "incus-admission-authority.test.py", "stage-release-bundle.test.py",
   "incus-qualification-supervisor-fault.test.py",
   "incus-qualification-fault-authorize.test.py",
-  "final-flow-cycle.test.py", "incus-admission-readiness-consumer.test.py"]) {
-  const deadlineMs = filename === "incus-admission-readiness-consumer.test.py" ? 30_000 : 20_000;
+  "final-flow-cycle.test.py", "incus-admission-readiness-consumer.test.py",
+  "incus-admission-readiness-contention.test.py"]) {
+  const deadlineMs = filename.startsWith("incus-admission-readiness-") ? 30_000 : 20_000;
   test(filename, async () => {
     const result = await new Promise<{ code: number | null; stderr: string; timedOut: boolean }>((resolve, reject) => {
       const child = spawn("python3", [join(import.meta.dir, filename)], { detached: true, stdio: ["ignore", "ignore", "pipe"] });
