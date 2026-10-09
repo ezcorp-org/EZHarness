@@ -7,24 +7,19 @@ import { buildLimits, filesDigest } from "../src";
 import { source } from "./helpers";
 import { workspaceText } from "@ezcorp/extension-contract";
 
-let activeEntrypointCleanup: (() => Promise<void>) | undefined;
-afterEach(async () => { await activeEntrypointCleanup?.(); });
+const cleanups = new Set<() => Promise<void>>();
+afterEach(async () => {
+  for (const cleanup of cleanups) await cleanup();
+});
 
-async function createRunnerRootWithLongInheritedTmp(): Promise<string> {
-  const inheritedTmp = process.env.TMPDIR;
+async function createRunnerRootWithLongInheritedTmp(): Promise<{ directory: string; longTmp: string; longTmpOwner: string }> {
   const longTmpOwner = await mkdtemp("/tmp/ez-long-tmp-");
   const longTmp = join(longTmpOwner, "extension-runner-coverage-inherited-temporary-directory");
   await mkdir(longTmp, { recursive: true });
-  process.env.TMPDIR = longTmp;
-  try {
-    // The service adds a private gateway socket below this root. Keep the owned
-    // root short so a long inherited TMPDIR cannot exceed Linux's socket limit.
-    return await mkdtemp("/tmp/ez-runner-decl-");
-  } finally {
-    if (inheritedTmp === undefined) delete process.env.TMPDIR;
-    else process.env.TMPDIR = inheritedTmp;
-    await rm(longTmpOwner, { recursive: true, force: true });
-  }
+  // Keep the socket root short, but actually pass the long directory to the
+  // child for its entire lifetime. Changing the parent's env and restoring it
+  // before spawn did not exercise an inherited TMPDIR at all.
+  return { directory: await mkdtemp("/tmp/ez-runner-decl-"), longTmp, longTmpOwner };
 }
 
 test("toolchainRoot names the tree the trusted toolchain comes from; the default is this package's own", async () => {
@@ -69,28 +64,29 @@ test("runner provision preserves type-only exports and their declaration closure
 });
 
 test("production runner entrypoint starts with a long inherited TMPDIR and builds public declaration imports", async () => {
-  const directory = await createRunnerRootWithLongInheritedTmp();
+  const { directory, longTmp, longTmpOwner } = await createRunnerRootWithLongInheritedTmp();
   const socketPath = join(directory, "runner.sock");
   const tokenFile = join(directory, "token");
   const child = Bun.spawn(["bash", "scripts/start-extension-runner-e2e.sh"], {
     cwd: resolve(import.meta.dir, "../../../.."),
-    env: { ...process.env, EZ_EXTENSION_RUNNER_SOCKET: socketPath, EZ_EXTENSION_RUNNER_TOKEN_FILE: tokenFile, EZ_EXTENSION_RUNNER_STORE: join(directory, "store"), EZ_EXTENSION_APP_UID: String(process.getuid!()) },
+    env: { ...process.env, TMPDIR: longTmp, EZ_EXTENSION_RUNNER_SOCKET: socketPath, EZ_EXTENSION_RUNNER_TOKEN_FILE: tokenFile, EZ_EXTENSION_RUNNER_STORE: join(directory, "store"), EZ_EXTENSION_APP_UID: String(process.getuid!()) },
     stdout: "pipe", stderr: "pipe",
   });
   const diagnostics = new Response(child.stderr).text();
   let cleanupPromise: Promise<void> | undefined;
-  const cleanup = () => {
-    if (cleanupPromise) return cleanupPromise;
-    cleanupPromise = (async () => {
-      child.kill("SIGTERM");
-      await child.exited;
-      await diagnostics;
-      await rm(directory, { recursive: true, force: true });
-    })().finally(() => { if (activeEntrypointCleanup === cleanup) activeEntrypointCleanup = undefined; });
-    return cleanupPromise;
-  };
-  activeEntrypointCleanup = cleanup;
+  const cleanup = () => cleanupPromise ??= (async () => {
+    child.kill("SIGTERM");
+    await child.exited;
+    await diagnostics;
+    await rm(directory, { recursive: true, force: true });
+    await rm(longTmpOwner, { recursive: true, force: true });
+    cleanups.delete(cleanup);
+  })();
+  cleanups.add(cleanup);
   try {
+    // Readiness is the socket and successful build, not host startup speed.
+    // The unchanged whole-test timeout bounds failure; afterEach owns cleanup
+    // even when that timeout interrupts the readiness wait.
     while (!(await stat(socketPath).catch(error => {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return null;
       throw error;
@@ -106,5 +102,7 @@ test("production runner entrypoint starts with a long inherited TMPDIR and build
     expect(result.diagnostics).toEqual([]);
     expect(result.state).toBe("succeeded");
     expect(result.evidence.tests.some(entry => entry.name === "typecheck" && entry.passed)).toBe(true);
-  } finally { await cleanup(); }
+  } finally {
+    await cleanup();
+  }
 }, 60_000);

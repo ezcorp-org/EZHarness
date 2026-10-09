@@ -12,10 +12,13 @@ import {
   requireSessionAuth,
   isInteractiveSession,
   requireTeamRole,
+  checkProjectWorkAccess,
 } from "../auth/middleware";
 import { hasRequiredScope } from "../auth/api-key";
 import { createUser } from "../db/queries/users";
 import { createTeam, addTeamMember } from "../db/queries/teams";
+import { createProject } from "../db/queries/projects";
+import { removeProjectMember } from "../db/queries/project-members";
 import { users, teams, teamMembers } from "../db/schema";
 import type { AuthUser } from "../auth/types";
 
@@ -28,6 +31,22 @@ function makeLocals(user?: AuthUser) {
 
 const adminUser: AuthUser = { id: "u-admin", email: "admin@test.com", name: "Admin", role: "admin" };
 const memberUser: AuthUser = { id: "u-member", email: "member@test.com", name: "Member", role: "member" };
+
+describe("project work authority", () => {
+  test("global and projectless work retain instance scope; concrete work uses membership and admin override", async () => {
+    expect(await checkProjectWorkAccess(makeLocals(memberUser), "global")).toBeNull();
+    expect(await checkProjectWorkAccess(makeLocals(memberUser))).toBeNull();
+    expect(await checkProjectWorkAccess(makeLocals(adminUser), "foreign-project")).toBeNull();
+    expect((await checkProjectWorkAccess(makeLocals(), "self"))?.status).toBe(401);
+    expect((await checkProjectWorkAccess(makeLocals(memberUser), "foreign-project"))?.status).toBe(403);
+    const owner = await createUser({ email: `work-${crypto.randomUUID()}@test.com`, name: "Owner", passwordHash: "hash", role: "member" });
+    const project = await createProject({ name: "Work authority", path: "/tmp/authority" }, owner.id);
+    const locals = makeLocals({ id: owner.id, email: owner.email, name: owner.name, role: "member" });
+    expect(await checkProjectWorkAccess(locals, project.id)).toBeNull();
+    await removeProjectMember(project.id, owner.id);
+    expect((await checkProjectWorkAccess(locals, project.id))?.status).toBe(403);
+  });
+});
 
 // ── requireAuth ─────────────────────────────────────────────────────
 

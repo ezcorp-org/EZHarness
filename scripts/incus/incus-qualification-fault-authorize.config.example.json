@@ -1,0 +1,13 @@
+{
+  "endpoint": "https://incus.example.invalid:8443",
+  "project": "ezharness",
+  "serverCertificateSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "clientCertificate": "/var/lib/ezharness-incus-supervisor/fault-client.crt",
+  "clientKey": "/var/lib/ezharness-incus-supervisor/fault-client.key",
+  "scope": {
+    "installationId": "reviewed-installation-id",
+    "releaseId": "reviewed-release-id",
+    "connectionId": "reviewed-connection-id",
+    "presetId": "reviewed-preset-id"
+  }
+}

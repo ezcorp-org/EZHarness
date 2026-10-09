@@ -1,3 +1,5 @@
+import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
+import { sandboxPresetQualificationReleaseDigest } from "../../extensions/v4/sandbox-preset-qualification";
 import type { ExtensionManifestV4, InvocationContext, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { configureReleaseRuntime, type ActiveExtensionRelease } from "../../extensions/release-process";
 import { digestObject } from "../../extensions/v4/blobs";
@@ -34,4 +36,23 @@ export function releaseRuntimeFixture(extensionId: string, manifest: ExtensionMa
     },
   };
   return { snapshot, calls, runner, configure() { configureReleaseRuntime({ runner: async () => runner, resolve: async (id) => id === extensionId ? snapshot : null }); } };
+}
+
+export async function qualifySandboxRuntime(snapshot: ActiveExtensionRelease): Promise<void> {
+  const release = snapshot.release;
+  delete release.verification;
+  const { id: _baseId, createdAt: _baseCreatedAt, releaseDigest: _baseDigest, ...releaseInput } = release;
+  release.releaseDigest = digestObject(releaseInput);
+  const verification: CandidateVerificationReport = {
+    catalog: "verified", smoke: "not_declared", capabilities: [],
+    sandboxPresetQualifications: await Promise.all(release.manifest.sandboxProviders![0]!.presets.map(async preset => ({
+      producer: "host" as const, providerId: "incus", presetId: preset.id, profile: preset.profile,
+      releaseDigest: sandboxPresetQualificationReleaseDigest(release), presetDigest: await sandboxPresetDigest(preset),
+      verifiedAt: new Date(Date.now() - 60_000).toISOString(), validUntil: new Date(Date.now() + 60_000).toISOString(),
+      cases: CANDIDATE_SANDBOX_QUALIFICATION_CASES.map(caseId => ({ caseId, status: "passed" as const })),
+    }))),
+  };
+  release.verification = verification;
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...storedInput } = release;
+  release.releaseDigest = digestObject(storedInput);
 }

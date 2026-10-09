@@ -18,12 +18,13 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
+import { fixtureGitEnv } from "./helpers/git-fixture-env";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const BASH = Bun.which("bash");
@@ -394,6 +395,41 @@ describe("e2e lane manifest", () => {
     expect(transfer).toContain("bun run preview");
   });
 
+  test("transferred preview has tracked root dependencies but no untracked producer files", async () => {
+    const fixture = mkdtempSync(join(tmpdir(), "browser-transfer-source-"));
+    const trace = join(fixture, "preview-trace.json");
+    const env = { ...fixtureGitEnv(), PATH: `${dirname(process.execPath)}:${process.env.PATH}`, BROWSER_TRANSFER_TRACE: trace };
+    try {
+      for (const directory of ["scripts", "node_modules", "web/node_modules", "web/build/client/_app/immutable/entry", "web/.svelte-kit/output/client", "web/.svelte-kit/output/server"]) {
+        mkdirSync(join(fixture, directory), { recursive: true });
+      }
+      writeFileSync(join(fixture, "scripts/verify-browser-build-transfer.sh"), await Bun.file(join(REPO_ROOT, "scripts/verify-browser-build-transfer.sh")).text());
+      writeFileSync(join(fixture, "scripts/preview-marker.ts"), 'export const marker = "tracked-root-dependency";\n');
+      writeFileSync(join(fixture, "web/package.json"), JSON.stringify({ scripts: { preview: "bun preview.ts" } }));
+      writeFileSync(join(fixture, "web/preview.ts"), `import { marker } from "../scripts/preview-marker.ts";
+import { existsSync, writeFileSync } from "node:fs";
+writeFileSync(process.env.BROWSER_TRANSFER_TRACE!, JSON.stringify({ marker, untracked: existsSync("untracked-producer.txt") }));
+Bun.serve({ hostname: "127.0.0.1", port: Number(process.argv[process.argv.indexOf("--port") + 1]), fetch(request) {
+  return new Response(new URL(request.url).pathname === "/login" ? '<!doctype html><html data-hydrated="true"></html>' : 'export {};');
+} });
+`);
+      for (const file of ["web/build/client/manifest.json", "web/.svelte-kit/output/client/manifest.json"]) writeFileSync(join(fixture, file), "{}");
+      writeFileSync(join(fixture, "web/.svelte-kit/output/server/index.js"), "export {};\n");
+      writeFileSync(join(fixture, "web/build/client/_app/immutable/entry/start-fixture.js"), "export {};\n");
+      writeFileSync(join(fixture, "web/untracked-producer.txt"), "must not reach consumer");
+      for (const args of [["init", "-q"], ["add", "scripts", "web/package.json", "web/preview.ts"]]) {
+        const git = Bun.spawnSync(["git", ...args], { cwd: fixture, env });
+        expect(git.exitCode, git.stderr.toString()).toBe(0);
+      }
+      const result = Bun.spawnSync(["bash", "scripts/verify-browser-build-transfer.sh", "--round-trip-preview"], { cwd: fixture, env });
+      expect(result.exitCode, result.stderr.toString()).toBe(0);
+      expect(result.stdout.toString()).toContain("restored browser build preview served");
+      expect(JSON.parse(readFileSync(trace, "utf8"))).toEqual({ marker: "tracked-root-dependency", untracked: false });
+    } finally {
+      rmSync(fixture, { recursive: true, force: true });
+    }
+  });
+
   test("local full coverage consumes one verified browser receipt without repeating its lanes or V8 build", async () => {
     const local = await Bun.file(join(REPO_ROOT, "scripts/ci-local.sh")).text();
     const syntax = Bun.spawnSync(["bash", "-n", "scripts/ci-local.sh"], { cwd: REPO_ROOT, stderr: "pipe" });
@@ -638,5 +674,195 @@ describe("e2e lane manifest", () => {
     expect(job).toContain('EZCORP_E2E_KOKORO_REAL: "1"');
     expect(job).toContain("bash scripts/run-kokoro-realmodel-e2e.sh");
     expect(job).not.toContain("continue-on-error: true");
+  });
+});
+
+function privateNamespaceInstaller(code: string, root: string, source: string) {
+  return code.replace("owner_uid = 0", "owner_uid = os.getuid()")
+    .replaceAll("/usr/local/libexec/ezcorp-ci-namespace", join(root, "usr/local/libexec/ezcorp-ci-namespace"))
+    .replaceAll("/etc/apparmor.d/ezcorp-ci-namespace", join(root, "etc/apparmor.d/ezcorp-ci-namespace"))
+    .replaceAll("/usr/bin/unshare", source)
+    .replace("for directory in reversed(path.parents):", `for directory in reversed([item for item in path.parents if item == pathlib.Path(${JSON.stringify(root)}) or pathlib.Path(${JSON.stringify(root)}) in item.parents]):`);
+}
+
+describe("runner CI namespace prerequisites", () => {
+  function setupProbe(mapping: string, missingTool = false, namespaceExit = 0, install = false, apparmor = false, parserExit = 0) {
+    const root = mkdtempSync(join(tmpdir(), "runner-ci-namespace-"));
+    const bin = join(root, "bin");
+    mkdirSync(bin);
+    mkdirSync(join(root, "scripts/lib"), { recursive: true });
+    writeFileSync(join(root, "scripts/lib/extension-runner-conmon.sh"), "install_extension_runner_conmon() { :; }\n");
+    writeFileSync(join(root, "scripts/lib/extension-runner-delegation.sh"), "configure_extension_runner_delegation() { export XDG_RUNTIME_DIR=fixture DBUS_SESSION_BUS_ADDRESS=fixture; }\n");
+    writeFileSync(join(root, "apparmor-enabled"), apparmor ? "Y" : "N");
+    mkdirSync(join(root, "etc/apparmor.d"), { recursive: true });
+    mkdirSync(join(root, "usr/local"), { recursive: true });
+    const script = privateNamespaceInstaller(readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8"), root, join(bin, "unshare"))
+      .replaceAll('"/etc/$mapping"', '"$repo_root/$mapping"')
+      .replace("-x /usr/bin/apt-get", '-x "$repo_root/bin/apt-get"')
+      .replaceAll("/sys/module/apparmor/parameters/enabled", join(root, "apparmor-enabled"));
+    writeFileSync(join(root, "scripts/setup-extension-runner-ci.sh"), script);
+    for (const file of ["subuid", "subgid"]) writeFileSync(join(root, file), mapping);
+    const commands: Record<string, string> = {
+      'apparmor_parser': `echo "apparmor-parser $*" >> '${root}/calls'; exit ${parserExit}`,
+      id: 'if [ "$1" = "-u" ]; then echo 1000; else echo runner; fi',
+      podman: 'if [ "$1" = info ]; then echo /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1; fi', bun: "echo fixture-image", flock: "exit 0", setpriv: "exit 0",
+      unshare: `if [ "$1" = "--version" ]; then echo "unshare from util-linux 2.39.3"; exit 0; fi
+case "$*" in *"--propagation unchanged"*)
+  echo namespace-diagnostic >> '${root}/calls'
+  echo '{"context":"mapped-namespace","CapEff":"0000000000000000"}'
+  exit 0;; esac
+echo namespace-probe >> '${root}/calls'; exit ${namespaceExit}`,
+      journalctl: `echo "journalctl $*" >> '${root}/calls'; echo 'apparmor="DENIED" operation="capable" capname="sys_admin"'`,
+      newgidmap: "exit 0", "apt-get": "exit 0", sudo: 'exec "$@"',
+      usermod: `case "$1" in --add-subuids) mapping=subuid;; --add-subgids) mapping=subgid;; *) exit 9;; esac
+range_start=\${2%-*}; range_end=\${2#*-}
+printf '%s:%s:%s\\n' "$3" "$range_start" "$((range_end-range_start+1))" >> '${root}/'"$mapping"`,
+    };
+    if (!missingTool) commands.newuidmap = "exit 0";
+    for (const [name, body] of Object.entries(commands)) {
+      writeFileSync(join(bin, name), `#!${BASH}\n${body}\n`, { mode: 0o755 });
+    }
+    for (const name of ["bash", "dirname", "awk", "python3", "timeout"]) {
+      const executable = Bun.which(name);
+      if (!executable) throw new Error(`Required fixture tool: ${name}`);
+      // Keep the PATH closed so a missing tool cannot resolve from the host.
+      symlinkSync(executable, join(bin, name));
+    }
+    try {
+      const result = Bun.spawnSync([BASH!, join(root, "scripts/setup-extension-runner-ci.sh"), install ? "--install" : "--probe"],
+        { env: { ...process.env, CI: "true", PATH: bin, GITHUB_PATH: join(root, "github-path"), GITHUB_ENV: join(root, "github-env") }, stdout: "pipe", stderr: "pipe" });
+      return { published: existsSync(join(root, "github-path")) ? readFileSync(join(root, "github-path"), "utf8") : "", mappings: ["subuid", "subgid"].map(file => readFileSync(join(root, file), "utf8")), code: result.exitCode, error: result.stderr.toString(), calls: existsSync(join(root, "calls")) ? readFileSync(join(root, "calls"), "utf8") : "" };
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+
+  test("short existing subordinate mappings fail before any namespace operation", () => {
+    const result = setupProbe("runner:100000:1000\nother:200000:65536\n");
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("62041 contiguous subordinate");
+    expect(result.calls).toBe("");
+  });
+
+  test("missing namespace tool fails with an actionable error", () => {
+    const result = setupProbe("runner:100000:65536\n", true);
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("newuidmap");
+  });
+
+  test("valid mappings run the namespace probe and propagate failure", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 17);
+    expect(result.code).not.toBe(0);
+    expect(result.calls).toBe("namespace-probe\nnamespace-diagnostic\n");
+    expect(result.error).toContain("namespace mount probe failed");
+    expect(result.error).toContain("unshare from util-linux 2.39.3");
+    expect(result.error).toContain('"context": "host"');
+    expect(result.error).toContain('"context":"mapped-namespace"');
+  });
+  test.each([62041, 63536])("valid mapping of %d IDs completes the normal setup path", count => {
+    const result = setupProbe(`runner:100000:${count}\nother:200000:65536\n`);
+    expect(result.code, result.error).toBe(0);
+    expect(result.calls).toBe("namespace-probe\n");
+  });
+
+  test.each([
+    "runner:100000:65536\n1000:200000:65536\n",
+    "runner:100000:65536\nother:120000:65536\n",
+    "runner:100000:bogus\n",
+    "runner:100000:62040\n",
+  ])("ambiguous or malformed allocation fails before namespace probe: %s", mapping => {
+    const result = setupProbe(mapping);
+    expect(result.code).not.toBe(0);
+    expect(result.calls).toBe("");
+  });
+
+  test("install provisions absent account after other allocations without duplicates", () => {
+    const result = setupProbe("other:200000:65536\n", false, 0, true);
+    expect(result.code, result.error).toBe(0);
+    expect(result.mappings).toEqual([
+      "other:200000:65536\nrunner:265536:65536\n",
+      "other:200000:65536\nrunner:265536:65536\n",
+    ]);
+  });
+
+  test("install preserves a short existing allocation and fails instead of appending", () => {
+    const mapping = "runner:100000:1000\nother:200000:65536\n";
+    const result = setupProbe(mapping, false, 0, true);
+    expect(result.code).not.toBe(0);
+    expect(result.mappings).toEqual([mapping, mapping]);
+    expect(result.calls).toBe("");
+  });
+
+  test("failed install probe records bounded AppArmor audit without passing", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 17, true);
+    expect(result.code).toBe(1);
+    expect(result.calls).toContain('journalctl --dmesg --no-pager --since 2 minutes ago --grep apparmor="DENIED" --output cat');
+    expect(result.error).toContain('capname="sys_admin"');
+  });
+
+  test("AppArmor setup publishes its private executable only after the required probe passes", () => {
+    const result = setupProbe("runner:100000:65536\n", false, 0, true, true);
+    expect(result.code, result.error).toBe(0);
+    expect(result.calls).toContain("apparmor-parser --replace");
+    expect(result.calls).toEndWith("namespace-probe\n");
+    expect(result.published).toEndWith("/usr/local/libexec/ezcorp-ci-namespace\n");
+  });
+
+  test.each(["parser", "probe"])("AppArmor %s failure aborts before publishing PATH", failed => {
+    const result = setupProbe("runner:100000:65536\n", false, failed === "probe" ? 17 : 0, true, true, failed === "parser" ? 19 : 0);
+    expect(result.code).not.toBe(0);
+    expect(result.published).toBe("");
+    if (failed === "parser") expect(result.calls).not.toContain("namespace-probe");
+  });
+
+});
+
+
+describe("CI AppArmor namespace installation", () => {
+  function installFixture(unsafe?: "parent-symlink" | "binary-symlink" | "profile-writable") {
+    const root = mkdtempSync(join(tmpdir(), "ci-apparmor-install-"));
+    const prefix = join(root, "usr/local/libexec/ezcorp-ci-namespace");
+    const profile = join(root, "etc/apparmor.d/ezcorp-ci-namespace");
+    mkdirSync(prefix, { recursive: true });
+    mkdirSync(dirname(profile), { recursive: true });
+    mkdirSync(join(root, "usr/bin"), { recursive: true });
+    const source = join(root, "usr/bin/unshare");
+    writeFileSync(source, "fixture executable bytes", { mode: 0o755 });
+    if (unsafe === "parent-symlink") {
+      rmSync(prefix, { recursive: true });
+      symlinkSync(join(root, "usr/bin"), prefix);
+    }
+    if (unsafe === "binary-symlink") symlinkSync(source, join(prefix, "unshare"));
+    if (unsafe === "profile-writable") {
+      writeFileSync(profile, "preserve unsafe profile");
+      chmodSync(profile, 0o666);
+    }
+    const helper = readFileSync(join(REPO_ROOT, "scripts/setup-extension-runner-ci.sh"), "utf8");
+    const payload = helper.split("<<'PYAPPARMOR'\n")[1]!.split("\nPYAPPARMOR")[0]!;
+    // Exercise the real installer in a private filesystem under this test UID.
+    // Only the root identity and filesystem root change; all safety checks run.
+    const code = privateNamespaceInstaller(payload, root, source);
+    try {
+      const result = Bun.spawnSync(["python3", "-c", code], { stdout: "pipe", stderr: "pipe" });
+      return { code: result.exitCode, error: result.stderr.toString(),
+        binary: unsafe ? "" : readFileSync(join(prefix, "unshare"), "utf8"),
+        mode: unsafe ? 0 : statSync(join(prefix, "unshare")).mode & 0o777,
+        profile: existsSync(profile) ? readFileSync(profile, "utf8") : "", prefix };
+    } finally { rmSync(root, { recursive: true, force: true }); }
+  }
+
+  test("copies exact bytes and permits only its fixed executable", () => {
+    const result = installFixture();
+    expect(result.code, result.error).toBe(0);
+    expect(result.binary).toBe("fixture executable bytes");
+    expect(result.mode).toBe(0o755);
+    expect(result.profile).toContain(`profile ezcorp-ci-namespace ${result.prefix}/unshare flags=(unconfined)`);
+    expect(result.profile).toContain("userns,");
+    expect(result.profile).not.toContain("/usr/bin/unshare");
+  });
+
+  test.each(["parent-symlink", "binary-symlink", "profile-writable"] as const)("rejects unsafe existing installation: %s", unsafe => {
+    const result = installFixture(unsafe);
+    expect(result.code).not.toBe(0);
+    expect(result.error).toContain("Unsafe CI namespace installation path");
+    if (unsafe === "profile-writable") expect(result.profile).toBe("preserve unsafe profile");
   });
 });

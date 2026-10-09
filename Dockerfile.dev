@@ -82,6 +82,7 @@ RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sha
 
 # Install web dependencies (all, including dev)
 COPY --chown=1000:1000 web/package.json web/bun.lock web/
+COPY --chown=1000:1000 web/patches/ web/patches/
 RUN --mount=type=cache,target=/home/bun/.bun/install/cache,uid=1000,gid=1000,sharing=locked BUN_INSTALL_CACHE_DIR=/home/bun/.bun/install/cache sh -c 'cd web && bun install --frozen-lockfile --ignore-scripts'
 
 # Copy everything for initial setup (source is bind-mounted over this at runtime)

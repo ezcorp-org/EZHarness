@@ -21,6 +21,7 @@ export interface PreviewConsentCardData {
   port: number;
   title: string;
   summary: string;
+  openUrl?: string;
 }
 
 /** Extract a plain object from a tool-result `output` that may be a JSON
@@ -63,13 +64,22 @@ export function parseConsentCardResult(output: unknown): PreviewConsentCardData 
   const conversationId = typeof obj.conversationId === "string" ? obj.conversationId : "";
   const port = typeof obj.port === "number" ? obj.port : NaN;
   if (!conversationId || !Number.isInteger(port) || port <= 0) return null;
+  let openUrl: string | undefined;
+  if (obj.kind === "auto-exposed") {
+    if (typeof obj.openUrl !== "string") return null;
+    try {
+      const url = new URL(obj.openUrl);
+      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+      openUrl = obj.openUrl;
+    } catch { return null; }
+  }
   const title = typeof obj.title === "string" && obj.title
     ? obj.title
     : `A site started on port ${port}`;
   const summary = typeof obj.summary === "string" && obj.summary
     ? obj.summary
     : "Expose it to your browser? Nothing is served until you choose.";
-  return { conversationId, port, title, summary };
+  return { conversationId, port, title, summary, ...(openUrl ? { openUrl } : {}) };
 }
 
 /** The consent actions the card posts to /api/preview/consent. */
@@ -81,19 +91,4 @@ export function buildConsentRequest(
   action: ConsentAction,
 ): { conversationId: string; port: number; action: ConsentAction } {
   return { conversationId: data.conversationId, port: data.port, action };
-}
-
-/**
- * Compose the served preview URL from the API response's `subdomainLabel`.
- * The label is the opaque preview id; the host completes it into the
- * wildcard subdomain. `appHost` defaults to the current origin's host at
- * call time (the card passes window.location.host). Returns the
- * `/__open?c=<code>` handoff URL the browser opens to set the cookie.
- */
-export function buildOpenUrl(subdomainLabel: string, code: string, appHost: string, protocol = "https:"): string {
-  // Reuse the app's host suffix: <label>.preview.<host-without-port>.
-  // appHost may include a port (dev). Strip the app's own port and host
-  // prefix down to the registrable suffix used for *.preview.<host>.
-  const hostNoPort = appHost.split(":")[0] ?? appHost;
-  return `${protocol}//${subdomainLabel}.preview.${hostNoPort}/__open?c=${encodeURIComponent(code)}`;
 }

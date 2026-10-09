@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "kind": "guest-local-bare-origin",
+  "image": "docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e",
+  "sourceCommit": "9120384776b04560f44be0dde3eae9dcf47829b0",
+  "sourceTree": "7345fc09b6fc880b6e015d350b2c6fb897ac32ec",
+  "commitMessage": "Incus local-origin fixture v1",
+  "commitEnvironment": {
+    "GIT_AUTHOR_NAME": "EZHarness fixture",
+    "GIT_AUTHOR_EMAIL": "fixture@example.invalid",
+    "GIT_COMMITTER_NAME": "EZHarness fixture",
+    "GIT_COMMITTER_EMAIL": "fixture@example.invalid",
+    "GIT_AUTHOR_DATE": "946684800 +0000",
+    "GIT_COMMITTER_DATE": "946684800 +0000"
+  },
+  "files": {
+    "bounded.py": "def clamp_nonnegative(value):\n    return value\n",
+    "test_bounded.py": "import unittest\nfrom bounded import clamp_nonnegative\n\nclass ClampTests(unittest.TestCase):\n    def test_positive(self):\n        self.assertEqual(clamp_nonnegative(7), 7)\n    def test_zero(self):\n        self.assertEqual(clamp_nonnegative(0), 0)\n    def test_negative(self):\n        self.assertEqual(clamp_nonnegative(-4), 0)\n\nif __name__ == '__main__':\n    unittest.main()\n",
+    "proof.txt": "stage=before\n",
+    "compose.yaml": "services:\n  proof:\n    image: docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e\n    pull_policy: never\n    command: [\"tail\", \"-f\", \"/dev/null\"]\n    network_mode: none\n    read_only: true\n    user: \"1000:1000\"\n    cap_drop: [ALL]\n    security_opt: [\"no-new-privileges:true\"]\n    volumes:\n      - type: bind\n        source: .\n        target: /fixture\n        read_only: true\n    healthcheck:\n      test: [\"CMD\", \"sh\", \"-c\", \"grep -qx stage=after /fixture/proof.txt\"]\n      interval: 1s\n      timeout: 1s\n      retries: 5\n"
+  },
+  "fileSha256": {
+    "bounded.py": "46a5bb673b67e53dcbdeed3a370fae15cb54b37753b73e614d608e88e534f9f0",
+    "test_bounded.py": "8b7d17c3013c2d98bb00d002b676161952156c592c85f5bba518f8e4841f6814",
+    "proof.txt": "d32b5264da8d5ba0c43007c3c4dc4acaeaaa22fa3bbbbfa8cc83d8968f357d6f",
+    "compose.yaml": "2703d0ad111bcad8e102c1fa09613d779fd633d11026273cb6ff822d0ca50e3a"
+  },
+  "commands": {
+    "prepare": "test ! -e g5-origin-source && test ! -e g5-origin.git && test ! -e g5-native && mkdir g5-origin-source && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false init --object-format=sha1 --initial-branch=main g5-origin-source",
+    "origin": "chmod 0644 g5-origin-source/bounded.py g5-origin-source/test_bounded.py g5-origin-source/proof.txt g5-origin-source/compose.yaml && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-origin-source add -- bounded.py test_bounded.py proof.txt compose.yaml && GIT_AUTHOR_NAME='EZHarness fixture' GIT_AUTHOR_EMAIL='fixture@example.invalid' GIT_COMMITTER_NAME='EZHarness fixture' GIT_COMMITTER_EMAIL='fixture@example.invalid' GIT_AUTHOR_DATE='946684800 +0000' GIT_COMMITTER_DATE='946684800 +0000' git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-origin-source commit -m 'Incus local-origin fixture v1' && test \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-origin-source rev-parse HEAD)\" = 9120384776b04560f44be0dde3eae9dcf47829b0 && test \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-origin-source rev-parse 'HEAD^{tree}')\" = 7345fc09b6fc880b6e015d350b2c6fb897ac32ec && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false clone --bare g5-origin-source g5-origin.git",
+    "checkout": "git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false clone --no-local g5-origin.git g5-native && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native checkout --detach 9120384776b04560f44be0dde3eae9dcf47829b0 && test \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native rev-parse HEAD)\" = 9120384776b04560f44be0dde3eae9dcf47829b0 && test \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native rev-parse 'HEAD^{tree}')\" = 7345fc09b6fc880b6e015d350b2c6fb897ac32ec",
+    "tests": "cd g5-native && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py",
+    "composeCache": "docker image inspect docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e --format '{{json .RepoDigests}}'",
+    "composeUp": "docker compose -p g5-native -f g5-native/compose.yaml up -d --pull never --wait --wait-timeout 30",
+    "composeTest": "docker compose -p g5-native -f g5-native/compose.yaml run --pull never --rm proof sh -c 'grep -qx stage=after /fixture/proof.txt && printf ezh-compose-ok'",
+    "composeDown": "docker compose -p g5-native -f g5-native/compose.yaml down --remove-orphans --timeout 10",
+    "composeInventory": "docker ps -a --filter label=com.docker.compose.project=g5-native --format '{{.ID}}'",
+    "commit": "git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native config user.name 'Incus qualification' && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native config user.email qualification@example.invalid && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native add -- bounded.py proof.txt && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native commit -m 'Native fixture repair' && test -z \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native status --porcelain)\" && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false -C g5-native rev-parse HEAD",
+    "retained": "cd g5-native && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py && test -z \"$(git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false status --porcelain)\" && git -c core.hooksPath=/dev/null -c core.autocrlf=false -c commit.gpgsign=false rev-parse HEAD",
+    "seedRed": "cd g5-native && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest -v test_bounded.py >../g5-seed-tests.log 2>&1; status=$?; test \"$status\" -eq 1 && grep -q 'FAIL: test_negative' ../g5-seed-tests.log && grep -q 'Ran 3 tests' ../g5-seed-tests.log && printf 'G5-SEED-RED:negative-test-confirmed\\n'"
+  },
+  "edits": [
+    {
+      "path": "g5-native/bounded.py",
+      "old_string": "    return value",
+      "new_string": "    return max(0, value)"
+    },
+    {
+      "path": "g5-native/proof.txt",
+      "old_string": "stage=before",
+      "new_string": "stage=after"
+    }
+  ]
+}

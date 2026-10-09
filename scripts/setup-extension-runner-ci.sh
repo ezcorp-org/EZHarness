@@ -13,23 +13,193 @@ if [[ "$(id -u)" == "0" ]]; then
   exit 1
 fi
 
+# Keep the mounted supervisor fixture and rootless runner on the same verified
+# namespace prerequisites. Never repair an ambiguous existing allocation.
+validate_subordinate_mapping() {
+  python3 - "$1" "$(id -un)" "$(id -u)" "${2:-$mode}" <<'PYMAP'
+import pathlib, sys
+path, account, uid, mode = sys.argv[1:]
+try:
+    allocations = []
+    for line in pathlib.Path(path).read_text().splitlines():
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        fields = line.split(":")
+        if len(fields) != 3 or not fields[1].isdigit() or not fields[2].isdigit():
+            raise ValueError("malformed allocation")
+        owner, start, count = fields[0], int(fields[1]), int(fields[2])
+        if not owner or start < 1 or count < 1 or start + count > 4294967295:
+            raise ValueError("unsafe allocation")
+        allocations.append((start, start + count, owner))
+    ordered = sorted(allocations)
+    if any(left[1] > right[0] for left, right in zip(ordered, ordered[1:])):
+        raise ValueError("overlapping allocations")
+    owned = [entry for entry in allocations if entry[2] in (account, uid)]
+    if len(owned) > 1:
+        raise ValueError("ambiguous account allocations")
+    if owned:
+        if owned[0][1] - owned[0][0] < 62041:
+            raise ValueError("requires 62041 contiguous subordinate IDs")
+    elif mode == "--install":
+        start = max([100000] + [entry[1] for entry in allocations])
+        if start + 65536 > 4294967295:
+            raise ValueError("no safe allocation available")
+        print(start)
+    else:
+        raise ValueError("requires 62041 contiguous subordinate IDs")
+except (OSError, ValueError) as error:
+    sys.exit(f"{path}: {error}; provision a safe account range before running CI")
+PYMAP
+}
+
+configure_namespace_apparmor() {
+  if [[ ! -r /sys/module/apparmor/parameters/enabled ]] ||
+     [[ "$(</sys/module/apparmor/parameters/enabled)" != Y ]]; then
+    return
+  fi
+  # Ubuntu 24.04 userns restrictions attach an LSM profile even with valid
+  # mappings and CAP_SYS_ADMIN. Permit only our root-owned CI executable;
+  # retain the distro profile and every global AppArmor/sysctl setting.
+  sudo python3 - <<'PYAPPARMOR'
+import os, pathlib, stat, tempfile
+owner_uid = 0
+prefix = pathlib.Path("/usr/local/libexec/ezcorp-ci-namespace")
+profile = pathlib.Path("/etc/apparmor.d/ezcorp-ci-namespace")
+source = pathlib.Path("/usr/bin/unshare")
+def safe(path, directory=False):
+    metadata = path.lstat()
+    expected = stat.S_ISDIR if directory else stat.S_ISREG
+    if not expected(metadata.st_mode) or metadata.st_uid != owner_uid or metadata.st_mode & 0o022:
+        raise ValueError(f"Unsafe CI namespace installation path: {path}")
+def parents(path):
+    for directory in reversed(path.parents):
+        safe(directory, True)
+    safe(path, True)
+def write(path, payload, mode):
+    parents(path.parent)
+    if path.exists() or path.is_symlink():
+        safe(path)
+    descriptor, temporary = tempfile.mkstemp(prefix=".namespace-", dir=path.parent)
+    try:
+        with os.fdopen(descriptor, "wb") as output:
+            output.write(payload)
+            os.fchmod(output.fileno(), mode)
+        os.replace(temporary, path)
+        safe(path)
+        if path.read_bytes() != payload:
+            raise ValueError(f"CI namespace installation bytes differ: {path}")
+    finally:
+        if os.path.exists(temporary):
+            os.unlink(temporary)
+parents(source.parent)
+safe(source)
+for directory in (prefix.parent, prefix):
+    if not directory.exists() and not directory.is_symlink():
+        parents(directory.parent)
+        directory.mkdir(mode=0o755)
+    parents(directory)
+write(prefix / "unshare", source.read_bytes(), 0o755)
+write(profile, b"abi <abi/4.0>,\ninclude <tunables/global>\nprofile ezcorp-ci-namespace /usr/local/libexec/ezcorp-ci-namespace/unshare flags=(unconfined) {\n  userns,\n}\n", 0o644)
+PYAPPARMOR
+  sudo apparmor_parser --replace /etc/apparmor.d/ezcorp-ci-namespace
+  export PATH="/usr/local/libexec/ezcorp-ci-namespace:$PATH"
+}
+
+diagnose_namespace_restriction() {
+  local context
+  context='
+import json, pathlib, platform, sys
+paths = ["/proc/self/uid_map", "/proc/self/gid_map", "/proc/self/attr/current",
+         "/sys/module/apparmor/parameters/enabled",
+         "/proc/sys/kernel/apparmor_restrict_unprivileged_userns",
+         "/proc/sys/kernel/unprivileged_userns_clone"]
+result = {"context": sys.argv[1], "kernel": platform.release()}
+for name in paths:
+    try:
+        result[name] = pathlib.Path(name).read_text().strip()
+    except OSError as error:
+        result[name] = {"unavailable": error.errno}
+try:
+    result["status"] = [line for line in pathlib.Path("/proc/self/status").read_text().splitlines()
+                        if line.split(":", 1)[0] in ("Uid", "Gid", "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb", "NoNewPrivs", "Seccomp")]
+except OSError as error:
+    result["status"] = {"unavailable": error.errno}
+print(json.dumps(result, sort_keys=True))
+'
+  echo "Namespace failure diagnostics (the required probe still fails):" >&2
+  unshare --version >&2 || true
+  python3 -c "$context" host >&2 || true
+  # Diagnostic only: keep the same user mapping while avoiding the failed
+  # propagation operation long enough to inspect capabilities and LSM label.
+  timeout 5s unshare --user --map-root-user --map-auto --mount --propagation unchanged \
+    python3 -c "$context" mapped-namespace >&2 || true
+  if [[ "$mode" == "--install" ]] && command -v journalctl >/dev/null; then
+    timeout 5s sudo journalctl --dmesg --no-pager --since "2 minutes ago" \
+      --grep 'apparmor="DENIED"' --output cat >&2 || true
+  fi
+}
+
+verify_namespace_prerequisites() {
+  local executable mapping range_start range_end
+  for executable in podman python3 flock setpriv bun unshare newuidmap newgidmap timeout; do
+    if ! command -v "$executable" >/dev/null; then
+      echo "Missing required namespace/runner tool: $executable; install uidmap, util-linux and python3." >&2
+      exit 1
+    fi
+  done
+  for mapping in subuid subgid; do
+    range_start="$(validate_subordinate_mapping "/etc/$mapping")"
+    if [[ -n "$range_start" ]]; then
+      range_end="$((range_start + 65535))"
+      if [[ "$mapping" == "subuid" ]]; then
+        sudo usermod --add-subuids "$range_start-$range_end" "$(id -un)"
+      else
+        sudo usermod --add-subgids "$range_start-$range_end" "$(id -un)"
+      fi
+      # Read the actual post-provisioning file; do not assume usermod succeeded.
+      validate_subordinate_mapping "/etc/$mapping" --probe
+    fi
+  done
+  if ! timeout 15s unshare --user --map-root-user --map-auto --mount python3 - <<'PYNS'
+import ctypes, os, pathlib, tempfile
+libc = ctypes.CDLL(None, use_errno=True)
+with tempfile.TemporaryDirectory(prefix="ez-runner-namespace-probe-") as temporary:
+    source = pathlib.Path(temporary) / "source"
+    target = pathlib.Path(temporary) / "target"
+    source.mkdir()
+    target.mkdir()
+    os.chown(source, 62040, 62040)
+    if libc.mount(os.fsencode(source), os.fsencode(target), None, 4096, None) != 0:
+        raise OSError(ctypes.get_errno(), "namespace bind mount failed")
+    try:
+        observed = target.stat()
+        if observed.st_uid != 62040 or observed.st_gid != 62040:
+            raise ValueError("namespace mapping does not cover application UID/GID 62040")
+    finally:
+        if libc.umount2(os.fsencode(target), 0) != 0:
+            raise OSError(ctypes.get_errno(), "namespace unmount failed")
+PYNS
+  then
+    diagnose_namespace_restriction
+    echo "User namespace mount probe failed; enable Linux user namespaces and permit unshare/newuidmap/newgidmap for this CI account." >&2
+    exit 1
+  fi
+}
+
 if [[ "$mode" == "--install" ]]; then
   if [[ "${CI:-}" != "true" || ! -x /usr/bin/apt-get ]]; then
     echo "Automatic installation is restricted to ephemeral Debian/Ubuntu CI hosts." >&2
     exit 1
   fi
   sudo apt-get update
-  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux ca-certificates curl
+  sudo apt-get install -y --no-install-recommends podman uidmap slirp4netns fuse-overlayfs dbus-user-session python3 util-linux apparmor ca-certificates curl
   source "$repo_root/scripts/lib/extension-runner-conmon.sh"
   install_extension_runner_conmon
-  runner_user="$(id -un)"
-  for mapping in subuid subgid; do
-    if ! awk -F: -v account="$runner_user" '$1 == account { found = 1 } END { exit !found }' "/etc/$mapping"; then
-      range_start="$(awk -F: 'BEGIN { start = 100000 } { end = $2 + $3; if (end > start) start = end } END { print start }' "/etc/$mapping")"
-      range_end="$((range_start + 65535))"
-      if [[ "$mapping" == "subuid" ]]; then sudo usermod --add-subuids "$range_start-$range_end" "$runner_user"; else sudo usermod --add-subgids "$range_start-$range_end" "$runner_user"; fi
-    fi
-  done
+  configure_namespace_apparmor
+  verify_namespace_prerequisites
+  if [[ -n "${GITHUB_PATH:-}" && "$PATH" == /usr/local/libexec/ezcorp-ci-namespace:* ]]; then
+    printf '%s\n' /usr/local/libexec/ezcorp-ci-namespace >> "$GITHUB_PATH"
+  fi
   source "$repo_root/scripts/lib/extension-runner-delegation.sh"
   configure_extension_runner_delegation
   if [[ "$(podman info --format '{{.Host.Conmon.Path}}')" != /usr/local/libexec/ezcorp-extension-runner/conmon-2.2.1 ]]; then
@@ -41,7 +211,7 @@ if [[ "$mode" == "--install" ]]; then
   fi
 fi
 
-for executable in podman python3 flock setpriv bun; do command -v "$executable" >/dev/null; done
+if [[ "$mode" == "--probe" ]]; then verify_namespace_prerequisites; fi
 image="$(bun -e 'import { DEFAULT_IMAGE } from "./packages/@ezcorp/extension-runner/src/index.ts"; console.log(DEFAULT_IMAGE)')"
 postgres_image="$(bun -e 'import images from "./scripts/test-images.json"; console.log(images.postgres)')"
 for required_image in "$image" "$postgres_image"; do

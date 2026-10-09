@@ -1,0 +1,206 @@
+import { beforeEach, expect, test, vi } from "vitest";
+import { projects, sandboxBindings, sandboxOperations } from "$server/db/schema";
+
+const calls: string[] = [];
+let qualified = false;
+let failWith: unknown = null;
+let projectExists = true;
+let projectPurpose = "user";
+let bindingExists = true;
+let operationExists = true;
+let recoverySucceeded = false;
+const binding = { id: "binding-a", projectId: "project-a" };
+const operation = { id: "operation-a", kind: "CREATE", state: "DISPATCHING", generation: 1,
+ providerOperationId: "provider-operation-a", errorCode: null,
+ createdAt: "2026-10-04T05:30:00.000Z", updatedAt: "2026-10-04T05:30:01.000Z" };
+const journalReceipt = () => ({ ...operation, reconcileOrder: 1n,
+  requestPayload: { privateMaterial: "PRIVATE-JOURNAL-CANARY" }, errorMessage: "PRIVATE-JOURNAL-CANARY" });
+const database = {
+	select() {
+		let source: unknown;
+		const query = {
+			from(table: unknown) { source = table; return query; },
+			where() { return query; },
+			orderBy() { return query; },
+			limit: async () => source === projects ? (projectExists ? [{ id: "project-a", purpose: projectPurpose }] : [])
+				: source === sandboxBindings ? (bindingExists ? [binding] : [])
+				: source === sandboxOperations ? (operationExists ? [operation] : []) : [],
+		};
+		return query;
+	},
+};
+
+vi.mock("$server/auth/middleware", () => ({
+	requireAdminSession: (locals: { user?: { id: string; role: string }; authMethod?: string }) =>
+		locals.user?.role === "admin" && locals.authMethod === "session" ? locals.user
+			: Response.json({}, { status: locals.user ? 403 : 401 }),
+	checkProjectRole: async (locals: { deniedProject?: boolean }, _projectId: string, role: string) => {
+		calls.push(`role:${role}`);
+		return locals.deniedProject ? Response.json({}, { status: 403 }) : { id: "admin" };
+	},
+}));
+vi.mock("$server/db/connection", () => ({ getDb: () => database }));
+vi.mock("$server/infrastructure/incus-qualification", () => ({
+	IncusQualificationStore: class { async load() { calls.push("qualification"); return qualified ? { ready: true } : null; } },
+}));
+vi.mock("$server/infrastructure/incus-feature-service", () => ({
+	IncusStopRequiredError: class extends Error {},
+	IncusCleanupRecoveryUnavailableError: class extends Error {},
+	validIncusProjectName: (value: unknown) => typeof value === "string" && value.trim().length > 0
+		&& value.trim() === value && value.length <= 128,
+	IncusFeatureService: class {
+		constructor(private readonly deps: { loadQualification: () => Promise<unknown> }) {}
+		async prepare(input: { projectId: string }) {
+			calls.push(`prepare:${input.projectId}`);
+			if (!await this.deps.loadQualification()) throw new Error("qualification unavailable");
+			return binding;
+		}
+		async create(input: { idempotencyKey: string }) {
+			calls.push(`create:${input.idempotencyKey}`);
+			if (failWith) throw failWith;
+			return input.idempotencyKey === "denied" ? { state: "REJECTED", reason: "capacity" } : { state: "DISPATCHED", operation: journalReceipt() };
+		}
+		async start(input: { bindingId: string; idempotencyKey: string }) { calls.push(`start:${input.bindingId}`); return input.idempotencyKey === "receipt-key" ? { state: "DISPATCHED", operation: journalReceipt() } : { state: "QUEUED", reason: "capacity", operation: null }; }
+		async stop(input: { bindingId: string }) { calls.push(`stop:${input.bindingId}`); return journalReceipt(); }
+		async destroy(input: { bindingId: string }) { calls.push(`destroy:${input.bindingId}`); if (failWith) throw failWith; return journalReceipt(); }
+		async recoverCleanup(bindingId: string, failedDestroyOperationId: string) { calls.push(`recoverCleanup:${bindingId}:${failedDestroyOperationId}`); if (!recoverySucceeded) throw failWith ?? new Error("database secret"); return { recovery: { id: "recovery-a", state: "COMPLETED", failedDestroyOperationId, stopOperationId: "stop-a", destroyOperationId: "destroy-a" }, operation: { ...journalReceipt(), id: "destroy-a", kind: "DESTROY", state: "SUCCEEDED" } }; }
+		async destroyRetired(input: { bindingId: string }) { calls.push(`destroyRetired:${input.bindingId}`); return journalReceipt(); }
+		async reconcile(limit?: number) { calls.push(`reconcile:${limit}`); return { processed: 0 }; }
+	},
+}));
+
+const { POST } = await import("../routes/api/infrastructure/incus/features/+server");
+const admin = { user: { id: "admin", role: "admin" }, authMethod: "session" };
+function event(body: unknown, locals: Record<string, unknown> = admin, origin: string | null = "http://localhost", contentType = "application/json"): Parameters<typeof POST>[0] {
+	return { locals, request: new Request("http://localhost/api/infrastructure/incus/features", {
+		method: "POST", headers: { "content-type": contentType, ...(origin ? { origin } : {}) }, body: JSON.stringify(body),
+	}) } as unknown as Parameters<typeof POST>[0];
+}
+const mutation = { projectId: "project-a", bindingId: "binding-a", idempotencyScope: "scope-a", idempotencyKey: "key-a" };
+
+beforeEach(() => { recoverySucceeded = false; operation.state = "DISPATCHING"; calls.length = 0; qualified = false; failWith = null; projectExists = true; projectPurpose = "user"; bindingExists = true; operationExists = true; });
+
+test("denies non-admin, cross-origin, and non-JSON requests before effects", async () => {
+	expect((await POST(event({ action: "reconcile" }, {}))).status).toBe(401);
+	expect((await POST(event({ action: "reconcile" }, { ...admin, authMethod: "api-key" }))).status).toBe(403);
+	expect((await POST(event({ action: "reconcile" }, admin, "https://other.example"))).status).toBe(403);
+	expect((await POST(event({ action: "reconcile" }, admin, null))).status).toBe(403);
+	expect((await POST(event({ action: "reconcile" }, admin, "http://localhost", "text/plain"))).status).toBe(400);
+	expect(calls).toEqual([]);
+});
+
+test("rejects malformed action shapes and identifiers", async () => {
+	for (const body of [null, [], {}, { action: "unknown" }, { action: "prepare", projectId: "bad/id", installationId: "i", connectionId: "c", presetId: "p" },
+		{ action: "create", ...mutation, qualification: "forged" }, { action: "create", ...mutation, idempotencyKey: "" },
+		{ action: "reconcile", limit: 0 }, { action: "reconcile", limit: 101 }, { action: "reconcile", limit: 1.5 }]) {
+		expect((await POST(event(body))).status).toBe(400);
+	}
+	expect(calls).toEqual([]);
+});
+
+test("requires project membership, a real project, and a matching binding", async () => {
+	expect((await POST(event({ action: "create", ...mutation }, { ...admin, deniedProject: true }))).status).toBe(403);
+	projectExists = false;
+	expect((await POST(event({ action: "create", ...mutation }))).status).toBe(404);
+	projectExists = true;
+	bindingExists = false;
+	expect((await POST(event({ action: "create", ...mutation }))).status).toBe(404);
+	bindingExists = true;
+	expect((await POST(event({ action: "create", ...mutation, projectId: "other" }))).status).toBe(404);
+	expect(calls.filter(call => call.startsWith("create:"))).toEqual([]);
+});
+
+test("system qualification projects cannot use the user feature route", async () => {
+	projectPurpose = "incus-qualification";
+	for (const body of [
+		{ action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a" },
+		{ action: "status", projectId: "project-a", bindingId: "binding-a" },
+		{ action: "create", ...mutation },
+	]) {
+		const response = await POST(event(body));
+		expect(response.status).toBe(404);
+		expect(await response.json()).toMatchObject({ code: "not_found" });
+	}
+	expect(calls).toEqual(["role:member", "role:member", "role:member"]);
+});
+
+test("prepare needs host qualification and returns the prepared binding", async () => {
+	const input = { action: "prepare", projectId: "project-a", installationId: "install-a", connectionId: "connection-a", presetId: "preset-a" };
+	expect((await POST(event(input))).status).toBe(409);
+	qualified = true;
+	const response = await POST(event(input));
+	expect(response.status).toBe(200);
+	expect(await response.json()).toEqual({ binding });
+	expect(calls).toEqual(["role:member", "prepare:project-a", "qualification", "role:member", "prepare:project-a", "qualification"]);
+});
+
+test("reports status and dispatches each mutation with its result status", async () => {
+	const status = await POST(event({ action: "status", projectId: "project-a", bindingId: "binding-a" }));
+	expect(await status.json()).toEqual({ binding, operation });
+	operationExists = false;
+	expect(await (await POST(event({ action: "status", projectId: "project-a", bindingId: "binding-a" }))).json()).toEqual({ binding, operation: null });
+	for (const [action, expected] of [["create", 202], ["start", 202], ["stop", 202], ["destroy", 202], ["destroyRetired", 202]] as const) {
+		expect((await POST(event({ action, ...mutation }))).status).toBe(expected);
+	}
+	expect((await POST(event({ action: "create", ...mutation, idempotencyKey: "denied" }))).status).toBe(409);
+	expect(calls).toContain("destroyRetired:binding-a");
+	expect(calls).toContain("destroy:binding-a");
+});
+
+test("reconcile accepts an optional bounded limit and hides unexpected errors", async () => {
+	expect(await (await POST(event({ action: "reconcile" }))).json()).toEqual({ result: { processed: 0 } });
+	expect(await (await POST(event({ action: "reconcile", limit: 5 }))).json()).toEqual({ result: { processed: 0 } });
+	failWith = new Error("database secret");
+	expect(await (await POST(event({ action: "create", ...mutation }))).json()).toMatchObject({ code: "feature_failed" });
+	failWith = "opaque";
+	expect(await (await POST(event({ action: "create", ...mutation }))).json()).toMatchObject({ code: "feature_failed" });
+	expect(calls).toContain("reconcile:5");
+});
+
+
+test("running disposal returns the stop requirement without exposing error details", async () => {
+	const { IncusStopRequiredError } = await import("$server/infrastructure/incus-feature-service");
+	failWith = new IncusStopRequiredError();
+	const response = await POST(event({ action: "destroy", ...mutation }));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({ code: "stop_required", message: "Stop this sandbox before disposal." });
+	expect(calls).toEqual(["role:member", "destroy:binding-a"]);
+});
+
+test("cleanup recovery preserves project authorization and hides service failures", async () => {
+	const input = { action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-a" };
+	expect((await POST(event(input, { ...admin, deniedProject: true }))).status).toBe(403);
+	expect(calls).toEqual(["role:member"]);
+	calls.length = 0;
+	const response = await POST(event(input));
+	expect(response.status).toBe(409);
+	expect(await response.json()).toEqual({ code: "cleanup_recovery_unavailable", message: "The saved cleanup needs review. Inspect its status." });
+	expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
+});
+
+ test("admitted asynchronous lifecycle receipts exclude internal bigint and private journal fields", async () => {
+   for (const state of ["PROVIDER_PENDING", "SUCCEEDED", "OUTCOME_UNKNOWN"]) {
+     operation.state = state;
+     for (const action of ["create", "start", "stop", "destroy", "destroyRetired"]) {
+       const response = await POST(event({ action, projectId: "project-a", bindingId: "binding-a",
+         idempotencyScope: "scope-a", idempotencyKey: "receipt-key" }));
+       expect(response.status).toBe(202);
+       const body = await response.json();
+       expect(body.operation).toEqual(operation);
+       expect(JSON.stringify(body)).not.toContain("PRIVATE-JOURNAL-CANARY");
+       expect(body.operation).not.toHaveProperty("reconcileOrder");
+     }
+   }
+ });
+
+
+test("completed cleanup recovery returns saved linked IDs without private journal fields", async () => {
+ recoverySucceeded = true;
+ const response = await POST(event({ action: "recoverCleanup", projectId: "project-a", bindingId: "binding-a", failedDestroyOperationId: "failed-a" }));
+ expect(response.status).toBe(202);
+ const body = await response.json();
+ expect(body).toEqual({ recovery: { id: "recovery-a", state: "COMPLETED", failedDestroyOperationId: "failed-a", stopOperationId: "stop-a", destroyOperationId: "destroy-a" }, operation: { ...operation, id: "destroy-a", kind: "DESTROY", state: "SUCCEEDED" } });
+ expect(JSON.stringify(body)).not.toContain("PRIVATE-JOURNAL-CANARY");
+ expect(body.operation).not.toHaveProperty("reconcileOrder");
+ expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
+});

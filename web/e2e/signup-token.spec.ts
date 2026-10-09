@@ -1,5 +1,6 @@
 import type { APIRequestContext, Page } from "@playwright/test";
 import { test, expect } from "./fixtures/hydration.js";
+import { captureEvidence } from "./fixtures/evidence.js";
 
 async function createInvite(request: APIRequestContext) {
 	const email = `signup-${crypto.randomUUID()}@example.com`;
@@ -10,11 +11,11 @@ async function createInvite(request: APIRequestContext) {
 	return invite;
 }
 
-async function openSignup(page: Page, token: string) {
+async function openSignup(page: Page, token: string, url = `/signup/${token}`) {
 	// The API request fixture retains its admin session; this browser becomes
 	// the invited visitor and executes the real server load without a cookie.
 	await page.context().clearCookies();
-	await page.goto(`/signup/${token}`);
+	await page.goto(url);
 	await expect(page.getByRole("heading", { name: "Join EZCorp" })).toBeVisible();
 }
 
@@ -24,6 +25,61 @@ async function fillSignup(page: Page) {
 }
 
 test.describe("Signup Token Page — real invite and session", () => {
+	test("an admin's copied invite opens the signup form for an anonymous visitor @evidence", async ({ page, request, baseURL }, testInfo) => {
+		const otherInvite = await createInvite(request); // Another valid invite can remain from a prior real-auth case.
+		const invite = await createInvite(request);
+		await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+		await page.goto("/settings/admin");
+		const invites = page.locator("#invites");
+		await expect(invites.getByText(otherInvite.email, { exact: true })).toBeVisible();
+		const inviteRow = invites.getByText(invite.email, { exact: true }).locator("../..");
+		await expect(inviteRow).toBeVisible();
+		await inviteRow.getByRole("button", { name: "Copy Link", exact: true }).click();
+		const copied = await page.evaluate(() => navigator.clipboard.readText());
+		expect(new URL(copied).origin).toBe(new URL(baseURL!).origin);
+		expect(new URL(copied).pathname).toBe(`/signup/${invite.token}`);
+
+		await openSignup(page, invite.token, copied);
+		await expect(page.getByLabel("Email", { exact: true })).toHaveValue(invite.email);
+		await captureEvidence(page, testInfo, "copied-invite-signup-form");
+	});
+
+	test("an admin creates and deletes an invite through settings @evidence", async ({ page, request }, testInfo) => {
+		const email = `settings-invite-${crypto.randomUUID()}@example.com`;
+		await page.goto("/settings/admin");
+		const invites = page.locator("#invites");
+		await expect(invites.getByRole("button", { name: "Create Invite", exact: true })).toBeDisabled();
+		await invites.getByLabel("Email (required)").fill("invalid");
+		await expect(invites.getByRole("button", { name: "Create Invite", exact: true })).toBeDisabled();
+		await expect(invites.getByText("Enter a valid email address to create an invite.", { exact: true })).toBeVisible();
+		await invites.getByLabel("Email (required)").fill("a@b");
+		await expect(invites.getByRole("button", { name: "Create Invite", exact: true })).toBeDisabled();
+		await invites.getByLabel("Email (required)").fill(email);
+		await invites.getByLabel("Role", { exact: true }).selectOption("admin");
+		await captureEvidence(page, testInfo, "required-invite-email-form");
+		const created = page.waitForResponse(response => response.request().method() === "POST"
+			&& new URL(response.url()).pathname === "/api/auth/invite");
+		await invites.getByRole("button", { name: "Create Invite", exact: true }).click();
+		const response = await created;
+		expect(response.status(), await response.text()).toBe(201);
+		const { invite } = await response.json() as { invite: { id: string; email: string; role: string } };
+		expect(invite).toMatchObject({ email, role: "admin" });
+		const row = invites.getByText(email, { exact: true }).locator("../..");
+		await expect(row.getByText("admin", { exact: true })).toBeVisible();
+		await expect(invites.getByLabel("Email (required)")).toHaveValue("");
+		const deleted = page.waitForResponse(result => result.request().method() === "DELETE"
+			&& new URL(result.url()).pathname === "/api/auth/invite"
+			&& result.request().postDataJSON().id === invite.id);
+		await row.getByRole("button", { name: "Delete", exact: true }).click();
+		expect((await deleted).status()).toBe(200);
+		await expect(invites.getByText(email, { exact: true })).toHaveCount(0);
+		await page.reload();
+		await expect(page.locator("#invites").getByText(email, { exact: true })).toHaveCount(0);
+		const saved = await request.get("/api/auth/invite");
+		expect(saved.status()).toBe(200);
+		expect((await saved.json()).invites.some((entry: { id: string }) => entry.id === invite.id)).toBe(false);
+	});
+
 	test("invalid token redirects an anonymous visitor to login", async ({ page }) => {
 		await page.context().clearCookies();
 		await page.goto(`/signup/missing-${crypto.randomUUID()}`);

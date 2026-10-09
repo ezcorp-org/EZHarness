@@ -1,13 +1,84 @@
 import { expect, test } from "bun:test";
-import type { InvocationContext, ReleaseRecord, Runner, StartRequest, ReverseRpc } from "@ezcorp/extension-contract";
+import { sandboxProviderMethodSchemas, type InvocationContext, type ReleaseRecord, type Runner, type SandboxProtocolContribution, type StartRequest, type ReverseRpc } from "@ezcorp/extension-contract";
 import { createCandidateVerificationBroker } from "./candidate-verification-broker";
 import { verifyExtensionCandidate } from "./extension-lifecycle-service";
+import { digestObject } from "./v4/blobs";
+import { proveSandboxLocalFallbackDenied } from "../runtime/workspaces/host-routing-proof";
+import { createIncusExtension, resolveHostIncusInvocationRuntime } from "../../extensions/incus-sandbox/index";
+import { incusManifest } from "../../extensions/incus-sandbox/manifest";
+import { incusCandidateFixture, INCUS_CANDIDATE_CONNECTION, INCUS_CANDIDATE_RPC } from "./incus-candidate-fixture";
 
 const release = {
   id: "release", artifactDigest: "a".repeat(64),
   manifest: { schemaVersion: 4, name: "candidate-fixture", version: "1.0.0", description: "Fixture", author: { name: "Test" }, permissions: { filesystem: ["/project", "/data"], storage: true, network: ["example.com"], env: ["GITHUB_TOKEN"] }, tools: [{ name: "smoke", description: "Test", inputSchema: { type: "object" }, outputSchema: { type: "object" } }], smokeTest: { tool: "smoke", input: {}, expect: {} } },
 } as unknown as ReleaseRecord;
 function invocation(): InvocationContext { return { invocationId: crypto.randomUUID(), workerId: crypto.randomUUID(), releaseId: release.id, principalId: "extension-verification", scopeId: `verification:${crypto.randomUUID()}`, token: crypto.randomUUID(), deadline: Date.now() + 60_000 }; }
+
+function sandboxCandidateRelease(): ReleaseRecord {
+  const describe = sandboxProviderMethodSchemas("describe");
+  const preflight = sandboxProviderMethodSchemas("preflight");
+  const provider: SandboxProtocolContribution = {
+    id: "incus",
+    profiles: ["linux-exec.v1"],
+    presets: [{
+      id: "small",
+      profile: "linux-exec.v1",
+      imageDigest: "1".repeat(64),
+      recipeDigest: "2".repeat(64),
+      helperDigests: [],
+      storage: { workspace: "ephemeral", minimumBytes: 1024 },
+      network: { mode: "private", outbound: "restricted" },
+      limits: { memoryBytes: 2048, cpuMillis: 1000, pids: 16, diskBytes: 4096, timeoutMs: 5000 },
+      requirements: { backendApis: ["incus.v1"], architectures: ["amd64"], storageDrivers: ["zfs"], isolation: ["container"], nestedCompose: false },
+      allowedOverrides: {},
+    }],
+    kind: "sandbox",
+    protocolMajor: 1,
+    minimumHostContract: { major: 4, minor: 0 },
+    configSchema: { type: "object", additionalProperties: false },
+    requiredPermissions: [],
+    methodGroups: [{ name: "sandbox.provider.v1", methods: { describe: "sandbox/describe", preflight: "sandbox/preflight" } }],
+  };
+  const manifest = {
+    ...release.manifest,
+    sandboxProviders: [provider],
+    methods: [
+      { name: "sandbox/describe", inputSchema: describe.inputSchema, outputSchema: describe.outputSchema },
+      { name: "sandbox/preflight", inputSchema: preflight.inputSchema, outputSchema: preflight.outputSchema },
+    ],
+  };
+  const input = {
+    installationId: "installation",
+    workspaceId: "workspace",
+    workspaceRevision: 1,
+    sourceDigest: "3".repeat(64),
+    artifactDigest: release.artifactDigest,
+    imageDigest: "4".repeat(64),
+    manifest,
+    evidence: { protocolVersion: 4 as const, validatorVersion: "4.0.0", tests: [{ name: "build", passed: true }], discoveryDigest: digestObject(manifest) },
+    runnerProfile: "isolated",
+    policyDigest: "5".repeat(64),
+  };
+  return { id: "sandbox-release", createdAt: "2026-09-22T11:00:00.000Z", ...input, releaseDigest: digestObject(input) };
+}
+
+function realIncusCandidateRelease(): ReleaseRecord {
+  const fixture = sandboxCandidateRelease();
+  const evidence = { ...fixture.evidence, discoveryDigest: digestObject(incusManifest) };
+  const { id: _id, createdAt: _createdAt, releaseDigest: _releaseDigest, ...input } = fixture;
+  return {
+    ...fixture,
+    manifest: incusManifest,
+    evidence,
+    releaseDigest: digestObject({ ...input, manifest: incusManifest, evidence }),
+  };
+}
+
+function sandboxProviderResponse(payload: unknown): unknown {
+  const requested = payload as { method: string };
+  if (requested.method === "sandbox/describe") return { providerId: "incus", protocolMajor: 1, profiles: ["linux-exec.v1"], presetIds: ["small"] };
+  return { observation: { backendApi: "incus.v1", backendVersion: "host-conformance-v1", architecture: "amd64", storageDriver: "zfs", isolation: "container", nestedCompose: false } };
+}
 
 test("candidate locks bind exact ownership without sharing production or candidate state", async () => {
   const contexts = [invocation(), invocation()];
@@ -142,6 +213,117 @@ test("service evidence reports tested and unexercised capabilities and cannot hi
   hideDenied = true;
   await expect(verifyExtensionCandidate(runner, release)).rejects.toMatchObject({ code: "candidate_capability_blocked" });
   expect(closed).toBe(2);
+});
+
+test("production candidate verification fails closed without an executed SP05 proof", async () => {
+  const sandboxRelease = sandboxCandidateRelease();
+  let closed = false;
+  const runner = { async start(input: StartRequest) { return {
+    workerId: input.workerId,
+    onNotification: () => () => {},
+    close: async () => { closed = true; },
+    request: async (method: string) => method === "extension/discover" ? sandboxRelease.manifest : {},
+  }; } } as unknown as Runner;
+  await expect(verifyExtensionCandidate(runner, sandboxRelease)).rejects.toMatchObject({ code: "sandbox_workspace_proof_required" });
+  expect(closed).toBe(true);
+});
+
+test("production candidate verification runs provider assertions and returns host evidence", async () => {
+  const sandboxRelease = sandboxCandidateRelease();
+  const dispatched: unknown[] = [];
+  const runner = { async start(input: StartRequest) { return {
+    workerId: input.workerId,
+    onNotification: () => () => {},
+    close: async () => {},
+    request: async (method: string, payload: unknown) => {
+      if (method === "extension/discover") return sandboxRelease.manifest;
+      if (method === "extension/invoke") return {};
+      dispatched.push(payload);
+      return sandboxProviderResponse(payload);
+    },
+  }; } } as unknown as Runner;
+  const report = await verifyExtensionCandidate(runner, sandboxRelease, undefined, undefined, { proveWorkspaceRouting: proveSandboxLocalFallbackDenied });
+  expect(dispatched).toHaveLength(3);
+  expect(report.sandboxPresetQualifications).toHaveLength(1);
+  expect(report.sandboxPresetQualifications?.[0]).toMatchObject({ providerId: "incus", presetId: "small", cases: [
+    { caseId: "SP01", status: "passed" },
+    { caseId: "SP02", status: "passed" },
+    { caseId: "SP03", status: "passed" },
+    { caseId: "SP05", status: "passed" },
+    { caseId: "SP07", status: "passed" },
+    { caseId: "SP08", status: "passed" },
+  ] });
+});
+
+function realIncusRunner(attack = false) {
+  const extension = createIncusExtension(resolveHostIncusInvocationRuntime);
+  const dispatched: string[] = [];
+  let hostCalls = 0;
+  const runner = { async start(start: StartRequest, reverseRpc: ReverseRpc) { return {
+    workerId: start.workerId,
+    onNotification: () => () => {},
+    close: async () => {},
+    request: async (method: string, payload: unknown) => {
+      if (method === "extension/discover") return extension.manifest;
+      const exchange = payload as { method: string; input: unknown };
+      dispatched.push(exchange.method);
+      if (attack && exchange.method === "incus/preflight") {
+        await reverseRpc(INCUS_CANDIDATE_RPC, { context: start.context,
+          input: { command: { action: "instance.create" } } }).catch(() => {});
+      }
+      return extension.dispatch(exchange.method, exchange.input, {
+        invocation: start.context,
+        signal: new AbortController().signal,
+        call: async (name, input) => { hostCalls++; return reverseRpc(name, { context: start.context, input }); },
+      });
+    },
+  }; } } as unknown as Runner;
+  return { runner, dispatched, hostCalls: () => hostCalls };
+}
+
+test("real Incus entrypoint uses only the host-owned synthetic candidate probe", async () => {
+  const candidate = realIncusCandidateRelease();
+  const { runner, dispatched, hostCalls } = realIncusRunner();
+  const report = await verifyExtensionCandidate(runner, candidate, undefined, undefined, {
+    proveWorkspaceRouting: proveSandboxLocalFallbackDenied,
+  });
+  expect(report.sandboxPresetQualifications).toHaveLength(2);
+  expect(dispatched).toEqual(["incus/describe", "incus/preflight", "incus/preflight", "incus/preflight", "incus/preflight"]);
+  expect(hostCalls()).toBe(4);
+});
+
+test("a caught candidate Incus write attempt still blocks release verification", async () => {
+  const { runner } = realIncusRunner(true);
+  await expect(verifyExtensionCandidate(runner, realIncusCandidateRelease(), undefined, undefined, {
+    proveWorkspaceRouting: proveSandboxLocalFallbackDenied,
+  })).rejects.toMatchObject({ code: "candidate_capability_blocked" });
+});
+
+test("candidate Incus fixture rejects any write or forged invocation", () => {
+  const fixture = incusCandidateFixture(realIncusCandidateRelease())!;
+  const context = { ...invocation(), metadata: { providerConfig: fixture.config } };
+  const command = { action: "instance.create", connectionId: INCUS_CANDIDATE_CONNECTION,
+    pins: fixture.config, tags: { managedBy: "ezharness-incus-sandbox", connectionId: INCUS_CANDIDATE_CONNECTION }, payload: {} };
+  expect(INCUS_CANDIDATE_RPC).toBe("ezcorp/provider.incus.transport");
+  expect(() => fixture.respond({ context, input: { command } }, context)).toThrow("Only the bounded Incus candidate probe");
+  expect(() => fixture.respond({ context: { ...context, token: "forged" }, input: { command } }, context)).toThrow("Only the bounded Incus candidate probe");
+  expect(incusCandidateFixture(release)).toBeNull();
+});
+
+test("provider conformance methods cannot inherit smoke-test host capabilities", async () => {
+  const sandboxRelease = sandboxCandidateRelease();
+  const runner = { async start(input: StartRequest, reverseRpc: ReverseRpc) { return {
+    workerId: input.workerId,
+    onNotification: () => () => {},
+    close: async () => {},
+    request: async (method: string, payload: unknown) => {
+      if (method === "extension/discover") return sandboxRelease.manifest;
+      if (method === "extension/invoke") return {};
+      try { await reverseRpc("ezcorp/storage", { context: input.context, input: { action: "get", key: "conformance" } }); } catch { /* Provider attempts can catch host denials, but the broker still records them. */ }
+      return sandboxProviderResponse(payload);
+    },
+  }; } } as unknown as Runner;
+  await expect(verifyExtensionCandidate(runner, sandboxRelease, undefined, undefined, { proveWorkspaceRouting: proveSandboxLocalFallbackDenied })).rejects.toMatchObject({ code: "candidate_capability_blocked" });
 });
 
 test("fixture storage preserves scope separation, TTL expiry, list limits and deletion", async () => {

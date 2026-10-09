@@ -155,4 +155,24 @@ describe("decideWebSocketUpgrade — same access gates as HTTP + port pin + CSWS
     const d = await decideWebSocketUpgrade(input(), deps({ getServable: async () => ({ ...dynRow, targetPort: 0 }) }));
     expect(d.accept).toBe(false);
   });
+
+  test("returns a sandbox descriptor without a host loopback URL", async () => {
+    const binding = { projectId: "p", workspaceId: "s", connectionId: "c", providerId: "incus",
+      generation: 1, presetId: "compose", releaseDigest: "a".repeat(64), presetDigest: "b".repeat(64),
+      effectiveSettingsDigest: "c".repeat(64) };
+    const row: PreviewRegistryRow = { ...dynRow, expiresAt: new Date(Date.now() + 60_000),
+      workspaceTarget: { kind: "sandbox", binding } };
+    const d = await decideWebSocketUpgrade(input(), deps({ getServable: async () => row }));
+    expect(d).toMatchObject({ accept: true, kind: "sandbox", userId: "u1", port: 5173 });
+    expect(d).not.toHaveProperty("upstreamUrl");
+  });
+
+  test("rejects an expired sandbox row even if its registry lookup returned it", async () => {
+    const row: PreviewRegistryRow = { ...dynRow, expiresAt: new Date(0),
+      workspaceTarget: { kind: "sandbox", binding: { projectId: "p", workspaceId: "s", connectionId: "c",
+        providerId: "incus", generation: 1, presetId: "compose", releaseDigest: "a".repeat(64),
+        presetDigest: "b".repeat(64), effectiveSettingsDigest: "c".repeat(64) } } };
+    const d = await decideWebSocketUpgrade(input(), deps({ getServable: async () => row }));
+    expect(d.accept).toBe(false);
+  });
 });

@@ -34,6 +34,7 @@ import { getPermissionEngine } from "../extensions/permission-engine";
 import type { ExtensionStateMediator } from "../extensions/state-mediator";
 import type { SpawnQuota } from "../extensions/spawn-quota";
 import type { AgentExecutor } from "./executor";
+import type { WorkspaceTarget } from "./workspaces/target";
 import { logger } from "../logger";
 const log = logger.child("orchestration-host");
 
@@ -177,6 +178,8 @@ export interface WireOrchestrationToolsParams {
   stateMediator?: ExtensionStateMediator;
   spawnQuota?: SpawnQuota;
   userId?: string;
+  /** Exact host-selected workspace for this turn. */
+  workspaceTarget?: WorkspaceTarget;
 }
 
 /**
@@ -228,6 +231,7 @@ export async function wireOrchestrationToolsForTurn(
     stateMediator,
     spawnQuota,
     userId,
+    workspaceTarget,
   } = params;
 
   // This helper is the SOLE owner of the orchestration tools (they're excluded
@@ -261,6 +265,7 @@ export async function wireOrchestrationToolsForTurn(
   // throws with a clear message if the singleton isn't pre-init.
   const engine = getPermissionEngine();
   const toolExec = new ToolExecutor(registry, engine);
+  if (workspaceTarget) toolExec.setWorkspaceTarget(workspaceTarget);
   if (stateMediator) toolExec.setStateMediator(stateMediator);
   toolExec.setExecutor(executor);
   if (spawnQuota) toolExec.setSpawnQuota(spawnQuota);

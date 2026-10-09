@@ -2,6 +2,8 @@ import { randomBytes } from "node:crypto";
 import type { RpcHandlerDeps } from "./tool-executor/rpc-handlers";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { resolveReverseRpcMeta } from "./tool-executor/provenance";
+import type { RunnerExecution } from "@ezcorp/extension-contract";
+import { ProviderSecretTransport, type ProviderCredentialIdentity } from "./provider-secret-transport";
 
 export class BrokerError extends Error {
   constructor(readonly code: string, message: string) { super(message); this.name = "BrokerError"; }
@@ -10,7 +12,13 @@ export interface CredentialScope { extensionId: string; userId: string; conversa
 export type CredentialResolver = (name: string, scope: CredentialScope) => Promise<string | null>;
 let credentialResolver: CredentialResolver = async () => null;
 let rawCredentialResolver: CredentialResolver = async () => null;
+let providerSecretTransport: ProviderSecretTransport | undefined;
 export function configureCredentialResolver(resolve: CredentialResolver, readRaw: CredentialResolver = async () => null): void { credentialResolver = resolve; rawCredentialResolver = readRaw; }
+export function configureProviderCredentialTransport(execution: RunnerExecution | null, identity?: ProviderCredentialIdentity): void {
+  if (execution === null) { providerSecretTransport = undefined; return; }
+  if (!identity) throw new BrokerError("credential_provider_invalid", "Provider credential transport requires an exact provider and connection.");
+  providerSecretTransport = new ProviderSecretTransport(execution, identity);
+}
 const policies = {
   OPENAI_API_KEY: { origin: "https://api.openai.com", path: "/", account: false },
   OPENAI_ACCESS_TOKEN: { origin: "https://chatgpt.com", path: "/backend-api/codex", account: true },
@@ -60,7 +68,7 @@ export async function handleCredentialBroker(deps: RpcHandlerDeps, extensionId: 
     }
     await authorizeCredential(deps, scope, name);
     clearExpiredCredentialHandles();
-    const resolve = options.resolveCredential ?? credentialResolver;
+    const resolve = options.resolveCredential ?? (providerSecretTransport ? providerSecretTransport.resolve.bind(providerSecretTransport) : credentialResolver);
     const value = await resolve(name, scope);
     if (value === null) return { jsonrpc: "2.0", id: request.id, result: null };
     if (typeof value !== "string" || !value || value.length > 16384 || /[\r\n]/.test(value)) throw new BrokerError("credential_invalid", "Provider credential is not valid.");

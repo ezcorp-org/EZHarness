@@ -21,6 +21,7 @@ import { listAttachmentsForMessage, insertAttachment } from "../../db/queries/at
 import { readAttachmentBytes, writeAttachment } from "./storage";
 import type { StagedAttachment } from "./content-builder";
 import type { AttachmentSummary } from "../../db/queries/conversations";
+import type { WorkspaceTarget } from "../../runtime/workspaces/target";
 
 export interface ClonedAttachments {
   /** Fed to `streamChat`'s `attachments` option so the model re-sees the
@@ -32,7 +33,7 @@ export interface ClonedAttachments {
 }
 
 export async function cloneAttachmentsForFork(opts: {
-  projectRoot: string;
+  workspaceTarget: WorkspaceTarget;
   conversationId: string;
   sourceMessageId: string;
   targetMessageId: string;
@@ -42,9 +43,9 @@ export async function cloneAttachmentsForFork(opts: {
 
   const sourceRows = await listAttachmentsForMessage(opts.sourceMessageId);
   for (const src of sourceRows) {
-    const bytes = await readAttachmentBytes(src.storagePath);
+    const bytes = await readAttachmentBytes(opts.workspaceTarget, src.storagePath);
     const written = await writeAttachment({
-      projectRoot: opts.projectRoot,
+      workspaceTarget: opts.workspaceTarget,
       conversationId: opts.conversationId,
       messageId: opts.targetMessageId,
       filename: src.filename,

@@ -59,6 +59,22 @@ describe("preview-bus-registry", () => {
 });
 
 describe("emitDetectionDecision", () => {
+  test("the actual consent producer sends one renderable start/complete lifecycle", () => {
+    const bus = new EventBus<AgentEvents>();
+    const starts: AgentEvents["tool:start"][] = [];
+    const completions: AgentEvents["tool:complete"][] = [];
+    bus.on("tool:start", value => starts.push(value));
+    bus.on("tool:complete", value => completions.push(value));
+    emitDetectionDecision(bus, { kind: "consent-card", port: 5173,
+      card: { conversationId: "conv-1", port: 5173, title: "A site started on port 5173",
+        summary: "Expose it to your browser?", actions: { expose: "expose", ignore: "ignore", alwaysExpose: "always-expose" } } }, EVENT);
+    expect(starts).toHaveLength(1);
+    expect(completions).toHaveLength(1);
+    expect(starts[0]).toMatchObject({ conversationId: "conv-1", toolName: "preview_detected", cardType: PREVIEW_CONSENT_CARD_TYPE });
+    expect(completions[0]!.invocationId).toBe(starts[0]!.invocationId);
+    expect(completions[0]!.output).toMatchObject({ conversationId: "conv-1", port: 5173 });
+  });
+
   test("consent-card decision → tool:complete with the consent cardType", () => {
     const bus = new EventBus<AgentEvents>();
     const got: AgentEvents["tool:complete"][] = [];
@@ -106,11 +122,12 @@ describe("onPreviewDetected", () => {
     const bus = new EventBus<AgentEvents>();
     const got: AgentEvents["tool:complete"][] = [];
     bus.on("tool:complete", (d) => got.push(d));
-    await onPreviewDetected(EVENT, {
+    const delivered = await onPreviewDetected(EVENT, {
       getBus: () => bus,
       appHost: () => "localhost",
       decide: async () => ({ kind: "consent-card", port: 5173, card: { conversationId: "conv-1", port: 5173, title: "t", summary: "s", actions: { expose: "e", ignore: "i", alwaysExpose: "a" } } }),
     });
+    expect(delivered).toBe(true);
     expect(got).toHaveLength(1);
   });
 
@@ -121,7 +138,12 @@ describe("onPreviewDetected", () => {
         appHost: () => null,
         decide: async () => ({ kind: "skipped", reason: "x" }),
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
+  });
+
+  test("skipped decision is not reported as delivered", async () => {
+    expect(await onPreviewDetected(EVENT, { getBus: () => new EventBus<AgentEvents>(), appHost: () => null,
+      decide: async () => ({ kind: "skipped", reason: "ignored" }) })).toBe(false);
   });
 
   test("a throwing decide is swallowed (fail-safe)", async () => {
@@ -133,7 +155,7 @@ describe("onPreviewDetected", () => {
           throw new Error("boom");
         },
       }),
-    ).resolves.toBeUndefined();
+    ).resolves.toBe(false);
   });
 });
 

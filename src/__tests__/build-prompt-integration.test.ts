@@ -20,6 +20,7 @@ afterAll(() => restoreModuleMocks());
 import { writeAttachment } from "../chat/attachments/storage";
 import type { StagedAttachment } from "../chat/attachments/content-builder";
 import type { CommandResolver } from "../runtime/mention-wiring";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
 
 // ─── Mocks ─────────────────────────────────────────────────────────
 //
@@ -51,7 +52,7 @@ mock.module("../db/queries/conversation-extensions", () => ({
 
 // Import AFTER the mocks are registered so the dynamic `await import()`
 // inside buildPromptInput resolves to our stubs.
-import { buildPromptInput } from "../runtime/stream-chat/build-prompt";
+import { buildPromptInput as buildPromptInputWithTarget } from "../runtime/stream-chat/build-prompt";
 
 // ─── Test fixtures ────────────────────────────────────────────────
 
@@ -70,6 +71,13 @@ const XLSX_MIME =
 let projectRoot: string;
 let pngStoragePath: string;
 let xlsxStoragePath: string;
+const buildPromptInput = (
+  message: string,
+  options: Parameters<typeof buildPromptInputWithTarget>[1],
+) => buildPromptInputWithTarget(message, {
+  ...options,
+  workspaceTarget: localWorkspaceTarget(projectRoot),
+});
 
 beforeAll(async () => {
   projectRoot = await mkdtemp(join(tmpdir(), "build-prompt-int-"));
@@ -80,7 +88,7 @@ beforeAll(async () => {
   // content-builder can read them back via `readAttachmentBytes`.
   pngStoragePath = (
     await writeAttachment({
-      projectRoot,
+      workspaceTarget: localWorkspaceTarget(projectRoot),
       conversationId: "c-test",
       messageId: "m-test",
       filename: "cat.png",
@@ -91,7 +99,7 @@ beforeAll(async () => {
 
   xlsxStoragePath = (
     await writeAttachment({
-      projectRoot,
+      workspaceTarget: localWorkspaceTarget(projectRoot),
       conversationId: "c-test",
       messageId: "m-test",
       filename: "report.xlsx",
@@ -163,6 +171,16 @@ describe("buildPromptInput — file mention", () => {
 });
 
 // ─── 4. Attachment-only ───────────────────────────────────────────
+
+test("attachment prompt refuses a missing workspace target before reading bytes", async () => {
+  const attachment: StagedAttachment = {
+    id: "unbound-attachment", filename: "private.png", mimeType: "image/png",
+    storagePath: "/host/private.png",
+  };
+  await expect(buildPromptInputWithTarget("describe this", {
+    provider: "anthropic", model: "claude-sonnet-4-5", attachments: [attachment],
+  })).rejects.toThrow("Attachment prompt construction requires an explicit workspace target");
+});
 
 describe("buildPromptInput — image attachment", () => {
   test("image attachment on a vision model produces a native ImageContent", async () => {

@@ -1,0 +1,31 @@
+{
+  "date": "2026-10-04",
+  "source": "https://deb.debian.org/debian/dists/bookworm/InRelease",
+  "inReleaseSha256": "77737fa4b34f2693e982cc9ee35736816c35a7778fc2d326cc1bbf5b301fe1aa",
+  "archivePrimaryFingerprint": "B8B80B5B623EAB6AD8775C45B7C5D7D6350947F8",
+  "releasePrimaryFingerprint": "4D64FEC119C2029067D6E791F8D2585B8783D481",
+  "signatureVerified": true,
+  "packagesPath": "main/binary-amd64/Packages.xz",
+  "packagesSha256": "9e0b5aabb2465b3d2e7a7fe27f9913846277833f7a2826e7767acccff5b588c5",
+  "package": "git",
+  "version": "1:2.39.5-0+deb12u3",
+  "architecture": "amd64",
+  "packagePath": "pool/main/g/git/git_2.39.5-0+deb12u3_amd64.deb",
+  "packageSha256": "637a85ddd6247fab13bdd0592f2f39aff04ce4dbf0655d3ab553ac359a38ce6f",
+  "localSmoke": {
+    "image": "docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6",
+    "network": "none",
+    "rootFilesystem": "read-only",
+    "user": "1000:1000",
+    "gitScriptSha256": "7f94b15b214a1d646a2f98d1dca0acc269183a63290be3f912f01056bb2920a6",
+    "stdout": [
+      "uid=1000(1000) gid=1000(1000) groups=1000(1000)",
+      "1:2.39.5-0+deb12u3",
+      "git version 2.39.5",
+      "UID1000_GIT_INIT_COMMIT_STATUS_CLEANUP_PASS"
+    ],
+    "tempRepositoryRemoved": true
+  },
+  "incusImageBuilt": false,
+  "currentImageChanged": false
+}

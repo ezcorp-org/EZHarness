@@ -50,6 +50,7 @@ external_state=0
 [[ -n "${EZ_PRODUCTION_STATE_DIR:-}" ]] && external_state=1
 compose="$run_root/compose.yml"
 runner_pid=""
+runner_start_time=""
 verification_starter_pid=""
 verification_group_file="$run_root/verification-group.pid"
 verification_active=0
@@ -62,6 +63,15 @@ verification_group_pid() {
   read -r group_pid < "$verification_group_file"
   [[ "$group_pid" =~ ^[1-9][0-9]*$ ]] && ((10#$group_pid > 1)) || return 1
   printf '%s\n' "$group_pid"
+}
+
+process_stat_fields=()
+read_process_stat() {
+  local stat=""
+  IFS= read -r stat 2>/dev/null < "$1" || return 1
+  stat="${stat##*) }"
+  read -r -a process_stat_fields <<< "$stat"
+  [[ "${process_stat_fields[0]:-}" =~ ^[A-Z]$ && "${process_stat_fields[2]:-}" =~ ^[0-9]+$ && "${process_stat_fields[19]:-}" =~ ^[0-9]+$ ]]
 }
 
 signal_verification() {
@@ -77,9 +87,25 @@ signal_verification() {
 }
 
 verification_running() {
-  local group_pid=""
+  local group_pid="" proc_stat=""
   group_pid="$(verification_group_pid 2>/dev/null)" || true
   if [[ -n "$group_pid" ]]; then
+    # kill -0 also succeeds for a group made only of zombies. Their parent
+    # (which can be PID 1 for verifier descendants) owns reaping them; they
+    # cannot run or keep the verification streams open. Do not wait forever
+    # for an unrelated parent to reap them.
+    if [[ -r /proc/self/stat ]]; then
+      for proc_stat in /proc/[0-9]*/stat; do
+        if ! read_process_stat "$proc_stat"; then
+          # A vanished entry is harmless. An entry we cannot inspect might
+          # still belong to this group, so keep the conservative live result.
+          [[ -e "$proc_stat" ]] && return 0
+          continue
+        fi
+        if [[ "${process_stat_fields[2]}" == "$group_pid" && "${process_stat_fields[0]}" != Z && "${process_stat_fields[0]}" != X ]]; then return 0; fi
+      done
+      return 1
+    fi
     kill -0 -- "-$group_pid" 2>/dev/null
   elif [[ -n "$verification_starter_pid" ]]; then
     kill -0 "$verification_starter_pid" 2>/dev/null
@@ -88,9 +114,24 @@ verification_running() {
   fi
 }
 
+runner_running() {
+  [[ -n "$runner_pid" ]] || return 1
+  if [[ -r /proc/self/stat ]]; then
+    if ! read_process_stat "/proc/$runner_pid/stat"; then
+      # An unreadable entry might still be our child; an absent one cannot be.
+      [[ -e "/proc/$runner_pid/stat" ]]
+      return
+    fi
+    [[ -z "$runner_start_time" || "${process_stat_fields[19]}" == "$runner_start_time" ]] || return 1
+    [[ "${process_stat_fields[0]}" != Z && "${process_stat_fields[0]}" != X ]]
+  else
+    kill -0 "$runner_pid" 2>/dev/null
+  fi
+}
+
 wait_for_verification() {
-  local attempt
-  for ((attempt = 0; attempt < 40; attempt++)); do
+  local deadline=$((SECONDS + 4))
+  while ((SECONDS < deadline)); do
     verification_running || return 0
     sleep 0.1
   done
@@ -121,7 +162,12 @@ cleanup() {
     cleanup_exit=$?
   fi
   if [[ -n "$runner_pid" ]]; then
-    kill -TERM "$runner_pid" 2>/dev/null
+    if runner_running; then kill -TERM "$runner_pid" 2>/dev/null; fi
+    runner_deadline=$((SECONDS + 3))
+    while runner_running && ((SECONDS < runner_deadline)); do
+      sleep 0.1
+    done
+    if runner_running; then kill -KILL "$runner_pid" 2>/dev/null; fi
     wait "$runner_pid" 2>/dev/null
   fi
   printf 'command_exit=%s\ncompose_started=%s\napp_log_exit=%s\nowned_cleanup_exit=%s\nverifier_cleanup_exit=%s\n' "$command_exit" "$compose_started" "$logs_exit" "$cleanup_exit" "$verification_cleanup_exit" >> "$receipt_dir/command.log"
@@ -195,6 +241,9 @@ export EZ_PRODUCTION_PORT="$port" EZ_PRODUCTION_APP_CONTAINER="$container"
 } > "$receipt_dir/provenance.txt"
 
 bash scripts/start-extension-runner-e2e.sh > "$receipt_dir/runner.log" 2>&1 & runner_pid=$!
+if [[ -r /proc/self/stat ]] && read_process_stat "/proc/$runner_pid/stat"; then
+  runner_start_time="${process_stat_fields[19]}"
+fi
 for _ in $(seq 1 120); do
   if [[ -S "$EZ_EXTENSION_RUNNER_SOCKET" && -s "$EZ_EXTENSION_RUNNER_TOKEN_FILE" ]]; then break; fi
   kill -0 "$runner_pid" 2>/dev/null || { cat "$receipt_dir/runner.log" >&2; exit 1; }

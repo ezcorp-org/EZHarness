@@ -34,6 +34,10 @@ beforeAll(async () => {
     await writeFile(join(path, "ezcorp.config.ts"), "throw new Error('config must remain data during collection')");
     await writeFile(join(path, ".env"), "SECRET=not-for-workspace");
   }
+  const canonical = join(root, "extensions/canonical-provider");
+  await mkdir(canonical);
+  await writeFile(join(canonical, "extension.ts"), "throw new Error('canonical source must not execute on host')");
+  await writeFile(join(canonical, "manifest.ts"), "export const manifest = { schemaVersion: 4 }; ");
 });
 beforeEach(() => {
   user = { id: "admin", role: "admin", status: "active" };
@@ -133,4 +137,14 @@ test("runner rejection never turns staging into implicit activation", async () =
   await Promise.resolve();
   expect(result.operation.state).toBe("queued");
   expect(result.installation.enabled).toBe(false);
+});
+
+test("canonical bundled provider stages through the actual importer without config evaluation or activation", async () => {
+  const result = await importExtensionSource(actor, { kind: "bundled", name: "canonical-provider" });
+  expect(result.installation).toMatchObject({ ownerId: "admin", enabled: false, activeReleaseId: null });
+  expect(workspace).toHaveBeenCalledTimes(1);
+  expect(workspace.mock.calls[0]![1].files["extension.ts"]).toContain("must not execute on host");
+  expect(workspace.mock.calls[0]![1].files["ezcorp.config.ts"]).toBeUndefined();
+  expect(build).toHaveBeenCalledTimes(1);
+  expect(runBuild).toHaveBeenCalledTimes(1);
 });

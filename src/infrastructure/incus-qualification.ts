@@ -1,0 +1,870 @@
+import { createHash, X509Certificate } from "node:crypto";
+import {
+  sandboxPresetDigest,
+  validateLiveSandboxPresetQualification,
+  type LiveSandboxPresetQualification,
+  type LiveSandboxPreviewProof,
+  type LiveSandboxQualificationResult,
+  type SandboxCompatibilityObservation,
+  type SandboxPreset,
+} from "@ezcorp/extension-contract";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { getDb, type Database, type DbTransaction } from "../db/connection";
+import { incusQualificationFixtures, projectMembers, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
+  sandboxBindings, sandboxCleanupRecoveries, sandboxOperations, sandboxProjectQuotas, sandboxReservations,
+  users, type SandboxOperation } from "../db/schema";
+import { releaseRows } from "../db/queries/extension-releases";
+import { getReleaseRuntime, resolveActiveRelease, type ActiveExtensionRelease } from "../extensions/release-process";
+import { digest } from "../../scripts/incus/model";
+import type { IncusSetupRecipe } from "../../scripts/incus/model";
+import { GUEST_HELPER_VERSION, guestHelperSha256 } from "./incus-guest/protocol";
+import { HostIncusProbeTransport } from "./incus-transport/transport";
+import { SandboxAdmissionError, SandboxAdmissionStore } from "../sandboxes/admission";
+import { SandboxController } from "../sandboxes/controller";
+import { IncusSandboxProviderDispatcher } from "../sandboxes/incus-dispatcher";
+import { IncusMethodCaller } from "./incus-method-caller";
+import { permitsCreateReadbackDuringQueuedCleanup } from "./incus-create-readback-policy";
+import type { HostIncusLostDestroyReplyFault } from "./incus-destroy-reply-fault";
+import { IncusCleanupRecoveryService, inspectRelease, readIncusProviderGeneration, type IncusFeatureServiceDependencies } from "./incus-feature-service";
+import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
+import type { IncusProbeResult, IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
+import { IncusQualificationCheckpointStore, qualificationFixtureIdentity } from "./incus-qualification-checkpoint";
+
+export interface IncusQualificationScope {
+  installationId: string;
+  releaseId: string;
+  connectionId: string;
+  presetId: string;
+}
+
+/** Results must come from an operator-run guest fixture. The store does not
+ * provide a synthetic runner or treat a successful HTTP probe as SP04/SP06. */
+export interface IncusLiveCaseEvidence {
+  observation: SandboxCompatibilityObservation;
+  observedProfile: string;
+  observedImageDigest: string;
+  observedHelperDigest: string;
+  verifiedAt: string;
+  validUntil: string;
+  cases: LiveSandboxQualificationResult[];
+  previewProof?: LiveSandboxPreviewProof;
+}
+
+export interface IncusQualificationDependencies {
+  db?: Database;
+  activeRelease?: (installationId: string, transaction?: Database) => Promise<ActiveExtensionRelease>;
+  resolveConnection?: (scope: ProviderConnectionScope, transaction?: Database) => Promise<ProviderConnectionCredentials>;
+  connectionRevision?: (connectionId: string, transaction?: Database) => Promise<number | null>;
+  imageReceipt?: (installationId: string, transaction?: Database) => Promise<IncusImageReceipt | null>;
+  /** Read-only host transport observation, never a synthetic readiness verdict. */
+  probe?: (scope: IncusQualificationScope, connection: ProviderConnectionCredentials,
+    preset: SandboxPreset, presetDigest: string, effectiveSettingsDigest: string) => Promise<IncusProbeResult>;
+  /** Must execute all eight live SP cases against a real guest. No default. */
+  runLiveCases?: (scope: IncusQualificationScope, preset: SandboxPreset) => Promise<IncusLiveCaseEvidence>;
+  now?: () => number;
+}
+
+export interface IncusImageReceipt {
+  providerReleaseId: string;
+  providerReleaseDigest: string;
+  connectionId: string;
+  connectionRevision: number;
+  state: string;
+  recipe: IncusSetupRecipe;
+}
+
+interface IncusQualificationSelection {
+  snapshot: ActiveExtensionRelease;
+  connection: ProviderConnectionCredentials;
+  preset: SandboxPreset;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  helperDigest: string;
+}
+
+interface QualificationRow {
+  installationId: string;
+  releaseId: string;
+  releaseDigest: string;
+  connectionId: string;
+  connectionRevision: number;
+  presetId: string;
+  presetDigest: string;
+  effectiveSettingsDigest: string;
+  profile: string;
+  imageDigest: string;
+  helperDigest: string;
+  probeObservation: unknown;
+  liveObservation: unknown;
+  qualification: unknown;
+  verifiedAt: string | Date;
+  validUntil: string | Date;
+}
+
+const columns = sql`installation_id AS "installationId", release_id AS "releaseId", release_digest AS "releaseDigest",
+  connection_id AS "connectionId", connection_revision AS "connectionRevision", preset_id AS "presetId",
+  preset_digest AS "presetDigest", effective_settings_digest AS "effectiveSettingsDigest", profile,
+  image_digest AS "imageDigest", helper_digest AS "helperDigest", probe_observation AS "probeObservation",
+  live_observation AS "liveObservation",
+  qualification, verified_at AS "verifiedAt", valid_until AS "validUntil"`;
+
+async function latestImageReceipt(db: Database, installationId: string): Promise<IncusImageReceipt | null> {
+  const [row] = releaseRows<IncusImageReceipt>(await db.execute(sql`SELECT
+    provider_release_id AS "providerReleaseId", provider_release_digest AS "providerReleaseDigest",
+    connection_id AS "connectionId", connection_revision AS "connectionRevision", state, recipe
+    FROM incus_operator_setups WHERE provider_installation_id = ${installationId}
+    ORDER BY created_at DESC, id DESC LIMIT 1`));
+  return row ?? null;
+}
+
+function publishedImage(receipt: IncusImageReceipt | null, scope: IncusQualificationScope,
+  releaseDigest: string, revision: number, preset: SandboxPreset, helperDigest: string,
+  backendProfile: string): boolean {
+  const image = receipt?.recipe?.guestImage;
+  const sha = (value: unknown): value is string => typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
+  return receipt?.state === "verified" && receipt.providerReleaseId === scope.releaseId
+    && receipt.providerReleaseDigest === releaseDigest && receipt.connectionId === scope.connectionId
+    && receipt.connectionRevision === revision && receipt.recipe.profile?.name === backendProfile
+    && !!image && sha(image.fingerprint) && image.fingerprint === preset.imageDigest
+    && sha(image.sourceFingerprint) && sha(image.helperSha256) && image.helperSha256 === helperDigest
+    && sha(image.dockerArchiveSha256) && sha(image.composeSha256)
+    && typeof image.pythonPackageVersion === "string" && image.pythonPackageVersion.length > 0
+    && typeof image.alias === "string" && image.alias.length > 0 && image.user === "sandbox";
+}
+
+function certificateDigest(pem: string): string {
+  return createHash("sha256").update(new X509Certificate(pem).raw).digest("hex");
+}
+
+async function probeHost(db: Database, scope: IncusQualificationScope, connection: ProviderConnectionCredentials,
+  preset: SandboxPreset, presetDigest: string, effectiveSettingsDigest: string): Promise<IncusProbeResult> {
+  const pins = { connectionId: scope.connectionId, serverCertificateSha256: certificateDigest(connection.serverCertificatePem),
+    project: connection.project, profile: connection.configuration.profile,
+    helperVersion: connection.configuration.helperVersion, guestUser: connection.configuration.guestUser };
+  const command: IncusTransportRequest = {
+    action: "probe", connectionId: scope.connectionId, deadlineMs: Date.now() + 30_000,
+    pins, tags: { managedBy: "ezharness-incus-sandbox", connectionId: scope.connectionId },
+    payload: { providerId: "incus", profile: preset.profile, presetId: preset.id,
+      presetDigest, effectiveSettingsDigest, allocate: false },
+  };
+  return new HostIncusProbeTransport(new ProviderConnectionStore(db), {
+    providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+    revision: connection.revision,
+  }).request(command);
+}
+
+function compatible(preset: SandboxPreset, observation: SandboxCompatibilityObservation): boolean {
+  const required = preset.requirements;
+  return required.backendApis.includes(observation.backendApi)
+    && required.architectures.includes(observation.architecture)
+    && required.storageDrivers.includes(observation.storageDriver)
+    && required.isolation.includes(observation.isolation)
+    && (!required.nestedCompose || observation.nestedCompose);
+}
+
+function assertCompatibleLiveProbe(connection: ProviderConnectionCredentials, preset: SandboxPreset, probe: IncusProbeResult): void {
+  if (probe.serverCertificateSha256 !== certificateDigest(connection.serverCertificatePem)
+    || probe.project !== connection.project || probe.profile !== connection.configuration.profile
+    || probe.backendApi === "unverified" || !probe.backendVersion
+    || !preset.requirements.backendApis.includes(probe.backendApi)
+    || !preset.requirements.architectures.includes(probe.architecture)) {
+    throw new Error("Live Incus backend probe is incompatible");
+  }
+}
+
+function assertQualificationUnchanged(selected: IncusQualificationSelection, afterCases: IncusQualificationSelection): void {
+  if (afterCases.snapshot.release.releaseDigest !== selected.snapshot.release.releaseDigest
+    || afterCases.connection.revision !== selected.connection.revision
+    || afterCases.presetDigest !== selected.presetDigest
+    || afterCases.effectiveSettingsDigest !== selected.effectiveSettingsDigest) {
+    throw new Error("Incus qualification changed during live cases");
+  }
+}
+
+function assertLiveArtifactMatches(selected: IncusQualificationSelection, probe: IncusProbeResult, cases: IncusLiveCaseEvidence): void {
+  if (cases.observedProfile !== selected.preset.profile
+    || cases.observedImageDigest !== selected.preset.imageDigest
+    || cases.observedHelperDigest !== selected.helperDigest
+    || !compatible(selected.preset, cases.observation)
+    || cases.observation.backendApi !== probe.backendApi
+    || cases.observation.backendVersion !== probe.backendVersion
+    || cases.observation.architecture !== probe.architecture) {
+    throw new Error("Live Incus artifact observation changed");
+  }
+}
+
+function assertLivePreviewMatches(scope: IncusQualificationScope, selected: IncusQualificationSelection, preview: LiveSandboxPreviewProof | undefined): void {
+  if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
+    || preview.connectionId !== scope.connectionId || preview.presetId !== scope.presetId
+    || preview.releaseDigest !== selected.snapshot.release.releaseDigest
+    || preview.presetDigest !== selected.presetDigest
+    || preview.effectiveSettingsDigest !== selected.effectiveSettingsDigest
+    || preview.imageDigest !== selected.preset.imageDigest || preview.helperDigest !== selected.helperDigest)) {
+    throw new Error("Live Incus preview proof changed or is unavailable");
+  }
+}
+
+/** Persist only after a real provider preflight and host live-case runner pass.
+ * Every load re-resolves the active release and exact connection revision. */
+export class IncusQualificationStore {
+  private readonly db: Database;
+  private readonly activeRelease: NonNullable<IncusQualificationDependencies["activeRelease"]>;
+  private readonly resolveConnection: NonNullable<IncusQualificationDependencies["resolveConnection"]>;
+  private readonly connectionRevision: NonNullable<IncusQualificationDependencies["connectionRevision"]>;
+  private readonly imageReceipt: NonNullable<IncusQualificationDependencies["imageReceipt"]>;
+  private readonly probe: NonNullable<IncusQualificationDependencies["probe"]>;
+  private readonly now: () => number;
+
+  constructor(private readonly deps: IncusQualificationDependencies = {}) {
+    this.db = deps.db ?? getDb();
+    this.activeRelease = deps.activeRelease ?? ((id, transaction) => resolveActiveRelease(id, getReleaseRuntime(), transaction));
+    this.resolveConnection = deps.resolveConnection ?? ((scope, transaction) => new ProviderConnectionStore(transaction ?? this.db).resolveForHost(scope));
+    this.connectionRevision = deps.connectionRevision ?? (async (id, transaction) => (await new ProviderConnectionStore(transaction ?? this.db).getMetadata(id))?.revision ?? null);
+    this.imageReceipt = deps.imageReceipt ?? ((id, transaction) => latestImageReceipt(transaction ?? this.db, id));
+    this.probe = deps.probe ?? ((...args) => probeHost(this.db, ...args));
+    this.now = deps.now ?? Date.now;
+  }
+
+  private async current(scope: IncusQualificationScope, transaction?: Database): Promise<IncusQualificationSelection> {
+    const snapshot = await this.activeRelease(scope.installationId, transaction);
+    if (snapshot.installation.id !== scope.installationId || snapshot.release.id !== scope.releaseId
+      || snapshot.installation.activeReleaseId !== scope.releaseId) throw new Error("Incus qualification release is unavailable");
+    const provider = snapshot.release.manifest.sandboxProviders?.find(item => item.kind === "sandbox" && item.id === "incus");
+    const preset = provider?.presets.find(item => item.id === scope.presetId);
+    if (!preset || provider?.protocolMajor !== 1) throw new Error("Incus qualification preset is unavailable");
+    const revision = await this.connectionRevision(scope.connectionId, transaction);
+    if (!revision || !Number.isSafeInteger(revision)) throw new Error("Incus qualification connection is unavailable");
+    const connection = await this.resolveConnection({ connectionId: scope.connectionId,
+      providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId, revision }, transaction);
+    if (connection.id !== scope.connectionId || connection.revision !== revision || connection.revokedAt
+      || connection.providerInstallationId !== scope.installationId || connection.providerReleaseId !== scope.releaseId
+      || connection.configuration.kind !== "incus"
+      || connection.configuration.helperVersion !== GUEST_HELPER_VERSION || connection.configuration.guestUser !== "sandbox") {
+      throw new Error("Incus qualification connection changed");
+    }
+    const helperDigest = guestHelperSha256();
+    if (!preset.helperDigests.includes(helperDigest)) throw new Error("Incus qualification helper is unavailable");
+    const receipt = await this.imageReceipt(scope.installationId, transaction);
+    if (!publishedImage(receipt, scope, snapshot.release.releaseDigest, revision, preset,
+      helperDigest, connection.configuration.profile)) throw new Error("Incus qualification image is unpublished");
+    const presetDigest = await sandboxPresetDigest(preset);
+    return { snapshot, connection, preset, presetDigest,
+      effectiveSettingsDigest: digest({ presetDigest, connectionRevision: revision }), helperDigest };
+  }
+
+  /** Host fixture code reuses the exact release, connection and image gate. */
+  async authorizeFixture(scope: IncusQualificationScope, transaction?: Database): ReturnType<IncusQualificationStore["current"]> {
+    return this.current(scope, transaction);
+  }
+
+  /** Evidence from a claimed durable run is verified again against this process's release and backend probe. */
+  async recordVerified(scope: IncusQualificationScope,
+    resumedEvidence?: IncusLiveCaseEvidence,
+    claimedRun?: { runId: string; nonce: string }): Promise<LiveSandboxPresetQualification> {
+    if (!resumedEvidence && !this.deps.runLiveCases) throw new Error("Live Incus qualification runner is unavailable");
+    const selected = await this.current(scope);
+    const probe = await this.probe(scope, selected.connection, selected.preset,
+      selected.presetDigest, selected.effectiveSettingsDigest);
+    assertCompatibleLiveProbe(selected.connection, selected.preset, probe);
+    const cases = resumedEvidence ?? await this.deps.runLiveCases!(scope, selected.preset);
+    const afterCases = await this.current(scope);
+    assertQualificationUnchanged(selected, afterCases);
+    assertLiveArtifactMatches(selected, probe, cases);
+    const preview = cases.previewProof;
+    assertLivePreviewMatches(scope, selected, preview);
+    const qualification: LiveSandboxPresetQualification = {
+      producer: "live-provider", connectionId: scope.connectionId, providerId: "incus",
+      presetId: scope.presetId, profile: selected.preset.profile,
+      releaseDigest: selected.snapshot.release.releaseDigest, presetDigest: selected.presetDigest,
+      effectiveSettingsDigest: selected.effectiveSettingsDigest,
+      backendVersion: probe.backendVersion,
+      verifiedAt: cases.verifiedAt, validUntil: cases.validUntil, cases: cases.cases,
+      ...(preview ? { previewProof: preview } : {}),
+    };
+    await validateLiveSandboxPresetQualification(selected.preset, qualification, {
+      providerId: "incus", releaseDigest: selected.snapshot.release.releaseDigest,
+      connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+      now: this.now(),
+    });
+    let admissionBaseline: import("./incus-admission-readiness").PreparedIncusAdmissionBaseline | undefined;
+    let admissionService: import("./incus-admission-readiness").IncusAdmissionReadinessService | undefined;
+    if (claimedRun && process.env.EZCORP_INCUS_SUPERVISOR_SOCKET) {
+      const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+      admissionService = new IncusAdmissionReadinessService(this.db, this);
+      admissionBaseline = await admissionService.prepareBaseline(scope, claimedRun.runId, qualification);
+    }
+    const persist = async (database: Database) => {
+      await database.execute(sql`INSERT INTO incus_live_qualifications (
+      installation_id, release_id, release_digest, connection_id, connection_revision,
+      preset_id, preset_digest, effective_settings_digest, profile, image_digest,
+      helper_digest, probe_observation, live_observation, qualification, verified_at, valid_until
+    ) VALUES (${scope.installationId}, ${scope.releaseId}, ${selected.snapshot.release.releaseDigest},
+      ${scope.connectionId}, ${selected.connection.revision}, ${scope.presetId}, ${selected.presetDigest},
+      ${selected.effectiveSettingsDigest}, ${selected.preset.profile}, ${selected.preset.imageDigest},
+      ${selected.helperDigest}, ${JSON.stringify(probe)}::text::jsonb, ${JSON.stringify(cases.observation)}::text::jsonb,
+      ${JSON.stringify(qualification)}::text::jsonb,
+      ${new Date(cases.verifiedAt)}, ${new Date(cases.validUntil)})
+    ON CONFLICT (installation_id, connection_id, preset_id) DO UPDATE SET
+      release_id = EXCLUDED.release_id, release_digest = EXCLUDED.release_digest,
+      connection_revision = EXCLUDED.connection_revision, preset_digest = EXCLUDED.preset_digest,
+      effective_settings_digest = EXCLUDED.effective_settings_digest, profile = EXCLUDED.profile,
+      image_digest = EXCLUDED.image_digest, helper_digest = EXCLUDED.helper_digest,
+      probe_observation = EXCLUDED.probe_observation, live_observation = EXCLUDED.live_observation,
+      qualification = EXCLUDED.qualification,
+      verified_at = EXCLUDED.verified_at, valid_until = EXCLUDED.valid_until, updated_at = NOW()`);
+      if (admissionBaseline) await admissionService!.recordBaseline(admissionBaseline, database);
+      if (claimedRun) await new IncusQualificationCheckpointStore(this.db).complete({
+        ...claimedRun, scope }, database);
+    };
+    if (claimedRun) await this.db.transaction(persist);
+    else await persist(this.db);
+    return qualification;
+  }
+
+  async load(scope: IncusQualificationScope): Promise<LiveSandboxPresetQualification | null> {
+    return this.loadValidated(scope);
+  }
+
+  /** Historical SP validation requires an exact separately captured baseline digest. */
+  async loadBaselineProof(scope: IncusQualificationScope, proofDigest: string): Promise<LiveSandboxPresetQualification | null> {
+    return this.loadValidated(scope, proofDigest);
+  }
+
+  private async loadValidated(scope: IncusQualificationScope, proofDigest?: string): Promise<LiveSandboxPresetQualification | null> {
+    try {
+      const [row] = releaseRows<QualificationRow>(await this.db.execute(sql`SELECT ${columns}
+        FROM incus_live_qualifications WHERE installation_id = ${scope.installationId}
+          AND connection_id = ${scope.connectionId} AND preset_id = ${scope.presetId}`));
+      if (!row || row.releaseId !== scope.releaseId
+        || proofDigest !== undefined && (!/^[a-f0-9]{64}$/.test(proofDigest) || digest(row.qualification) !== proofDigest)) return null;
+      const validationTime = proofDigest === undefined ? this.now() : new Date(row.verifiedAt).getTime();
+      if (!Number.isFinite(validationTime) || new Date(row.validUntil).getTime() <= validationTime) return null;
+      const selected = await this.current(scope);
+      if (row.releaseDigest !== selected.snapshot.release.releaseDigest
+        || row.connectionRevision !== selected.connection.revision
+        || row.presetDigest !== selected.presetDigest || row.effectiveSettingsDigest !== selected.effectiveSettingsDigest
+        || row.profile !== selected.preset.profile || row.imageDigest !== selected.preset.imageDigest
+        || row.helperDigest !== selected.helperDigest) return null;
+      const probe = row.probeObservation as IncusProbeResult;
+      const observation = row.liveObservation as SandboxCompatibilityObservation;
+      if (!probe || probe.serverCertificateSha256 !== certificateDigest(selected.connection.serverCertificatePem)
+        || probe.project !== selected.connection.project || probe.profile !== selected.connection.configuration.profile
+        || probe.backendApi !== observation?.backendApi || probe.backendVersion !== observation?.backendVersion
+        || probe.architecture !== observation?.architecture || !compatible(selected.preset, observation)
+        || probe.backendVersion !== (row.qualification as LiveSandboxPresetQualification)?.backendVersion) return null;
+      const preview = (row.qualification as LiveSandboxPresetQualification)?.previewProof;
+      if (selected.preset.profile === "persistent-web-compose.v1" && (!preview
+        || preview.helperDigest !== selected.helperDigest || preview.imageDigest !== selected.preset.imageDigest)) return null;
+      return await validateLiveSandboxPresetQualification(selected.preset, row.qualification, {
+        providerId: "incus", releaseDigest: selected.snapshot.release.releaseDigest,
+        connectionId: scope.connectionId, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+        now: validationTime,
+      });
+    } catch {
+      return null;
+    }
+  }
+}
+
+/** An admitted effect still needs exact saved-operation readback, never a new mutation. */
+export class IncusQualificationOperationUnsettledError extends Error {
+  constructor(readonly operationId: string, readonly state: SandboxOperation["state"], cause?: unknown,
+    readonly reason: "outcome_unsettled" | "newer_intent" | "authority_changed" = "outcome_unsettled") {
+    super(`Incus qualification operation ${operationId} has saved state ${state} and needs review (${reason}); do not repeat its mutation`, { cause });
+    this.name = "IncusQualificationOperationUnsettledError";
+  }
+}
+
+export interface IncusQualificationFixtureDependencies {
+  db?: Database;
+  qualifications?: IncusQualificationStore;
+  /** The interactive admin who initiated this Compose qualification run. */
+  qualificationOwnerId?: string;
+  assertCurrentScope?: ProviderConnectionStore["assertCurrentScope"];
+  admission?: SandboxAdmissionStore;
+  controller?: SandboxController;
+  inspect?: IncusFeatureServiceDependencies["inspect"];
+  now?: () => number;
+}
+
+/** The browser session's admin identity is checked before any fixture effect.
+ * The same ID is persisted as owner of each disposable fixture project. */
+export async function assertIncusQualificationOwner(db: Database, userId: string): Promise<void> {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(userId)) {
+    throw new Error("Interactive qualification owner is invalid");
+  }
+  const [operator] = await db.select({ id: users.id, role: users.role, status: users.status }).from(users)
+    .where(eq(users.id, userId)).limit(1);
+  if (operator?.role !== "admin" || operator.status !== "active") {
+    throw new Error("Interactive qualification owner is not an active admin");
+  }
+}
+
+function uniqueViolation(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 4; depth++) {
+    if (!current || typeof current !== "object") return false;
+    if ("code" in current && current.code === "23505") return true;
+    current = "cause" in current ? current.cause : null;
+  }
+  return false;
+}
+
+/** Dedicated host fixture path. It creates no user workspace binding and does
+ * not relax IncusFeatureService's live-qualification requirement. */
+export class IncusQualificationFixtureService {
+  private readonly db: Database;
+  private readonly qualifications: IncusQualificationStore;
+  private readonly admission: SandboxAdmissionStore;
+  private readonly controller: SandboxController;
+  private readonly inspect: NonNullable<IncusFeatureServiceDependencies["inspect"]>;
+  private readonly now: () => number;
+  private readonly fixtureLocks = new Map<string, Promise<void>>();
+  private readonly assertCurrentScope: ProviderConnectionStore["assertCurrentScope"];
+  private readonly qualificationOwnerId: string | undefined;
+
+  constructor(deps: IncusQualificationFixtureDependencies = {}) {
+    this.db = deps.db ?? getDb();
+    this.qualifications = deps.qualifications ?? new IncusQualificationStore({ db: this.db });
+    this.qualificationOwnerId = deps.qualificationOwnerId;
+    this.admission = deps.admission ?? new SandboxAdmissionStore(this.db);
+    this.controller = deps.controller ?? new SandboxController(this.db,
+      new IncusSandboxProviderDispatcher(new IncusMethodCaller()));
+    this.inspect = deps.inspect ?? inspectRelease;
+    this.now = deps.now ?? Date.now;
+    this.assertCurrentScope = deps.assertCurrentScope ?? ((current, transaction) =>
+      new ProviderConnectionStore(this.db).assertCurrentScope(current, transaction));
+  }
+
+  private async fixture(operationId: string) {
+    const [row] = await this.db.select().from(incusQualificationFixtures)
+      .where(eq(incusQualificationFixtures.operationId, operationId)).limit(1);
+    return row ?? null;
+  }
+
+  private async ownedFixture(scope: IncusQualificationScope, operationId: string) {
+    const row = await this.fixture(operationId);
+    if (!row || row.installationId !== scope.installationId || row.releaseId !== scope.releaseId
+      || row.connectionId !== scope.connectionId || row.presetId !== scope.presetId) {
+      throw new Error("Incus qualification fixture is unavailable");
+    }
+    const [project] = await this.db.select({ purpose: projects.purpose }).from(projects)
+      .where(eq(projects.id, row.projectId)).limit(1);
+    const binding = await this.controller.getBinding(row.bindingId);
+    if (project?.purpose !== "incus-qualification" || !binding || binding.projectId !== row.projectId
+      || binding.resourceKey !== row.bindingId || binding.providerInstallationId !== row.installationId
+      || binding.providerReleaseId !== row.releaseId || binding.connectionId !== row.connectionId
+      || binding.connectionRevision !== row.connectionRevision || binding.presetId !== row.presetId
+      || binding.presetDigest !== row.presetDigest
+      || binding.effectiveSettingsDigest !== row.effectiveSettingsDigest) {
+      throw new Error("Incus qualification fixture binding changed");
+    }
+    return { row, binding };
+  }
+
+  /** Resume can allocate the recovery fixture only for the original admin.
+   * The claimed primary fixture, not a new session, supplies that identity. */
+  async ownerForResume(scope: IncusQualificationScope, checkpoint: {
+    runId: string; fixtureOperationId: string; bindingId: string;
+    generation: number; connectionRevision: number;
+  }): Promise<string> {
+    if (checkpoint.fixtureOperationId !== `qual-primary-${checkpoint.runId}`) {
+      throw new Error("Incus qualification primary fixture changed");
+    }
+    const { row, binding } = await this.ownedFixture(scope, checkpoint.fixtureOperationId);
+    const identity = qualificationFixtureIdentity(scope, checkpoint.fixtureOperationId);
+    if (row.projectId !== `incus-qual-project-${identity}` || row.bindingId !== checkpoint.bindingId
+      || binding.id !== checkpoint.bindingId || binding.generation !== checkpoint.generation
+      || row.connectionRevision !== checkpoint.connectionRevision || !row.ownerUserId) {
+      throw new Error("Incus qualification resume owner is unavailable");
+    }
+    await assertIncusQualificationOwner(this.db, row.ownerUserId);
+    const [owner] = await this.db.select({ userId: projectMembers.userId }).from(projectMembers)
+      .where(and(eq(projectMembers.projectId, row.projectId),
+        eq(projectMembers.userId, row.ownerUserId), eq(projectMembers.role, "owner"))).limit(1);
+    if (!owner) throw new Error("Incus qualification resume owner changed");
+    return row.ownerUserId;
+  }
+
+  /** Read only the durable state owned by this exact operator fixture. */
+  async status(scope: IncusQualificationScope, operationId: string) {
+    const { row, binding } = await this.ownedFixture(scope, operationId);
+    const [operation] = await this.db.select({ id: sandboxOperations.id, kind: sandboxOperations.kind,
+      state: sandboxOperations.state, generation: sandboxOperations.generation,
+      providerOperationId: sandboxOperations.providerOperationId, errorCode: sandboxOperations.errorCode,
+      createdAt: sandboxOperations.createdAt, updatedAt: sandboxOperations.updatedAt })
+      .from(sandboxOperations).where(eq(sandboxOperations.bindingId, row.bindingId))
+      .orderBy(desc(sandboxOperations.reconcileOrder), desc(sandboxOperations.createdAt),
+        desc(sandboxOperations.id)).limit(1);
+    const [recovery] = await this.db.select().from(sandboxCleanupRecoveries)
+      .where(eq(sandboxCleanupRecoveries.bindingId, binding.id)).limit(1);
+    return { ...(recovery ? { cleanupRecovery: { id: recovery.id, state: recovery.state,
+      failedDestroyOperationId: recovery.failedDestroyOperationId, stopOperationId: recovery.stopOperationId,
+      destroyOperationId: recovery.destroyOperationId } } : {}),
+      fixture: { operationId: row.operationId, installationId: row.installationId,
+      releaseId: row.releaseId, connectionId: row.connectionId, connectionRevision: row.connectionRevision,
+      presetId: row.presetId, projectId: row.projectId, bindingId: row.bindingId },
+      binding: { id: binding.id, generation: binding.generation, desiredState: binding.desiredState,
+        observedState: binding.observedState }, operation: operation ?? null };
+  }
+
+  /** Settle only the exact operation already admitted for this owned fixture. */
+  async waitForOperation(scope: IncusQualificationScope, fixtureOperationId: string,
+    operationId: string): Promise<SandboxOperation> {
+    const saved = await this.controller.getOperation(operationId);
+    try { return await this.inspectSavedOperation(scope, fixtureOperationId, operationId); }
+    catch (cause) {
+      if (cause instanceof IncusQualificationOperationUnsettledError || !saved) throw cause;
+      const current = await this.controller.getOperation(operationId).catch(() => saved);
+      throw new IncusQualificationOperationUnsettledError(saved.id, current?.state ?? saved.state, cause, "authority_changed");
+    }
+  }
+
+  private async inspectSavedOperation(scope: IncusQualificationScope, fixtureOperationId: string,
+    operationId: string): Promise<SandboxOperation> {
+    const deadline = this.now() + 30_000;
+    for (;;) {
+      const { row, binding } = await this.ownedFixture(scope, fixtureOperationId);
+      const selected = await this.qualifications.authorizeFixture(scope);
+      this.assertFixture(row, scope, selected.connection.revision, selected.presetDigest, selected.effectiveSettingsDigest);
+      let operation = await this.controller.getOperation(operationId);
+      if (!operation || operation.bindingId !== row.bindingId || operation.generation !== binding.generation) {
+        throw new Error("Incus qualification saved operation changed scope");
+      }
+      if (["DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state)) {
+        if (!operation.providerOperationId) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+        if (binding.currentOperationId !== operation.id) {
+          const cleanup = binding.currentOperationId ? await this.controller.getOperation(binding.currentOperationId) : undefined;
+          if (operation.kind !== "CREATE" || !permitsCreateReadbackDuringQueuedCleanup(binding, operation, cleanup ?? undefined)) {
+            throw new IncusQualificationOperationUnsettledError(operation.id, operation.state, undefined, "newer_intent");
+          }
+        }
+        if (this.now() >= deadline) throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+        operation = await this.controller.inspectOperation(operationId);
+      }
+      if (["SUCCEEDED", "FAILED"].includes(operation.state)) {
+        await this.recordOperationObservation(scope, row, operation);
+        return operation;
+      }
+      if (!["PROVIDER_PENDING", "OUTCOME_UNKNOWN"].includes(operation.state) || !operation.providerOperationId || this.now() >= deadline) {
+        throw new IncusQualificationOperationUnsettledError(operation.id, operation.state);
+      }
+      await Bun.sleep(100);
+    }
+  }
+
+  private async recordOperationObservation(scope: IncusQualificationScope,
+    row: NonNullable<Awaited<ReturnType<IncusQualificationFixtureService["fixture"]>>>,
+    operation: SandboxOperation): Promise<void> {
+    if (operation.state !== "SUCCEEDED") return;
+    const binding = await this.controller.getBinding(row.bindingId);
+    const state = operation.kind === "START" ? "RUNNING" : operation.kind === "DESTROY" ? "ABSENT" : "STOPPED";
+    if (binding?.currentOperationId !== operation.id || binding.generation !== operation.generation
+      || binding.observedState !== state || binding.desiredState !== state) return;
+    const reservation = await this.admission.getReservation(row.bindingId);
+    let intent = state === "ABSENT" ? reservation?.cleanupIntentId : reservation?.stopIntentId;
+    if (operation.kind === "CREATE") {
+      const identity = qualificationFixtureIdentity(scope, row.operationId);
+      intent = `incus-qualification-create-${identity}`;
+      await this.preserveSupersededObservation(operation, () => this.admission.markStopIntent(row.bindingId, operation.generation, intent!, operation.id));
+    }
+    await this.preserveSupersededObservation(operation, () => this.admission.recordObservedState(row.bindingId, operation.generation, state,
+      state === "RUNNING" ? undefined : intent ?? undefined, operation.id));
+  }
+
+  private async preserveSupersededObservation<T>(operation: SandboxOperation, action: () => Promise<T>): Promise<T> {
+    try { return await action(); }
+    catch (cause) {
+      if (cause instanceof SandboxAdmissionError && cause.code === "OPERATION_SUPERSEDED") {
+        throw new IncusQualificationOperationUnsettledError(operation.id, operation.state, cause, "newer_intent");
+      }
+      throw cause;
+    }
+  }
+
+  private assertFixture(row: NonNullable<Awaited<ReturnType<IncusQualificationFixtureService["fixture"]>>>,
+    scope: IncusQualificationScope, revision: number, presetDigest: string, settingsDigest: string): void {
+    if (row.installationId !== scope.installationId || row.releaseId !== scope.releaseId
+      || row.connectionId !== scope.connectionId || row.connectionRevision !== revision
+      || row.presetId !== scope.presetId || row.presetDigest !== presetDigest
+      || row.effectiveSettingsDigest !== settingsDigest) {
+      throw new Error("Incus qualification fixture operation changed scope");
+    }
+  }
+
+  private async withFixtureLock<T>(operationId: string, action: () => Promise<T>): Promise<T> {
+    const previous = this.fixtureLocks.get(operationId);
+    let release = () => {};
+    const current = new Promise<void>(resolve => { release = resolve; });
+    this.fixtureLocks.set(operationId, current);
+    if (previous) await previous;
+    try { return await action(); }
+    finally {
+      release();
+      if (this.fixtureLocks.get(operationId) === current) this.fixtureLocks.delete(operationId);
+    }
+  }
+
+  async create(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(operationId)) {
+      throw new Error("Invalid Incus qualification fixture operation ID");
+    }
+    return this.withFixtureLock(operationId, () => this.createLocked(scope, operationId));
+  }
+
+  private async createLocked(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
+    const selected = await this.qualifications.authorizeFixture(scope);
+    if (operationId.startsWith("qual-primary-") && process.env.EZCORP_INCUS_SUPERVISOR_SOCKET) {
+      const { IncusAdmissionReadinessService } = await import("./incus-admission-readiness");
+      await new IncusAdmissionReadinessService(this.db, this.qualifications).capture(scope, operationId.slice("qual-primary-".length));
+    }
+    const compose = selected.preset.profile === "persistent-web-compose.v1";
+    if (compose && !this.qualificationOwnerId) {
+      throw new Error("Interactive qualification owner is unavailable");
+    }
+    if (compose) await assertIncusQualificationOwner(this.db, this.qualificationOwnerId!);
+    const identity = qualificationFixtureIdentity(scope, operationId);
+    const projectId = `incus-qual-project-${identity}`;
+    const bindingId = `incus-qual-binding-${identity}`;
+    let row = await this.fixture(operationId);
+    if (!row) {
+      try {
+        await this.db.transaction(async (tx: DbTransaction) => {
+          if (operationId.startsWith("qual-recovery-")) {
+            // Serialize a new recovery identity against terminal attestation.
+            // Once the run is terminal, an absent recovery fixture must stay absent.
+            const runId = operationId.slice("qual-recovery-".length);
+            const [run] = releaseRows<{ state: string }>(await tx.execute(sql`SELECT state
+              FROM incus_qualification_runs WHERE run_id = ${runId} FOR UPDATE`));
+            if (run && ["COMPLETED", "FAILED"].includes(run.state)) {
+              throw new Error("Terminal Incus qualification recovery fixture is unavailable");
+            }
+          }
+          await this.assertCurrentScope({ connectionId: scope.connectionId,
+            providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+            releaseDigest: selected.snapshot.release.releaseDigest,
+            generation: selected.snapshot.installation.generation,
+            revision: selected.connection.revision }, tx);
+          if (compose) {
+            const [operator] = await tx.select({ role: users.role, status: users.status }).from(users)
+              .where(eq(users.id, this.qualificationOwnerId!)).limit(1);
+            if (operator?.role !== "admin" || operator.status !== "active") {
+              throw new Error("Interactive qualification owner changed before fixture creation");
+            }
+          }
+          await tx.insert(projects).values({ id: projectId, name: projectId, purpose: "incus-qualification",
+            path: `/__incus_qualification__/${identity}` });
+          if (compose) await tx.insert(projectMembers).values({ projectId,
+            userId: this.qualificationOwnerId!, role: "owner" });
+          await tx.insert(sandboxBindings).values({ id: bindingId, projectId,
+            providerInstallationId: scope.installationId, providerReleaseId: scope.releaseId,
+            connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
+            resourceKey: bindingId, profile: selected.preset.profile, presetId: scope.presetId,
+            presetDigest: selected.presetDigest, effectiveSettingsDigest: selected.effectiveSettingsDigest,
+            desiredState: "STOPPED", observedState: "UNKNOWN" });
+          await tx.insert(incusQualificationFixtures).values({ operationId, projectId, bindingId,
+            ownerUserId: compose ? this.qualificationOwnerId : null,
+            installationId: scope.installationId, releaseId: scope.releaseId,
+            connectionId: scope.connectionId, connectionRevision: selected.connection.revision,
+            presetId: scope.presetId, presetDigest: selected.presetDigest,
+            effectiveSettingsDigest: selected.effectiveSettingsDigest });
+        });
+      } catch (error) {
+        if (!uniqueViolation(error)) throw error;
+        row = await this.fixture(operationId);
+        if (!row) throw error;
+      }
+      row ??= await this.fixture(operationId);
+    }
+    if (!row || row.projectId !== projectId || row.bindingId !== bindingId) {
+      throw new Error("Incus qualification fixture identity changed");
+    }
+    if (compose) {
+      if (row.ownerUserId !== this.qualificationOwnerId) {
+        throw new Error("Interactive qualification owner changed");
+      }
+      const [owner] = await this.db.select({ userId: projectMembers.userId }).from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId),
+          eq(projectMembers.userId, this.qualificationOwnerId!), eq(projectMembers.role, "owner"))).limit(1);
+      if (!owner) throw new Error("Interactive qualification owner changed");
+    }
+    this.assertFixture(row, scope, selected.connection.revision,
+      selected.presetDigest, selected.effectiveSettingsDigest);
+    const resources = { memoryBytes: selected.preset.limits.memoryBytes,
+      cpuMillicores: selected.preset.limits.cpuMillis, pids: selected.preset.limits.pids,
+      diskBytes: selected.preset.limits.diskBytes, executionSlots: 1 };
+    const request = { bindingId, generation: 1, idempotencyScope: "incus-qualification",
+      idempotencyKey: operationId };
+    try {
+      await this.admission.configureProjectQuota({ projectId, providerInstallationId: scope.installationId,
+        connectionId: scope.connectionId, limit: resources });
+      const admitted = await this.admission.requestAdmission({ ...request, kind: "CREATE", resources });
+      if (admitted.state !== "ADMITTED") {
+        throw new Error(`Incus qualification fixture admission ${admitted.state}: ${admitted.reason}`);
+      }
+    } catch (error) {
+      try { await this.cancelNeverAdmittedLocked(scope, operationId); }
+      catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Incus qualification fixture admission and cleanup failed");
+      }
+      throw error;
+    }
+    const operation = await this.controller.requestAndDispatch({ ...request, kind: "CREATE",
+      payload: { profile: selected.preset.profile, presetId: scope.presetId,
+        presetDigest: selected.presetDigest,
+        effectiveSettingsDigest: selected.effectiveSettingsDigest } });
+    await this.recordOperationObservation(scope, row, operation);
+    return operation;
+  }
+
+  /** Recover an old failed pre-admission attempt. Any durable effect or
+   * reservation keeps the fixture for normal controller reconciliation. */
+  async cancelNeverAdmitted(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
+    return this.withFixtureLock(operationId, () => this.cancelNeverAdmittedLocked(scope, operationId));
+  }
+
+  private async cancelNeverAdmittedLocked(scope: IncusQualificationScope, operationId: string): Promise<boolean> {
+    return this.db.transaction(async (tx: DbTransaction) => {
+      const [fixture] = await tx.select().from(incusQualificationFixtures)
+        .where(eq(incusQualificationFixtures.operationId, operationId)).limit(1).for("update");
+      if (!fixture) return false;
+      if (fixture.installationId !== scope.installationId || fixture.releaseId !== scope.releaseId
+        || fixture.connectionId !== scope.connectionId || fixture.presetId !== scope.presetId) {
+        throw new Error("Incus qualification fixture operation changed scope");
+      }
+      // Admission locks this same binding row before it can persist a reservation.
+      // The row lock is the cross-process fence for this recovery path.
+      const [binding] = await tx.select().from(sandboxBindings)
+        .where(eq(sandboxBindings.id, fixture.bindingId)).limit(1).for("update");
+      const [project] = await tx.select().from(projects)
+        .where(eq(projects.id, fixture.projectId)).limit(1).for("update");
+      if (!binding || !project || project.purpose !== "incus-qualification"
+        || binding.projectId !== fixture.projectId || binding.resourceKey !== fixture.bindingId
+        || binding.providerInstallationId !== fixture.installationId
+        || binding.providerReleaseId !== fixture.releaseId
+        || binding.connectionId !== fixture.connectionId
+        || binding.connectionRevision !== fixture.connectionRevision
+        || binding.presetId !== fixture.presetId || binding.presetDigest !== fixture.presetDigest
+        || binding.effectiveSettingsDigest !== fixture.effectiveSettingsDigest) {
+        throw new Error("Incus qualification fixture ownership changed");
+      }
+      const [operation] = await tx.select({ id: sandboxOperations.id }).from(sandboxOperations)
+        .where(eq(sandboxOperations.bindingId, fixture.bindingId)).limit(1);
+      const [reservation] = await tx.select({ bindingId: sandboxReservations.bindingId }).from(sandboxReservations)
+        .where(eq(sandboxReservations.bindingId, fixture.bindingId)).limit(1);
+      const [workspace] = await tx.select({ projectId: projectWorkspaceBindings.projectId })
+        .from(projectWorkspaceBindings).where(eq(projectWorkspaceBindings.projectId, fixture.projectId)).limit(1);
+      const admissions = await tx.select().from(sandboxAdmissionRequests)
+        .where(eq(sandboxAdmissionRequests.bindingId, fixture.bindingId));
+      if (operation || reservation || workspace || admissions.some((item: { state: string }) => item.state === "ADMITTED")) {
+        throw new Error("Incus qualification fixture may have a provider effect");
+      }
+      await tx.delete(sandboxAdmissionRequests).where(eq(sandboxAdmissionRequests.bindingId, fixture.bindingId));
+      await tx.delete(sandboxProjectQuotas).where(eq(sandboxProjectQuotas.projectId, fixture.projectId));
+      await tx.delete(incusQualificationFixtures).where(eq(incusQualificationFixtures.operationId, operationId));
+      await tx.delete(sandboxBindings).where(eq(sandboxBindings.id, fixture.bindingId));
+      await tx.delete(projects).where(eq(projects.id, fixture.projectId));
+      return true;
+    });
+  }
+
+  async setPower(scope: IncusQualificationScope, operationId: string,
+    desiredState: "running" | "stopped", idempotencyKey: string): Promise<SandboxOperation> {
+    if (!/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(idempotencyKey)) {
+      throw new Error("Invalid Incus qualification fixture power operation ID");
+    }
+    const { row, binding } = await this.ownedFixture(scope, operationId);
+    const kind = desiredState === "running" ? "START" : "STOP";
+    const request = { bindingId: row.bindingId, generation: binding.generation,
+      idempotencyScope: "incus-qualification-power", idempotencyKey: `${operationId}:${idempotencyKey}` };
+    const [replay] = await this.db.select().from(sandboxOperations).where(and(
+      eq(sandboxOperations.bindingId, row.bindingId),
+      eq(sandboxOperations.idempotencyScope, request.idempotencyScope),
+      eq(sandboxOperations.idempotencyKey, request.idempotencyKey))).limit(1);
+    if (replay) {
+      if (replay.kind !== kind) throw new Error("Incus qualification fixture power identity changed");
+      return replay;
+    }
+    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now,
+      desiredState === "running" ? "stopped" : "running");
+    if (desiredState === "running") {
+      const selected = await this.qualifications.authorizeFixture(scope);
+      this.assertFixture(row, scope, selected.connection.revision,
+        selected.presetDigest, selected.effectiveSettingsDigest);
+      const resources = { memoryBytes: selected.preset.limits.memoryBytes,
+        cpuMillicores: selected.preset.limits.cpuMillis, pids: selected.preset.limits.pids,
+        diskBytes: selected.preset.limits.diskBytes, executionSlots: 1 };
+      const admitted = await this.admission.requestAdmission({ ...request, kind: "START", resources });
+      if (admitted.state !== "ADMITTED") {
+        throw new Error(`Incus qualification fixture admission ${admitted.state}: ${admitted.reason}`);
+      }
+    }
+    if (desiredState === "stopped") {
+      await this.admission.markStopIntent(row.bindingId, binding.generation,
+        `incus-qualification-stop-${operationId}-${idempotencyKey}`);
+    }
+    const operation = await this.controller.requestAndDispatch({ ...request, kind,
+      payload: { expectedGeneration } });
+    await this.recordOperationObservation(scope, row, operation);
+    return operation;
+  }
+
+  async recoverCleanup(scope: IncusQualificationScope, fixtureOperationId: string, failedDestroyOperationId: string) {
+    const owned = await this.ownedFixture(scope, fixtureOperationId);
+    return new IncusCleanupRecoveryService(this.db, this.controller, this.admission,
+      async binding => {
+        const { row, binding: current } = await this.ownedFixture(scope, fixtureOperationId);
+        const selected = await this.qualifications.authorizeFixture(scope);
+        this.assertFixture(row, scope, selected.connection.revision, selected.presetDigest, selected.effectiveSettingsDigest);
+        if (current.id !== binding.id || current.generation !== binding.generation
+          || current.providerReleaseId !== binding.providerReleaseId) throw new Error("Cleanup recovery authority changed");
+      }, this.inspect, this.now).recover(owned.binding.id, failedDestroyOperationId);
+  }
+
+  async destroy(scope: IncusQualificationScope, operationId: string): Promise<SandboxOperation> {
+    return this.destroyInternal(scope, operationId);
+  }
+
+  /** Called only after an authenticated operator run claims its durable checkpoint. */
+  async destroyWithLostReplyFault(scope: IncusQualificationScope, operationId: string,
+    authority: { runId: string; nonce: string; deadlineMs: number },
+    fault: HostIncusLostDestroyReplyFault): Promise<SandboxOperation> {
+    return this.destroyInternal(scope, operationId, { authority, fault });
+  }
+
+  private async destroyInternal(scope: IncusQualificationScope, operationId: string,
+    injection?: { authority: { runId: string; nonce: string; deadlineMs: number };
+      fault: HostIncusLostDestroyReplyFault }): Promise<SandboxOperation> {
+    const { row, binding } = await this.ownedFixture(scope, operationId);
+    const request = { bindingId: row.bindingId, generation: binding.generation,
+      idempotencyScope: "incus-qualification", idempotencyKey: `${operationId}:destroy` };
+    const [replay] = await this.db.select().from(sandboxOperations).where(and(
+      eq(sandboxOperations.bindingId, row.bindingId),
+      eq(sandboxOperations.idempotencyScope, request.idempotencyScope),
+      eq(sandboxOperations.idempotencyKey, request.idempotencyKey))).limit(1);
+    if (replay) {
+      if (replay.kind !== "DESTROY") throw new Error("Incus qualification fixture cleanup identity changed");
+      if (injection) throw new Error("Incus qualification destroy fault requires a fresh operation");
+      return replay;
+    }
+    const expectedGeneration = await readIncusProviderGeneration(binding, this.inspect, this.now, "stopped");
+    const reservedId = injection ? crypto.randomUUID() : undefined;
+    const armedScope = injection && reservedId ? { ...injection.authority, scope,
+      fixtureOperationId: operationId, bindingId: row.bindingId,
+      destroyOperationId: reservedId, generation: binding.generation,
+      providerGeneration: expectedGeneration, connectionRevision: row.connectionRevision } : null;
+    if (injection && armedScope) await injection.fault.arm(armedScope);
+    await this.admission.markCleanupIntent(row.bindingId, binding.generation,
+      `incus-qualification-destroy-${operationId}`);
+    const dispatch = { ...request, kind: "DESTROY" as const, payload: { expectedGeneration } };
+    let operation: SandboxOperation;
+    if (injection && reservedId && armedScope) {
+      await injection.fault.assertArmedFor(armedScope);
+      const journal = await this.controller.journalOperation(dispatch, reservedId);
+      if (journal.id !== reservedId) throw new Error("Incus qualification destroy fault lost its reserved operation identity");
+      operation = await this.controller.executeOperation(journal.id);
+    } else operation = await this.controller.requestAndDispatch(dispatch);
+    await this.recordOperationObservation(scope, row, operation);
+    return operation;
+  }
+}

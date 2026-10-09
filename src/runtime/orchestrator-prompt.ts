@@ -25,11 +25,11 @@ Example: if code review finds issues, route to a fixer agent; if clean, proceed 
 **Task assignment** - Prefer assigning at plan time via \`assignTo\` in \`task_plan\`. For post-hoc changes, use \`task_assign\` to assign an agent or team to a task by providing the \`taskId\` and \`agentConfigId\`. Assignments appear as pills on the task visible to the user. The user can then start the assigned agent from the UI. When an assigned agent starts, it receives the full task plan context (all tasks, statuses, and other assigned agents) so it understands the broader goal. Include detailed descriptions in each task to give assigned agents sufficient context.`;
 
 /**
- * Task tracking instructions injected into all conversations (not just orchestrator runs).
- * This teaches single agents to decompose complex work into visible tasks.
+ * Task tracking instructions for normal conversations with exposed planning tools.
+ * Resolve their exact model-facing names after tool scope restrictions.
  */
-export function buildTaskTrackingInstructions(): string {
-  return `## Task Tracking
+export function buildTaskTrackingInstructions(toolNames?: readonly string[]): string {
+  const instructions = `## Task Tracking
 
 You have task planning tools (\`task_plan\`, \`task_start\`, \`task_complete\`, \`task_fail\`, \`task_list\`, \`task_update\`, \`task_subtask_toggle\`, \`task_assign\`, \`task_unassign\`, \`task_list_agents\`) that show your progress to the user in a persistent panel at the bottom of the chat.
 
@@ -54,6 +54,16 @@ You have task planning tools (\`task_plan\`, \`task_start\`, \`task_complete\`, 
 **Dependencies between tasks:** When a task has real ordering constraints (e.g. "deploy depends on test depends on build"), pass \`dependsOn\` on the dependent task — an array of either task titles from the same \`task_plan\` call, or existing taskIds. The dependent task's assignments will NOT auto-start until every prerequisite is \`completed\`; when the last prerequisite completes, any assigned assignments auto-run. Use this instead of sequencing work through \`task_complete\` when you want parallel-then-join behavior (e.g. "C depends on both A and B — C runs only after both finish"). For mid-plan adjustments use \`task_set_dependencies\` with the \`taskId\` and the new \`dependsOn\` list. Cycles are rejected with a clear error. If a prerequisite \`task_fail\`s, its dependents stay blocked — explicitly decide to retry the prereq or fail the dependents.
 
 The panel is always visible to the user, so the task list is your way of communicating progress throughout long-running work.`;
+  if (toolNames === undefined) return instructions;
+  const available = new Set(toolNames);
+  const names = new Map<string, string>();
+  for (const match of instructions.matchAll(/`(task_[a-z_]+)`/g)) {
+    const name = match[1]!;
+    const actual = available.has(name) ? name : `task-tracking__${name}`;
+    if (!available.has(actual)) return "";
+    names.set(name, actual);
+  }
+  return instructions.replace(/`(task_[a-z_]+)`/g, (_, name: string) => `\`${names.get(name)}\``);
 }
 
 /**

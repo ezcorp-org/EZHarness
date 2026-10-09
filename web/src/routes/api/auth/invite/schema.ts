@@ -6,3 +6,5 @@ export const createInviteSchema = z.object({
 });
 
 export type CreateInviteInput = z.infer<typeof createInviteSchema>;
+
+export const deleteInviteSchema = z.object({ id: z.string().uuid() }).strict();

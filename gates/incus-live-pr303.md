@@ -1,0 +1,177 @@
+# Gates: Incus PR #303 live completion
+
+Scope: Review and apply a plan bound to the pinned provider release on the named sandbox server, prove the EZHarness-to-Incus workflow with the isolated app, and close the PR's code and CI gates without claiming unsupported features.
+
+## Current handoff — 9 October 2026 UTC
+
+Frozen source `645b9c44fcd4409b9d30acb17dea44154e02934e` passed the required
+12-step fast run, all 14 full local gates, canonical complexity checks, and
+[hosted CI run `37873345058`](https://github.com/ezcorp-org/EZHarness/actions/runs/37873345058).
+Hosted CI completed all 50 jobs and 51 PR checks, including the real
+one-connection Postgres continuation regression. These results apply to that
+source; later changes still need their own validation.
+
+Source645 also completed real qualification at 04:26 UTC on 9 October. Normal
+management readiness later failed despite its saved full proof. The old retained
+checkpoint was reconciled as `FAILED`; it is no longer an unresolved `CLAIMED`
+run. Historical compensated `OUTCOME_UNKNOWN` rows remain in the evidence and
+were not relabelled as successful operations.
+
+Diagnostic source `db80f5743653b95e44547de42928ca8992ab202f` is now installed
+and healthy behind the ingress hold. Independent checks verified database
+preservation, startup, runtime binding, and active provider0.1.6 generation8.
+Its fresh qualification run, `incus-diagnostic-db80-full-20261009-v1`, ended
+`FAILED` at 06:44 UTC with `Preview WebSocket headers are incomplete`.
+The failure is preserved. Its four owned local probe fixtures were removed,
+and native inventory showed zero guests. This inventory alone does not prove
+global database accounting cleanup. No current qualification or baseline is
+claimed for this deployment.
+
+The native sandbox preview registration and process-lifetime repair has passed
+focused tests and independent review. It is integrated in source24f4e but is not
+yet deployed. Sourcefe214 also integrates the reviewed qualification permission
+ordering repair: an active, strictly scoped qualification permission is checked
+before ordinary daily readiness. The real authenticated socket regression and
+41 focused tests passed without changing deadlines or access checks. A new live
+result is still required; neither repair is claimed to resolve the earlier
+readiness failure without that evidence.
+
+The historical ten-cycle audit passed the original criterion, which includes
+deliberate failure recovery. Those results remain bound to sourceff723, not the
+final candidate. No duplicate ten-cycle batch is required merely because some
+cycles exercised recovery. Failed attempts and excluded runs stay in the record.
+
+Before closing the live gate, verify the repaired source, complete qualification,
+prove ordinary daily admission and restart persistence, exercise the installed
+UI and authenticated preview, and record final resource checks. The bounded
+native-agent acceptance includes exact file retention before and after guest
+and app restart. Release private access only after the authorized workflow passes.
+Independent-provider portability, Infisical parity and native-worker completion
+are outside this Incus proof.
+
+## Earlier checkpoints
+
+These entries record earlier states; their pending items are not the current
+task list.
+
+Recorded checkpoint, 6 October: source `301e88e93` is installed. Attempt 7 classified
+saved cleanup 8720 as FAILED / OPERATOR_PROVEN_NO_EFFECT under a signed proof.
+Independent review verified transport restoration and closed the temporary
+access window. Normal app settings are restored. The guest is still STOPPED;
+cleanup and reservation release are not complete. Next prove ordinary cleanup,
+resource-load qualification, the user workflow, ten lifecycles and final gates.
+See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
+
+Deployment checkpoint, 6 October: combined source `301e88e93` is installed and
+healthy. Independent update review passed; configurations and stopped-copy
+accounting were preserved without a database restore. Cleanup 8720 remains
+UNKNOWN and the same guest remains STOPPED. Signed reconciliation, cleanup,
+resource-timeout diagnosis and full feature proof remain open. See the
+[update result](../docs/validation/2026-10-06-incus-301-update-result.md).
+
+Attempt 6 checkpoint, 6 October: attempt 6 passed actual loader, detached-database,
+server ownership and production audit checks. It admitted cleanup
+`8720a719-b3cd-44d7-a00d-5a57f4262fca`, then restoration stopped on runner
+startup identity. A separate supported restoration and normal app startup
+subsequently passed. The queued cleanup now reports OUTCOME_UNKNOWN, without
+a provider handle or saved error, and the stopped guest is still present.
+The cleanup must not be repeated or treated as unadmitted. Temporary access
+rollback passed independently. Read-only provider-response diagnosis is in
+progress; DESTROY success and reservation release remain open. The database
+fixture and saved admission/startup timestamps identify an expired queued
+observation budget: the host rejected before the backend call, but classified
+the failure as UNKNOWN. The prospective classification fix `e840eb10b` passes
+30 tests and independent review. It does not settle the saved UNKNOWN row;
+durable dispatch timing and signed no-effect reconciliation remain in progress.
+See the [attempt 6 result](../docs/validation/2026-10-06-c7-consumer-preflight-attempt6-result.md).
+
+Prior state: attempt 5 proved the actual repaired audit SSH route,
+then the public wrapper refused a generated six-entry helper map where its
+contract requires four. A supported signed abort and complete restoration
+passed independent review. The c7 START remains UNKNOWN; its stopped guest and
+reservations remain preserved. The next attempt must pass the actual app-user
+loader and unchanged DURABLE verifier on a guarded detached database copy
+before any clock. See the [attempt 5 result](../docs/validation/2026-10-06-c7-audit-wire-attempt5-result.md).
+Exact source `50d043fc8` has a freshly built, verified, smoke-tested bundle with
+real dependency-resolution proof. It is not installed; full current-source
+gates and the complete normal feature workflow remain open.
+
+Current status, 5 October 2026: provider 0.1.4 is active at generation 5 on
+connection `fdede86e-6cef-4d66-913a-49c8c3bf36e8`, revision 1. The isolated app
+is healthy on source `5080f3792`. Its real basic Compose lifecycle passed, but
+the latest qualification failed during a resource-load output read. The two
+new fixtures were cleaned up. Earlier START `c7b5f35d-aa75-421f-aa6b-0741840c8c39`
+remains UNKNOWN with its guest STOPPED and its reservation held. A temporary
+access attempt aborted before admission and restored access. A later app
+update timed out before replacing the active build; the same app was restored
+without a database restore or replay. A second access attempt rejected a
+generated key checksum before timer/key installation. Independent checks
+confirmed no access or admission effect and restored the same app. The
+checksum generator now has an actual renderer-to-consumer regression; the
+saved guest still needs cleanup. See the [attempt 2 result](../docs/validation/2026-10-05-c7-batched-recovery-attempt2-result.md).
+
+Latest continuation: attempt 3 proved temporary access, then refused a stale
+review receipt before certificate fencing or cleanup admission. Its access,
+configuration and fallback timer restoration passed independently. The fresh
+[attempt 4 plan](../docs/validation/2026-10-05-c7-synchronous-review-attempt4.md)
+keeps all deadline and freshness checks and uses synchronous one-time review
+delivery. Its actual handoff passed, but the production verifier's audit command
+was missing from the temporary SSH gate. A supported signed abort proved no
+cleanup admission; natural access rollback and complete prior-state restoration
+passed independently. See the [attempt 4 result](../docs/validation/2026-10-05-c7-synchronous-review-attempt4-result.md).
+The app is healthy on 508/f935; the exact stopped c7 guest remains preserved.
+Source `df08c12c8` also patches two newly published dependency advisories;
+fresh dependency installs, real nested imports and the audit pass. The current
+full gate and complete normal user flow remain open.
+
+The historical proofs below remain valid for their recorded releases and
+identities. They do not close the current release gates. The boxes remain
+open until current evidence or an explicit identity-matched carry-forward
+review closes each gate. Combined source `2bb18f611` passed the supported fast
+gate and both recovery screenshot cases. Its hosted coverage checks passed,
+but one fully covered function exceeded the complexity limit. Reviewed
+refactor `11620ca6e` preserves every check and reduces its score from 36 to 6;
+all extracted helpers also pass the unchanged limit. Its 73 focused tests,
+measured coverage, patch coverage, lint and typecheck passed. Final source
+checks and the full normal user workflow are still pending. See the
+[current candidate evidence](../docs/validation/2026-10-05-incus-unmerged-candidate.md).
+
+Historical status, 4 October 2026: provider 0.1.3 is approved and active at generation
+4. The retained diagnostic guest was stopped and disposed through the UI; its
+terminal receipt and independent empty Incus inventory passed. The update first
+refused the retained guest, then passed the production drain guard after cleanup.
+Installed source `74cedcf397` corrects setup review invalidation by sampled free
+disk space, while retaining fresh capacity checks. Its replacement setup
+`129bf7e6-9037-4f52-a09b-6b4b5a112ef4` has a ready plan for real
+connection `5ee601f8-b0f2-46d5-b65c-0250e66edd28`, revision 1, digest
+`263ddc5bf0a699675773bd97bc49d6d65bfd5669f5cb3c16dbf5e657e856f926`.
+That plan is approved and verified. All 15 matching resources were skipped;
+the exact capacity budget is applied. Before/after inventory comparison and
+final read-only policy controls passed independently. The AMD verifier update
+also passed. Fresh qualification then stopped with one unknown START and a
+retained stopped guest. Async operation tracking and signed cleanup fixes are
+under local test; they are not deployed. G2–G4 below retain historical, release-specific proofs; they
+do not qualify the new connection. See the [current evidence record](../docs/validation/2026-10-03-incus-live-continuation.md).
+
+Historical status, 25 September 2026: provider release 0.1.2 is approved and active at generation 3. The exact setup plan is approved, applied, and read back as verified. The existing evidence does not include a full independent before/after inventory proving unrelated server resources remained unchanged. The 0.1.2 transport can reach Incus, but no recorded negative call proves that its certificate is denied from an unapproved project. G1 and G2 therefore remain open.
+
+Resume status, 3 October 2026: the AMD services were restored and the current database was preserved. The original guest completed inspection, marker write/read, and Compose execution. The same saved STOP settled after the broker repair; one DESTROY settled with released reservations and independently empty inventory. The restricted client passed a real project-object denial check. Separate SP01–SP08 qualification and native project/chat proof remain open. Qualification found a disabled host verifier configuration, missing control fixtures, and a trailing-slash root API error before guest allocation; the wiring and fixtures are now prepared and the API correction has passed live read-only proof. Preserve the existing qualification run ID.
+
+- [ ] G1: The corrected release and new setup digest receive separate review; that exact digest is applied and read back as verified; unrelated server resources remain unchanged.
+  CURRENT: Release 0.1.3 is active at generation 4. The separately approved setup `129bf7e6...`, digest `263ddc5b...`, completed normally with all 15 steps skipped and no failures. Exact capacity Plan/Apply passed. Independent production-fingerprint comparison of actual before/after inventories confirms unchanged configuration and zero guests. Final policy `ea8596...` is confirmed; its rollback timer is inactive. See the October 4 combined setup milestone in the [continuation record](../docs/validation/2026-10-03-incus-live-continuation.md).
+  EVIDENCE: Release 0.1.2 (`9ec8e626-0a5d-4ed6-9333-a3fd1aa25472`, digest `4c0e2eee0f9105d28a5173ec695bd42c6b84de58233570fb0ffb2dcf03a6ac18`) was separately approved and activated at generation 3. Setup `97edb3a1-80e4-4305-baac-1325930b868d`, digest `d8460b1705715ebebb2596e825cba29d9514d53a2190841336830082d3791fcb`, was approved and re-applied; the app returned `verified` with no failures for its 15 reviewed steps. The plan used the recorded inventory fingerprint and covered the existing pool, bridge, restricted project/profile, listener, and scoped client. The committed record does not include a complete independent post-apply inventory comparison for unrelated resources, so this gate remains open. See [`the release 0.1.2 review`](../docs/validation/2026-09-24-isolated-incus-release-0.1.2-review.md), [`the exact setup review and apply result`](../docs/validation/2026-09-24-post-recovery-incus-setup-review.md), and [`the release approval and active-generation readback`](../docs/validation/2026-09-24-incus-provider-upgrade-identity.md). Historical note: the earlier 0.1.1 plan failed before creating its restricted project because Incus 6.0.6 rejected `restricted.storage-pools.access`; its revised digest is obsolete.
+- [ ] G2: The activated Incus provider passes the isolated app's authenticated mTLS probe and cannot access an unapproved project.
+  EVIDENCE: The active 0.1.2 connection completed authenticated app-controlled guest operations. Its same restricted client identity then returned HTTP 200 for `/1.0/projects/ezharness` and HTTP 403 for the existing `/1.0/projects/default`, with exact pinned TLS checks and no server permission change. Independent trust inspection confirmed restricted=true and projects=[ezharness]. The earlier collection-list 200 was inconclusive because Incus filters unauthorized collections; its receipt is retained. See [`3 October live continuation`](../docs/validation/2026-10-03-incus-live-continuation.md).
+- [ ] G3: A host-owned real fixture creates, runs, reconnects, and destroys an Incus guest through EZHarness durable control; cleanup inventory is empty.
+  EVIDENCE: Saved CREATE `ca4d3c6b-de37-4d2a-ba00-8a243fe3124d` and START `9b7b0246-e9ef-4b6d-b899-78f9d975c39a` succeeded for guest `ezh-3706fb480a240548bcf13974451b200d`. Reconnected app control passed owned inspection, marker write/read, and pinned Compose exit 0 (`ezh-compose-ok`). After the guarded update, original STOP `1a1f5737-d27e-4a6a-ae67-06724efe313e` settled SUCCEEDED without another STOP. One DESTROY `53ab479a-9c41-4708-9f5b-9dbda8f221f5` settled SUCCEEDED; binding ABSENT/ABSENT, reservations RELEASED, and independent instance/operation inventory empty. See [`3 October live continuation`](../docs/validation/2026-10-03-incus-live-continuation.md). This closes the saved smoke; deliberate restart/failure qualification remains G4 and native project retention remains G5.
+- [ ] G4: SP01–SP08 qualification uses concrete host and guest observations for the exact release, connection, preset, image, and helper; no synthetic result is accepted.
+  EVIDENCE: On 4 October, installed source `8cf769a2b1aa039d7250bbd2db3d93af0c319f9b` completed run `incus-live-sp01-08-20261003-v10` through the real provider and supervised engine restart. Normal management reports `qualified=true`, state `qualified`, for the exact active Compose profile; receipt SHA256 `da498b9f36a21afd5e5677d5605e87b0d6feae726eb96ed14f029f102783b679`. All three saved fixture deletes succeeded, bindings are absent, and independent instance/operation inventories are empty. Qualification expires at `2026-10-04T05:30:00.085Z`; new use must still pass current admission checks. Final copied reservation accounting remains part of G7. Earlier failed runs remain recorded. See [`live continuation`](../docs/validation/2026-10-03-incus-live-continuation.md).
+  UPDATE: V10 stopped-copy accounting confirms all reservations released and no global pending operations. V11 on merged source `aaa3cf9f9` also passed all eight cases; its qualification expires at `2026-10-04T06:17:45.066Z`. Its three fixture deletes and independent empty backend inventory passed. V11 copied accounting remains pending. Qualification expiry blocks new CREATE/START admission; it does not remove a running guest or prevent STOP/DESTROY. Each new test cycle still needs current qualification.
+  CURRENT: V12 on installed `d2de80a8a` passed despite the collecting client's timeout. Full management receipt SHA256 `bd3975d2eebc963f5ab245c35b07074b36ca704a44b52330405bd15474e1171c` selects its exact run and qualification valid until `2026-10-04T07:12:54.605Z`. A stale earlier read was incorrectly interpreted as failure; that interpretation is withdrawn. V13's subsequent readiness refusal allocated no guests. The retained terminal supervisor claim and readiness budget are being repaired before the final repeatability batch.
+- [ ] G5: An authorized user feature creates its persistent sandbox; guest read/edit/search/shell, Compose, tests, stop/reconnect, and destroy work through EZHarness with no AMD file fallback.
+  EVIDENCE: The first normal UI CREATE succeeded in the backend, but the route failed to serialize its operation receipt. The same saved operation was reconciled without replay; no START or native turn followed. The database-shaped response bug has a reproduced regression and reviewed fix in `d2de80a8a`. The stopped diagnostic guest must be disposed through the UI before a fresh complete normal-flow proof. This partial result does not close G5.
+  UPDATE, 4 October: The original diagnostic guest was disposed. A later normal UI CREATE/START/Open chat succeeded for binding `31cc88eb-28a6-4627-9750-28c24e339f12`. Real native file/edit/read/grep/glob/list/shell tools and three Python tests passed; independent guest readback matched and the AMD canary stayed unchanged. Receipt `9551bfb25482ef8955d5126ae50fa06c5c04d64373c6619028d7249b47a16673` explicitly excludes full G5. That guest lacks Git. Corrected image `ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912` passed an actual non-root Incus Git smoke. Its verified provider candidate awaits [human release review](../docs/validation/2026-10-04-isolated-incus-release-0.1.3-review.md). Full native Git/Compose/restart/cleanup still needs proof on that candidate.
+- [ ] G6: Host, network, quota, resource, secret, and cross-sandbox negative checks for the selected deployment pass without weakening existing gates.
+  EVIDENCE: pending
+- [ ] G7: Final PR head passes focused tests, build, lint, typecheck, repository gates, hosted CI, and independent code review; draft status and remaining unsupported profiles are reported honestly.
+  EVIDENCE: Source `fcc4693f3` passed the full fast gate and all five canonical browser lanes. Merged coverage passed 28,306 tests, all 1,800 per-file thresholds, 93 new-file checks, and changed-line coverage for 160 files; global coverage was 97.50%. Hosted CI passed 50 checks and failed the touched-function complexity check: the recovery transaction callback scored 44 against a limit of 30, despite 100% measured coverage. A focused helper extraction is under review. Final-source gates, live proof, and non-author review remain required. The isolated app is still on `74cedcf397`; these source results do not close the live gates.

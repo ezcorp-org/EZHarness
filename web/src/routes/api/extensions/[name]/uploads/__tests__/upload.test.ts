@@ -34,6 +34,7 @@ let mockExt: MockExt | null = null;
 let mockMsgs: MockMsg[] = [];
 let mockWiredExtIds: string[] = [];
 let mockProject: MockProject | null = null;
+let sandboxBound = false;
 const insertCalls: Array<Record<string, unknown>> = [];
 const writeCalls: Array<Record<string, unknown>> = [];
 
@@ -53,6 +54,13 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async (id: string) => (mockProject && mockProject.id === id ? mockProject : null),
+}));
+
+mock.module("$server/runtime/workspaces/project-target", () => ({
+  resolveLocalProjectTarget: async (project: MockProject) => {
+    if (sandboxBound) throw new Error("Local workspace fallback was denied");
+    return { kind: "local" as const, root: project.path };
+  },
 }));
 
 mock.module("$server/chat/attachments/storage", () => ({
@@ -98,6 +106,7 @@ beforeEach(() => {
   mockMsgs = [{ id: "msg-1", conversationId: "conv-1", role: "extension" }];
   mockMsgToolCallExtIds = ["ext-1"];
   mockProject = { id: "proj-1", name: "p", path: "/tmp/p" };
+  sandboxBound = false;
   insertCalls.length = 0;
   writeCalls.length = 0;
 });
@@ -279,6 +288,15 @@ describe("uploads — happy path", () => {
     expect(insertCalls[0]!.messageId).toBe("msg-1");
     expect(insertCalls[0]!.conversationId).toBe("conv-1");
     expect(writeCalls[0]!.messageId).toBe("msg-1");
+    expect(writeCalls[0]!.workspaceTarget).toEqual({ kind: "local", root: "/tmp/p" });
+  });
+
+  test("a sandbox-bound project denies upload before writing bytes or a row", async () => {
+    sandboxBound = true;
+    const res = await POST(evt(makeForm({})) as any);
+    expect(res.status).toBe(503);
+    expect(writeCalls).toHaveLength(0);
+    expect(insertCalls).toHaveLength(0);
   });
 
   test("refuses storage when the conversation project has no path", async () => {

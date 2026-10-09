@@ -1,6 +1,7 @@
 import { test, expect } from "../fixtures/hydration.js";
 import { cp, mkdir, rm } from "node:fs/promises";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { tmpdir } from "node:os";
 import { captureEvidence } from "../fixtures/evidence";
 import { expectInstallationEnabled, extensionClient, buildWorkspace, waitForExtensionBuild, requestRelease, type CreatedWorkspace } from "../fixtures/extension-v4";
 import { invokeExtensionToolFromComposer } from "../fixtures/composer";
@@ -264,12 +265,37 @@ test("administrator imports a pinned public GitHub source through the visible so
   test.setTimeout(360000);
   const { client } = await extensionClient(request, baseURL!);
   let installationId: string | undefined;
+  let credentialProject: { id: string; path: string } | undefined;
+  const sourceToken = process.env.EZCORP_E2E_GITHUB_SOURCE_TOKEN;
+  // Use Node fetch, not traced Playwright requests: this secret must not enter
+  // the browser trace or application environment. The seed route is test-only.
+  const cookies = (await page.context().storageState()).cookies;
+  const privateRequest = (path: string, method: string, body?: unknown) => fetch(new URL(path, baseURL!), {
+    method, headers: { "content-type": "application/json", cookie: cookies.map(cookie => `${cookie.name}=${cookie.value}`).join("; ") },
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+  });
   try {
+    if (sourceToken) {
+      const seeded = await privateRequest("/api/__test/seed", "POST", { projectName: "Pinned GitHub source credential fixture", githubSourceToken: sourceToken });
+      expect(seeded.status).toBe(201);
+      const { projectId } = await seeded.json() as { projectId: string };
+      expect(typeof projectId).toBe("string");
+      expect(projectId).toMatch(/^[a-f0-9-]{36}$/);
+      const project = await privateRequest(`/api/projects/${projectId}`, "GET");
+      expect(project.status).toBe(200);
+      const selected = await project.json() as { id: string; path: string };
+      expect(selected.id).toBe(projectId);
+      expect(typeof selected.path).toBe("string");
+      expect(dirname(selected.path)).toBe(tmpdir());
+      expect(selected.path.startsWith(`${tmpdir()}/ezcorp-harness-`)).toBe(true);
+      credentialProject = selected;
+    }
     await page.goto("/extensions/import-source");
     await page.getByLabel("Source type").selectOption("github");
     await page.getByLabel("GitHub repository").fill("ezcorp-org/EZHarness");
     await page.getByLabel("Branch, tag, or commit optional").fill("2fea009e0a3015d6aec73eec35bbe45555edbb7c");
     await page.getByLabel("Subdirectory optional").fill("docs/extensions/examples/harness-smoke-test");
+    if (credentialProject) await page.getByLabel("Private repository access").selectOption(credentialProject.id);
     const responsePromise = page.waitForResponse(response => response.url().endsWith("/api/extensions/import-source") && response.request().method() === "POST", { timeout: 30_000 });
     await page.getByRole("button", { name: "Import and build candidate", exact: true }).click();
     const response = await responsePromise;
@@ -279,7 +305,12 @@ test("administrator imports a pinned public GitHub source through the visible so
     const state = await waitForExtensionBuild(client, installationId, staged.operation.id);
     expect(state.operations[staged.operation.id]!.state).toBe("verified");
     expect(state.installation).toMatchObject({ enabled: false, activeReleaseId: null });
+    if (sourceToken) expect(JSON.stringify(state).includes(sourceToken)).toBe(false);
   } finally {
     if (installationId) await client.extensionControl("extensions_release", { action: "uninstall", installationId, idempotencyKey: crypto.randomUUID() });
+    if (credentialProject) {
+      expect((await privateRequest(`/api/projects/${credentialProject.id}`, "DELETE")).status).toBe(200);
+      await rm(credentialProject.path, { recursive: true, force: true });
+    }
   }
 });

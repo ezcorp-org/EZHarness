@@ -20,7 +20,6 @@
 		type PreviewConsentCardData,
 		type ConsentAction,
 		buildConsentRequest,
-		buildOpenUrl,
 	} from "./preview-consent-card-logic.js";
 
 	let { data }: { data: PreviewConsentCardData } = $props();
@@ -28,6 +27,7 @@
 	type Phase = "prompt" | "pending" | "exposed" | "ignored" | "error";
 	let phase = $state<Phase>("prompt");
 	let openUrl = $state<string | null>(null);
+	let readyUrl = $derived(data.openUrl ?? openUrl);
 	let errorMsg = $state<string | null>(null);
 
 	async function act(action: ConsentAction) {
@@ -55,13 +55,20 @@
 				const body = (await res.json().catch(() => ({}))) as { error?: string };
 				throw new Error(body.error ?? `Request failed (${res.status})`);
 			}
-			const body = (await res.json()) as { subdomainLabel?: string; code?: string };
-			if (!body.subdomainLabel || !body.code) {
+			const body = (await res.json()) as { openUrl?: string };
+			if (typeof body.openUrl !== "string" || !body.openUrl) {
 				throw new Error("Malformed expose response");
 			}
-			const host = typeof window !== "undefined" ? window.location.host : "localhost";
-			const proto = typeof window !== "undefined" ? window.location.protocol : "https:";
-			openUrl = buildOpenUrl(body.subdomainLabel, body.code, host, proto);
+			let parsedUrl: URL;
+			try {
+				parsedUrl = new URL(body.openUrl);
+			} catch {
+				throw new Error("Malformed expose response");
+			}
+			if (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") {
+				throw new Error("Malformed expose response");
+			}
+			openUrl = body.openUrl;
 			phase = "exposed";
 		} catch (e) {
 			errorMsg = e instanceof Error ? e.message : String(e);
@@ -79,7 +86,7 @@
 		</div>
 	</div>
 
-	{#if phase === "prompt" || phase === "pending"}
+	{#if !readyUrl && (phase === "prompt" || phase === "pending")}
 		<div class="ez-card__actions">
 			<button
 				class="ez-card__primary"
@@ -106,9 +113,9 @@
 				Always expose in this conversation
 			</button>
 		</div>
-	{:else if phase === "exposed"}
+	{:else if readyUrl || phase === "exposed"}
 		<div class="ez-card__actions">
-			<a class="ez-card__primary" data-testid="preview-consent-open" href={openUrl}>
+			<a class="ez-card__primary" data-testid="preview-consent-open" href={readyUrl}>
 				Open preview
 			</a>
 		</div>

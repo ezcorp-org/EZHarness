@@ -65,7 +65,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 
 | Method & path | Auth | Purpose |
 |---|---|---|
-| `POST /api/preview/consent` | `requireAuth` (session) | Consent-card actions. Body `{ conversationId, port?, action }`; `action ∈ expose \| always-expose \| ignore \| disable-always`. `expose`/`always-expose` → `{ ok, previewId, code, subdomainLabel }`. |
+| `POST /api/preview/consent` | `requireAuth` (session) | Consent-card actions. Body `{ conversationId, port?, action }`; `action ∈ expose \| always-expose \| ignore \| disable-always`. `expose`/`always-expose` → `{ ok, previewId, code, subdomainLabel, openUrl }`. The server builds `openUrl` from the configured preview host. |
 | `POST /api/preview/[id]/token` | `requireAuth` (session) | App-origin handoff mint: returns a fresh one-time `{ code }` for an owned, live preview (else opaque 404). Used to (re-)mint the `/__open` handoff. |
 | `GET … /__open?c=<code>` | preview origin (no app session) | Served by the proxy dispatch on `<id>.preview.<host>`: redeems the one-time code → sets the host-only `__ezpreview` cookie → 302 `/`. |
 | `* … <id>.preview.<host>/*` | `__ezpreview` cookie | The reverse proxy itself (static files or dynamic passthrough), matched in `hooks.server.ts` before app routing. |
@@ -74,7 +74,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 
 ### UI entry point
 
-- The **expose-consent card** (`cardType: "ez-preview-consent"`) renders inline in the conversation when a dev server is detected. Its parse/build logic is `web/src/lib/components/tool-cards/preview-consent-card-logic.ts` (the card component owns the POST to `/api/preview/consent` and opens the `/__open` URL via `buildOpenUrl`).
+- The **expose-consent card** (`cardType: "ez-preview-consent"`) renders inline in the conversation when a dev server is detected. The card posts to `/api/preview/consent` and opens the server-built `openUrl`, so its preview host and port match the proxy configuration.
 
 ### Environment variables
 
@@ -109,7 +109,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 - `web/src/lib/server/preview/ws-bridge.ts` — `tryBridgePreviewWebSocket` + `createPreviewWebSocketHandler` (HMR bridge, loopback-pinned).
 - `web/src/routes/api/preview/consent/+server.ts` — `POST` consent actions (expose / always-expose / ignore / disable-always).
 - `web/src/routes/api/preview/[id]/token/+server.ts` — `POST` one-time-code mint for an owned live preview.
-- `web/src/lib/components/tool-cards/preview-consent-card-logic.ts` — pure consent-card parse/build + `buildOpenUrl`.
+- `web/src/lib/components/tool-cards/preview-consent-card-logic.ts` — pure consent-card parse and request-body helpers.
 - `src/db/queries/preview-sessions.ts` — `createPreviewSession`, `getServablePreview`, `touchPreview`, `revokePreview`, `reapPreviewIdsForConversation`, id minting (`generatePreviewId`/`isValidPreviewId`), `assertUnderSitesRoot`.
 - `src/db/schema.ts` — `preview_sessions` table (`kind`, `targetPort`, `staticPath`, `netnsId`, `status`, `expiresAt`, `lastSeenAt`, `revokedAt`; FKs SET NULL).
 - `src/startup/background-timers.ts` — boots the watcher, selects the source by capability mode, wires `onPreviewDetected` + idle-reap; exposes `getPreviewPortWatcher()`.

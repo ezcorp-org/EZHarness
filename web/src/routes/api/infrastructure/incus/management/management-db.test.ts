@@ -1,0 +1,86 @@
+import { afterAll, beforeAll, expect, mock, test } from "bun:test";
+import { eq, sql } from "drizzle-orm";
+import { closeTestDb, getTestDb, setupTestDb } from "../../../../../../../src/__tests__/helpers/test-pglite";
+import { projects, providerConnections, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations } from "../../../../../../../src/db/schema";
+
+mock.module("$server/db/connection", () => ({ getDb: () => getTestDb() }));
+mock.module("$server/auth/middleware", () => ({ requireAdminSession: () => ({ id: "admin", role: "admin" }) }));
+mock.module("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => undefined }));
+mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: () => ({}), resolveActiveRelease: async () => ({
+  installation: { generation: 1 }, release: { id: "release", manifest: { sandboxProviders: [{ id: "incus", kind: "sandbox", protocolMajor: 1,
+    presets: [{ id: "compose", profile: "persistent-web-compose.v1" }] }] } },
+}) }));
+mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { return null; } } }));
+const { GET } = await import("./+server");
+beforeAll(setupTestDb, 30_000);
+afterAll(closeTestDb);
+
+test("real migrated database lists user bindings and excludes fixture projects and sensitive columns", async () => {
+  const db = getTestDb();
+  await db.execute(sql`INSERT INTO extension_release_installations (id, owner_id, scope, payload)
+    VALUES ('installation', 'admin', 'global', '{}')`);
+  await db.insert(providerConnections).values({ id: "connection", revision: 1, providerInstallationId: "installation",
+    providerReleaseId: "release", endpoint: "https://SECRET.example", project: "Development", configuration: { kind: "incus" },
+    serverCertificatePem: "SECRET-server-cert", clientCertificatePem: "SECRET-client-cert", privateKeyCiphertext: "SECRET-key" });
+  for (const purpose of ["user", "incus-qualification"] as const) {
+    await db.insert(projects).values({ id: purpose, name: purpose, path: `/SECRET/${purpose}`, purpose });
+    await db.insert(sandboxBindings).values({ id: `binding-${purpose}`, projectId: purpose,
+      providerInstallationId: "installation", providerReleaseId: "release", connectionId: "connection", connectionRevision: 1,
+      desiredState: "STOPPED", observedState: "UNKNOWN", presetId: "compose", currentOperationId: `operation-${purpose}` });
+    await db.insert(sandboxOperations).values({ id: `operation-${purpose}`, bindingId: `binding-${purpose}`, kind: "CREATE",
+      generation: 1, idempotencyScope: "test", idempotencyKey: purpose, payloadHash: "hash", requestPayload: { secret: "SECRET-payload" },
+      state: "OUTCOME_UNKNOWN", providerOperationId: "SECRET-provider-id" });
+  }
+  const response = await GET({ locals: {} } as Parameters<typeof GET>[0]);
+  expect(response.status).toBe(200);
+  const result = await response.json();
+  expect(result.projects).toContainEqual({ id: "user", name: "user" });
+  expect(result.projects.some((project: { id: string }) => project.id === "incus-qualification")).toBe(false);
+  expect(result.features).toHaveLength(1);
+  expect(result.features[0]).toMatchObject({ projectId: "user", bindingId: "binding-user", observedState: "UNKNOWN", connectionRevision: 1, generation: 1,
+    operation: { id: "operation-user", kind: "CREATE", state: "OUTCOME_UNKNOWN" } });
+  expect(result.environments[0]).toMatchObject({ connectionId: "connection", qualified: false, setupId: null });
+  expect(JSON.stringify(result)).not.toContain("SECRET");
+  expect(result.features[0].operation.providerOperationRecorded).toBe(true);
+  await db.update(sandboxOperations).set({ kind: "DESTROY", state: "FAILED", errorCode: "REVISION_CONFLICT",
+    providerOperationId: null, requestPayload: { expectedGeneration: 2 } }).where(eq(sandboxOperations.id, "operation-user"));
+  await db.update(sandboxBindings).set({ desiredState: "ABSENT", observedState: "RUNNING", tombstonedAt: new Date() })
+    .where(eq(sandboxBindings.id, "binding-user"));
+  await db.insert(sandboxCleanupRecoveries).values({ id: "recovery", bindingId: "binding-user", generation: 1,
+    failedDestroyOperationId: "operation-user", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy",
+    installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1,
+    providerResourceId: "SECRET-guest", providerGeneration: 2, state: "STOP_REQUIRED" });
+  const recoveryStatus = await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json();
+  expect(recoveryStatus.features[0].operation.providerOperationRecorded).toBe(false);
+  expect(recoveryStatus.features[0].cleanupRecoveryEligible).toBe(true);
+  expect(recoveryStatus.features[0].cleanupRecovery).toEqual({ id: "recovery", state: "STOP_REQUIRED",
+    failedDestroyOperationId: "operation-user", stopOperationId: "saved-stop", destroyOperationId: "saved-destroy" });
+  expect(JSON.stringify(recoveryStatus)).not.toContain("SECRET");
+  const nativeId = "incus-destroy-33333333-3333-4333-8333-333333333333";
+  await db.update(sandboxOperations).set({ errorCode: "INTERNAL", providerOperationId: nativeId })
+    .where(eq(sandboxOperations.id, "operation-user"));
+  await db.update(sandboxBindings).set({ observedState: "STOPPED" }).where(eq(sandboxBindings.id, "binding-user"));
+  const native = await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json();
+  expect(native.features[0].cleanupRecoveryEligible).toBe(true);
+  expect(native.features[0].operation.providerOperationRecorded).toBe(true);
+  const serialized = JSON.stringify(native);
+  for (const privateField of [nativeId, "cleanupJournal", "requestPayload", "expectedGeneration", "SECRET"])
+    expect(serialized).not.toContain(privateField);
+  for (const patch of [{ state: "OUTCOME_UNKNOWN" as const }, { providerOperationId: "ezh-destroy-unsettled" },
+    { requestPayload: { expectedGeneration: 2, secret: "SECRET" } }, { generation: 2 }]) {
+    const [original] = await db.select().from(sandboxOperations).where(eq(sandboxOperations.id, "operation-user"));
+    await db.update(sandboxOperations).set(patch).where(eq(sandboxOperations.id, "operation-user"));
+    expect((await (await GET({ locals: {} } as Parameters<typeof GET>[0])).json()).features[0].cleanupRecoveryEligible).toBe(false);
+    await db.update(sandboxOperations).set(original!).where(eq(sandboxOperations.id, "operation-user"));
+  }
+  for (const [id, release, revision, state] of [["setup-current", "release", 1, "verified"],
+    ["setup-old-release", "old-release", 1, "verified"], ["setup-old-revision", "release", 2, "verified"],
+    ["setup-unverified", "release", 1, "planned"]] as const) {
+    await db.execute(sql`INSERT INTO incus_operator_setups (id, provider_installation_id, provider_release_id,
+      provider_release_digest, provider_generation, connection_id, connection_revision, planned_by, recipe, plan, state)
+      VALUES (${id}, 'installation', ${release}, 'digest', 1, 'connection', ${revision}, 'admin', '{}', '{}', ${state})`);
+  }
+  const updated = await GET({ locals: {} } as Parameters<typeof GET>[0]);
+  expect(updated.status).toBe(200);
+  expect((await updated.json()).environments[0].setupId).toBe("setup-current");
+}, 30_000);

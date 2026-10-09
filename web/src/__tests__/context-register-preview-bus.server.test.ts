@@ -20,7 +20,7 @@
  * so the assertion exercises a genuine bus instance.
  */
 
-import { test, expect, describe, vi } from "vitest";
+import { test, expect, describe, afterEach, vi } from "vitest";
 
 // The one collaborator under observation.
 const registerPreviewBus = vi.fn();
@@ -36,6 +36,30 @@ const bootWiring = vi.hoisted(() => ({
   workflowRuntime: null as unknown,
   commandOptions: null as unknown,
 }));
+// Dynamic boot imports must be inert too: their module graphs otherwise
+// load real credential/DB/Podman code inside ensureInitialized's test budget.
+const dynamicBoot = vi.hoisted(() => ({
+  transport: vi.fn(),
+  credentials: vi.fn(),
+  localSandbox: vi.fn(async () => false),
+  publisher: vi.fn(),
+  configurePublisher: vi.fn(),
+  createPublisher: vi.fn(),
+}));
+vi.mock("$lib/server/extensions/host-api-transport", () => ({
+  initializeHostApiTransport: dynamicBoot.transport,
+}));
+vi.mock("$lib/server/extensions/credential-resolver", () => ({
+  initializeExtensionCredentials: dynamicBoot.credentials,
+}));
+vi.mock("$server/runtime/sandbox/startup", () => ({
+  initializeLocalSandbox: dynamicBoot.localSandbox,
+}));
+vi.mock("$server/extensions/ez-factory-release-agents", () => ({
+  configureEzFactoryAgentPublisher: dynamicBoot.configurePublisher,
+  createEzFactoryAgentPublisher: dynamicBoot.createPublisher.mockImplementation(() => dynamicBoot.publisher),
+}));
+
 const permissionAudit = vi.hoisted(() => ({
 	flushAudit: vi.fn(async () => undefined),
 }));
@@ -65,6 +89,11 @@ vi.mock("$server/env-validation", () => ({ validateEnv: vi.fn() }));
 vi.mock("$server/db/connection", () => ({
   initDb: vi.fn(async () => undefined),
   closeDb: vi.fn(async () => undefined),
+}));
+vi.mock("$server/infrastructure/incus-startup", () => ({
+  initializeIncusSandboxWorkspace: vi.fn(),
+  startIncusSandboxReconciler: vi.fn(() => async () => undefined),
+  startIncusQualificationContinuation: vi.fn(() => async () => undefined),
 }));
 vi.mock("$lib/server/shutdown", () => ({
   installShutdownHandlers: vi.fn(),
@@ -207,6 +236,8 @@ import * as ctx from "$lib/server/context";
 // deliberately holds exactly ONE test — a second one would observe
 // `initialized === true` and see no fresh wiring. Add further cases as their
 // own file (see context-state-mediator-wiring.server.test.ts), not here.
+afterEach(() => vi.restoreAllMocks());
+
 describe("ensureInitialized — registers the live preview bus (gap #3)", () => {
   test("keeps core boot live while optional extension, workflow, briefing, goal, and boot-spawn work degrades", async () => {
     // The public server boundary fails closed before boot; only goal state is
@@ -225,6 +256,17 @@ describe("ensureInitialized — registers the live preview bus (gap #3)", () => 
     // Flush the two explicitly fire-and-forget recovery paths.
     await Promise.resolve();
     await Promise.resolve();
+
+    expect(dynamicBoot.transport).toHaveBeenCalledExactlyOnceWith();
+    expect(dynamicBoot.credentials).toHaveBeenCalledExactlyOnceWith();
+    expect(dynamicBoot.localSandbox).toHaveBeenCalledExactlyOnceWith();
+    expect(dynamicBoot.createPublisher).toHaveBeenCalledExactlyOnceWith(ctx.getExecutor());
+    expect(dynamicBoot.configurePublisher).toHaveBeenCalledExactlyOnceWith(dynamicBoot.publisher);
+    const stopPublisher = reloadFixture.teardowns.get("extension-factory-agents");
+    expect(stopPublisher).toBeTypeOf("function");
+    await stopPublisher!();
+    expect(dynamicBoot.configurePublisher).toHaveBeenLastCalledWith();
+    expect(dynamicBoot.configurePublisher).toHaveBeenCalledTimes(2);
 
     // Wiring fired exactly once.
     expect(registerPreviewBus).toHaveBeenCalledTimes(1);

@@ -38,18 +38,14 @@ mock.module("$server/chat/attachments/validator", () => require("../chat/attachm
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
 mock.module("$server/chat/attachments/content-builder", () => require("../chat/attachments/content-builder"));
 
-// `requireAuth` is the route's identity gate; the ceiling reads the auth
-// METHOD off `locals` independently, so a single stubbed user is enough.
-mock.module("$server/auth/middleware", () => ({
-  ...require("../auth/middleware"),
-  requireAuth: (_locals: unknown) => ADMIN_USER,
-}));
-
+// Use real auth and project access checks with the full admin principal.
 const streamChatCalls: Array<Record<string, unknown>> = [];
 mock.module("$lib/server/context", () => ({
   getExecutor: () => ({
     streamChat: async (..._args: unknown[]) => {
-      streamChatCalls.push((_args[2] ?? {}) as Record<string, unknown>);
+      const options = (_args[2] ?? {}) as Record<string, unknown> & { onRunRegistered?: () => void };
+      streamChatCalls.push(options);
+      options.onRunRegistered?.();
       return { id: "run-test", status: "success" };
     },
   }),
@@ -74,6 +70,9 @@ mockDbConnection();
 import * as convQueries from "../db/queries/conversations";
 import { createProject } from "../db/queries/projects";
 import { upsertSetting, deleteSetting } from "../db/queries/settings";
+import { getDb } from "../db/connection";
+import { sandboxBindings } from "../db/schema";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
 
 type PermissionMode = "ask" | "auto-edit" | "yolo";
 type Intake = "json" | "multipart";
@@ -86,8 +85,8 @@ let projectRoot: string;
 let projectId: string;
 let conversationId: string;
 
-const SESSION_LOCALS = { authMethod: "session", user: { id: ADMIN_USER.id } };
-const KEY_LOCALS = { authMethod: "api-key", user: { id: ADMIN_USER.id }, apiKeyId: "k1" };
+const SESSION_LOCALS = { authMethod: "session", user: ADMIN_USER };
+const KEY_LOCALS = { authMethod: "api-key", user: ADMIN_USER, apiKeyId: "k1" };
 
 const INTAKES: Intake[] = ["json", "multipart"];
 
@@ -214,7 +213,7 @@ describe.each(INTAKES)("intake: %s", (intake) => {
 
   test("an UNSTAMPED principal is confined — the carve-out is an allowlist, not a denylist", async () => {
     await setStoredMode("ask");
-    const res = await send(intake, "yolo", { user: { id: ADMIN_USER.id } });
+    const res = await send(intake, "yolo", { user: ADMIN_USER });
     expect(res.status).toBe(403);
     expect(streamChatCalls).toHaveLength(0);
   });
@@ -228,4 +227,20 @@ describe("both intake paths are gated by the SAME check", () => {
     expect(jsonRes.status).toBe(formRes.status);
     expect(await jsonRes.json()).toEqual(await formRes.json());
   });
+});
+
+test("bound sandbox project denies a message before persisting it or starting a stream", async () => {
+  const project = await createProject({ name: "Bound message test", path: projectRoot });
+  const conv = await convQueries.createConversation(project.id, {
+    title: "bound", provider: "anthropic", model: "claude-sonnet-4-5",
+  });
+  await getDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
+  const request = new Request(`http://localhost/api/conversations/${conv.id}/messages`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content: "AMD_CANARY" }),
+  });
+  const response = await POST({ request, params: { id: conv.id }, locals: SESSION_LOCALS });
+  expect(response.status).toBe(503);
+  expect(await convQueries.getMessages(conv.id)).toHaveLength(0);
+  expect(streamChatCalls).toHaveLength(0);
 });

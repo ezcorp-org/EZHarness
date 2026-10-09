@@ -75,6 +75,15 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/extensions/import-source", description: "Import bounded extension source into an isolated lifecycle build", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/control", description: "Manage versioned extension workspaces, builds and releases", category: "extensions", scope: "extensions", harness: { controllable: true } },
   { method: "POST", path: "/api/extensions/releases/:installationId/approve", description: "Approve or reject an exact extension release from a human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/infrastructure/incus/setup", description: "Read the latest reviewed Incus operator plan for an approved provider installation", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/setup", description: "Plan, apply, or probe Incus server setup from an admin human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/infrastructure/incus/capacity", description: "Read the saved Incus host capacity receipt from an admin human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/capacity", description: "Review and apply the exact verified Incus host capacity from an admin human session", category: "extensions", scope: "session" },
+  { method: "GET", path: "/api/infrastructure/incus/management", description: "List approved Incus environments and project sandbox state for an admin human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/features", description: "Prepare, control, inspect, or reconcile an admitted Incus feature sandbox from an admin human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/qualification", description: "Create, inspect, power, destroy, or qualify an exact Incus integration fixture from an admin human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/smoke", description: "Run fixed Incus guest smoke steps through an exact durable fixture from an admin human session", category: "extensions", scope: "session" },
+  { method: "POST", path: "/api/infrastructure/incus/probe-fixtures", description: "Review, create, inspect, or clean exact AMD control probe fixtures from an admin human session", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/releases/:installationId/project", description: "Bind or revoke project access for the exact active release from its owner's human session", category: "extensions", scope: "session" },
   { method: "GET", path: "/api/extensions/:name/preview", description: "Read an opaque-origin browser bundle for an exact active release and owned conversation", category: "extensions", scope: "session" },
   { method: "POST", path: "/api/extensions/:name/preview", description: "Invoke only the declared browser tools for an exact release and owned conversation", category: "extensions", scope: "session" },
@@ -93,6 +102,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   // SCOPE. Minting an invite carries a `role`, so a nominally read-only
   // admin-role key could otherwise hand out an ADMIN invite.
   { method: "POST", path: "/api/auth/invite", description: "Create user invitation link (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "createInviteSchema" },
+  { method: "DELETE", path: "/api/auth/invite", description: "Delete an invitation by private ID (admin role + admin scope)", category: "auth", scope: "admin", schemaKey: "deleteInviteSchema" },
   { method: "GET", path: "/api/auth/invite", description: "List outstanding user invitations (admin role + admin scope)", category: "auth", scope: "admin", responseDescription: "{ invites }" },
   { method: "POST", path: "/api/auth/invite/:token", description: "Accept invitation and create account", category: "auth" },
   // Had the SAME defect F5 fixed for invite, and is fixed the same way:
@@ -307,6 +317,7 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "PUT", path: "/api/projects/:id", description: "Update project settings (project members and instance admins)", category: "projects", scope: "write" },
   { method: "DELETE", path: "/api/projects/:id", description: "Delete a project (project members and instance admins)", category: "projects", scope: "write" },
 	{ method: "GET", path: "/api/projects/:id/sandbox", description: "Read a project member's dedicated local sandbox status", category: "projects", scope: "read" },
+	{ method: "GET", path: "/api/projects/:id/incus-feature", description: "Read a project member's Incus feature binding kind", category: "projects", scope: "read" },
 	{ method: "POST", path: "/api/projects/:id/sandbox", description: "Admit a start, stop, or irreversible destroy action for a dedicated local sandbox", category: "projects", scope: "write" },
 	{ method: "POST", path: "/api/sandboxes", description: "Create a dedicated empty local sandbox project from a reviewed provider", category: "projects", scope: "write" },
 	{ method: "GET", path: "/api/sandboxes/providers", description: "List reviewed active local sandbox providers", category: "projects", scope: "read" },

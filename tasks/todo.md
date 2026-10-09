@@ -1,3 +1,370 @@
+# Current completion — 9 October 2026 UTC
+
+This checklist supersedes the historical status below. Root owns live actions; each Sol worker uses an isolated worktree.
+
+## Current UI failure — 9 October, 17:44 UTC
+
+- [x] Run the actual browser workflow after the saved qualification expires; preserve the first CREATE and its failure.
+- [x] Check native inventory: zero guests observed. Preserve the created local project/binding and failed operation; do not replay.
+- [x] Read bounded supervisor logs: eight admission readiness deadline failures. This does not yet prove the exact CREATE denial cause.
+- [x] Reproduce the ordinary CREATE timeout with the real supervisor/socket, PGlite, controller, and broker. The reviewed fix passed the same consumer and was integrated as b1ea7baf3. Deployment pending.
+- [x] Trace supervisor deadlines and measure one real management request: HTTP 200 in 9.299 seconds. The observation does not uniquely establish the earlier request's cause.
+- [x] Independently review operation effects, the signed failed-CREATE recovery, and the user guidance. Preserve actual failed-operation evidence; no live recovery has run.
+- [x] Repair proven post-write redirect classification. Real mTLS regression, focused tests, full types, lint, normal hooks, and independent review passed. Integrated as 35cc2b22f; deployment still pending.
+- [x] Add the reviewed operator recovery path for terminal failed user CREATE, reusing signed fencing, quiet-period, absence, backend-operation, and atomic accounting proofs. Integrated as c70f3b9b6; deployment pending.
+- [x] Integrate the separately reviewed recovery child boundary as 33feaae7e: clear supplementary groups, drop to the application identity, and stop the database child if its controller dies. Actual disposable PGlite process evidence proved identity, signal handling, termination, and unchanged database ownership.
+- [ ] Prepare the exact recovery row fingerprints through the shared repository inspector on a stopped detached copy. Do not infer them from public API metadata or use wrapper SQL.
+- [x] Replace misleading failed-CREATE reconciliation guidance with “Operator recovery required.” Keep status refresh and valid pending-operation reconciliation. Integrated as a17090c37; four browser cases and 59 component/recovery tests passed.
+- [ ] Freeze the combined source and run one final repository gate, including coverage and complexity. Build and independently verify the immutable release; keep prior source receipts intact.
+- [ ] Resolve the failed binding through the supported recovery path, then complete one actual UI/native-agent workflow, retained restart, cleanup, and user login.
+
+Review: deployed source 5e026 remains unchanged and repository checks remain green. The actual UI acceptance failed; no claim of completed user workflow or native model work.
+
+- [x] Reproduce the continuation transaction deadlock with a real file database and concurrent HTTP request.
+- [x] Fix transaction propagation and PostgreSQL JSON encoding; prove both database consumers and authorization failures. Independent review and normal commit hooks passed.
+- [x] Fix read-only verification of expired, completed cleanup. Prove the held two-stage supervisor recovery and denial cases. Independent review and normal commit hooks passed.
+- [x] Integrate both reviewed commits once; include the real PostgreSQL continuation consumer in the required PostgreSQL CI lane.
+- [x] Freeze source645b9, pass required-fast and focused quality checks, build and independently verify its exact bundle, and push. Hosted CI passed all 50 jobs, including the real PostgreSQL consumer.
+- [x] Execute the reviewed stop, preserve the database, and inspect a detached copy. Recover the old run with its original signed claim and process identity; do not restore or invent database state.
+- [x] Install source645b9 behind the hold and independently verify health, provider0.1.6 generation8, and the current process identities.
+- [x] Complete new real qualification incus-continuation-db-full-20261009-v1, persist its baseline and terminal COMPLETED state, clean its fixtures, and verify zero native guests. This includes backend file retention and authenticated preview assertions.
+- [x] Audit the historical ten completed lifecycle receipts, including the excluded attempt and its confirmed cleanup. Original acceptance includes deliberate failure recovery. Evidence is sourceff723, not ten current-source runs; no repeat batch is needed.
+- [x] Reproduce normal management readiness failure twice after successful qualification. Preserve the successful qualification and both failures; do not relax controls or guess the cause.
+- [x] Add independently reviewed finite diagnostic logging, with a real socket-to-management regression. Integrated source db80f5743; focused tests, web checks, coverage, complexity, and normal hooks passed. This is a diagnostic change, not the underlying fix.
+- [x] Build and independently verify the exact db80 diagnostic bundle. Complete its ordinary forward update, prove database preservation, and verify startup, provider generation8, runtime binding, and the hold. No new provider approval was needed.
+- [x] Preserve new db80 qualification failure at the preview WebSocket check. Record FAILED honestly, verify zero native guests, and remove the four owned local probe fixtures. Do not infer global database accounting from native inventory.
+- [x] Reproduce the incomplete-header failure through the real authenticated socket path and repair qualification permission ordering. Independently reviewed source0ab58 is integrated asfe214; 41 focused tests, 482 assertions, types, lint, changed-line coverage, and complexity checks passed. Existing deadlines and access checks remain. The repaired live run is still required before claiming resolution of the observed server failure.
+- [x] Repair the real helper status-publication race found by the native preview consumer. The real canonical helper reproduced HTTP 502 after a successful child exited but before its terminal status was saved. Reviewed source2aaf282 is integrated as8ec169: inspect the same process within the unchanged bound, require success before reading output, and never repeat the launch. Tests passed: 17 tests/392 assertions, persistent-unknown/cancellation/failure checks, shared portable Python consumer, types, lint, and normal hooks. Changed-line coverage is 5/5 (production1/1); maximum CRAP is7. Live acceptance remains pending.
+- [x] Validate combined sourcec1ec with the required-fast gate. Original52661 exited0; all12 steps passed, including backend27,851/0, webBun3,638/0, Vitest7,809/0, Svelte0/0, and the production build. Independent review passed. This is baseline evidence before the final helper repair, not a final-source coverage or browser claim.
+- [ ] Fix and verify the readiness cause against the real failing management path. Run a new source-bound qualification after any deployed source change.
+- [ ] Finish final-source repository validation. Frozen645 full local run24703 and all 50 hosted jobs passed; that evidence is baseline-only for later changes. Validate the combined final source, run the required-fast gate before the next push, and inspect hosted results.
+- [ ] Capture the valid current baseline in a detached copy, prove restart and aged-baseline admission, and preserve actual database/accounting evidence.
+- [ ] Prove the ordinary UI workflow, authenticated preview/consent, retained file content, same-guest restart/resume, failed-delete recovery, and final zero resources.
+- [x] Repair native sandbox-shell preview registration and process lifetime. Reproduce the real helper, event producer, parser, and UI store failures; reuse existing consent controls. Independently reviewed source53deb is integrated as24f4e. Focused tests, build, types, 170/170 changed-line coverage, and normal hooks passed. Live authenticated browser acceptance remains in the workflow task above.
+- [ ] Verify health and normal login, release the hold, and update the user guide and PR status with actual evidence.
+
+Review: source645 completed real qualification at 04:26 UTC, then normal management readiness failed at about11.4 seconds. Diagnostic source db80 is installed and healthy behind the hold. Its fresh qualification failed at 06:44 UTC with incomplete preview WebSocket headers; this does not establish the earlier readiness cause. The failed run and cleanup receipts are preserved. Native preview fix24f4e, qualification permission fixfe214, and helper status fix8ec169 are integrated but not yet deployed. Frozen645 full local run24703 passed all14 gates and canonical complexity checks; combined c1ec required-fast run52661 passed all12 steps. The final helper repair passed its focused checks and independent review. Validate the final combined source and keep the hold until the live workflow passes. The next single management read will capture its matching diagnostic window. Exact paths and hashes are in .cache/readiness-release/ROOT-LIVE-CURRENT.md.
+
+# Historical completion — 6 October 2026 resumed session
+
+## Release gap found during the real workflow — 7 October UTC
+
+- [x] Preserve V2's actual failure: project preparation succeeded, no guest CREATE was admitted, and the positive setup probe returned `unverified_guest_controls`.
+- [x] Identify the required missing control: host Incus transport deliberately reports `endpointProxy:false`. Authenticated previews are required by `persistent-web-compose.v1`; do not bypass this control or call the resource/restart qualification a full-profile pass.
+- [ ] Implement and test the live authenticated preview path through existing endpoint, transport and authorization components.
+- [ ] Correct qualification so a missing mandatory preview control cannot produce a qualified Compose environment. Add actual consumer regressions and positive live preview evidence.
+- [x] Dispose of the prepared-only project through the normal project DELETE route; preserve its failed journal and do not replay the denied phase. Database foreign keys atomically reject deletion if an admission, reservation or operation arrives first. One DELETE returned 200; fresh project GET returned 404, management omitted the binding, and scoped/project inventory was empty. Independent review passed. Receipts `716`–`722` and `normal-prepared-only-project-delete-da0f00af.private.json` are retained in the private qualification stage.
+- [ ] Resume ten complete workflows only after the full selected profile passes; then close cleanup, credential-scan and final repository gates.
+
+The API verification team owns isolated repository gates at frozen `2912ff9ba`. This team owns live actions. Its fix is integrated as `76dcc8e49`; the shared coordination note records the test-only clock correction and evidence-document differences.
+
+### Preview completion plan and ownership
+
+- [ ] Transport milestone — Sol assets owns a fixed, bounded guest-loopback duplex transport over existing destination-pinned Incus execution. Reuse existing TLS, instance and generation checks; no arbitrary network destination or new host daemon. Test actual duplex consumers and cancellation.
+- [ ] Runtime milestone — Sol staging owns the workspace preview socket interface, Incus preview backend, authenticated preview routing and app WebSocket bridge. Reuse durable preview sessions and current-binding checks. Test owner, expiry, generation, port, revocation, headers, byte limits and reconnect; never fall back to AMD loopback.
+- [ ] Qualification milestone — Sol cycle owns the authoritative profile-specific proof, qualification store and live cases. Compose requires HTTP and WebSocket evidence; incomplete historical Compose records fail closed. Preserve the baseline profile and avoid a qualification/preflight dependency cycle.
+- [ ] Integration milestone — root owns host authority, startup and witness wiring. Qualification may exercise only its exact owned fixture before publication. Production previews require the current qualified connection/profile and current user authority.
+- [ ] Independent Sol reviewer checks each milestone and the combined consumer tests before a new isolated bundle is staged. The separate API team keeps sole ownership of whole-repository gates.
+- [ ] Live milestone — run the selected profile with actual HTTP/WebSocket positive and denial checks, clean the fixtures, then start new numbered lifecycle batches. Preserve the two failed batch namespaces; never relabel them as passes.
+
+Review before implementation: use the existing preview registry, authorization and transport layers. A preset declaration or successful process start is not preview qualification. New tests must exercise the consumer boundary and prove rejection, rather than mirror helper implementation.
+
+- [x] Recheck access: server SSH and Incus are available; local TCP sockets work; isolated app and runner are active.
+- [x] Confirm installed app source `6d2572d9f179d14c9912618981be993accdc9219`, manifest `b8efab47997cc92b839586e0792e888c656a1d4ae98be6a94b8ec8ce3545c229`.
+- [x] Recover the reviewed native asset work. Commit `1b8506673` has a new 59,704-byte artifact, SHA-256 `be1051effa23cd55790a7ad070eded71f3702fe22c54fb8f56e0cd97c28c5247`; byte-identical rebuild, five native tests, 129/129 measured C lines and 47 coverage guard tests pass. The prior server diagnostic tested a different prototype.
+- [x] Complete and independently review native staging through the existing bounded file and helper process contracts. Memory targets, deadlines, OOM and health requirements remain unchanged. Exact `07a4bd4e5` fast gate passed (27,648 backend tests; no failures).
+- [x] Merge current main `e3309906d` without conflicts and refresh both frozen dependency installs. Hosted CI exposed a test-double incompatibility with main's external hook runner; preserve its failing reproduction and verify the executable-double fix before final gates.
+- [x] Build and verify integrated source `2bde0375e`, including the actual server-bundle asset loader. Guarded update preserved database bytes and metadata; the new app is healthy, both selected verifiers pass, and an independent reviewer confirmed the current provider/setup/capacity scope.
+- [x] Test the exact installed native artifact on the server. Run `incus-final-native-release-20261006-39bebb58-2c28-4d88-95ac-e09d9f69d1a8` completed after automatic restart. Its qualification response lacks mandatory preview coverage and is not full-profile proof. All three guests report ABSENT and the probe plan is cleaned. Independent scoped/whole-server inventories were empty; the stopped-copy query proved zero current/global charges, no unfinished work and preserved live database bytes. Normal app resumed.
+- [ ] Complete ten consecutive feature lifecycles with fresh qualification between clean batches, restart, denied access, retention and independent cleanup/accounting proof.
+- [ ] Pass final-source local and hosted gates, update PR #303, and complete independent review. Do not merge or publicly release without authorization.
+
+Current boundary: the installed `2bde0375e` app passed resource/restart tests and their cleanup, but mandatory authenticated previews remain unsupported. The fresh workflow prepared one project, then stopped at that control before creating a guest. Ten complete profile workflows remain. Repository loader and clock-fixture fixes are integrated; the separate API team runs the frozen repository gate. PR #303 remains open and draft. The historical checkpoints below retain their original observations and failures and do not establish full-profile readiness.
+
+# Historical completion record — from 3 October 2026
+
+## Current next steps — 6 October, corrected image/provider source and installed app e02641500
+
+- [x] Install and verify app 50a; preserve the live database and clear the prior guest.
+- [x] Pass live qualification on 50a with the existing provider; clean all fixtures and verify zero reservations.
+- [x] Reproduce the remaining listing failure in the actual old compiled provider; prove the rebuilt artifact accepts directory metadata and still denies protected content.
+- [x] Complete independent review and exact human approval of provider release 5d7208c2 (digest cddb67a6); activate through v4 only. Active generation 6 confirmed.
+- [x] Verify the new connection setup through the approved read-only policy. All 15 resource steps matched and were skipped. Normal policy and controls pass; all old/current rollback timers are closed.
+- [x] Capture current metadata without changing live database bytes; verify zero charges, clear drain and actual new connection 911cae3a / release 5d7208c2.
+- [x] Install both new verifier scopes through the reviewed guarded update; prove selected readiness before live qualification.
+- [x] Register the reviewed capacity for the new connection; execute qualification 7700 once and preserve its failed memory-inspection result. Guest cleanup, zero accounting, and normal app resume pass independent review.
+- [x] Fix bounded read-only process observation: actual baseline RED, 21 focused tests passed, independent review passed, changed measured lines covered. Integrated as 4e0007a85. The original deadline and all memory, terminal-state and health assertions remain enforced.
+- [x] Build, verify and install 4e0007a85 through the guarded host-only update. Independent review confirms database preservation before startup, healthy new app, exact manifest 40537c5d and unchanged current configuration. Both selected verifier readiness checks and live qualification remain pending.
+- [x] Qualify the current provider and connection on e026: canonical run443fc passed automatic restart; all fixtures and controls were removed, and current/global zero accounting and normal app resume passed independent review.
+- [ ] Complete the normal native-agent workflow with a clean Git workspace. Actual UI creation/start/chat/reload, four read tools, two partial edits, tests, Compose and Git commit ran; persistent helper lock files caused the final clean-tree check to fail.
+- [ ] Complete ten numbered lifecycle tests with fresh qualification between clean batches, restart, denial and cleanup recovery evidence.
+- [x] Close ee417 cleanup through ordinary reconciliation and deletion; independently prove current-connection and global zero charges, absent guests, normal app state, and preserved historical compensation.
+- [x] Compare matched backend memory diagnostics B and C. B passed with delayed observation; C missed the unchanged deadline with immediate observation. Both were independently reviewed and fully cleaned. These diagnostics are not qualification evidence.
+- [x] Fix the new Sharp security advisory with version 0.35.5 in both dependency trees; verify native image transforms, audit, tests and independent review. Deployed in e026.
+- [x] Integrate isolated Python helper startup without privileged file reads or changed deadlines. Actual old transport regression failed; corrected transport passed 12 tests, including a real helper call. Matched immediate-polling diagnostic D returned terminal success in 3.182 seconds. This is candidate evidence, not app qualification.
+- [x] Build and install combined source e026 through the guarded update. Bundle, non-root startup, database preservation, both selected verifiers and the actual recovery loader passed independent review.
+- [x] Reproduce the live dirty-Git failure using the actual pinned helper and a real temporary repository. Native write locks remain beside edited files; hiding them from file listings does not keep Git clean.
+- [x] Move stable mutation locks outside the user workspace under private helper state. Integrated bf80a50e3 after independent review; all 15 helper tests pass, including a root run with poisoned Git environment and the normal commit hook. Stable inode, flock, containment, revision checks and journal semantics remain enforced.
+- [x] Build and review the helper/image successor through existing machinery. Actual image f0b8298 passed UID1000 helper writes/removal and clean Git commits; temporary guests and volumes are absent. Independently reviewed metadata 8a9ff4907 pins provider0.1.5/recipe1.2.4/helpercaa4; 41 focused tests passed. App deployment, exact v4 approval and new connection verification remain pending.
+- [x] Install source97461/d208 in the isolated app through the guarded update. Database preservation, startup, both selected verifier checks and the actual loader passed independent review.
+- [x] Fix bundled provider discovery at the shared source collector. Actual installed Incus import returned 500 before creating a workspace/build because discovery required optional legacy ezcorp.config.ts. Fix b0db31ccc discovers canonical extension.ts under existing fixed roots and preserves containment, ambiguity, regular-file and no-evaluation rules. Actual Incus/Infisical snapshots, the import route, changed-line coverage and independent review passed; the source lock adds the two real packages.
+- [ ] Build/install the discovery fix, then validate one supported bundled import and its queued build. The current97461 app remains healthy with the prior active provider; no retry of the failed import has run.
+- [x] Preserve current native files, commit and failure evidence, then perform ordinary authorized cleanup. Verified Git bundle retained; STOP and DESTROY succeeded; fresh inventory and current/global zero accounting passed independent review. Failed workflow remains failed.
+- [ ] Re-run current-source qualification and native workflow after the fix; finish process/restart/denial evidence and ten consecutive lifecycle tests with explicit pinned-image fixture preparation.
+- [ ] Run fresh final-source local and hosted gates; record final cleanup and remaining product scope limits. The interrupted 4e0007 full gate is superseded and incomplete.
+
+Current review: e026 Compose qualification and its cleanup passed. Actual UI and native read/edit tools passed; three application tests, Compose up/test/down and a Git commit succeeded after explicit preparation of the pinned image. Final Git cleanliness failed because helper lock files remained in the checkout. Fix bf80a50e3 passed 15 helper tests and independent review; the installed app still uses the old image. The failed guest's files and Git bundle are preserved, and cleanup and zero accounting passed. The team is building a fresh image alias with the corrected helper and preparing explicit cache setup for the next fixture. No clean full native workflow, ten-cycle pass, final-source full gate, merge or release is claimed. The e026 full gates never started and are superseded.
+
+### Historical review — before e026 qualification
+
+Review: fast 4e0007 passed (27,628 backend tests, zero failures); that revision is pushed to draft PR #303. Its full local gate was stopped as superseded after the Sharp advisory required a source update; no full pass is claimed. Provider 5d7208c2 and connection 911cae3a remain current. Qualification ee417 failed after four status timeouts exhausted the original 110-second deadline. The guest later stopped naturally and ordinary cleanup completed; no force command ran. Global and current-connection accounting are now independently verified as zero. In matched operator diagnostics, B killed the load after 2.6 seconds with no early helper observations; C with immediate observations killed it after 130.6 seconds, outside the unchanged deadline and before cleanup. B also killed Docker, so neither result proves A05 or a healthy full workload. Both diagnostic guests and their volumes are absent. Privileged daemon file reads have a parent-symlink escape risk; review a safe observation design before changing production. No new qualification, native workflow or ten-cycle pass is claimed. No merge or public release is authorized.
+
+## Current execution checklist — 6 October 2026
+
+- [x] Close attempt 5 with a supported signed no-admission abort; independently verify complete app, certificate, configuration, key and timer restoration. Preserve the failed packet and ledger.
+- [x] Reproduce the six-versus-four helper-map error through the actual public loader under app UID 62040. Derive the successor map from the loader's exact contract and pass the real loader before any clock.
+- [x] Run the unchanged installed DURABLE verifier against a byte-verified detached copy while all database actors are stopped. Actual receipt 278 passed; live bytes/metadata were preserved and clone handles closed. Normal app restoration and independent proof review precede any new clock.
+- [x] Review the final successor packet and actual preflights; prove the server ownership check and production audit SSH route before certificate fencing. Preserve the original c7 UNKNOWN START without replaying it.
+- [x] Attempt 6 passed actual pre-authority checks and admitted cleanup `8720a719-b3cd-44d7-a00d-5a57f4262fca`. Preserve its saved request and hold; no replay or no-admission abort is allowed.
+- [x] Complete separately reviewed restoration of this admitted cleanup. Explicit marker ownership and bounded strict runner readiness pass; actual admission/certificate checks, signed restoration, hold archive and normal 508 startup pass independent review.
+- [x] Diagnose the new cleanup outcome recorded by receipt 299: 8720 DESTROY was OUTCOME_UNKNOWN with null provider handle/error. Receipt 305 found the guest STOPPED at generation 2 with original START tags and no active operations; that alone did not prove no effect. The production-chain reproduction below established the expired pre-transport budget defect. Signed recovery, rather than deletion replay or a no-admission abort, resolved the saved outcome.
+- [x] Reproduce the failure through the real broker, dispatcher, adapter and transport with a database fixture: an expired observation budget rejects before any backend call, but the missing explicit no-effect classification becomes UNKNOWN. The valid host-generation-1/provider-generation-2 case succeeds. Actual saved creation time, final JOURNALED admission check and later supervisor startup establish that cleanup 8720 reached dispatch after expiry. No raw reply was retained; the live row still requires supported recovery.
+- [x] Correct the proven pre-transport error classification; test expiry, capacity and stopped-observer rejection without weakening post-dispatch UNKNOWN handling. Independent review passed; integrated as `e840eb10b`. Actual root test run: 30 passed, 0 failed, 209 assertions. The separate durable dispatch-budget change remains in progress.
+- [x] Add a once-only durable dispatch timestamp to the atomic claim and use it consistently for observation expiry and restart. Claim/schema `309beefea`, broker `b84ec38af`, and real PostgreSQL assertions `1a13b13b6` are integrated and independently reviewed. Validation: 23 controller tests, 32 broker-action tests, 2 PostgreSQL tests, and combined typecheck pass. Legacy rows retain conservative creation-time expiry; UNKNOWN budgets never refresh. This is source validation, not deployed proof.
+- [x] Add signed retained-DESTROY no-effect reconciliation through the existing fenced operator mechanism (`a00c678d2`). Preserve the original UNKNOWN snapshot and prior recovery evidence; require unchanged owned generation/tags, fenced actors and quiet backend. Keep reservations until separate cleanup succeeds. Independent review, focused tests, measured changed-line coverage, complexity and typechecking pass. This is source proof; the live UNKNOWN row is unchanged.
+- [x] Add permanent real-adapter/transport proof for stopping an already STOPPED guest (`0b531c4d7`): one generation-fenced intent PATCH, no native stop PUT, then confirmed STOPPED inspection. All 45 lifecycle tests pass.
+- [x] Build and verify combined candidate `301e88e93`, then install it through the independently reviewed guarded update. All six phases exited 0; health passed, configurations and stopped accounting were preserved, and no database restore occurred. The live cleanup remains UNKNOWN. See [the update result](../docs/validation/2026-10-06-incus-301-update-result.md).
+- [x] Pass the real service-user loader and current 301 stopped-copy DURABLE verification for retained cleanup 8720. Complete receipt `0614af15` proves the target and reserved charges; live bytes are unchanged and clone handles are closed. Preserve old restoration receipts and prepare exact new configuration while the isolated app remains stopped. No server timer, key, certificate change or recovery admission is included in this checkpoint.
+- [x] Execute reviewed signed reconciliation once. Attempt 7 returned the same operation 8720, now FAILED / OPERATOR_PROVEN_NO_EFFECT. Independent signature, public status, transport restoration and forced-thaw checks pass. Canonical signed receipt: `443e4bc6de87b238671b659e5550996a9ee6b92214215c8df8b47e7a00b5d0df`. This does not delete the guest or release reservations.
+- [x] Restore the five original service configurations and original runner-marker metadata through the reviewed success disposition. Receipt 330 passes independent review; the normal marker has a new inode and the temporary marker is preserved. Natural timer completion, temporary-key absence, restored certificate and normal app checks pass. See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
+- [x] Complete ordinary recovery `aa5163ca-95b3-4511-8814-7d9eab8ce06c`: linked STOP followed by distinct DESTROY `5d2d61c7-16ce-4efd-9198-9e1a6aca9ece` succeeded. Receipt 334 confirms completed recovery and ABSENT binding. Independent receipts 335/336 prove empty scoped inventory and exact instance/storage 404 responses with project/pool 200 controls.
+- [x] Verify released reservations and compensated historical operations on a guarded detached database copy. Actual diagnostic `37f0d8d916a739a19273a6c3c8424242cefeb944ddd834fa1fe9ea27089caa4b` proves both charges RELEASED, scoped totals zero, the original 069/c7 UNKNOWN rows compensated by the unchanged production predicate, and no actionable operations. The failed first projection remains preserved; the app resumed normally without a database restore.
+- [x] Remove the two saved negative-test controls through existing `IncusLiveProbeFixtureService.cleanup` using their original reviewed plan. Receipt 337 returned HTTP 200 / cleaned. A fresh detached-copy check then proved the actual production drain is false, no actionable operations remain, both historical UNKNOWN rows are compensated, and all scoped charges are zero. Completion SHA-256: `fe51bded379be05021f5c8ce8042648e3ed88e562dbc0fa4e33793b173d83c56`. Independent review passed; no manual row changes, query exclusions or database restore.
+- [x] Build exact source `50d043fc89141c216548580f224d413902c0ad69` in fresh root/web installs; verify the release bundle, health smoke, real nested dependency resolutions, and advisory regressions. This bundle is not installed.
+- [x] Pass the exact 50d fast gate: all 12 stages, exit 0; 27,585 backend, 3,638 web Bun and 7,727 Vitest tests pass. Log SHA-256 `171ec5afe55938f32e95021dd02346474f5d737762389be62dc71d181b57c5c8`. This proves that revision only; the final combined recovery/dispatch source still needs its own complete checks.
+- [ ] Pass live qualification and the normal UI/native-agent feature flow on the installed, verified bundle.
+- [x] Correct the stale independent-receipt scope. The third 301 run passed preparation, then failed after automatic restart. The unchanged production verifier reproduced rejection of the old connection/release before any backend GET. Current detached-copy connection metadata and certificate hashes validate the scope-only successor. Its guarded application and normal 301 startup passed independent review; original files and the failed checkpoint remain preserved. Supervisor configuration SHA-256: `e08242f04f8f042bf22c9dc305aed85d45c98165bf6ec7cac4d4702e73a7145c`. No server, credential or database restore was required.
+- [ ] Detect stale receipt and fault scopes before allocation through the existing protected readiness check and trusted selected pin. Actual Unix/Python/both-verifier regressions prove either stale scope fails before CREATE while pending restart continuation retains its existing path. Source review and focused checks pass; browser validation and deployment remain open. The next live run passed preparation and receipt verification, then failed fault dispatch because that separate verifier also retained the old scope. Audit all operator configuration dependencies together, repair the fault scope, and validate the actual selected-pin check before another qualification.
+- [ ] Resolve the intermittent memory-load inspection timeout. Two real 301 runs failed; one captured severe reclaim pressure at the measured 4 GiB limit and zero swap. Normal reconciliation and cleanup succeeded without replay. A faithful local control passed, and a third real run recorded an OOM kill and passed preparation. No causal product fix has been established. Preserve those differing results and validate reliability after the receipt correction; see the [diagnostic evidence](../docs/validation/2026-10-06-incus-memory-diagnostic-result.md).
+- [ ] Run ten complete feature lifecycles, including retained files, Compose, process control, restart, denied access and independent cleanup/accounting proof.
+- [ ] Pass current-source full local/hosted gates, update PR #303, and obtain required non-author review. Do not merge or publicly release.
+
+Review: the original c7 START remains UNKNOWN history. The saved 8720 cleanup
+is now FAILED / OPERATOR_PROVEN_NO_EFFECT under signed reconciliation. The
+guest and its container storage are now absent after separate ordinary cleanup;
+released reservations and historical compensation are verified. The old negative-test
+controls are cleaned and the production provider-drain query is false. The isolated app
+runs `301e88e93` with recovered transport and restored normal service settings.
+Original settings and receipts are preserved. The temporary
+key is removed, and independent natural timer closure passed. The actual user
+workflow and release are not complete. See
+the [attempt 6 result](../docs/validation/2026-10-06-c7-consumer-preflight-attempt6-result.md).
+
+Earlier sections are historical checkpoints, not current open-task lists.
+
+## Latest verified state — 4 October, 00:20 UTC
+
+- [x] Pass the complete `407891196` fast gate, including 27,356 backend, 3,638 web Bun, and 7,719 Vitest tests, lint, types, Svelte and build.
+- [x] Reproduce guest cancellation failure through the actual native tool/workspace/provider boundary. Integrate the independently reviewed correction: exact cleanup has a fresh bounded signal and current authority; denied cleanup remains explicitly unconfirmed. Twenty-eight focused tests pass; backend coverage is 286/286 lines. Final combined validation remains required.
+- [x] Complete exact approved server staging after two reviewed compatibility repairs (tar flag conflict and Nix JSON key shape). The test activation detected a moved rollback deadline. Reviewed rollback restored the original system, external files and observer/service state. No guest qualification was started.
+- [ ] Correct and validate the rollback timer against service-manager reload, then complete guarded activation before live qualification. Preserve all failed phase receipts; do not replay unknown effects.
+- [ ] Prove normal user-project log paging, cancellation with independent process absence, and retention across browser disconnect/engine restart before disposal. Supplementary proof preserves the original project and conversation evidence.
+
+- [x] Install bundle `9c3dc7ff7` in the isolated app, preserve the current database, and verify healthy startup behind the ingress hold. The stopped snapshot proves v5 cleanup: all eight operations succeeded, both guests are absent, reservations are released, and global pending operations/reservations are empty. Independent server inventory is empty.
+- [x] Complete independent review of the exact server activation scripts and baseline/candidate comparison. Nine offline guards pass. Human approval received for packet SHA `409698055db2471455a733e9fc1b0bbed03031536805b4beb2ddcc92fa60535c`; activation remains in progress until live receipts confirm it.
+- [x] Pass all 27,356 backend tests at `9c3dc7ff7`. Full fast validation found one Vitest timeout; isolate four real boot collaborators in that test without changing timeouts or production code. Focused checks and independent review pass. Candidate `407891196` differs from the installed bundle only in that test; all 11,042 other tracked entries match.
+- [x] Complete `407891196` fast validation. Stop its browser capture after the confirmed cancellation defect; retain partial results only as diagnostics. Restart final browser/coverage validation on the combined corrected source.
+
+- [x] Complete linked v2 cleanup through EZHarness; preserve the original failed row, release reservations, and independently confirm no guests remain.
+- [x] Install verified diagnostics bundle `74970fa36` in the isolated app. One v4 attempt reported the actual failure: `enforcement / distinct_ip_literal_targets_are_required`. Both guests were cleaned up; independent Incus inventory is empty. A fresh stopped snapshot proves all eight lifecycle operations succeeded, both bindings are absent, and global pending operations and unreleased reservations are empty.
+- [x] Pass all five browser lanes at `82ba45f58`: 259 mock, 1,441 full mock, 393 evidence, 7 fresh setup, and 133 authenticated tests. All 22 management journeys passed; that page measured 280/280 lines. This is revision-specific evidence, not final merged-source proof.
+- [x] Merge main `605fde7e9` through `c53cf46e1`. Preserve both sets of contracts and gates; full types/lint and focused merge tests pass. Independent semantic review found the selected Incus authority/lifecycle code unchanged.
+- [x] Add and verify visible, safe qualification failure details. Fourteen route tests and one authenticated browser test pass.
+- [x] Strengthen the secret timeout test using actual child output and a controlled expiry callback; separately prove that late output is wiped. Fourteen targeted tests pass. The exact original full-pool assertion failure was not retained, so its precise cause remains unconfirmed.
+- [x] Fix the confirmed hostname/IP mismatch using the verified Incus TLS connection; keep destination and network checks strict. Focused tests and independent review pass. Verified bundle `ad2b151df` is installed and healthy behind the ingress hold. The exact v5 test plan was reviewed; live qualification remains open.
+- [x] Close the missing agent-run coverage measurement and split journal authorization checks without changing policy. Focused tests, coverage, types, and review pass.
+- [x] Review and integrate the agent-chat refactor. Thirty focused tests pass; all 72 measured lines are covered and the highest function complexity score is 9.
+- [x] Implement the v5 network-control correction: a reviewed, bounded Xeon-side challenge for the exact owned neighbor, and capability checks before allocation. Keep guest isolation and management checks intact. Focused host tests, 25 Python gate tests, and replay of actual read-only project/network/profile responses pass. The replay is not an installed-gate or live network qualification pass.
+- [x] Complete independent gate review and exact NixOS baseline comparison; obtain approval for the exact guarded activation.
+- [ ] Complete guarded server activation and live qualification.
+- [x] Reproduce the latest fast gate's eight failures: two guard-location checks and six dependency-security checks. Keep the guard at the handler boundary (10 structural and 30 behavior tests pass). Prove the dependency lock is correct using a clean install, then repair stale local resolutions with a forced frozen install (all seven security tests pass). No gate or dependency pin was weakened.
+- [ ] Complete live SP01–SP08, native project proof, and ten serial feature lifecycles on the final candidate. Normal feature admission correctly remains blocked until qualification passes.
+- [ ] Pass final-source browser, merged coverage, full local/hosted checks, and required non-author review. Do not repeat full captures for each intermediate diagnostic fix.
+
+The `407891196` fast gate passes. The isolated app still runs `9c3dc7ff7`, whose production files match `407891196`. The newer guest-cancellation correction changes production code and must be installed before live user-workspace proof. Final combined browser/coverage and hosted gates remain open.
+
+## GPT-6.1 Sol completion team
+
+- [x] Stage and verify source `241ab3836`; install the reviewed STOP readback fix in the isolated app.
+- [x] Settle the original STOP without repeating it; complete destroy and independent cleanup proof.
+- [ ] Run the bounded SP01–SP08 live qualification with saved operation IDs and failure recovery evidence.
+- [ ] Prove the native EZHarness project-tool workflow on a real guest, including host-file canaries.
+- [ ] Run all five browser lanes and merged coverage against the final source; pass fast and hosted checks.
+- [ ] Update PR #303 and the evidence ledger with exact results and remaining review requirements.
+
+Ownership: root owns integration and bundle staging; the GPT-6.1 Sol live worker alone changes the isolated app/server; coverage owns test captures in its worktree; project-flow owns a separate worktree and coordinates all live effects with the live worker. The generation fix has passed focused regression tests and independent review. Live proof remains open. No repeated STOP or new lifecycle request is allowed to hide an unknown effect.
+
+### Current review — 3 October, 22:00 UTC
+
+- [x] Pass the complete fast gate at `b417484ac`: 27,204 backend tests, 3,631 web Bun tests, 7,587 Vitest tests, lint, types, Svelte, integrity checks, and build. Push this revision to PR #303.
+- [x] Verify the same adapter, controller, broker, and transport through create/start/stop/start/stop/delete in a composed regression. Reject running deletion before any write.
+- [x] Add and review exact linked cleanup recovery authority checks; focused policy coverage is 100%.
+- [x] Add Stop-first UI and explicit saved-failure recovery confirmation. Four focused browser journeys passed, then two new journeys passed with reviewed screenshots. Final phase/kind checks passed unit tests; canonical capture remains open.
+- [x] Complete recovery orchestration review, real PostgreSQL concurrency proof, and source integration. Two real PostgreSQL tests pass, including concurrent admission/advancement across connections and no repeated unknown STOP effect. The integrated route tests preserve both saved-operation diagnostics and recovery.
+- [x] Stage and verify the combined app, recover saved v2 cleanup through the product, and prove guest absence and released reservations. Independent review passed; the original failed operation remains unchanged.
+- [ ] Save safe, actionable diagnostics for qualification failures before restart. The v3 run created and started both guests, then failed without recording its cause. Both guests were stopped and deleted; no pending operations or reservations remain.
+- [x] Reproduce the runner startup test failure under the full pool, then pass it alone. Remove the arbitrary 15-second startup assertion, retain the whole-test timeout and build assertions, and actually pass the long TMPDIR to the child.
+- [ ] Review the runner test correction and rerun the final combined gates.
+- [ ] Run a fresh SP qualification, native project proof, and ten serial feature lifecycles.
+- [x] Add a fixed-project, encrypted credential fixture for hosted source import. The scoped real browser import passes; production denies fixture access. The exact original upstream 403 cause remains unknown. Final hosted verification remains open.
+- [x] Add real user-project recovery and qualification-binding denial coverage. Thirteen service tests pass; resources stay charged until confirmed absence.
+- [x] Reproduce and fix separate Vitest route mocks missing new service error types. The related three-file suite passes 22 tests.
+- [ ] Pass final-source browser, merged coverage, fast, hosted checks, and non-author review.
+
+Recovery candidate `1907c09de` passed bundle verification and a non-root health check (HTTP 200), manifest `1df513a4a6bb65b7c9712a90a29873c8e24b6b95d2c4fc22811cc53f8bffeb54`. Guarded installation and linked v2 recovery passed. The v3 qualification failure was cleaned up, but its original cause was lost before a checkpoint was saved. Native feature admission correctly remains blocked because qualification has not passed. The `82ba45f58` fast gate passed all checks except one runner startup timing test (27,228 backend passes and one failure); the unchanged test passed alone. Browser lanes are in progress on that exact revision. The latest server inventory has no guests and unchanged six infrastructure collections, but one host IPv6 address disappeared; full network parity and the historic pre-setup inventory gap remain unproved.
+
+### Earlier recovery milestone review — 3 October, 20:12 UTC
+
+- [x] Complete the original real guest marker, pinned Compose, STOP, DESTROY, released reservations, and empty inventory proof.
+- [x] Prove restricted-project denial with the same TLS client: approved project 200, default project 403.
+- [x] Repair native project IDs, entry and per-effect authority, and test fixtures that omitted real project ownership.
+- [x] Prove actual keyless model inference through EZHarness, with zero tool calls.
+- [x] Reproduce asynchronous qualification failure with the real database, fixture service, controller, and witness; add exact-operation readback, preservation, and admission fences.
+- [x] Preserve the first receipt on replay failure; permit only the exact old CREATE readback while same-generation cleanup is queued.
+- [x] Verify the new operator diagnostic in the browser; stage and verify the combined recovery bundle.
+- [x] Recover saved CREATE `51856ef9-861d-48a7-994f-11e87656c1be` and queued DESTROY `ef7c6b70-5271-48bd-ad87-7d0a75fcee38`; prove guest absence and reservation release before another qualification run.
+- [x] Prove the selected guest UID, resource configuration, managed DNS, and management API denial with independent host checks.
+- [x] Reproduce and repair bounded read-only convergence after a temporary unknown START result; retain the original operation ID and authority checks.
+- [ ] Repair running-guest disposal before cleanup intent; recover the exact failed v2 cleanup through a reviewed product path.
+- [ ] Repair the supervisor timing races; diagnose the backend pipeline and two web render test timeouts and the runner cleanup timeout.
+- [ ] Complete SP01–SP08, native guest tools/Compose/retention/disposal, selected-profile negatives, and ten consecutive feature lifecycles with measured results.
+- [ ] Complete final-source browser, coverage, fast, hosted CI, and non-author review gates.
+
+Review evidence: source `f97661c7d` is installed and healthy. Its original saved CREATE/DESTROY pair settled without repeated effects, with released reservations and independent absence. Diagnostic browser lanes passed 259/1441/393/7/131 tests. The later source `45a6a8e6f` fast run passed types, lint, integrity checks, Svelte, build, and 3,631 web Bun tests, but failed three backend and two Vitest tests; these failures remain open. A bundled GitHub extension compiled successfully but timed out during runner container cleanup. No final gate is claimed.
+
+V2 created and started its guest. START briefly became unknown and then settled under the same saved ID. The first exception detail was not retained. The read-only wait repair passes composed regressions and review. Exact v2 DESTROY `315cb272-daed-4a97-8f43-ffb933305f4c` failed with `REVISION_CONFLICT`; its payload expected guest generation 2 and the guest remains RUNNING at generation 2. Host generation 1 is a separate authority fence. The shared running-destroy precondition is under repair; no effect is repeated or database row reset. Performance baseline and acceptance targets remain unrecorded. Full guest-secret consumer proof remains outside the selected no-secret-delivery Incus profile.
+
+- [x] Verify restored TCP socket, sandbox-server SSH, and GitHub access.
+- [x] Recheck the existing app, guest, and saved operations; identify the inspection failure without duplicate effects.
+- [ ] Complete the saved guest workload and cleanup, then live qualification and the native project workflow.
+- [ ] Pass previously blocked tests and close management-page browser coverage gaps.
+- [ ] Pass final exact-head repository and hosted checks, record evidence, and update PR #303.
+
+Sol live and coverage workers have separate worktrees; only the live worker may change the isolated app or server. Root owns integration and bundle staging. PR #303 remains open and draft, with browser repairs pushed at `e9f1283a7`. The dependency audit fix is integrated locally at `fdae83895`. Existing lesson edits are preserved.
+
+Current continuation: the guarded host restoration and new app bundle start passed. The saved guest and CREATE/START IDs remain unchanged. One app inspection returned `host_inspect/unknown`; do not repeat its process start. Separate read-only helper file-stat diagnostics from a disposable database copy reached Incus HTTP 202 but failed the WebSocket TLS handshake. The diagnostic operations have ended. Local tests reproduced the CA-signed leaf mismatch and the separate Incus text-frame EOF mismatch; the shared pinned transport repair is in review. Additional browser recovery cases are integrated. Complete route coverage registration and the malformed-action validation repair, then freeze the combined revision for canonical coverage.
+
+- [x] Locate the live guest transport failure without another CREATE or process start.
+- [x] Integrate and independently review the shared TLS and Incus stream EOF repair.
+- [x] Prove the repaired file-stat path against the saved guest before updating the isolated app bundle.
+- [x] Apply the forward-only app update with a fresh stopped database backup.
+- [ ] Complete the owned workload checks through the updated app.
+
+Review at source `6803d1a71`: 32 focused transport tests, independent source review, and live helper file-stat passed. All four real Incus WebSockets opened and operation wait returned success. The fixed bundle passed a non-root health check, installed with manifest `7bb58678aaa8a951dadbabdb42a1eea3d041c48b2611eaddda5107c5d71c645d`, and started healthy with the current database preserved. The combined fast gate passed: 27,169 backend tests, 3,629 web Bun tests, 7,579 Vitest tests, lint, typechecks, integrity checks, and build. Browser-only test correction `24b7de911` also passed its focused run; the full 18-journey diagnostic measured 260/260 management-page lines. Canonical browser capture, merged coverage, final hosted checks, and remaining live workflow gates are still open.
+
+Service restoration, 3 October:
+- [x] Confirm the saved guest is running, the app bundle is unchanged, the ingress hold is active, and no process holds the live database.
+- [x] Identify missing qualification services in current NixOS source; create a repair worktree from current `3914170`.
+- [x] Restore the qualification module on the current host configuration, keep automatic start off, and build/test a guarded candidate.
+- [x] Preserve and inspect a detached copy of the current database before any service start; do not restore September's older database.
+- [x] Review the concrete candidate and then restore the service definitions under the existing ingress hold; leave app and runner stopped until the guarded bundle/start checks pass.
+
+Verification: the unrestricted fast run passed with exit 0: 27,140 backend/example tests, 3,645 web Bun tests, and 7,579 Vitest tests, plus lint, typechecks, repository integrity checks, and the production build. The prior restricted run's container failures cleared with Podman access. Browser coverage and merged gates remain open. The expanded 11-journey management suite passed; two intercepted-request assertions are being strengthened and rerun. The live CREATE/START are confirmed, but the full workload/cleanup milestone remains open.
+
+# Resumed completion — 2 October 2026
+
+## Browser coverage continuation — 3 October 2026
+
+- [x] Run the six focused Incus management browser journeys with pinned Bun.
+- [x] Add real-auth browser journeys for missing management recovery behavior; verify each one.
+- [ ] Commit the browser changes and freeze the source revision.
+- [ ] Capture all five browser lanes against that revision and inspect management coverage.
+- [ ] Run exact-revision merged coverage, new-source, patch, and CRAP gates; record results.
+
+Review: The six original management journeys passed with pinned Bun 1.3.14. Five new recovery journeys cover a failed environment refresh, invalid fixture digest, changed saved plan, uncertain apply with saved status, and unconfirmed cleanup. The full 11-journey real-auth run passed. The two corrected intercepted-route assertions passed a focused browser rerun. Biome checked the edited spec. The canonical five-lane coverage and merged gates remain pending a final integrated source revision.
+
+- [x] Recover the saved branch and preserve the interrupted work.
+- [x] Fix the recovered browser selector failure without removing assertions.
+- [x] Add and test bounded smoke inspection diagnostics without exposing raw errors.
+- [ ] Diagnose the last live failure: owned-smoke `inspect` returned HTTP 409 `smoke_unavailable` after CREATE and START succeeded.
+- [x] Recover the interrupted browser results and run the available local verification gates.
+- [ ] Complete socket-dependent suites, browser recovery coverage, and exact-head merged gates.
+- [ ] Recheck the isolated app and guest before further live actions; complete workload, retention, cleanup, and qualification tests.
+- [ ] Record verified results and update PR #303 without claiming incomplete gates passed.
+
+Current environment: repository work is available. SSH currently fails hostname resolution, and this session restricts network and host writes. No live server state has been verified in this resumed session. Preserve the last operation and guest identities; do not issue another CREATE or START on the basis of September's observations. Sol workers own the inspection diagnosis and local validation in separate worktrees. Last pushed source is `18e46a7c8`.
+
+Last confirmed live result (25 September): original CREATE and START succeeded on bundle `8213297a0`, with the same guest and provider receipts. The next inspection returned `smoke_unavailable`; marker and Compose did not run. Recovered browser evidence shows four lanes passed and real-auth had 116 passes plus one selector failure. Its fix still needs a browser rerun. The historical management-page capture has 37 unhit lines; component tests do not close its browser-owned coverage requirement.
+
+Review: changes `b26c13a28` and `7d9cb50a2` pass pinned-Bun lint, full typecheck, production build, ten smoke-route tests, and the focused witness test. Two witness and two bundle tests are blocked by socket `EPERM`; browser execution, server access, GitHub access, and publication are unavailable in this session. The live cause remains unconfirmed. See [the full resumed validation record](../docs/validation/2026-10-02-incus-resume.md) for exact results and next steps.
+
+# Active completion milestones — 25 September 2026
+
+User authorized continued implementation and live validation with a Sol/Luna team. Continue the reviewed recovery and existing guest lifecycle without requesting the same approval again.
+
+- [ ] M1: Correct release file permissions, install the verified bundle, recover the existing CREATE, and pass the full guest smoke with cleanup.
+- [ ] M2: Pass live qualification and record each case with measured evidence.
+- [ ] M3: Add an Incus management screen with approved environment selection and persistent sandbox lifecycle controls; test the browser flow and the real feature flow.
+- [ ] M4: Run final repository checks, review changes, update PR #303, and report any remaining release gates accurately.
+
+Validated increments: bundle-mode regression tests pass (12); corrected bundle verification and non-root HTTP startup pass. Management API tests pass, including real migrated SQL and secret-column exclusion; the new route has 100% line coverage. Typecheck and lint pass for that increment. Project creation, browser management, live recovery, and full qualification are still in progress.
+
+Current source: latest main's chat sidebar is merged. Both coverage keys and task histories are preserved; typecheck, lint, the eight coverage guard tests, and 72 affected component tests pass. The capacity panel has ten passing tests and 100% measured lines. The Incus chat route correction is integrated and independently reviewed; 70 route tests include a composed native-tool check with a real AMD canary and a fake guest. This is not live Incus tool evidence.
+
+Installed bundle `8213297a0` includes the management page, native chat routing, and expired START/STOP/DESTROY receipt recovery. Its 76,138-file bundle passes strict inventory verification, non-root HTTP 200, and actual startup against a detached copy of the saved database and provider blobs. Manifest SHA-256: `e6295213f653cb89a33881f1f609c97f93255e4305e0db8c05e28738c927d6b6`. The guarded isolated-app replacement passed; the previous bundle and state remain preserved.
+
+PR #303 head `752447f8d` is pushed. Full local typecheck, lint, Svelte checks, web Bun tests (3,645), and Vitest tests (7,579) pass. The two stale backend coverage-inventory assertions were reproduced and fixed; their suite now passes 15 tests. The full five-lane browser capture is running on source-identical tree `1f6a43b9bc2f858514568e9b05d218f7fcc9ef28`. Hosted coverage shard 7 and web shard 1 failures are assigned for diagnosis. Final coverage and hosted CI are still open gates.
+
+Live status: verified bundle `8213297a0` is installed in the isolated app after a successful detached-database startup and guarded swap. The original CREATE and START both reconciled to `SUCCEEDED`, with the same guest and provider receipts. No duplicate CREATE or START was sent. The first authenticated status after startup confirms binding desired/observed `RUNNING/RUNNING`. The existing guest is now proceeding through marker, Compose, stop/resume, and cleanup checks. Full qualification and the real user feature workflow remain open.
+
+Review: The management page now connects reviewed environment, capacity, qualification, project creation, start/stop, status recovery, Chat, and disposal. Component and mocked browser checks support those paths. Real guest tools, retention, disposal, and final browser coverage still need measured proof.
+
+# Current Incus live completion
+
+- [x] Recover the first unknown CREATE with a signed no-effect receipt and restore the scoped client certificate.
+- [x] Apply and verify the release 0.1.2 Incus setup for connection `540e2032-532f-4d8f-9a4e-df50c8e9f43a`.
+- [x] Apply the reviewed 32 GiB capacity plan for that connection.
+- [x] Find and install the exact approved provider artifact in the dedicated runner store; a direct worker probe now starts and reaches the expected helper qualification gate.
+- [x] Prove the sandbox server is reachable, Incus is active, and a direct disposable canary creates and deletes with the same pinned TLS transport.
+- [x] Make a missing runner artifact a definite pre-worker failure; prove the code survives the Unix runner API and the Incus dispatcher does not retry unknown errors.
+- [x] Run focused recovery, transport, preview, runner, dispatcher, and SSH-gate tests; full typecheck, lint, and production build pass on this worktree.
+- [x] Recover the second unknown CREATE `016f7e51-60a6-4e19-aa32-77d44b745053` with the independent fence and signed no-effect procedure before another EZHarness CREATE.
+- [x] Record the first guarded second-CREATE recovery attempt and complete rollback; no signed request was sent.
+- [x] Prepare the exact second-target server observer policy in NixOS PR #12 and test its denial cases; test and reject the ineffective temporary AMD override proposed in PR #13.
+- [x] Stop the revised attempt at the live AMD dependency gate; record rollback and reject the ineffective temporary override.
+- [x] Build and test the corrected NixOS-generated AMD supervisor unit; review its guarded activation packet in PR #13.
+- [x] Obtain exact approval of the guarded AMD activation and conditional second-CREATE recovery in the v3 packet.
+- [x] Activate and verify the corrected AMD generation under its rollback timer.
+- [x] Stop the v3 second-CREATE recovery before signing when the server timer margin fails; restore the exact cert and policy, and record the unresolved host rollback.
+- [x] Recover sandbox-server host control after the pending switch settled; prove thaw, old generation, SSH, original trust/policy, and inventory, then restore AMD configs and runner while keeping the TCP hold.
+- [x] Review, authorize, and execute the corrected v4 second-CREATE recovery with a measured timer-margin gate and thaw-first rollback.
+- [x] Review the next EZHarness-owned guest smoke plan, validate the retained admin session, live scope/capacity, pinned image, and unused fixture ID without creating a guest.
+- [x] Run the approved first EZHarness CREATE; record its real stopped guest and the `OUTCOME_UNKNOWN` stop before START.
+- [x] Fix durable CREATE inspection after the short-lived Incus operation disappears; prove the same journal and guest reconcile without another CREATE.
+- [x] Prove recovery through the retained 0.1.2 provider worker schema and host broker; the active guest blocks routine release replacement.
+- [x] Stage and verify the exact `f77b7ab8a` test-app bundle; non-root isolated smoke returns HTTP 200 without touching the live app.
+- [ ] Review and authorize recovery of the existing guest, then resume START/marker/Compose/STOP/DESTROY under a new exact plan.
+- [ ] Run a complete EZHarness-owned guest fixture, the live qualification cases, feature workflow, and cleanup.
+- [ ] Remove the temporary `/var/empty/.config` workaround after the corrected NixOS setup gate is active.
+- [ ] Finish the source fixes, pass the CRAP gate and all hosted checks on the final PR head, and publish the measured live evidence.
+
+Review, 25 September 2026: The first approved EZHarness CREATE made one real stopped guest, but its saved Incus operation expired and the controller retained `OUTCOME_UNKNOWN`. The guest and reservation remain; no START or cleanup was sent. The durable readback and retained-worker compatibility repairs pass focused tests, lint, typecheck, and build. The frozen 0.1.2 artifact and the saved guest still need a reviewed live recovery before this guest can proceed. See the first guest execution receipt for exact evidence.
+
+Review: The server is up. Setup `97edb3a1-80e4-4305-baac-1325930b868d` is verified, and capacity digest `a4124441943808b4311afe333aa59d2b43a52b6623bb39a5a17de8719238ce43` applied. The first provider worker call failed because the new runner store held zero artifacts; the exact approved artifact digest `2fc8d4c91d0b8ec779451cc6ff0f8fc93e17ddec9085e0d632d65d9bde7008d5` has now been copied and SHA-256 checked. A new read-only worker probe reaches Incus and stops at the helper qualification gate, which needs live guest evidence. The second CREATE is still `OUTCOME_UNKNOWN`; the expected instance is absent, but that alone is not a no-effect proof. A separate direct canary was created and deleted, showing the pinned Incus transport works. PR #303's prior head has one failing CRAP gate; focused refactors and tests are in progress. See `docs/validation/2026-09-24-post-recovery-incus-setup-review.md`.
+
+Second recovery preparation is recorded in `docs/validation/2026-09-24-second-unknown-create-recovery-review.md`. It had target-specific staged files and exact hashes before the first attempt. On the current source tree, the focused tests, full typecheck, lint, and production build passed. Hosted coverage and CRAP gates still need the final pushed head.
+
+The approved second recovery attempt stopped after the first restricted observer response named the first instance. No signed request was sent. The exact old certificate, server generation, local configs, app, and runner were restored; CREATE remains `OUTCOME_UNKNOWN`. The new [revised review](../docs/validation/2026-09-24-second-unknown-create-recovery-revised-review.md) requires a second-target server policy swap and a temporary supervisor dependency override before another attempt. The traffic hold remains active.
+
+The revised attempt then stopped before runner or server changes because systemd did not remove the base-unit `Requires=runner` from a temporary drop-in. Its [receipt](../docs/validation/2026-09-24-second-unknown-create-revised-attempt.md) records restored baseline. PR #13 now changes the generated NixOS unit instead; its full AMD candidate built with exact live pins, focused generated-unit and activation-command tests pass, and the read-only live preflight passes. The [v3 packet](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-review.md) combines guarded activation with conditional recovery. PR #303's pushed source head `8d3e1c495` passed all 51 hosted checks; pending local evidence docs will require a final push and check.
+
+The approved v3 AMD activation passed. The second-CREATE recovery obtained two exact no-effect observations, but the final `frozen-until` gate rejected the unsigned request because the server rollback timer lacked its 120-second margin. The exact old cert and policy were restored. Manual old-generation switch hung while the dev slice remained frozen, and fresh host SSH is denied. The server responds to Tailscale and Incus HTTPS, but host rollback is unverified. Keep AMD runner and ingress fenced and CREATE unknown. See the [v3 attempt](../docs/validation/2026-09-24-second-unknown-create-recovery-v3-attempt.md) and [console packet](../docs/validation/2026-09-24-second-unknown-create-console-recovery-review.md).
+
+The pending server switch later completed. Fresh dev SSH, old running/profile generation, thawed dev slice, original cert and policy, zero project instances/operations, and host services passed readback. AMD observer/fence files and runner were restored; app health passed, with the TCP ingress hold retained. A stopped-app database copy confirms the second CREATE is still `OUTCOME_UNKNOWN` with no provider operation ID. The console packet remains a record of the access contingency; a new v4 packet is under review before another signed recovery attempt.
+
+The approved v4 attempt succeeded. One submitted signed request and independent stopped-app readback confirm CREATE `FAILED/OPERATOR_PROVEN_NO_EFFECT`, no-op DESTROY `SUCCEEDED`, binding `ABSENT`, and compute/disk reservations `RELEASED`. The exact server cert/policy, old generation, AMD configs, app, and runner were restored; TCP ingress hold remains. See the [v4 execution receipt](../docs/validation/2026-09-25-second-unknown-create-recovery-v4-execution.md). No new guest lifecycle has been run.
+
+Read-only next-guest preparation found a valid admin session, active reviewed release and connection, verified setup, 32 GiB applied capacity, the pinned guest image, and an empty Incus project. An audited stopped-app copy proved the proposed new fixture and derived IDs absent, then the app restarted healthy behind the TCP hold. The [guest smoke review](../docs/validation/2026-09-25-next-incus-owned-guest-smoke-review.md) fixes the one new operation ID and the guarded lifecycle. No guest CREATE was sent.
 # PR #308 review fixes
 
 - [x] Reproduce the review findings and assign isolated Sol worktrees.
@@ -16,6 +383,84 @@ Work is isolated on `fix/pr308-review-findings` and four Sol agent worktrees.
 ---
 
 # Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
+
+## First EZHarness-owned Incus sandbox — live completion (24 September 2026)
+
+- [x] Reproduce and fix the failed no-effect recovery restart path; keep a durable hold through supervisor restart.
+- [x] Build and install a final-head qualification bundle after independent review and tests.
+- [x] Run the guarded traffic hold, stop old isolated processes, stage the database and projects, and verify the saved fixture.
+- [x] Keep mutable `.ezcorp` state outside the release with a persistent bind mount; rebuild/install a bundle whose verifier has that explicit exception.
+- [x] Start the dedicated app and prove health, admin identity, runner socket, and saved Incus state under the traffic hold.
+- [ ] Fence the active `dev` Incus administrator route on the server before old-certificate revocation and signed no-effect recovery.
+- [x] Prove the saved `OUTCOME_UNKNOWN` CREATE and fixture from a detached database copy and the restored isolated app.
+- [ ] Activate the independent server observer and dedicated AMD app/runner with guarded rollback.
+- [ ] Reconcile the exact unknown CREATE only after old client authority is revoked and two independent readbacks pass.
+- [ ] Create, use, reconnect to, and clean up an EZHarness-owned guest; run real limits and isolation checks.
+- [ ] Push the final PR #303 source and pass hosted CI; keep support claims tied to live evidence.
+
+Review: The database gate is 4/4. The server observer is active. The dedicated app and runner are active under a verified TCP hold; health and readiness return 200, the retained admin session is valid, and the runner returns 401 without auth and 200 with its token. The active NixOS generation binds persistent app-owned `.ezcorp` state into the verified 13dbc66b release. All 64 database-referenced extension blobs were copied by digest and checked; the original store remains intact. A stopped-app fixture readback matched the sealed candidate, and the app restarted with no errors. The old `engine` certificate remains trusted. The server's live `dev` SSH account has Incus administrator and sudo authority, so certificate revocation and no-effect recovery wait for a reviewed temporary fence. Hosted CI and live guest proof remain. See `gates/incus-final-live-2026-09-24.md`.
+
+## Incus completion update — 2026-09-24
+
+- [x] Activate and verify the guarded NixOS firewall generation on the sandbox host.
+- [x] Correct the restricted project's local-image policy and prove one disposable guest starts, has DNS, cannot reach host management ports, and cleans up.
+- [x] Apply the isolated app's reviewed 32 GiB capacity policy.
+- [x] Integrate the independent qualification receipt, durable continuation, and diagnostic probe commits.
+- [x] Re-run the isolated app probe; pin the non-CA server leaf and identify the helper qualification gate.
+- [x] Build and directly test a corrected pinned guest image that grants UID/GID 1000 Docker access.
+- [x] Build, review, and activate provider release 0.1.2 against the isolated app.
+- [ ] Reconcile the old unknown CREATE, then make and verify a new operator setup plan with the existing scoped client trust.
+- [ ] Resolve the saved unknown CREATE through a fenced, audited recovery action before another CREATE.
+- [ ] Qualify the live provider profile, create and clean up an EZHarness-owned feature guest, then run the full feature workflow.
+- [ ] Pass local gates and hosted CI at the final PR head; update PR #303 with measured evidence and limits.
+
+Review: The host firewall and local-image correction are active. The provider probe reaches preflight but remains closed on unverified helper evidence. The first EZHarness CREATE has a durable unknown outcome with no current backend instance; it must be reconciled, not retried. The new image passed direct guest Docker/Compose checks, and the provider source now pins it. No EZHarness-owned guest has yet been proven ready. The live qualification and feature gates remain closed.
+
+## PR #303 current Incus completion checklist — 2026-09-23
+
+- [x] Activate the exact reviewed provider release in the isolated test app.
+- [x] Repair the capacity route's filesystem/registry parity and push the fix.
+- [x] Wire host-owned network and control fixture probes without opening the qualification gate.
+- [x] Pass local residual tests (184/184), combined Incus tests (228/228 on the earlier witness head), final focused fault/controller tests (60/60), checkpoint tests (4/4), lint, typecheck, build, and gate integrity after merging main.
+- [ ] Obtain approval for revised setup digest `fd430d6aece7cad6bdac995bd4417bf3b0c663ae37a3671d127c98a4ea21be43`; apply it once and verify server readback.
+- [ ] Probe the approved connection, review and apply capacity, then run a real EZHarness-owned guest fixture and complete cleanup.
+- [ ] Close restart and failed-cleanup recovery with an external supervisor and authenticated operator control; the durable checkpoint and scoped post-effect fault seams are implemented, but keep SP qualification closed until live proof.
+- [ ] Qualify guest network/resource controls and the separately reviewed host firewall change.
+- [ ] Pass hosted CI at final PR head and record supported profiles and remaining limits.
+
+Review: The revised setup remains `planned` in the isolated app. Hosted CI on `34b025ddc` passed 49 checks and failed the per-file coverage gate; commits `92bb08c2f` and `454ed3eea` close its five named gaps with 100% focused line coverage. Astra reproduced and rechecked authorization-before-journal and persisted checkpoint-expiry fixes (`eaf989fd7`, `c0ff32091`); no finding remains in those bounded seams. The merged tree at `9258eabd8` passes final local residual tests, focused recovery tests and coverage, lint, typecheck, build, and gate integrity. Final-head hosted CI and live server proof are pending. No new server setup write or EZHarness-created guest has occurred.
+
+## Live Incus operator Apply recovery — 2026-09-23
+
+Current status: Release `dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd` is approved and active in the isolated app. Approved setup digest `b3e3a491775f8679e35b4606f67cd1ca6043e0d28ff40d911dbc9d99e313bd4d` failed at `restricted-project`: Incus 6.0.6 rejected `restricted.storage-pools.access`. No project or later resource was created. The revised recipe removes that unsupported key and blocks setup when any other storage pool exists. New setup ID `93c1db15-4515-43a0-aa5d-78326bc30c78`, digest `fd430d6aece7cad6bdac995bd4417bf3b0c663ae37a3671d127c98a4ea21be43`, passed read-only preflight and dry run; exact new Apply approval is pending. See `docs/validation/2026-09-23-isolated-incus-setup-plan-0.1.1-revised-review.md`.
+
+Latest continuation: The user approved revised digest `adc0a93ba4a18122ca98ad50f387b06954819b7af8d2ca5f2dfcd039e7a6fb5b`. Its first isolated-app Apply returned HTTP 409 before the plan claim; the setup remains `planned`, and read-only server inventory still contains only `default`. A temporary local diagnostic identified `Sandbox qualification is stale or has an invalid validity interval`: the candidate check from the active release expired after one hour and `resolveActiveRelease()` rechecks it at every call. The diagnostic was removed. Further pre-apply inspection found the active release's preset image digest is all zeros. Live qualification rejects that release, and the setup Plan failed to compare the preset with the reviewed guest image. Do not retry the old approved Apply: pin the real image in a new release, add fail-closed setup preflight, create a new plan, and review its new digest before server writes. A Sol worker owns each code repair. The server remains unchanged.
+
+Current release step: candidate lifetime fix `62344b49d`, pinned image and setup preflight `2579ef294`, and an isolated-app release `0.1.1` (`dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd`) are built. The release is verified and has pending human approval `0c634e40-9a21-4d2c-9e03-a0d79dc349b7`. The exact review packet is `docs/validation/2026-09-23-isolated-incus-release-0.1.1-review.md`. Approval and activation must precede a **new** server plan and exact-digest review. Full typecheck, lint, and production build passed on the current worktree; the real server lifecycle remains untested.
+
+SP04 finding: the host lifecycle set only `limits.cpu`, which Incus documents as CPU placement rather than a hard usage ceiling. The lifecycle now also sets a time-form `limits.cpu.allowance` from approved millicores (`2000ms/1000ms` for 2000 millicores). The focused lifecycle suite (11 tests), Biome, and full typecheck pass. The real guest must still show the expected `cpu.max` and survive controlled load before SP04 can pass. Source: https://linuxcontainers.org/incus/docs/main/reference/instance_options/ .
+
+CI follow-up: the first pushed head failed `Residual integration tests` because the new qualification route was not in `src/api-registry.ts`. The exact `route-contract.test.ts` failure named `POST /api/infrastructure/incus/qualification`. Commit `d0b24035f` registers it with session scope and updates the sorted session-only route test; both route-contract and session-scope suites now pass (41 tests). This fix still needs a push and hosted rerun. The five new production source files are now explicit 100% coverage keys; focused resource, recovery, readback, qualification-route, and witness runs each report 100% line/function coverage, but the merged repository gate is still pending.
+
+Network finding: official Incus bridge documentation says instances on one managed bridge can communicate at L2. The reviewed profile now requires `security.port_isolation=true`; setup, lifecycle admission, and live readback reject missing isolation or extra devices. The new isolated-app release `dcde361cc4fe348743c1aafc5272ac5104b025046b1c96273e58dc0b8d6e8bdd` was approved and activated. Its first setup digest `b3e3a491775f8679e35b4606f67cd1ca6043e0d28ff40d911dbc9d99e313bd4d` failed at project creation and is obsolete. Source: https://linuxcontainers.org/incus/docs/main/reference/network_bridge/ and https://linuxcontainers.org/incus/docs/main/reference/devices_nic/ .
+
+Compose qualification input: the direct guest test used BusyBox digest `bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e`. The live runner requires a full immutable registry reference; configure and verify `docker.io/library/busybox@sha256:bdf57e528e45e4433820e045b29b4597825a1c9e38353532d90a01445013f82e` as an operator-owned value before the Compose profile can qualify. This string is a proposed normalized reference, not yet tested through the EZHarness guest.
+
+- [x] Reconcile the first exact Apply receipt and server inventory before any retry.
+- [x] Reproduce the project-create failure with the exact reviewed command and identify the unsupported Incus 6.0.6 key.
+- [x] Remove the unsupported setting without weakening the container-only project policy; add an Incus 6.0.6 compatibility test.
+- [x] Run focused tests, typecheck, lint, and a fresh read-only operator Plan against the isolated app.
+- [x] Publish a revised review packet with the new digest and exact pending server writes.
+- [ ] After approval of that new digest, Apply and verify the operator setup, then probe the approved provider connection.
+- [ ] Use the durable `IncusQualificationFixtureService` through the isolated app process to create, inspect, run in, reconnect to, and destroy one real guest. Keep fixture evidence separate from feature readiness.
+- [ ] Implement and run the host-owned SP01–SP08 live witness and record qualification for the exact release, connection, preset, image, and helper. The current `recordVerified()` requires an injected `runLiveCases` function and no production caller supplies one.
+- [ ] Create a user feature through `/api/infrastructure/incus/features` only after live qualification; edit, Compose, test, reconnect, and destroy through EZHarness.
+
+Review: Apply for digest `4faf8f2e0fb2b1242892df75fdbbb0e79ca205aec77fe6d55b049eefa2293fca` stopped at `restricted-project` with exit 1. The two existing resources matched and were skipped. A fresh read-only project list contained only `default`; repeating the exact approved project-create command returned `Invalid project configuration key "restricted.virtual-machines.nesting"`. The server reports Incus 6.0.6 and does not advertise `projects_restricted_virtual_machines_nesting`. No EZHarness feature sandbox has been created yet.
+
+Review after repair: The template still sets `limits.virtual-machines=0`, and it requires the server extensions for image-server restriction and per-pool disk quota. The new checked-in test passes. Pinned Bun 1.3.14: 23 Incus setup tests passed; lint, all typecheck sections, and the production build passed. The previous PR head had 50 successful hosted checks; the repair needs its own CI run after push. A fresh isolated-app Plan `adc0a93ba4a18122ca98ad50f387b06954819b7af8d2ca5f2dfcd039e7a6fb5b` is ready with no blocked reasons. Its read-only dry run skips the pool and bridge, and plans 13 absent steps. The new digest has not been applied; the EZHarness feature lifecycle remains untested. Inspection of the feature route found that it requires live qualification and the production host witness is not yet connected; an operator probe alone cannot make features ready.
+
+Review of current repair: The live server replay exposed another unsupported 6.0.6 key, `restricted.storage-pools.access`. The revised setup has 25 passing focused tests and 213 assertions; Biome passes. A fresh app Plan and live read-only dry run both report `ready`/`dry_run` with no blocked reasons and no server writes. The single-pool rule is checked at planning time, not enforced by Incus; host-side pool changes remain an operator-controlled risk. A new exact-digest approval is required before Apply. No EZHarness guest or feature is yet verified.
 
 Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
 Decision record: `docs/decisions/2026-09-12-extension-runner-install-burden.md` (Finding 3 + Proposal).
@@ -916,6 +1361,544 @@ tests pass 132 tests and 315 assertions. The repaired full backend pool passes 2
 1,676 files. Lint over 4,680 files, full typecheck, Svelte check, dependency boundaries, gate
 integrity, Actionlint, Bash syntax, ShellCheck, the production build, and `git diff --check` pass.
 
+## Mandatory sandbox preset tests — 2026-09-21
+
+- [x] Define preset tests required for every new sandbox integration and advertised profile.
+- [x] Add the requirement to shared fixtures, the author guide and release gates.
+- [x] Verify requirement coverage and document links; keep implementation checks open.
+
+Plan review: make this a mandatory acceptance requirement in the existing implementation plan. No provider code or tests exist yet for this feature; do not report a documentation update as a passing integration test.
+
+Review: added mandatory SP01–SP08 in section 12 of the implementation plan, covering preset validation, compatibility, deterministic settings, real workloads/limits, no unsafe fallback, recovery/cleanup, drift and actual release enforcement. C06, V04, Q07 and the final release checklist now require the suite for every new sandbox integration and advertised combination. Missing, failed, skipped or stale required evidence blocks Ready/workload selection. All eight requirements and gate references validate; the 70 implementation tasks remain open. No production tests were added or claimed to pass in this documentation-only change.
+
+## Mandatory sandbox preset enforcement — 2026-09-22
+
+- [x] Add closed preset declarations and static/live qualification records to the shared v4 contract.
+- [x] Reject incomplete presets, unsafe override ranges and missing, failed, stale or mismatched evidence.
+- [x] Enforce static qualification at build, approval, activation, reconciliation, publication and runtime resolution.
+- [x] Preserve manifests that do not declare sandbox providers.
+- [x] Verify the implementation with isolated tests, schema generation, typecheck, lint, coverage and an independent Sol review.
+
+Plan review: this implements the contract and fail-closed release boundary for C06. The production candidate verifier intentionally rejects sandbox provider releases with `sandbox_qualification_unavailable` until the shared conformance runner can produce the six static cases. The separate Ready assertion requires live SP01–SP08, but no connection subsystem or live SP04/SP06 evidence exists yet.
+
+Review: the shared contract now defines closed presets plus static and live evidence. Host checks fail closed at build, approval, activation, reconciliation, publication and runtime resolution. Independent review found and closed three correctness gaps and one repeated-fixture issue. Pinned Bun 1.3.14 checks pass for the contract, schema, typecheck, lint, candidate verifier, lifecycle, publication and runtime suites; the new host gate has 35/35 line and 7/7 function coverage. The full repository lane reached 25,804 passes and three unrelated workspace-hygiene failures: a stale AI Kit source lock, two files outside the lint script's explicit paths, and generated Stryker credential fixtures. No live provider or SP04/SP06 qualification is claimed.
+
+## Reliable provider setup design — 2026-09-21
+
+- [x] Review existing setup decisions and official Incus concurrency/operation/identity documentation.
+- [x] Specify how server changes, recovery and verification work through the supplied SSH connection.
+- [x] Define reusable setup support for reviewed integrations and a tested compatibility policy.
+- [x] Validate the updated plan and record implementation limits.
+- [x] Make zero-inference setup and repeatable planning explicit requirements.
+- [x] Add checks for model-call denial, plan replay, pinned inputs and deterministic recovery decisions.
+
+Plan review: extend the existing plan and task assignments. This is a design change; no live server configuration is authorized by this question.
+
+Review: section 12 of `docs/plans/2026-09-20-pluggable-infrastructure-tasks.md` defines fixed reviewed setup code, a saved inspect/plan/review/apply/verify job, per-step receipts and readback, safe retry/repair, restricted runtime identity and an optional shared setup method group. It limits support claims to live-qualified combinations and maps failure testing to existing tasks. Official Incus API concurrency/operation and certificate-scope documentation was checked. All 70 task IDs remain unique and defined; local links and fences pass. This is a design update only; no live configuration or implementation was performed.
+
+Determinism follow-up: section 12 now prohibits model inference throughout setup and repair. It defines pure planning from explicit snapshots, pinned recipes, saved approved steps, fixed failure decisions and safe restart reconciliation. Secure key generation remains random. Proposed tests assert zero model calls and host denial of a model-calling provider. Document checks pass; these are requirements, not implemented tests or server changes.
+
+## Simple Incus setup in EZHarness — 2026-09-21
+
+- [x] Check the current plan and Incus's documented unattended setup support.
+- [x] Define a short user flow using the supplied SSH connection and existing approval system.
+- [x] Add the setup behavior and acceptance checks to the existing implementation plan.
+
+Plan review: design the product flow, not change the live server. Extend C04, H01–H05, I01 and U01 instead of adding a second installer or approval system.
+
+Review: section 11 of `docs/plans/2026-09-20-pluggable-infrastructure-tasks.md` defines Add server → SSH → review budget/changes → setup/test → Ready. It reuses the existing 70 tasks and approval lifecycle, checks access from the deployed engine, separates temporary bootstrap authority from normal provider credentials, and blocks Ready on missing controls or failed cleanup. Official Incus preseed support and rollback limits were checked. Document references/fences/task IDs pass. No implementation or server changes were made.
+
+## Validate existing Herder sandbox Incus — 2026-09-21
+
+- [x] Find the configured sandbox host.
+- [x] Confirm read-only SSH access with the AMD personal identity after the user installed its public key.
+- [x] Check host capacity and initial Incus state; Incus was absent before the user installed it.
+- [x] Recheck after installation: Incus client/server 6.0.6, active service and dev operator access pass.
+- [ ] Configure and qualify storage, managed networking, restricted project/profile, resource limits and scoped provider connection; currently empty/unconfigured.
+- [x] Record verified results and the remaining live qualification checks.
+
+Plan review: inspect the existing deployment without restarting services, changing settings or modifying current guests. This validates installed infrastructure; it does not mark the planned EZHarness integration complete.
+
+Review: SSH and the new Incus 6.0.6 installation now pass. The service is active and dev has operator access. The host is NixOS 26.05 with a Xeon W-2135; earlier inventory measured 62.3 GiB RAM and 199.6 GiB free root storage. Incus has no storage pools, managed networks, guests, cached images, HTTPS listener or trusted remote clients. Only the default project and an empty default profile exist. Host checks were read-only. Installation is verified; sandbox configuration and live qualification remain open. Report: `docs/plans/2026-09-21-sandbox-server-validation.md`.
+
+# Wire `trusted-local` — the explicit, per-release-approved unsandboxed extension mode
+
+Branch: `feat/trusted-local-runner` (worktree `worktrees/trusted-local`, from `main` @ 2588c9f19).
+Decision record: `docs/decisions/2026-09-12-extension-runner-install-burden.md` (Finding 3 + Proposal).
+
+Contract: `TrustedLocalRunner` (built, tested, never wired) enforces per-(phase, digest) admin
+approval with approver + expiry + acknowledged omitted controls, then audits. This work only
+supplies the ignition: a fail-closed two-key operator gate, the approval store, the two human
+acknowledgement points (Build, Approve exact release), and the loud signals (boot log, banner,
+health). No bypass of `authorize()`. `runnerProfile` flips to `trusted-local-v4` so every existing
+approval goes stale and must be re-approved under the new terms (free, via `checkApproval`).
+
+## Backend — all implemented; see Review for verification
+
+- [x] `packages/@ezcorp/extension-runner/src/trusted-local.ts`: export `trustedLocalImage(bunDigest)`
+      (single definition of the `localhost/trusted-local@sha256:` format) and use it in the ctor.
+- [ ] `src/extensions/runner-mode.ts` (new): `getExtensionRunnerMode()` — `isolated` | `trusted-local`;
+      fail-closed on `EZCORP_EXTENSION_RUNNER` unknown value, on `trusted-local` without
+      `EZCORP_EXTENSIONS_UNSANDBOXED_ACK` === exact sentence, and on `trusted-local` + isolated
+      socket vars both set. `TRUSTED_LOCAL_PROFILE = "trusted-local-v4"`, `trustedLocalBunDigest()`
+      memoized sha256 of `process.execPath`.
+- [ ] `src/db/migrations/add-extension-trusted-local-approvals.ts` (new) + `src/db/migrate.ts` call +
+      `src/db/schema.ts` table: `extension_trusted_local_approvals (installation_id FK cascade,
+      phase, digest, approved_by, expires_at, omitted_controls JSON text, created_at)`
+      PK `(installation_id, phase, digest)`, index `(phase, digest)`.
+- [ ] `src/db/queries/extension-trusted-local-approvals.ts` (new): `recordTrustedLocalApproval`,
+      `findTrustedLocalApproval(phase, digest)` (live rows only), `revokeTrustedLocalApprovals`
+      (by installation, optionally by digest). TTL 180 days.
+- [ ] `src/extensions/trusted-local-runner.ts` (new): `createTrustedLocalRunner(): Runner` — lazy
+      async init (bunDigest, `provisionToolchain` with explicit sdkEntrypoint, `initialize()`),
+      `approvalFor` → query module, `audit` → `insertAuditEntry`. Root
+      `<projectRoot>/.ezcorp/extension-trusted-local`.
+- [ ] `src/extensions/runner-connection.ts`: select by mode; return type `Runner`.
+- [ ] `src/extensions/v4/types.ts`: optional `LifecycleDependencies.trustedLocal`
+      `{ recordApproval(phase, digest, installationId, actor); revoke(installationId, digest?) }`.
+- [ ] `src/extensions/v4/lifecycle.ts`: `build()` takes `acknowledgeUnsandboxed?`; when
+      `trustedLocal` set → require it (`unsandboxed_acknowledgement_required`) and record
+      `(build, sourceDigest)`. `approve()` takes options `{ acknowledgeUnsandboxed? }`; on
+      approve when `trustedLocal` set → require it and record `(execute, artifactDigest)`.
+      `revokeApproval()` and `stop()` → revoke rows.
+- [ ] `src/extensions/extension-lifecycle-service.ts`: profile/image/dependency by mode.
+- [ ] `src/extensions/extension-control.ts`: `extensions_build` schema + handler pass
+      `acknowledgeUnsandboxed` (additionalProperties:false makes this mandatory).
+- [ ] `web/src/routes/api/extensions/releases/[installationId]/approve/+server.ts`: accept
+      optional boolean `acknowledgeUnsandboxed`.
+- [x] `src/env-validation.ts`: call `getExtensionRunnerMode()` (boot fails closed on misconfig) and
+      log error-level when trusted-local. (`context.ts` untouched — it already calls `validateEnv()`
+      and has no logger of its own.)
+- [ ] `src/health.ts`: detail gains `extensions: { runner: mode }`.
+- [ ] `web/src/routes/api/auth/me/+server.ts`: add `extensionRunner: mode` (session-authenticated,
+      no anonymous leak — the app shell already fetches this).
+
+## Web
+
+- [ ] `web/src/routes/(app)/extensions/author/+page.server.ts`: expose `extensionRunnerMode`.
+- [ ] `web/src/routes/(app)/extensions/author/+page.svelte`: Build — unsandboxed note listing the
+      seven omitted controls + required checkbox → `acknowledgeUnsandboxed: true`. Approval card —
+      when `approval.runnerProfile === "trusted-local-v4"`, note + second required checkbox →
+      approve body `acknowledgeUnsandboxed: true`. Header copy reflects the mode.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.svelte` (+ `.helpers.ts`, bun-tested):
+      persistent, non-dismissable, mounted in `(app)/+layout.svelte` from the `/api/auth/me` fetch.
+
+## Tests / gates
+
+- [ ] `src/extensions/runner-mode.test.ts` — every fail-closed branch + both valid modes.
+- [ ] `src/extensions/runner-connection.test.ts` — trusted-local selection returns a Runner that is
+      not a `RunnerClient`; isolated path unchanged.
+- [ ] `src/__tests__/extension-trusted-local-approvals.test.ts` — record/find/expiry/revoke (PGlite).
+- [ ] `src/__tests__/lifecycle-trusted-local-ack.test.ts` — build/approve require ack when the
+      dependency is set; record + revoke hooks called with exact digests; no-op when unset.
+- [ ] Integration: `src/__tests__/trusted-local-runner-in-process.integration.test.ts` — the REAL
+      `TrustedLocalRunner` through `createTrustedLocalRunner()` against PGlite approvals: build
+      refused without row, allowed with row, execute likewise, audit rows written.
+- [ ] `web/src/lib/components/UnsandboxedExtensionsBanner.helpers.test.ts`.
+- [ ] e2e (real tier, own lane): `web/e2e/extension-author-trusted-local.spec.ts` `@evidence` —
+      preview started by new `scripts/start-trusted-local-preview.sh`; workspace → build (ack) →
+      approve (ack) → activate → banner visible → `captureEvidence`. Config
+      `web/playwright.trusted-local.config.ts`. CI lane wiring is a CODEOWNERS change — note in PR.
+- [ ] `scripts/coverage-thresholds.json` keys for every new source file (100).
+- [ ] `docs/extensions/security.md` + `deploy/extension-runner/README.md`: document the mode.
+- [ ] `bun run typecheck && bun run lint`; targeted suites; full pool vs. baseline (box is flaky).
+
+## Review
+
+**What the production-build lane found that source-mode tests could not** (all fixed, all now
+covered by that lane — `web/playwright.trusted-local.config.ts`):
+
+1. `seccomp.json` resolved via `import.meta.url` into `web/build/server/` — passed explicitly.
+2. The trusted toolchain resolved from the bundle's location: `web/node_modules` (TypeScript 6, no
+   `@types/bun`) instead of the pinned root closure — `provisionToolchain` gained `toolchainRoot`;
+   also a correctness fix for "only from the installed trusted release".
+3. Candidate verification (`verifyExtensionCandidate` → `runner.start`) is an `execute` of an artifact
+   that has no release approval yet — refused by the runner. Fixed by deriving a fifteen-minute
+   execute window from the build acknowledgement (`recordTrustedLocalVerificationApproval`), recorded
+   in `runBuild` before verification. The build note on the author page names the verification run.
+
+**Layering correction on the way:** `runner-connection.ts` must stay free of `db/` imports (a static
+path into `db/connection` joins the repo's known import cycle and the server bundle then defers
+module evaluation). The DB-backed hooks are built by `trusted-local-hooks.ts` and injected by the
+lifecycle service (`configureTrustedLocalRunner`), which already loads `db/` lazily.
+
+**Diagnostics closed:** the lifecycle's generic `operation_failed` branch now logs the unclassified
+error with stack (it used to point at host diagnostics that did not exist); `trusted_approval_required`
+is mapped to a legible operation diagnostic; the host's `approvalFor` warns with phase + digest when no
+live acknowledgement exists.
+
+**Behaviour to know:** in trusted-local mode the bundled first-party extensions are NOT auto-built at
+boot — each build needs a human acknowledgement (twelve `Bundled source staging requires attention`
+lines per boot; consistent with "bundled status does not imply trust"). The CLI's offline verify
+cannot build in this mode (no acknowledgement to record) and says so.
+
+**Box note:** one lane attempt (rerun 8) never started — Bun 1.3.9 segfaulted during the SvelteKit
+build (`panic(main thread): Segmentation fault … a bug in Bun`), the same panic class the backend pool
+showed on unmodified `main` earlier the same evening. Re-run after the pool finished.
+
+**Merge with `main` (PR #269 conflicts):** eleven commits landed on `main` after the branch point;
+nine files conflicted, all "both sides added". Resolved as the union in every case — #262's
+`isExtensionRunnerConfigured()` beside the async-capable lazy wrapper (it now answers true in
+trusted-local mode, without socket settings), #260/#265's named heading and installation rows beside
+the unsandboxed acknowledgement UI, both JSON manifests merged, and the e2e fixture's shared
+`BuildDeadline` kept positional with `extra` moved last (two of `main`'s callers pass the deadline
+third). Re-verified: typecheck, lint, svelte-check, runner-connection 7/7 (incl. #262's probe),
+bundled-v4-bootstrap 59/59, e2e-lanes 21/21, visual-evidence 7/7, vitest author-page/server-load/
+routes 58/58, and the trusted-local production-build lane.
+
+**CI round on PR #269 (two Opus agents in isolated worktrees):**
+- Web shards 2/3: two pre-existing vitest files asserted the approve route's old four-argument
+  `lifecycle.approve` call; now assert the exact fifth argument `{ acknowledgeUnsandboxed: undefined }`
+  (`51e524124`).
+- Coverage shard 0: a genuine regression of this PR. Keying the provisioning memo on
+  `toolchainRoot` rebuilt the identical SDK bundle once per root, and a second `Bun.build()` in one
+  `bun test` process trips a Bun file-descriptor reuse defect (`EISDIR` on regular files under the
+  isolated `node_modules/.bun` store; reproduced standalone; `main`'s shard 0 is green). Fixed by
+  caching the SDK bundle per entrypoint and the toolchain per root, sequentially; the new test counts
+  real builds with a call-through spy (`78629cbf3`). CI-equivalent shard 0 run: 1902 pass / 0 fail.
+- Also merged `main`'s #268 (repairs the #267 quality gates the first run used) — `3d94146e6`.
+- Note for future agent runs: the harness cut both agent worktrees from `main`, not from the PR
+  branch; both agents had to re-base onto the PR head themselves (`git switch -c`, since
+  `git reset --hard` is blocked for them). Cherry-picked their commits onto the PR branch.
+
+**CI round 2 — Per-file coverage gate** (`extension-lifecycle-service.ts` 99.02%, `runner-mode.ts`
+90.63%, `trusted-local-runner.ts` 42.42%): the proof for all three lived in `*integration*` suites,
+which the residual job runs WITHOUT coverage. Duplicated the proof outside it:
+- `src/__tests__/trusted-local-runner-wiring.test.ts` — the host wiring with the runner PACKAGE
+  stubbed: every option handed to the runner, the two hooks, unconfigured refusal, forget-on-failure,
+  memoisation, and the SDK-entry override.
+- `src/__tests__/extension-lifecycle-service-trusted-local.test.ts` — the SERVICE in trusted-local
+  mode on real PGlite with the runner MODULE stubbed: hooks installed once and real (audit row +
+  store), build refused without / recorded with the acknowledgement, `runBuild` records the
+  fifteen-minute verification grant (shorter than the build row, same omitted controls), disable
+  revokes.
+- `trustedLocalBunDigest()` lost its catch-reset: the binary does not change while the process runs,
+  so the memo now holds the failure too (three fewer lines to prove, and a clearer contract).
+- **Bun coverage trap, measured:** bun keeps ONE lcov record per source path and the module copy
+  loaded LAST owns it. A `?fresh=<uuid>` copy per test therefore reports any line only an earlier
+  copy executed as a miss (8 missed lines with copies, 0 without, same assertions). The wiring test
+  walks the module lifecycle in file order on the canonical instance instead.
+
+**CI round 3 — Coverage shard 7:** `mock-cleanup-coverage.test.ts` (meta-test) flagged the service
+test's `mock.module("../extensions/trusted-local-runner")` as unsnapshotted. Added the path to
+`MODULE_PATHS` in `src/__tests__/helpers/mock-cleanup.ts` (cheap import graph, no db/daemon) so
+`restoreModuleMocks()` can undo the stub. Every other check in that run was green; production
+proofs were still pending.
+
+**Verification results (final):**
+- `bun run typecheck` ✓ (0 errors) · `bun run lint` ✓ (8 pre-existing infos, none in touched files).
+- Unit/integration (one process per file): runner-mode 11/11 · runner-connection 6/6 ·
+  trusted-local approvals 13/13 · lifecycle acknowledgement 12/12 · env-validation 14/14 ·
+  health 9/9 · e2e-lanes 21/21 · hydration gate 6/6 · migrate idempotency 6/6 ·
+  visual-evidence covers 7/7 (after adding the manifest entry) · runner package trusted-local 1/1 ·
+  **real in-process runner integration 3/3**.
+- Vitest: banner (component + unit) 7/7 · author page 7/7 · control/approve routes 9/9.
+- Playwright: `extension-author-trusted-local.spec.ts` under the **trusted-local production build:
+  1/1** (rerun 10; reruns 8–9 were killed by the box, not by code) and under the ordinary
+  **isolated** real-auth server: 1/1.
+- Full pool `PARALLEL=3`: 25590 pass / 12 fail in 9 files — eight green when run alone (box load;
+  baseline `main` failed 14 in 8 files the same evening, disjoint sets), one real: the
+  evidence-covers manifest, fixed above.
+## Pluggable infrastructure wave 1 review — 2026-09-22
+
+- [x] Provider and sandbox preset contracts are strict and fail closed.
+- [x] Candidate conformance executes SP01, SP02, SP03, SP05, SP07, and SP08.
+- [x] Core workspace tools deny local fallback for sandbox targets.
+- [x] Incus inspection, planning, dry-run, reconciliation, and verification are deterministic.
+- [x] Focused suite: 106 pass, 0 fail, 572 assertions across 10 files.
+- [x] Repository suite: 25,847 pass, 0 fail across 1,653 files.
+- [x] Typecheck, lint, production build, and `git diff --check` pass with Bun 1.3.14.
+- [ ] Live Incus apply and guest workflow qualification require the pinned provider client certificate.
+
+## Pluggable infrastructure wave 2 — sensitive provider results
+
+- [x] Define a separate, bounded runner protocol envelope for sensitive provider results.
+- [x] Keep the sensitive service/client route distinct from ordinary runner requests.
+- [x] Restrict host consumption to a credential-broker-owned capability.
+- [x] Add the fixed SDK provider handler and keep it out of tools, ordinary methods, and discovery.
+- [x] Prove malformed, oversized, timeout, crash, stdout, stderr, and unauthorized failures do not leak canaries.
+- [x] Prove ordinary runner methods and the encrypted static secret store still pass.
+- [x] Record exact verification evidence in `gates/pluggable-wave2-secrets.md`.
+
+### Review
+
+Implemented a fixed `provider/credentials.resolve` lane with a separate raw-byte service route and an SDK sensitive envelope. The provider handler stays out of discovery, tools, and ordinary methods. The broker retains only opaque handles and re-resolves credentials without a plaintext cache. Failure paths return fixed errors and redact malformed, oversized, timeout, crash, stdout, stderr, unauthorized, and runner-error canaries.
+
+Verification used Bun 1.3.14. The classified path passed 26 tests with 100 assertions. Existing runner and encrypted static-store compatibility passed 45 tests with 160 assertions. The complete SDK suite passed 1020 tests, skipped 1, and failed 0. The three new transport source files have 100% line and function coverage. Root typecheck, root lint, and `git diff --check` passed. All seven gates in `gates/pluggable-wave2-secrets.md` are met.
+
+## Durable sandbox controller foundation — 2026-09-22
+
+- [x] Add idempotent PGlite/PostgreSQL migration and Drizzle schema for sandbox bindings, operations, generations, and cleanup tombstones.
+- [x] Add a narrow provider dispatch interface and a durable controller that journals before dispatch.
+- [x] Reject scoped idempotency payload conflicts and stale generation dispatches.
+- [x] Preserve unknown outcomes and reconcile them by provider inspection without blind redispatch.
+- [x] Bound restart reconciliation and keep cleanup tombstones until provider absence is observed.
+- [x] Prove migration/reopen, lost-response, stale-generation, reconciliation-limit, and tombstone behavior with focused tests.
+- [x] Run Bun 1.3.14 focused tests, typecheck, lint, and diff checks; record exact results in the wave 2 gate.
+
+Plan review: the foundation will use existing raw-SQL migration and Drizzle schema conventions. The controller owns durable state transitions and receives a minimal provider interface with `dispatch` and `inspectOperation`. No live Incus or host transport is in this scope. Existing local projects remain unchanged because bindings are additive and project rows are neither rewritten nor required to gain a binding.
+
+Review: the additive binding and operation records now persist desired and observed state, generations, immutable scoped receipts, uncertain outcomes and cleanup tombstones. Dispatch is claimed durably before the injected provider is called. Restart reconciliation dispatches only untouched journals, inspects uncertain effects, fences stale observations and limits each batch. Pinned Bun 1.3.14 passes 7 focused PGlite tests with 36 assertions, all four typecheck lanes, repository lint, focused Biome and whitespace checks. Live Incus dispatch remains outside this controller foundation.
+
+## Wave 2 workspace-routing independent review — 2026-09-22
+
+- [x] Trace production target propagation for turns, assignments, child/code agents, workflows, Git/PR, project MCP, and durable proposals.
+- [x] Check target authenticity, sandbox fail-closed behavior, local compatibility, and serialization/rehydration boundaries against W01–W04.
+- [x] Run the focused workspace suite with Bun 1.3.14 and run repository typecheck.
+- [x] Fix only confirmed workspace-scope defects and add regression tests.
+- [x] Record findings, verification, and remaining inventory without claiming preview, attachment, or live-backend support.
+
+Plan review: audit the current uncommitted workspace-routing implementation against the checked inventory and Wave 2 gate. Concurrent contract, controller, and secret files remain outside this review. Any code change requires a production-path defect and a regression test.
+
+Review: fixed two confirmed workspace defects. Assignment reverse RPC now carries the explicit host target, so a caller-supplied parent run ID cannot select another run's target. Durable proposal observation now compares the caller target with the stored reference and authorizes the stored scope. The pinned Bun 1.3.14 workspace suite passes 214 tests with 789 assertions. All four typecheck lanes pass. Focused Biome and whitespace checks pass. Preview transport, attachment placement, live controller-to-runtime target construction, and durable workflow or assignment rehydration remain inventoried work.
+
+## Wave 3 sandbox admission slice — 2026-09-22
+
+- [x] Add explicit host and project allocatable capacity with safety margins for memory, CPU, PIDs, disk and execution slots.
+- [x] Add durable per-binding reservations and lifecycle state that distinguishes active compute from retained disk.
+- [x] Atomically reserve before create/start and return deterministic admitted, queued or rejected receipts without provider dispatch on denial.
+- [x] Release compute only after a confirmed stop, retain ambiguous capacity, and persist destroy cleanup intent until absence is confirmed.
+- [x] Fence concurrent admissions and stop/start races with database locks, generation checks and idempotent request receipts.
+- [x] Prove quotas, concurrency, integer bounds, idempotency, stop/start behavior, reopen and local-project preservation on PGlite and PostgreSQL-safe SQL.
+- [x] Run pinned Bun 1.3.14 focused tests, full typecheck, lint and diff checks; record evidence in `gates/pluggable-wave3-admission.md`.
+
+Plan review: extend the existing controller schema and transaction model. A provider-connection capacity row is the serialization point for host admissions. Project capacity is explicit and mandatory before admission. Reservation rows record requested amounts, active compute and retained disk separately. This slice supplies durable accounting and decisions ahead of provider dispatch; it does not claim backend enforcement, live capacity reconciliation or completion of B01/B03.
+
+Review: the additive admission schema now stores explicit host capacity and safety margins, project quotas, per-binding reservations and immutable request receipts. Host-row locks serialize admissions before `ADMITTED` is returned. Confirmed stop releases compute only; disk remains charged until confirmed absence. Unknown stop/cleanup outcomes retain capacity, and a released reservation cannot return to running without a fresh START admission. Pinned Bun 1.3.14 passes 18 focused PGlite/PostgreSQL tests with 94 assertions, all four typecheck lanes, full repository lint, focused Biome and complete-worktree diff checks. Live backend enforcement, external-usage reconciliation and the remaining B01/B03 models and qualification stay open.
+## Pluggable infrastructure Wave 3 — preview and attachments — 2026-09-22
+
+- [x] Extend `WorkspaceTarget` with explicit attachment and preview capabilities plus generation-bound identity.
+- [x] Route attachment write/read/delete/clone and rehydration through the selected target; deny sandbox host fallback.
+- [x] Bind preview open/serve/close to the persisted target identity; deny host files, loopback, and forged targets for sandbox rows.
+- [x] Add AMD canary, forged-target, expiry, authorization, and local-regression tests.
+- [x] Run focused Bun 1.3.14 tests, typecheck, lint, and diff checks.
+- [x] Update the routing inventory and write `gates/pluggable-wave3-preview-attachments.md` with remaining live work.
+
+Plan review: preserve the current local behavior. The current sandbox backend does not expose safe attachment or preview transport, so this slice adds narrow capability interfaces and production denial paths. It does not claim remote transfer or proxy behavior until a provider implements those capabilities.
+
+Review: host-selected attachment and preview requests carry the full sandbox binding. Sandbox rows deny local disk, loopback, and WebSocket fallback when no live capability is injected. Provider preview requests strip cookies, credentials, and internal headers while preserving the POST body; the pinned Bun empty-header reproduction passes. Production attachment download, message submission, and conversation deletion deny a durably bound project before host access or database mutation. A local preview stops serving when its project receives a sandbox binding. The pinned Bun 1.3.14 focused suite passes 177 tests with 1027 assertions; all four typecheck lanes, repository lint, and diff checks pass. A live provider attachment transport, HTTP/WebSocket preview relay, and durable target rehydration remain open.
+
+Follow-up review: the combined lane found direct history calls silently dropping prior image attachments and upload route tests missing the new target selector. History now resolves a missing target from the persisted conversation project through the sandbox-binding guard. The upload route returns 503 on selector denial before storage or a DB row, and its test fixture models both local and bound projects. Pinned Bun passes 14 live-history parity tests, 22 extension-upload tests, 201 routing/image tests, and 2 project-target integration tests. Typecheck, lint, and diff checks pass.
+
+## Wave 3 admission independent review — 2026-09-22
+
+- [x] Audit integer bounds and overflow-safe capacity math.
+- [x] Audit host/project scoping, lock order, simultaneous admission, and queue determinism.
+- [x] Audit idempotency, lifecycle races, generation fencing, and unknown allocation handling.
+- [x] Audit PGlite/PostgreSQL migration, reopen, reapply, and local-project preservation.
+- [x] Add regression tests and fix only reproduced admission-scope defects.
+- [x] Run the pinned Bun 1.3.14 focused suite, typecheck, and focused static checks.
+
+Plan review: treat the current gate as a claim to challenge. Keep Incus enforcement, Infisical, previews, attachments, and other agents' files out of this review. Report B01/B03 and live resource enforcement as open.
+
+Review: fixed four admission defects. A late same-generation stop observation can no longer release compute after START clears the stop intent. An absence observation cannot release retained disk without cleanup intent. Admission generations are rejected above PostgreSQL's integer limit at the API boundary. Initial host-capacity configuration now materializes and locks its serialization row before it reads usage. The pinned focused suite passes 22 tests with 104 assertions on PGlite and real PostgreSQL. All four root typecheck lanes, focused Biome and whitespace checks pass. Queue policy, dispatch, external usage reconciliation, live enforcement, and the remaining B01/B03 records and qualification remain open.
+
+## Astra final integration review — 2026-09-22
+
+- [x] Review security and correctness at real module boundaries, including provider qualification, sensitive events, controller ordering, and durable workspace selection.
+- [x] Reproduce confirmed defects through production paths and repair them with failing regressions first.
+- [x] Run focused cross-package tests and the pinned Bun production build.
+- [x] Independently rerun the final workspace and broker canaries after source freeze.
+- [x] Run the full repository test suite on the final worktree state, then record its exact result and remaining live gates.
+
+Plan review: source stays in the isolated `feat/pluggable-infrastructure-v1` worktree. Astra supplies independent findings; Sol workers own narrow repairs. The review distinguishes offline behavior from real provider installation and live qualification.
+
+Review: Astra independently reran eight final workspace and broker files: 43 tests, 279 assertions, zero failures. Real PGlite and host-file/Git canaries confirm no local fallback in the reviewed entrypoints. Astra also rejected two unrealistic null-project test mocks and approved their schema-valid repairs. The final pinned Bun repository suite passes 26,021 tests across 1,670 files with zero failures; root typecheck, lint, build, source-lock check, and diff check pass. Live provider transport, candidate configuration, server setup, and feature qualification remain open. Findings and evidence are recorded in `docs/validation/2026-09-22-astra-pluggable-review.md`.
+
+## Live infrastructure preflight — 2026-09-22
+
+- [x] Recheck SSH, Incus version, current pools, networks, projects, and guests on the named server.
+- [x] Run the deterministic real-server inspect, plan, dry-run, and verify commands without changing server state.
+- [x] Probe both provider host routes through the production host API validator.
+- [x] Record exact passed, blocked, and unrun gates in `docs/validation/2026-09-22-live-infrastructure-preflight.md`.
+- [ ] After H04 connections and transport exist, create a host-owned provider identity, review the resulting setup plan, provision the restricted server resources, and run the live feature fixture.
+
+Plan review: the current recipe needs a provider certificate that the engine cannot yet create or store, and both protected provider routes are absent. Keep the server unchanged while these host-owned boundaries are missing; a generic Incus smoke guest would not validate EZHarness execution.
+
+Review: read-only SSH and Incus inspection pass. The real setup plan is blocked by `provider_client_certificate_missing`; dry-run dispatches no steps and verify is not ready. The Incus and Infisical host API calls both return `api_route_denied`. No guest, Compose, restart, or secret-provider live result is claimed.
+
+## Host integration before server configuration — 2026-09-22
+
+- [x] Compare the real Incus setup recipe with the provider's advertised preset and map the host execution path.
+- [x] Make setup preflight reject recipe/preset incompatibility with a cross-package regression.
+- [x] Add host-owned provider connection records and encrypted revision-bound mTLS identity storage; host-side identity issuance and review UX remain separate tasks.
+- [x] Add a provider-only, release-bound read-only Incus probe; keep it out of the ordinary extension host API.
+- [ ] Implement and qualify the remaining Incus lifecycle, file, process, and endpoint transport actions.
+- [x] Add an authorized operator setup entrypoint that creates reviewed connections and calls the probe.
+- [ ] Qualify live mTLS, guest helper controls, and Compose on the selected server.
+- [ ] Add production dispatch from durable sandbox bindings to the exact active provider release.
+- [ ] Supply approved connection configuration during live candidate qualification; retain offline fixture isolation.
+- [ ] After these boundaries pass, generate a fresh server plan, review its exact digest, then configure and qualify the Xeon.
+
+Plan review: Incus documentation requires a restricted project-scoped client certificate for confined remote access. The current generic host API is user-delegated, so the provider transport needs a distinct host-owned broker. The checked-in recipe currently uses LVM and a 16 GiB root disk while the advertised preset requires ZFS/Btrfs and 20 GiB; applying it now would not qualify the advertised profile.
+
+Review: the setup planner blocks the checked-in LVM/16 GiB recipe against both advertised presets. The cross-package regression failed before the fix and passes after it. The provider connection store has PGlite reopen and PostgreSQL migration/reconnect coverage. A release-bound Incus probe uses host-owned mTLS identity and rejects mutations before I/O. Real loopback mTLS tests caught and closed a pre-request peer-pin flaw; cancellation, chunked/oversized responses, and the real Incus 6.0.6 response shape have regression coverage. Astra's final review found no immediate defect in this slice. The pinned Bun repository suite passes 26,055 tests across 1,675 files with zero failures; typecheck, lint, build, source-lock, and diff checks pass. No production operator setup caller or live guest qualification exists yet. No server settings changed. Details: `docs/validation/2026-09-22-host-integration-review.md`.
+
+## Incus operator setup flow — 2026-09-22
+
+- [x] Trace existing admin session, extension review, setup planner, provider connection, and probe seams; define the v1 operator states and host-owned bootstrap identity boundary.
+- [x] Add a host-owned setup service that creates a scoped client identity, stores a reviewed connection, and performs a read-only release-bound probe without accepting arbitrary host paths or private keys from the browser.
+- [x] Add admin-only API routes for setup discovery, plan/review, apply, probe, and status, with exact plan digest, release generation, and connection revision checks.
+- [x] Add an operator screen in the existing extension UI with clear setup steps, blocked reasons, and safe retry/status behavior.
+- [x] Add route/service tests for approved setup, denied users, stale plans, uncertain SSH outcomes, restart recovery, and no private-key leakage; run typecheck, lint, build, and relevant repository tests.
+- [x] Record what remains for live server provisioning and full sandbox qualification.
+
+Plan review: the user selected reviewed SSH server setup as part of v1. Use the approved Incus extension release and host-owned bootstrap credentials. Browser input selects an approved provider installation; it cannot choose a local SSH key path, upload a TLS private key, or mark a blocked recipe ready. Server-changing apply uses the exact reviewed plan digest. The pinned first-server recipe now uses compatible Btrfs/20 GiB settings.
+
+Review: The operator flow is implemented in the isolated worktree. A fresh read-only inspection of the real sandbox server produced a ready 15-step plan with the compatible Btrfs/20 GiB recipe. The hardened SSH command also passed read-only inspection. No server settings changed. Focused tests, route contract tests, browser E2E, typecheck, lint, script compilation, and production build pass; the full repository suite passed 26,065 tests across 1,676 files with zero failures. An older plan cannot apply after a newer one is saved, and the database permits one active SSH apply per installation. Detailed evidence is in `docs/validation/2026-09-22-incus-operator-flow.md`. Live SSH apply, provider probe, and guest workload qualification remain separate release gates.
+
+## Submit pluggable infrastructure PR — 2026-09-22
+
+- [x] Check for an existing PR and compare this branch with current `origin/main`.
+- [x] Audit the staged scope and complete the repository PR template.
+- [x] Run required local gates and record any unrun live-provider gates.
+- [x] Commit and push the isolated worktree branch after CI repairs.
+- [x] Open a draft PR, then record its URL and CI state.
+
+Plan review: no PR exists for `feat/pluggable-infrastructure-v1`. This worktree contains the shared provider contracts, controller, adapters, workspace routing, and Incus operator setup from prior turns. Submit them together as a draft because live provider and guest qualification are still open. Do not claim production readiness in the PR.
+
+Review: Draft PR [#303](https://github.com/ezcorp-org/EZHarness/pull/303) is open. The first CI run exposed synthetic private-key fixtures in the working tree, a missing visual-evidence mapping, and route/test fixtures that predate the required workspace target. Runtime-generated TLS identities, an index-page screenshot and mapping, and updated fixtures now pass their focused checks. The first local full suite recorded 26,560 pass and 12 fail across 1,709 files under concurrent host load; all seven failed files passed on isolated rerun after the targeted fixes. The new browser run did not reach its spec because real-auth global setup timed out with seven bundled builds pending. Coverage and the next hosted CI run remain open. Live SSH apply, mTLS provider probe, and guest workload qualification remain release gates.
+
+## Incus live sandbox vertical slice — 2026-09-22
+
+- [x] Preserve the live-slice work, merge the latest `origin/main`, and resolve all conflicts.
+- [x] Implement host-owned Incus lifecycle and operation transport with fixed project/profile scope, idempotency, and bounded responses.
+- [x] Implement safe workspace file and supervised process operations through a versioned guest helper, with real guest qualification gates.
+- [x] Connect the durable sandbox controller to the approved provider release and exact connection revision; preserve unknown outcomes.
+- [x] Connect a persisted sandbox binding to the EZHarness-native workspace tools without host fallback.
+- [ ] Exercise create, workspace tool, process, stop/reconnect, and cleanup as one end-to-end flow.
+- [ ] Run focused checks, typecheck, lint, build, full tests, hosted CI, and live server qualification; record any unrun gate exactly.
+
+Plan review: The active MVP is the native EZHarness loop and the existing Incus provider. The current PR has a reviewed SSH setup screen and read-only mTLS probe, but production dispatch, mutable transport, and live workspace wiring are incomplete. Work in this isolated PR worktree with disjoint Sol agent ownership. The host broker must recheck the exact release, connection and resource binding on every effect; any unverified guest control fails closed. Details and gate files: `docs/plans/2026-09-22-incus-live-slice-PLAN.md` and `gates/incus-live-*.md`.
+
+Review: Merged `origin/main` at `70e68c825` into the saved live-slice commit (`ab6994931`); four conflicts were resolved without dropping the Incus work. The pinned Bun 1.3.14 full suite passes 26,737 tests across 1,721 files with zero failures. Root typecheck, lint, build, manifest-lock check, and diff check pass. The first full run found a preflight-only broker constructor that opened the database too early and an operator test fixture missing the intentionally required guest image pins; both were repaired and retested. Live guest qualification and hosted PR CI are still open; see `gates/incus-live-integration.md`.
+
+## Merge current main into pluggable infrastructure — 2026-09-22
+
+- [x] Preserve all current work in a branch commit.
+- [x] Fetch and merge the latest `origin/main`.
+- [x] Resolve each conflict and inspect the resulting diff.
+- [x] Report the merge receipt and remaining verification to the parent agent.
+
+Plan review: Preserve the Incus live slice first. Keep the feature's behavior and the incoming main changes. The parent agent owns post-merge verification and push.
+
+Review: The incoming three no-Git-ancestor tests use filesystem stubs that avoid host layout dependence; all three targeted files pass. Regenerated `manifest.lock.json` from the resolved source tree. The parent agent will run post-merge gates before push.
+
+## Incus first live guest milestone — 2026-09-23
+
+Current continuation plan and evidence gates: `tasks/incus-live-next/PLAN.md` and `tasks/incus-live-next/GATES.md`. The reviewed server image stage is complete. Full operator setup still requires a provider client identity, reviewed recipe pins, and a new ready plan digest before Apply.
+
+- [x] Repair PR #303's per-file coverage failure in `release-process.ts` with behavior-based tests; preserve the 100% threshold.
+- [x] Define and implement host-authorized cleanup for stopped retained guests when their provider release is disabled or retired; prove the release cannot start new effects.
+- [x] Complete the pinned guest-image build and setup path, or record the exact unavailable artifact/server prerequisite without marking it ready.
+- [x] Add a production-path feature lifecycle fixture that uses the approved connection, controller, workspace tools, and cleanup receipt without host fallback.
+- [x] Register every new source file with an exact 100% coverage key and exercise the remaining Incus, Infisical, workspace, and web route lines; keep the gate strict.
+- [x] Run the combined milestone's focused tests, typecheck, lint, build, full repository suite, coverage, and hosted CI on one exact commit.
+- [ ] Run reviewed server setup and a real create → edit → Compose → test → reconnect → destroy qualification only after the image, identity, and plan match their reviewed pins.
+- [ ] Record a milestone review with exact SHA, logs, unsupported capabilities, and open release gates; keep PR #303 draft until live qualification passes.
+
+### Next critical path: EZHarness to the real Incus server
+
+- [ ] Run the first live operator and feature test in an isolated EZHarness app with its own database and credentials; leave the existing AMD app untouched.
+- [x] Make the operator setup use a host-owned, reviewed recipe with the pinned guest image and runtime inputs. Keep the checked-in template portable and fail closed when pins are missing.
+- [x] Test the real operator Plan path: create/store the client identity, inspect the configured server, and produce a ready plan bound to the approved provider release and connection.
+- [x] Save a fresh review packet with exact plan digest, certificate scope, server writes, and readbacks. Do not Apply a blocked plan.
+- [ ] After review of that exact digest, Apply and verify the project, profile, listener, trust, and provider connection.
+- [ ] Use EZHarness itself to run one real create → edit → Compose → test → reconnect → destroy flow and record the receipt.
+
+Plan review: This is the next acceptance path. Do not restart broad CI for documentation-only changes or count direct Incus smoke tests as an EZHarness connection. The operator Plan and live workflow, not another image build, decide this milestone.
+
+Review in progress: The isolated app started on port 4301 with its own PGlite database, and health plus admin login passed. The first Incus release build reproduced `dependency_unpinned` because its package declared runner-provisioned SDK packages as workspace dependencies. The Incus and Infisical package metadata now pass the runner dependency policy test. The edited Incus workspace revision 2 is queued behind the isolated app's bundled extension builds; no operator Plan or server Apply has run. The reviewed-recipe loader passed focused tests, typecheck, lint, and 184/184 service line coverage.
+
+Review update: The same revised Incus workspace passed the real isolated runner build after the host candidate path supplied a bounded synthetic probe; its release passed the static SP01/SP02/SP03/SP05/SP07/SP08 checks for both declared presets and was activated in the test app. The app's operator API saved ready setup `bbfa3f94-96d6-497d-87f3-b451e4ae7a5d` with plan digest `4faf8f2e0fb2b1242892df75fdbbb0e79ca205aec77fe6d55b049eefa2293fca`. A fresh read-only dry run matched all 15 steps: pool and bridge skip as existing matches; 13 other steps are planned. Exact details are in `docs/validation/2026-09-23-isolated-incus-operator-plan-review.md`. Apply and live sandbox workflow remain open.
+
+Plan review: Four isolated worktrees split the coverage, retained-guest cleanup, guest-image readiness, and production-path fixture work. The root agent owns integration, live read-only inventory, the combined tests, PR updates, and the milestone verdict. A fake provider or a passing local test does not satisfy the live guest gate. Do not loosen CI or make an unreviewed SSH server change to pass a fixture.
+
+Review in progress. Isolated Sol worktrees supplied the release-process coverage tests, retired-release cleanup, image input evidence, and offline lifecycle fixture. The integrated code at `f11c5bc1b` passed 68 focused tests, typecheck, lint, build, Svelte check, and 26,747 full-suite tests across 1,723 files with zero failures. The local bare `bun run test:coverage` ran 27,556 tests with zero failures, then exited before the strict threshold check because matching browser `BROWSER_COVERAGE_RAW` and `BROWSER_COVERAGE_LCOV` inputs were absent. `AGENTS.md` now points to the supported `scripts/ci-local.sh` wrapper. Hosted CI on `f11c5bc1b` passed 49 of 50 checks; the strict gate found uncovered `extension-runner/src/client.ts` lines 68–71. A Sol worktree added a sensitive-failure redaction test at `e08fafe11`; focused LCOV hits all four lines. Hosted CI on `c20053367` again passed 49 of 50 checks; the next gate reported 43 new source files without exact threshold keys or measured route coverage. All 43 now have exact 100% keys and behavior tests. A normalized merge of that hosted LCOV, browser evidence, and the four focused Sol receipts passes `check-coverage.ts` for 1,720 enforced files and `check-new-file-coverage.ts` for 53 new source files. The combined branch at `083799810` passes typecheck, lint, build, gate integrity, and 26,788 full-suite tests across 1,728 files with zero failures. The canonical web Vitest producer also passed 7,497 tests. Hosted CI on the next pushed head remains the final verdict. Do not count the local bare command as a coverage pass.
+
+The real server has Incus 6.0.6 and no image in its default project. `docs/validation/2026-09-23-incus-image-inputs.md` records verified candidate base, Docker, Compose, and helper digests. `docs/validation/2026-09-23-incus-server-apply-plan.md` gives the exact reviewed import/build and digest-gated setup sequence. The recipe still has no published image fingerprint, and no image was imported or built. The production live-case witness is not installed. No SSH mutation or real guest lifecycle was run. Retired-release cleanup is restricted to stopped guests; handling a running guest needs a separate reviewed stop policy. The live feature, image, and independent-provider gates remain open.
+
+Code validation on `68ee9cdb9`: pinned Bun 1.3.14 passed 26,799 backend tests across 1,730 files with zero failures; typecheck, lint, build, Svelte check, gate integrity, and the unchanged coverage and touched-function complexity gates passed. PR #303 reported 50 successful hosted checks and no failures. This validates the code milestone, not the unrun live Incus guest or independent-provider release gates.
+
+Live image review on 2026-09-23: The approved cleanup removed only unused faulty fingerprint `a511230c76d043ede950b65df26e4f8a427c6da8273364bd5d47910f97ab2a72` after fresh instance and alias checks. The replacement build published fingerprint `57c0d028e4456a3847fb9822802d6a8f613ba4e6ef03002999e8c957a1f40c6c` as `ezharness-guest-0-1-0`. Two disposable guests passed Docker, helper, and distinct machine-ID checks; the pinned Compose fixture served HTTP at the recipe's 8 GiB, 2 CPU, and 1,024 PID limits. The builder exited 1 while parsing Incus's publish message, so the source parser and image retention code were corrected afterward. A reviewed metadata edit set the published image expiry to `2099-12-31T00:00:00Z`. Fresh read-only server inspection confirms the faulty image absent, replacement fingerprint and alias present, and zero instances. The full setup plan remains blocked on a provider client certificate; no full setup Apply or engine-to-guest feature lifecycle has run. Evidence: `docs/validation/2026-09-23-incus-server-prewrite-review.md` and `docs/validation/2026-09-23-incus-server-apply-plan.md`.
+
+Code review after the image stage: The clean local backend suite passed 26,822 tests across 1,731 files. The exact web Vitest shard 3 passed 2,419 tests across 199 files after its feature-route fixture gained the required user-project purpose and a system-project denial case. Hosted CI on `187929abe` exposed that fixture gap and a launcher cancellation race. The launcher now uses elapsed-time shutdown bounds and force stops a runner that does not exit; the integrated focused suite passed 6/6, and the isolated Sol CI-style residual suite passed 184/184. Final hosted CI on the combined cancellation fix is still required before the code gate can be closed.
+
+Hosted CI on `7b3c69f0b` passed the web shard and residual suite but found one uncovered line in the real `IncusQualificationStore.authorizeFixture` method. The added real-store test covers the pinned release, connection, preset, and helper digest path, plus changed-release and unpublished-image denials; focused LCOV now hits line 203. The 100% threshold is unchanged. Re-run hosted CI on the integrated test commit before closing the code gate.
+
+## Incus M1 offline feature flow fixture
+
+- [x] Review production seams and existing focused tests.
+- [x] Add one PGlite lifecycle and workspace integration fixture with deterministic provider replies.
+- [x] Assert release and connection pin denials, no host path fallback, stop/reconnect, and destroy receipt.
+- [x] Run focused Bun test, typecheck, and lint; record results.
+- [x] Commit fixture branch and report remaining seams.
+
+### Review
+
+Pinned Bun 1.3.14: focused test 1 pass, 0 fail; `bun run typecheck` and `bun run lint` pass. The fixture injects a method caller and guest invoke because the default path uses process-global DB and release runtime. It does not exercise live Incus or the full ReleaseProcess/ProviderRpcBroker/HTTP transport chain.
+
+## Incus milestone complexity gate — 2026-09-23
+
+- [x] Refactor the 20 touched functions reported by hosted CRAP on `5a42ae8a6` below the existing maximum score of 30; preserve behavior and the current coverage thresholds.
+- [x] Keep each refactor in an isolated Sol worktree with disjoint file ownership; add focused behavior tests only where extraction changes an observable boundary.
+- [x] Run the touched-function CRAP check against measured coverage, patch and new-file coverage, focused tests, typecheck, lint, build, and the full backend suite.
+- [x] Push one integrated head and require hosted CI to pass before closing the code milestone.
+
+Plan review: The hosted line-coverage, new-file, and patch gates passed on `5a42ae8a6`; the next gate reported 20 changed functions above score 30 in 15 files. The violations are fully covered or nearly so, so splitting large decision blocks is the direct fix. The Sol worktrees own extension contracts and runner, infrastructure control and transport, runtime workspace and admission, and route or agent-effect flows respectively. The root agent will integrate and verify. Do not weaken the maximum, hide touched files, or replace behavior tests with metric-only assertions.
+
+Review: four isolated Sol worktrees supplied the refactors and focused receipts, integrated through `b23ef4a86`. Additional behavior tests cover the spawn rate-limit and autonomous-cycle branches and release provenance guard ordering. Pinned Bun 1.3.14 passed 26,799 backend tests across 1,730 files with zero failures; typecheck, lint, build, Svelte check, and gate integrity passed. Hosted CI on code commit `68ee9cdb9` passed all 50 checks, including 1,721 enforced-file thresholds, 54 new-source thresholds, all changed executable lines, and the unchanged CRAP maximum of 30. Live server qualification remains a separate release gate.
+
+## Incus restart checkpoint (2026-09-23)
+
+- [x] Reproduce the missing cross-process continuation with a test on one persistent database.
+- [x] Add durable checkpoint migration and a single-claim resume API bound to the exact qualification fixture.
+- [x] Verify a signed external handoff receipt and observations before a checkpoint can be claimed.
+- [x] Add a private operator supervisor contract; keep the host witness gate closed until actual restart proof exists.
+- [x] Run focused tests, typecheck, lint, and record results here.
+
+### Review
+
+The test starts a writer process, waits for exit, and starts a reader process on
+the same PGlite directory. The reader claims the signed checkpoint once and
+rejects replay. A signed same-process receipt fails and persists `FAILED`.
+Focused tests: 4 pass under pinned Bun 1.3.14. Focused LCOV measures the new
+checkpoint module at 27/27 functions and 173/173 lines. Backend and web
+typecheck pass. Biome check of changed files passes. The operator supervisor, its authenticated private channel,
+real endpoint readback, and production continuation remain the live gate.
+
+## Incus qualification continuation seam (2026-09-23)
+
+- [x] Reproduce the process boundary with a failing two-process persistent database test.
+- [x] Add a stopped fixture prepare/resume seam that reads fixture status and pinned Incus instance.
+- [x] Check the signed supervisor handoff, stable observations, and single claim before returning restart evidence.
+- [x] Verify stale observations fail closed; run focused tests, typecheck, lint, and coverage.
+
+### Review
+
+The two-process PGlite test passed after the first process exited. The new process rebuilt its observation and claimed the signed handoff once. A separate test denied a running or changed observation and an operator verifier rejection. Focused coverage measured 100% functions and lines in the continuation source. The seam returns restart evidence only. The current synchronous live-case runner and external supervisor need a durable startup integration before a live SP case can be recorded.
+
+## Incus qualification supervisor review (2026-09-23)
+
+- [x] Test the private Linux socket with a real child restart, peer rejection, signed receipt, and replay denial.
+- [x] Reject group-writable control directories and changed current operation IDs.
+- [x] Reap managed child processes on supervisor termination and fail the supervisor when its child exits unexpectedly.
+- [x] Run focused Bun and Python tests, typecheck, build, Biome, and gate integrity.
+- [ ] Integrate the operator verifier and startup continuation with the production live runner, then qualify on the selected hosts.
+
+### Review
+
+The real-process Python suite passes three cases. The Bun wrapper, persisted authorizer, client, and continuation tests pass. The authorizer now rejects a replacement current operation even when it has the same generation and succeeded state. The sample receipt verifier remains disabled, so it cannot sign production restart proof. The host witness stays closed until the real backend verifier, process owner, and live continuation are integrated and tested.
+
+## Hosted coverage complexity gate (2026-09-23)
+
+- [x] Split the five touched functions above CRAP 30 in hosted run 35946718282 while preserving their behavior.
+- [x] Run focused tests and coverage for the affected modules, plus typecheck, lint, build, and gate integrity.
+- [ ] Push the integrated changes and confirm the hosted per-file coverage gate and all other required checks pass on the new head.
+
+### Review
+
+The failing functions were `arm`, `requireIdentity`, `exerciseIncusControlledLoads`, the live-cases callback at line 238, and `mutateInstance`. Agents split each into focused checks without lowering the 30-point limit. The integrated focused run passed 46 tests and 219 assertions; all five changed production sources retained 100% line coverage. Full typecheck, lint, production build, and gate integrity passed. Astra found no behavior change in static review and 37 old/new differential runner cases. Hosted CI remains to be completed on the combined head.
 ## Review PR #308 — 2026-09-23
 
 - [x] Read PR history, description, review findings, failing CI, and linked design.
@@ -980,6 +1963,357 @@ Plan review: Both failures stopped after about five seconds while waiting for a 
 
 Review: The helper now reads nonempty readiness content until it appears or the producer exits. One new test proves that a producer exit fails immediately. The exact lifecycle suite passed 5/5 on pinned Bun 1.3.14; Biome and full typecheck passed. The failed hosted job cannot be rerun while its workflow is active (GitHub HTTP 403), so the change needs a new CI run after push.
 
+## PR #303 main merge and CI restart — 2026-09-24
+
+- [x] Identify why current PR-head checks are absent: GitHub reports a merge conflict.
+- [x] Merge latest `origin/main`, preserving the changed production-image test and both task journals.
+- [x] Reproduce and fix the merged readiness helper's missing producer argument.
+- [x] Run the affected lifecycle suite, typecheck, lint, gate integrity, Actionlint, and diff check.
+- [ ] Push the merge and confirm hosted CI starts on the exact head.
+
+### Review
+
+The test conflict uses main's producer-liveness helper and passes the actual holder process in its second caller. The focused suite first failed with `producer.exitCode` on an undefined producer, then passed 7/7 after the caller fix. Full typecheck, lint, gate integrity, and Actionlint pass. The Incus refactor had already passed 46 focused tests and build before this merge. The task journal resolution keeps both branch histories; hosted CI on the merged head is still pending.
+
+## Incus completion continuation — 2026-09-24
+
+- [ ] Apply and verify the reviewed scoped AMD-to-Incus firewall generation with guards.
+- [ ] Pass the isolated app's approved-provider mTLS probe.
+- [ ] Review/apply the exact capacity plan; run and clean up an EZHarness-owned feature guest.
+- [ ] Prove host-management denial, guest isolation, reconnect, and failure recovery on the live server.
+- [ ] Wire independent supervisor receipt verification and durable qualification continuation.
+- [ ] Implement and verify post-effect lost-destroy-reply recovery without duplicate effects.
+- [ ] Merge current main into PR #303, fix conflicts, run local and hosted gates on its final head.
+- [ ] Update the support matrix and release status from measured evidence only.
+
+Plan review: `tasks/incus-completion/PLAN.md` fixes ownership and interfaces before the Sol agents work. `GATES.md` and the leaf gate files record proof. The new ingress generation is already built and pinned in the NixOS review packet; the current server generation still blocks AMD TCP 8443. The user asked to continue all work, so the root agent may use the reviewed guarded activation plan after fresh preflight. Server writes stay with the root agent.
+
+Review: PR #303 now includes merge commit `c0b8a7a28` against `origin/main` at `85d9c9c50`. The only conflict was this task journal; both histories remain. Pinned Bun 1.3.14 passed 167 focused failover/credential tests, 31 Incus test files in separate processes, typecheck, lint over 4,861 files, production build, gate integrity, staged pre-commit tests, and `git diff --check`. Hosted CI on the pushed exact head and live qualification remain open.
+
+## Independent Incus receipt verifier — 2026-09-24
+
+- [x] Reproduce the sample verifier's fail-closed receipt behavior in a process test.
+- [x] Capture the exact stopped durable fixture after old-app exit, before PGlite is reopened.
+- [x] Read the pinned Incus backend from an operator-owned configuration at receipt time and compute the observation digest independently.
+- [x] Require the supervisor to compare that digest with the app claim before signing, and reject all mismatch and verifier failure paths.
+- [x] Test the verifier and supervisor, run focused Bun/Python checks, and commit only the owned files.
+
+Plan review: PGlite has one live process owner. The supervisor will keep an in-memory fixture snapshot made in the safe gap between app processes. At receipt time the verifier will read Incus using a root-owned pin and build the canonical after observation from that snapshot and the supervisor's new process identity.
+
+Review: The sample `false` verifier blocks signing in a real supervisor process. The verifier's snapshot phase checks the exact durable stopped fixture while PGlite has no app owner. Its verify phase opens a private operator connection file without following a leaf symlink, reads the pinned Incus instance over mTLS, and computes the after digest without receiving the app claim. A local mTLS fixture proves success and rejects changed scope, process identity, backend state, file permissions, and project purpose. Three focused Bun suites, four Python process tests, Incus script typecheck, Biome, and diff check pass. No live Incus endpoint was used; the sample stays closed.
+
+## Incus durable continuation (2026-09-24)
+- [x] Reproduce one-stack qualification gap with a process-level checkpoint and runner test.
+- [x] Add an explicit begin/resume runner seam using saved checkpoint identity and fresh durable/Incus readback.
+- [x] Add production host witness adapters for supervisor restart and receipt.
+- [x] Verify focused tests, typecheck, lint, build; commit owned paths.
+
+### Review
+The new runner can hand off after a stopped fixture checkpoint and resume in a replacement process. Startup must select the single pending run and call resume. Receipt exchange now waits for the independent verifier within the checkpoint deadline. The host readiness gate remains false until a live server completes every SP case and cleanup. Focused tests, lint, typecheck, and build passed locally; actual Incus and supervisor deployment remain root integration work.
+
+## Incus probe HTTP 409 diagnosis (2026-09-24)
+
+- [x] Reproduce isolated admin probe: HTTP 409 with a generic message.
+- [x] Trace transport and preflight boundaries; preserve fail-closed guest controls.
+- [x] Add bounded provider diagnostics and a read-only image policy check.
+- [x] Run focused transport and route tests, lint, and typecheck.
+- [ ] Retest the live app after it serves this commit to classify the first failing boundary.
+
+### Review
+
+The server project initially allowed only a remote image host; Incus v6.0.6 rejected the pinned local image source. The reviewed correction now permits that local source, and a disposable guest proved it. The REST probe cannot attest helper version or guest runtime controls. It keeps those controls false. No EZHarness-owned guest has been created yet.
+
+## Incus supervisor bounded receipt timeout — 2026-09-24
+
+- [x] Reproduce a delayed receipt response on the Unix client path.
+- [x] Bound restart snapshot, receipt verification, and signing by the run deadline and stage limits.
+- [x] Let the receipt client wait through those stages while retaining an absolute bound.
+- [x] Run process, client, typecheck, lint, and diff checks; commit the focused repair.
+
+Plan review: The client currently closes the receipt socket after five seconds, while the supervisor may spend ten seconds verifying and five seconds signing. Keep the fast restart acknowledgement bound. Pass the run deadline to the receipt client and cap each supervisor stage by its remaining time.
+
+Review: The delayed Unix receipt test failed at the old five-second client timer and now passes after 5.2 seconds. The receipt client waits at most 40 seconds or until the saved run deadline. The supervisor caps authorization at 10 seconds, snapshot and verification at 30 seconds each, and signing at five seconds, with every stage cut off by the run deadline. A Python test proves an expired run cannot reach signing. Pinned Bun 1.3.14: six focused tests pass; five Python process tests and Python compile pass. Full typecheck, focused Biome, and diff check pass. No live supervisor or Incus endpoint was used.
+
+## Incus startup and API continuation (2026-09-24)
+- [x] Replace one-stack qualification route with durable begin and run-ID response.
+- [x] Dispatch one pending checkpoint after fresh app database startup and persist only resumed evidence.
+- [x] Cover route, startup, and failure behavior; run pinned checks and commit.
+
+### Review
+The route returns a pending run ID after a supervised handoff. New process startup selects one saved run, rebuilds the host witness and current preset, completes live cases, and only then records the qualification. Failed continuation marks the checkpoint FAILED and leaves the fixture cleanup obligation durable. The readiness flag remains false until live server proof. Pinned focused tests, lint, typecheck and build pass.
+
+## Isolated Incus provider release 0.1.2 staging — 2026-09-24
+
+- [x] Confirm the live workspace source matches the prior 0.1.1 commit.
+- [x] Stage the three changed 0.1.2 source files from commit `e7da01193`.
+- [x] Verify the staged source matches that commit byte for byte.
+- [x] Build and inspect the candidate release and host fixtures.
+- [x] Record an exact release review packet without approval or activation.
+
+### Review
+
+Candidate release `9ec8e626-0a5d-4ed6-9333-a3fd1aa25472` is verified with zero build diagnostics. Both preset host fixtures passed and expire at `2026-09-24T16:25:43.588Z`. Release 0.1.1 remained active at generation 2 during staging. The review packet is `docs/validation/2026-09-24-isolated-incus-release-0.1.2-review.md`. No Incus server write or guest creation occurred during the build. The user later approved this exact release; activation readback showed generation 3.
+## Incus CREATE pre-write TLS failure classification (2026-09-24)
+
+- [x] Reproduce the first-GET TLS failure as an incorrect unknown effect.
+- [x] Track whether a mutating HTTP request was attempted by the pinned lifecycle session.
+- [x] Keep a lost POST response unknown and a proven pre-write CREATE failure terminal.
+- [x] Run focused tests, typecheck, and lint.
+
+### Review
+
+The red test showed a raw TLS error on CREATE's first GET became `effect: unknown` before any write. `withSession()` now returns `effect: none` only before the first POST, PATCH, PUT, or DELETE attempt; later failures retain uncertainty. The lifecycle and controller focused suites pass (26 tests), as does the adapter failure suite (16 tests), backend/web typecheck, and Biome. The saved live CREATE operation remains `OUTCOME_UNKNOWN` because its old journal has no provider operation ID or durable proof that the mutation was not admitted. It needs separate operator evidence before cleanup; this code does not change that record.
+
+## Saved Incus CREATE unknown offline recovery
+- [x] Reproduce and identify the original null-ID unknown outcome and review the durable fixture.
+- [x] Test a stopped-app, operator-owned, signed one-use repair path against persistent PGlite.
+- [x] Add pinned project operation inventory and two independent backend reads.
+- [x] Add an audited atomic repair that preserves the original CREATE receipt and rejects stale claims.
+- [x] Run focused tests, typecheck, lint, and document any proof gap.
+
+Review: The repair is behind a root-only socket and an independent runner-client fence command. The supervisor rejects a shared app UID before stopping the app, waits 65 seconds after stopping, and requires two pinned backend reads. A signed receipt binds the stopped process, exact scope, resource, CREATE ID, review, and observation times. The atomic transaction retains the original CREATE receipt in an audit row, records an explicit no-effect failure and no-op cleanup, and releases the reservation. A two-process test reopened a persistent PGlite database; stale state, provider ID, live operation, signature forgery, and replay fail. The saved live database and Incus server remain unchanged. The current dev UID is shared and no independent client-fence command is deployed, so live repair remains blocked pending dedicated supervised app UID and reviewed external fence proof.
+
+## SP05 operator fault authority — 2026-09-24
+
+- [x] Define a private, exact fault arm and readback wire with the live witness client owner.
+- [x] Add a separate operator verifier for pinned, read-only Incus instance evidence.
+- [x] Add fault actions to the supervisor after the offline CREATE recovery edit lands.
+- [x] Test real managed-child peer enforcement, claim binding, replay denial, and backend verifier rejection.
+- [x] Run focused Python/Bun tests, typecheck, lint, and record the review result.
+
+### Review
+
+The private app socket requires the exact managed process, a signed restart claim, one exact fault arm, and a configured independent verifier. The verifier pins the Incus server leaf and reads only the exact instance. Arm requires stopped and tagged; readback requires absent. The app separately checks the durable destroy operation. Three Bun-wrapped Python suites pass; full typecheck, lint, and diff checks pass. No app or server was changed by this implementation.
+
+## Dedicated UID qualification cutover preparation
+- [x] Identify the actual isolated app, PGlite path, runner gateway, and missing built release without exposing credentials.
+- [x] Add a repeatable preflight and stopped-source staging script; keep the original database in root-only quarantine and a rollback copy.
+- [x] Document NixOS static UID, runner UID/socket/token change, supervisor config, launch, and rollback.
+- [x] Test the script with disposable fixture paths and rejection cases; run syntax checks; commit only setup files.
+
+Review: The current isolated app is a manually started Vite dev process (PIDs 3878477, 3878556, 3878559, 3878560 when inspected) using `/tmp/ezh-incus-isolated-app.QMhk6Qhv/db`; its runner and gateway were PIDs 1982010 and 1983979 with UID pin 1001. No root-owned built release exists at `/opt/ezharness/web/build/index.js`, and `/home/dev` is mode 0700. The private manifest, loaded old service units, root-sealed source parent, dedicated UID, runner group socket/token, built release, and independent recovery fence are prerequisites. Disposable tests pass; no live service, database, or Incus mutation occurred.
+
+## Supervisor restart process fence — 2026-09-24
+
+- [x] Reproduce a restart where the app exits but its child ignores TERM.
+- [x] Require the old process group and dedicated app UID to be clear before snapshot or new app start.
+- [x] Use the same bounded stop fence for offline recovery and supervisor shutdown.
+- [x] Run the process-level tests and focused checks.
+
+### Review
+
+The red process test showed that a descendant which ignored TERM was alive when the durable snapshot ran. The supervisor now keeps the leader PID reserved until it signals the whole group, waits for all live group members and all live processes under the dedicated app UID, and fails closed after five seconds. Restart, offline recovery, and shutdown use one stop path. A negative test proves a failed fence prevents the snapshot. Nine process-level Python tests, four fault tests, all three Bun-wrapped supervisor suites, Python compilation, and diff checks pass. No live app or server changed.
+
+## SP05 durable lost DESTROY recovery — 2026-09-24
+
+- [x] Reproduce loss of the controller's in-memory pending state after a restart.
+- [x] Rebuild the exact recovery identity from the claimed run and destroy journal.
+- [x] Recheck readiness denial and reconcile only the same operation after restart.
+- [x] Test restart, mismatched identity, and successful settlement; run focused checks.
+
+### Review
+
+The red test showed a fresh controller lost the pending destroy identity. The recovery path now reads the claimed signed restart receipt and exact journal, fences the normal reconciler while SP05 is active, and settles only the saved operation after a replacement process starts. A crash after provider success but before reservation release is retried through the same completed operation. A dead run is marked failed after cleanup; it cannot publish SP05 evidence. A completed run and qualification evidence now commit in one transaction. Focused and neighboring tests pass (40 tests total), including a third process reopening persistent PGlite. Backend/web/test typecheck, lint, and build pass. No live app or server was changed.
+
+## Dedicated UID cutover peer-review fixes — 2026-09-24
+
+- [x] Reproduce acceptance of an old-UID-owned runner token and unreadable process descriptors.
+- [x] Require the reviewed runner UID, and fail closed on descriptor/cwd inspection errors.
+- [x] Detect a real process holding the source parent directory open.
+- [x] Specify recursive owner restoration for rollback and test nested WAL coverage.
+- [x] Run disposable tests, root read-only descriptor scan, Python compile, and diff check.
+
+Review: Eleven cutover tests pass. A real child holding the parent directory is denied, and the root descriptor scan passes on the current host. The script and runbook remain preparation only; no live app, database, or Incus state changed. The separate SP05 reconciler race is still under repair.
+
+Follow-up review: The runner token and socket parent paths now reject an old-UID-owned or group/world-writable ancestor. The new path test passes; twelve cutover tests pass. Live cutover remains pending.
+
+## SP05 background reconciliation race — 2026-09-24
+
+- [x] Reproduce a journal inserted after the startup cleanup read and before general reconciliation.
+- [x] Exclude the strict SP05 destroy shape from general operation and settlement queries.
+- [x] Let the dedicated recovery path select only its saved operation ID.
+- [x] Show unrelated reconciliation still proceeds; run focused tests, typecheck, and lint.
+
+### Review
+
+A controlled barrier publishes the SP05 journal after the empty startup read. General reconciliation leaves it JOURNALED while it completes an unrelated START. The dedicated call then settles only the saved SP05 ID. The focused controller, feature service, and recovery suites pass (27 tests). Backend/web/test typecheck and Biome pass. No live app or server was changed.
+
+# Incus qualification release bundle (Sol worktree)
+
+- [x] Stage only tracked Git HEAD source from a clean checkout in a new destination outside the checkout.
+- [x] Check pinned Bun 1.3.14 and lock digests, install frozen dependencies, build the SDK, runner dependencies, web app, and native tools.
+- [x] Write an exact file inventory with Git SHA, lock digests, Bun digest, file hashes, modes, and symlink targets. Reject external links.
+- [x] Verify the inventory and run a non-root disposable app smoke outside `/home/dev`.
+- [x] Add focused tests and run local checks; record full-stage limits after the actual build.
+
+Review: A clean build from `2e1cc7559` staged 76,056 entries (2.4 GB) under
+`/tmp/ezh-qualification-release-2e1cc7559`. The manifest SHA-256 is
+`5644a843d040c3994deb66f78bc37dc2df8fc9471a3643dfed4607df74599b07`.
+The root and web frozen lock hashes are `8c2ae7d0ffec274681202bd8c90fd507597b2279ab631e03b71fdf73b9433b88`
+and `96e8a5adbc441d2cc77c1b5c860ad79c5695f473c4ac387f34132e2d4c5f8dc5`.
+The disposable app health check returned HTTP 200 as UID 1001 under `/tmp`;
+verification before and after smoke passed. Five focused Python tests passed.
+This proves local packaging and startup, not root-owned installation or live Incus qualification.
+The final safety edits after this artifact must be rebuilt from the final merged commit
+before an installation review.
+
+## Live Incus qualification remainder — 2026-09-24
+
+## Separate runner socket group in dedicated UID stage — 2026-09-24
+
+## Dedicated UID preflight unit and process fence — 2026-09-24
+
+- [x] Require exact new runner and supervisor service names in the manifest.
+- [x] Require both new units loaded/inactive and reject live app or runner UID processes.
+- [x] Add negative tests for omitted units and live runner UID; update the runbook.
+- [x] Run focused tests, compilation, and diff checks; record result.
+
+### Review
+
+The manifest now requires the exact two NixOS unit names. Both units must be
+loaded, inactive, and have no main PID. The process scan rejects live app or
+runner UID processes before staging and checks again after the atomic source
+rename. Missing-unit, wrong-unit, live UID, and late-runner tests pass. All
+18 focused Python tests, Python compilation, and `git diff --check` pass. No
+live host or app changed.
+
+- [x] Reproduce the stage preflight mismatch with socket GID 62042 and app primary GID 62040.
+- [x] Require a static `socketGid`, verify the app's supplementary group, and check token/socket access using that group.
+- [x] Test the numeric group fixture and wrong-group rejection; run focused tests, compile, and diff checks.
+- [x] Document the stopped-service token seed and runner start order in the cutover packet.
+
+### Review
+
+The old preflight required socket and token group 62040, while the reviewed
+NixOS module gives them group 62042 to protect the app-only SSH key. The
+manifest now requires `socketGid`; its static group and the app's actual
+supplementary membership are checked before the database stage. The runner
+must remain outside app group 62040. The runtime token is seeded from the
+sealed source with both services off and the socket absent. Fourteen Python
+tests, Python compilation, and `git diff --check` pass. No host, app, or
+server changed.
+
+- [x] Push the integrated SP05, cutover-preflight, and release-bundle code; run pre-push lint, typecheck, and Svelte checks.
+- [ ] Integrate and verify the scoped, exact-plan SSH setup gate.
+- [ ] Rebuild and smoke-test a sealed bundle from the final reviewed PR head.
+- [x] Review the AMD qualification service module and its static identity/access tests; keep host activation separate.
+- [ ] Prepare one exact cutover packet for release install, sealed settings, runner, supervisor, and database stage.
+- [x] Make the supervisor public key available as a safe single-line sealed app setting and test both readiness and checkpoint verification.
+- [ ] Seed the new runner's runtime token before database staging while its socket and supervisor stay stopped.
+- [ ] Move the isolated app only after cutover gates pass; verify old fixture and repair the saved no-effect CREATE under the dedicated identity.
+- [ ] Review/apply a new exact Incus setup plan; run the EZHarness-owned sandbox lifecycle and security/resource qualifications.
+- [ ] Publish final PR head, hosted CI, support matrix, and live validation evidence before calling the feature ready.
+
+### Review
+
+The pushed head `94a2fd43f` passed the repository pre-push lint, typecheck, and Svelte checks. The AMD module passed independent review and is in draft NixOS PR #2; it is not activated. The scoped SSH gate has two peer-review fixes in progress. Hosted mock E2E is failing at preview startup and is under reproduction. No dedicated app UID, server setup gate, or EZHarness-owned guest is live yet.
+## Dedicated Incus SSH command gate — 2026-09-24
+
+- [x] Trace setup, inventory, and capacity command shapes.
+- [x] Add an opt-in fixed SSH command with a bounded JSON request envelope.
+- [x] Bind SSH mode and exact commands to a reviewed plan and server policy.
+- [x] Require a durable, audited exact-plan approval before exporting write authority or running Apply in gate mode.
+- [x] Reject export of an older approved policy after a newer plan and bind Apply requests to the installed policy digest.
+- [x] Give exported server write policy a 15-minute absolute expiry while preserving read-only inventory access.
+- [x] Reject any unmarked command outside the server's exact built-in read-only command set.
+- [x] Add a root-owned forced-command gate with exact argv/input checks and bounded execution.
+- [x] Reject shell, scp, cross-project, privileged, and unreviewed settings in tests.
+- [ ] Install the dedicated account, key, gate, and reviewed policy on the server after operator review.
+- [ ] Qualify the new path with the isolated app, then revoke the old key.
+
+### Review
+
+The gate runs approved commands directly without a shell. It starts with a fixed read-only policy; an administrator must approve the exact saved plan digest before the route exports any write policy or Apply starts. Approval and export audit the digest and write deadline. Release, connection, mode, latest-plan, and live inventory checks bind the export to current state. Apply envelopes carry the plan digest; the gate rejects a mismatched policy before a shared write. An unmarked command must match the gate's exact read-only list. It rejects expired writes but permits inventory reads. A fresh export for the same current approved plan remains possible; uncertain effects still require reconciliation. The operator must replace the full policy with read-only or disable the key after Apply. Ten Python gate tests, 29 setup Bun tests (including cross-language full-policy validation), 19 operator Bun tests, 11 route tests, repository typecheck, focused Biome check, and production build passed. The old SSH transport stays active until a separate server change is reviewed and tested; no live host or app setting changed in this worktree.
+
+# Isolated Incus qualification sealed settings
+
+- [x] Inspect the existing launcher, dedicated-UID preflight, and NixOS module paths.
+- [x] Add pinned process-environment capture and private candidate generation.
+- [x] Add negative and fake-process tests.
+- [x] Run focused tests and syntax checks; review the generated file contract.
+
+Review: Five disposable tests pass, including capture from a fake running
+process, stale process start time, unexpected keys, and missing hold evidence.
+The current isolated process has the expected key names and its values pass
+the literal parser; no values were printed. The generated app and runner
+keys match the existing dedicated-UID parser. A follow-up review found that
+the built adapter reads HOST and PORT; candidates now set both. The reviewed
+Ed25519 public key becomes canonical single-line base64 in the app env.
+`check-live-source` rejects a restarted or changed old process before stop.
+The disposable bundled adapter bound to a local port and returned HTTP 200
+as UID 1001. No live app or server files changed.
+
+Live readiness and checkpoint code share one parser for the sealed supervisor
+public key; the focused tests pass. The exact public key still needs operator
+review and sealed installation before activation.
+
+## 2026-09-24 — Bundle and host gate before live cutover
+
+- [x] Fence the dedicated runner and supervisor before database staging; 18 focused tests pass.
+- [x] Stage and verify app bundle from clean `0b81c087e`, then smoke it as non-root with the pinned GCC library path; HTTP 200.
+- [x] Build the disabled AMD NixOS generation with that library path and pass its generated-unit, access, and flake checks (NixOS PR #2).
+- [x] Rebase the SSH gate candidate on the server's exact live firewall source and pass gate/sshd/firewall checks.
+- [x] Build the complete server generation from the exact live firewall base without relaxing Nix signature trust; the candidate is not active.
+- [ ] Rebuild the AMD qualification generation from its exact live host source; the first built candidate changes unrelated host settings and must not be activated.
+- [ ] Install the reviewed gate files and activate the guarded server generation; run the live negative SSH tests.
+- [x] Install the exact app bundle under `/opt/ezharness` and verify its full inventory; old app stays healthy and new services stay inactive.
+- [ ] Activate a corrected guarded AMD generation with services stopped.
+- [ ] Stage sealed settings and database under dedicated UIDs; repair the saved no-effect CREATE with the independent fence.
+- [ ] Review and apply a new 0.1.2 setup plan; run the first EZHarness-owned guest lifecycle and security/resource checks.
+- [ ] Confirm hosted PR #303 CI and record live evidence before marking the PR ready.
+
+### Review
+
+The app bundle manifest contains 76,066 files and SHA-256
+`82b2bfeaa7c311097b280a6156e936bf5c0627c14d3fc38736bbde3180194b17`.
+The non-root smoke returned HTTP 200. The verified bundle is now root-owned
+under `/opt/ezharness`; the old app still returned HTTP 200. The first AMD generation is built but
+not safe to activate: review found unrelated host config changes. The server
+gate keeps the live firewall rules, and its complete generation built on the
+server with only 20 config derivations; it remains inactive. The local
+closure-copy attempt stopped at Nix's signature check; no trust override was
+used. No new host
+service or sandbox has been activated by these steps.
+
+## 2026-09-24 — First engine-owned Incus sandbox
+
+- [x] Activate and independently verify the approved server SSH gate.
+- [x] Activate and independently verify the approved AMD dedicated-service generation.
+- [x] Complete read-only cutover and connection audits in parallel; name the exact blockers.
+- [x] Prepare and parse the private sealed-settings manifest; install the dedicated setup SSH files and prove a read-only call as the app UID.
+- [ ] Stage sealed settings and isolated data under dedicated identities, then switch the isolated app with rollback checks.
+- [ ] Resolve the saved unknown CREATE through the fenced repair path before a new effect.
+- [ ] Provide a separately trusted readback path so the old provider client credential can be fenced during unknown-CREATE repair; verify denial of the old credential before accepting the no-effect receipt.
+- [x] Audit the exact recovery fence contract against the live `dev` SSH/admin path and define the narrow authority that must be retired. Do not mark no-effect from an empty inventory alone.
+- [ ] Implement and qualify a fail-closed scoped fence verifier for the old app, runner, and holders of the old provider credential; hold any active admin activity that could alter the exact instance or trust during observation.
+- [x] Merge the independent observer's NixOS module (PR #6, merge commit `f77983795058e90401f3a28e60d8660b9c7d4823`) into the still-open PR #4 branch. It is not on NixOS `main`, and the server still runs the prior generation.
+- [x] Read the exact saved CREATE, fixture scope, and binding from a consistent detached copy; independently confirm the exact fixture through authenticated status. Instance `ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1` is now verified from durable IDs.
+- [ ] Build, review, activate, and verify the independent observer generation; prove its operation-list output and old-certificate denial on the real server.
+- [x] Rebuild and smoke-test `bfebe35e7` as the dedicated app UID; keep this as intermediate evidence while the fence code changes.
+- [ ] Rebuild once from the final reviewed PR head and verify the installed bundle before cutover.
+- [ ] Apply a newly reviewed exact Incus setup plan if live inventory requires one.
+- [ ] From EZHarness, create a sandbox, run a process in its workspace, verify reconnect and isolation, then destroy or retain it by policy.
+- [ ] Record live evidence, run affected checks, and update PR #303 without claiming untested profiles.
+
+### Review
+
+The server and AMD host generations are active. A consistent detached PGlite copy confirmed CREATE `62633686-a1bc-4b93-b87a-54fdbc96c2fd` is truly `OUTCOME_UNKNOWN`, with fixture `live-fixture-20260924`, binding `incus-qual-binding-55cd3694c953ba5c7f5213e70a779ef1939c5fbc31ee8963622a4fe146a2a8fe`, and derived instance `ezh-6b3b9dde8ce9a4cc358f04db0d5cbde1`. The first restart lacked a needed `LD_LIBRARY_PATH` and returned 500; the parent stopped only that failed app group and relaunched with the pinned GCC library path. Health, readiness, and authenticated status then returned 200 and confirmed the same CREATE. The separate runner remained running. The observer module is merged into still-open NixOS PR #4 but inactive on the server. The intermediate `bfebe35e7` bundle passed full inventory verification and an HTTP 200 smoke as UID 62040; it has not been installed. Dedicated cutover, independent recovery, and an EZHarness-owned guest remain open.
+
+## 2026-09-24 — Recovery gate live attempt
+
+- [x] Prove the NixOS runner service ignores a runtime mask; install and test an exact assertion drop-in that rejects a real start request.
+- [x] Extend the local recovery fence to validate the loaded assertion gate, absent allow path, stopped runner, and empty cgroup; pass focused tests and a live local check.
+- [x] Activate the temporary server access gate under a rollback timer; verify root access, denied new dev/setup SSH, and completed dev-slice freeze.
+- [x] Save and verify the exact old Incus client certificate, revoke only its pinned fingerprint, and confirm empty project instance/operation/trust inventories.
+- [x] Reproduce the observer failure in the actual forced-command path; restore the old server generation, cancel the rollback timer, and remove temporary CLI files.
+- [ ] Fix the observer's Incus CLI config directory and NixOS sudo wrapper; test the complete forced command before another certificate or database action.
+- [ ] Rebuild and activate the corrected temporary server generation with rollback; repeat the independent observer reads at least 65 seconds apart.
+- [ ] Apply one signed no-effect recovery request and prove the durable CREATE, binding, and cleanup receipt.
+- [ ] Restore the reviewed provider connection and runner, run a real EZHarness-owned sandbox lifecycle, then verify final PR head and CI.
+
+### Review
+
+The old certificate remains revoked, the isolated app remains behind the local TCP hold, and the runner is stopped behind a tested systemd assertion gate. The saved CREATE is still `OUTCOME_UNKNOWN`; no signed recovery request was submitted. The first temporary server generation was fully rolled back after the observer exposed two integration defects: the Incus CLI could not write under immutable `/var/empty`, and the NixOS observer's store copy of `sudo` lacked setuid permission. Direct Incus reads and direct observer script invocation passed after a temporary CLI-home test, but the forced SSH path did not. The temporary CLI files were removed and `/var/empty` is immutable again. No guest has been created by EZHarness.
 ## PR #308 remaining dependency advisories — 2026-09-24
 
 ## PR #308 conflict resolution and merge — 2026-10-03
@@ -1058,3 +2392,1357 @@ Review: The exact-head browser lanes and full host coverage passed, but the sepa
 Plan review: The hosted Per-file coverage job passed line coverage but failed the touched-function CRAP limit: tick() scored 31 over its limit of 30. The PR also missed a sleep before the first tick and progress just before a delayed tick. Keep kill thresholds unchanged. Move sleep accounting and reason text into small helpers, and prove visible and persisted wording through browser SSE and reload.
 
 Review: A new frozen-clock test failed at the original head when the host slept before the first timer callback. The fix initializes observation time on start and resets it on real progress. A tool timeout that expired during sleep also lost the sleep note; the selected tool reason now keeps precedence and gains the note. The text says sleep *may* have happened, since timer delay alone cannot prove it. Six focused suspension tests, the watchdog file suite, typecheck, lint, and six Chromium browser cases passed. Browser cases show both sleep error forms after SSE and page reload. Exact quality gate and hosted CI remain for the integrating agent.
+
+## Merge current main into PR #303 — 2026-09-24
+
+- [x] Merge fetched `origin/main` and preserve both branches' changes.
+- [x] Resolve conflicts, run affected tests, typecheck, and lint.
+- [x] Commit the verified merge and report its receipt; leave push to the parent agent.
+
+Plan review: The worktree was clean and pinned Bun 1.3.14 was available. Incoming main had one watchdog commit. This task did not touch a live host.
+
+Review: The task journal retains the PR #303 history and incoming PR #320 record. Pinned Bun 1.3.14 passed 64 tests in four affected backend suites, full typecheck, lint across 4,883 files, and six Chromium cases in the changed browser spec. The browser used free port 4174 because another process held 4173. No live host was touched.
+
+# Native Incus project proof
+
+- [x] Read native routing, management, and extension boundaries.
+- [x] Check the proposed plan before live changes: use a UUID user project after qualification; keep the live owner as sole mutator.
+- [x] Prepare exact product tool and lifecycle observations.
+- [ ] Confirm existing real model metadata through the live owner.
+- [ ] Execute after original guest cleanup and exact preset qualification.
+- [ ] Save persisted tool, independent guest, unchanged host canary, and lifecycle evidence.
+
+## Review
+
+No source bug reproduced. No live mutation performed. The runbook identifies the fixture project ID constraint and the difference between native chat, extension invocation, and a scripted LLM boundary. G5 remains open.
+
+## Native Incus project identity and authority repair
+
+- [x] Reproduce rejected Incus user project identity in request validation.
+- [x] Share strict user-project identity validation across native project request schemas.
+- [x] Close foreign project and revoked-membership run-start paths in CREATE, messages, agent-chat, retry, and named-agent runs.
+- [x] Prove actual membership grant and revocation, route refusal before effects, and existing ownership behavior.
+- [x] Pass focused backend/web tests, lint, typecheck, and independent security review.
+- [ ] Finish management browser regression and real guest native tool proof with the live owner.
+
+Review: 49 backend middleware tests, 203 Vitest route tests, 52 schema tests and 86 plain web tests passed. The separate per-tool membership propagation repair is owned by the independent security worker. G5 remains open.
+
+## Live completion continuation — 4 October 2026
+
+- [x] Complete the approved neighbor-check server update with a fixed rollback deadline and the existing service SSH identity.
+- [x] Verify final system/profile, file hashes, closed rollback units, unrelated timer parity, and empty guest inventory.
+- [x] Integrate main and reproduce/fix the supervisor fixture JSON publication race.
+- [x] Verify and install source `214cc678bc251f9578e2fc0019a200094bd5aadb`, preserving the current isolated database.
+- [x] Pass its fast local gates: 27,382 backend, 3,638 web Bun, and 7,719 component tests, plus lint, types, integrity checks, and build.
+- [x] Run one v6 qualification attempt; retain its CPU-proof failure and confirmed deletion of both allocated guests.
+- [x] Reproduce the CPU probe's zero-throttle false negative with real workers under a finite two-CPU quota and two-CPU process affinity.
+- [x] Correct the CPU evidence for the actual enforcement mechanism; keep budgets unchanged and record bounded failure measurements.
+- [x] Review and test that correction before another live attempt. Do not attribute an exact numeric cause to v6: its measurements were not retained.
+- [x] Audit v6 global accounting from a fresh stopped database copy: all eight operations succeeded; both bindings are absent; all reservations are released; no pending operations remain.
+- [x] Install corrected source `9bc0cd5f9143139866ef567fc4dba70332862bb3` and dispatch v7 once. CPU preparation passed; automatic restart continuation failed at the saved fixture receipt check.
+- [x] Reproduce and fix the restart receipt mismatch through an actual database dump, close, and reopen. Preserve legacy digests and fixture IDs; pass 67 focused tests, types, lint, and independent review.
+- [x] Finish v7 global accounting from the next stopped baseline: both bindings absent, all reservations released, no global pending operations. Retain the original failed run.
+- [x] Install source `973609aa1917348d6108e80d3d9a72419d004bfe`; dispatch v8 once and retain its final recovery-probe failure after successful preparation and engine restart.
+- [x] Audit v8 from a stopped database copy: all three guests absent, all reservations released, no global pending operations.
+- [x] Reproduce and correct the supervisor's primary/recovery guest identity mismatch. Pass the real restart/socket/signature test and both fault-authority suites; preserve independent backend ownership checks.
+- [x] Correct and test the lost-destroy probe's returned-UNKNOWN contract and error handling. Reproduce the delayed native receipt path, signed checkpoint, and exact consumed fault; retain the unavailable historical v8 exception.
+- [x] Install corrected source 63237 and run v9 once. Retain its cleanup-verification failure; all three saved deletes succeeded and independent guest/operation inventories are empty.
+- [x] Reproduce and correct bounded recovery reconciliation when the first backend observation is still pending; wait only on the original saved operation.
+- [x] Reproduce and correct readiness for an exact completed linked recovery while preserving the original failed receipt and rejecting forged/incomplete links.
+- [x] Audit v9 accounting from the next stopped baseline; use the existing immutable pre-cutover baseline for historical predicate diagnosis.
+- [x] Pass all eight qualification cases on the corrected installed candidate.
+- [x] Integrate main `beaff68c8` (Pi 0.87.1 and composer correction) without conflicts; pass both installs, targeted runtime/composer tests, types, and lint.
+- [x] Correct the new runtime's reproduced loss of system instructions and restored obsolete tools at the actual agent-to-provider boundary; pass targeted tests and type/lint checks.
+- [x] Finish independent review and changed-line coverage for both runtime corrections; install the merged candidate after bundle verification and non-root startup.
+- [x] Confirm completed v10 qualification and released accounting from the next stopped copy; refresh qualification once on the merged app for the longer normal-flow batch.
+- [x] Complete isolated-account onboarding and correct the proof's environment selector after a real-browser reproduction; preserve both no-effect browser attempts.
+- [x] Preserve the first real UI-created sandbox after its API returned 409; confirm that the same saved CREATE succeeded and the owned guest is stopped.
+- [x] Reproduce the post-admission BigInt serialization failure with a real database result; project public operation fields for every lifecycle response and pass focused checks plus independent review.
+- [x] Install the response fix and clean up only the original blank diagnostic sandbox through the UI; preserve its failed cycle without replaying CREATE.
+- [x] Refresh qualification at the empty-work boundary; verify successful V12 by exact latest run ID after the client timeout.
+- [x] Repair terminal supervisor claim release and the readiness deadline contract; preserve active runs, cleanup requirements, and replay fences. Commit `b88660c56`; focused tests and independent review pass, installed proof pending.
+- [x] Start the original successful CREATE through the normal UI and open its project chat without replaying CREATE.
+- [x] Correct the reproduced missing-Git guest image recipe with a reviewed package pin and an actual non-root Git smoke before publishing. Commits `d8b7889d8` and `110ba5c9e`; signed package, 33 tests, and independent review pass. Actual Incus publication remains next.
+- [ ] Build and qualify the corrected pinned image through the existing review flow; keep the old guest and image evidence intact until normal cleanup.
+- [ ] Complete a normal UI/native vertical slice, then start the final consecutive batch on the fixed candidate.
+- [ ] Prove normal UI/native work, logs, cancellation, and retained work across engine restart.
+- [ ] Complete ten serial normal feature cycles and the final reservation/inventory audit.
+- [ ] Complete exact-source browser, coverage, complexity, hosted CI, and non-author review gates.
+
+Plan review: The server update and app installation are complete. V6 progressed beyond the prior neighbor check but failed at `limit_loads / cpu_load_did_not_prove_containment`. This is a failed qualification, not a supported deployment claim. The provider applies both CPU placement and a quota; zero throttling alone does not prove absent enforcement. The local reproduction used process affinity because rootless cpuset control was unavailable. The corrected proof must distinguish mutable process affinity from an enforced outer CPU set. Keep full-suite reruns on hold until this live diagnostic gap is resolved.
+
+Review: Server activation evidence and v6 cleanup are recorded in the integrated live evidence document. The CPU correction passed 44 focused tests, full type checks, lint, measured probe coverage, and independent review. The original rootless reproduction used a real finite quota and process affinity; the true-cpuset branch has deterministic kernel-interface tests because local cpuset delegation was unavailable. The next Incus run must supply the real profile proof. Original historical inventory gaps remain explicit. Global v6 accounting, native feature proof, and the final release gates above remain open.
+
+Current plan review: UI CREATE, START, and Open chat now work on the installed app. The first real development prerequisite check found no Git in the pinned image; its builder never installed it. Fix the image recipe for future guests and verify real non-root Git operations before publication. The BusyBox image and unique canary are test fixtures and are prepared separately in each guest; do not keep Docker build caches in the published image or patch the current guest as a substitute for fixing the recipe. The corrected supervisor source is independently reviewed and ready for focused coverage and a guarded app update.
+
+### October 4, 08:05 UTC — current closeout plan
+
+- [x] Independently check partial native tool evidence: same guest and conversation, exact edits, three Python tests passed, AMD canary unchanged. Full G5 is still false.
+- [x] Build Git-enabled image `ebe5ce977a726130fd1aa90d2c853467bb6d143141ed07f74b7a06e98efd3912` on Incus. Non-root Git smoke passed; temporary builder removed.
+- [x] Add provider activation drain guard with real database tests and mock UI refusal coverage. Keep these distinct from pending live refusal proof.
+- [x] Correct the sealed-package test boundary after its real extension build failure. Candidate revision 3 passed all six checks; revision 2 remains recorded.
+- [x] Stage, inventory-check, and smoke app source `65b63669609bde76eff041b53c1e0b294b3841a0`; non-root health returned 200. Manifest `ca749d392f571bb0f77dda5c11209bc264dc44d7450db33423715a17ab4f3da7`.
+- [x] Finish guarded app installation with the existing guest and database preserved. All six steps passed; exact source/manifest and health verified.
+- [x] Audit V11/V12 and earlier diagnostic cleanup from a separate stopped-copy clone. Seven bindings fully released; only the retained guest remains reserved; no pending operations.
+- [ ] Obtain exact human review for verified provider release `c0f6ee10ff0c5cd9761b32a138af8a9f08e13d1ec10c490f73e8c1e95df45e4c`; request is pending.
+- [ ] Prove retained-guest activation refusal, perform separately classified diagnostic cleanup, audit released reservations, then activate the same approved candidate.
+- [ ] Review actual new connection/server policy pins and run fresh qualification; do not reuse old release evidence.
+- [ ] Complete full native/Git/Compose/restart flow, ten serial cycles, same-source gates, and PR review.
+
+Review: The root fast gate passed all lanes except one backend test (27,414 pass,
+1 fail). That test's miniature database lacked fields used by the new shared
+drain query. Test-only correction `9dcefa6ae` models the required fields and adds
+HELD-to-RELEASED disk accounting assertions; owner reports 19 tests and types/lint
+passed. The production guard is unchanged. Full fast gate is not yet green.
+
+The follow-up root fast run at `f39e22d0b` passed all other lanes, including
+27,415 backend tests, 3,638 web Bun tests, and 7,724 Vitest tests. One real
+Podman resource-limit integration case failed because its first disk worker
+exited before replying. The failure is preserved in
+`.cache/incus-oct04-f39-podman-first-failure.log`. Both the isolated case and
+complete integration file later passed; those passes do not erase the failure.
+Sol investigation is checking disk-buffer allocation against the independent
+memory limit. Final source freeze and canonical gates remain held.
+
+Resolution: `fb2e43ae5` changes only the disk test fixture. Under controlled
+112 MiB worker memory use, the original 20 MiB allocation caused exit 137 with
+OOMKilled=true; bounded 1 MiB writes reached the unchanged 8 MiB tmpfs limit and
+returned ENOSPC. The fixed test asserts that error, exact written bytes, and
+kernel capacity. All memory/PID/disk limits and the separate OOM test remain.
+The full real Podman file passed twice (11 tests, 62 assertions each), with
+types, lint, hooks, and independent review. The older failure has no retained
+OOM metadata, so its precise cause remains unknown. Root integrated and reviewed
+the exact two-line change. No runtime bundle change is required. Final same-head
+full gates are still pending, not retrospectively green.
+
+### October 4, 13:36 UTC — approved release execution
+
+User approved the exact 0.1.3 release packet and guarded activation sequence.
+The Sol team will execute it without asking for the same approval again.
+
+- [x] Fresh-check the app, pending review, retained guest, and saved evidence.
+- [x] Record exact release approval; prove activation refuses the retained guest. On installed `c2aa96415`, approval returned 200/approved; activation `b5b007a4-6cfe-4e15-bd6b-03cb9b52c37f` failed with `provider_not_drained` before replacement.
+- [x] Stop and dispose of the exported diagnostic guest through the reviewed UI driver; verify terminal cleanup and independent backend absence. STOP `35b82945-c365-47bb-a133-7aafa067a5f0` and DESTROY `d7bc140c-cb58-4931-831e-cd4b83f5db80` succeeded. Root checked the receipt and disposed UI screenshot.
+- [x] Record explicit reservation-release metadata from a stopped database copy. Receipt `3569ebe23b94925758540cd5cd57c620cc3ca1c5c241a46a3b8321a27e69f171` proves exact diagnostic binding absent, compute and disk released, no global pending operations, and no unreleased reservations. Root checked the receipt. Activation also passed the production reservation drain guard.
+- [x] Activate the approved release after drain succeeds. Operation `4e6ca150-b321-4ec4-a627-4d503655d685` is `active`; independent app inspect confirms release `1fd0e129-f000-4b68-8f4a-7720a3101346`, generation 4, and the same approval consumed.
+- [ ] Prepare the actual new connection and server plan.
+- [ ] Review the concrete connection-bound policy/setup changes, then qualify and prove the full native workflow.
+- [ ] Complete the final consecutive lifecycle batch and same-source PR gates.
+
+Plan review: live changes have one owner. Independent policy review and local
+code checks run in separate worktrees. No prior failed receipt is overwritten.
+
+Approval attempt: fresh checks passed, but the normal approval API returned
+`INVALID_QUALIFICATION`: sealed build fixture evidence expired while human
+review was pending. The user approval still authorizes the exact reviewed
+candidate; the application decision remains pending. No activation or cleanup
+ran. Investigate the supported immutable-release evidence path before changing
+anything. Do not edit stored verification, invent timestamps, or weaken current
+live connection qualification. The failed API response is preserved.
+
+Root cause: `checkApproval()` incorrectly applies current expiry to a sealed
+build report. Activation already obtains and checks fresh verification. The
+minimal correction uses the existing integrity mode for the saved report and
+retains current-time checks for fresh activation and live qualification.
+The exact candidate and user approval remain unchanged. The normal API failure
+is reproduced by a five-hour-delay database regression; implementation and
+independent review are in progress.
+
+Resolution, 14:09 UTC: correction `c2aa96415` is installed with verified manifest
+`bce14c5c60ed004e7bce085d1e94fb239862364c399a474b9455d597ac65bde8`.
+Twenty focused tests, the Chromium approval flow, types, lint, and independent
+review passed. The real app accepted the exact approval, then refused activation
+with `provider_not_drained`. Fresh app and server reads show the old active
+release and retained running guest unchanged. The refusal receipt hashes to
+`f6b659d2610c185b00acf14edd411393cbbaa1e97c44d1c127fcb01156239081`.
+Root checked the cleanup config hash and its three changes: current source,
+current manifest, and a fresh preflight path. Historical evidence is unchanged.
+The sole live owner may now run the already authorized diagnostic cleanup.
+This guest earns no full-cycle credit.
+
+The complete fast gate passed at prior source `958b77a30`: 27,416 backend,
+3,638 web Bun, and 7,724 Vitest tests, plus all static checks and build.
+Final combined-source browser, coverage, and hosted gates remain open.
+
+Cleanup driver preflight then failed before any API effect: its proof planner
+required the cookie-file path deliberately omitted from a saved receipt.
+The minimal diagnostic-only amendment reconstructs a non-executable placeholder
+for receipt validation; live execution still requires its private login file.
+The new regression and existing suite pass (25 tests, 157 assertions), with
+strict types. Root reviewed the exact diff and archive hash `cb3914d7...`.
+An offline replay of all actual pinned inputs and independent review must pass
+before the next browser attempt. The original failure remains saved.
+
+### October 4 — complete the new connection before final live proof
+
+- [x] Prepare actual setup `c3290fd7-40c4-4d0e-b618-ad1141a669e0`, plan
+  `26161c66...`, with no server Apply. All 15 current server predicates match.
+- [x] Review final read-only policy. Identify the separate temporary setup
+  policy needed by normal Apply; include both in one concrete review packet.
+- [x] Reproduce unstable setup review identity using production generators and
+  real captured inputs: changing only free disk space by 1 MiB changes the plan
+  digest despite identical commands, recipe, ready status, and sufficient space.
+  Zero free space correctly blocks setup. The old plan remains unapplied.
+- [x] Fix only the setup review fingerprint, keep fresh capacity and all other
+  identity/configuration checks, test and independently review, then install the
+  corrected host bundle. Provider release 0.1.3 remains unchanged.
+- [x] Generate a fresh actual plan and policy; do not rewrite the old plan.
+- [ ] Finish guarded policy/config review, request one combined approval, then
+  use normal setup Apply and verify the new connection.
+- [ ] Run new-scope qualification, full native proof, ten cycles, and final gates.
+
+Current same-bundle stopped snapshot completed and restarted healthy. Open only
+a disposable copy for resolver and accounting checks. No second process may open
+the live database. No server policy or setup approval has been applied.
+
+Review result: source `74cedcf397` is installed, manifest `487d2f72...`.
+All 55 focused tests, types, lint, and independent review passed. Replacement
+setup `129bf7e6...`, connection `5ee601f8...`, plan `263ddc5b...` is ready and
+unapproved. Its 15 steps match the prior plan. The server policy procedure passed
+15 offline tests and independent review. Private AMD verifier files are prepared
+from the production resolver on a disposable database copy; no installation.
+Their independent review and guarded refresh procedure remain open.
+
+The final server procedure is frozen as archive `e15ef84e...`: eighteen offline
+tests and independent review pass. It runs exact setup and capacity Plan/Apply
+under one enforced 240-second budget before installing the final read-only
+policy. Full capacity authority, fixed budgets, digest, and expiry are checked
+before Apply. Both historical capacity connections fail active-provider
+resolution. Only the AMD refresh/restore procedure remains under review before
+the combined packet can be presented. No server writes have run.
+
+Final review: AMD refresh/restore `53091fdb...` and deployment guard snapshot
+`0d37d884...` passed independent review and nine rerun offline tests. Both
+execution procedures are now reviewable. The combined packet contains exact
+pins, ordered normal API actions, fixed capacity, server timed rollback, and
+explicit AMD restore. The original approved release work is complete. A new
+server/config approval is required by the scope of that release packet.
+
+### Execute the approved combined plan
+
+User approval received: “approve the work do with sub agent sol team”. Exact
+packet SHA-256 `3abf0e0e99f83ae200fb5c5f027b3ff20a30d517369ce68f18ddd332b5d9371d`
+is unchanged. Plan checked in: one live owner; separate read-only verification.
+
+- [x] Record approval and verify frozen packet bytes.
+- [x] Run fresh checks and official setup approval/policy export.
+- [x] Execute guarded setup and exact capacity Apply; verify inventory and final policy.
+- [x] Refresh AMD verifier configuration and verify service health.
+- [ ] Qualify the new connection and run the complete native feature workflow.
+- [ ] Complete ten real lifecycles, final repository gates, and PR checks.
+
+Do not repeat unknown effects or alter the approved packet. Record actual
+receipts in the continuation evidence document as each milestone completes.
+
+### Live qualification exposed lifecycle gaps
+
+- [x] Preserve the one failed qualification and retained guest; do not replay.
+- [x] Audit the stopped database copy: CREATE succeeded; START `069a01c0...`
+  remains unknown, with a missing native operation receipt. Preserve reservations.
+- [x] Reproduce the async CREATE race through the real controller, dispatcher,
+  broker, and transport: a visible stopped record must not mean clone completed.
+- [x] Reproduce async PATCH allowing power dispatch before PATCH completion.
+- [x] Correct setup UI guidance, with an E2E failure first and four passing
+  browser cases afterward; integrated as `f5e5c8ac8`.
+- [x] Fix native lifecycle barriers and preserve captured terminal observations durably.
+  Keep frozen 4.0 schemas compatible; new producer declares host-contract 4.1.
+- [x] Keep host-owned observation active for long operations after the initial
+  bounded worker call. The normal 30-second reconciliation interval exceeds
+  Incus's short terminal-result retention; reducing a timer alone is insufficient.
+- [x] Add signed, fenced cleanup recovery for an owned unknown power operation.
+  Preserve original uncertainty; admit only one linked normal-broker DESTROY.
+- [ ] Independently review and verify both fixes before host/provider deployment.
+- [ ] Recover the retained fixture through the reviewed normal recovery path,
+  then qualify the corrected provider and complete the original live gates.
+
+Ownership: coverage agent owns contract/versioning, provider lifecycle and
+dispatcher; recovery agent owns controller, database, signed operator recovery
+and drain checks; root integrates. The live owner retains all existing evidence
+and performs no retry or direct backend lifecycle action while fixes are built.
+
+Validation in progress: lifecycle regressions pass in the worker, including
+the composed premature-CREATE case and preserved native terminal failures.
+Frozen 4.0 schema equivalence is tested. New terminal observations require
+minor 4.1; emission is derived from the reviewed manifest, not caller input.
+Before bounded waiting, the host must durably save accepted native handles so
+a worker timeout cannot lose them. Controller outcome writes must preserve
+that concurrent receipt rather than overwrite it from stale memory.
+The same requirement applies to terminal results: persist a captured native
+failure or success before returning through the worker. Use the controller's
+shared settlement transaction; do not duplicate journal or binding updates in
+the transport. Test worker loss at both receipt boundaries.
+
+Recovery's first signed-admission test passes: one cleanup operation, original
+START still unknown, resources still reserved. Adversarial, late-reply, real
+broker, and signer/fence tests remain required before integration or deployment.
+The negative admission cases now reject forged scope, signature, expiry,
+future observations, a present native operation, active operations, changing
+generation, and a running guest. Drain stays blocked until cleanup and normal
+reservation release both finish. Independent review remains in progress.
+
+Controller checkpoint milestone: integrated `2edd93c5f` from `d3d0f8e4a`.
+The root branch's explicit controller test file passed with Bun 1.3.14:
+20 tests, 112 assertions, zero failures. Shared settlement checks the exact
+binding, current operation, generation, payload hash, and accepted native ID.
+The first test invocation matched no files; it is not test evidence. The
+successful explicit-path run is `.cache/incus-controller-terminal-review-green.log`.
+Type checks and the composed provider tests are still required.
+
+Lifecycle milestone: integrated `08dba2940` from `dbfd8ae18`; controller typing
+follow-up is `552c947f2`. Independent review passed. The combined root branch
+passed 36 lifecycle tests (411 assertions) and 13 dispatcher tests (61 assertions),
+both with Bun 1.3.14. The worker's full type check passed. These tests include
+actual child-worker loss after receipt acceptance and after failure capture.
+This is not release readiness: long-operation observation and signed cleanup
+remain open, and no new provider release has been activated.
+
+The broad milestone fast gate failed honestly. Its backend pool reported
+27,437 passing tests and two old assertions that minor 1 was unsupported.
+Those assertions were reproduced, corrected to reject minor 2, and supplemented
+with supported-minor checks in `51f4d4b3d`: 15 tests, 74 assertions, zero failures.
+Stale ignored SDK build output caused the type, Svelte, Vitest, and build
+failures. After the standard SDK rebuild, full typecheck and all 7,724 Vitest
+tests passed. Svelte check passed with zero errors or warnings, and the web
+production build passed. Do not report the
+original fast run as green or reuse it as the final push gate.
+
+Signed cleanup milestone: `3eeb16a61` integrates reviewed worker `857e56516`.
+The root branch passed 28 recovery tests (81 assertions) and six connection
+authority tests (27 assertions). Four new sources have 100% worker line coverage.
+The original UNKNOWN operation remains unchanged. One signed request admits
+one linked normal-broker DESTROY; reservations remain until confirmed absence.
+
+Restore barrier milestone: `cb0d0a990` integrates reviewed worker `59475bf06`.
+The root branch passed all 26 supervisor tests. Root-only transport restoration
+must return exact proof before the supervisor starts the app. Failure keeps
+the app held with the same saved cleanup intent. The concrete operator adapter
+and deployment packet are still being built and tested. No live cleanup or
+new release activation has occurred for these changes.
+
+Observer milestone: `229b8b852` integrates reviewed worker `b7074397a` and
+the independent admission/scheduling tests. Focused suites passed 41 lifecycle,
+26 broker, and nine startup cases. The worker measured 215/215 changed lines
+covered, all touched functions at 100%, and maximum CRAP 25. Shutdown waits for
+both the observer and original dispatch. The current journal, authority,
+accepted native ID, fixed time budget, and capacity limits remain enforced.
+
+The combined fast gate on `229b8b852` failed: 27,493 backend passes and seven
+failures across four integration files. All other fast checks passed. The
+PostgreSQL fixture omitted the consumed approval's grants; the real PostgreSQL
+reproduction failed before the test-only correction and passed after it
+(one test, three assertions; `ee19cd3f7`). The other three fixture suites are
+under repair. Preserve the failed pool result; rerun the full fast gate before
+pushing. Browser captures on `229b8b852` are source-milestone evidence only.
+
+The final qualification failure exposed a production SQL precedence defect:
+negating an ungrouped compensation condition hid ordinary unknown operations.
+`0bc06267e` integrates reviewed worker `b39cbf228` and groups the shared
+condition once for all callers. Its real-database regression checks ordinary
+UNKNOWN visibility, retained reservations after deletion, and exclusion only
+after resource release. Qualification 55/0, recovery 28/0, feature flow 1/0,
+and retired cleanup 4/0 passed; type checks, lint, hooks, and predicate coverage
+passed. The three fixture repairs preserve production approvals and migrations.
+A new combined fast run and later exact-source coverage remain required.
+
+### Final recovery quality gate — 4 October 2026
+
+- [x] Run the combined fast gate on `fcc4693f3`: 27,500 backend, 3,638 web Bun, and 7,724 component/server tests passed; all other fast checks passed.
+- [x] Run all five canonical browser lanes on the same source; all passed.
+- [x] Push PR303 and inspect hosted results: 50 checks passed; the per-file gate failed its touched-function complexity check.
+- [x] Complete local merged coverage on `fcc4693f3`: 28,306 tests passed with no failures; 1,800 per-file thresholds, 93 new-file checks, and all 160 changed-file patch checks passed. Global coverage was 97.50%. The complexity check reproduced the same single failure.
+- [x] Reproduce the recovery transaction callback's complexity failure (44, limit 30) and split cohesive checks into named helpers without changing authority or transaction rules.
+- [x] Review the change; pass focused recovery tests, coverage and complexity checks, then repeat the required gates on the final source.
+- [x] Rebuild and pin the final app bundle before completing the operator artifact review.
+- [ ] Execute the reviewed cleanup, then build and verify provider 0.1.4 for exact human release approval.
+
+Review: the recovery callback has 100% measured coverage but fails the complexity policy. More tests alone cannot correct that failure. Preserve the failed CI result and keep the installed app unchanged until the correction is verified. The server recovery archive passed independent review and nine offline tests. The AMD execution artifact is still in preparation; no new live recovery has run.
+
+Correction: `e5b3e6ca6` integrates worker `f0e5cd154`. Two named guards preserve the original predicates, errors, transaction reads, locks, replay checks, and write order. The callback score is now 10; the two helpers score 21 and 15. All are fully covered. The real database recovery suite passed 28 tests and 84 assertions; the module covered 142/142 lines. Type checks, lint, and standard commit hooks passed. Final-source full gates remain pending.
+
+Final source `d88744e76` passed the fast gate, all five canonical browser lanes, all merged coverage/complexity checks, and all 51 hosted CI checks. Its exact bundle was installed and passed health checks. This is source validation, not completed live qualification.
+
+### Live verifier failure and pre-admission hold — 4 October 2026
+
+- [x] Preserve both controlled live attempts and their failures. Correct archive ownership and process identity checks; prove the latter against the real runner.
+- [x] Prove normal startup, actual signer-key inheritance, and runner shutdown in the second attempt.
+- [x] Preserve the one failed recovery response and prove with stopped-database reads that no cleanup was admitted. Restore the server, certificate, and timer state; keep the app paused and its recovery hold intact.
+- [x] Reproduce diagnostic loss through the actual supervisor-to-wrapper subprocess boundary using a disposable failing child. The historical verifier failure itself remains unclassified.
+- [x] Add bounded private verifier evidence with phase and failure classification; test the real subprocess path and ensure no sensitive output reaches ordinary responses or logs.
+- [x] Design and implement an authenticated, durable pre-admission abort. Recheck negative admission evidence under the same transaction locks as admission, consume the attempt nonce permanently, preserve the original UNKNOWN, and never start the app automatically.
+- [x] Test abort/apply races, crashes, replay, scope/hash mismatch, prior admission, and retained work. Review both changes independently.
+- [ ] Rehearse the actual supervisor path with production identity/configuration boundaries before any new timed recovery; do not treat standalone CLI passes as proof of the composed path.
+- [ ] Run required source gates on the integrated change, prepare the exact deployment/hold-close result, and continue only within verified authority.
+- [ ] Complete real cleanup, provider 0.1.4 build/review/activation, and normal sandbox lifecycle qualification. No full native feature cycle has been credited yet.
+
+Review: the installed supervisor discards captured verifier error output. Standalone durable and backend diagnostics passed, but do not identify the original failing call. No existing supported action closes a pre-admission recovery hold; manual deletion is not acceptable. The detailed execution record is `.cache/2026-10-04-incus-fenced-cleanup-execution.md`. The app, runner and dedicated manager are stopped; the unchanged guest remains stopped and the original START remains UNKNOWN. No further blind timed attempt is permitted.
+
+Diagnostics milestone: `9bb0c9c53` integrates independently reviewed worker `c8e4ccd7d`. Nine new cases cover actual subprocess failures (including pre-exec failure), output parsing, bounded partial timeout output, file limits, and unsafe file metadata. All three supervisor wrapper tests passed. The installed app is still `d887`; this fix has not been deployed. The earlier green full gates apply to `d887`, not this new source. Systemd namespace and security settings remain part of the required real-context rehearsal.
+
+The DURABLE-only service-context rehearsal passed against a privately mounted DB copy, with actual unit controls and UID transition. The live database, services, and hold remained unchanged. It does not prove the remote backend path or explain the earlier failure.
+
+Abort controller milestone: `a38f3a754` integrates independently reviewed worker `4c2570f65`. The offline root entry does not start the daemon, runner, or app. It checks stopped actors, exact private original request and hold, immutable signed authorizations, committed proof, and crash-safe archival. The full supervisor wrapper suite passed. Backend integration is pending final source checks.
+
+Worker combined proof passed using the real Python controller and signer, actual Bun abort/inspect CLI, and a closed/reopened disposable PGlite database. It covers full thirteen-field request hashing with Unicode evidence, persisted abort, hold archive, retry, unchanged UNKNOWN, no cleanup, and no child. A separate isolated PostgreSQL test passed migration/backfill/idempotence and concurrent cross-binding nonce claims. These are test results, not a live hold abort or release qualification.
+
+Offline-only correction: `df7cf357a` integrates reviewed worker `0336d33a2`.
+The socket rejects abort. Only the offline command may close the hold, and
+the supervisor, runner, and runner manager must all be stopped. This avoids
+an active daemon restarting the app after its hold was archived. The real
+socket rejection and stopped-actor tests passed. `061cc2d8e` integrates
+reviewed backend `7c106c421`: shared nonce claims, signed abort records, exact
+proof inspection, and migration. The worker reported 44 integrated tests,
+two PostgreSQL tests, full type/lint checks, and full recovery-module coverage.
+The final offline-mode combined fixture passed 44 tests and 148 assertions;
+`9fef7b718` integrates worker `092c62eb9`. It uses the production stopped-actor
+guard with controlled host observations and the real signer, CLI, and database.
+Full integrated gates remain pending. The installed app and live hold are
+unchanged.
+
+## 2026-10-05 — Finish retained guest cleanup
+
+- [x] Verify exact 3fe source gates and installed bundle; preserve earlier proof.
+- [x] Admit one cleanup for the retained stopped guest; preserve original UNKNOWN.
+- [x] Diagnose failed restore, secure actors, and restore normal server/SSH/certificate.
+- [x] Verify final stopped DB, timer and hold records after safe close.
+- [x] Add a separate offline restoration authority for the already-admitted cleanup, with independent review and real boundary tests. Do not extend the expired request or create another admission.
+- [x] Pass the full repository gate on `ddbada283` and push that tested source.
+- [x] Restore the missing isolated service accounts and units while preserving the current AMD configuration; verify the resulting host and boot state.
+- [x] Validate the composed signed restoration path and restore normal transport for the saved cleanup.
+- [x] Complete the same saved cleanup and prove guest absence/accounting release.
+- [x] Record exact results and limits; no full E2E claim before proof.
+
+Review: cleanup `8157dc85-d05a-4bb2-9550-726a0a7c2bbb` was admitted once.
+After verified host and transport restoration, its delete returned UNKNOWN.
+The target storage directory was not a Btrfs subvolume and contained only
+`backup.yaml`, with no guest root filesystem. A reviewed targeted repair
+preserved that metadata and let Incus remove its stale records. Fresh server
+inspection proves absence. Normal EZHarness read-only reconciliation now
+reports the same saved cleanup SUCCEEDED and the binding ABSENT. The final
+copied database audit proves compute and disk reservations RELEASED, a cleanup
+confirmation timestamp, and the original UNKNOWN operation unchanged. The
+isolated actors are stopped, and the retained test session is revoked.
+
+Source validation: the instrumented restoration suite passed 76/0 and covered
+all 131 changed executable statement lines; this is not full branch or child-
+process coverage. Full gates passed on `ddbada283`, with 28,323 backend coverage
+tests and zero failures, browser suites and patch coverage. All 51 hosted
+checks passed on that source. `711cfa6bf` adds two DESTROY intent regression
+tests; its full lifecycle file passed 43/0. Its fast gate passed with exit
+zero: 27,519 backend/example tests, 3,638 web unit tests, 7,724 component tests,
+lint, type/Svelte checks and production build. Coverage and gated E2E were
+not repeated by that fast command.
+
+The original failed attempts remain recorded. No old deadline was extended,
+no replacement guest or new EZHarness cleanup was admitted, and the installed
+app remains `3fe533583`. Exact receipts, host recovery limits and the operator
+cleanup are recorded in `docs/validation/2026-10-05-retained-incus-cleanup.md`.
+The detailed working ledger remains `.cache/incus-cleanup-GATES.md`.
+
+## 2026-10-05 — Qualify unmerged sandbox release
+
+- [x] Pin candidate source, deployment requirements and exact provider package.
+- [ ] Independently review lifecycle coverage and prevent recurrence of the storage failure.
+- [x] Build and verify the isolated candidate; prepare exact provider activation review.
+- [ ] Run the full live feature workflow without manual repair.
+- [ ] Complete ten consecutive qualified lifecycle runs with the required fault cases.
+- [ ] Verify final source checks and record release readiness separately from merge status.
+
+Plan checked against the user's request: work may proceed before merge in the
+isolated app. Four separate Sol worktrees own build, flow tests, review and
+live operations; only the live operator changes the server or isolated app.
+Detailed gates: `.cache/incus-final-qualification/GATES.md`.
+
+Review: live release `792beac5-3649-4843-8d6b-79870a92045b` passed all six
+builder checks. It remains inactive. The temporary staging key was revoked
+and its old bearer returned 401. Both supplied-login attempts failed; no
+password reset occurred. Full real workflow and ten-cycle proof are pending.
+The fixture signal-mask defect is fixed in `d964cbfc4`; independent review
+passed and the parent reran its wrapper with four passes and zero failures.
+
+The user approved the exact provider activation and reviewed isolated-account
+reset on 2026-10-05. Continue with one live operator, independent readback,
+concrete workflow support and CI review in separate Sol worktrees. No merge or
+public release is included. Mark the live milestones only after actual proof.
+
+Verified milestones: account reset/login/key revocation; exact provider
+activation at generation 5; supported teardown of two denied local fixtures;
+same-resource connection verification with all 15 steps skipped under a
+read-only gate; real keyless-model READY run. Full native feature work and ten
+cycles remain pending. New UI fixes passed 24 E2E/45 component tests; native
+fixture tests passed 2/0 and transport lifecycle tests passed 44/0.
+
+### Current qualification blocker
+
+- [x] Apply measured capacity and verify all required read-only gate roles.
+- [x] Prove one real create/start/stop/destroy cycle and actual Btrfs rootfs.
+- [x] Clean failed qualification resources and confirm empty backend inventory.
+- [x] Preserve safe native method/provider error diagnostics, with tests.
+- [x] Build and install the tested isolated app bundle through its guarded path.
+- [ ] Reproduce with a fresh qualification ID; fix the confirmed cause.
+- [ ] Complete full qualification, native feature work and ten-cycle evidence.
+
+Review: the first durable qualification failed during fixture preparation with
+`guest_action_failed`. The current error hides the native method and provider
+code. Automatic guest disposal and supported probe cleanup passed. No unknown
+effect remains from this attempt. Do not repeat its operation ID or infer a
+root cause from the generic error. The Sol debug worker owns a narrow safe
+diagnostic change; the sole live operator prepares a normal bundle update.
+The full repository gate is running on exact `fd84d600e` in a separate tree.
+
+Diagnostic fix `b960468cc` passed independent review and the parent rerun:
+37 tests, zero failures, 381 assertions on Bun 1.3.14. The worker also passed
+typecheck, lint and the existing API suite. It exposes only source-controlled
+method/error-code pairs and preserves generic messages. The isolated bundle
+build and guarded install preparation are in progress; no provider artifact
+or approval changed.
+
+The real TLS/WebSocket-to-helper process test was added in `4f9816b29` and
+its deadline race was fixed in `a83fb8a40`. The old timing formula failed
+under a fixed 1 ms clock advance; the corrected test uses the process deadline.
+Independent review and the parent rerun passed: 10 tests, zero failures,
+94 assertions. It did not reproduce the live guest failure.
+
+Repository validation on `fd84d600e`: all cheap gates and 27,523 backend tests
+passed. The full command exited 1 because an agent's tracked planning note
+invalidated clean-source browser coverage. That note was preserved outside
+tracked files and restored; the required browser and dependent coverage lanes
+are running in order. This is not yet a passing full gate.
+
+The guarded host update passed. Installed source `b960468cc`, manifest
+`8b7301079d5cc7d90a0fed03fec20a2cc4abe7d5a8045159a7fcae450ab3feb9`,
+passed build, verification, smoke and independent source-byte comparison.
+Private receipts 59–65 prove the stopped historical-state copy, forward-only
+swap, successful startup, unchanged active provider/connection, historical
+cleanup status and empty guest inventory. Exact poststart historical database
+fields are inferred preserved from unchanged startup/controller paths; they
+were not read from a live database. One fresh diagnostic qualification is next.
+
+Diagnostic receipt 68 returned `guest_processes_start_permission_denied`;
+receipts 69–73 confirm guest/probe cleanup and unchanged configuration pins.
+Independent source review found the broker incorrectly requests a lifecycle
+settlement journal for guest mutations under host contract minor 1. The debug
+worker owns a regression-first fix in the broker and its action tests. Keep
+the broad guest mutation dispatch/authorization checks; narrow only the native
+lifecycle observation path. No connection or image change is indicated.
+
+Fix `46990613e` reproduced the permission denial before transport, then passed
+28 action tests (191 assertions), nine broker tests, typecheck, lint and
+independent review. The parent reran all 28 action tests successfully. The
+production diff is eight lines; lifecycle journal checks remain enforced.
+The guarded fixed-app update passed build, verification, smoke and restart.
+Private receipts 82–86 prove installed manifest
+`9620e3dad6fa022dfa576b2d38429826d59dbebb702697f3ebafb9ac217cf35f`,
+unchanged provider/connection, historical cleanup status and empty inventory.
+Fresh full qualification is still required to verify the fix on the server.
+
+### Preserved START from fixed-app qualification
+
+- [x] Preserve fresh attempt 89 and inspect the exact guest without replay.
+- [x] Read the current journal from a guarded stopped copy; restart the same app.
+- [x] Reproduce the reconciliation/receipt race; do not infer the historical live cause.
+- [x] Design and independently review synthetic-intent fenced cleanup support.
+- [x] Implement and test only the supported recovery extension required by the design.
+- [ ] Prepare an exact current-target recovery packet and verify its authority boundary.
+- [ ] Recover and clean the preserved target through the approved supported path.
+- [ ] Resume qualification and the normal user feature workflow with fresh IDs.
+
+Attempt 89 preserved START `c7b5f35d-aa75-421f-aa6b-0741840c8c39` UNKNOWN.
+Guest `ezh-e527e87eb409d89f6e70d58c8ea4a49b` is stopped, with generation 2
+running-intent tags. The host binding remains generation 1, desired RUNNING,
+observed STOPPED. Receipt 102 confirms a synthetic accepted handle, no native
+handle history, and successful prior CREATE. No retry or cleanup was sent.
+The current fenced cleanup verifier requires a native UUID and cannot accept
+this synthetic intent. Two separate Sol worktrees investigate the source race
+and design the smallest safe recovery extension; independent review must
+confirm the invariants before implementation. The sole live operator remains
+idle for mutations. The full fixed-app run did not reach guest process checks.
+
+All fd84 source gates now passed through ordered recovery: mandatory browser
+lanes, 28,329 coverage tests, 1,800 file thresholds, 93 new-file checks and
+160-file patch coverage. The original exit 1 remains recorded. This evidence
+does not claim full gates for the later diagnostic and broker fixes.
+
+The actual broker/controller interleaving reproduced a second defect:
+reconciliation treats an active DISPATCHING call as a restarted call, changes
+it to UNKNOWN, and makes the next accepted receipt fail its journal check.
+This reproduces the saved shape but does not prove the historical live cause.
+The reviewed fix uses shared active-dispatch ownership across controllers on
+one database, released after outcome persistence; no-owner restart behavior
+must remain unchanged. The debug worker owns controller changes and tests.
+
+The reviewed cleanup design adds only START-specific signed v2 intent proof.
+It preserves native v1, derives the exact stable handle from the original
+request, requires two unchanged stopped-instance observations and strict empty
+operation-list responses under the existing fence, and journals separate
+DESTROY without changing the original UNKNOWN or releasing reservations early.
+It must not claim native absence or no effect. The source worker owns recovery
+code and tests; the live operator prepares fresh target pins locally. Existing
+permission rules may be reused, but old target-specific files may not.
+
+### Combined candidate 5080f3792 verification
+
+- [x] Review and integrate the controller ownership fix, preserving restart recovery.
+- [x] Review and integrate START-only v2 cleanup, preserving native v1 and original UNKNOWN.
+- [x] Rerun integrated recovery and observer tests: 104 passed, 332 assertions.
+- [x] Build and verify the exact combined candidate; smoke passed (106 checks).
+- [x] Compare source archive bytes: 11,066 files, zero mismatches.
+- [x] Finish and independently review the combined stopped-window update and config rotation.
+- [x] Apply the guarded combined update and start the app (receipts 107–114).
+- [ ] Apply the reviewed update; clean the exact stopped target with fresh fence evidence.
+- [ ] Pass the full repository gate on the exact combined source.
+- [ ] Pass real qualification, normal user workflow, and ten consecutive lifecycles.
+
+Candidate manifest is
+`f935dbb456db40581cf1642f1f6bd2049e28062f605298ea395dff0195191748`
+(15,884,884 bytes). The installed app now uses source `5080f3792`; the separate
+server recovery has not run. The full gate runs from a separate clean worktree at
+`5080f3792dbbedcdae17b81368ed9ee83ba41b80`; planning edits stay out of that tree.
+Private admission tests passed 24 tests and 27 assertions. They check saved
+admission consistency; signature and expiry checks remain upstream. No live
+cleanup, new qualification, or user-flow result is claimed by these tests.
+
+The browser mock lane returned 1,436 passes and five failures. Traces confirm
+HTTP 200 documents followed by `ERR_NETWORK_CHANGED` on required script files.
+All five failures correlate with host Docker interface changes within two
+seconds. The 13 selected cases passed both normally and in a private network
+namespace with no source edits or retries. Rerun the full failed lane using
+the existing collector in that namespace, then use the strict merger with
+the genuine passed lane artifacts from the same source. Preserve the original
+failed run. The backend and web unit pools passed; the full gate is not green.
+
+The historical root recovery key is absent from the actual server. The current
+personal dev route has passwordless sudo, but the required fence freezes that
+user slice. A timed thaw is necessary but does not supply an independent
+recovery channel. Prepare and review a temporary, source-restricted root key
+with a closed forced-command dispatcher and automatic removal; obtain approval
+for this new access before installation. No recovery server write has occurred.
+
+Fresh qualification `incus-final-014-combined-20261005-1` passed independent
+plan review. Its peak is two new guests plus the preserved c7 guest, within
+capacity. Read-only receipt 127 confirmed both new guests RUNNING and c7 still
+STOPPED before the later failure. This proves new CREATE/START progress,
+not completion of the guest workload or cleanup gates.
+
+The authoritative isolated-network mock lane passed all 1,441 tests. The
+evidence lane is being rerun for a sixth failure with the same verified
+network-change cause. The original failed runs remain intact.
+
+Request 126 stopped with `qualification_preparation_failed`, stage
+`limit_loads`, cause `guest_processes_readOutput_deadline_exceeded`.
+The exact new primary was stopped, then deleted once through the supported
+API. Receipts 132–136 confirm its DESTROY succeeded and canonical ABSENT,
+inventory contains only c7, the exact new probe fixtures were removed, and c7
+remains UNKNOWN/STOPPED. Preserve the failed attempt; do not requalify until
+the resource-load timeout has a supported diagnosis and fix or explanation.
+
+The offline evidence rerun exposed a separate fixture defect: an unmocked
+GitHub avatar URL. A focused offline run reproduced the failure. The proposed
+test-only fix supplies that exact image and keeps visibility assertions while
+also checking decoded image width. Do not merge old source receipts with a
+new test commit. The final combined source must get fresh required evidence.
+
+### Resource-load timeout diagnosis
+
+- [x] Verify exact cleanup of the failed run; preserve c7 and the failed receipt.
+- [x] Add a real TLS/helper regression that reads actual stdout while the child
+  waits on a release file. Parent rerun: 10 passed, 98 assertions (`87716696b`).
+- [x] Exercise memory and PID pressure in an owned bounded local container;
+  reads completed. This did not reproduce the Incus timeout.
+- [x] Fix the separate GitHub avatar fixture with offline RED/25-test GREEN
+  evidence (`d3282a479`).
+- [x] Review the narrow diagnostic design before edits.
+- [x] Add a finite load-resource field and safe transport-phase failure log.
+- [x] Test each diagnostic branch and prove raw errors/output cannot leak.
+- [ ] Independently review, build and install one combined diagnostic candidate.
+- [ ] Run one fresh informative live qualification; preserve unknown effects.
+- [ ] Run final source gates with isolated mock browser networking.
+
+Do not increase deadlines or add retries to hide the failure. Do not infer
+Incus swap behavior from Docker defaults: Incus source handles the omitted
+option differently. Verify actual behavior before changing any resource policy.
+The exact temporary-access approval request remains pending; no key or timer
+has been installed.
+
+### Approved recovery and normal-workspace routing proof
+
+The user approved exact recovery packet `00c8c10321d18bcf8d27ebd1c9b74917840c9bf8a4f19061c9aeee795fee012d`.
+The live operator will complete runtime preparation and independent review
+before arming its ten-minute lease. No repeated approval is needed within that plan.
+
+- [x] Reproduce the coordinator's rejection of truthful virtual-workspace absence evidence.
+- [x] Add an explicit routing-proof variant; retain the existing host-canary contract.
+- [x] Verify both variants, refusal cases, and independent review before committing.
+- [x] Close the approved attempt safely; independently verify restoration, thaw, and temporary-key removal.
+- [ ] Prepare and review a new exact recovery attempt; the original stopped UNKNOWN remains preserved.
+- [ ] Install the reviewed diagnostic candidate with explicit preserved-UNKNOWN checks, then run one informative qualification.
+
+Review so far: candidate `c07ed31e5` passed build, bundle verification, source
+comparison, 27,583 backend tests, 3,638 web unit tests, and the 283-test browser
+mock gate. Its full gate is still running. These are source checks, not completed live qualification.
+
+Coordinator review: the actual subprocess absence regression failed before the
+fix. All 18 Python tests then passed with 222/222 executable statements covered.
+The supported Bun wrapper passed all four Python suites. Independent Sol review,
+JSON lint, and whitespace checks passed. No gate or existing proof was weakened.
+
+### Recovery closure and remaining product work
+
+The approved temporary-access attempt ended SAFE_ABORT before certificate
+revocation, signing, or recovery admission. The final clock check left less
+time than the required margin. Receipts 151–153 and independent review confirm
+the key is removed, the server user is thawed, the original certificate is
+unchanged, and source `5080f3792` is healthy. The c7 START is still UNKNOWN;
+its guest is still STOPPED. No cleanup success is claimed.
+
+- [ ] Resolve the existing runner marker's exact metadata in local preparation.
+- [ ] Batch deterministic recovery checks before starting a new bounded lease.
+- [x] Reproduce and fix normal recovery of a confirmed native failed DELETE.
+- [x] Expose that bounded recovery through the existing management UI and test it.
+- [ ] Complete full source gates; investigate raw coverage-pool timeouts.
+- [ ] Prove the normal UI/native-agent workflow and ten live lifecycle cycles.
+
+The cleanup regression now fails through the actual feature service and
+controller: a native protected DELETE produces FAILED/INTERNAL with a native
+operation ID, but recovery only accepts the earlier REVISION_CONFLICT form.
+The fix will share one strict eligibility rule across service, controller,
+history and UI. UNKNOWN effects must remain ineligible for this normal path.
+
+Candidate `c07ed31e5` passed all five browser lanes (283, 1,441, 396, 7 and 136
+tests) and strict browser coverage provenance. Its coverage pool has recorded
+test timeouts; the full gate is not green. Preserve those failures.
+
+The c07 full gate finished with exit 1. Coverage, new-file coverage and patch
+coverage passed, including all 1,800 enforced files. Six files timed out in
+the coverage pool; five passed the supported isolated checks. The remaining
+Python supervisor wrapper also timed out in isolation. A tracer-only test
+efficiency fix is in progress, with the same timeout and product-line gate.
+
+### Verified fixes and guarded-update closure
+
+- Native cleanup fix `2cc3552bd` passed independent review, focused service,
+  controller, policy, route and component tests, typecheck, lint, and both
+  browser recovery cases. A screenshot-only rerun failed during build startup
+  under host pressure; no screenshot pass is claimed.
+- Fixture fix `9f54f16de` separates sequencing from disk-flush verification.
+  Its supported wrapper passed all four suites. All 222 product statements
+  remain covered; the dedicated durability test now proves seven real flushes
+  complete before dispatch. No timeout or coverage requirement changed.
+- Diagnostic update 160 timed out under shared-host resource pressure. The
+  original active source `5080f3792` was unchanged; only the staging copy was
+  written. Receipts 166–169 prove healthy restoration, unchanged c7
+  UNKNOWN/STOPPED, and preserved historical cleanup. No database restore,
+  swap replay or new qualification was performed. Candidate c07 is not installed.
+- The user chose to wait for the unrelated heavy typecheck. It exited on its
+  own; no unrelated process was stopped. New heavy tests remain held during
+  recovery preparation. Use the combined source for the next candidate.
+
+### Combined source checks and next bounded recovery
+
+- [x] Complete exact `2bb18f611` supported fast gate: exit 0; 27,585 backend
+  and 7,727 web tests passed; production build passed.
+- [x] Capture both recovery browser cases: exit 0, two tests and two verified
+  screenshots. Preserve the earlier failed startup as historical evidence.
+- [x] Prepare and independently review the corrected one-attempt c7 packet:
+  execution index `36d0365097aabb2b7c912c160a51dce8317d39c3939eb4c5bb78afdbcfbd9726`.
+  Marker handling and partial-runtime abort tests passed; no lease was armed.
+- [x] Obtain new exact approval for the new temporary root-access window.
+  User approved packet SHA `7f470c0e99cef9b0a44e3ee861c56050e671345d71b23d3c2665e48942ae0c57`.
+- [x] Execute once, verify cleanup and full access restoration, or record a
+  safe stop without retrying an uncertain effect.
+  Attempt 2 safely stopped at the actual key-hash validator before timer/key
+  installation. Independent receipts 182–187 prove original 508 restoration
+  and no access/admission effect. c7 cleanup remains outstanding.
+- [x] Fix the extra-newline generator hash and prove final generated artifacts
+  pass the actual dispatcher, expiry, installer, and binder validators together.
+  Independent review and 11 actual-loader/canonical/binder tests passed. Fresh
+  successor packet sealing and final indexed-artifact validation remain open.
+- [x] Close hosted complexity failure through a reviewed behavior-preserving
+  receipt-verifier refactor; no gate or threshold changes.
+  Integrated `11620ca6e`: 73 tests/233 assertions passed; measured target lines
+  298/298 covered. Actual strict changed-function scores are 22, 10, and 6
+  against limit 30. Patch coverage, lint, typecheck and normal hooks passed.
+  The hosted whole-branch gate still needs a new run after push.
+- [ ] Complete the combined full gate after the recovery window closes.
+- [ ] Build/install the combined candidate and prove the remaining live flow.
+
+Review: the first access attempt and c07 update are closed without cleanup or
+candidate installation. The running app remains 508/f935. The new review packet
+is `docs/validation/2026-10-05-c7-batched-recovery-attempt2-review.md`.
+
+### Canonical-key successor
+
+- [x] Seal fresh attempt 3 and independently verify all files, prior ledgers,
+  current target, actual bootstrap, and all final consumer validators.
+  Execution index: `7871965a544a75e14579bbc8a2a3f653094fa627cb2f3950389640a640b2a208`.
+- [x] Obtain exact approval of
+  `docs/validation/2026-10-05-c7-canonical-key-attempt3-review.md`.
+  User instructed continuation through E2E in direct reply to the pending
+  packet approval. Root authorized that shown one-attempt packet, SHA
+  `f37463a56809dc3aea9f0f3da264c1405d8a6f0f390a64d2c418ae690509bdc6`.
+- [x] Wait for source gate completion, recheck headroom, then execute only the
+  approved attempt and independently verify its result and access restoration.
+
+Review: attempt 2 is fully closed and cannot be replayed. The canonical-byte
+fix passed actual final consumers and independent review. Actual timer, SSH,
+cleanup and expiry remain unproved for attempt 3; no clock or server effects
+have started at preparation close. The fast source gate subsequently passed
+on integrated `11620ca6e`.
+
+### Active end-to-end completion goal
+
+- [x] Complete supported fast gate on `11620ca6e`: exit 0; backend 27,585/0,
+  web Bun 3,638/0, web Vitest 7,727/0, production build and all early gates pass.
+  All owned test workers are stopped.
+- [x] Complete one authorized attempt 3 and independently verify its result.
+  Actual timer/key/freeze checks passed. The continuation refused a review
+  receipt aged 46,895 ms at persistence; no certificate fence or admission.
+  Independent access/app restoration passed. Receipts 208–209 prove the
+  fallback timer ended and all access is absent; c7 cleanup is still outstanding.
+- [x] Implement and verify atomic first review publication plus a bounded
+  operator waiter; preserve the existing 30-second freshness and all deadlines.
+  Root reviewed component `2ccc10bc8e4f1d8aa2cd7934cfd93f4cdd692b42f3c16316fbd3ced2cd8348aa`
+  and independently reran 13 handoff plus 18 existing component tests. New
+  Attempt 4 namespace sealing and final artifact review passed. Root reviewed
+  the exact component delta and recorded the one-attempt execution plan in
+  `docs/validation/2026-10-05-c7-synchronous-review-attempt4.md`.
+- [x] Execute one attempt 4 and prove its disposition and full restoration.
+  Actual access and synchronous handoff passed; the independent fence verifier
+  refused. Supported offline abort `94253636-cb6f-4cd9-b58a-f5245365cb5d`
+  committed and passed independent review, proving no cleanup admission.
+  Exact certificate/configuration/app restoration passed independent receipts
+  235–239. Natural access rollback passed 229–230. The app is healthy on
+  508/f935; c7 and its reservation remain preserved. No cleanup claim.
+  The missing production-v3 audit wire is reproduced through the actual
+  supervisor/verifier/dispatcher composition; six candidate tests pass. The
+  unchanged dispatcher fails. Independent review passed all six composition
+  tests, 21 earlier regressions, and three actual final-artifact checks.
+  No earlier attempt or UNKNOWN operation may be replayed.
+- [x] Seal and review the fresh cleanup attempt and close the preserved c7
+  recovery. The exact no-effect recovery and distinct normal cleanup succeeded;
+  old UNKNOWN history remains preserved and compensated. Temporary access,
+  fences and timers are closed. Do not replay historical attempts.
+- [x] Complete the 17-phase E2E operator-hook bridge and exact
+  post-failed-DESTROY reservation proof through a stopped database clone.
+  Snapshot/projection subtask passed root review and independent 14 Python /
+  42 TypeScript tests. It proves compute RELEASED and positive disk capacity
+  still RELEASE_REQUESTED from the detached clone; no live database is opened.
+  The process observer now reports only exact initial-marker ENOENT as not
+  ready; independent review and 25 focused tests passed. Full driver remains
+  prepared and reviewed in the isolated flow worktree. The independent storage helper
+  passed review and 10 tests; it proves the exact root-volume API returns a
+  genuine 404 while project/pool controls remain 200. Physical disk absence and
+  reservation release require their separate evidence.
+- [x] Install verified source `178525ad3` in the isolated environment. The
+  guarded update, database preservation and normal startup passed review.
+- [x] Pass live qualification on `178525ad3`, including automatic restart and
+  cleanup-fault continuation. All three fixtures are absent; independent
+  accounting reports zero charges and no active provider drain.
+- [x] Pass browser create/start/open-chat/reload and one actual model-invoked
+  shell call on that same project. The shell returned `/workspace`.
+- [x] Reproduce and fix the normal-run instruction that required unavailable
+  task tools. The final model tool catalog now controls that instruction;
+  independent review and 29 focused tests pass.
+- [ ] Install and verify the corrected runtime, complete the browser controls,
+  and prove the full model-invoked file/Git/Compose workflow. A successful `pwd`
+  call does not establish the full workflow.
+- [ ] Pass ten repeatable feature lifecycles, restart, denied access, cleanup
+  recovery, and final backend/database accounting.
+- [ ] Complete final full repository gate, hosted checks and evidence update.
+  PR head `bf65af3e0` is pushed after normal hooks. Hosted dependency audit has
+  a new failure corrected locally in `df08c12c8`: only proxy-addr 2.0.8 and
+  source-map-js 1.2.2 lock entries changed. Fresh installs, actual nested imports,
+  regressions and the dependency audit pass. Final current-source gates remain
+  required; no advisory or gate suppression was used.
+
+Current review: exact `178525ad3` backend tests passed 27,615/0; all five
+browser lanes passed (283, 1,441, 396, seven and 138). Coverage is still running.
+The subsequent runtime fix needs integrated validation and live proof. See
+`docs/validation/2026-10-06-incus-native-flow-verification.md` for the boundary
+between verified behavior and remaining work.
+
+Do not stop at a prepared packet or a partial test result. Continue authorized
+work until the selected deployment works end to end. Keep source and live
+evidence separate; do not merge or publicly release without authorization.
+
+### 6 October — current app and provider milestone
+
+- [x] Install production source `6f5b53407` in the isolated app and verify
+  database preservation, startup, both readiness checks and installed source
+  correspondence. Manifest: `5aff9e650ae23979d8befa99bd4684eda45800aed6eb8beab26499ba56165020`.
+- [x] Use the supported bundled import once. Original queued build
+  `b82b0e5c-0771-421c-9d85-d43f0bb19deb` verified provider 0.1.5.
+- [ ] Independently review and obtain exact human approval for release
+  `4a3c3c28-192d-4b44-8f68-88df5d82c61c`, then activate through v4.
+- [ ] Complete the new saved setup, qualification, native file/Git/Compose
+  workflow and ten lifecycle tests. Earlier live qualification has expired.
+- [x] Complete the test-only Python reliability correction. All four unchanged
+  wrapper suites passed; the final-flow suite passed 18 tests with all 222
+  measured statements covered. Independent review passed. No deadline changed.
+- [ ] Complete final repository gates. The earlier fast run was interrupted
+  under host pressure, not passed.
+
+Review: the corrected image passed its direct file/Git canary and cleanup.
+The app update and supported provider build also passed. These do not prove
+the complete native-agent workflow on the new release. The old approved
+provider is still active. Test-only changes after `6f5b53407` need repository
+validation but do not require another app deployment.
+
+### Memory qualification reliability — next controlled change
+
+- [x] Prove the first complete native workflow and ordinary cleanup on Incus
+  provider 0.1.5; preserve the earlier runner-service failure separately.
+- [x] Record fresh qualification `d5a359` as failed. Its memory-status request
+  exceeded the deadline under sustained reclaim. All guests and charges are
+  now absent; the app resumed healthy. Ten-cycle proof remains pending.
+- [x] Compare failed and successful outer memory samples. Both reached the
+  same 4 GiB bound. The failed run reclaimed pages without an OOM kill before
+  its control deadline; this is not proof of missing memory enforcement.
+- [x] Implement and independently review an allocator-only candidate: one
+  private anonymous mapping, one write per page. Preserve target bytes,
+  OOM score adjustment, deadlines, polling, terminal/EOF checks, required
+  OOM evidence and host/neighbor health checks.
+- [ ] Run meaningful fixture regressions and applicable source gates. Prepare
+  a bounded read-only process-lineage observer for the live comparison.
+  Focused regressions passed 58 tests; the previous generated child failed
+  the new regression. Independent source review passed. The observer passed
+  13 tests and independent review. Repository gates remain pending for this
+  source change. Source commit `6d2572d9f` is integrated as `a6d7e005c`.
+- [x] Install the reviewed candidate in the isolated app. Actual source
+  `6d2572d9f`, manifest `b8efab4799`, started successfully. Independent review
+  confirmed database preservation, both readiness checks, and unchanged
+  provider, image and connection. No database restore was used.
+- [ ] Run the controlled live comparison and retain failure evidence. One
+  positive result alone does not establish reliability.
+  Run `fb66` failed with the same memory inspection deadline. The candidate
+  is not a fix. Verified process records show sustained major faults in the
+  load and both Python supervisors. Original STOP settled; a distinct
+  destroy succeeded, and physical inventory is empty. Final accounting and
+  healthy resume passed independent review. Review a native load process with bounded resident code/stack
+  before another implementation; do not increase deadlines or waive OOM.
+- [ ] Once the candidate is supported by evidence, complete ten lifecycle
+  tests in batches of at most three with fresh qualification and accounting.
+
+Review boundary: hosted PR integration checks passed all 51 checks for
+  `eafae1446` using merge revision `f649fd38`; exact local full validation was
+  interrupted by host memory pressure. Neither that interruption nor the
+  failed qualification is a pass. No deadline increase or OOM waiver is part
+  of this candidate.
+
+### Native memory-load candidate
+
+- [x] Test a bounded native process locally. Its locked control memory stays
+  below 1 MiB; the stress payload remains unlocked. Local 4 GiB tests did
+  not reproduce the server's reclaim stall, so they prove feasibility only.
+- [x] Read actual helper-child security and memory-lock limits. The original
+  wrapper failed; facts were recovered from the same process without START
+  replay. Its temporary guest was removed.
+- [x] Run one reviewed server diagnostic with the native process. The owned
+  kernel OOM killed the intended child, the strict helper checks passed,
+  cleanup removed the guest, and the app stayed healthy. Raw helper frames
+  were not exported before deletion; this is not full qualification proof.
+- [x] Produce and review a reproducible native artifact within the existing
+  64 KiB file limit. Do not widen that limit or add a runtime compiler.
+  The canonical 59,704-byte artifact `be1051ef` passed independent parser,
+  lock and actual rebuild checks. Its server qualification remains pending.
+- [x] Implement and independently review the narrow production staging seam.
+  Native coverage measured 129/129 lines; five native tests and 47 coverage
+  guard tests passed. The TypeScript integration passed 55 tests and 645
+  assertions, including the real binary transport and same-file execution.
+  Native and integration commits are `216491973` and `cb047485d` on this
+  branch. Both workers used separate worktrees and normal commit hooks.
+- [ ] Run combined repository gates, verify the actual staged bundle and
+  normal-user asset loading, then update the isolated app.
+- [ ] Pass production qualification and repeated lifecycles with full evidence.
+
+The initial 77,096-byte prototype could not use the 64 KiB file API. The
+reviewed smaller artifact can use the existing bounded file contract. No
+image or provider change is planned for this fixture. One native diagnostic
+passed in less than three seconds, but reliability is not yet proved.
+
+### Incus authenticated preview runtime — 2026-10-07
+
+- [x] Reproduce the current sandbox WebSocket refusal through the app bridge, and record the exact baseline result.
+- [x] Add a narrow guest duplex preview interface, with fixed binding, owner, port, path, expiry, and allowlisted HMR subprotocol.
+- [x] Route authorized sandbox WebSockets through the guest duplex, with current-binding checks at upgrade and while open, bounded traffic, and prompt close on revocation or stop.
+- [x] Apply the existing preview response-byte quota to sandbox HTTP, without using the host loopback fallback.
+- [ ] Add positive and negative runtime/app tests, an actual Bun consumer test, a browser E2E spec, and focused type/build checks; obtain independent review.
+
+Plan review: keep transport and qualification in their assigned worktrees. The app bridge must never turn a sandbox descriptor into a host URL. Vite HMR requires the allowlisted `vite-hmr` subprotocol. A qualified transport and active release are still required before production enables this path.
+
+Review so far: before the change, the app bridge returned 403 and did not call Bun upgrade for an owned, current sandbox preview. After the change, 45 focused app tests and 30 Bun tests pass, including guest-frame revocation, stale generation, fixture-lease isolation, slow-send flood, and fixed guest HTTP redirect behavior. Biome and Svelte check pass on touched files. Production build and browser E2E proof remain open until transport/startup wiring is integrated.
+
+### Incus Compose preview qualification — 6 October 2026
+
+- [x] Reproduce acceptance of an SP01–SP08 Compose qualification with `endpointProxy: false` in the existing store test.
+- [x] Define a bounded host preview proof for the exact qualification scope and guest fixture. The final live run is still pending.
+- [x] Require HTTP and WebSocket challenge results and named denial facts before the live runner emits SP09.
+- [x] Require SP09 and its proof for persistent-web-compose in the shared contract and saved-row load; keep linux-exec SP01–SP08.
+- [x] Test false and legacy evidence, normal and durable runner paths, and profile-specific contract behavior.
+- [ ] Run focused tests, typecheck, and source review; commit the qualification milestone.
+
+Review: 70 focused tests passed after the SP09 contract change. Backend typecheck passed.
+The host witness still needs durable initiating-owner integration, focused consumer
+tests, independent review, and a live root-operated qualification.
+### Incus preview qualification traffic client
+
+- [x] Check configuration and a real app readiness route before fixture allocation; pin the approved origin address.
+- [x] Redeem the normal one-time preview code and retain only the host-only preview cookie.
+- [x] Drive bounded HTTP and `vite-hmr` WebSocket traffic through the real preview Host/Origin route with no redirects or proxy.
+- [x] Prove success and denial, redirect, body/frame limits, and socket cleanup against a real local Bun server.
+- [x] Add the required new-source coverage key and focused type/lint/test checks; request independent review after commit.
+
+Plan review: the witness owns preview rows, fixture permit, and scenario results. This client owns only fixed app-origin traffic from host configuration. Its method inputs cannot choose a destination, method, or headers.
+
+### Combined preview integration and release checks — 7 October 2026
+
+- [x] Reuse reviewed Bun/Vite fix `2912ff9ba`; leave the API team's frozen verification tree unchanged.
+- [x] Integrate reviewed bounded guest transport, authenticated app routing, exact fixture lease, and app-origin traffic driver.
+- [x] Require SP09 before host preflight advertises Compose preview support; 35 host authority/broker/transport tests pass.
+- [x] Add a real-auth browser consumer and deterministic clean-bundle contract build.
+- [x] Persist and recheck the initiating administrator before fixture allocation and after restart.
+- [x] Validate combined startup, qualification route, complete host witness, migration, and build behavior.
+- [x] Run the committed browser consumer against the combined production build.
+- [ ] Freeze the combined commit and hand final repository gates to the API verification team.
+- [ ] Build and review the isolated app bundle and exact provider release; apply through the existing guarded flows.
+- [ ] Run real Incus HTTP/WebSocket qualification, ten feature lifecycles, cleanup/accounting, and leakage checks.
+- [ ] Update PR303 with exact source, test evidence, and remaining limits.
+
+Plan review: root owns live actions; agents own isolated implementation and independent review.
+The existing `2912` results remain baseline evidence. No later source, live preview, or ten-cycle pass is inferred from them.
+Combined production backend and focused regression type checks pass. Startup: 13 tests / 63 assertions;
+qualification API: 17 tests / 185 assertions. Host witness reaches 100% line coverage
+across 25 focused tests. The production browser consumer passed on clean
+`79d8980b0de2a5944a1b112ce94126f5d50ded6c`, including HTTP, WebSocket echo,
+revocation, denied reconnect, and wrong/malformed Host responses. The real Incus
+SP09 result and final repository gate remain open.
+
+Review so far: Bun 1.3.14's node:http shim returned a WebSocket 101 through the ordinary response event, and writing a masked frame to that response socket did not reach the Bun server. The real consumer test failed. The client now uses a bounded raw net/tls handshake for WebSocket and keeps node:http/https for readiness, handoff and HTTP. The same test now passes real `vite-hmr` echo and observed socket close. It also proves wrong Host, malformed Host, wrong Origin, denied cookie, redirect without follow, and oversized HTTP and WebSocket denial. The new source has 100% line coverage in the focused run. Review also found that a matching pre-proof sandbox without `previews` blocked the exact fixture lease; the regression was red at 502 and now passes while a mismatched sandbox remains denied. Full app/browser evidence is owned by the other agents.
+
+# Durable Compose qualification owner after restart — 7 October 2026
+
+- [x] Reproduce post-restart recovery CREATE denial with real fixture service and persisted owner.
+- [x] Load the exact primary fixture owner from the pending checkpoint scope and binding; reject missing, changed, or inactive owners before resumed allocation.
+- [x] Pass that owner into the resumed witness while preserving Linux execution flow.
+- [x] Run focused tests, types, coverage, and normal commit hooks.
+
+Review: Pinned Bun 1.3.14 reproduced the missing-owner recovery denial, then passed 60 fixture, 13 startup, and 26 live-case tests. Backend and test typechecks and focused Biome passed. The resume test uses a real host witness and fixture service over an in-memory database; it is not live Incus evidence. No live state changed.
+
+# Final preview gate regression correction
+
+- [x] Reproduce the workspace WebSocket routing failure on frozen preview source.
+- [x] Update the fixture to prove valid sandbox routing and expired-preview denial without host fallback.
+- [x] Reproduce and correct legacy receipt fixtures that still assume provider endpoint methods.
+- [x] Run focused routing, WebSocket, entrypoint, recovery, lifecycle, and full type checks.
+- [x] Obtain complete independent review; commit the reviewed fixes.
+
+Review: routing/WebSocket 35 tests / 97 assertions; entrypoint/manifest 7 / 102; fenced cleanup 88 / 324; lifecycle 45 / 658. All pass. Full typecheck and Biome pass. Complete independent Sol review approved the stable diff, with independent routing/WebSocket, lock, and diff checks. Production code is unchanged. The frozen full gate still has four old test failures and must not be called green.
+
+Plan review: test expectations must follow the new authenticated sandbox routing contract. Do not change production routing or the active full-gate checkout.
+
+# WebSocket bridge coverage — 7 October 2026
+
+- [x] Install pinned root and web dependencies in this isolated worktree.
+- [x] Reproduce the reported uncovered paths with the canonical Node/Vitest producer.
+- [x] Add behavior tests for sandbox upgrade failure, socket cap, guest frames/errors, send failure, malformed socket data, and client close.
+- [x] Run focused Node/Vitest coverage to 100%, web test typecheck and lint.
+- [x] Commit test-only changes and record exact source, commands, and review results.
+
+Plan review: Use the existing bridge handler and upgrade seams. Assert observable socket closure, frame forwarding, authorization checks, and resource release. Do not change production code or coverage rules for a test-only gap.
+
+Review: The canonical Node/Vitest V8 producer reproduced 146/163 covered lines with all 20 old tests passing. Seven new behavior tests pass (27 total); focused LCOV now measures 163/163 lines. The revoke test first proves an active guest frame reached the browser, then proves a later frame is denied. The timer test proves the initial authorization completed before the periodic check revokes it. Test typecheck, focused Biome, and `git diff --check` pass. Independent review found no remaining behavior blocker. No production or gate source changed.
+
+# Preview target coverage gaps — 7 October
+
+- [x] Confirm full-gate misses at registration rejection and database error boundary.
+- [x] Test malformed and duplicate host registrations, lease disposal, and lookup failures with no fallback.
+- [x] Measure both missed target lines and run full type/lint checks.
+- [x] Obtain independent review; commit the reviewed tests.
+
+Plan review: tests only; preserve existing authority policy. Separate Sol work owns WebSocket bridge coverage.
+Review: three new tests plus the existing host preview witness pass (4 tests, 34 assertions). The new coverage hits lines25 and71. Target source is byte-identical to frozen5bc16; combining prior and new line evidence accounts for45/45 lines, but this is diagnostic only and does not replace the final committed-HEAD gate. Full typecheck and Biome pass. Independent Sol review passed with a separate three-test run and canonical two-file host coverage shard. Repaired cleanup fixture coverage independently passed88tests/324assertions and432/432lines. Production source and gates are unchanged.
+
+# Hosted browser archive preview regression — 7 October 2026
+
+- [x] Reproduce exact f078 build and transferred-preview failure with pinned Bun and both installs.
+- [x] Identify missing root scripts/ensure-bun-websocket-hook.js in the partial test checkout.
+- [x] Add a failing behavioral fixture with a tracked root dependency and untracked-file exclusion.
+- [x] Copy complete tracked source; retain strict archive and readiness checks.
+- [x] Pass exact round-trip preview and regression tests.
+- [x] Obtain independent review.
+- [x] Commit the reviewed correction with normal hooks; all 23 lane tests pass.
+
+Plan review: API owns this isolated worktree. Original root owns integration and all live actions. Hosted job112667598428 and local exact consumer fail with exit1 after a successful build. Fix checkout fidelity, without changing production or weakening any gate.
+
+Review: New behavioral test failed before the correction with the missing root module. Afterward the full lane suite passed 23 tests / 330 assertions. The actual source-mapped f078 SvelteKit artifact also passed the unchanged restored-preview readiness checks with exit0. Full typecheck, focused Biome, and diff whitespace checks passed. Independent Sol review approved exact source diff9ddd636d after reproducing the original failure, passing the patched fixture twice, and checking shell syntax and diff whitespace. Production source, archive payload, and strict readiness checks are unchanged.
+
+# WebSocket bridge test typing repair — 7 October 2026
+
+- [x] Reproduce the Svelte check error on exact 9b7 source.
+- [x] Type the failed-upgrade mock with the real sandbox connection request type.
+- [x] Run Svelte check, focused V8 coverage, test typecheck, lint, and commit hook.
+- [x] Obtain independent review and commit the test-only repair.
+
+Plan review: Keep the assertion that the failed upgrade aborts the guest connection. Change only the mock type; do not alter production or coverage policy.
+
+Review: On exact 9b7, `bun run --cwd web check` failed with two errors at the zero-argument mock call, then passed with 0 errors and 0 warnings after typing its request as `SandboxPreviewConnectRequest`. The abort assertion remains. Focused Node/Vitest V8 coverage passes 27/27 tests and 163/163 bridge lines. Test typecheck and focused Biome pass. No production or coverage policy changed.
+
+## Caller-tool hosted CI repair Oct 07
+- [x] Inspect hosted trace and reproduce isolated real-auth failure.
+- [x] Fix proven cause without weakened gates.
+- [x] Verify focused tests and commit with normal hooks.
+Review: reader abort ownership verified; final integration gates owned by root.
+
+Evidence: hosted trace outcome assertion passed at 502284.575; test remained
+in finally/await serving until its 60000ms limit. Deterministic unit RED:
+`bun test ./packages/@ezcorp/harness-client/src/index.test.ts --test-name-pattern 'cancels its owned reader' --timeout 30000`
+failed cancel ownership assertion (false versus true), no timing assertion.
+With reader abort cancellation, package suite and coverage run: 96 pass, 0 fail.
+Repository formatter is explicitly disabled; biome check passed on touched code.
+Controlled real-server E2E RED: original streamEvents source plus real SSE
+transport with request abort omitted. All HTTP, authentication, permissions,
+tool replies, model scripts and SSE events remain real. The completed-turn
+assertion passed; awaiting device shutdown timed out at the unchanged 60000ms
+budget. Result: 6 passed, 1 failed, exit 1. Log:
+/tmp/caller-tool-repro-oct07.log; trace: .cache/caller-tool-red-results.
+GREEN rerun uses the restored fix, same full spec, fresh owned DB and port4397.
+Build, touched-file Biome and git diff --check passed. Root backend/web/test
+typecheck passed. Own fast gate stopped (exit130) at parent direction; final
+combined gates belong to integration root, and no gate pass is claimed here.
+
+GREEN: same full real-auth spec, restored fix, fresh isolated fixture.
+7 passed (3.8m), exit0; /tmp/caller-tool-green-oct07.log.
+Final package coverage rerun:96passed/0failed,285assertions, all added
+cancellation executable lines have positive hits. No retries/timeouts/gates
+changed. No live application or GitHub mutations.
+
+# Hosted limit-probe complexity repair — 7 October 2026
+
+- [x] Reproduce hosted CC31 from the canonical AST scorer and focused real coverage.
+- [x] Move cohesive limit-probe phases into small helpers, preserving validation and call order.
+- [x] Run focused behavior tests, real coverage, complexity, lint and type checks.
+- [x] Commit the change and record receipts.
+
+Plan review: Refactor the probe orchestration at its natural boundaries. Keep the per-resource load order, short-circuit health checks, failure wrapping, CPU diagnostic, storage checks and all guest constraints exact. No host workload is authorized.
+
+Review: The focused real Bun producer measured 51/51 orchestration lines before the change and the canonical scorer reported CC31. After extraction it measured 120/120 source lines, with CC13 for orchestration, CC17 for proof validation and CC3 for guest execution. All 16 limit tests pass (243 assertions), including exact per-resource call order. Full typecheck, focused Biome and diff whitespace check pass. A focused-only LCOV cannot prove the repository-wide changed gate; the integration owner holds that full-run proof.
+
+# Preview witness complexity — 7 October 2026
+
+- [x] Install pinned root and web dependencies; reproduce the AST complexity with real focused coverage.
+- [x] Extract cohesive private helpers without changing preview order, security checks, or cleanup behavior.
+- [x] Run focused HTTP/WebSocket witness tests, line coverage, complexity gate, types, and lint.
+- [x] Review the diff and verification evidence; commit the isolated change.
+
+Plan review: Keep all branch decisions and fail-closed checks in named helpers. Keep the caller's try/catch/finally boundary and reverse cleanup order. Use actual LCOV from the existing witness tests; no synthetic coverage data.
+
+Review: Real focused SP09 LCOV reproduces old caller CC62 and measures new caller CC29 at 99% line coverage; authorization helper CC21 at 100%, proof helpers CC8/4/4 at 100%. All 51 added executable lines are measured and hit. The existing SP09 registry/permit fixture passes (1 test); real Bun HTTP/WebSocket traffic passes (3); witness guard suite passes (23); default guest caller passes (1). Backend typecheck, focused Biome, and diff whitespace check pass. No live Incus action ran. The focused LCOV is scoped to this witness change; the combined PR quality gate still requires its full merged LCOV.
+
+## Qualification complexity repair Oct 07
+- [x] Reproduce CRAP failures with fresh targeted coverage.
+- [x] Extract ordered contract preview checks and store evidence checks into existing modules.
+- [x] Verify all extracted helpers, existing behavior, typecheck and changed-function CRAP.
+- [x] Commit with normal hooks and report authoritative-contract deployment impact.
+Review: pending. Ownership: validation.ts live qualification and incus-qualification.ts recordVerified only.
+
+Review: baseline fresh targeted coverage reproduced CRAP exit1: validator
+CC56/100%, recordVerified CC33/100%. Report-only final-source scoring shows
+validator CC23, recordVerified CC6; nine helpers CC4–12 and100%coverage.
+Fresh contract suite59pass/646assertions; store12pass/44assertions before
+adding two explicit known-good-row checks. Checkpoint7pass, continuation2pass,
+v4Ready5pass; typecheck and contract build passed. Changed-mode scoring must
+run after commit: it reads committedHEAD, so an uncommitted0-file run is not
+proof. Targeted LCOV is deliberately partial; integration owns whole gates.
+Deployment: these helpers execute in authoritative qualification validation
+and persistence. Unlike the earlier client-only fix, deploy a rebuilt app and
+contract package to run this code. Semantics stay fixed, but installed old
+release bytes remain distinct; this refactor does not qualify a live server
+or establish release/digest equivalence. No live mutation or gate change.
+
+Final proof: normal commit hooks passed. Fresh postcommit package59pass,
+store12pass/46assertions. BASE_REF4de60e515 changed CRAP exit0 measures
+14functions/2files, all100%, maximum23. This is scoped proof, not whole-suite
+coverage. Integration root independently reviews and runs final combined gates.
+
+Review correction: both new storetests failed alone (exit1, missing saved
+receipt). Each now records and reads its own valid receipt before negative
+controls. Verify each namefilter independently and wholefile before amendment.
+
+## Combined complexity gate handoff — 7 October 2026
+
+- [x] Integrate three reviewed commits covering all four reported functions; preserve all appended task notes.
+- [x] Run normal integration hooks; the API store suite passes 12/0/46 and witness suite passes 23/0/164.
+- [x] Confirm exact setup eb3761bb remains verified through a supported read-only management request; do not replay its completed Apply.
+- [ ] Freeze the committed combined source and hand one isolated full local gate to API.
+- [ ] With fresh exact-source merged coverage, retain both scoped repair and full-PR canonical CRAP results.
+- [ ] Review actual final exits, push the verified source, and obtain exact-head hosted CI results.
+
+Review: All four refactors have independent review and focused real coverage. Whole-source final verification is pending. Hosted 4de60 finished with 49 checks passing and one CRAP failure; all coverage and browser gates passed on that older source. API owns the next single full local gate in a new isolated worktree. No gate thresholds, retries or exclusions changed. These authoritative server/contract changes require a rebuilt deployment; installed f078 remains separate evidence. Provider 0.1.6 approval, live qualification and ten cycles remain pending.
+
+## Preview consent high-port link — 2026-10-08 (isolated 7873 branch)
+
+- [x] Reproduce the consent click and generated link at the nearest browser request boundary with a server-supplied `localhost:4301` preview URL.
+- [x] Make consent use the configured preview origin and the existing canonical URL builder; keep host, port, and one-time code behavior.
+- [x] Verify nondefault port, default port, split preview host, disabled origin, and ordinary app behavior with focused tests and web checks.
+- [x] Get independent review before root integrates; report exact source and test results.
+
+Review: Chromium browser RED received a portless link despite a mocked server URL on `localhost:4301`; after the fix, the full consent spec passed 6/6 against a fresh build. A final 3/3 browser run passed after adding an absolute HTTP(S) URL guard. Focused Vitest passed 28/28, web check found 0 errors and 0 warnings, and Biome and diff checks passed. Solcycle's independent source review passed. The live app and primary tree were not changed.
+
+# Incus project Settings handoff (isolated 7873 worktree)
+
+- [x] Reproduce the seeded Incus project's wrong Local sandbox card in a real-auth browser test.
+- [x] Resolve Incus project identity from its saved binding and matching Incus provider connection, with project access checks.
+- [x] Link Incus project Settings to the existing management controls; keep local and legacy sandbox behavior.
+- [x] Run focused browser, route, component, type and lint checks.
+
+Review: The real-auth browser case failed before the fix with the generic Local sandbox card and editable host-path field. It now passes 1/1 with a real seeded binding and matching harmless test connection. An ordinary project with a lookalike path remains local; the Incus project shows preset, last observed state and the admin management link, without local controls. The generic local status route returned its fail-closed 503 in this fixture. Focused route/resolver/component tests passed 17/17; route registry and scope checks passed 7/7; Svelte check reported 0 errors and 0 warnings; scoped Biome and diff checks passed. Independent source review passed after the provider-identity correction. No live Incus or installed app was touched.
+
+# Incus idle expiry UI (Sol6.1 review lane)
+
+- [x] Reproduce stale idle expiry in a real browser before code changes.
+- [x] Coordinate the readiness API response and implement a minimal expiry refresh.
+- [x] Prove deterministic clock behavior, evidence browser test, and focused checks.
+- [x] Obtain independent backend-owner source review.
+
+Review: Pending. Live packet reviews retain priority.
+
+Review: Browser RED kept Qualified after expiry. Final-source targeted real-auth Chromium browser GREEN1/1, evidence captured; component suites54/54, Svelte check0 errors/0 warnings, scoped Biome/diff passed. Backend owner independently reviewed and requested missing-deadline denial, now covered. Broader gates belong to root. Local4387 fixture stopped; no live server changes.
+
+## 2026-10-08 daily Incus readiness
+
+# Daily Incus readiness
+- [x] Inspect qualification and service authority boundaries.
+- [x] Write exact contract and missing authority boundary.
+- [x] Independent contract review.
+- [x] Reproduce expiry at service boundary with targeted tests.
+- [x] Implement reviewed baseline/readiness authority and migration.
+- [ ] Prove drift, timeout, coalescing, races, cleanup, and source coverage.
+
+## Review
+Contract review passed. Targeted core: 51/51 tests; new migration, contract and readiness source at 100% lines/functions. Python supervisor 100/100, protected authority 4/4, SSH gate 28/28, SSH client 1/1, preview/RPC 19/19, receipt pipeline 2/2, management 6 unit + 1 real database. Scoped typecheck and Biome pass. Final independent implementation review and combined patch coverage remain pending. No live API, SSH, service or deployment actions performed.
+# Invite copy link, 2026-10-08 (isolated auth branch)
+
+- [x] Add a real-auth browser test that copies an admin invite and opens its signup page; verify it fails on the current code.
+- [x] Change the copied URL to the public signup route and update the component expectation.
+- [x] Run the focused browser, component, static, and build checks; inspect visual evidence.
+- [x] Review the narrow diff, record the result here, and commit it on the auth branch.
+
+Review: On the original e330 code, the browser test failed because the clipboard URL pointed to `/api/auth/invite/<token>`. With the fix, all five real-auth signup browser cases pass, including the copied-link journey to the actual signup form. The component suite passes 9/9, the E2E lane contract passes 22/22, the production build runs in the browser fixture, and Svelte reports 0 errors and 0 warnings. The captured signup form is visually sound. Solpreview independently reviewed the final source bytes and passed the fix.
+
+# Final gate fixture corrections, 2026-10-08
+
+- [x] Reproduce lifecycle and evidence catalog failures at ee839.
+- [x] Correct qualification transport fixture purpose and map actual invite evidence.
+- [x] Run focused tests and full typecheck; obtain independent review before commit.
+
+Review: Reproduced thirteen real broker lifecycle fixture failures and the missing signup evidence entry. Explicit qualification project purpose matches production fixture allocation. Lifecycle45/45, real user boundary34/34, evidence catalog7/7, full typecheck all four legs, scoped lint and diff checks pass. Readiness owner independently reviewed source; no production or gate policy changed.
+
+# Shared invite fixture correction, 2026-10-08
+
+- [x] Reproduce copied-invite failure with two real pending invites.
+- [x] Select the exact newly created invite row; retain clipboard and signup assertions.
+- [x] Prove RED/GREEN, run focused real browser cases and full typecheck.
+- [x] Obtain independent source review and commit test-only correction.
+
+Review: Actual two-invite RED reproduced the strict Copy Link ambiguity. All five real signup browser cases pass after exact email-row selection; full typecheck passes all four legs. Readiness owner independently reviewed the diff. Three network-affected browser cases also pass unchanged in a separate replay. Production source, locks, and the installed release bundle remain unchanged.
+
+## Hosted invite coverage follow-up
+- [x] Reproduce exact hosted missed declaration lines24/37 from saved LCOV; component9tests already green.
+- [x] Add real admin create/delete UI journey with durable API/reload checks.
+- [x] Run six real-auth browser cases; create/delete persisted checks pass.
+- [x] Run all four typecheck legs, 34 focused tests, build, Biome, and independent source review.
+
+Review: DELETE requires admin scope, exact origin (or scoped key), and a closed private-ID body; registry/docs include the method. The form uses the API email schema and denies blank/invalid-domain values. Focused route coverage is 32/32 lines; highest route CRAP is 7. Six real-auth cases pass. Full PR coverage is not claimed; successful visual attachment replay remains active.
+
+### Protected receipt SSH identity and retained guests — 8 October 2026
+
+- [x] Reproduce root SSH key rejection and prove that Bun child uid/gid options do not change credentials.
+- [x] Preserve root config/TLS reads and bind the protected supervisor service identity only to SSH children through fixed setpriv with cleared groups.
+- [x] Test real child identity, unchanged SSH arguments/input, malformed identity denial, no fallback, and the legacy receipt protocol.
+- [x] Permit existing guests during read-only admission while preserving strict empty-host setup and all host-control/capacity checks.
+- [x] Run the complete read-only receipt against the real server: original 33457 exited 0 in 5156 ms with empty stderr. No database or sandbox effect occurred.
+- [ ] Complete final combined local/hosted gates, deploy, and prove installed UI readiness, retained guests, restart, and cleanup.
+
+Review: normal focused identity/setup/receipt tests passed 40 tests and 450 assertions; two supplemental root-only tests were skipped in that nonroot run and passed separately as part of four root tests with 33 assertions. The binding has 10/10 measured lines, scoped CRAP 11; modified SSH callback CRAP 4. Standard quality globs exclude scripts/incus, so these explicit scores are reported separately. Retained-guest setup tests passed 36/36, admission tests 8/8, feature-service tests 19/19, and all typecheck legs passed. The actual server proof covers the empty-host read-only path; current installed admission and UI remain pending.
+
+### Admission complexity guard extraction — 8 October 2026
+
+- [x] Reproduce canonical approved() complexity failure with real final coverage.
+- [x] Extract connection-identity guard with identical order and errors.
+- [x] Run focused real-service coverage, canonical scorer, full typecheck, and Biome.
+- [x] Obtain independent review and commit with normal hooks.
+
+Review: Baseline canonical approved() score 31 at 100% line coverage. Pure connection guard extraction preserves its exact condition, error, and call order. Fresh service coverage: approved() score 25, new assertApprovedConnection score 7, both 100%; 62 service functions scored, zero violations. Feature tests 19/19 (234 assertions), readiness tests 8/8 (51 assertions), all typecheck legs and full Biome passed. Independent review and normal commit hooks passed. The committed canonical changed-function check scores both functions at 100% with zero violations. No full gate was run in this isolated repair.
+
+### Invite DELETE coverage producer — 8 October 2026
+
+- [x] Reproduce missing collection-route coverage in the canonical V8 filter.
+- [x] Retain existing route tests and add the collection route to the V8 include manifest.
+- [x] Verify fresh coverage, merged missing-line hits, scoped CRAP, web check, and repository lint.
+- [x] Obtain independent review and commit.
+
+Review: existing request-boundary tests pass 25/25, with 32/32 executable lines and 22/22 branches covered. The canonical filter removed this route because only the token route matched the manifest. The added include retains collection coverage. Fresh filtered coverage merged with the previous full-gate route covers all reported misses; DELETE CRAP is 7 at 100% coverage. Web check has zero errors and warnings; Biome passes 5006 files. No source, test, threshold, exclusion, or timeout changes. The coverage manifest requires CODEOWNER review in the PR. A new full gate was not run in this isolated repair.
+
+## 2026-10-08 Mounted runtime admission fix
+
+- [x] Reproduce authority startup failure in a real bind mount namespace.
+- [x] Keep strict staging checks; add explicit bound runtime contract.
+- [x] Test actual supervisor startup and app privilege drop with valid and invalid mounts.
+- [x] Run focused checks and send frozen diff for independent review.
+- [x] Apply review fixes, commit, and report evidence.
+
+Review: independent reviewer approved frozen v3 diff `e42561f33758a6dedd9d60ae76d397b52e3d4f94a443b56693397e1d9b484908`. Actual mounted supervisor startup passed on NixOS and Ubuntu 24.04, including UID/GID 62040 child launch and mount drift denial. Pinned Bun wrapper: 6 passed, 0 failed; stage suite: 17 passed; authority suite: 5 passed. Changed executable Python coverage: 43/43; maximum touched production function CRAP: 11. Python compilation, wrapper build, Biome, and diff checks passed. No live service or host root changes.
+
+## Readiness request budget — isolated Sol6.1 source freeze
+
+- [x] Reproduce the complete managed Bun client and supervisor socket path before the fix.
+- [x] Keep original failed receipts and state that they do not prove the earlier live failure's cause.
+- [x] Preserve a safe readiness code and finite internal failure reason through capture and preparation.
+- [x] Keep both full scans, runtime identity, twelve-second client timeout and fifteen-second proof lifetime.
+- [x] Add the total success deadline and guarantee readback cleanup after a timeout race.
+- [x] Remove duplicate per-entry metadata reads; preserve enumeration limits and reject duplicate paths.
+- [x] Check current source with focused tests, fresh coverage, canonical host complexity, types and Svelte checks.
+- [ ] Obtain final independent review and make the ordinary commit.
+
+Review: the protected installed-tree benchmark measured the exact prior scanner
+candidate at about 20% faster. The final authority adds only enumeration-count
+and duplicate-path guards. This measurement does not promise that every readback
+within its component limit can finish before the total deadline. The slow refusal
+fixture remains unchanged. The positive control uses real fixture scans to avoid
+a narrow scheduling margin. Future deployment, qualification and browser-lane
+results remain separate from this source proof.
+
+
+# Qualification continuation database wait
+
+- [x] Read the frozen source and saved failure evidence only.
+- [x] Find the transaction → baseline → base-database authorization path.
+- [x] Reproduce real recordVerified + recordBaseline + authorization on PGlite in a bounded child.
+- [x] Prove an unrelated database/HTTP read is blocked by the same transaction.
+- [x] Propagate the same transaction through all authorization dependencies.
+- [x] Verify current scope, grants, generation, settings and rollback on both database drivers.
+- [ ] Obtain independent review, then commit with normal hooks.
+
+Scope: This worktree starts at5e1ccb. No installed source, services, API, SSH or live database handles. Original RED output must remain unchanged. Root owns live recovery.
+
+Review: the original5e PGlite consumer blocks in baseline authorization and
+starves an unrelated HTTP database query. Interrupting the bounded child rolls
+back both terminal writes and leaves the run CLAIMED. The fix forwards the exact
+transaction through release, connection and image authorization. Ordinary release
+reads keep their original undefined transaction context.
+
+The real PostgreSQL max1 consumer also exposed JSONB double encoding. The
+existing text-to-JSONB cast now covers the actual capture, baseline, qualification
+and restart checkpoint path. Legacy malformed string rows fail closed. No data
+migration or compatibility relaxation is included. Both real drivers pass actual
+checkpoint begin in an exited child, signed claim, replay denial, all-default
+runtime authorization, six uncommitted authority drift denials with rollback,
+terminal commit and stored-object round trips. The PostgreSQL container was
+stopped after the test; no installed or live services changed.
+
+Focused tests:63 passed. Biome: passed. Backend and web types: passed. The first
+test type check found a dynamic-import annotation error; the corrected test-only
+annotation passes the fresh test type check. Canonical changed production
+coverage:23/23 executable lines;14 touched functions; maximum CRAP24. The full
+focused coverage run and the separately instrumented real PGlite worker are both
+preserved. Original RED and all failed fixture receipts remain unchanged in
+.cache/continuation-db-*.

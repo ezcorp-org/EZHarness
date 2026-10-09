@@ -578,6 +578,8 @@ jobs:
             bash scripts/collect-browser-route-coverage-lane.sh fresh-setup
       - name: Run real-auth journeys with browser coverage
         shell: bash
+        env:
+          EZCORP_E2E_GITHUB_SOURCE_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST

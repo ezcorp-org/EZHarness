@@ -144,7 +144,7 @@ describe("Seam: login cookie → /api/conversations", () => {
     expect((locals as { user?: { email: string } }).user?.email).toBe(TEST_EMAIL);
 
     // Step 3 — create a project to hang the conversation off of
-    const project = await createProject({ name: "Seam 1", path: "/tmp/seam-1" });
+    const project = await createProject({ name: "Seam 1", path: "/tmp/seam-1" }, loginBody.user.id);
 
     // Step 4 — call the real conversations POST handler with the locals
     //          derived purely from the login cookie

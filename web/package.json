@@ -5,7 +5,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite dev",
-		"build": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build",
+		"build": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun x --bun vite build",
 		"preview": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview",
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsgo --tsconfig ./tsconfig.json",
@@ -64,5 +64,8 @@
 		"cookie": "0.7.2",
 		"qs": "6.16.0",
 		"sharp": "0.35.5"
+	},
+	"patchedDependencies": {
+		"@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
 	}
 }

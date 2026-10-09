@@ -79,7 +79,7 @@ describe("InvitesSection create", () => {
 
 		await waitFor(() => expect(getByText("No pending invites.")).toBeInTheDocument());
 
-		await fireEvent.input(getByLabelText("Email (optional)"), {
+		await fireEvent.input(getByLabelText("Email (required)"), {
 			target: { value: "new@example.com" },
 		});
 		await fireEvent.change(getByLabelText("Role"), { target: { value: "admin" } });
@@ -96,17 +96,19 @@ describe("InvitesSection create", () => {
 		await waitFor(() => expect(getByText("new@example.com")).toBeInTheDocument());
 	});
 
-	test("omits email from the POST body when left blank", async () => {
+	test("blank and invalid required email cannot create an invite", async () => {
 		stubFetch(() => []);
-		const { getByText } = render(InvitesSection);
+		const { getByText, getByLabelText } = render(InvitesSection);
 		await waitFor(() => expect(getByText("No pending invites.")).toBeInTheDocument());
-
-		await fireEvent.click(getByText("Create Invite"));
-
-		await waitFor(() => {
-			const post = fetchCalls.find((c) => c.method === "POST");
-			expect(post!.body).toEqual({ role: "member" });
-		});
+		const button = getByText("Create Invite");
+		expect(button).toBeDisabled();
+		await fireEvent.click(button);
+		await fireEvent.input(getByLabelText("Email (required)"), { target: { value: "invalid" } });
+		expect(button).toBeDisabled();
+		await fireEvent.input(getByLabelText("Email (required)"), { target: { value: "a@b" } });
+		expect(button).toBeDisabled();
+		expect(getByText("Enter a valid email address to create an invite.")).toBeVisible();
+		expect(fetchCalls.some(call => call.method === "POST")).toBe(false);
 	});
 });
 
@@ -121,7 +123,7 @@ describe("InvitesSection copy link", () => {
 		expect(getByText("alice@example.com")).toBeInTheDocument();
 
 		await fireEvent.click(getByText("Copy Link"));
-		expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/api/auth/invite/tok-xyz`);
+		expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/signup/tok-xyz`);
 		expect(getByText("Copied!")).toBeInTheDocument();
 
 		await vi.advanceTimersByTimeAsync(2000);
@@ -142,7 +144,8 @@ describe("InvitesSection delete", () => {
 		await waitFor(() => {
 			const del = fetchCalls.find((c) => c.method === "DELETE");
 			expect(del).toBeTruthy();
-			expect(del!.url).toContain("/api/auth/invite/inv-9");
+			expect(del!.url).toBe("/api/auth/invite");
+			expect(del!.body).toEqual({ id: "inv-9" });
 		});
 		await waitFor(() => expect(queryByText("alice@example.com")).not.toBeInTheDocument());
 		// Refetch happened: two GETs (mount + post-delete).

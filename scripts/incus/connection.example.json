@@ -1,0 +1,6 @@
+{
+  "sshTarget": "dev@sandbox-server.taile1c5b0.ts.net",
+  "sshIdentityFile": "/home/dev/.ssh/id_ed25519_personal",
+  "sshKnownHostsFile": "/home/dev/.ssh/known_hosts",
+  "sshHostKeySha256": "SHA256:a3VHX02pT5agIluq6K12E9oCuTg09ErbQ5wK9Vvk8Co"
+}

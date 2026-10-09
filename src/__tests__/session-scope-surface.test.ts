@@ -40,17 +40,16 @@
  * that stopped calling the session half fails here instead of silently
  * widening what this suite accepts.
  *
- * ── The one route that reaches the gate and must NOT declare the scope ──
+ * ── Routes that reach a gate but must NOT declare the scope ───────────
  * `POST /api/hub/pages/[id]/actions/[action]` calls `requireSessionAuth`
  * CONDITIONALLY — only for an action the provider lists in `sessionOnlyActions`
  * (today: the workflow-approvals `answer`). The route as a whole is `chat`-
  * scoped and an API key is MEANT to drive it, so declaring `"session"` there
  * would be the first failure above wearing the second's clothes: a false claim
- * that no key can call a route keys call every day. It is carved out by name in
- * {@link CONDITIONALLY_SESSION_GATED}, and the carve-out is itself asserted —
- * the conditional must still be in the file, and the entry must still declare a
- * key scope. Make that gate unconditional and this suite fails until the entry
- * is re-declared.
+ * that no key can call a route keys call every day. The Incus project GET
+ * likewise calls `requireAdminSession` only to compute `canManage` after
+ * read-scope and project-member checks. Both are carved out by name in
+ * {@link CONDITIONALLY_SESSION_GATED}, and their conditional use is asserted.
  *
  * ── The one shape this walk cannot see ────────────────────────────────
  * A verb bound by REFERENCE — `export const PUT = withGuard(handler)` — names
@@ -63,6 +62,7 @@
 import { test, expect, describe } from "bun:test";
 import { Glob } from "bun";
 import { join } from "node:path";
+import ts from "typescript";
 import { apiRegistry } from "../api-registry";
 import { API_KEY_SCOPES, SESSION_ROUTE_SCOPE, isApiKeyScope } from "../auth/api-key";
 import { ROUTE_BUNDLES, routeIdToRegistryPath } from "../auth/tool-policy";
@@ -94,16 +94,17 @@ const SESSION_GATE_PRIMITIVES = [
 ] as const;
 
 /**
- * The verb that reaches a session gate on SOME requests only, and so is
+ * Verbs that reach a session gate on SOME requests only, and so are
  * correctly registered with a KEY scope.
  *
- * One entry, and the assertions below hold it to that: the file must still
- * contain the `sessionOnlyActions` conditional, and the registry entry must
- * still declare a real key scope. This is the only sanctioned way to reach a
- * session gate without declaring the session scope.
+ * The hub action checks `sessionOnlyActions` for only selected actions. The
+ * Incus project read uses admin session authority only for its `canManage`
+ * field; the read itself accepts an ordinary read scope. Both exceptions are
+ * pinned below to the exact conditional use, not exempted by name alone.
  */
 const CONDITIONALLY_SESSION_GATED: readonly string[] = [
   "POST /api/hub/pages/:id/actions/:action",
+  "GET /api/projects/:id/incus-feature",
 ];
 
 /**
@@ -197,19 +198,16 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
   test("the two sets are EQUAL, not merely overlapping", () => {
     // The equality both tests above imply, asserted once as a set so neither
     // can be satisfied by an empty filter. `CONDITIONALLY_SESSION_GATED` is the
-    // only difference between them, and it is pinned below.
+    // only difference between them, and each use is pinned below.
     expect(derived.filter((k) => !CONDITIONALLY_SESSION_GATED.includes(k))).toEqual(
       declaredSessionOnly,
     );
   });
 
   test("the conditional carve-out is REAL and stays a carve-out", async () => {
-    // The exemption is not a licence: it is an assertion about one file. The
-    // gate must still sit behind `sessionOnlyActions` (make it unconditional
-    // and the route becomes session-only, so the equality above must be
-    // re-derived), and the entry must still declare a scope a key can actually
-    // hold — because a key IS meant to drive this route.
-    expect(CONDITIONALLY_SESSION_GATED).toHaveLength(1);
+    // The exemptions are assertions about specific conditional uses. Both
+    // entries must still declare a scope that a key can hold.
+    expect(CONDITIONALLY_SESSION_GATED).toHaveLength(2);
     for (const key of CONDITIONALLY_SESSION_GATED) {
       expect({ key, gated: derived.includes(key) }).toEqual({ key, gated: true });
       const scope = scopeOf(key);
@@ -230,6 +228,45 @@ describe("scope: \"session\" ⇄ requireSessionAuth — both directions, derived
       rel,
       conditional: hubActions.includes("provider.sessionOnlyActions?.includes(actionName)"),
     }).toEqual({ rel, conditional: true });
+  });
+
+  test("the Incus project read uses admin session only for its management flag", async () => {
+    const path = join(ROUTES_ROOT, "projects/[id]/incus-feature/+server.ts");
+    const source = ts.createSourceFile(path, await Bun.file(path).text(), ts.ScriptTarget.Latest, true);
+    const declaration = source.statements
+      .filter(ts.isVariableStatement)
+      .flatMap((statement) => [...statement.declarationList.declarations])
+      .find((item) => ts.isIdentifier(item.name) && item.name.text === "GET");
+    expect(declaration?.initializer && ts.isArrowFunction(declaration.initializer)).toBe(true);
+    const handler = declaration!.initializer!;
+    const calls: ts.CallExpression[] = [];
+    const visit = (node: ts.Node): void => {
+      if (ts.isCallExpression(node)) calls.push(node);
+      ts.forEachChild(node, visit);
+    };
+    visit(handler);
+    const named = (name: string) => calls.filter((call) =>
+      ts.isIdentifier(call.expression) && call.expression.text === name);
+    const scopeCalls = named("requireScope");
+    const memberCalls = named("checkProjectRole");
+    const adminCalls = named("requireAdminSession");
+    expect(scopeCalls).toHaveLength(1);
+    expect(scopeCalls[0]?.arguments.map((arg) => arg.getText(source))).toEqual(["locals", '"read"']);
+    expect(memberCalls).toHaveLength(1);
+    expect(adminCalls).toHaveLength(1);
+    expect(scopeCalls[0]!.getStart(source)).toBeLessThan(memberCalls[0]!.getStart(source));
+    expect(memberCalls[0]!.getStart(source)).toBeLessThan(adminCalls[0]!.getStart(source));
+    const comparison = adminCalls[0]!.parent;
+    expect(ts.isBinaryExpression(comparison) &&
+      comparison.operatorToken.kind === ts.SyntaxKind.InstanceOfKeyword &&
+      comparison.right.getText(source) === "Response").toBe(true);
+    const negation = ts.isParenthesizedExpression(comparison.parent)
+      ? comparison.parent.parent : comparison.parent;
+    expect(ts.isPrefixUnaryExpression(negation) &&
+      negation.operator === ts.SyntaxKind.ExclamationToken).toBe(true);
+    const field = negation.parent;
+    expect(ts.isPropertyAssignment(field) && field.name.getText(source) === "canManage").toBe(true);
+    expect(scopeOf("GET /api/projects/:id/incus-feature")).toBe("read");
   });
 
   test("the cross-file hop is real — requireAdminSession IS a session gate", async () => {

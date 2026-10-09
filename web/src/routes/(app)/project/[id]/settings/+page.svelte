@@ -90,6 +90,9 @@
 	let project = $derived(store.projects.find((p) => p.id === projectId));
 	let workspaceKind = $state<WorkspaceKind | "loading">("loading");
 	let workspaceError = $state("");
+	let incusCanManage = $state(false);
+	let incusPresetId = $state<string | null>(null);
+	let incusObservedState = $state("");
 	let workspaceRequest = 0;
 	let sandbox = $derived(workspaceKind === "sandbox");
 	let workspaceResolved = $derived(workspaceKind === "local" || workspaceKind === "sandbox");
@@ -97,10 +100,16 @@
 	async function loadWorkspaceKind(id: string, path: string) {
 		const request = ++workspaceRequest;
 		workspaceError = "";
-		workspaceKind = "loading";
-		const resolution = await resolveWorkspaceBinding(id, path);
+	workspaceKind = "loading";
+	incusCanManage = false;
+	incusPresetId = null;
+	incusObservedState = "";
+	const resolution = await resolveWorkspaceBinding(id, path);
 		if (request !== workspaceRequest) return;
-		workspaceKind = resolution.kind;
+	workspaceKind = resolution.kind;
+	incusCanManage = resolution.kind === "incus" && resolution.canManage === true;
+	incusPresetId = resolution.kind === "incus" ? resolution.presetId ?? null : null;
+	incusObservedState = resolution.kind === "incus" ? resolution.observedState ?? "" : "";
 		workspaceError = resolution.error ?? "";
 	}
 
@@ -151,6 +160,17 @@
 			<p class="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">{workspaceError}</p>
 		{:else if workspaceResolved}
 			<ProjectSandboxPanel projectId={project.id} {sandbox} />
+		{:else if workspaceKind === "incus"}
+			<section class="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-secondary)] p-6" data-testid="incus-project-settings">
+				<h3 class="text-lg font-semibold text-[var(--color-text-primary)]">Incus sandbox</h3>
+				<p class="mt-1 text-sm text-[var(--color-text-secondary)]">This project uses an Incus workspace. Its resources and lifecycle are managed with the approved environment.</p>
+				<p class="mt-2 text-sm text-[var(--color-text-secondary)]">Preset: {incusPresetId ?? "Legacy binding"} · Last observed state: {incusObservedState}</p>
+				{#if incusCanManage}
+					<a class="mt-4 inline-block rounded-md border border-[var(--color-border)] px-3 py-1.5 text-sm" href="/extensions/incus-management">Manage Incus sandbox</a>
+				{:else}
+					<p class="mt-3 text-sm text-[var(--color-text-secondary)]">Ask an administrator to manage this sandbox.</p>
+				{/if}
+			</section>
 		{/if}
 		{#if workspaceResolved && !sandbox}
 			<!-- Feature Index -->

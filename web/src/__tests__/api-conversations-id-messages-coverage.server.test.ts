@@ -51,6 +51,17 @@
 import { test, expect, describe, vi, beforeEach } from "vitest";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
+vi.mock("$server/runtime/workspaces/project-target", () => ({
+  resolveProjectWorkspaceTarget: async (project: { path: string | null }) => {
+    if (!project.path) throw new Error("Project path is unavailable");
+    return { kind: "local", root: project.path };
+  },
+}));
+
 // ── Mock surface ────────────────────────────────────────────────────
 
 const getConversation = vi.fn();
@@ -227,7 +238,10 @@ beforeEach(() => {
     }),
   );
   vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
-  streamChat.mockReturnValue({ catch: (_cb: any) => Promise.resolve() } as any);
+  streamChat.mockImplementation((_conversationId: string, _content: string, options: { runId: string; onRunRegistered?: () => void }) => {
+    options.onRunRegistered?.();
+    return Promise.resolve({ id: options.runId });
+  });
 
   // Attachment-pipeline defaults — most tests don't ship files so these
   // only matter when a test opts into multipart.
@@ -406,12 +420,23 @@ describe("POST — attachments: file count + project + validator + persist", () 
     expect(body.code).toBe("TOO_MANY_FILES");
   });
 
-  test("project path missing → 500", async () => {
+  test("project path missing → workspace unavailable", async () => {
     getProject.mockResolvedValue({ id: "p1", path: null });
     const res = await POST(makeMultipartEvent({ form: makeMultipartWithFile("hi") }));
-    expect(res.status).toBe(500);
+    expect(res.status).toBe(503);
     const body = (await res.json()) as { error?: string };
-    expect(body.error).toContain("Project path not resolvable");
+    expect(body.error).toContain("Sandbox workspace is unavailable");
+  });
+
+  test("missing project row refuses attachment storage before any file write", async () => {
+    getProject.mockResolvedValue(null);
+    const res = await POST(makeMultipartEvent({ form: makeMultipartWithFile("hi") }));
+    expect(res.status).toBe(500);
+    expect((await res.json()) as { error?: string }).toMatchObject({
+      error: "Project path not resolvable for attachment storage",
+    });
+    expect(writeAttachment).not.toHaveBeenCalled();
+    expect(insertAttachment).not.toHaveBeenCalled();
   });
 
   test("validateAttachment rejects TOO_LARGE → 413", async () => {
@@ -583,10 +608,9 @@ describe("POST — EZ Actions", () => {
 // ── POST handler — streamPromise.catch logs error without throwing ──
 
 describe("POST — streamChat rejection is logged via streamPromise.catch", () => {
-  test("rejected streamChat doesn't crash the response", async () => {
+  test("rejected streamChat fails admission without returning a run ID", async () => {
     // streamChat returns a rejected promise — the route attaches a
-    // `.catch` handler that just logs. The HTTP response still returns
-    // 200 because the route doesn't await the stream completion.
+    // `.catch` handler that logs; before registration, the response is 503.
     let rejected: Promise<unknown>;
     streamChat.mockImplementation(() => {
       rejected = Promise.reject(new Error("stream boom"));
@@ -600,7 +624,7 @@ describe("POST — streamChat rejection is logged via streamPromise.catch", () =
     const res = await POST(
       makeJsonPostEvent({ body: { content: "hi" } }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(streamChat).toHaveBeenCalledTimes(1);
     // Wait one microtask so the route's `.catch` handler runs and the
     // log line is emitted — proves the catch arm executed at least once

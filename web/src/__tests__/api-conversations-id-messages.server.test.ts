@@ -12,7 +12,10 @@
  * modules are off-limits.
  */
 
-import { test, expect, describe, vi, beforeEach } from "vitest";
+import { test, expect, describe, vi, beforeEach, afterEach } from "vitest";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 const getConversation = vi.fn();
@@ -26,9 +29,19 @@ const updateConversation = vi.fn();
 const insertAttachment = vi.fn();
 const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
-const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
+const registeredStream = (...args: unknown[]) => {
+  const options = args[2] as { runId?: string; onRunRegistered?: () => void };
+  options.onRunRegistered?.();
+  return Promise.resolve({ id: options.runId });
+};
+const streamChat = vi.fn(registeredStream);
+const visibleRuns = new Map<string, { id: string; status: string }>();
 const checkTokenBudget = vi.fn();
 const cloneAttachmentsForFork = vi.fn();
+
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
@@ -50,8 +63,22 @@ vi.mock("$server/db/queries/projects", () => ({
   getProject,
 }));
 
+vi.mock("$server/runtime/workspaces/project-target", () => ({
+  resolveProjectWorkspaceTarget: async (project: { path: string | null; sandboxTarget?: unknown; stopped?: boolean }) => {
+    if (project.stopped) throw new Error("Sandbox workspace is unavailable");
+    if (project.sandboxTarget) return project.sandboxTarget;
+    if (!project.path) throw new Error("Project path is unavailable");
+    return { kind: "local", root: project.path };
+  },
+}));
+
 vi.mock("$lib/server/context", () => ({
-  getExecutor: () => ({ streamChat }),
+  getExecutor: () => ({
+    streamChat,
+    getRun: async (id: string) => visibleRuns.get(id),
+    getRunOwnership: async () => ({ userId: "u1", conversationId: "c1" }),
+  }),
+  getBus: () => ({ on: () => () => {} }),
   getGoalHost: () => null,
 }));
 
@@ -84,6 +111,7 @@ vi.mock("$server/chat/attachments/clone", () => ({
 const { GET, POST } = await import(
   "../routes/api/conversations/[id]/messages/+server.ts"
 );
+const { GET: GET_RUN } = await import("../routes/api/runs/[id]/+server.ts");
 
 function makeEvent(opts: {
   method?: string;
@@ -111,6 +139,8 @@ function makeEvent(opts: {
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+
+afterEach(() => getProject.mockReset());
 
 describe("GET /api/conversations/[id]/messages", () => {
   beforeEach(() => {
@@ -157,13 +187,26 @@ describe("GET /api/conversations/[id]/messages", () => {
 
 describe("POST /api/conversations/[id]/messages", () => {
   beforeEach(() => {
+    visibleRuns.clear();
     getConversation.mockReset();
     createMessage.mockReset();
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
     streamChat.mockReset();
-    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+    streamChat.mockImplementation(registeredStream);
   });
+
+  for (const projectId of ["00000000-0000-4000-8000-000000000001", `incus-project-${"a".repeat(48)}`]) {
+    test(`refuses an owned old conversation without current membership in ${projectId}`, async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: user.id, projectId });
+      getProjectMembership.mockResolvedValueOnce(undefined as any);
+      const result = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read project files" } }));
+      expect(result.status).toBe(403);
+      expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+      expect(createMessage).not.toHaveBeenCalled();
+      expect(streamChat).not.toHaveBeenCalled();
+    });
+  }
 
   test("rejects 401 when unauthenticated", async () => {
     let res: Response | undefined;
@@ -248,6 +291,212 @@ describe("POST /api/conversations/[id]/messages", () => {
     expect(body.userMessage.id).toBe("m1");
     expect(typeof body.runId).toBe("string");
   });
+
+  test("a returned run ID is immediately visible after delayed workspace admission", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    let releaseWorkspace!: () => void;
+    const workspace = new Promise<void>((resolve) => { releaseWorkspace = resolve; });
+    let enteredStream!: () => void;
+    const entered = new Promise<void>((resolve) => { enteredStream = resolve; });
+    streamChat.mockImplementation(async (...args: unknown[]) => {
+      const options = args[2] as { runId: string; onRunRegistered?: () => void };
+      enteredStream();
+      await workspace;
+      const run = { id: options.runId as string, status: "success" };
+      visibleRuns.set(run.id, run);
+      options.onRunRegistered?.();
+      return run;
+    });
+
+    const post = Promise.resolve(POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } })));
+    let postSettled = false;
+    void post.then(() => { postSettled = true; });
+    try {
+      await entered;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(postSettled).toBe(false);
+    } finally {
+      releaseWorkspace();
+    }
+    const response = await post;
+    expect(response.status).toBe(200);
+    const body = await response.json() as { runId: string };
+    const get = await GET_RUN({
+      params: { id: body.runId },
+      url: new URL(`http://localhost/api/runs/${body.runId}?wait=1`),
+      locals: { user },
+      request: { signal: new AbortController().signal },
+    } as any);
+    expect(get.status).toBe(200);
+  });
+
+  for (const setupFailure of ["workspace admission", "durable run insertion"]) {
+    test(`does not return an unusable run ID when ${setupFailure} fails`, async () => {
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+      createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+      streamChat.mockRejectedValueOnce(new Error(`${setupFailure} failed`));
+
+      const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }));
+
+      expect(response.status).toBe(503);
+      expect(JSON.stringify(await response.json())).not.toContain("runId");
+      expect(visibleRuns.size).toBe(0);
+    });
+  }
+
+  test("accepts a retry on the same conversation after durable insertion fails", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    streamChat.mockImplementation((...args: unknown[]) => {
+      const options = args[2] as { runId: string };
+      visibleRuns.set(options.runId, { id: options.runId, status: "success" });
+      return registeredStream(...args);
+    });
+    streamChat.mockRejectedValueOnce(new Error("durable run insertion failed"));
+
+    const first = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }));
+    expect(first.status).toBe(503);
+    expect(JSON.stringify(await first.json())).not.toContain("runId");
+
+    const retry = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "retry" } }));
+    const { runId } = await retry.json() as { runId: string };
+    expect(retry.status).toBe(200);
+    const get = await GET_RUN({
+      params: { id: runId },
+      url: new URL(`http://localhost/api/runs/${runId}?wait=1`),
+      locals: { user },
+      request: { signal: new AbortController().signal },
+    } as any);
+    expect(get.status).toBe(200);
+  });
+
+  test("rejects a stream that finishes without registering its run", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    streamChat.mockResolvedValueOnce({ id: "unused" });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }));
+
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(await response.json())).not.toContain("runId");
+  });
+
+  test("returns after registration while stream completion remains in the background", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    let finish!: () => void;
+    const completion = new Promise<void>((resolve) => { finish = resolve; });
+    let completed = false;
+    streamChat.mockImplementation(async (...args: unknown[]) => {
+      const options = args[2] as { runId: string; onRunRegistered?: () => void };
+      const run = { id: options.runId, status: "running" };
+      visibleRuns.set(run.id, run);
+      options.onRunRegistered?.();
+      await completion;
+      completed = true;
+      return run;
+    });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }));
+    const { runId } = await response.json() as { runId: string };
+    expect(response.status).toBe(200);
+    expect(completed).toBe(false);
+    const get = await GET_RUN({
+      params: { id: runId },
+      url: new URL(`http://localhost/api/runs/${runId}`),
+      locals: { user },
+      request: { signal: new AbortController().signal },
+    } as any);
+    expect(get.status).toBe(200);
+    finish();
+    await completion;
+  });
+
+  test("keeps the accepted response when execution fails after registration", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: null });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "hi" });
+    let failExecution!: (error: Error) => void;
+    const completion = new Promise<never>((_resolve, reject) => { failExecution = reject; });
+    streamChat.mockImplementation((...args: unknown[]) => {
+      const options = args[2] as { runId: string; onRunRegistered?: () => void };
+      visibleRuns.set(options.runId, { id: options.runId, status: "running" });
+      options.onRunRegistered?.();
+      return completion;
+    });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "hi" } }));
+    const { runId } = await response.json() as { runId: string };
+    expect(response.status).toBe(200);
+    expect(visibleRuns.has(runId)).toBe(true);
+    failExecution(new Error("execution failed after registration"));
+    await expect(completion).rejects.toThrow("execution failed after registration");
+  });
+
+  test("running Incus project starts chat with its guest target, never its inert host path", async () => {
+    const sandboxTarget = { kind: "sandbox", binding: { projectId: "p1", workspaceId: "guest-1" }, backend: {} };
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1", provider: "openai", model: "gpt-4" });
+    getProject.mockResolvedValue({ id: "p1", path: "/__incus_workspace__/guest-1", sandboxTarget });
+    createMessage.mockResolvedValue({ id: "m1", role: "user", content: "Read README.md" });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md", workspacePrincipal: { userId: "forged-admin" } } }));
+
+    expect(response.status).toBe(200);
+    expect(streamChat).toHaveBeenCalledWith("c1", "Read README.md", expect.objectContaining({
+      projectId: "p1",
+      workspaceTarget: sandboxTarget,
+      workspacePrincipal: { userId: user.id },
+    }));
+  });
+
+  test("chat native read, edit, grep, and shell stay on the bound guest", async () => {
+    const hostRoot = await mkdtemp(join(tmpdir(), "incus-chat-host-canary-"));
+    try {
+      await writeFile(join(hostRoot, "README.md"), "AMD_HOST_CANARY");
+      const binding = { projectId: "p1", workspaceId: "guest-1", connectionId: "connection-1", providerId: "incus", generation: 1, presetId: "feature", releaseDigest: "a", presetDigest: "b", effectiveSettingsDigest: "c" };
+      const backend = { execute: vi.fn(async ({ toolName }: { toolName: string; binding: typeof binding }) => ({
+        content: [{ type: "text" as const, text: `GUEST_${toolName}` }], details: {},
+      })) };
+      const sandboxTarget = { kind: "sandbox" as const, binding, backend };
+      getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1", provider: "openai", model: "gpt-4" });
+      getProject.mockResolvedValue({ id: "p1", path: hostRoot, sandboxTarget });
+      createMessage.mockResolvedValue({ id: "m1", role: "user", content: "Use the project tools" });
+      const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Use the project tools" } }));
+      expect(response.status).toBe(200);
+      const options = (streamChat.mock.calls[0] as unknown as [string, string, { workspaceTarget: typeof sandboxTarget }])[2];
+      expect(options.workspaceTarget).toBe(sandboxTarget);
+      vi.stubGlobal("Bun", { which: () => null });
+      const { getBuiltinToolDefs } = await import("$server/runtime/tools");
+      const tools = new Map(getBuiltinToolDefs(options.workspaceTarget).map(tool => [tool.name, tool]));
+      const calls = [
+        ["readFile", { path: "README.md" }],
+        ["editFile", { path: "README.md", old_string: "guest", new_string: "edited" }],
+        ["grep", { path: ".", pattern: "guest" }],
+        ["shell", { command: "pwd" }],
+      ] as const;
+      const results = await Promise.all(calls.map(async ([name, params]) => {
+        const result = await tools.get(name)!.execute(name, params);
+        return result.content.map(item => item.type === "text" ? item.text : "").join("");
+      }));
+      expect(results).toEqual(["GUEST_readFile", "GUEST_editFile", "GUEST_grep", "GUEST_shell"]);
+      expect(backend.execute.mock.calls.map(([request]) => request.binding)).toEqual([binding, binding, binding, binding]);
+      expect(backend.execute.mock.calls.map(([request]) => request.toolName)).toEqual(["readFile", "editFile", "grep", "shell"]);
+    } finally {
+      vi.unstubAllGlobals();
+      await rm(hostRoot, { recursive: true, force: true });
+    }
+  });
+
+  test("stopped Incus project fails before message persistence or chat", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1", projectId: "p1" });
+    getProject.mockResolvedValue({ id: "p1", path: "/__incus_workspace__/guest-1", stopped: true });
+
+    const response = await POST(makeEvent({ method: "POST", locals: { user }, body: { content: "Read README.md" } }));
+
+    expect(response.status).toBe(503);
+    expect(createMessage).not.toHaveBeenCalled();
+    expect(streamChat).not.toHaveBeenCalled();
+  });
 });
 
 describe("POST /api/conversations/[id]/messages — parent resolution", () => {
@@ -269,7 +518,7 @@ describe("POST /api/conversations/[id]/messages — parent resolution", () => {
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
     streamChat.mockReset();
-    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+    streamChat.mockImplementation(registeredStream);
   });
 
   test("no explicit parent + not an edit → anchors to the latest real leaf", async () => {
@@ -366,8 +615,7 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
     streamChat.mockReset();
-    // Real resolved promise — the route-once path chains `.then` on it.
-    streamChat.mockReturnValue(Promise.resolve({ id: "run-x" }) as any);
+    streamChat.mockImplementation(registeredStream);
   });
 
   test("explicit `model: null` bypasses the conv.model fallback → routing fires", async () => {
@@ -418,6 +666,7 @@ describe("POST /api/conversations/[id]/messages — Auto sentinel + route-once",
     let seenRunId: string | undefined;
     streamChat.mockImplementation(((_conv: string, _content: string, opts: { runId?: string }) => {
       seenRunId = opts.runId;
+      (opts as { onRunRegistered?: () => void }).onRunRegistered?.();
       return Promise.resolve({ id: opts.runId });
     }) as any);
     getMessages.mockImplementation(async () => [
@@ -526,7 +775,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
     streamChat.mockReset();
-    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+    streamChat.mockImplementation(registeredStream);
   });
 
   test("editOf a USER row copies the source attachments onto the forked row", async () => {
@@ -550,7 +799,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     // Cloned from the edited USER row onto the freshly-created fork.
     expect(cloneAttachmentsForFork).toHaveBeenCalledTimes(1);
     expect(cloneAttachmentsForFork).toHaveBeenCalledWith({
-      projectRoot: "/proj",
+      workspaceTarget: { kind: "local", root: "/proj" },
       conversationId: "c1",
       sourceMessageId: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
       targetMessageId: "m-new",
@@ -613,7 +862,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
     expect(body.attachments).toEqual([]);
   });
 
-  test("missing project path degrades — no clone, turn still succeeds", async () => {
+  test("missing project path denies the turn before a local tool can run", async () => {
     getMessages.mockResolvedValue([
       { id: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa", role: "user", parentMessageId: null },
     ]);
@@ -626,7 +875,7 @@ describe("POST /api/conversations/[id]/messages — fork attachment inheritance"
         body: { content: "hi", editOf: "a1a1a1a1-aaaa-4aaa-8aaa-aaaaaaaaaaaa" },
       }),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(503);
     expect(cloneAttachmentsForFork).not.toHaveBeenCalled();
   });
 
@@ -700,7 +949,7 @@ describe("POST … messages — per-API-key tool policy", () => {
     vi.mocked(checkTokenBudget).mockReset();
     vi.mocked(checkTokenBudget).mockResolvedValue({ allowed: true } as any);
     streamChat.mockReset();
-    streamChat.mockReturnValue({ catch: () => Promise.resolve() } as any);
+    streamChat.mockImplementation(registeredStream);
   });
 
   const send = (locals: Record<string, unknown>, content = "hi") =>

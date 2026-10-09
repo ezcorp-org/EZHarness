@@ -65,7 +65,7 @@ vi.mock("$server/db/queries/settings", () => ({
   getSetting: vi.fn(async () => undefined),
 }));
 
-import { verifyJWT, signJWT } from "$server/auth/jwt";
+import { verifyJWT, signJWT, getJwtSecret } from "$server/auth/jwt";
 import { rotateSessionToken, lookupSessionByTokenHash } from "$server/db/queries/sessions";
 const { handle, __sessionRefreshConfig } = await import("../hooks.server");
 
@@ -182,6 +182,53 @@ describe("hooks.server.ts — sliding session refresh", () => {
     expect(vi.mocked(signJWT)).not.toHaveBeenCalled();
     expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
     expect(event.cookies.set).not.toHaveBeenCalled();
+  });
+
+  test("unavailable JWT secret serves an existing session request without stamping authority", async () => {
+    vi.mocked(getJwtSecret).mockRejectedValueOnce(new Error("secret unavailable"));
+    const event = makeEvent();
+    const resolve = vi.fn(async () => new Response("ok"));
+    const response = (await handle({ event, resolve } as any)) as Response;
+    expect(response.status).toBe(200);
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(event.locals.user).toBeUndefined();
+    expect(vi.mocked(verifyJWT)).not.toHaveBeenCalled();
+  });
+
+  test("expired legacy cookie is cleared and cannot authenticate a request", async () => {
+    const event = makeEvent({ cookie: "" });
+    event.cookies.get = vi.fn((name: string) => name === "pi_session" ? "old-token" : undefined);
+    const resolve = vi.fn();
+    await expect(handle({ event, resolve } as any)).rejects.toMatchObject({ status: 302 });
+    expect(event.cookies.set).toHaveBeenCalledWith("pi_session", "", expect.objectContaining({ maxAge: 0 }));
+    expect(vi.mocked(verifyJWT)).not.toHaveBeenCalled();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  test("legacy cookie migrates only within its original window", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-05-01T00:00:00Z"));
+    try {
+      vi.mocked(getJwtSecret).mockRejectedValueOnce(new Error("secret unavailable"));
+      const event = makeEvent({ cookie: "" });
+      event.cookies.get = vi.fn((name: string) => name === "pi_session" ? "old-token" : undefined);
+      const resolve = vi.fn(async () => new Response("ok"));
+      const response = (await handle({ event, resolve } as any)) as Response;
+      expect(response.status).toBe(200);
+      expect(event.cookies.set).toHaveBeenCalledWith("pi_session", "", expect.objectContaining({ maxAge: 0 }));
+      expect(event.cookies.set).toHaveBeenCalledWith("ezcorp_session", "old-token", expect.anything());
+      expect(resolve).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("HTTPS responses retain the strict transport header", async () => {
+    const event = makeEvent({ cookie: "", path: "/api/health" });
+    event.request = new Request("https://localhost/api/health");
+    event.url = new URL(event.request.url);
+    const response = (await handle({ event, resolve: vi.fn(async () => new Response("ok")) } as any)) as Response;
+    expect(response.headers.get("Strict-Transport-Security")).toBe("max-age=31536000; includeSubDomains");
   });
 
   test("a verified session cookie stamps locals.authMethod = 'session'", async () => {

@@ -3,6 +3,8 @@ import type { JsonRpcRequest, JsonRpcResponse } from "./types";
 import { resolveReverseRpcMeta } from "./tool-executor/provenance";
 import { LifecycleError } from "./v4/types";
 import { authorizeProjectOperation } from "./project-access";
+import { denyUnsupportedSandboxHostAccess } from "../runtime/workspaces/target";
+import { resolveProjectWorkspaceTarget } from "../runtime/workspaces/project-target";
 
 export async function handleProjectPullRequest(deps: RpcHandlerDeps, extensionId: string, request: JsonRpcRequest): Promise<JsonRpcResponse> {
   const resolved = resolveReverseRpcMeta(extensionId, request);
@@ -11,6 +13,8 @@ export async function handleProjectPullRequest(deps: RpcHandlerDeps, extensionId
     const input = request.params as Record<string, unknown> | undefined;
     if (!input || typeof input.runId !== "string" || typeof input.title !== "string" || typeof input.body !== "string") throw new LifecycleError("invalid_input", "Provide runId, title, and body.");
     const { project } = await authorizeProjectOperation(deps, extensionId, resolved.onBehalfOf, resolved.conversationId, "project.openPr", [{ kind: "shell" }, { kind: "network", value: "github.com" }, { kind: "network", value: "api.github.com" }]);
+    const target = await resolveProjectWorkspaceTarget(project, "project pull request creation", resolved.prov.workspaceTarget);
+    denyUnsupportedSandboxHostAccess(target, "project pull request creation");
     const { getSecret } = await import("./secrets-store");
     const token = await getSecret("github-projects", project.id, "apiToken");
     if (!token) throw new LifecycleError("credential_required", "Configure a GitHub token for this project. The extension never receives the token.");

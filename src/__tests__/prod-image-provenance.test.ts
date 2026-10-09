@@ -63,4 +63,3 @@ describe("prod image provenance", () => {
     expect(provenance).toBeLessThan(Math.min(envSha, labelRevision));
   });
 });
-

@@ -330,6 +330,20 @@
       "bytes": 621490,
       "sourceDigest": "7af4223b71fed712e7f4315f26f3f59f2454c0fbfd1acc8973d49cc918fce9e3"
     },
+    "incus-sandbox": {
+      "directory": "extensions/incus-sandbox",
+      "entrypoint": "extension.ts",
+      "files": 12,
+      "bytes": 70729,
+      "sourceDigest": "f658d49ff43e37eac3de17c340869b787af0657adb39a7d7dd8cf1297f649e5c"
+    },
+    "infisical-secrets": {
+      "directory": "extensions/infisical-secrets",
+      "entrypoint": "extension.ts",
+      "files": 14,
+      "bytes": 49849,
+      "sourceDigest": "f3840715091fd292204edc0ab3997fb20ed908c3b9a31b4bfbc9e89327d6206f"
+    },
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",
       "entrypoint": "extension.ts",

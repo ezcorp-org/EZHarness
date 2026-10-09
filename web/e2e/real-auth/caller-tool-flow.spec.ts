@@ -126,7 +126,7 @@ async function provisionMember(playwright: typeof import("playwright-core"), lab
 }
 
 /** Mint a separate key and conversation for each test under its shared member session. */
-async function companion(member: APIRequestContext) {
+async function companion(member: APIRequestContext, fetchImpl?: typeof fetch) {
   const keyRes = await member.post("/api/settings/developer/api-keys", {
     data: { name: "e2e-caller-tools", scopes: ["read", "chat"] },
   });
@@ -137,7 +137,7 @@ async function companion(member: APIRequestContext) {
   expect(seedRes.status(), await seedRes.text()).toBe(201);
   const { conversationId } = (await seedRes.json()) as { conversationId: string };
 
-  return { ez: new HarnessClient({ baseUrl: REAL_AUTH_BASE_URL, apiKey: key }), conversationId };
+  return { ez: new HarnessClient({ baseUrl: REAL_AUTH_BASE_URL, apiKey: key, fetch: fetchImpl }), conversationId };
 }
 
 test.describe("caller-executed tools — declaration API", () => {
@@ -262,7 +262,7 @@ test.describe("caller-executed tools — the round trip", () => {
       expect(executed).toEqual([{ app: "Notes" }]);
     } finally {
       device.abort();
-      await serving;
+      await expect(serving).resolves.toBeUndefined();
     }
   });
 
@@ -354,7 +354,14 @@ test.describe("caller-executed tools — the round trip", () => {
   });
 
   test("a tool the device cannot run fails the call, not the turn", async () => {
-    const { ez, conversationId } = await companion(member);
+    // Keep real HTTP and real SSE events, but reproduce a transport that
+    // does not close the response body when the request signal aborts.
+    // The client owns its reader and must still stop serving on device abort.
+    const fetchWithoutSseAbort = ((input, init) => {
+      const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.href : input.url);
+      return fetch(input, url.pathname === "/api/runtime-events" ? { ...init, signal: undefined } : init);
+    }) as typeof fetch;
+    const { ez, conversationId } = await companion(member, fetchWithoutSseAbort);
     await ez.declareCallerTools(conversationId, [OPEN_APP]);
 
     // The device serves NO handler for the declared tool. It must answer the
@@ -381,7 +388,7 @@ test.describe("caller-executed tools — the round trip", () => {
       expect(result.outcome).toBe("complete");
     } finally {
       device.abort();
-      await serving;
+      await expect(serving).resolves.toBeUndefined();
     }
   });
 });

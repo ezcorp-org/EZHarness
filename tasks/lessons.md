@@ -1,5 +1,88 @@
 # Lessons
 
+- Keep the product scope explicit: these are persistent AI development sandboxes. The isolated EZHarness test instance validates that workflow; it is not an application hosting product.
+
+- Read the complete executed time check before stating a wait deadline. Qualification age starts at verifiedAt, not at a later snapshot capturedAt. Do not add a new wait to preserve an incorrect earlier estimate.
+
+- A failed browser workflow can still create local project and binding records. Check the saved request and operation before calling an attempt effect-free. An empty backend inventory is a bounded observation, not proof that the whole request made no changes.
+
+- Execute reviewed root helpers from protected staged paths or verified descriptor bytes. A hash check followed by reopening a file under a developer-owned ancestor does not prove the same execution boundary. Record any weaker boundary honestly and verify completed effects; do not replay a successful mutation to improve its receipt.
+
+- Keep test temporary directories short and outside Git worktrees. A long TMPDIR can exceed Unix socket limits; a nested directory can make a non-repository fixture discover the parent repository. Prove an environment failure with the same source under standard /tmp before changing code or restarting the owned gate.
+
+- Read acceptance criteria literally. Ten lifecycle tests that explicitly include failure recovery do not require ten fault-free runs. Audit failed and excluded attempts and their cleanup; retain the tested source identity instead of inventing a stronger gate or repeating accepted evidence.
+
+- A mutation report is not proof that mutants were tested. Check `testsCompleted` and run one active mutant directly when a score is unexpectedly zero. Stryker and Vitest must use the same nested-suite name separator in both the dry-run coverage hook and the mutant runner; pin a package patch and verify it after a frozen install.
+
+- Run full repository gates in a clean, fixed worktree. Progress edits in the integration worktree invalidate browser coverage attestation, even when only task documents change. Record the gate's actual source and process before resuming work after compaction; do not launch a duplicate suite.
+
+- Run every new maintenance preflight against the actual installed files before any service action. Fake order tests do not catch real file sizes or ownership. Reuse the existing bundle verifier; a generic 64 KiB helper-file limit rejected a valid 15.9 MB manifest before accounting could start.
+
+- Measure full bundle verification before choosing a maintenance timeout. Repeated inventories of a large bundle can exceed a short wrapper limit. Use an owned process group with durable phase receipts; after timeout, inspect completed effects and resume only the verified unfinished suffix. Do not change workload test deadlines to solve maintenance timing.
+
+- Put a required guard and its dependent effect in one fail-closed sequential caller. A separate tool call can run even after an earlier call exits nonzero. Check the exact host and measured resource before admission; preserve any already-admitted operation and inspect its original handle instead of replaying it.
+
+- Strip inherited GIT_* variables from Git fixture subprocesses. Commit hooks export repository and index paths; a temporary working directory alone does not isolate Git. Test with poisoned variables and verify the real repository HEAD, staged paths, commit scope and local configuration after hooks. The first failing fixture also overwrote shared user.name/email; restore only proven affected keys from pre-failure evidence.
+
+- Keep runtime locks and metadata outside user repositories. Hiding helper files from a file-list tool does not hide them from Git. Test real helper edits and removals followed by real Git status; preserve stable lock inodes across concurrent waiters instead of deleting lock files after each call.
+
+- A pinned base image does not imply application images are cached in each new guest. Make the exact digest preparation an explicit fixture prerequisite and verify it before a no-pull workload test. Preserve known partial results and continue only unfinished steps; never replay a consumed test receipt to conceal a setup failure.
+
+- After a provider connection changes, verify every accounting query's actual scope, not just the updated launcher metadata. Keep historical recovery assertions, then separately check the current connection and global reservation totals. Test old-scope zero with nonzero new-scope and unrelated-scope charges; both must block a global-zero claim.
+
+- Before a guarded setup window, run the actual Bun CLI read-only preflight as the managed service user with an explicit reviewed PATH and the normal app working directory. Direct ssh-keygen/ssh canaries passed while Bun could not spawn them from the inaccessible developer worktree. A controlled cwd-only comparison proved the cause; binary availability alone was insufficient.
+
+- A shared contract fix can be bundled into an immutable provider artifact. Inspect the active compiled artifact before claiming an app-only update fixes the provider. Prove old failure and corrected behavior through both compiled entrypoints; rebuild, review and activate through the existing release lifecycle.
+
+- Healthy app startup does not prove operator scope is current. Compare the selected approved connection and release with every independent verifier before allocation, including receipt and fault verification. Audit the full configuration dependency set together; fixing only the first rejection leaves later stale settings undetected. Restoring older configuration bytes can restore a stale scope.
+- A guest init PID can belong to a child service cgroup. Verify the exact outer container group before interpreting memory limits, and capture the full fixed diagnostic set during the load rather than after cleanup.
+- Keep accounting assertions complete but serialize only bounded validated facts. Full historical proof objects can exceed transport limits even when every check passes.
+- Keep each live qualification's negative-test plan ID and digest in its run receipt. Cleanup of a later combined plan does not clean earlier applied controls. Verify all applied plans reach supported cleanup before calling the provider drained; never infer this from empty backend inventory alone.
+- A durable queue's creation time is not its first-dispatch time. Persist the first authorized dispatch in the same claim transaction; use that immutable time for observation expiry and restart. Test a queued request delayed beyond the observation budget.
+- Prove failure classification across the broker, worker adapter and controller. A host refusal before the transport call must state that no effect occurred; a generic unavailable error can otherwise become UNKNOWN and block safe cleanup. Preserve UNKNOWN for failures after a request may have reached the backend.
+- Database JSON objects do not preserve field order. Build durable scope identities and plan digests from one fixed representation. Test the actual database round trip and reopened service, and keep legacy valid digests unchanged. Object stringification alone is not a scope equality check.
+- Before the final browser/coverage capture, audit cancellation through the actual tool-to-provider boundary. An aborted request signal must not prevent exact guest cleanup; cleanup still needs its own deadline and fresh authorization. Prove guest process absence independently of a cancelled host run.
+- Rehearse the exact staging command with the installed CLI. GNU tar rejects `--keep-old-files` together with `--no-overwrite-dir`. Nix JSON v2 can key path information by store basename; validate its store directory, exact basename, NAR hash and size against a real read-only response.
+- Privileged deployment failures must retain bounded private command diagnostics, including partial timeout output. A generic error with discarded stderr causes repeated diagnosis without useful evidence. Preserve phase markers and inspect state before any continuation.
+
+- Incus qualification must model a remote control plane. Do not assume AMD can route to a private Xeon guest address. Negotiate the reviewed host-side positive-control capability before allocating test guests, while preserving guest-to-guest denial checks.
+- Test CLI response shapes against the installed CLI before pinning a privileged script. `incus query` unwraps metadata; an API-envelope parser needs explicit `--raw`. Mocked envelopes alone hid this mismatch.
+- After dependency overrides change, a frozen install can retain stale caller resolutions in an existing Bun install. Compare with a clean isolated install and inspect actual runtime resolutions before changing a correct lockfile or security test.
+- Keep the run-start mode guard at the route handler boundary. The tree-wide security check traces run-start paths; moving the guard into a separate authorization helper can remove it from that structural proof even when behavior tests still pass. Run both checks after such a refactor.
+
+- Test Git subprocesses must use the existing sanitized command runner. Git hooks export repository-selection variables; an unsanitized fixture `git init` can target the shared repository instead of its temporary directory. Reproduce this with disposable linked worktrees, and test with poisoned `GIT_DIR` and `GIT_WORK_TREE`.
+- Update both Bun and Vitest route mocks when a shared service adds error classes. A passing Bun route test does not verify the separate Vitest mock contract.
+
+- Do not infer the cause of a generic revision conflict from differing generation numbers. Host authority fences and provider resource revisions can differ by design. Inspect the exact saved request and the provider's state preconditions before naming the cause.
+- Compose engine, provider adapter, and transport state rules in lifecycle tests. Separate green unit suites did not catch running-guest deletion being journaled before the provider's STOPPED precondition.
+
+- When the user is already on the target machine, explain that permission changes apply to the agent session. Give the next action on that machine without implying they must connect elsewhere.
+- A Playwright route override hides intercepted requests from a lower mock handler. Count and inspect those requests in the override itself; a counter in the lower handler cannot prove an action did or did not occur.
+
+- Before deploying a host protocol change, load the exact retained provider manifest through the production startup validator. Worker input validation alone does not prove that an approved release can still load. Keep host journal metadata outside public provider wire schemas when the host can derive it from its own bindings.
+- A release smoke test must leave the staged runtime placeholder empty. Validate the actual service startup requirements, including mounts and readiness, as well as the standalone HTTP health check.
+
+- On this NixOS host, `bun` resolves to system 1.4.2 unless `/home/dev/.bun/bin` is first in `PATH`; this repository pins 1.3.14. Use the pinned path for local checks and for Git commit/push hooks, then report only pinned-version results.
+- Reach the first real end-to-end guest early. Contract tests and direct Incus probes did not expose an expiring daemon operation receipt. Report completed and missing live gates plainly instead of treating each setup step as near completion.
+- A short-lived provider operation UUID cannot be the only durable proof of a CREATE. Persist a stable request identity, then reconcile an expired operation through exact, host-authorized resource tags before any retry or state transition. Test this in a live E2E flow.
+
+- Before an exact no-effect recovery, verify every independent observer policy on the **server** names the target instance; updating only the AMD observer context does not change the server forced command's policy. Test the exact restricted SSH response before certificate revocation.
+- Before stopping a fenced service, inspect reverse systemd dependencies and test which other units stop. The recovery supervisor must survive the runner stop with the same PID and socket before a no-effect request can be signed.
+- A systemd drop-in cannot remove dependencies declared in the base unit. Test the loaded unit's effective `Requires`, not just drop-in syntax or generated source text. A zero-match `rg -c` check emits no count; use an explicit negative match with checked command status.
+
+- When moving an approved release to a separate runner identity or store, verify that the runner has the exact referenced artifact digest before admitting a provider effect. A database release record alone does not prove its worker artifact is available. Missing pre-worker artifacts must have a distinct error from uncertain external effects.
+
+- Inspect an existing top-level gate ledger before applying a skill's default filename. Preserve historical gates and use the active task's scoped gate file.
+- Treat a PGlite readback as a writer of cache files. Run it on a detached copy or as the app UID; if a root readback must touch a stopped live database, check every file owner before app restart.
+- Before moving a mutable app into a frozen release, inventory both its writable runtime tree and every database-referenced blob. Mount persistent state outside the release and migrate only verified referenced blobs before first start.
+- A no-effect recovery fence must cover every live route that can repeat the external write, including administrator SSH and local daemon sockets. An observer alone only reports point-in-time state.
+
+- Before a guarded NixOS activation, verify that the target accepts the candidate closure's signatures. If `nix copy` rejects an unsigned path, keep the old generation active and build the pinned derivation on the target; do not disable signature checks to save time.
+- Pin the old Incus client identity from the live trust entry's certificate DER digest. A release digest or a copied value from another review packet is not an authority fingerprint.
+
+- Before a dedicated-UID cutover, inspect the actual isolated app process tree and source parent. A dev-owned `/tmp` parent cannot hold a root-only quarantine; move the stopped database into a root-owned private parent before making copies, and require a loaded unit for the old app and runner.
+- For a UI action that copies a link, prove the copied URL opens the intended page in an anonymous browser. A successful API token lookup does not prove the invitee can sign up.
+
 - When infrastructure is not provisioned, separate locally verifiable contract work from later network qualification. Do not infer AMD, Xeon, Incus, Infisical, or credential availability from a delivery plan.
 
 - Describe a raw entrypoint subprocess as a process, not an installed immutable release.
@@ -9,6 +92,8 @@
 
 ## Validation discipline
 
+- Check every planned Incus project key against the actual server's API extensions and version before seeking approval. A local dry run proves plan shape, but it does not prove the server accepts a key. On an approved Apply failure, capture a sanitized exact-command error, inspect live state, and issue a new digest for any changed command.
+- When a guest is expected to fail reaching a control target, prove the target still works from the host after the guest attempt. Bind a challenge to the exact target across both host checks; an expired listener or replaced challenge can create a false isolation pass.
 - A new CI job that selects several backend Bun test files must run each file in a separate Bun process. The root pool requires process isolation because cross-file mocks can contaminate or deadlock a combined run; an explicit multi-file command is not an exception.
 
 - Select gpt-5.6-sol explicitly with fresh bounded briefs when the user requests a Sol team. Use distinct ownership and worktrees.
@@ -378,4 +463,311 @@
 - A summary reporter must be told which gates ran. Absence of a report is a failure, never an omission; there is no safe default for the expected set.
 - A PR in conflict with its base gets no pull_request workflow runs at all; GitHub cannot build the merge ref. When checks are silently absent, check `mergeable` before suspecting the workflow. Merge or rebase, then reinstall dependencies before the pre-push typecheck when the base moved a lockfile.
 - Budget a hosted-runner job against the 360-minute cap with a measured rate, not a guess. When one job cannot finish, shard the work and merge with an exact-count check so a missing slice fails instead of shrinking the denominator.
+
+- When a storage API starts requiring an explicit workspace target, run direct-call history and route suites as well as the new routing tests. Resolve missing targets from the conversation's persisted project through the binding guard; do not silently drop attachments or derive a local root from cwd. In mocked route tests, mock the target selector and assert bound-project denial before any write.
+
+- Before stating that a requested agent model is unavailable, check the current collaboration model list. If the list changes, use the exact requested model for replacement agents and preserve each unfinished task's file ownership and state.
+
+- When several executable paths and version outputs appear together, label each path in the command output. Never infer which unlabeled version belongs to which binary.
+
+- Start substantial multiagent feature work in a dedicated Git worktree before any agent edits. A shared filesystem lets agents collaborate inside that worktree; it is not a reason to mix feature changes with the user's active checkout. Verify every agent's working directory in its task brief.
+
+## 2026-09-22 — Setup code versus Harness integration
+
+- When describing infrastructure setup, trace the complete product path from UI/API through host-owned connection and transport to the server. A deterministic CLI and an offline provider adapter do not mean EZHarness can configure or use the server. State exactly which parts are wired and which remain standalone.
+
+## 2026-09-23 — Stop verification loops before the live outcome
+
+- Keep one visible next acceptance result: an EZHarness-created sandbox on the real server. Once code CI is green, stop editing for incidental documentation or repeat checks and complete the missing operator setup and live workflow.
+- Treat direct Incus guests and a built image as image evidence only. Never report them as an EZHarness provider connection or feature sandbox.
+- Prepare one complete, reviewable server setup plan with pinned recipe and generated client identity before requesting its Apply approval. Split server writes only when a real dependency requires it, and state the remaining path after each stage.
+- Before requesting approval of an Incus setup digest, check that the active provider release pins the exact published image and helper and can pass live qualification. A ready server plan for an unusable release causes another approval loop; make this a fail-closed planning test.
+- Candidate contract evidence and live host qualification have different lifetimes. Approval should require a current candidate result; an already activated immutable release should retain integrity validation while new feature admission requires fresh live evidence. Test these states after the candidate deadline, not only just after build.
+- Register each new `/api/*` route in `src/api-registry.ts` with its actual session or API-key scope, then run `web/src/__tests__/route-contract.test.ts` and `src/__tests__/session-scope-surface.test.ts`. The isolated route test alone misses the product-wide registry gate.
+- Authenticate and bind operator authority before writing a cleanup intent or a dispatchable destroy journal. A rejected fault arm after journaling can still let reconciliation perform the destroy.
+- When a timed operator arm precedes a durable journal, reserve the exact operation ID first and recheck the arm and deadline immediately before journal publication. A late failure must leave no executable operation; retain and report any cleanup intent that was already written.
+- Agents in one worktree share the Git index. Before each commit, stage explicit owned paths and inspect `git diff --cached --name-only`; do not assume another agent's staged files are isolated.
 - When hosted CI times out on fixture readiness, fix the test's synchronization even if the PR did not change that fixture. Wait for the producer's observable output or exit; do not treat a passing focused rerun as proof that a wall-clock deadline is safe.
+
+## 2026-09-24 — Offline Incus effect fences
+
+- Bound a no-effect wait by the longest worker and provider request policy, not only the innermost transport deadline. A 30-second transport timeout did not cover a 60-second v4 worker. Require an independent check for detached or remote clients before accepting backend absence.
+- Check a dedicated app UID and process-group ownership before stopping the managed app. A shared development UID must reject recovery while the app is still running; do not turn an invalid repair request into an avoidable outage.
+
+## 2026-09-24 — Finish the live outcome after approved gates
+
+- Report host setup, provider activation, and direct Incus tests as prerequisites, not as a working EZHarness sandbox. The acceptance result is an engine-owned create, process run, reconnect, and cleanup on the real server.
+- After an exact plan is approved, execute and verify it before preparing another review packet. State the one next dependency and its owner after each step.
+- Parallelize independent read-only audits and documentation. Keep app cutover, unknown-effect repair, provider setup, and sandbox creation in one ordered live sequence so agents do not race on shared state.
+- Before treating an unknown-effect repair as ready, prove the observation credential stays usable after every credential that could repeat the effect is fenced. A readback with the old write-capable client certificate is not independent evidence.
+- Keep a recovery fence scoped to the clients and credentials that can repeat the saved effect. Idle operator access is not itself an active client. Do not replace a missing live hold with a static `trafficHeld` field or add a new signer unless the proof actually needs it; verify the hold remains effective throughout the observation and database repair.
+- Recheck a PR's current state and base branch when the user reports a merge. A PR merged into another open feature branch is not on `main`, and neither merge is an active server generation. Verify the running system and exact policy before treating the observer as installed.
+- Never promote a test fixture ID or synthetic CREATE UUID into a live recovery fact. Read the actual durable row and scope before building server policy or treating an HTTP 409 as proof that a fixture is absent.
+- Before stopping a live test app, prove the restart launcher carries every required runtime library path from the current process environment. The isolated app's launcher omitted `LD_LIBRARY_PATH`, so its first restart returned HTTP 500 until the pinned GCC library path was supplied.
+- Test the exact process-group signal command on the target host. NixOS `kill` rejected the negative group argument in the recovery runbook; Python `os.killpg` worked after verifying the group identity.
+- Treat `systemctl mask` success as a request, not proof. On NixOS, a runtime mask did not override the linked `/etc` service. Check `LoadState`, test a real start denial, and verify the service and user processes remain absent.
+- Test a forced SSH command end to end under its actual Unix account. Direct gate-script tests missed that Incus needs a writable client config directory and that the Nix store copy of `sudo` is not the NixOS setuid wrapper.
+- Keep a rollback timer for temporary server access changes and prove the old route works before cancelling it. A failed independent read must leave the unknown operation unchanged.
+- Check the full recovery request deadline plus the required server timer margin before revoking a certificate. A valid no-effect observation is not enough if the authority fence will expire before the signed request can finish.
+- Thaw a frozen user slice before switching NixOS generations. A switch can hang while reloading frozen user units and remove a temporary root SSH key before normal access returns. Keep an independent console path for guarded host access changes.
+- Recheck a temporarily denied SSH route after a pending generation switch settles. Treat loss of access as unverified host state, not permanent failure; a later successful login needs full generation, thaw, trust, and inventory readbacks before releasing local fences.
+- Create a short-deadline recovery request only after all observations and status updates are complete. Submit it immediately after fresh timer and fence checks; an expired local candidate must be recorded as never submitted and replaced with a new nonce before the one permitted supervisor call.
+## 2026-10-03 — Browser evidence isolation
+
+- Serialize Playwright runs in one worktree. Shared `web/test-results` cleanup can delete another run's trace files and cause false `browserContext.close ENOENT` failures.
+- Assert a concrete expected request ID before comparing it to captured browser traffic. Poll for exactly one request; optional values can otherwise pass as `undefined === undefined`.
+- Wait for the app's confirmed saved state before changing browser storage to reproduce recovery. A pending response can overwrite the injected state and make the test pass through the ordinary path.
+
+## Incus native proof — 3 October 2026
+
+- Use the installed Bun executable and read its version; do not invent a versioned binary pathname.
+- Check generated durable IDs in the creation service before assuming API schemas accept them.
+- Use `messages?withToolCalls=true` for saved native results; plain message reads do not include tool rows.
+- Keep one-off live drivers outside a frozen source head unless a concrete product defect requires a reviewed source change.
+- Build normal-run tool instructions from the final model tool catalog, after all restrictions. Do not require tools merely because an extension can provide them. Test the actual executor request, including exact extension names and filtered-out tools.
+- A metadata catalog endpoint can omit tools that the runtime adds later. Verify the actual runtime composition and saved model tool calls before claiming those tools are unavailable.
+
+## Incus asynchronous qualification — 3 October 2026
+
+- Test provider PENDING and OUTCOME_UNKNOWN through the real fixture service and controller. Immediate-success mocks cannot prove durable lifecycle behavior.
+- An HTTP error does not prove no backend effect. Preserve the exact admitted receipt before awaiting replay; never treat a missing response as permission to repeat or delete.
+- Inspect only the saved operation. Preserve newer cleanup intent and resource reservations under the database binding lock; readback must not dispatch a superseded operation.
+- Keep operator diagnostics bounded and explicit about preserved operation IDs. Never project raw provider errors or private causes into responses or ordinary logs.
+- Save safe stage and cause identifiers before cleanup removes the evidence needed to diagnose a failed live qualification. A generic HTTP error is not sufficient.
+- For timeout tests, trigger the timeout only after the intended real input is observed. Test late input separately so deterministic timing does not hide a confidentiality defect.
+- Do not infer a specific failed assertion from elapsed time when the full failure output is missing. Record the uncertainty and prove the intended boundary directly.
+- Finish live diagnosis before repeating all browser and coverage lanes. Keep intermediate results tied to their source revision, then capture the final merged source once.
+
+## Guarded activation and CPU proof — 4 October 2026
+
+- Rehearse the actual timer through service-manager reload and firing. Pin a whole-second boot deadline; a relative activation timer can move during reload.
+- Run every old-policy SSH control as the actual service identity before arming a server update. Do not alter an established key's permissions to accommodate a diagnostic command running as the wrong user.
+- Preserve failed attempts and use a new explicit attempt identity only after confirmed rollback. Do not copy old execution markers into a new staging directory.
+- Publish asynchronous test receipts atomically. File existence must mean complete data; do not hide malformed published JSON with reader retries.
+- Test the advertised resource control, not an incidental counter. CPU placement can enforce a whole-CPU budget without quota throttling. Mutable process affinity is not equivalent to an outer cpuset restriction.
+- Keep bounded numeric load measurements when a qualification fails. A cause code alone cannot distinguish a failed worker, an incomplete sample, and a missing enforcement signal.
+
+## Live readback timing — 4 October 2026
+
+- A client timeout is not a failed server run. Read the exact latest run ID, state, and validity after cleanup; a prior saved success can remain visible while a new run continues.
+- Compare process start time or start ticks with a recorded pre-operation baseline. Two observations made after an event do not prove that no restart happened during the event.
+- Collect a bounded response for at least the server operation deadline plus cleanup allowance. Preserve the original request and poll its saved state; do not repeat it when the client stops waiting.
+
+## Independent resource-limit fixtures — 4 October 2026
+
+- Keep the test's resource demand separate from the limit it measures. A large
+  single buffer can hit the worker memory ceiling before its disk fills. Use
+  bounded writes and assert the disk error, bytes written, and kernel capacity;
+  keep the independent memory-limit test unchanged.
+- Preserve the first failure. A later controlled reproduction can establish a
+  fixture defect without proving the exact cause of an older uninstrumented exit.
+
+## Chained live-proof artifacts — 4 October 2026
+
+- Rehearse each consumer with the actual sanitized receipt its predecessor emits.
+  Execution config contains private paths that saved evidence must omit. A
+  proof-only validator must not require those omitted secrets or weaken the live
+  execution validator.
+- Any accepted fixture variant must survive every later exact-hash check. Derive
+  expected bytes from the validated successful tool payload, then independently
+  verify the guest bytes; do not silently rewrite the guest to fit the checker.
+- Use the operation contract's terminal labels in collectors (`active` for
+  release activation). A collector assertion after a saved successful response
+  does not mean the effect failed. Inspect the saved operation before any retry.
+
+## Private deployment staging — 4 October 2026
+
+- Check file modes as well as hashes before the guarded command runs. A reviewed
+  executable may require mode 0700 even when the archive preserves mode 0600.
+- Do not expand a root-private path glob in the unprivileged shell. Use exact
+  reviewed paths for mode changes, then check their bytes and modes.
+- Separate preparation errors from infrastructure effects. Confirm policy,
+  timer, and durable state before deciding whether a failed client call may
+  continue; never allocate a new attempt merely because staging failed.
+- Run the complete offline comparison on the actual mixed-language packet
+  before activation. A hash reader must accept raw bytes; only JSON inputs
+  belong in a JSON parser. Passing individual helper tests is not enough.
+- When fixing a read-only evidence producer, preserve its failure and record
+  the actual replacement producer hash. A frozen packet hash identifies the
+  checked inputs, not proof that a failed original script ran successfully.
+- Follow the qualification bootstrap order. A new connection's normal provider
+  probe intentionally lacks verified guest claims until qualification passes.
+  Use the approved fixture path first; do not diagnose its expected refusal as
+  a broken image or weaken the probe to get past it.
+
+## Recovery verification boundaries — 4 October 2026
+
+- Verify the complete current/prior bundle and install-state chain on the
+  actual stopped host before sealing a continuation packet. Changing one
+  manifest constant does not update inherited backup paths or state guards.
+- Preserve phase, exit status, and bounded private verifier output. A generic
+  failure cannot establish which phase ran or whether an effect was admitted.
+  Later successful diagnostics do not explain an earlier unrecorded failure.
+- Process-directory ownership is not process identity. Check authoritative
+  status credentials and stable process start identity. Exercise the actual
+  service and credential boundary, not only a direct helper invocation.
+- A copied environment does not reproduce a service's filesystem mounts.
+  Inspect downstream overrides before relying on a test database variable;
+  verify the disposable mount from inside the actual execution namespace.
+- Require a real cross-language signer-to-CLI integration test. A Python stub
+  and a TypeScript unit test can both pass while rejecting each other's exact
+  request fields and canonical hash.
+- A failed pre-admission hold needs a supported, audited abort path. Consume
+  its nonce under the same transaction protection as admission. Never delete
+  the hold manually, reset the original UNKNOWN, or silently renew an expired
+  authorization to make progress.
+- Check restart behavior after a hold is archived, not just the immediate
+  response. A serving daemon can restart and launch its child when the hold
+  is absent. Keep this abort offline-only, with all dependent services stopped.
+
+## Actual service-context checks — 5 October 2026
+
+- An inactive, missing unit proves that it is not running. It does not prove
+  that the required deployment exists. Check loaded unit definitions and
+  service accounts separately before a service-context rehearsal.
+- Keep the test unit name in one sealed configuration. Check the actual
+  cgroup against it; do not duplicate the name in launch and driver code.
+- Test the complete main-to-consumer path with actual file metadata. A pass
+  through `prepare()` does not cover later public-code or signature readers.
+  Keep public code and private credentials subject to their correct modes.
+- When a wrapper reuses a pinned installer, load its actual exported functions
+  and validate every called signature in a side-effect-free test. Mocks of
+  assumed names cannot prove that the wrapper can call the real installer.
+- Verify the selected public-key digest inside the actual process. Service
+  environment files can override a command's environment assignments. Dummy
+  signer fixtures must clear both key forms and set the verified dummy key
+  in-process before invoking the producer and consumer.
+- Use path boundaries when checking for stale paths. A new sibling name can
+  contain the old name as a string without referring to the old directory.
+- Assign new agent work with `followup_task`; `send_message` does not wake a
+  completed agent. Give correction and final preparation one owner, then
+  check agent status before waiting for a result.
+- Pass a retained cookie jar to an HTTP client's cookie-file interface. Never
+  treat its raw bytes as a header, and never let exceptions print credentials.
+  Diagnostic tools must emit selected status fields only.
+- Check an orphaned Incus volume in the daemon's mount namespace. A valid
+  Btrfs pool does not prove that an instance directory is still a subvolume.
+  Preserve exact residual metadata before target-only repair.
+- Do not equate a nonempty Incus operation list with running operations.
+  Completed operations can remain listed. Preserve a failed final check and
+  use fresh read-only evidence; never repeat the destructive step for it.
+- Before declaring infrastructure cleanup complete, inspect the provider's
+  actual drain predicate, including local negative-test fixtures. An empty
+  backend inventory does not prove the provider can be updated. Use the
+  existing reviewed fixture teardown; never erase real UNKNOWN operations.
+- Validate every recovery input's file type, ownership and permissions before
+  creating temporary authority. Preserve exact bytes when tightening an input
+  file's permissions, and never repeat a successful key mint.
+- Derive operational read-only gate permissions from the source command roles,
+  including capacity and owned-neighbor checks. A smaller command count is
+  not proof of completeness. Test every required role and every forbidden
+  write before replacing a working policy.
+- Check `git ls-files tasks` before copying or editing agent plans. This branch
+  tracks task files despite the general ignored-directory guidance. Keep each
+  validation checkout clean before browser coverage attests its source HEAD;
+  save uncommitted agent notes under `.cache` instead.
+- Source configuration is not proof of current server access. Verify the exact
+  live SSH key, address, user and command before claiming a recovery route works.
+  Check that the route remains usable while its target user slice is frozen;
+  passwordless sudo alone does not provide an independent recovery path.
+- Check exact runner-marker metadata and every restore precondition before a
+  recovery lease starts. Run deterministic checks in one bounded procedure;
+  avoid spending its safety margin on separate model/tool round trips. Keep
+  an independent proof review before revocation or signed admission. A missed
+  margin means abort and restore, never extend or rebind the consumed lease.
+- Hash the exact serialized bytes once; never append a second newline while
+  computing a checksum. Before requesting an operational approval, pass the
+  final rendered artifacts through every actual consumer validator in a
+  no-effect fixture. Internally consistent mocks and allowed-field checks do
+  not prove that the generator and its consumers agree.
+- When the user directs continuation through a working end-to-end result,
+  keep that outcome active across recovery and test milestones. A prepared
+  packet or a partial pass is not completion. Carry existing authorization
+  forward and finish independent work while required external input is pending.
+- Test every actual command producer against a forced-command gate. Passing
+  the transport adapter's wires does not cover the supervisor's independent
+  verifier wire. Include the production serializer and gate in one fixture;
+  distinguish an RPC timeout from the future time an audit must prove safe.
+  Preserve the original failure and test forbidden paths, hashes and verbs.
+- Before a timed operation starts, prepare both success restoration and the
+  supported abort after admission uncertainty. An expired lease must not force
+  a new live design for restoring a known prior certificate or configuration.
+- Run a generated packet through the consumer's actual entry point under its
+  real service UID before starting a recovery clock. Importing pure validators
+  does not test the closed dependency map or file permissions. Derive helper
+  lists from the consumer contract. Exercise read-only database verification on
+  a guarded detached copy before granting backend authority.
+- Test the real runtime's module loader as the service user. An exact file can
+  be readable while Bun cannot resolve it through a directory without read
+  permission. Preserve private scope with the required group access, then
+  prove the actual loader before a timed action.
+- A Type=simple service can report activation before its final process account
+  and socket are ready. Wait within the existing deadline for the new socket
+  and stable process, then enforce all strict identity checks. Set generated
+  file ownership explicitly instead of assuming the caller's group is root.
+- Before a timed recovery, prepare the final restoration of normal service
+  settings and marker metadata as well as transport restoration and abort.
+  A working connection does not prove that temporary service settings were
+  removed. Test runtime-bound configuration hashes, not just preview hashes.
+- Diagnostic clients must use the real helper protocol in local tests. A
+  plausible mock can miss required top-level boot IDs and terminal-state
+  names. After START succeeds, correct observation of that saved handle;
+  never start another process to repair a read request. Preserve the first
+  wrapper failure separately from facts recovered later.
+- A local memory test is not a reproduction unless its reclaim and fault
+  evidence match the server failure. File-cache charge ownership can make
+  the same executable behave differently across cgroups. Record this limit
+  before using a fast local OOM result to justify an image change.
+- Matching two saved binary hashes is not a reproducible-build procedure.
+  Record the complete compiler argument vector, specs, linker selection and
+  static inputs. Run the documented build from a fresh output directory and
+  compare its bytes before calling the provenance complete.
+- When another root owns a frozen verification run, reuse its reviewed fix
+  and record the ownership split in the shared note. Do not edit its worktree
+  or start a duplicate gate. Test later changes as separate milestones and
+  hand off the exact combined commit for final verification.
+- A profile is ready only when every required user path has live evidence.
+  A resource/restart test cannot qualify authenticated previews. Reject old
+  incomplete receipts when a missing mandatory check is discovered.
+- Compare the actual source diff before carrying gate evidence forward.
+  A passed baseline with later production changes is not final-source
+  verification, even if the newest commits contain only tests or notes.
+  Freeze and identify the combined SHA before requesting its final gate.
+- A denied preview result is not proof merely because its HTTP status is 4xx or 5xx. Pin each expected route result, reject generic 500 for identity and expiry gates, and require separate destination observations before claiming host or management isolation.
+- Do not turn an audited fixed route into a claimed network observation. Record only the binding, port, and completed calls seen by the production dispatch wrapper; keep source review and SP04 network evidence separate.
+- To test a permit's binding or port check, change the same leased preview row and restore it in `finally`. A different preview ID proves only that an unregistered row is denied.
+
+- When adding durable owner checks, trace every effect after a process restart. In this qualification flow, the third recovery CREATE happens after restart; recover the original owner from the exact saved primary fixture and test the real resumed service call.
+- Before adding a scoped worktree plan, check whether `tasks/todo.md` is tracked and append to it. An `Add File` patch can replace an existing plan and erase prior task history.
+- A revocation test must first prove the stream was allowed and active. Otherwise a denial during initial authorization can make a later-frame recheck test pass without exercising that recheck.
+- A test mock with a zero-argument callback has `mock.calls` tuples of length zero, even if production invokes it with a request. Type the callback with the real request contract and run the web Svelte check; backend test typecheck alone can miss this web test error.
+- Compare the local gate with the actual hosted quality consumer. ci-local does not run CRAP. After complexity repairs, run scoped and full-PR canonical CRAP against fresh exact-source merged coverage; preserve both reports because the scorer overwrites its output.
+- Before acting on a repeated exact setup approval, compare saved completion receipts and the current management binding. Do not replay a once-only Apply that already succeeded, or run a packet whose pinned application source has changed.
+
+- Each new test must create its own required durable state. Run every added
+  test alone with its name filter before claiming independence; a full-file
+  pass can hide a dependency on an earlier test's saved receipt.
+# 2026-10-08 — Test the observed route response
+
+- When a real browser test adds a side assertion for an existing API, read its actual status and body before fixing an expected value. I guessed the generic sandbox route's status and message twice, which delayed the Project Settings UI proof. Keep the browser test focused on the user-visible defect; retain observed side-route evidence separately.
+- Search dedicated operator pages before calling a feature's UI absent. The Incus management page already owned qualified Compose selection and lifecycle controls; the real gap was the Incus project's generic Settings card.
+- Python importlib can write bytecode into an installed source directory during a read-only audit. Use `python3 -B` and `sys.dont_write_bytecode = True` before importing protected deployed modules. Do not import an installed module as root without this guard.
+
+- Preserve tracked task history. Inspect the existing tasks/todo.md before editing; append a scoped task plan instead of replacing the file.
+
+- 2026-10-08: Scoped production type checks do not prove test types. Run the repository full typecheck before a final source handoff. Use `InstanceType<typeof DynamicallyImportedClass>` for a dynamic class type, and replace a typed observation object when a negative test changes a field across a discriminated union.
+
+- 2026-10-08: Real-auth files share durable database state. Scope row actions to the unique record created by the case and test with another valid record present. Do not assume one Copy Link button.
+- 2026-10-08: Default Playwright startup rebuilds generated artifacts. Use a separate worktree for focused reproduction while a frozen full gate consumes its mapped build; never modify its generated outputs.
+
+- 2026-10-08: Direct Playwright browser coverage must run from web/, because the fixture resolves build/client relative to process.cwd(). Check the supported command cwd and exact coverage OUTPUT variable before expensive global setup. Preserve pre-test setup failures separately from browser failures.
+
+- 2026-10-08: Register every new HTTP method in src/api-registry.ts, even when the path already exists. Bind its scope and body schema in the docs schema map; verify route contract before source freeze.
+
+- Reuse the API email schema in the form. Native email validity accepts domains that the API rejects. Test `a@b` as well as blank input.
+
+- Inspect the captured form before source freeze. In a bottom-aligned form grid, put shared help below the grid so inputs and buttons stay aligned. Use one explicit working directory per edit/build call.
+
+- Prove credential changes at the actual consumer. Bun 1.3.14 ignores child_process uid/gid options. Test effective UID/GID and supplementary groups. Keep protected config reads in the root parent, and run SSH through fixed setpriv as the configured service user. Preserve the key's ownership, mode, and bytes. Run the complete read-only receipt before source freeze, and retain legacy protocol tests when changing the internal request schema.
+
+- Keep wall-clock positive controls well inside production deadlines. Preserve the measured slow refusal arm, but use actual fixture work for the happy path; test tight deadline boundaries with a fixed clock. A passing positive control with only a few hundred milliseconds of scheduling margin can fail in a loaded CI pool.

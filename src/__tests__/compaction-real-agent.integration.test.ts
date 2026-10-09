@@ -61,6 +61,7 @@ import {
 
 interface RecordedRequest {
   model: unknown;
+  tools?: Array<{ function: { name: string } }>;
   messages: Array<{ role: string; content: unknown }>;
 }
 
@@ -87,11 +88,12 @@ beforeAll(() => {
       if (req.method === "POST" && url.pathname.endsWith("/chat/completions")) {
         const body = (await req.json()) as {
           model?: unknown;
+          tools?: Array<{ function: { name: string } }>;
           messages?: Array<{ role: string; content: unknown }>;
         };
         // Record the EXACT payload the real Agent put on the wire — this is
         // the post-transformContext, post-convertToLlm context.
-        recorded.push({ model: body.model, messages: body.messages ?? [] });
+        recorded.push({ model: body.model, messages: body.messages ?? [], tools: body.tools });
         return buildMockStreamResponse(dequeueMockTurn(mockScriptKeyFromModel(body.model)));
       }
       return new Response("not found", { status: 404 });
@@ -138,6 +140,13 @@ function longHistory(n: number): any[] {
     content: `historical turn ${i}: ${"q".repeat(500)}`,
     timestamp: i + 1,
   }));
+}
+
+function makeTool(name: string) {
+  return {
+    name, label: name, description: `Test tool ${name}.`, parameters: Type.Object({}),
+    execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: {} }),
+  };
 }
 
 /** Drive the REAL production buildPiAgent path with our mock model. */
@@ -214,8 +223,7 @@ describe("real pi-agent Agent applies compaction transformContext per LLM call",
     expect((agent.state.model as any).contextWindow).toBe(SMALL_CTX);
   });
 
-  test("the hook fires before EACH LLM call across an agentic tool loop", async () => {
-    const SEEDED = 60;
+  test.each([0, 60])("system prompt and tools reach EACH LLM call with %i history turns", async (SEEDED) => {
     const scriptKey = "compaction-toolloop";
     // Turn 1: call the noop tool → forces a second LLM call. Turn 2: stop.
     const script: MockTurn[] = [
@@ -224,13 +232,7 @@ describe("real pi-agent Agent applies compaction transformContext per LLM call",
     ];
     setMockScript(scriptKey, script);
 
-    const noopTool = {
-      name: "noop",
-      label: "noop",
-      description: "A no-op tool used to force a second LLM call in the agent loop.",
-      parameters: Type.Object({}),
-      execute: async () => ({ content: [{ type: "text" as const, text: "ok" }], details: {} }),
-    };
+    const noopTool = makeTool("noop");
 
     const piModel = makeMockModel(scriptKey);
     const agent = buildRealAgent(piModel, longHistory(SEEDED), [noopTool]);
@@ -241,12 +243,13 @@ describe("real pi-agent Agent applies compaction transformContext per LLM call",
     // The loop iterated: two real LLM calls (initial + post-tool-result).
     expect(recorded.length).toBe(2);
 
-    // transformContext fired before BOTH calls — each wire payload is trimmed
-    // and carries a compaction marker (a hook-application regression on the
-    // 2nd iteration would surface an untrimmed, marker-less payload here).
+    // Long history is trimmed before both calls. Short history needs no
+    // marker. Both paths must retain the exact system prompt and tool schema.
     for (const req of recorded) {
-      expect(req.messages.length).toBeLessThan(SEEDED + 1);
-      expect(hasMarker(req)).toBe(true);
+      if (SEEDED > 0) expect(req.messages.length).toBeLessThan(SEEDED + 1);
+      expect(hasMarker(req)).toBe(SEEDED > 0);
+      expect(req.messages.some((m) => m.role === "system" && contentText(m.content) === "you are a test agent")).toBe(true);
+      expect(req.tools?.map((tool) => tool.function.name)).toEqual(["noop"]);
     }
 
     // The 2nd request carries the tool round-trip (assistant toolCall +
@@ -259,6 +262,32 @@ describe("real pi-agent Agent applies compaction transformContext per LLM call",
     // INVARIANT holds across the multi-call loop.
     expect(piModel.maxTokens).toBe(ORIGINAL_MAX_TOKENS);
     expect((agent.state.model as any).maxTokens).toBe(ORIGINAL_MAX_TOKENS);
+  });
+
+  test("trim preserves historical system instructions and tool replacements on the wire", async () => {
+    const scriptKey = "compaction-system-delta";
+    setMockScript(scriptKey, [
+      { toolCalls: [{ name: "new_tool", arguments: {} }], finishReason: "tool_calls" },
+      { text: "updated", finishReason: "stop" },
+    ]);
+    const oldTool = makeTool("old_tool");
+    const newTool = makeTool("new_tool");
+    const history = [
+      { role: "system", content: "you are a test agent", toolsAdded: [oldTool], timestamp: 0 },
+      ...longHistory(30),
+      { role: "system", content: "UPDATED_SYSTEM_INSTRUCTION", toolsRemoved: [{ name: "old_tool" }], toolsAdded: [newTool], timestamp: 31 },
+      ...longHistory(30),
+    ];
+    const agent = buildRealAgent(makeMockModel(scriptKey), history, [newTool]);
+    await agent.prompt("use the current instructions and tools");
+    await agent.waitForIdle();
+    expect(recorded).toHaveLength(2);
+    for (const req of recorded) {
+      expect(hasMarker(req)).toBe(true);
+      expect(req.tools?.map((entry) => entry.function.name)).toEqual(["new_tool"]);
+      expect(req.messages.some((m) => m.role === "system" && contentText(m.content).includes("UPDATED_SYSTEM_INSTRUCTION"))).toBe(true);
+    }
+    expect(recorded[1]!.messages.some((m) => m.role === "tool")).toBe(true);
   });
 
   test("a short history is passed to the LLM untouched (no spurious trimming)", async () => {
@@ -274,6 +303,7 @@ describe("real pi-agent Agent applies compaction transformContext per LLM call",
 
     expect(recorded.length).toBe(1);
     const req = recorded[0]!;
+    expect(req.messages.some((m) => m.role === "system" && contentText(m.content) === "you are a test agent")).toBe(true);
     // Both messages reach the LLM verbatim; no compaction marker injected.
     expect(hasMarker(req)).toBe(false);
     expect(userTexts(req)).toEqual(["earlier", "hello"]);

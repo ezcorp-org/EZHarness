@@ -7,6 +7,7 @@ const {
   createProject,
   getProject,
   getProjectByName,
+  getProjectByPath,
   listProjects,
   updateProject,
   deleteProject,
@@ -84,6 +85,30 @@ describe("projects queries", () => {
     const all = await listProjects();
     expect(all.length).toBe(1);
     expect(all[0]!.name).toBe("Global");
+  });
+
+  test("qualification fixture projects are hidden from list, lookup, mutation and ownership backfill", async () => {
+    const { getTestDb } = await import("./helpers/test-pglite");
+    const { sql } = await import("drizzle-orm");
+    const { migrate } = await import("../db/migrate");
+    const db = getTestDb();
+    await db.execute(sql`INSERT INTO users (id, email, password_hash, name, role)
+      VALUES ('fixture-backfill-admin', 'fixture-admin@example.test', 'unused', 'Fixture Admin', 'admin')`);
+    await db.execute(sql`INSERT INTO projects (id, name, path, purpose)
+      VALUES ('ownerless-user', 'ownerless', '/ownerless', 'user')`);
+    await db.execute(sql`INSERT INTO projects (id, name, path, purpose)
+      VALUES ('fixture-system', 'fixture', '/__incus_qualification__/fixture', 'incus-qualification')`);
+    expect((await listProjects()).some(project => project.id === "fixture-system")).toBe(false);
+    expect(await getProject("fixture-system")).toBeUndefined();
+    expect(await getProjectByName("fixture")).toBeUndefined();
+    expect(await getProjectByPath("/__incus_qualification__/fixture")).toBeUndefined();
+    expect(await updateProject("fixture-system", { name: "renamed" })).toBeUndefined();
+    expect(await deleteProject("fixture-system")).toBe(false);
+    await migrate(db);
+    const members = await db.execute(sql`SELECT project_id FROM project_members WHERE project_id = 'fixture-system'`);
+    expect(members.rows).toEqual([]);
+    const userMembers = await db.execute(sql`SELECT user_id FROM project_members WHERE project_id = 'ownerless-user'`);
+    expect(userMembers.rows).toEqual([{ user_id: "fixture-backfill-admin" }]);
   });
 
   test("updateProject patches partial fields and bumps updatedAt", async () => {

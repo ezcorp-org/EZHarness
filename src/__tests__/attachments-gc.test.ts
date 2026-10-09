@@ -9,10 +9,9 @@ import { mockServerAlias, ADMIN_USER } from "./helpers/mock-request";
 mockServerAlias();
 mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
 mock.module("$server/chat/attachments/storage", () => require("../chat/attachments/storage"));
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (_: any) => ADMIN_USER,
-}));
+
 mock.module("$lib/server/security/validation", () => ({
+  ...require("../../web/src/lib/server/security/validation"),
   validationError: () => new Response("", { status: 400 }),
 }));
 mock.module("$lib/server/security/api-keys", () => ({
@@ -30,9 +29,13 @@ mock.module("../db/queries/settings", () => ({
 
 let DELETE: any;
 import { createProject } from "../db/queries/projects";
-import { createConversation, createMessage } from "../db/queries/conversations";
+import { createConversation, createMessage, getConversation } from "../db/queries/conversations";
 import { insertAttachment, listAttachmentsForConversation } from "../db/queries/attachments";
 import { writeAttachment } from "../chat/attachments/storage";
+import { localWorkspaceTarget } from "../runtime/workspaces/target";
+import { getDb } from "../db/connection";
+import { sandboxBindings } from "../db/schema";
+import { sandboxBindingRow } from "./helpers/sandbox-binding-row";
 
 let projectRoot: string;
 let projectId: string;
@@ -64,7 +67,7 @@ describe("conversation delete → attachments GC (disk + DB)", () => {
     const msg = await createMessage(conv.id, { role: "user", content: "hi" });
     const bytes = new Uint8Array([1, 2, 3]);
     const written = await writeAttachment({
-      projectRoot, conversationId: conv.id, messageId: msg.id,
+      workspaceTarget: localWorkspaceTarget(projectRoot), conversationId: conv.id, messageId: msg.id,
       filename: "a.png", mimeType: "image/png", bytes,
     });
     await insertAttachment({
@@ -78,7 +81,7 @@ describe("conversation delete → attachments GC (disk + DB)", () => {
 
     const res = await DELETE({
       params: { id: conv.id },
-      locals: {} as any,
+      locals: { user: ADMIN_USER } as any,
     } as any);
     expect(res.status).toBe(204);
 
@@ -86,5 +89,21 @@ describe("conversation delete → attachments GC (disk + DB)", () => {
     expect((await listAttachmentsForConversation(conv.id)).length).toBe(0);
     // Disk files cleaned by the handler.
     expect(await fileExists(written.storagePath)).toBe(false);
+  });
+
+  test("bound sandbox conversation refuses deletion before DB cascade or AMD attachment access", async () => {
+    const project = await createProject({ name: "Sandbox GC", path: projectRoot });
+    const conv = await createConversation(project.id, { title: "sandbox" });
+    const msg = await createMessage(conv.id, { role: "user", content: "hi" });
+    const written = await writeAttachment({
+      workspaceTarget: localWorkspaceTarget(projectRoot), conversationId: conv.id, messageId: msg.id,
+      filename: "canary.txt", mimeType: "text/plain", bytes: new TextEncoder().encode("AMD_CANARY"),
+    });
+    await getDb().insert(sandboxBindings).values(sandboxBindingRow(project.id));
+
+    const response = await DELETE({ params: { id: conv.id }, locals: { user: ADMIN_USER } as any } as any);
+    expect(response.status).toBe(503);
+    expect(await getConversation(conv.id)).toBeDefined();
+    expect(await fileExists(written.storagePath)).toBe(true);
   });
 });

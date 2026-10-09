@@ -29,12 +29,59 @@ import {
 } from "$server/runtime/preview/preview-ws";
 import { verifyPreviewToken, PREVIEW_COOKIE_NAME } from "$server/runtime/preview/preview-token";
 import { getServablePreview, isValidPreviewId } from "$server/db/queries/preview-sessions";
+import { resolveCurrentPreviewSandboxTarget } from "$server/runtime/preview/preview-target";
+import { getPreviewQuota } from "$server/runtime/preview/preview-rate-limit";
+import { sameSandboxWorkspaceBinding, type SandboxPreviewSocket, type SandboxWorkspaceBinding } from "$server/runtime/workspaces/target";
+import { notePreviewWsDenial, type PreviewWsDenialStage } from "$server/runtime/preview/preview-ws-diagnostics";
 
 /** Socket context attached at upgrade time, read by the open handler. */
-export interface PreviewWsData {
+interface LocalPreviewWsData {
   __preview: true;
   upstreamUrl: string;
   previewId: string;
+}
+interface SandboxPreviewWsData {
+  __preview: true;
+  kind: "sandbox";
+  previewId: string;
+  userId: string;
+  cookieToken: string;
+  binding: Readonly<SandboxWorkspaceBinding>;
+  port: number;
+  expiresAt: number;
+  duplex: SandboxPreviewSocket;
+  abort: AbortController;
+}
+export type PreviewWsData = LocalPreviewWsData | SandboxPreviewWsData;
+
+const MAX_WS_FRAME_BYTES = 256 * 1024;
+const MAX_WS_FRAMES = 1024;
+const MAX_WS_BYTES = 4 * 1024 * 1024;
+const MAX_WS_CONNECTIONS_PER_PREVIEW = 4;
+const RECHECK_MS = 1000;
+
+function frameBytes(frame: string | ArrayBufferLike | Uint8Array): number {
+  return typeof frame === "string" ? Buffer.byteLength(frame) : frame.byteLength;
+}
+
+function requestedSubprotocol(header: string | null): "vite-hmr" | "vite-ping" | null | undefined {
+  if (header === null) return null;
+  const value = header.trim();
+  return value === "vite-hmr" || value === "vite-ping" ? value : undefined;
+}
+
+async function currentSandboxPreview(data: SandboxPreviewWsData): Promise<boolean> {
+  if (Date.now() >= data.expiresAt) return false;
+  const claims = await verifyPreviewToken(data.cookieToken);
+  if (claims?.previewId !== data.previewId || claims.userId !== data.userId) return false;
+  const row = await getServablePreview(data.previewId, data.userId);
+  if (!row || row.userId !== data.userId || row.kind !== "dynamic" || row.targetPort !== data.port
+    || !(row.expiresAt instanceof Date) || row.expiresAt.getTime() <= Date.now()
+    || row.workspaceTarget?.kind !== "sandbox"
+    || !sameSandboxWorkspaceBinding(row.workspaceTarget.binding, data.binding)) return false;
+  const target = await resolveCurrentPreviewSandboxTarget(row);
+  return target?.kind === "sandbox" && sameSandboxWorkspaceBinding(target.binding, data.binding)
+    && !!target.backend?.previews?.connectWebSocket;
 }
 
 /** Minimal Cookie header parser — returns the named cookie value or null. */
@@ -63,7 +110,7 @@ export async function tryBridgePreviewWebSocket(
   request: Request,
   previewId: string,
   appHost: string | null,
-  platform: { server?: { upgrade(req: unknown, opts?: { data?: unknown }): boolean }; request?: unknown } | undefined,
+  platform: { server?: { upgrade(req: unknown, opts?: { data?: unknown; headers?: HeadersInit }): boolean }; request?: unknown } | undefined,
 ): Promise<Response | null> {
   if (!isWebSocketUpgrade(request)) return null;
 
@@ -86,6 +133,7 @@ export async function tryBridgePreviewWebSocket(
   );
 
   if (!decision.accept) {
+    notePreviewWsDenial("gate");
     // Opaque 403 — same surface as the HTTP 404 (gives nothing away).
     return new Response("Forbidden", {
       status: 403,
@@ -98,6 +146,47 @@ export async function tryBridgePreviewWebSocket(
   if (!platform?.server || platform.request === undefined) {
     return new Response("WebSocket bridge unavailable in this environment", { status: 426 });
   }
+
+  if ("kind" in decision && decision.kind === "sandbox") {
+    const protocol = requestedSubprotocol(request.headers.get("sec-websocket-protocol"));
+    const target = await resolveCurrentPreviewSandboxTarget(decision.row);
+    if (protocol === undefined || target?.kind !== "sandbox" || !target.backend?.previews?.connectWebSocket
+      || decision.row.workspaceTarget?.kind !== "sandbox"
+      || !sameSandboxWorkspaceBinding(target.binding, decision.row.workspaceTarget.binding)) {
+      notePreviewWsDenial("target");
+      return new Response("Forbidden", { status: 403 });
+    }
+    const abort = new AbortController();
+    let duplex: SandboxPreviewSocket | undefined;
+    let stage: PreviewWsDenialStage = "connect";
+    try {
+      duplex = await target.backend.previews.connectWebSocket({
+        binding: target.binding, previewId, userId: decision.userId, targetPort: decision.port,
+        requestPath: url.pathname, search: url.search, expiresAt: decision.row.expiresAt!,
+        signal: abort.signal, subprotocol: protocol,
+      });
+      stage = "protocol";
+      if (duplex.protocol !== protocol) throw new Error("Sandbox preview protocol changed");
+      const data: SandboxPreviewWsData = {
+        __preview: true, kind: "sandbox", previewId, userId: decision.userId, cookieToken: cookieToken!, binding: target.binding,
+        port: decision.port, expiresAt: decision.row.expiresAt!.getTime(), duplex, abort,
+      };
+      stage = "recheck";
+      if (!await currentSandboxPreview(data)) throw new Error("Sandbox preview changed before upgrade");
+      const headers = protocol ? { "Sec-WebSocket-Protocol": protocol } : undefined;
+      stage = "upgrade";
+      if (!platform.server.upgrade(platform.request, { data, ...(headers ? { headers } : {}) })) {
+        throw new Error("Sandbox preview upgrade failed");
+      }
+    } catch {
+      notePreviewWsDenial(stage);
+      abort.abort();
+      await duplex?.close().catch(() => undefined);
+      return new Response("Forbidden", { status: 403 });
+    }
+    return new Response(null, { status: 101 });
+  }
+  if (!("upstreamUrl" in decision)) return new Response("Forbidden", { status: 403 });
 
   const data: PreviewWsData = {
     __preview: true,
@@ -159,12 +248,78 @@ export function createPreviewWebSocketHandler(
     object,
     { ws: UpstreamWebSocket; ready: boolean; queue: (string | ArrayBufferLike)[] }
   >();
+  type Client = { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void };
+  type SandboxState = { data: SandboxPreviewWsData; closed: boolean; frames: number; bytes: number;
+    timer: ReturnType<typeof setInterval>; pending: Promise<void>; checking?: Promise<boolean> };
+  const sandboxStates = new WeakMap<object, SandboxState>();
+  const sandboxByPreview = new Map<string, Set<object>>();
+
+  function stopSandbox(ws: Client, state: SandboxState, code = 1000, closeClient = true): void {
+    if (state.closed) return;
+    state.closed = true;
+    clearInterval(state.timer);
+    state.data.abort.abort();
+    sandboxStates.delete(ws);
+    const clients = sandboxByPreview.get(state.data.previewId);
+    clients?.delete(ws);
+    if (clients?.size === 0) sandboxByPreview.delete(state.data.previewId);
+    void state.data.duplex.close().catch(() => undefined);
+    if (closeClient) ws.close(code, code === 1000 ? "preview closed" : "preview unavailable");
+  }
+
+  async function stillAllowed(ws: Client, state: SandboxState, fresh = false): Promise<boolean> {
+    if (state.closed) return false;
+    if (fresh && state.checking) await state.checking;
+    if (state.closed) return false;
+    state.checking ??= currentSandboxPreview(state.data).catch(() => false).then(allowed => {
+      if (!allowed) stopSandbox(ws, state, 1008);
+      return allowed && !state.closed;
+    }).finally(() => { state.checking = undefined; });
+    return state.checking;
+  }
+
+  function accountFrame(ws: Client, state: SandboxState, frame: string | ArrayBufferLike | Uint8Array): boolean {
+    const bytes = frameBytes(frame);
+    state.frames++;
+    state.bytes += bytes;
+    if (bytes <= MAX_WS_FRAME_BYTES && state.frames <= MAX_WS_FRAMES && state.bytes <= MAX_WS_BYTES
+      && getPreviewQuota().allowBytes(state.data.previewId, bytes)) return true;
+    stopSandbox(ws, state, 1009);
+    return false;
+  }
 
   return {
-    open(ws: { data?: unknown; close(code?: number, reason?: string): void; send(msg: string | ArrayBufferLike): void }) {
+    open(ws: Client) {
       const data = ws.data as PreviewWsData | undefined;
       if (data?.__preview !== true) {
         ws.close(1008, "not a preview socket");
+        return;
+      }
+      if ("kind" in data && data.kind === "sandbox") {
+        const clients = sandboxByPreview.get(data.previewId) ?? new Set<object>();
+        if (clients.size >= MAX_WS_CONNECTIONS_PER_PREVIEW) {
+          data.abort.abort();
+          void data.duplex.close().catch(() => undefined);
+          ws.close(1008, "preview unavailable");
+          return;
+        }
+        const state: SandboxState = { data, closed: false, frames: 0, bytes: 0,
+          timer: setInterval(() => { void stillAllowed(ws, state); }, RECHECK_MS), pending: Promise.resolve() };
+        sandboxStates.set(ws, state);
+        clients.add(ws);
+        sandboxByPreview.set(data.previewId, clients);
+        void (async () => {
+          if (!await stillAllowed(ws, state)) return;
+          for await (const frame of data.duplex.messages) {
+            if (!await stillAllowed(ws, state, true) || !accountFrame(ws, state, frame)) return;
+            ws.send(typeof frame === "string" ? frame : Uint8Array.from(frame).buffer);
+          }
+          stopSandbox(ws, state);
+        })().catch(() => stopSandbox(ws, state, 1011));
+        return;
+      }
+      if (!("upstreamUrl" in data)) {
+        ws.close(1008, "preview unavailable");
         return;
       }
       // The upstream ctor can throw SYNCHRONOUSLY (malformed URL, immediate
@@ -199,6 +354,16 @@ export function createPreviewWebSocketHandler(
     },
 
     message(ws: { data?: unknown; close(code?: number, reason?: string): void }, message: string | ArrayBufferLike) {
+      const sandbox = sandboxStates.get(ws as object);
+      if (sandbox) {
+        if (!accountFrame(ws as Client, sandbox, message)) return;
+        sandbox.pending = sandbox.pending.then(async () => {
+          if (!await stillAllowed(ws as Client, sandbox, true)) return;
+          const frame = typeof message === "string" ? message : new Uint8Array(message);
+          await sandbox.data.duplex.send(frame);
+        }).catch(() => stopSandbox(ws as Client, sandbox, 1011));
+        return;
+      }
       const state = upstreams.get(ws as object);
       if (!state) return;
       if (state.ready) {
@@ -222,6 +387,11 @@ export function createPreviewWebSocketHandler(
     },
 
     close(ws: { data?: unknown }) {
+      const sandbox = sandboxStates.get(ws as object);
+      if (sandbox) {
+        stopSandbox(ws as Client, sandbox, 1000, false);
+        return;
+      }
       const state = upstreams.get(ws as object);
       if (state) {
         try {

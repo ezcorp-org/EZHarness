@@ -1,0 +1,205 @@
+import { afterEach, expect, spyOn, test } from "bun:test";
+import { createServer, type Server } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { requestIncusAdmissionReadiness, requestIncusSupervisorFault, requestIncusSupervisorReceipt, requestIncusSupervisorRestart, requestIncusSupervisorReadiness, requestIncusSupervisorTerminal,
+  type SupervisorRestartRequest } from "./incus-qualification-supervisor-client";
+import type { SignedRestartHandoff } from "./incus-qualification-checkpoint";
+
+const roots: string[] = [];
+const servers: Server[] = [];
+afterEach(async () => {
+  await Promise.all(servers.splice(0).map(server => new Promise<void>(resolve => server.close(() => resolve()))));
+  await Promise.all(roots.splice(0).map(root => rm(root, { recursive: true, force: true })));
+});
+
+async function server(reply: string | ((request: unknown) => string | null), delayMs = 0): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), "incus-supervisor-client-"));
+  roots.push(root);
+  const path = join(root, "control.sock");
+  const listener = createServer(socket => {
+    let data = "";
+    socket.on("data", chunk => {
+      data += chunk.toString();
+      if (!data.includes("\n")) return;
+      const response = typeof reply === "string" ? reply : reply(JSON.parse(data));
+      if (response !== null) setTimeout(() => socket.end(response), delayMs);
+    });
+  });
+  servers.push(listener);
+  await new Promise<void>(resolve => listener.listen(path, resolve));
+  return path;
+}
+
+const restart: SupervisorRestartRequest = {
+  version: 1, action: "restart", runId: "run", nonce: "nonce", deadlineMs: 1,
+  scope: { installationId: "installation", releaseId: "release", connectionId: "connection", presetId: "preset" },
+  fixtureOperationId: "fixture", bindingId: "binding", generation: 3,
+  connectionRevision: 2, lastOperationId: "operation", beforeDigest: "a".repeat(64),
+};
+
+test("client sends exact restart and receipt frames", async () => {
+  const restartSocket = await server(input => {
+    expect(input).toEqual(restart);
+    return '{"accepted":true}\n';
+  });
+  await requestIncusSupervisorRestart(restartSocket, restart);
+  const receipt: SignedRestartHandoff = { payload: {
+    ...restart, oldProcess: { pid: 1, startTicks: "1" },
+    newProcess: { pid: 2, startTicks: "2" }, afterDigest: "b".repeat(64),
+  }, signature: "signature" };
+  const receiptSocket = await server(input => {
+    expect(input).toEqual({ version: 1, action: "receipt", runId: "run", nonce: "nonce",
+      afterDigest: "b".repeat(64) });
+    return `${JSON.stringify({ receipt })}\n`;
+  });
+  expect(await requestIncusSupervisorReceipt(receiptSocket, "run", "nonce", "b".repeat(64),
+    Date.now() + 20_000))
+    .toEqual(receipt);
+});
+
+test("client waits for independent receipt verification beyond five seconds", async () => {
+  const receipt: SignedRestartHandoff = { payload: {
+    ...restart, oldProcess: { pid: 1, startTicks: "1" },
+    newProcess: { pid: 2, startTicks: "2" }, afterDigest: "b".repeat(64),
+  }, signature: "signature" };
+  const receiptSocket = await server(`${JSON.stringify({ receipt })}\n`, 5_200);
+  expect(await requestIncusSupervisorReceipt(receiptSocket, "run", "nonce", "b".repeat(64),
+    Date.now() + 20_000)).toEqual(receipt);
+}, 10_000);
+
+test("client fails closed on missing, denied, malformed, and closed responses", async () => {
+  await expect(requestIncusSupervisorRestart("relative.sock", restart)).rejects.toThrow("socket is unavailable");
+  await expect(requestIncusSupervisorRestart("/tmp/incus-supervisor-missing.sock", restart))
+    .rejects.toThrow();
+  const refused = await server('{"accepted":false}\n');
+  await expect(requestIncusSupervisorRestart(refused, restart)).rejects.toThrow("refused restart");
+  const denied = await server('{"error":"unauthorized control peer"}\n');
+  await expect(requestIncusSupervisorReceipt(denied, "run", "nonce", "b".repeat(64),
+    Date.now() + 20_000))
+    .rejects.toThrow("unauthorized control peer");
+  const malformed = await server('invalid\n');
+  await expect(requestIncusSupervisorRestart(malformed, restart)).rejects.toThrow("response is invalid");
+  const oversized = await server(`${"x".repeat(16385)}\n`);
+  await expect(requestIncusSupervisorRestart(oversized, restart)).rejects.toThrow("too large");
+  const empty = await server("");
+  await expect(requestIncusSupervisorRestart(empty, restart)).rejects.toThrow("closed the response");
+  const badReceipt = await server('{"receipt":{}}\n');
+  await expect(requestIncusSupervisorReceipt(badReceipt, "run", "nonce", "b".repeat(64),
+    Date.now() + 20_000))
+    .rejects.toThrow("receipt is invalid");
+  const hanging = await server(() => null);
+  await expect(requestIncusSupervisorRestart(hanging, restart)).rejects.toThrow("timed out");
+}, 10_000);
+
+test("client receipt wait stays inside the run deadline", async () => {
+  const hanging = await server(() => null);
+  await expect(requestIncusSupervisorReceipt(hanging, "run", "nonce", "b".repeat(64),
+    Date.now() + 100)).rejects.toThrow("timed out");
+  await expect(requestIncusSupervisorReceipt(hanging, "run", "nonce", "b".repeat(64),
+    Date.now() - 1)).rejects.toThrow("deadline expired");
+});
+
+test("fault client sends the exact operator arm and refuses missing or denied authority", async () => {
+  const arm = { runId: "run", nonce: "nonce", deadlineMs: Date.now() + 20_000,
+    scope: restart.scope, fixtureOperationId: "qual-recovery-run", bindingId: "recovery-binding",
+    destroyOperationId: "11111111-1111-4111-8111-111111111111", generation: 1,
+    providerGeneration: 1, connectionRevision: 2 };
+  const socket = await server(input => {
+    expect(input).toEqual({ version: 1, action: "fault", phase: "arm", arm });
+    return '{"authorized":true}\n';
+  });
+  await requestIncusSupervisorFault(socket, "arm", arm);
+  const denied = await server('{"authorized":false}\n');
+  await expect(requestIncusSupervisorFault(denied, "presence")).rejects.toThrow("denied fault authorization");
+  await expect(requestIncusSupervisorFault(socket, "readback"))
+    .rejects.toThrow("arm is unavailable");
+  await expect(requestIncusSupervisorFault(socket, "arm", { ...arm, deadlineMs: Date.now() - 1 }))
+    .rejects.toThrow("deadline expired");
+});
+
+test("readiness permits both bounded verifier budgets while restart ACK stays separate", async () => {
+  let budget = 0; const realTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms: number, ...args: unknown[]) => {
+    if (ms !== 12_000) return realTimer(callback, ms, ...args);
+    budget = ms; return realTimer(() => {}, 60_000);
+  }) as typeof setTimeout);
+  try {
+    const path = await server(input => {
+      expect(input).toEqual({ version: 1, action: "readiness" });
+      expect(budget).toBe(2 * 5_000 + 2_000);
+      expect(2 * 4_000).toBeLessThan(budget);
+      return '{"ready":true,"protocol":"incus-qualification.v1"}\n';
+    });
+    expect(await requestIncusSupervisorReadiness(path)).toBe(true);
+  } finally { timer.mockRestore(); }
+});
+
+test("terminal client reports only the exact validated host receipt and rejects refusal", async () => {
+  const attestation = { runId: "run", nonce: "nonce", scope: restart.scope, connectionRevision: 2,
+    process: { pid: 2, startTicks: "2" }, claimedProcess: { pid: 1, startTicks: "1" }, state: "COMPLETED" as const };
+  const path = await server(input => {
+    expect(input).toEqual({ version: 1, action: "terminal", ...attestation });
+    expect(JSON.stringify(input)).not.toContain("reconcileOrder");
+    return '{"released":true}\n';
+  });
+  await requestIncusSupervisorTerminal(path, attestation);
+  await expect(requestIncusSupervisorTerminal(await server('{"released":false}\n'), attestation))
+    .rejects.toThrow("not released");
+});
+
+
+test("selected readiness uses the same bounded authenticated exchange and carries no credentials", async () => {
+  const expectedPin = { scope: restart.scope, connectionRevision: 1,
+    presetDigest: "a".repeat(64), effectiveSettingsDigest: "b".repeat(64),
+    imageFingerprint: "c".repeat(64), helperSha256: "d".repeat(64) };
+  const path = await server(input => {
+    expect(input).toEqual({ version: 1, action: "readiness", expectedPin });
+    return '{"ready":true,"protocol":"incus-qualification.v1"}\n';
+  });
+  expect(await requestIncusSupervisorReadiness(path, expectedPin)).toBe(true);
+  const denied = await server('{"error":"operator receipt verifier is unavailable"}\n');
+  await expect(requestIncusSupervisorReadiness(denied, expectedPin)).rejects.toThrow("verifier is unavailable");
+});
+
+
+test("daily client uses a closed v2 frame over an actual Unix socket", async () => {
+  const { admissionPin, admissionObservation } = await import("./__tests__/incus-admission-observation");
+  const observation = admissionObservation();
+  const socket = await server(input => {
+    expect(input).toEqual({ version: 2, action: "admissionReadiness", expectedPin: admissionPin });
+    return `${JSON.stringify(observation)}\n`;
+  });
+  expect(await requestIncusAdmissionReadiness(socket, admissionPin)).toEqual(observation);
+  for (const response of [{ ready: true, protocol: "incus-qualification.v1" },
+    { ...observation, observation: {} }, { ...observation, extra: true }]) {
+    await expect(requestIncusAdmissionReadiness(await server(`${JSON.stringify(response)}\n`), admissionPin))
+      .rejects.toThrow("readiness_unavailable");
+  }
+});
+
+test("admission errors expose only finite reasons from private supervisor replies", async () => {
+  const { admissionPin } = await import("./__tests__/incus-admission-observation");
+  for (const reason of ["deadline_exceeded", "authority_rejected", "unavailable", "private credential", null, {}]) {
+    const socket = await server(`${JSON.stringify({ error: typeof reason === "string" ? `readiness_unavailable:${reason}` : "private stderr credential", reason })}\n`);
+    await expect(requestIncusAdmissionReadiness(socket, admissionPin)).rejects.toMatchObject({
+      name: "IncusAdmissionReadinessError", code: "readiness_unavailable", message: "readiness_unavailable",
+      reason: reason === "deadline_exceeded" || reason === "authority_rejected" ? reason : "unavailable",
+    });
+  }
+  await expect(requestIncusAdmissionReadiness("relative", admissionPin)).rejects.toMatchObject({ reason: "unavailable" });
+});
+
+test("admission client closes on its unchanged deadline and reports a typed timeout", async () => {
+  const { admissionPin } = await import("./__tests__/incus-admission-observation");
+  const socket = await server(() => null);
+  const realTimer = globalThis.setTimeout;
+  const timer = spyOn(globalThis, "setTimeout").mockImplementation(((callback: (...args: unknown[]) => void, ms: number, ...args: unknown[]) =>
+    realTimer(callback, ms === 12_000 ? 0 : ms, ...args)) as typeof setTimeout);
+  try {
+    await expect(requestIncusAdmissionReadiness(socket, admissionPin)).rejects.toMatchObject({
+      name: "IncusAdmissionReadinessError", code: "readiness_unavailable", message: "readiness_unavailable", reason: "deadline_exceeded",
+    });
+  } finally { timer.mockRestore(); }
+});

@@ -36,9 +36,16 @@ const createMessage = vi.fn();
 const insertAttachment = vi.fn();
 const deleteAttachmentsForMessage = vi.fn();
 const getProject = vi.fn();
-const streamChat = vi.fn(() => ({ catch: () => Promise.resolve() }));
+const streamChat = vi.fn((_conversationId: string, _content: string, options: { onRunRegistered?: () => void; runId?: string }) => {
+  options.onRunRegistered?.();
+  return Promise.resolve({ id: options.runId });
+});
 const checkTokenBudget = vi.fn();
 const getEzAction = vi.fn();
+
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
 
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,

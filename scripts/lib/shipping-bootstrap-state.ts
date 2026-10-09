@@ -15,6 +15,8 @@ export type BundledBootstrapObserver = {
   startedAt: string;
   deadlineAt: string;
   deadlineMs: number;
+  hardDeadlineAt: string;
+  lastProgressAt: string | null;
 };
 
 export type BundledBootstrapObservation = BundledBootstrapState & {
@@ -77,19 +79,26 @@ function summarizeBootstrap(
 export async function waitForBundledBootstrap(client: HarnessClient, options: { requireObservedPending?: boolean; deadlineMs?: number } = {}): Promise<BundledBootstrapObservation> {
   const startedAtMs = Date.now();
   const deadlineMs = options.deadlineMs ?? 360_000;
-  const deadline = startedAtMs + deadlineMs;
+  // A fresh image builds 28 bundled extensions through one runner. Progress
+  // can continue past six minutes on a loaded CI host; a stalled queue still
+  // fails after six minutes without a verified build, or twelve minutes total.
+  const hardDeadline = startedAtMs + Math.max(deadlineMs, 720_000);
+  let deadline = startedAtMs + deadlineMs;
   const observer: BundledBootstrapObserver = {
     startedAt: new Date(startedAtMs).toISOString(),
     deadlineAt: new Date(deadline).toISOString(),
     deadlineMs,
+    hardDeadlineAt: new Date(hardDeadline).toISOString(),
+    lastProgressAt: null,
   };
   const requireObservedPending = options.requireObservedPending ?? true;
   const bootstrapNames = new Set(resolveBundledExtensions().map(({ name }) => name));
   let idleChecks = 0;
   let initialPending = 0;
   let maximumPending = 0;
+  const verifiedBuilds = new Set<string>();
   let latest: BundledBootstrapObservation | null = null;
-  while (Date.now() < deadline) {
+  while (Date.now() < Math.min(deadline, hardDeadline)) {
     const extensions = await client.listExtensions();
     const installationByName = new Map(extensions.map(({ id, name }) => [name, id]));
     const lifecycleInstallations = [...bootstrapNames].map(name => ({ name, installationId: installationByName.get(name) ?? bundledInstallationId(name) }));
@@ -98,6 +107,16 @@ export async function waitForBundledBootstrap(client: HarnessClient, options: { 
     const states = await Promise.all(lifecycleInstallations.map(async ({ name, installationId }) => ({ name, installationId, state: await client.extensionControl<InstallationState>("extensions_inspect", { installationId }) })));
     const installationStates = states.map(({ state }) => state);
     const pending = installationStates.reduce((count, state) => count + Object.values(state.operations).filter(operation => ["queued", "building", "verifying"].includes(operation.state)).length, 0);
+    const previousVerified = verifiedBuilds.size;
+    for (const { installationId, state } of states) for (const operation of Object.values(state.operations)) {
+      if (operation.kind === "build" && operation.state === "verified") verifiedBuilds.add(`${installationId}:${operation.id}`);
+    }
+    if (verifiedBuilds.size > previousVerified) {
+      const progressedAt = Date.now();
+      deadline = Math.min(progressedAt + deadlineMs, hardDeadline);
+      observer.deadlineAt = new Date(deadline).toISOString();
+      observer.lastProgressAt = new Date(progressedAt).toISOString();
+    }
     maximumPending = Math.max(maximumPending, pending);
     if (pending > 0 && initialPending === 0) initialPending = pending;
     latest = summarizeBootstrap(states, initialPending, maximumPending, observer);

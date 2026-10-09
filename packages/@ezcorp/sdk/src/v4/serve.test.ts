@@ -6,9 +6,61 @@ import { getChannel } from "../runtime/channel";
 const metadata = { schemaVersion: 4 as const, name: "echo", version: "1.0.0", description: "Echo", author: { name: "Test" }, permissions: {}, tools: [{ name: "echo", description: "Echo", inputSchema: { type: "object", properties: { text: { type: "string" } }, required: ["text"], additionalProperties: false }, outputSchema: { type: "string" } }] };
 const identity = (invocationId = "call") => ({ invocationId, workerId: "worker", releaseId: "release", principalId: "alice", scopeId: "scope", token: `token-${invocationId}`, deadline: Date.now() + 5000 });
 const request = (id: string, context = identity(id), input: unknown = { text: "hello" }) => ({ jsonrpc: "2.0", id, method: "extension/invoke", params: { name: "echo", input, context } });
+const providerRequest = (id: string, overrides: Record<string, unknown> = {}) => ({ jsonrpc: "2.0", id, method: "provider/credentials.resolve", sensitive: true, params: { providerId: "infisical", connectionId: "connection-a", name: "OPENAI_API_KEY", scope: { extensionId: "consumer", userId: "user-a", conversationId: "conversation-a" }, context: identity(id), ...overrides } });
 const definition = (handler: ExtensionHandler = input => (input as { text: string }).text) => defineExtension({ manifest: metadata, tools: { echo: handler } });
 
 describe("v4 protocol", () => {
+  test("provider credentials use only the classified envelope and stay out of discovery", async () => {
+    const frames: any[] = [];
+    const seen: unknown[] = [];
+    const extension = defineExtension({
+      manifest: { ...metadata, tools: [] },
+      providerCredentials: async (input, context) => { seen.push({ input, invocation: context.invocation }); return input.name === "OPENAI_API_KEY" ? "sdk-sensitive-canary" : null; },
+    });
+    const session = createSession(extension, frame => { frames.push(JSON.parse(frame)); });
+    await session.receive({ jsonrpc: "2.0", id: "discover-sensitive", method: "extension/discover", params: {} });
+    expect(JSON.stringify(frames[0].result)).not.toContain("provider/credentials.resolve");
+    const classified = providerRequest("sensitive");
+    await session.receive(classified);
+    expect(frames[1]).toEqual({ jsonrpc: "2.0", id: "sensitive", sensitive: { kind: "provider-credential", encoding: "base64", data: Buffer.from("sdk-sensitive-canary").toString("base64") } });
+    expect(frames[1].result).toBeUndefined();
+    expect(seen).toEqual([{ input: { providerId: "infisical", connectionId: "connection-a", name: "OPENAI_API_KEY", scope: { extensionId: "consumer", userId: "user-a", conversationId: "conversation-a" } }, invocation: classified.params.context }]);
+    await session.receive(providerRequest("missing", { name: "GITHUB_TOKEN", context: identity("missing") }));
+    expect(frames.at(-1).sensitive).toEqual({ kind: "provider-credential", missing: true });
+    session.close();
+  });
+
+  test("provider credential requests require classification and redact every failure", async () => {
+    const canary = "sdk-provider-error-canary";
+    const frames: any[] = [];
+    const extension = defineExtension({ manifest: { ...metadata, tools: [] }, providerCredentials: async input => {
+      if (input.name === "OPENAI_API_KEY") throw new Error(canary);
+      return `${canary}\n`;
+    } });
+    const session = createSession(extension, frame => { frames.push(JSON.parse(frame)); });
+    const ordinary = providerRequest("ordinary") as Record<string, unknown>;
+    delete ordinary.sensitive;
+    await expect(session.receive(ordinary)).rejects.toThrow("Invalid request envelope");
+    await session.receive(providerRequest("throwing"));
+    expect(frames.at(-1).error.message).toBe("Sensitive provider request failed");
+    expect(JSON.stringify(frames.at(-1))).not.toContain(canary);
+    await session.receive(providerRequest("invalid-result", { name: "GITHUB_TOKEN", context: identity("invalid-result") }));
+    expect(frames.at(-1).error.message).toBe("Sensitive provider request failed");
+    expect(JSON.stringify(frames.at(-1))).not.toContain(canary);
+    session.close();
+  });
+
+  test("the sensitive method cannot be declared or reached through ordinary contributions", async () => {
+    const reservedTool = { ...metadata.tools[0], name: "provider/credentials.resolve" };
+    expect(() => defineExtension({ manifest: { ...metadata, tools: [reservedTool] }, tools: { "provider/credentials.resolve": () => "secret" } })).toThrow();
+    const reservedMethod = { name: "provider/credentials.resolve", inputSchema: {}, outputSchema: {} };
+    expect(() => defineExtension({ manifest: { ...metadata, tools: [], methods: [reservedMethod] }, methods: { "provider/credentials.resolve": { ...reservedMethod, handle: () => "secret" } } })).toThrow("ordinary contribution");
+    const frames: any[] = [];
+    const session = createSession(defineExtension({ manifest: { ...metadata, tools: [] } }), frame => { frames.push(JSON.parse(frame)); });
+    await session.receive(providerRequest("absent"));
+    expect(frames[0].error.message).toBe("Sensitive provider request failed");
+    session.close();
+  });
   test("host CAS conflicts preserve their stable public discriminator", async () => {
     let session: ReturnType<typeof createSession>;
     const frames: string[] = [];

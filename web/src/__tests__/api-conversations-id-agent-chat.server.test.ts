@@ -24,6 +24,10 @@ const busEmit = vi.fn();
 const getAgentConfig = vi.fn();
 const enqueue = vi.fn();
 
+const getProjectMembership = vi.fn(async () => ({ role: "member" }));
+vi.mock("$server/db/queries/project-members", () => ({ getProjectMembership }));
+beforeEach(() => { getProjectMembership.mockReset(); getProjectMembership.mockResolvedValue({ role: "member" }); });
+
 vi.mock("$server/db/queries/conversations", () => ({
   getConversation,
   getLatestLeaf,
@@ -183,6 +187,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
     function installSubConvGraph(opts: {
       agentConfig?: { provider?: string; model?: string; name?: string; prompt?: string };
       parentConvModel?: { provider?: string; model?: string };
+      parentProjectId?: string;
       /** The SUB-conversation's own persisted mode — the row Boundary 2 reads
        *  and the row whose `modeId` the run is threaded with. Spawned
        *  sub-conversations carry none, which is the default here. */
@@ -208,7 +213,7 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
             id: "parent-1",
             parentConversationId: null,
             userId: user.id,
-            projectId: "proj-1",
+            projectId: opts.parentProjectId ?? "proj-1",
             agentConfigId: null,
             systemPrompt: null,
             model: opts.parentConvModel?.model ?? null,
@@ -229,6 +234,23 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       getAgentConfig.mockResolvedValue(
         opts.agentConfig ?? null,
       );
+    }
+
+    for (const projectId of ["00000000-0000-4000-8000-000000000001", `incus-project-${"a".repeat(48)}`]) {
+      test(`revoked parent project ${projectId} refuses both idle and live agent work`, async () => {
+        installSubConvGraph({ parentProjectId: projectId });
+        getProjectMembership.mockResolvedValue(undefined as any);
+        for (const active of [null, { id: "live-run", status: "running" }]) {
+          getActiveRunForConversation.mockReturnValue(active);
+          const result = await POST(makeEvent({ locals: { user }, body: { content: "Use project files" } }));
+          expect(result.status).toBe(403);
+        }
+        expect(getProjectMembership).toHaveBeenCalledWith(user.id, projectId);
+        expect(createMessage).not.toHaveBeenCalled();
+        expect(steerConversation).not.toHaveBeenCalled();
+        expect(streamChat).not.toHaveBeenCalled();
+        expect(enqueue).not.toHaveBeenCalled();
+      });
     }
 
     test("body provider/model override CURRENT_MODEL_SENTINEL config + parent fallback", async () => {
@@ -252,8 +274,26 @@ describe("POST /api/conversations/[id]/agent-chat", () => {
       expect(streamChat).toHaveBeenCalledTimes(1);
       const opts = (streamChat.mock.calls[0] as unknown as [string, string, { provider?: string; model?: string }])[2];
       expect(opts.provider).toBe("openai");
+      expect(opts).toMatchObject({ workspacePrincipal: { userId: user.id } });
       expect(opts.model).toBe("gpt-5");
     });
+    test("reports a failed idle run to the root without a second run or queue", async () => {
+      installSubConvGraph();
+      streamChat.mockImplementationOnce(async () => { throw new Error("run failed"); });
+      const response = await POST(makeEvent({ locals: { user }, body: { content: "hi" } }));
+      expect(response.status).toBe(200);
+      await vi.waitFor(() => {
+        expect(busEmit).toHaveBeenCalledWith("agent:complete", expect.objectContaining({
+          success: false,
+          resultPreview: "run failed",
+          subConversationId: "sub-1",
+          parentConversationId: "parent-1",
+        }));
+      });
+      expect(streamChat).toHaveBeenCalledTimes(1);
+      expect(enqueue).not.toHaveBeenCalled();
+    });
+
 
     test("body provider/model override non-sentinel agent-config model", async () => {
       installSubConvGraph({

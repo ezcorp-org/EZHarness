@@ -167,6 +167,7 @@ let onPreprocessDispatch: ((signal?: AbortSignal) => Promise<void>) | undefined;
 
 mock.module("../extensions/tool-executor", () => ({
   ToolExecutor: class {
+    setWorkspaceTarget() {}
     setStateMediator() {}
     setExecutor() {}
     setSpawnQuota() {}

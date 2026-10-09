@@ -831,8 +831,16 @@ export class HarnessClient {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     const buf = new SseDataBuffer();
+    // Own body cancellation as well as fetch cancellation. A transport can
+    // leave a pending reader.read() open after the request signal aborts.
+    const cancelReader = () => {
+      // Abort can race a transport error; an already-errored body is closed.
+      void reader.cancel().catch(() => undefined);
+    };
+    opts.signal?.addEventListener("abort", cancelReader, { once: true });
+    if (opts.signal?.aborted) cancelReader();
     try {
-      while (true) {
+      while (!opts.signal?.aborted) {
         const { done, value } = await reader.read();
         if (done) break;
         for (const payload of buf.push(decoder.decode(value, { stream: true }))) {
@@ -842,6 +850,7 @@ export class HarnessClient {
         }
       }
     } finally {
+      opts.signal?.removeEventListener("abort", cancelReader);
       reader.releaseLock();
     }
   }

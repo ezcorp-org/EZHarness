@@ -462,6 +462,64 @@ describe("HarnessClient", () => {
     expect(threw).toBe(true);
   });
 
+  test("streamEvents cancels its owned reader when aborted during a read", async () => {
+    const device = new AbortController();
+    let streamController!: ReadableStreamDefaultController<Uint8Array>;
+    let cancelled = false;
+    let reading!: () => void;
+    const readStarted = new Promise<void>((resolve) => { reading = resolve; });
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) { streamController = controller; },
+      pull() { reading(); },
+      cancel() { cancelled = true; },
+    }, { highWaterMark: 0 });
+    const stub = (async () => new Response(body)) as unknown as typeof fetch;
+    const events = fakeClient(stub).streamEvents({ signal: device.signal });
+    const pending = events.next();
+    await readStarted;
+    try {
+      device.abort();
+      expect(cancelled).toBe(true);
+      expect(await pending).toEqual({ done: true, value: undefined });
+      expect(body.locked).toBe(false);
+    } finally {
+      if (!cancelled) streamController.close();
+      await events.return(undefined);
+    }
+  });
+
+  test("streamEvents cancels when abort occurs while fetch returns its body", async () => {
+    const device = new AbortController();
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      cancel() { cancelled = true; },
+    });
+    const stub = (async () => {
+      device.abort();
+      return new Response(body);
+    }) as unknown as typeof fetch;
+    const events = fakeClient(stub).streamEvents({ signal: device.signal });
+    expect(await events.next()).toEqual({ done: true, value: undefined });
+    expect(cancelled).toBe(true);
+    expect(body.locked).toBe(false);
+  });
+
+  test("streamEvents releases its reader if transport cancellation rejects", async () => {
+    const device = new AbortController();
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('data: {"type":"run:complete"}\n\n'));
+      },
+      cancel() { throw new Error("transport already stopped"); },
+    });
+    const stub = (async () => new Response(body)) as unknown as typeof fetch;
+    const events = fakeClient(stub).streamEvents({ signal: device.signal });
+    expect((await events.next()).value?.type).toBe("run:complete");
+    device.abort();
+    expect(await events.next()).toEqual({ done: true, value: undefined });
+    expect(body.locked).toBe(false);
+  });
+
   test("streamEvents yields parsed runtime events", async () => {
     const events: string[] = [];
     for await (const evt of client().streamEvents({ conversationId: "c1" })) {

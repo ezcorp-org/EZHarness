@@ -49,6 +49,7 @@ beforeEach(() => {
 	state.goto.mockReset();
 	vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
 		const url = String(input);
+		if (url.endsWith(`/api/projects/${ordinary.id}/incus-feature`)) return response({ kind: "none" });
 		if (url.endsWith(`/api/projects/${ordinary.id}/sandbox`)) return response({ code: "SANDBOX_NOT_CONFIGURED" }, 409);
 		return response({ links: [] });
 	}));
@@ -65,6 +66,7 @@ describe("project settings workspace binding", () => {
 
 	test("uses the persisted sandbox binding rather than an empty path", async () => {
 		vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+			if (String(input).endsWith(`/api/projects/${ordinary.id}/incus-feature`)) return response({ kind: "none" });
 			if (String(input).endsWith(`/api/projects/${ordinary.id}/sandbox`)) return response({ state: "stopped" });
 			return response({ links: [] });
 		}));
@@ -77,6 +79,7 @@ describe("project settings workspace binding", () => {
 
 	test("fails closed while the persisted workspace binding cannot be verified", async () => {
 		vi.stubGlobal("fetch", vi.fn(async (input: string | URL) => {
+			if (String(input).endsWith(`/api/projects/${ordinary.id}/incus-feature`)) return response({ kind: "none" });
 			if (String(input).endsWith(`/api/projects/${ordinary.id}/sandbox`)) return response({ error: "Sandbox service unavailable" }, 503);
 			return response({ links: [] });
 		}));
@@ -84,5 +87,29 @@ describe("project settings workspace binding", () => {
 		await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Sandbox service unavailable"));
 		expect(view.queryByTestId("sandbox-panel-stub")).not.toBeInTheDocument();
 		expect(view.queryByTestId("project-form-stub")).not.toBeInTheDocument();
+	});
+
+	test("shows only the operator handoff for an Incus-bound project", async () => {
+		state.store.projects = [{ ...ordinary, path: "/repo" }];
+		vi.stubGlobal("fetch", vi.fn(async (input: string | URL) =>
+			String(input).endsWith(`/api/projects/${ordinary.id}/incus-feature`)
+				? response({ kind: "incus", canManage: true, presetId: "incus-compose-v1", observedState: "STOPPED" }) : response({ links: [] })));
+		const view = render(SettingsPage);
+		await waitFor(() => expect(view.getByTestId("incus-project-settings")).toBeInTheDocument());
+		expect(view.getByRole("link", { name: "Manage Incus sandbox" })).toHaveAttribute("href", "/extensions/incus-management");
+		expect(view.getByText(/Preset: incus-compose-v1 · Last observed state: STOPPED/)).toBeInTheDocument();
+		expect(view.queryByTestId("sandbox-panel-stub")).not.toBeInTheDocument();
+		expect(view.queryByTestId("project-form-stub")).not.toBeInTheDocument();
+		expect(view.queryByRole("button", { name: "Delete" })).not.toBeInTheDocument();
+	});
+
+	test("gives a member operator guidance without a forbidden management link", async () => {
+		vi.stubGlobal("fetch", vi.fn(async (input: string | URL) =>
+			String(input).endsWith(`/api/projects/${ordinary.id}/incus-feature`)
+				? response({ kind: "incus", canManage: false, presetId: "incus-compose-v1", observedState: "STOPPED" }) : response({ links: [] })));
+		const view = render(SettingsPage);
+		await waitFor(() => expect(view.getByTestId("incus-project-settings")).toBeInTheDocument());
+		expect(view.getByText("Ask an administrator to manage this sandbox.")).toBeInTheDocument();
+		expect(view.queryByRole("link", { name: "Manage Incus sandbox" })).not.toBeInTheDocument();
 	});
 });

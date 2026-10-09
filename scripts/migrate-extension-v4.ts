@@ -23,6 +23,9 @@ const CANONICAL_PORTABLE_TEST = /(?:^|\/)extension\.test\.ts$/;
 const MAX_FILES = 4096;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
 const MAX_SOURCE_BYTES = 64 * 1024 * 1024;
+// Linux O_PATH permits a descriptor walk through search-only ancestors.
+// Node's fs.constants does not expose it, including in Bun.
+const O_PATH = 0x200000;
 
 /**
  * Host integration suites can live beside the extension they exercise without
@@ -42,13 +45,18 @@ export async function listFirstPartyExtensionSources(projectRoot: string): Promi
     const directory = join(projectRoot, sourceRoot);
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
-      const configPath = join(directory, entry.name, "ezcorp.config.ts");
-      const config = await lstat(configPath).catch((error: NodeJS.ErrnoException) => {
-        if (error.code === "ENOENT") return null;
-        throw error;
-      });
-      if (!config) continue;
-      if (!config.isFile()) throw new Error(`Extension config must be a regular file: ${configPath}`);
+      let hasSource = false;
+      for (const marker of ["extension.ts", "ezcorp.config.ts"]) {
+        const markerPath = join(directory, entry.name, marker);
+        const file = await lstat(markerPath).catch((error: NodeJS.ErrnoException) => {
+          if (error.code === "ENOENT") return null;
+          throw error;
+        });
+        if (!file) continue;
+        if (!file.isFile()) throw new Error(`Extension source marker must be a regular file: ${markerPath}`);
+        hasSource = true;
+      }
+      if (!hasSource) continue;
       sources.push({ name: entry.name, directory: `${sourceRoot}/${entry.name}`, entrypoint: "extension.ts" });
     }
   }
@@ -117,10 +125,12 @@ export async function snapshotExtensionSource(projectRoot: string, source: First
     }
   }
 
-  let sourceDirectory = await open(sep, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  const components = sourceRoot.split(sep).filter(Boolean);
+  let sourceDirectory = await open(sep, O_PATH | constants.O_DIRECTORY | constants.O_NOFOLLOW);
   try {
-    for (const component of sourceRoot.split(sep).filter(Boolean)) {
-      const child = await open(`/proc/self/fd/${sourceDirectory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+    for (const [index, component] of components.entries()) {
+      const access = index === components.length - 1 ? constants.O_RDONLY : O_PATH;
+      const child = await open(`/proc/self/fd/${sourceDirectory.fd}/${component}`, access | constants.O_DIRECTORY | constants.O_NOFOLLOW);
       await sourceDirectory.close();
       sourceDirectory = child;
     }
