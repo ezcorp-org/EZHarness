@@ -1,6 +1,7 @@
 import { compensatedCleanupOriginal } from "./incus-fenced-cleanup-policy";
 import { and, eq, inArray, not } from "drizzle-orm";
 import type { Database } from "../db/connection";
+import { isProcessAlive } from "../startup/process-lockfile";
 import { sandboxBindings, sandboxOperations, sandboxReservations } from "../db/schema";
 import { getHostIncusLostDestroyReplyFault } from "../extensions/extension-lifecycle-service";
 import { IncusQualificationCheckpointStore } from "./incus-qualification-checkpoint";
@@ -115,11 +116,12 @@ export class IncusLiveCleanupController {
     } catch { throw new IncusCleanupFaultError("operator_readback", operation.state); }
   }
 
-  private async claimedRecovery(scope: IncusQualificationScope, handle: LiveFixtureHandle) {
+  private async claimedRecovery(scope: IncusQualificationScope, handle: LiveFixtureHandle,
+    completedOperationId?: string) {
     const runId = this.runId(handle);
     const row = await this.checkpoints.get(runId);
     const deadline = row?.claimedAt ? new Date(row.claimedAt).getTime() + 20 * 60_000 : Number.NaN;
-    requireCleanup(row?.state === "CLAIMED" && Number.isSafeInteger(deadline) && this.now() < deadline
+    requireCleanup(row?.state === "CLAIMED" && Number.isSafeInteger(deadline)
       && row.scope.installationId === scope.installationId
       && row.scope.releaseId === scope.releaseId
       && row.scope.connectionId === scope.connectionId
@@ -127,6 +129,21 @@ export class IncusLiveCleanupController {
       && row.bindingId !== handle.sandboxId
       && row.connectionRevision > 0,
     "claimed recovery run changed or expired");
+    if (this.now() >= deadline) {
+      // Expiry never extends effect authority. Only a replacement process may
+      // verify an already released destroy so startup can fail the old proof.
+      requireCleanup(completedOperationId, "claimed recovery run changed or expired");
+      const pending = await this.checkpoints.pendingCleanup();
+      requireCleanup(pending?.runId === runId && pending.operationId === completedOperationId
+        && pending.operationState === "SUCCEEDED" && !pending.originProcessCurrent
+        && pending.handle.operationId === handle.operationId && pending.handle.sandboxId === handle.sandboxId
+        && row.receipt && !isProcessAlive(row.receipt.payload.newProcess.pid),
+      "expired completed cleanup has no stopped signed owner");
+      const actionable = await this.deps.db.select({ id: sandboxOperations.id }).from(sandboxOperations)
+        .where(and(inArray(sandboxOperations.state, ["JOURNALED", "DISPATCHING", "PROVIDER_PENDING", "OUTCOME_UNKNOWN"]),
+          not(compensatedCleanupOriginal))).limit(1);
+      requireCleanup(!actionable.length, "pending provider work blocks expired completed cleanup");
+    }
     return row;
   }
 
@@ -170,7 +187,7 @@ export class IncusLiveCleanupController {
    * checkpoint is closed. Check the same completed operation without dispatch. */
   async verifySettledDestroy(scope: IncusQualificationScope, handle: LiveFixtureHandle,
     operationId: string): Promise<void> {
-    const row = await this.claimedRecovery(scope, handle);
+    const row = await this.claimedRecovery(scope, handle, operationId);
     const status = await this.deps.fixtures.status(scope, handle.operationId);
     const [[operation], [binding], [reservation]] = await Promise.all([
       this.deps.db.select().from(sandboxOperations).where(and(eq(sandboxOperations.id, operationId),
@@ -206,7 +223,13 @@ export class IncusLiveCleanupController {
 
   async settleAlreadyCompletedDestroy(scope: IncusQualificationScope, handle: LiveFixtureHandle,
     operationId: string): Promise<void> {
-    await this.claimedRecovery(scope, handle);
+    const row = await this.claimedRecovery(scope, handle, operationId);
+    if (this.now() >= new Date(row.claimedAt!).getTime() + 20 * 60_000) {
+      // This branch makes no writes and grants no provider authority. FAILED
+      // and terminal release still require their existing independent checks.
+      await this.verifySettledDestroy(scope, handle, operationId);
+      return;
+    }
     const status = await this.deps.fixtures.status(scope, handle.operationId);
     const [operation] = await this.deps.db.select().from(sandboxOperations)
       .where(and(eq(sandboxOperations.id, operationId),
