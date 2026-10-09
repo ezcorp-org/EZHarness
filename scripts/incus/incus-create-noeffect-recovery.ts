@@ -8,7 +8,8 @@ import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { IncusQualificationFixtureService } from "../../src/infrastructure/incus-qualification";
 import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
-  type NoEffectRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
+  type NoEffectRecoveryReceipt, inspectUserCreateRecovery, applyUserCreateRecovery,
+  type UserCreateRecoveryTarget, type UserCreateRecoveryPins, type UserCreateRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
 import { isStableStartCleanup, isRetainedDestroyNoEffect, inspectRetainedDestroyNoEffect, type RetainedDestroyNoEffectPayload, requireRetainedDestroyNoEffectPins, requireRetainedDestroyNoEffectOriginal, requireFencedCleanupPinVersion, requireStableStartCleanupPins, requireStableStartOriginal, applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupProofPins, type FencedCleanupProofPayload, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
@@ -92,7 +93,7 @@ async function durable(target: Target): Promise<{ verified: true }> {
   return { verified: true };
 }
 
-async function backend(target: Target): Promise<{ absent: true; activeOperations: [] }> {
+async function backend(target: Omit<Target, "fixtureOperationId">): Promise<{ absent: true; activeOperations: [] }> {
   const { context, observation } = config();
   requireFact(context.scope.installationId === target.scope.installationId
     && context.scope.releaseId === target.scope.releaseId
@@ -221,9 +222,36 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
   return { cleanupOperationId };
 }
 
+export async function handleUserCreateRecoveryPhase(input: Record<string, unknown>): Promise<unknown> {
+  if (input.phase === "durable") {
+    requireFact(Object.keys(input).sort().join() === "phase,target", "user recovery fields changed");
+    const target = input.target as UserCreateRecoveryTarget & { action: string; pins: UserCreateRecoveryPins };
+    requireFact(target?.action === "recover-user-create", "user recovery action required");
+    await withOfflineDb(db => inspectUserCreateRecovery(db, target, target.pins));
+    return { verified: true, pins: target.pins };
+  }
+  if (input.phase === "backend") {
+    requireFact(Object.keys(input).sort().join() === "phase,target", "user recovery fields changed");
+    const target = input.target as UserCreateRecoveryTarget & { action: string; pins: UserCreateRecoveryPins };
+    const sealed = JSON.parse(privateFile(process.env.EZCORP_INCUS_NOEFFECT_CONFIG ?? ""));
+    const { action, pins, ...identity } = target;
+    requireFact(action === "recover-user-create" && sealed.version === 2 && sealed.action === action
+      && canonicalRecoveryJson(sealed.target) === canonicalRecoveryJson(identity)
+      && canonicalRecoveryJson(sealed.pins) === canonicalRecoveryJson(pins), "sealed user target changed");
+    return backend(target);
+  }
+  requireFact(input.phase === "apply" && Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "user recovery phase invalid");
+  const key = trustedSupervisorSigner(input.publicKeyPem);
+  const cleanupOperationId = await withOfflineDb(db => applyUserCreateRecovery(db,
+    input.receipt as UserCreateRecoveryReceipt, key));
+  return { cleanupOperationId };
+}
+
 if (import.meta.main) {
   const input = JSON.parse(await Bun.stdin.text());
-  if (input.target?.action === "recover-fenced-cleanup" || ["recover-fenced-cleanup", "abort-fenced-cleanup-before-admission"].includes(input.receipt?.payload?.action)) {
+  if (input.target?.action === "recover-user-create" || input.receipt?.payload?.action === "recover-user-create") {
+    process.stdout.write(JSON.stringify(await handleUserCreateRecoveryPhase(input)) + "\n");
+  } else if (input.target?.action === "recover-fenced-cleanup" || ["recover-fenced-cleanup", "abort-fenced-cleanup-before-admission"].includes(input.receipt?.payload?.action)) {
     process.stdout.write(JSON.stringify(await handleFencedCleanupPhase(input)) + "\n");
   } else if (input.phase === "durable") {
     process.stdout.write(JSON.stringify(await durable(input.target)) + "\n");

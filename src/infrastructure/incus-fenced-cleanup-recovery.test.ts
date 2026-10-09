@@ -998,3 +998,152 @@ test("retained pre-admission abort preserves both UNKNOWN journals and rejects c
   await applyFencedCleanupRecovery(committed.db, signRetained(committed.payload), publicKeyPem, now);
   await expect(applyFencedCleanupAbort(committed.db, retainedAbortReceipt(committed.payload) as never, publicKeyPem, now)).rejects.toThrow();
 });
+
+
+async function userCreateSetup(path?: string) {
+  const { inspectUserCreateRecovery, recoveryRowHash } = await import("./incus-create-noeffect-recovery");
+  const f = await setup(path);
+  await f.client.exec("CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT, user_id TEXT, role TEXT, created_at TIMESTAMPTZ DEFAULT NOW())");
+  await f.db.insert(schema.projectMembers).values({ id: "user-owner", projectId: "project", userId: "owner", role: "owner" });
+  await f.db.delete(schema.incusQualificationFixtures);
+  await f.db.update(schema.projects).set({ purpose: "user" });
+  await f.db.update(schema.sandboxBindings).set({ desiredState: "STOPPED", observedState: "ABSENT" });
+  const requestPayload = { profile: preset.profile, presetId: scope.presetId, presetDigest, effectiveSettingsDigest: "b".repeat(64) };
+  await f.db.update(schema.sandboxOperations).set({ kind: "CREATE", state: "FAILED", errorCode: "PERMISSION_DENIED", providerOperationId: null,
+    idempotencyScope: "incus-management-ui", idempotencyKey: "user-create", requestPayload,
+    payloadHash: operationPayloadHash({ bindingId, kind: "CREATE", generation: 1, idempotencyScope: "incus-management-ui", idempotencyKey: "user-create", payload: requestPayload }) });
+  await f.db.update(schema.sandboxAdmissionRequests).set({ idempotencyScope: "incus-management-ui", idempotencyKey: "user-create" });
+  const [project] = await f.db.select().from(schema.projects);
+  const [owner] = await f.db.select().from(schema.projectMembers);
+  const [binding] = await f.db.select().from(schema.sandboxBindings);
+  const [operation] = await f.db.select().from(schema.sandboxOperations);
+  const [reservation] = await f.db.select().from(schema.sandboxReservations);
+  const [admission] = await f.db.select().from(schema.sandboxAdmissionRequests);
+  const legacy = receipt().payload;
+  const pins = { ownerUserId: "owner", projectHash: recoveryRowHash(project), ownerHash: recoveryRowHash(owner),
+    bindingHash: recoveryRowHash(binding), operationHash: recoveryRowHash(operation), reservationHash: recoveryRowHash(reservation),
+    admissionHash: recoveryRowHash(admission), admissionId: admission!.id, installationGeneration: 4, releaseDigest,
+    grantsDigest: legacy.grantsDigest, endpoint: legacy.endpoint, project: legacy.project,
+    presetDigest, effectiveSettingsDigest: legacy.effectiveSettingsDigest, imageFingerprint: legacy.imageFingerprint,
+    helperVersion: legacy.helperVersion, serverCertificateSha256 };
+  const target = { projectId: "project", scope, bindingId, operationId, generation: 1, connectionRevision: 1 };
+  await inspectUserCreateRecovery(f.db, target, pins);
+  const observed = Date.now();
+  const payload = { ...target, ...pins, version: 2 as const, action: "recover-user-create" as const,
+    stoppedBoundary: { oldProcess: legacy.oldProcess, stoppedAtMs: observed - 85000, bootId: "00000000-0000-0000-0000-000000000001", processGroupId: legacy.oldProcess.pid, appUid: 1001, appGid: 1001 },
+    nonce: "user-noeffect-nonce", reviewId: "user-reviewed", resourceName: resourceName(scope.connectionId, bindingId),
+    oldProcess: legacy.oldProcess, stoppedAtMs: observed - 85000, fenceUntilMs: observed + 30000,
+    allClientsFenced: true as const, fenceEvidence: legacy.fenceEvidence,
+    first: { observedAtMs: observed - 15000, instanceState: "absent" as const, activeOperations: [] as string[] },
+    second: { observedAtMs: observed - 9000, instanceState: "absent" as const, activeOperations: [] as string[] } };
+  const signed = { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+  return { ...f, target, pins, signed, original: operation!, reservation: reservation! };
+}
+
+test("signed user CREATE no-effect settlement retains original receipt and atomically releases exact accounting", async () => {
+  const { applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup();
+  const outcomes = await Promise.allSettled([applyUserCreateRecovery(f.db, f.signed, publicKeyPem), applyUserCreateRecovery(f.db, f.signed, publicKeyPem)]);
+  expect(outcomes.filter(r => r.status === "fulfilled")).toHaveLength(1);
+  expect(outcomes.filter(r => r.status === "rejected")).toHaveLength(1);
+  const rows = await f.db.select().from(schema.sandboxOperations);
+  expect(rows.find(row => row.id === operationId)).toEqual(f.original);
+  const cleanup = rows.find(row => row.kind === "DESTROY")!;
+  expect(cleanup).toMatchObject({ state: "SUCCEEDED", providerOperationId: null,
+    requestPayload: { origin: "operator-verified-create-noeffect", receipt: f.signed } });
+  expect((await f.db.select().from(schema.sandboxBindings))[0]).toMatchObject({ observedState: "ABSENT", desiredState: "ABSENT", currentOperationId: cleanup.id });
+  expect((await f.db.select().from(schema.sandboxReservations))[0]).toMatchObject({ computeState: "RELEASED", diskState: "RELEASED" });
+  expect((await f.db.select().from(schema.projects))[0]?.purpose).toBe("user");
+  expect((await f.db.execute(sql`SELECT operation_id FROM incus_noeffect_recoveries`)).rows).toHaveLength(0);
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow();
+}, 30000);
+
+test("user recovery refuses forged evidence, changed rows and backend uncertainty without releasing accounting", async () => {
+  const { applyUserCreateRecovery, verifyUserCreateRecoveryReceipt } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup();
+  expect(() => verifyUserCreateRecoveryReceipt({ ...f.signed, signature: "forged" }, publicKeyPem)).toThrow();
+  for (const patch of [{ scope: { ...scope, connectionId: "foreign" } }, { allClientsFenced: false },
+    { first: { ...f.signed.payload.first, activeOperations: ["pending-operation"] } },
+    { second: { ...f.signed.payload.second, instanceState: "stopped" } }, { fenceUntilMs: Date.now() - 1 }, { unexpected: true },
+    { stoppedBoundary: { ...f.signed.payload.stoppedBoundary, appUid: 0 } }]) {
+    const payload = { ...f.signed.payload, ...patch };
+    const altered = { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+    await expect(applyUserCreateRecovery(f.db, altered as typeof f.signed, publicKeyPem)).rejects.toThrow();
+  }
+  await f.db.insert(schema.sandboxOperations).values({ ...f.original, id: "competing-user-operation",
+    idempotencyKey: "competing", state: "JOURNALED", kind: "DESTROY" });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("original failed");
+  await f.db.delete(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, "competing-user-operation"));
+  await f.db.insert(schema.projectWorkspaceBindings).values({ projectId: "project", kind: "sandbox", bindingId,
+    revision: 1, state: "active" });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("workspace");
+  await f.db.delete(schema.projectWorkspaceBindings);
+  await f.db.update(schema.sandboxOperations).set({ providerOperationId: "post-write-provider-operation" });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("original failed");
+  await f.db.update(schema.sandboxOperations).set({ providerOperationId: null });
+  const originalAdmission = (await f.db.select().from(schema.sandboxAdmissionRequests))[0]!;
+  await f.db.update(schema.sandboxAdmissionRequests).set({ payloadHash: "f".repeat(64) });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("row changed");
+  await f.db.update(schema.sandboxAdmissionRequests).set({ payloadHash: originalAdmission.payloadHash });
+  await f.db.update(schema.sandboxReservations).set({ stopIntentId: "new-producer-intent" });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("row changed");
+  await f.db.update(schema.sandboxReservations).set({ stopIntentId: null });
+  await f.db.update(schema.projectMembers).set({ role: "member" });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("binding changed");
+  await f.db.update(schema.projectMembers).set({ role: "owner" });
+  await f.db.update(schema.providerConnections).set({ revokedAt: new Date() });
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow();
+  await f.db.update(schema.providerConnections).set({ revokedAt: null });
+  expect((await f.db.select().from(schema.sandboxOperations))).toHaveLength(1);
+  expect((await f.db.select().from(schema.sandboxReservations))[0]).toEqual(f.reservation);
+}, 30000);
+
+test("user recovery rolls back its operation and binding when reservation settlement fails", async () => {
+  const { applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup();
+  await f.client.exec("ALTER TABLE sandbox_reservations ADD CONSTRAINT retain_compute CHECK (compute_state = 'RESERVED')");
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow();
+  expect(await f.db.select().from(schema.sandboxOperations)).toEqual([f.original]);
+  expect((await f.db.select().from(schema.sandboxBindings))[0]?.currentOperationId).toBe(operationId);
+  expect((await f.db.select().from(schema.sandboxReservations))[0]).toEqual(f.reservation);
+}, 30000);
+
+
+test("offline user recovery phase uses current durable rows, protected observer scope and configured signer", async () => {
+  const { handleUserCreateRecoveryPhase } = await import("../../scripts/incus/incus-create-noeffect-recovery");
+  const subprocess = await import("node:child_process");
+  const directory = mkdtempSync(join(tmpdir(), "incus-user-phase-"));
+  const f = await userCreateSetup(join(directory, "db"));
+  await f.client.close(); clients.splice(clients.indexOf(f.client), 1);
+  const names = ["EZCORP_INCUS_SUPERVISOR_DB_PATH", "EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY", "EZCORP_INCUS_NOEFFECT_CONFIG", "DATABASE_URL"];
+  const saved = names.map(name => process.env[name]);
+  const target = { ...f.target, action: "recover-user-create", pins: f.pins };
+  const identity = join(directory, "identity"), known = join(directory, "known");
+  writeFileSync(identity, "fixture", { mode: 0o600 }); writeFileSync(known, "fixture", { mode: 0o600 });
+  const observation = { host: "fixture.invalid", user: "observer", identityFile: identity, knownHostsFile: known,
+    project: f.pins.project, instance: resourceName(scope.connectionId, bindingId), oldCertificateSha256: "5".repeat(64) };
+  const configPath = join(directory, "observer.json");
+  writeFileSync(configPath, JSON.stringify({ version: 2, action: "recover-user-create", target: f.target, pins: f.pins,
+    context: { scope, preset: { id: scope.presetId, imageDigest: f.pins.imageFingerprint },
+      connection: { revision: 1, project: f.pins.project }, recipe: { guestImage: { fingerprint: f.pins.imageFingerprint } } }, observation }), { mode: 0o600 });
+  const ssh = spyOn(subprocess, "spawnSync").mockReturnValue({ status: 0, stdout: JSON.stringify({ version: 1,
+    project: observation.project, instance: observation.instance, oldCertificateSha256: observation.oldCertificateSha256,
+    oldCertificateRevoked: true, absent: true, activeOperations: [] }) } as never);
+  try {
+    process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH = join(directory, "db");
+    process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY = publicKeyPem;
+    process.env.EZCORP_INCUS_NOEFFECT_CONFIG = configPath; delete process.env.DATABASE_URL;
+    expect(await handleUserCreateRecoveryPhase({ phase: "durable", target })).toEqual({ verified: true, pins: f.pins });
+    await expect(handleUserCreateRecoveryPhase({ phase: "durable", target, extra: true })).rejects.toThrow();
+    expect(await handleUserCreateRecoveryPhase({ phase: "backend", target })).toEqual({ absent: true, activeOperations: [] });
+    expect(ssh).toHaveBeenCalledTimes(1);
+    await expect(handleUserCreateRecoveryPhase({ phase: "backend", target: { ...target, projectId: "foreign" } })).rejects.toThrow("sealed user target");
+    await expect(handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem: "foreign" })).rejects.toThrow();
+    const result = await handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem });
+    expect(result).toHaveProperty("cleanupOperationId");
+    await expect(handleUserCreateRecoveryPhase({ phase: "apply", receipt: f.signed, publicKeyPem })).rejects.toThrow();
+  } finally {
+    ssh.mockRestore(); names.forEach((name, index) => { if (saved[index] === undefined) delete process.env[name]; else process.env[name] = saved[index]; });
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 30000);

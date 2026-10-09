@@ -38,6 +38,7 @@ CLAIM_KEYS = {"version", "action", "runId", "nonce", "afterDigest"}
 RECOVERY_KEYS = {"version", "action", "nonce", "reviewId", "scope",
                  "fixtureOperationId", "bindingId", "operationId", "generation",
                  "connectionRevision", "fenceEvidence", "allClientsFenced", "deadlineMs"}
+USER_CREATE_PIN_KEYS = {"ownerUserId", "projectHash", "ownerHash", "bindingHash", "operationHash", "reservationHash", "admissionHash", "admissionId", "installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"}
 NATIVE_CLEANUP_PIN_KEYS = {"installationGeneration", "releaseDigest", "grantsDigest", "endpoint", "project", "providerOperationId", "nativeOperationId", "operationTag", "payloadHash", "presetDigest", "effectiveSettingsDigest", "imageFingerprint", "helperVersion", "serverCertificateSha256"}
 STABLE_CLEANUP_PIN_KEYS = (NATIVE_CLEANUP_PIN_KEYS - {"nativeOperationId"}) | {"operationHandleKind", "expectedProviderGeneration"}
 
@@ -198,12 +199,14 @@ def validate_request(message, *, historical=False):
 
 
 def validate_recovery(message, *, historical=False):
-    if not isinstance(message, dict) or set(message) != RECOVERY_KEYS \
-            or message["version"] != 1 or message["action"] not in ("recover-noeffect", "recover-fenced-cleanup") \
+    user = isinstance(message, dict) and message.get("action") == "recover-user-create"
+    keys = (RECOVERY_KEYS - {"fixtureOperationId"}) | {"projectId"} if user else RECOVERY_KEYS
+    if not isinstance(message, dict) or set(message) != keys \
+            or message["version"] != 1 or message["action"] not in ("recover-noeffect", "recover-fenced-cleanup", "recover-user-create") \
             or message["allClientsFenced"] is not True \
             or not isinstance(message["scope"], dict) or set(message["scope"]) != SCOPE_KEYS:
         raise ValueError("invalid operator recovery request")
-    for name in ("nonce", "reviewId", "fixtureOperationId", "bindingId", "operationId"):
+    for name in ("nonce", "reviewId", "projectId" if user else "fixtureOperationId", "bindingId", "operationId"):
         if not isinstance(message[name], str) or not IDENTIFIER.fullmatch(message[name]):
             raise ValueError("invalid operator recovery identity")
     if not all(isinstance(value, str) and IDENTIFIER.fullmatch(value)
@@ -1008,7 +1011,7 @@ class Supervisor:
         if not stat.S_ISREG(file.st_mode) or file.st_uid != os.geteuid() \
                 or file.st_mode & 0o077 or not 0 < file.st_size <= 128 * 1024:
             raise ValueError("operator recovery config must be a private operator-owned regular file")
-        if action == "recover-fenced-cleanup":
+        if action in ("recover-fenced-cleanup", "recover-user-create"):
             fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
             try:
                 info = os.fstat(fd)
@@ -1017,6 +1020,10 @@ class Supervisor:
                 config = json.loads(os.read(fd, 128 * 1024 + 1))
             finally:
                 os.close(fd)
+            if action == "recover-user-create":
+                if not isinstance(config, dict) or set(config) != {"version", "action", "target", "pins", "context", "observation"} or config.get("version") != 2 or config.get("action") != action or not isinstance(config.get("pins"), dict) or set(config["pins"]) != USER_CREATE_PIN_KEYS:
+                    raise ValueError("sealed user CREATE config invalid")
+                return config
             if not isinstance(config, dict) or config.get("version") not in (1, 2, 3) or config.get("action") != action:
                 raise ValueError("sealed cleanup config action invalid")
             if config["version"] in (2, 3):
@@ -1026,17 +1033,46 @@ class Supervisor:
             return config
 
 
+    def recover_stopped_user_create(self, request, boundary):
+        keys = {"oldProcess", "stoppedAtMs", "bootId", "processGroupId", "appUid", "appGid"}
+        if os.geteuid() != 0 or self.child is not None or request.get("action") != "recover-user-create" \
+                or not isinstance(boundary, dict) or set(boundary) != keys:
+            raise ValueError("stopped user recovery boundary invalid")
+        self.verify_stopped_user_boundary(boundary)
+        return self._recover_noeffect(request, boundary)
+
+    def verify_stopped_user_boundary(self, boundary):
+        old_process, stopped_at_ms = boundary["oldProcess"], boundary["stoppedAtMs"]
+        if not valid_process_identity(old_process) or type(stopped_at_ms) is not int \
+                or not 0 < stopped_at_ms <= int(time.time() * 1000) \
+                or boundary["bootId"] != Path("/proc/sys/kernel/random/boot_id").read_text().strip() \
+                or boundary["processGroupId"] != old_process["pid"] \
+                or boundary["appUid"] != self.app_uid or boundary["appGid"] != self.app_gid:
+            raise ValueError("stopped user recovery attribution changed")
+        if Path(f"/proc/{old_process['pid']}").exists():
+            raise ValueError("old process PID still exists")
+        if any(group == boundary["processGroupId"] for _pid, _uid, group in self.live_processes()):
+            raise ValueError("old process group still exists")
+        self.assert_exclusive_app_uid()
+
     def recover_noeffect(self, request):
+        if isinstance(request, dict) and request.get("action") == "recover-user-create":
+            raise ValueError("user CREATE recovery requires the stopped offline boundary")
+        return self._recover_noeffect(request)
+
+    def _recover_noeffect(self, request, stopped=None):
         validate_recovery(request)
         if not self.recovery_command or not self.recovery_fence_command \
                 or request["nonce"] in self.used_recoveries or self.recovery_held() \
-                or self.child is None:
+                or (self.child is None and stopped is None):
             raise ValueError("operator recovery unavailable, replayed, or held for operator review")
         self.assert_exclusive_app_uid()
         fenced_cleanup = request["action"] == "recover-fenced-cleanup"
-        if fenced_cleanup:
+        user_create = request["action"] == "recover-user-create"
+        identity_key = "projectId" if user_create else "fixtureOperationId"
+        if fenced_cleanup or user_create:
             sealed = self.preflight_recovery_config(request["action"])
-            target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+            target = {key: request[key] for key in ("scope", identity_key, "bindingId", "operationId", "generation", "connectionRevision")}
             if sealed.get("target") != target or not isinstance(sealed.get("pins"), dict):
                 raise ValueError("sealed cleanup target changed")
             transport_certificate = sealed.get("observation", {}).get("oldCertificateSha256") if isinstance(sealed.get("observation"), dict) else None
@@ -1046,21 +1082,20 @@ class Supervisor:
             self.preflight_recovery_config()
         self.used_recoveries.add(request["nonce"])
         self.set_recovery_hold(request)
-        old_process = self.stop_child()
-        stopped_at_ms = int(time.time() * 1000)
+        old_process, stopped_at_ms = (stopped["oldProcess"], stopped["stoppedAtMs"]) if stopped is not None else (self.stop_child(), int(time.time() * 1000))
         self.verify_recovery_fence(request, old_process)
         # The host transport has a 30-second RPC deadline, but the v4
         # worker policy can run for 60 seconds. Leave margin for exit.
         time.sleep(65)
         bounded_timeout(request["deadlineMs"], VERIFY_TIMEOUT_SECONDS)
-        target = {key: request[key] for key in ("scope", "fixtureOperationId", "bindingId",
+        target = {key: request[key] for key in ("scope", identity_key, "bindingId",
                   "operationId", "generation", "connectionRevision")}
-        if fenced_cleanup:
+        if fenced_cleanup or user_create:
             target["action"] = request["action"]
             target["pins"] = sealed["pins"]
         durable = self.recovery_stage("durable", {"target": target}, request["deadlineMs"])
         if not isinstance(durable, dict) or durable.get("verified") is not True or (
-                (set(durable) != {"verified", "pins"} or durable.get("pins") != sealed["pins"]) if fenced_cleanup else durable != {"verified": True}):
+                (set(durable) != {"verified", "pins"} or durable.get("pins") != sealed["pins"]) if fenced_cleanup or user_create else durable != {"verified": True}):
             raise ValueError("operator durable recovery verification failed")
         first = self.recovery_stage("backend", {"target": target}, request["deadlineMs"])
         first_at = int(time.time() * 1000)
@@ -1089,7 +1124,7 @@ class Supervisor:
                                    request["bindingId"]).encode()).hexdigest()[:32]
         payload = {"version": 1, "action": "recover-noeffect", "nonce": request["nonce"],
                    "reviewId": request["reviewId"], "scope": scope,
-                   "fixtureOperationId": request["fixtureOperationId"],
+                   identity_key: request[identity_key],
                    "bindingId": request["bindingId"], "operationId": request["operationId"],
                    "generation": request["generation"],
                    "connectionRevision": request["connectionRevision"],
@@ -1100,6 +1135,12 @@ class Supervisor:
                              "activeOperations": []},
                    "second": {"observedAtMs": second_at, "instanceState": "absent",
                               "activeOperations": []}}
+        if user_create:
+            if stopped is None:
+                raise ValueError("user CREATE recovery requires the stopped offline boundary")
+            payload["stoppedBoundary"] = stopped
+            payload.update(durable["pins"])
+            payload["version"], payload["action"] = 2, "recover-user-create"
         if fenced_cleanup:
             pins = durable["pins"]
             if not isinstance(pins, dict) or set(pins) != cleanup_pin_keys(sealed["version"]):
@@ -1116,6 +1157,8 @@ class Supervisor:
         # A stopped runner can restart during the quiet window or readbacks.
         # Recheck the same exact local fence immediately before the DB write.
         self.verify_recovery_fence(request, old_process)
+        if stopped is not None:
+            self.verify_stopped_user_boundary(stopped)
         result = self.recovery_stage("apply", {"receipt": receipt,
             "publicKeyPem": public.stdout.decode("ascii")}, request["deadlineMs"])
         if set(result) != {"cleanupOperationId"} \
@@ -1134,8 +1177,11 @@ class Supervisor:
                     or ready.get("transportReady") is not True \
                     or any(ready.get(key) != value for key, value in restore.items()):
                 raise ValueError("operator cleanup transport restoration proof invalid")
+        if stopped is not None:
+            self.verify_stopped_user_boundary(stopped)
         self.clear_recovery_hold()
-        self.start_child()
+        if stopped is None:
+            self.start_child()
         return {"receipt": receipt, "cleanupOperationId": result["cleanupOperationId"]}
 
     def authorize(self, request):
@@ -1465,10 +1511,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", required=True)
     parser.add_argument("--recover-request")
+    parser.add_argument("--recover-stopped-user-request")
     parser.add_argument("--abort-request")
     parser.add_argument("--restore-admitted-request")
     args = parser.parse_args()
-    if sum(bool(v) for v in (args.abort_request, args.recover_request, args.restore_admitted_request)) > 1:
+    if sum(bool(v) for v in (args.abort_request, args.recover_request, args.restore_admitted_request, args.recover_stopped_user_request)) > 1:
         raise ValueError("operator control requires a single action")
     config = json.loads(Path(args.config).read_text())
     required = {"socket", "appCommand", "appUid", "appGid", "key", "authorityCommand",
@@ -1561,6 +1608,15 @@ def main():
         units = config.get("recoveryAbortStoppedUnits")
         runner_uid = config.get("recoveryAbortRunnerUid")
         supervisor.abort_stopped_guard = lambda: supervisor.assert_abort_actors_stopped(units, runner_uid)
+    if args.recover_stopped_user_request:
+        if os.geteuid() != 0 or json.loads(supervisor.private_recovery_bytes(args.config, maximum=128*1024)) != config:
+            raise ValueError("offline user recovery requires root and exact private config")
+        supervisor.assert_abort_actors_stopped(config.get("recoveryAbortStoppedUnits"), config.get("recoveryAbortRunnerUid"))
+        value = json.loads(supervisor.private_recovery_bytes(args.recover_stopped_user_request))
+        if not isinstance(value, dict) or set(value) != {"request", "stoppedBoundary"}:
+            raise ValueError("offline user recovery request envelope invalid")
+        print(json.dumps(supervisor.recover_stopped_user_create(value["request"], value["stoppedBoundary"]), sort_keys=True))
+        return
     if args.restore_admitted_request:
         if os.geteuid() != 0 or json.loads(supervisor.private_recovery_bytes(args.config, maximum=128*1024)) != config:
             raise ValueError("offline admitted restoration requires root and exact private config")

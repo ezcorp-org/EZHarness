@@ -952,3 +952,32 @@ test("daily admission uses unchanged baseline and read-only readiness after full
   expect(baseline!.proofDigest).toBe(digest(original));
   expect(await f.db.select().from(schema.incusQualificationFixtures)).toEqual([]);
 }, DB_TEST_TIMEOUT_MS);
+
+
+test("terminal denied user CREATE cannot dispose an absent guest or release its reservation", async () => {
+  const f = await fixture();
+  await f.configureAdmission();
+  const binding = await f.service.prepare({ projectId: "project", installationId: "installation",
+    connectionId: "connection", presetId: f.preset.id });
+  f.provider.dispatch = async request => {
+    f.dispatches.push(request);
+    return { outcome: "FAILED", errorCode: "PERMISSION_DENIED" };
+  };
+  const created = await f.service.create({ bindingId: binding.id,
+    idempotencyScope: "incus-management-ui", idempotencyKey: "failed-create" });
+  expect(created.state).toBe("DISPATCHED");
+  if (created.state !== "DISPATCHED") throw new Error("CREATE receipt missing");
+  expect(created.operation).toMatchObject({ kind: "CREATE", state: "FAILED",
+    errorCode: "PERMISSION_DENIED", providerOperationId: null });
+  const before = await f.admission.getReservation(binding.id);
+  expect(before).toMatchObject({ computeState: "RESERVED", diskState: "RESERVED" });
+  f.setInspectUnavailable(true);
+  await expect(f.service.destroy({ bindingId: binding.id,
+    idempotencyScope: "incus-management-ui", idempotencyKey: "dispose-failed" }))
+    .rejects.toThrow("provider instance is absent");
+  expect((await f.service.reconcile()).examined).toBe(0);
+  expect(await f.admission.getReservation(binding.id)).toEqual(before);
+  expect(await f.db.select().from(schema.sandboxOperations)).toHaveLength(1);
+  expect(await f.db.select().from(schema.projects)).toHaveLength(1);
+  expect(f.dispatches).toHaveLength(1);
+}, DB_TEST_TIMEOUT_MS);

@@ -150,7 +150,7 @@ export type FencedCleanupAuthority = Pick<FencedCleanupPayload, "scope" | "opera
 
 /** Check public signed pins against current host-owned connection and release.
  * A trusted signer is necessary, but is not a substitute for this comparison. */
-export async function requireFencedCleanupAuthority(db: Database | DbTransaction, p: FencedCleanupAuthority): Promise<void> {
+export async function requireIncusRecoveryAuthority(db: Database | DbTransaction, p: Omit<FencedCleanupAuthority, "operationTag" | "originOperationId">): Promise<void> {
   await new ProviderConnectionStore(db).assertCurrentScope({ connectionId: p.scope.connectionId,
     providerInstallationId: p.scope.installationId, providerReleaseId: p.scope.releaseId,
     revision: p.connectionRevision, releaseDigest: p.releaseDigest, generation: p.installationGeneration }, db);
@@ -161,7 +161,6 @@ export async function requireFencedCleanupAuthority(db: Database | DbTransaction
     && connection.configuration?.kind === "incus" && connection.configuration.helperVersion === p.helperVersion
     && createHash("sha256").update(new X509Certificate(connection.serverCertificatePem).raw).digest("hex") === p.serverCertificateSha256,
   "current connection pins changed");
-  requireFact(p.operationTag === fencedCleanupOperationTag({ ...p, operationId: p.originOperationId ?? p.operationId }), "original operation tag changed");
   const state = await new DatabaseLifecycleRepository(db).read(p.scope.installationId, db);
   const release = state?.releases[p.scope.releaseId];
   const provider = release?.manifest.sandboxProviders?.find(item => item.kind === "sandbox" && item.id === "incus");
@@ -171,6 +170,11 @@ export async function requireFencedCleanupAuthority(db: Database | DbTransaction
     && createHash("sha256").update(canonicalJson(state.installation.grants)).digest("hex") === p.grantsDigest
     && preset && preset.imageDigest === p.imageFingerprint && await sandboxPresetDigest(preset) === p.presetDigest,
   "current release or preset pins changed");
+}
+
+export async function requireFencedCleanupAuthority(db: Database | DbTransaction, p: FencedCleanupAuthority): Promise<void> {
+  await requireIncusRecoveryAuthority(db, p);
+  requireFact(p.operationTag === fencedCleanupOperationTag({ ...p, operationId: p.originOperationId ?? p.operationId }), "original operation tag changed");
 }
 
 type CleanupBinding = typeof sandboxBindings.$inferSelect;

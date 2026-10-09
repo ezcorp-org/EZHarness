@@ -62,7 +62,7 @@ def load_config(path):
             and isinstance(config["serverAuditSha256"], str)
             and DIGEST.fullmatch(config["serverAuditSha256"]),
             "pinned server authority required")
-    require(config.get("recoveryAction", "recover-noeffect") in ("recover-noeffect", "recover-fenced-cleanup"), "sealed v3 fence action invalid")
+    require(config.get("recoveryAction", "recover-noeffect") in ("recover-noeffect", "recover-fenced-cleanup", "recover-user-create"), "sealed v3 fence action invalid")
     return config
 
 

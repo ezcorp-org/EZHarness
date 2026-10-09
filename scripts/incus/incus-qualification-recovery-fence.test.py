@@ -62,6 +62,28 @@ class RecoveryFenceTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "observer does not pin"):
                     FENCE.load_config("/etc/ezharness/fence.json")
 
+    def test_user_create_uses_distinct_closed_project_target_and_matching_observer(self):
+        target = {**TARGET, "projectId": "user-project"}
+        del target["fixtureOperationId"]
+        sealed = {**config(), "target": target, "recoveryAction": "recover-user-create"}
+        observer = {"action": "recover-user-create", "observation": {
+            key: sealed[key] for key in ("instance", "project", "oldCertificateSha256")}}
+        with mock.patch.dict(os.environ, EZCORP_INCUS_NOEFFECT_CONFIG=sealed["observerConfig"]), \
+                mock.patch.object(FENCE, "private_root_file", side_effect=[sealed, observer]):
+            self.assertEqual(FENCE.load_config("/etc/ezharness/fence.json"), sealed)
+        for changed in ({**target, "fixtureOperationId": "fixture"}, {**target, "extra": True}):
+            with mock.patch.dict(os.environ, EZCORP_INCUS_NOEFFECT_CONFIG=sealed["observerConfig"]), \
+                    mock.patch.object(FENCE, "private_root_file", return_value={**sealed, "target": changed}):
+                with self.assertRaisesRegex(ValueError, "exact saved CREATE"):
+                    FENCE.load_config("/etc/ezharness/fence.json")
+        request = {**message(), "request": {**message()["request"], **target, "action": "recover-user-create"}}
+        del request["request"]["fixtureOperationId"]
+        with mock.patch.object(FENCE, "app_and_runner_absent"), mock.patch.object(FENCE, "runner_unit_quiesced"):
+            self.assertEqual(FENCE.verify(sealed, request), {"fenced": True, "evidence": request["request"]["fenceEvidence"]})
+            request["request"]["projectId"] = "foreign"
+            with self.assertRaisesRegex(ValueError, "saved CREATE target"):
+                FENCE.verify(sealed, request)
+
     def test_exact_create_required_before_local_probe(self):
         request = message()
         request["request"]["bindingId"] = "other"

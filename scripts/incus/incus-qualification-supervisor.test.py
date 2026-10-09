@@ -2309,5 +2309,77 @@ class RestorationCommandBoundary(unittest.TestCase):
                 serve.assert_not_called()
 
 
+class StoppedUserCreateSignerTests(unittest.TestCase):
+    write_config = FencedCleanupSignerTest.write_config
+
+    def setUp(self):
+        FencedCleanupSignerTest.setUp(self)
+        self.supervisor.child = None
+        self.request = {**self.request, "action": "recover-user-create", "projectId": "project"}
+        del self.request["fixtureOperationId"]
+        self.target = {key: self.request[key] for key in
+            ("scope", "projectId", "bindingId", "operationId", "generation", "connectionRevision")}
+        self.pins = {key: "a" * 64 for key in MODULE.USER_CREATE_PIN_KEYS}
+        self.config.write_text(json.dumps({"version": 2, "action": "recover-user-create",
+            "target": self.target, "pins": self.pins, "context": {},
+            "observation": {"oldCertificateSha256": "5" * 64}}))
+        self.boundary = {"oldProcess": {"pid": 123456789, "startTicks": "456"},
+            "stoppedAtMs": 999000, "bootId": Path("/proc/sys/kernel/random/boot_id").read_text().strip(),
+            "processGroupId": 123456789, "appUid": self.supervisor.app_uid, "appGid": self.supervisor.app_gid}
+        self.supervisor.live_processes = lambda: []
+        preflight = self.supervisor.preflight_recovery_config
+        def fixture_preflight(action):
+            with mock.patch.object(MODULE.os, "geteuid", return_value=os.getuid()):
+                return preflight(action)
+        self.supervisor.preflight_recovery_config = fixture_preflight
+
+    def execute(self, observation=None, drift=False):
+        observation = observation if observation is not None else {"absent": True, "activeOperations": []}
+        def stage(phase, _value, _deadline):
+            self.events.append(phase)
+            if phase == "durable": return {"verified": True, "pins": self.pins}
+            if phase == "backend":
+                if drift and self.events.count("backend") == 2:
+                    self.supervisor.live_processes = lambda: [(999, 1, self.boundary["processGroupId"])]
+                return observation
+            return {"cleanupOperationId": "cleanup"}
+        self.supervisor.recovery_stage = stage
+        clock = [1000.0]
+        with mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(self.config)}), \
+                mock.patch.object(MODULE.os, "geteuid", return_value=0), \
+                mock.patch.object(MODULE.time, "time", lambda: clock[0]), \
+                mock.patch.object(MODULE.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds)), \
+                mock.patch.object(MODULE.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, stdout=b"public key")):
+            return self.supervisor.recover_stopped_user_create(self.request, self.boundary)
+
+    def test_stopped_user_producer_signs_exact_scope_without_start_or_restore(self):
+        result = self.execute()
+        payload = result["receipt"]["payload"]
+        self.assertEqual(payload["action"], "recover-user-create")
+        self.assertEqual(payload["version"], 2)
+        self.assertEqual(payload["stoppedBoundary"], self.boundary)
+        self.assertEqual(payload["projectId"], "project")
+        self.assertNotIn("fixtureOperationId", payload)
+        self.assertEqual(self.events, ["fence", "durable", "backend", "durable", "backend", "fence", "apply", "clear"])
+        self.assertIsNone(self.supervisor.child)
+
+    def test_running_daemon_user_action_is_refused_before_effect(self):
+        with self.assertRaisesRegex(ValueError, "stopped offline boundary"):
+            self.supervisor.recover_noeffect(self.request)
+        self.assertEqual(self.events, [])
+
+    def test_pending_native_operation_denies_apply_and_keeps_hold(self):
+        with self.assertRaisesRegex(ValueError, "absence"):
+            self.execute({"absent": True, "activeOperations": ["pending"]})
+        self.assertNotIn("apply", self.events)
+        self.assertTrue(self.supervisor.recovery_held())
+
+    def test_reappearing_old_process_group_denies_atomic_apply(self):
+        with self.assertRaisesRegex(ValueError, "old process group"):
+            self.execute(drift=True)
+        self.assertNotIn("apply", self.events)
+        self.assertTrue(self.supervisor.recovery_held())
+
+
 if __name__ == "__main__":
     unittest.main()

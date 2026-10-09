@@ -62,13 +62,16 @@ def load_config(path):
     require(isinstance(config, dict) and set(config) in (CONFIG_KEYS, CONFIG_KEYS | {"recoveryAction"}),
             "fence config keys changed")
     target = config["target"]
-    require(isinstance(target, dict) and set(target) == TARGET_KEYS
+    user_create = config.get("recoveryAction") == "recover-user-create"
+    identity_key = "projectId" if user_create else "fixtureOperationId"
+    target_keys = (TARGET_KEYS - {"fixtureOperationId"}) | {identity_key}
+    require(isinstance(target, dict) and set(target) == target_keys
             and isinstance(target["scope"], dict)
             and set(target["scope"]) == SCOPE_KEYS
             and all(isinstance(value, str) and IDENTIFIER.fullmatch(value)
                     for value in target["scope"].values())
             and all(isinstance(target[key], str) and IDENTIFIER.fullmatch(target[key])
-                    for key in ("fixtureOperationId", "bindingId", "operationId"))
+                    for key in (identity_key, "bindingId", "operationId"))
             and all(type(target[key]) is int and target[key] > 0
                     for key in ("generation", "connectionRevision")),
             "exact saved CREATE target required")
@@ -84,9 +87,9 @@ def load_config(path):
             and observer_path == os.environ.get("EZCORP_INCUS_NOEFFECT_CONFIG"),
             "fence and observer must use the same sealed config")
     action = config.get("recoveryAction", "recover-noeffect")
-    require(action in ("recover-noeffect", "recover-fenced-cleanup"), "sealed fence action invalid")
+    require(action in ("recover-noeffect", "recover-fenced-cleanup", "recover-user-create"), "sealed fence action invalid")
     observer = private_root_file(observer_path)
-    require(action != "recover-fenced-cleanup" or observer.get("action") == action,
+    require(action == "recover-noeffect" or observer.get("action") == action,
             "sealed observer action differs from fence")
     observation = observer.get("observation") if isinstance(observer, dict) else None
     require(config["instance"] == resource_name(target)
@@ -206,7 +209,7 @@ def verify(config, message):
             and int(time.time() * 1000) < request["deadlineMs"]
             and isinstance(request.get("fenceEvidence"), str),
             "operator fence request invalid or expired")
-    require({key: request.get(key) for key in TARGET_KEYS} == config["target"],
+    require({key: request.get(key) for key in config["target"]} == config["target"],
             "saved CREATE target differs from sealed fence config")
     app_and_runner_absent(config, message["oldProcess"])
     runner_unit_quiesced(config["runnerUnit"])
