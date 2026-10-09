@@ -12,6 +12,43 @@ The Incus management page is an admin-only control panel at `/extensions/incus-m
 
 The current setup also depends on operator-managed SSH access, certificate pins, a reviewed guest image and helper, host capacity, and the qualification supervisor. The browser does not accept SSH paths, endpoints, raw commands, or private keys.
 
+## Use the qualified environment each day
+
+A completed full qualification records a durable baseline for the reviewed
+release, connection, preset, settings and host controls. Its original receipt
+has a deadline. Passing that deadline alone does not require another full
+qualification when the saved baseline still matches the current environment.
+
+Before a new sandbox or a start operation is admitted, EZHarness reads current
+host readiness and capacity. This check does not create test guests or restart
+the app. Its result is short-lived. A **Qualified** label is not a reservation
+or a promise that a later action will be admitted.
+
+1. Open **Incus sandboxes** and choose **Refresh**. Review the selected
+   environment and its saved status before creating or starting work.
+2. If **Retry readiness** appears, select it to repeat the read-only check.
+   A delayed or unavailable check does not prove that the baseline changed.
+   If the refusal persists, ask the operator to check the supervisor and host
+   configuration. Do not start another qualification merely to retry this check.
+3. If the host has no free capacity, stop work that can safely be stopped or
+   dispose of a sandbox that is no longer needed. Stop releases compute;
+   disposal also releases its reserved disk after cleanup is confirmed.
+   Then choose **Retry readiness**.
+4. If qualification is required, review the changed environment with the
+   operator and complete **Prepare qualification…**. Missing baseline evidence
+   or a change in the reviewed authority requires full qualification again.
+   Finish the current fixture workflow before preparing another one.
+
+An app restart does not by itself discard a durable baseline. Admission still
+requires the same reviewed authority and a fresh successful readiness check.
+If a readiness result expires while the page is open, refresh it before another
+create or start action. EZHarness checks the deadline again when it admits work.
+
+The readiness deadline does not authorize or block all recovery actions.
+**Stop**, **Dispose** and saved-operation reconciliation do not require a fresh
+qualification result. They still require the correct project, binding, provider
+identity and safe lifecycle state. Stop a running sandbox before disposal.
+
 ## Create and use a project sandbox
 
 Choose a qualified environment, enter a new project name, and select **Create project sandbox**. EZHarness creates the project, owner membership, quota, and Incus binding together. It does not make a local project directory first.
@@ -32,4 +69,14 @@ If qualification or fixture apply is uncertain, use its saved-status check. Do n
 
 The page supports qualification fixture planning, host-capacity planning, project sandbox creation, status refresh, start, stop, reconciliation, confirmed disposal, and chat entry for a confirmed running sandbox. It does not offer repository bootstrap, preview control, or guest process-log browsing.
 
-Authenticated browser tests use mocked Incus API responses. They prove the UI flow and recovery behavior, not a live Incus lifecycle. The 0.1.2 setup has a recorded verified apply and read-only transport evidence. Live cross-project denial is proved: the same restricted mTLS identity received HTTP 200 for the approved project object and HTTP 403 for the existing unapproved project object. V4 fixture cleanup and global accounting are also proved. V5 qualification failed because the host could not reach the neighbor control target; guest cleanup was confirmed. Live preset qualification and the full native user-project create/use/reconnect/destroy flow remain open. Repository clone/bootstrap, preview control, and guest process-log browsing are not implemented. See [the October live evidence](validation/2026-10-03-incus-live-continuation.md) and [the current live gates](../gates/incus-live-pr303.md) for the exact scope and remaining checks.
+Browser tests verify the UI and saved-request recovery. Hosted production
+proofs and regression fixtures have their own source-bound results. These
+checks do not establish that a particular installed Incus environment is
+qualified for admission.
+
+Earlier installed-app and native-workflow evidence remains valid for its
+recorded deployment. Final-source qualification, baseline, daily readiness,
+restart and UI acceptance must be recorded separately. See the
+[current live handoff](../gates/incus-live-pr303.md), the
+[native project procedure](validation/2026-10-03-incus-native-project-runbook.md)
+and the [restart/recovery contract](incus-live-recovery-gate.md).

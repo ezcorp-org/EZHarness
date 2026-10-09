@@ -26,34 +26,36 @@ supervisor requires a distinct app UID in production and checks that its
 Ed25519 key is a regular operator-owned file with no group or other access.
 The process-level test rejects a rogue same-UID process, then observes a real
 old exit and new PID/start tick, a signed receipt, and replay rejection. It
-does not exercise a distinct UID because the local test user cannot start one.
+uses its own test identity. The separate mounted-startup regression also
+checks the configured child identity in a private user and mount namespace.
+Neither fixture substitutes for the installed endpoint proof.
 
 The offline PGlite verifier in
 `scripts/incus/incus-qualification-supervisor-authorize.ts` checks the exact
-`AWAITING_RESTART` row and stopped qualification fixture after the old app
-exits, before the new app opens that database. The supervisor refuses to sign
-the receipt unless a separately configured operator verifier independently
-checks both the new durable fixture and pinned Incus backend and returns its
-observation digest. The example configuration deliberately uses `false` for
-that command. A production verifier for concurrent PGlite readback and pinned
-Incus state is still missing, so the real receipt and live qualification remain
-blocked. The HTTP qualification action still runs on one process stack;
-it cannot publish a pass from this checkpoint. A production continuation must
-start in the new EZHarness process, open a new database connection and fixture
-service, read `status(scope, fixtureOperationId)` and the exact Incus instance
-through `HostIncusLiveReadback.instance()`, and pass those observations to the
-claim. The supervisor must independently record the old and new process
-identities, wait for the old process to exit, sign the handoff with its private
-key held outside EZHarness, and authorize the single request through an
-operator-private channel with verified OS peer credentials. Until that exists
-and the complete SP run passes, `incusHostLiveWitnessReady()` remains `false`.
+`AWAITING_RESTART` row and stopped fixture after the old app exits. The
+independent receipt verifier in
+`scripts/incus/incus-qualification-supervisor-receipt.ts` checks durable state
+and the pinned backend observation before a handoff can be accepted.
 
-`incusHostLiveWitnessReady()` stays `false`. The operator supervisor is not yet
-deployed or wired to a durable application continuation, its required independent
-receipt verifier is absent, and no one-shot transport fault can yet lose a real
-destroy reply after Incus has applied it. An in-process callback, a second `SandboxController` object, or
-a dropped `IncusQualificationFixtureService.destroy()` return value cannot
-prove either event.
+The durable continuation is implemented in
+`src/infrastructure/incus-qualification-continuation.ts` and
+`src/infrastructure/incus-startup.ts`. The new app process reopens the database,
+reads the exact fixture and backend state, and claims the signed checkpoint
+once. Qualification, baseline and checkpoint completion share the terminal
+transaction. Real PGlite and one-connection Postgres regressions verify that
+terminal persistence completes without blocking unrelated database requests.
+
+`incusHostLiveWitnessReady()` is a runtime check, not a constant `false`.
+It requires the protected fixture root, private supervisor socket, pinned public
+key, reviewed project/image inputs and successful supervisor readiness. Missing
+or mismatched authority still refuses qualification. A configured supervisor
+is not evidence that every live qualification case has passed.
+
+The scoped lost-destroy-reply fault and operator readback are implemented. A
+run must still prove the actual effect, saved unknown outcome and same-operation
+reconciliation before it can count as live recovery evidence. Source tests and
+hosted CI do not establish a new installed baseline. See the
+[current live handoff](../gates/incus-live-pr303.md) for that deployment boundary.
 
 ## Restart contract
 
@@ -71,17 +73,16 @@ mode `0600`, and pin its public key in the app's
 environment, UID, and mount namespace. Set
 `EZCORP_INCUS_SUPERVISOR_DB_PATH` to the same persistent PGlite directory as
 the app's `EZCORP_DB_PATH`; the offline verifier runs as the app UID only after
-the old app exits. The sample `receiptAuthorityCommand` is `false` until an
-operator verifier can independently read the new durable fixture and pinned
-Incus instance while the new app is running. Do not replace it with an
-app-provided digest echo.
+the old app exits. The sample `receiptAuthorityCommand` is deliberately `false`.
+Configure the reviewed independent verifier with the protected connection and
+backend pins before qualification. Do not replace it with an app-provided
+digest echo.
 
 The runner now passes the exact stopped `LiveFixtureHandle` to
-`restartController(handle)`. This is a required input, not a restart
-implementation. The runner's current async stack cannot survive the death of
-its own process. Before this gate can open, make qualification a durable run
-that can resume in the new process. The HTTP action should return a run ID and
-publish a pass only after that resumed run completes all SP cases and cleanup.
+`restartController(handle)`. The original async stack does not survive a restart.
+The durable checkpoint and startup continuation carry the run into the new
+process. The saved run status can report a pass only after the resumed run
+completes its qualification cases and cleanup.
 
 Use an operator-owned supervisor outside EZHarness. Its control socket must be
 local, private to the operator, and authenticated with OS peer credentials. It
@@ -160,15 +161,35 @@ reports absence. The unrelated fixture must still be stopped with its original
 generation, operation ID, and backend identity. If any check fails, retain the
 cleanup obligation and fail the qualification.
 
-## Integration order
+## Recovery after a run deadline
 
-1. Add the supervisor and durable qualification checkpoint/continuation. Prove
-   a real process handoff with a shared database and the pinned Incus endpoint.
-2. Add the scoped one-shot fault and operator readback. Prove the real destroy
-   effect occurred before the reply was lost, then prove readiness denial and
-   same-operation reconciliation after controller restart.
-3. Run the whole host witness, including controlled limits and fixture cleanup,
-   against the real endpoint. Only then change `incusHostLiveWitnessReady()`.
+A deadline that has passed does not permit another provider effect. The
+completed-cleanup path can only verify the original destroy operation when it
+is already `SUCCEEDED`, the exact binding is `ABSENT` with cleanup confirmed,
+and its compute and disk reservations are `RELEASED`. It also checks the run,
+fixture, generation, connection and global actionable-work fences.
+
+This verification does not dispatch or reconcile an uncertain destroy. A
+`JOURNALED`, `DISPATCHING`, `PROVIDER_PENDING`, `OUTCOME_UNKNOWN` or failed
+operation needs its existing reviewed recovery path. Keep its original identity.
+
+A verified completed destroy can allow the expired checkpoint to close as
+`FAILED`. It does not turn the qualification into a pass or create a baseline.
+Independent terminal attestation must still verify cleanup before the supervisor
+releases the claim. One absent recovery fixture does not prove that every
+fixture or resource reservation in the run has been cleared.
+
+## Verification order
+
+1. Verify the installed supervisor, independent receipt verifier and durable
+   continuation. Prove the process handoff on the same database and pinned endpoint.
+2. Verify the scoped one-shot fault and operator readback. Prove that destroy
+   occurred before its reply was lost, that new admission was refused, and that
+   reconciliation used the original operation after the controller restart.
+3. Run the complete host witness, including controlled limits and every fixture's
+   cleanup, against the real endpoint. Record the installed source, terminal
+   result, durable baseline and resource accounting. Do not infer a pass from
+   supervisor readiness alone.
 
 Relevant entrypoints: `src/infrastructure/incus-host-live-witness.ts`,
 `src/infrastructure/incus-live-cases.ts`,

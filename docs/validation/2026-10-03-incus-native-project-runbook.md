@@ -1,6 +1,23 @@
 # Native project work on a real Incus sandbox
 
-Status: prepared, not executed. This procedure closes G5 only after the listed observations pass. It does not replace preset qualification or negative isolation checks.
+This procedure was prepared on 3 October. Its original prepared status is a
+historical checkpoint, not the status of every later deployment. Earlier
+installed-app native workflows and recovered feature cycles have separate
+source-bound evidence. Preserve each result under its recorded release.
+
+At the 9 October handoff, the final candidate's installed daily workflow and
+baseline acceptance remain pending. The original G5 procedure below is retained
+as a historical reference. Its old smoke-cleanup prerequisites and new real-model
+turn are not added to the current acceptance scope. Current execution follows
+the reviewed handoff packet: a new full qualification with file, process and
+Compose checks, together with retained historical native-model evidence.
+
+Do not replay an uncertain operation or treat this historical procedure as
+permission to start another guest. See the
+[current live handoff](../../gates/incus-live-pr303.md) and
+[daily management guide](../incus-sandbox-management.md). A result collected
+with the original procedure proves only its recorded source and observations;
+it does not replace preset qualification or negative isolation checks.
 
 ## Preconditions
 

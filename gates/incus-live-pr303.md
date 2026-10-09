@@ -2,18 +2,51 @@
 
 Scope: Review and apply a plan bound to the pinned provider release on the named sandbox server, prove the EZHarness-to-Incus workflow with the isolated app, and close the PR's code and CI gates without claiming unsupported features.
 
-Current state, 6 October: source `301e88e93` is installed. Attempt 7 classified
+## Current handoff — 9 October 2026 UTC
+
+Frozen source `645b9c44fcd4409b9d30acb17dea44154e02934e` passed the required
+local fast run and [hosted CI run `37873345058`](https://github.com/ezcorp-org/EZHarness/actions/runs/37873345058). The fast run completed all
+12 steps. Hosted CI completed all 50 jobs and 51 PR checks, including the real
+one-connection Postgres continuation regression. Hosted coverage, new-file,
+changed-line and changed-function CRAP gates passed. These are source checks;
+the final full local gate remains pending.
+
+At this recorded handoff, the private app is stopped behind its ingress hold
+on the earlier `5e1ccb45` deployment. The retained qualification checkpoint is
+`CLAIMED`. The detached whole-run audit completed with actual exit `0`
+(receipt `c68a0238`). It verified all three fixture destroys as `SUCCEEDED`,
+their bindings as `ABSENT` with cleanup confirmed, and compute and disk
+reservations as `RELEASED`. Global unreleased charges and actionable work were
+zero under the existing compensated-original exclusion. Two historical
+compensated `OUTCOME_UNKNOWN` rows remain in the evidence; they were not erased
+or relabelled as successful operations. This audit does not complete the claimed
+checkpoint or prove qualification, a baseline or admission readiness.
+The new candidate is not yet installed and has no final installed baseline.
+
+Earlier installed-app workflows and ten recovered feature cycles remain
+historical evidence for their recorded deployments. They do not establish the
+final candidate's qualification or daily readiness. Failed attempts, model
+errors, excluded runs and recovered results stay in the evidence.
+
+Before closing the live gate, record guarded reconciliation and installation,
+completed qualification and its durable baseline, ordinary daily admission,
+restart persistence, installed UI/preview acceptance and final whole-run resource
+checks. Release private access only through the reviewed operator decision.
+Independent-provider portability, Infisical parity and native-worker completion
+are outside this Incus proof.
+
+## Earlier checkpoints
+
+These entries record earlier states; their pending items are not the current
+task list.
+
+Recorded checkpoint, 6 October: source `301e88e93` is installed. Attempt 7 classified
 saved cleanup 8720 as FAILED / OPERATOR_PROVEN_NO_EFFECT under a signed proof.
 Independent review verified transport restoration and closed the temporary
 access window. Normal app settings are restored. The guest is still STOPPED;
 cleanup and reservation release are not complete. Next prove ordinary cleanup,
 resource-load qualification, the user workflow, ten lifecycles and final gates.
 See the [attempt 7 result](../docs/validation/2026-10-06-retained-destroy-classification-attempt7-result.md).
-
-## Earlier checkpoints
-
-These entries record earlier states; their pending items are not the current
-task list.
 
 Deployment checkpoint, 6 October: combined source `301e88e93` is installed and
 healthy. Independent update review passed; configurations and stopped-copy
