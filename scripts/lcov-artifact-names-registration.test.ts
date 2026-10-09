@@ -14,7 +14,7 @@
  */
 import { describe, expect, test } from "bun:test";
 import { basename, join, resolve } from "node:path";
-import { type Workflow, type WorkflowJob, readWorkflows } from "./lib/ci-registration.ts";
+import { type Workflow, type WorkflowJob, ghExpr, readWorkflows } from "./lib/ci-registration.ts";
 
 const REPO_ROOT = resolve(import.meta.dir, "..");
 const UPLOAD = /^actions\/upload-artifact@/;
@@ -123,7 +123,7 @@ describe("coverage artifacts write distinct file names into the gate's merged do
         jobs: {
           caller: { uses: "./.github/workflows/called.yml" },
           one: { steps: [upload("cov-one", "c/lcov.info"), upload("other-one", "d/lcov.info"), upload("cov-dir", "coverage-shard")] },
-          matrix: { steps: [upload("cov-m-${{ matrix.i }}", "e/lcov_m.info"), upload("cov-n", "f/lcov.json")] },
+          matrix: { steps: [upload(`cov-m-${ghExpr("matrix.i")}`, "e/lcov_m.info"), upload("cov-n", "f/lcov.json")] },
           merged: download({ pattern: "cov-*", "merge-multiple": true }),
           apart: download({ pattern: "cov-*", "merge-multiple": false }),
           byName: download({ name: "cov-one", "merge-multiple": true }),
@@ -133,7 +133,7 @@ describe("coverage artifacts write distinct file names into the gate's merged do
     expect(mergedDownloads(runs).map(({ where, run }) => [where, run.map(({ file }) => file)])).toEqual([["main.yml merged (merged)", ["main.yml", "called.yml"]]]);
     expect(lcovNameCollisions(runs)).toEqual([
       "main.yml merged (merged): lcov.info is written into merged by cov-called, cov-one",
-      "main.yml merged (merged): lcov_m.info is written into merged by cov-m-${{ matrix.i }} (every matrix entry)",
+      `main.yml merged (merged): lcov_m.info is written into merged by cov-m-${ghExpr("matrix.i")} (every matrix entry)`,
     ]);
   });
 });

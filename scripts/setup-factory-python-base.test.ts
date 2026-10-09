@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { DEFAULT_PYTHON_IMAGE } from "@ezcorp/extension-runner";
-import { readWorkflows, stepsNeedingAction, type WorkflowStep } from "./lib/ci-registration.ts";
+import { ghExpr, readWorkflows, stepsNeedingAction, type WorkflowStep } from "./lib/ci-registration.ts";
 import { type Run, runInherited, setupFactoryPythonBase } from "./setup-factory-python-base";
 
 /**
@@ -98,7 +98,7 @@ describe("the workflow runs the step where the suites run", () => {
 
   test("every host-shard coverage step runs after the base action", () => {
     const steps = stepsNeedingAction(workflows(), ACTION, runsHostShard);
-    expect(steps.map((step) => step.where)).toContain("ci.yml cov-shard (Coverage shard ${{ matrix.shard }}): Run shard (tests + coverage)");
+    expect(steps.map((step) => step.where)).toContain(`ci.yml cov-shard (Coverage shard ${ghExpr("matrix.shard")}): Run shard (tests + coverage)`);
     expect(steps.filter((step) => !step.preceded).map((step) => step.where)).toEqual([]);
   });
 
