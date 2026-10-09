@@ -1,4 +1,23 @@
-# Current completion — 6 October 2026 resumed session
+# Current completion — 9 October 2026 UTC
+
+This checklist supersedes the historical status below. Root owns live actions; each Sol worker uses an isolated worktree.
+
+- [x] Reproduce the continuation transaction deadlock with a real file database and concurrent HTTP request.
+- [x] Fix transaction propagation and PostgreSQL JSON encoding; prove both database consumers and authorization failures. Independent review and normal commit hooks passed.
+- [x] Fix read-only verification of expired, completed cleanup. Prove the held two-stage supervisor recovery and denial cases. Independent review and normal commit hooks passed.
+- [x] Integrate both reviewed commits once. Current integration head: d520e643a.
+- [ ] Add the real PostgreSQL continuation consumer to the existing required PostgreSQL CI lane; independently review.
+- [ ] Freeze the combined source; run one required-fast gate and relevant coverage/complexity checks; build the exact bundle and push.
+- [ ] Review and execute bounded stop, preserve the stopped database, and inspect a detached copy to select recovery from actual state.
+- [ ] Recover the current run with corrected code under the public hold, preserving the original signed claim and process identity.
+- [ ] Run a new full live qualification and capture a valid baseline.
+- [ ] Run final local and hosted checks on the exact source while the baseline ages.
+- [ ] Prove the ordinary UI workflow, restart/resume, expired-proof behavior, failed-delete recovery, and final zero resources.
+- [ ] Verify health and normal login, release the hold, and update the user guide and PR status with actual evidence.
+
+Review: the previous 5e source passed all 50 hosted jobs. Its live run created two guests and later removed them, but stalled before terminal persistence. This is not a successful final qualification. No live restart or new qualification has run after that stall.
+
+# Historical completion — 6 October 2026 resumed session
 
 ## Release gap found during the real workflow — 7 October UTC
 
