@@ -5905,7 +5905,11 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       uv probe step, pending the data-image publication decision).
 - [x] W4H-16 (hosted coverage for pack.ts, materials.ts, publication.ts and uv-command.ts lines 20-21 without the data image; two red-first fixes:
       the attempt-directory leak on six refusal paths and the uv probe spawning the which() path): validator-8 ACCEPT 7e7407341887f7f7 at f80fcda35;
-      merge a214eda2b / receipts 9556a2911. Hosted run <W4H-16-HOSTED-RUN> at <W4H-16-PUSH-HEAD>: <W4H-16-HOSTED-RESULT>.
+      merge a214eda2b / receipts 9556a2911. Hosted run 37960843272 at 3897fe923: red 3 → 2 plus one cancelled job (0 green→red; vs the first run 20 → 2): FACTORY_RUNNER_READ_TOKEN (secret); Gate integrity cancelled at its timeout with no log, re-run as a single job = exactly the 8 (label); Per-file coverage gate — W4H-15 confirmed (every producer's records present), one new line: FactoryConsole.svelte 199, a browser-lane race in the import success case → W4H-17.
+- [x] W4H-17 (the FactoryConsole import race in the browser coverage lane: the success case ended on the mocked request, before the component
+      settled; the case now holds the mocked /import, asserts the draft absent, releases it, and waits for the listed row, the opened heading and the
+      cleared file input — the race is forced on every run): validator-8 ACCEPT 6d0a2b02ef4183e7 at bdafcbbfe; merge 8fc75ee6d / receipts 6d426363f.
+      Hosted run after this landing: recorded in the push receipts (wave4i-3-push3) and the PR body.
 
 ## Leftover after wave 4i — 2026-10-05
 

@@ -2085,6 +2085,8 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Validator: a heredoc that carries backticks must be quoted ('EOF'), so nothing executes while the file is written.
 - Coordinator: attribute a memory hog by cwd and parent pid before naming a culprit; our own svelte-check --tsgo legs were the first OOM killer, other sessions' checks the second, the editor's tsserver the third.
 - Coordinator: a teammate that "asks again" may be reading a late batch, not ignoring the inbox; check the message timestamps before re-ruling (integrator-5 received five answers in one batch).
+- Owner: prove read-only with a hash list before and after, not with chmod; a read-only copy made a tool's rm -rf and sed fail silently (W4H-17 lost two replay tries).
+- Coordinator: a browser spec that asserts on the mocked REQUEST and ends is a coverage race; assert the UI OUTCOME. The hosted browser lcov is five lanes, so a single lane's lcov never replaces it; add it or replace one record.
 - Coordinator: shared tools under /tmp age out. systemd-tmpfiles-clean removed the pinned `bunx` link after 10 days (2026-10-09) and a hold stopped at bun_pin; a 0-byte Bun 1.3.14 binary dates from the same daily window. Keep pinned toolchains and evidence outside /tmp, or exclude them in tmpfiles (root).
 - Coordinator: a CI-wiring-only or tests-only package gets a targeted merge hold, never a skipped one; the receipts name the no-combined-run risk. A package that turns out to change production code puts the real journey leg back into the hold.
 
