@@ -1,0 +1,5 @@
+resource-gate 2026-10-09T22:04:17Z w4h-18-commit outside-lock disk=182G memAvailable=15GiB swapFreeKiB=9361184/17173956 floors disk>=104G swap>=2621440KiB mem>=12GiB
+gated-flock w4h-18-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-09T22:04:17Z
+resource-gate 2026-10-09T22:04:35Z commit-start disk=182G memAvailable=18GiB swapFreeKiB=9361404/17173956 floors disk>=100G swap>=2097152KiB mem>=12GiB
+commit.sh exit=0 2026-10-09T22:07:00Z
+gated-flock w4h-18-commit: command exit 0 2026-10-09T22:07:00Z

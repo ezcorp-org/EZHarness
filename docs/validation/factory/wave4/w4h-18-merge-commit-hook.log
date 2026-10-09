@@ -1,0 +1,10 @@
+Checked 3 files in 7ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/verify-shipping-runtime-runner-fd-settle.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 30 expect() calls
+Ran 12 tests across 1 file. [458.00ms]
+[detached HEAD d12bcf8ee] merge: wp/w4h-18-runner-fd-settle 99c5bb9ab into integ/w00 (the runner FD sample settles before R4 compares)

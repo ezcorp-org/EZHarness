@@ -1,0 +1,21 @@
+#!/usr/bin/env bash
+# Runs inside the W4H-18 (copied from W4H-11) runner container as `runner`: the "Run the assigned production proofs" step of production-proof-shard,
+# with the job's env. $1 = shard (content, resources, delivery, recovery). App ids 0:0 (rootless Podman contract, the local path of
+# verify-production-image-lifecycle.sh); the hosted job passes $(id -u) under rootful Docker. Disclosed in the gates file.
+set -uo pipefail
+cd /home/runner/work/EZHarness/EZHarness
+export CI=true GITHUB_ACTIONS=true PATH=/opt/bun:$PATH BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+[ "$(bun --version)" = "$(cat .bun-version)" ] || { echo "bun pin mismatch"; exit 95; }
+shard=${1:?shard}; rm -rf .cache/production-lifecycle
+id=$(podman image inspect ezcorp:ci-production --format '{{.Id}}')
+echo "shard=$shard head=$(git rev-parse HEAD) tree=$(git rev-parse HEAD^{tree}) candidate=$id nproc=$(taskset -c 0-3 nproc) start=$(date -u +%FT%TZ)"
+EZ_SHIPPING_SHARD=$shard EZ_SHIPPING_EXPECTED_IMAGE_ID="sha256:${id#sha256:}" \
+BUILDX_BUILDER=default EZ_SHIPPING_CANDIDATE_IMAGE=ezcorp:ci-production \
+  EZ_SHIPPING_RECEIPT_ROOT=.cache/production-lifecycle \
+  EZ_SHIPPING_APP_UID=0 EZ_SHIPPING_APP_GID=0 \
+  EZ_SHIPPING_RUNNER_APP_UID=1001 \
+  VERIFY_UPGRADE_CANDIDATE_SOURCE="$(git rev-parse HEAD)" \
+  taskset -c 0-3 bash scripts/verify-shipping-production-suite.sh
+rc=$?
+echo "shard=$shard exit=$rc end=$(date -u +%FT%TZ)"
+exit $rc

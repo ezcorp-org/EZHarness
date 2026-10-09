@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Runs inside the W4H-18 (copied from W4H-11) runner container as `runner`: the production-proof-shard job's steps before the proof step, in order
+# (.github/actions/setup with web and playwright, setup-extension-runner-ci.sh --install), then the candidate build the
+# "Production candidate image" job makes (docker build with its three build args; `docker` is Podman here, see Containerfile).
+set -euo pipefail
+cd /home/runner/work/EZHarness/EZHarness
+export CI=true GITHUB_ACTIONS=true PATH=/opt/bun:$PATH BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+export GITHUB_ENV=/home/runner/github-env; : > "$GITHUB_ENV"
+[ "$(bun --version)" = "$(cat .bun-version)" ] && [ "$(bunx --version)" = "$(cat .bun-version)" ] || { echo "bun pin mismatch"; exit 95; }
+echo "node=$(node --version 2>&1) nproc=$(nproc) taskset=$(taskset -pc $$ | sed 's/.*: //') mem=$(awk '/MemTotal/{print int($2/1048576)}' /proc/meminfo)GiB"
+bun install --frozen-lockfile || { rc=$?; echo "root install exit=$rc; re2js links:"; ls -ld node_modules/re2js packages/@ezcorp/extension-contract/node_modules/re2js 2>&1; ls node_modules | wc -l; exit $rc; }
+if [ "${W4H18_SETUP:-full}" = full ]; then
+  (cd web && bun install --frozen-lockfile && bunx --bun svelte-kit sync)
+  (cd web && bunx playwright install chromium && bunx playwright install-deps chromium)
+fi
+bash scripts/setup-extension-runner-ci.sh --install
+systemctl --user enable --now podman.socket
+[ "${W4H18_SETUP:-full}" = full ] || { echo "light setup: no web, no candidate build"; echo SETUP-OK; exit 0; }
+podman --version; docker --version; docker compose version; echo "docker on PATH: $(command -v docker); podman build --help lists --load: $(podman build --help 2>&1 | grep -c -- "--load")"
+podman info --format '{{.Host.CgroupManager}} {{.Host.CgroupsVersion}} {{.Host.OCIRuntime.Name}} {{.Host.Conmon.Path}}'
+sha=$(git rev-parse HEAD)
+start=$(date -u +%FT%TZ)
+docker build --build-arg "VERSION=ci-${sha::12}" --build-arg "REVISION=${sha}" --build-arg "CREATED=$(date -u +%Y-%m-%dT%H:%M:%SZ)" -t ezcorp:ci-production . > /home/runner/candidate-build.log 2>&1
+echo "candidate build exit=$? start=$start end=$(date -u +%FT%TZ)"; tail -3 /home/runner/candidate-build.log
+echo "candidate id=$(podman image inspect ezcorp:ci-production --format '{{.Id}}')"
+cat "$GITHUB_ENV"
+echo SETUP-OK
