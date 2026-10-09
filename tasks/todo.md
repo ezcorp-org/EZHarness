@@ -5910,6 +5910,14 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       settled; the case now holds the mocked /import, asserts the draft absent, releases it, and waits for the listed row, the opened heading and the
       cleared file input — the race is forced on every run): validator-8 ACCEPT 6d0a2b02ef4183e7 at bdafcbbfe; merge 8fc75ee6d / receipts 6d426363f.
       Hosted run after this landing: recorded in the push receipts (wave4i-3-push3) and the PR body.
+- [x] W4H-18 (the production resources proof compared the extension runner's descriptor count strictly with no settle; #329's settle covers the
+      app's connections only; a descriptor the runner closes after the sample failed R4 cycle 1 on hosted run 37986983940): settleRunnerFds in the
+      accounting lib waits for equality, bounded (150 x 100 ms), the strict check unchanged after the bound; the runner's descriptors are snapshotted
+      at baseline and the failure receipt names each extra one's kind: validator-8 ACCEPT 87217593bd63f7e6 at 99c5bb9ab; merge d12bcf8ee / receipts
+      31b9a8d93. Hosted run after this landing: recorded in the push receipts (wave4i-3-push4) and the PR body.
+- [x] W4H-20 (the four biome warnings on integ: GitHub-expression fixtures flagged as templates in two CI-registration tests, and a comma operator in
+      the PostgreSQL recovery helper): ghExpr() in the shared scripts/lib/ci-registration.ts; adminSql() asserts before it builds the client; biome.json
+      unchanged; lint 0/0 repo-wide: validator-8 ACCEPT f3c62b889a2b9be2 at 6e9f8a2c6; merge 2e1008de8 / receipts 5bd3dad9a. Lands in the same push as W4H-18.
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -5959,11 +5967,24 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] Three pre-existing assertion gaps named by validator-8's W4H-16 mutants on unchanged lines (non-blocking by the changed-lines ruling):
       pack.ts sealProduced's digest-only disagreement (the tamper test also changes the size), the sealed-summaries count check, and
       uv-command.ts `located.startsWith("/")` (no test makes the probe print a relative path). Add the three assertions.
+- [x] Four lint warnings on integ/w00 (errors 0): noTemplateCurlyInString at scripts/lcov-artifact-names-registration.test.ts:126 and :136 (W4H-15's
+      new test) and scripts/setup-factory-python-base.test.ts:101; noCommaOperator at tests/postgres/helpers/factory-recovery-databases.ts:50 — cleared by
+      W4H-20 (merge 2e1008de8); lint 0/0 repo-wide at 2e1008de8.
 - [ ] Two pre-existing lint warnings: scripts/setup-factory-python-base.test.ts:101 and tests/postgres/helpers/factory-recovery-databases.ts:50
       (unchanged since 8ea96b0ed; biome.json unchanged). Fix both.
 
 - [ ] Pinned toolchain and evidence live under /tmp (/tmp/factory-tools, /tmp/factory-platform-evidence) and age out under systemd-tmpfiles (10 days):
       move them to a persistent path or add the tmpfiles exclusions (user, root). Restore the 0-byte Bun 1.3.14 binary from the release with its SHASUMS.
+- [ ] Browser-lane coverage varies run to run at line level outside the factory console (W4H-17 hold vs hosted run 37960843272: api.ts:819,
+      chat/page-handlers/send-message.ts:818-819,827, ChatInput.svelte:566, ChatThread.svelte:1269, ContextUsageIndicator.svelte:145, ProjectRail.svelte:60,
+      admin/dashboard/+page.svelte:266; a different set vs the local 6b9ff91ac lcov). The hosted gate passes today; each is a latent flake of the
+      FactoryConsole:199 kind. Make those specs assert the outcome, not the request.
+- [ ] scripts/verify-shipping-runtime-resources.ts runs the whole proof on load, so its runner-failure branch (W4H-18) cannot run in a unit test;
+      add a script-level seam so the failure branch runs without a container (validator-8's leftover candidate).
+- [ ] scripts/lib/ci-registration.test.ts does not execute ghExpr() on its own (the two consumer tests do): add one direct case (W4H-20 open item).
+- [ ] web's Vite config prints a configLoader 'native' warning at vite.config.ts:6 (seen by W4H-20; outside its scope).
+- [ ] No test pins the Bun SQL pipelining guard inside tests/postgres/helpers/factory-recovery-databases.ts's adminSql(): under bun test the preload
+      (src/__tests__/preload.ts:12) runs the same guard first, so a dropped guard is invisible there (validator-8's W4H-20 probe). Add a preload-free case.
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
 
