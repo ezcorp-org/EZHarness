@@ -7,14 +7,15 @@
 # Source this file; the functions only print, they never change an exit code.
 
 # print_node_totals <spec-reporter-file>: node --test's own "ℹ tests N",
-# "ℹ pass N" and "ℹ fail N" lines, copied to stdout.
+# "ℹ pass N", "ℹ fail N" and "ℹ cancelled N" lines, copied to stdout. A timed-out
+# test counts as cancelled, not failed, so without that line a hang reads "fail 0".
 print_node_totals() {
   local report=$1
   if [ ! -s "$report" ]; then
     echo "test totals: node reporter file $report is missing or empty" >&2
     return 0
   fi
-  grep -aE '^ℹ (tests|pass|fail) [0-9]+$' "$report" || echo "test totals: no node totals in $report" >&2
+  grep -aE '^ℹ (tests|pass|fail|cancelled) [0-9]+$' "$report" || echo "test totals: no node totals in $report" >&2
 }
 
 # print_bun_totals <label> <bun-output-file>...: one line "  N pass | M fail | <label>",
