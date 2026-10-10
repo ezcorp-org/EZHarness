@@ -6036,3 +6036,12 @@ Review: the success case ended right after it saw the /import request, and the c
 - [x] Legs: lint, boundaries, gate-integrity (integ PASS, main = the 8), typecheck under the tc rule, guard set, prune scan, CRAP. New-file and patch are vacuous for scripts/.
 
 Review: the hosted red was a late close that the one-read check could not tell from a leak. The fix waits for equality and never allows a difference in either direction. A real leak still fails, now with its descriptor kinds in the receipt. The script's failure branch did not run live, and its logic is unit-covered in the lib.
+
+## W4H-22 — the file-organizer refused-add case awaits the outcome, not a 5 s clock (branch `wp/w4h-22-toast-outcome` from integ/w00 fe445d241; gates `tasks/factory/w4h-22-GATES.md`)
+
+- [x] R1 the hosted shape reproduced in the content-shard form: a hold on the Hub page response fails the OLD case at the title wait (the hosted line); a hold on the dispatch response fails it at the toast wait with the correct refusal body (G1).
+- [x] R2 the case waits for the page response and title, the dispatch response with its exact ok:false body, then the toast inside its 5 s life; green under both holds and a hold near the toast's life; three mutants red by assertion (G2, G3).
+- [x] R3 the production-proof content shard at the head: file-organizer 13 passed, legacy-adoption 0 (G4).
+- [x] Legs: lint 0/0, boundaries, lanes, prune, new-file and patch vs integ (vacuous), CRAP, gate-integrity on both legs, typecheck and guard set under the lock (G5-G7).
+
+Review: the hosted red was the Hub page title wait, not the toast: the case gave a live render the 5 s default. The case now awaits each real response and then its result, with the file's 20 s bound, and checks the toast before the store removes it. Leftover candidate: the content shard keeps no trace or screenshot on failure.
