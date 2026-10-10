@@ -1,0 +1,17 @@
+Checked 2 files in 6ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/factory-orchestrator-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 61 expect() calls
+Ran 7 tests across 1 file. [349.00ms]
+  bun: src/__tests__/test-totals.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 12 expect() calls
+Ran 3 tests across 1 file. [373.00ms]
+[detached HEAD fa25ce42f] merge: wp/w4h-21-orchestrator-fail-loud b21eb4c57 into integ/w00 (the orchestrator coverage producer fails loud)

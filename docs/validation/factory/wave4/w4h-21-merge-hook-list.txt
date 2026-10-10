@@ -1,0 +1,2 @@
+scripts/factory-orchestrator-registration.test.ts
+src/__tests__/test-totals.test.ts
