@@ -5918,6 +5918,15 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
 - [x] W4H-20 (the four biome warnings on integ: GitHub-expression fixtures flagged as templates in two CI-registration tests, and a comma operator in
       the PostgreSQL recovery helper): ghExpr() in the shared scripts/lib/ci-registration.ts; adminSql() asserts before it builds the client; biome.json
       unchanged; lint 0/0 repo-wide: validator-8 ACCEPT f3c62b889a2b9be2 at 6e9f8a2c6; merge 2e1008de8 / receipts 5bd3dad9a. Lands in the same push as W4H-18.
+- [x] W4H-21 (the Factory Temporal coverage producer hung silently and was cancelled at its 10-minute job limit on hosted run 38001537073: its
+      reporter wrote only to a file, its inner timeout equalled the job's, no per-test timeout, and the totals read "fail 0" after a kill because
+      "cancelled" was never printed): --test-timeout 200 s (3.33x the slowest green test) with --test-force-exit, the spec reporter to stdout as well,
+      inner timeout 450 s + 30 s grace with the log tail and totals printed on failure, the progress log uploaded with if: always(), and the totals print
+      "cancelled": validator-8 ACCEPT 942b96f154921311 at b21eb4c57; merge fa25ce42f / receipts 7f641a70c.
+- [x] W4H-22 (the content proof's file-organizer refused-add case timed out on the Hub page title with the 5 s default, before its click, on the same
+      hosted run; a bare Hub render takes 3.6 s locally; the toast lives 5 s): the case awaits the Hub page response and the title with the file's 20 s
+      render wait, the add-folder response with status 200 and the exact ok:false body, then the toast inside its life; spec-only, no sleep:
+      validator-8 ACCEPT 01349409e1e1d68d at a708a22c8; merge c329cb4f7 / receipts 06da341d7. Both land in one push (wave4i-3-push5).
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -5985,6 +5994,10 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] web's Vite config prints a configLoader 'native' warning at vite.config.ts:6 (seen by W4H-20; outside its scope).
 - [ ] No test pins the Bun SQL pipelining guard inside tests/postgres/helpers/factory-recovery-databases.ts's adminSql(): under bun test the preload
       (src/__tests__/preload.ts:12) runs the same guard first, so a dropped guard is invisible there (validator-8's W4H-20 probe). Add a preload-free case.
+- [ ] The production-proof content job's Playwright run keeps no trace or screenshot on failure (the artifact of run 38001537073 shows none), so a hosted
+      red cannot show what the page looked like. Enable trace/screenshot on failure for the proof lanes and upload them (W4H-22 finding).
+- [ ] The orchestrator test "continues only from a quiescent state and restores absolute timers" takes 60.0 s in every run (a real 60 s wait); it is the
+      likely site of the hosted hang and sets the per-test timeout floor. Make the wait fake-clocked or bounded (W4H-21 finding).
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)
 
