@@ -1,0 +1,14 @@
+resource-gate 2026-10-03T16:43:27Z final-merge-gates disk=148G memAvailable=15GiB swapFreeKiB=3055524/17173956
+head=1992630f37832aaea2e7dae0b60552224247903a start=2026-10-03T16:43:27Z bun=1.4.2
+runner inputs: 344 from /tmp/factory-platform-evidence/wave4h-lcov-inputs
+browser inputs: 1 from /tmp/factory-platform-evidence/w00/wave4h/after/browser/browser-merged
+merge exit=0 | merged 2341 source files → coverage/lcov.info
+absolute SF outside /tmp after merge: 0
+global-floor exit=0 | ✓ at or above the 90% floor (margin 8.05 points)
+per-file-thresholds exit=0 | Coverage gate PASSED: 2194 enforced file(s) at or above threshold.
+new-file-origin_main exit=0 | New-file coverage gate PASSED: 460 new source file(s) gated.
+patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (515 file(s)).
+gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+crap-changed-origin_main exit=0 | ✓ no touched function exceeds CRAP 30
+end=2026-10-03T16:43:47Z status=1 dirty=0 lcov-sha256=b5173af728680cbf

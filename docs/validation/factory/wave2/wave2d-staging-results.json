@@ -1,0 +1,419 @@
+[
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "sdk-build",
+  "exitCode": 0,
+  "start": "2026-09-14T06:35:31",
+  "end": "2026-09-14T06:35:32",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-sdk",
+   "build"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "transport-build",
+  "exitCode": 0,
+  "start": "2026-09-14T06:35:32",
+  "end": "2026-09-14T06:35:32",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-transport",
+   "build"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "sdk-tests",
+  "exitCode": 0,
+  "start": "2026-09-14T06:35:32",
+  "end": "2026-09-14T06:35:48",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2d-staging-sdk-coverage",
+   "./packages/@ezcorp/factory-sdk/src"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "focused",
+  "exitCode": 0,
+  "start": "2026-09-14T06:35:48",
+  "end": "2026-09-14T06:41:35",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "30000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2d-staging-product-coverage",
+   "./src/__tests__/factory-run-lifecycle.test.ts",
+   "./src/factory/release-authority.integration.test.ts",
+   "./src/factory/executions.integration.test.ts",
+   "./src/factory/run-inputs.integration.test.ts",
+   "./src/db/migrations/add-factory-child-runs.test.ts",
+   "./src/db/migrations/bind-factory-child-definition-source.test.ts",
+   "./src/db/migrations/bind-factory-child-start-clock.test.ts",
+   "./scripts/factory-task-execution-admission-registration.test.ts",
+   "./src/db/migrations/add-factory-command-approvals.test.ts",
+   "./src/factory/release-application.test.ts",
+   "./src/factory/application.test.ts",
+   "./src/factory/private-commands.test.ts",
+   "./src/__tests__/factory-private-service.test.ts",
+   "./src/factory/validator-materials.test.ts",
+   "./src/factory/assurance.test.ts",
+   "./src/factory/releases.integration.test.ts",
+   "./src/factory/attempt-queue.integration.test.ts",
+   "./src/delivery-queue/durable-delivery-queue.test.ts",
+   "./scripts/factory-validator-materials-registration.test.ts",
+   "./src/factory/package-preparation.integration.test.ts",
+   "./src/db/migrations/add-factory-package-preparations.test.ts",
+   "./src/db/migrations/add-factory-task-outcomes.test.ts",
+   "./src/factory/artifacts.integration.test.ts",
+   "./src/factory/protected-command-provenance.test.ts",
+   "./scripts/factory-protected-command-effects-registration.test.ts",
+   "./src/db/factory-schema.test.ts",
+   "./src/__tests__/gate-scripts.test.ts",
+   "./src/extensions/__tests__/project-pull-request-transport.test.ts",
+   "./src/extensions/__tests__/github-projects-handler.test.ts",
+   "./src/extensions/__tests__/github-projects-handler.integration.test.ts",
+   "./src/extensions/__tests__/github-projects-handler-default-db.test.ts",
+   "./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts",
+   "./src/factory/release-adapters.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts",
+   "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+   "./packages/@ezcorp/factory-orchestrator/test/encryption-codec.test.ts",
+   "./packages/@ezcorp/factory-orchestrator/test/validation.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/compiler.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/kernel-deadlines.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/kernel-remediation.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/kernel.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/reference-execution.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/schema.test.ts",
+   "./packages/@ezcorp/factory-sdk/src/validator-report.test.ts",
+   "./scripts/check-factory-boundaries.test.ts",
+   "./scripts/check-factory-lanes.test.ts",
+   "./scripts/check-patch-coverage-typeonly.test.ts",
+   "./scripts/check-schema-generate-drift.test.ts",
+   "./scripts/factory-c13-inventory.test.ts",
+   "./scripts/factory-postgres-suite-registration.test.ts",
+   "./scripts/lib/ci-registration.test.ts",
+   "./scripts/prune-factory-storage-manifest.test.ts",
+   "./scripts/python-quality-registration.test.ts",
+   "./src/__tests__/coverage-leg-lcov-guard.test.ts",
+   "./src/__tests__/e2e-lanes.test.ts",
+   "./src/__tests__/factory-compute-admissions.test.ts",
+   "./src/__tests__/factory-task-stops.test.ts",
+   "./src/db/migrations/add-factory-package-quarantine.test.ts",
+   "./src/db/migrations/add-factory-task-stops.test.ts",
+   "./src/db/migrations/add-factory-usage-settlements.test.ts",
+   "./src/db/migrations/allow-factory-validator-multiclaim.test.ts",
+   "./src/extensions/__tests__/project-github-transport.test.ts",
+   "./src/extensions/__tests__/project-open-pr.test.ts",
+   "./src/extensions/project-git-refs.test.ts",
+   "./src/factory/admission-origin.test.ts",
+   "./src/factory/archive-writer.integration.test.ts",
+   "./src/factory/archive-writer.test.ts",
+   "./src/factory/artifact-materials.integration.test.ts",
+   "./src/factory/artifact-materials.test.ts",
+   "./src/factory/child-artifacts.test.ts",
+   "./src/factory/git-objects.test.ts",
+   "./src/factory/host-stop-transport.integration.test.ts",
+   "./src/factory/journal-validation.test.ts",
+   "./src/factory/lazy-input.test.ts",
+   "./src/factory/material-gateway.integration.test.ts",
+   "./src/factory/pool/client.test.ts",
+   "./src/factory/pool/lazy-sql-assertions.test.ts",
+   "./src/factory/pool/service-routes.test.ts",
+   "./src/factory/private-https.integration.test.ts",
+   "./src/factory/protected-command-effects.test.ts",
+   "./src/factory/release-git-refs.test.ts",
+   "./src/factory/release-github.test.ts",
+   "./src/factory/release-profile.test.ts",
+   "./src/factory/release-s3-publication.integration.test.ts",
+   "./src/factory/release-s3-publication.test.ts",
+   "./src/factory/run-controls.test.ts",
+   "./src/factory/runner/applied-controls.integration.test.ts",
+   "./src/factory/runner/attempt-devices.test.ts",
+   "./src/factory/runner/attempt-recovery.test.ts",
+   "./src/factory/runner/attempt-runtime.integration.test.ts",
+   "./src/factory/runner/attempt-runtime.test.ts",
+   "./src/factory/runner/guest-frames.test.ts",
+   "./src/factory/runner/python-guest.integration.test.ts",
+   "./src/factory/runner/python-runner.integration.test.ts",
+   "./src/factory/runner/sandbox-stop.test.ts",
+   "./src/factory/runner/supervisor.integration.test.ts",
+   "./src/factory/runner/workspace-checkpoint-seam.test.ts",
+   "./src/factory/usage-settlement.test.ts",
+   "./scripts/check-required-checks.test.ts",
+   "./src/__tests__/factory-ci-registration.test.ts",
+   "./scripts/factory-orchestrator-registration.test.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "web-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:41:35",
+  "end": "2026-09-14T06:46:46",
+  "command": [
+   "bash",
+   "scripts/web-vitest-coverage.sh",
+   "--output",
+   "/tmp/factory-platform-evidence/wave2d-staging-web-coverage"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "postgres",
+  "exitCode": 0,
+  "start": "2026-09-14T06:46:46",
+  "end": "2026-09-14T06:55:06",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "60000",
+   "--coverage",
+   "--coverage-reporter=lcov",
+   "--coverage-dir=/tmp/factory-platform-evidence/wave2d-staging-postgres-coverage",
+   "./tests/postgres/factory-artifacts.test.ts",
+   "./tests/postgres/factory-artifact-access.test.ts",
+   "./tests/postgres/factory-artifact-materials.test.ts",
+   "./tests/postgres/factory-lazy-input.test.ts",
+   "./tests/postgres/factory-lazy-commands.test.ts",
+   "./tests/postgres/factory-boot.test.ts",
+   "./tests/postgres/factory-run-lifecycle-s3.test.ts",
+   "./tests/postgres/factory-run-inputs.test.ts",
+   "./tests/postgres/factory-definitions.test.ts",
+   "./tests/postgres/factory-private-service.test.ts",
+   "./tests/postgres/factory-package-preparation.test.ts",
+   "./tests/postgres/factory-executions.test.ts",
+   "./tests/postgres/factory-attempt-queue.test.ts",
+   "./tests/postgres/factory-budgets.test.ts",
+   "./tests/postgres/factory-encryption-s3.test.ts",
+   "./tests/postgres/factory-inbox.test.ts",
+   "./tests/postgres/factory-project-creation.test.ts",
+   "./tests/postgres/factory-records.test.ts",
+   "./tests/postgres/factory-execution-gateway.test.ts",
+   "./tests/postgres/factory-service-credentials.test.ts",
+   "./tests/postgres/factory-grants.test.ts",
+   "./tests/postgres/factory-task-stops.test.ts",
+   "./tests/postgres/factory-migration-restart.test.ts",
+   "./tests/postgres/factory-schema.test.ts",
+   "./tests/postgres/factory-releases.test.ts",
+   "./tests/postgres/factory-release-authority.test.ts",
+   "./tests/postgres/factory-archive-writer.test.ts",
+   "./tests/postgres/factory-s3-publication.test.ts",
+   "./tests/postgres/factory-validator-materials.test.ts",
+   "./tests/postgres/factory-validator-multiclaim.test.ts",
+   "./tests/postgres/factory-child-artifacts.test.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "types",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:06",
+  "end": "2026-09-14T06:55:40",
+  "command": [
+   "bun",
+   "run",
+   "typecheck"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "lint",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:40",
+  "end": "2026-09-14T06:55:41",
+  "command": [
+   "bun",
+   "run",
+   "lint"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "gate-integrity",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:41",
+  "end": "2026-09-14T06:55:42",
+  "command": [
+   "bun",
+   "scripts/gate-integrity.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "boundaries",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:42",
+  "end": "2026-09-14T06:55:43",
+  "command": [
+   "bun",
+   "scripts/check-factory-boundaries.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "orchestrator-build",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:43",
+  "end": "2026-09-14T06:55:43",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-orchestrator",
+   "build"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "node-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:55:43",
+  "end": "2026-09-14T06:57:39",
+  "command": [
+   "bash",
+   "scripts/factory-orchestrator-coverage.sh"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "pool-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:57:39",
+  "end": "2026-09-14T06:57:57",
+  "command": [
+   "bash",
+   "scripts/factory-pool-coverage.sh"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "compute-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:57:57",
+  "end": "2026-09-14T06:58:28",
+  "command": [
+   "bash",
+   "scripts/factory-compute-admissions-coverage.sh"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "provisioning-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:58:28",
+  "end": "2026-09-14T06:58:30",
+  "command": [
+   "bash",
+   "scripts/factory-provisioning-coverage.sh"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "python-coverage",
+  "exitCode": 0,
+  "start": "2026-09-14T06:58:30",
+  "end": "2026-09-14T06:58:33",
+  "command": [
+   "nix-shell",
+   "-p",
+   "uv",
+   "--run",
+   "bash scripts/python-quality.sh all"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "podman-podman",
+  "exitCode": 0,
+  "start": "2026-09-14T06:58:33",
+  "end": "2026-09-14T06:59:45",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "podman-attempt-runtime",
+  "exitCode": 0,
+  "start": "2026-09-14T06:59:45",
+  "end": "2026-09-14T06:59:59",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/runner/attempt-runtime.integration.test.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "podman-supervisor",
+  "exitCode": 0,
+  "start": "2026-09-14T06:59:59",
+  "end": "2026-09-14T07:00:11",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/runner/supervisor.podman.integration.test.ts"
+  ]
+ },
+ {
+  "head": "b90dbb60d635c0218a3faf0d133bccee5778b203",
+  "dirty": false,
+  "name": "podman-package-preparation",
+  "exitCode": 0,
+  "start": "2026-09-14T07:00:11",
+  "end": "2026-09-14T07:00:21",
+  "command": [
+   "bun",
+   "test",
+   "--timeout",
+   "300000",
+   "./src/factory/package-preparation.podman.integration.test.ts"
+  ]
+ }
+]

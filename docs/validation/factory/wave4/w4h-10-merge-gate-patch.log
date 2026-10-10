@@ -1,0 +1,4 @@
+Patch coverage gate FAILED (1 file(s) with uncovered changes):
+  web/src/lib/components/ChatThread.svelte: 4 changed line(s) uncovered: 494,1685,1795,1887
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

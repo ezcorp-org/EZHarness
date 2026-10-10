@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# W4H-12 commit under the heavy lock (called by gated-flock): the hook maps the PostgreSQL twin and the Podman twin, so the commit holds
+# the lock, and the PostgreSQL suites run on an OWN fresh pg15 (w00/own-pg.sh), never the shared proof server (lead's order).
+set -u
+E=/tmp/factory-platform-evidence/w00; D=$E/w4h-merge/w4h-12-factory-host-launch
+. $E/lock-veto.sh; lock_veto integrator-2
+. $E/resource-gate.sh; RESOURCE_GATE_MAX_WAIT_S=0 resource_gate commit-start $D/commit-gate.log || { echo "gate red inside the lock: exit 75" >> $D/commit-gate.log; exit 75; }
+. $E/own-pg.sh; own_pg_start w4h-12-commit-pg >> $D/commit-gate.log 2>&1 || exit 3
+bash $E/detached-merge/commit.sh $D/config.sh; rc=$?
+echo "commit.sh exit=$rc $(date -u +%FT%TZ)" >> $D/commit-gate.log; exit $rc

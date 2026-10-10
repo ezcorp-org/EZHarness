@@ -1,0 +1,58 @@
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner node 24.21.0 (/nix/store/m0256z6rrjwmvxkbymm7a28n0nw2zll9-nodejs-slim-24.21.0/bin/node)
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview --port "4173" --strictPort
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+Running 42 tests using 2 workers
+
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓   2 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 1440px and its labels read @evidence (2.0s)
+  ✓   1 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 1440px and its labels read @evidence (2.0s)
+  ✓   3 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 390px and its labels read @evidence (1.2s)
+  ✓   4 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 390px and its labels read @evidence (1.2s)
+  ✓   5 [chromium] › e2e/factory-authoring-console.spec.ts:270:2 › factory authoring console › shows the current-authorized release inbox and records an exact decision @evidence (1.1s)
+  ✓   6 [chromium] › e2e/factory-authoring-console.spec.ts:314:2 › factory authoring console › requests a bounded repair and refuses a widening replan @evidence (1.1s)
+  ✓   8 [chromium] › e2e/factory-authoring-console.spec.ts:383:2 › factory authoring console › refetches a stale revision and compares the exact pinned version before immutable publication @evidence (1.6s)
+  ✓   7 [chromium] › e2e/factory-authoring-console.spec.ts:346:2 › factory authoring console › authors with the real graph library, shows diagnostics, and exports @evidence (1.7s)
+  ✓  10 [chromium] › e2e/factory-authoring-console.spec.ts:467:2 › factory authoring console › keeps the server's answer when the session record cannot be read (594ms)
+  ✓  11 [chromium] › e2e/factory-authoring-console.spec.ts:480:2 › factory authoring console › a draft a newer server wrote opens read-only and still exports @evidence (1.2s)
+  ✓   9 [chromium] › e2e/factory-authoring-console.spec.ts:425:2 › factory authoring console › starts a run of a published version, refuses bad input, and opens the queued run in Runs @evidence (1.9s)
+  ✓  12 [chromium] › e2e/factory-authoring-console.spec.ts:502:2 › factory authoring console › creates and imports through the current membership project (1.2s)
+  ✓  13 [chromium] › e2e/factory-authoring-console.spec.ts:527:2 › factory authoring console › edits source and nodes, navigates nested graphs, and archives the draft (2.3s)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓  14 [chromium] › e2e/factory-authoring-console.spec.ts:585:2 › factory authoring console › keeps every failed authoring operation recoverable (2.5s)
+  ✓  15 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 1440px and its labels read @evidence (1.2s)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓  16 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 390px and its labels read @evidence (1.2s)
+  ✓  17 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 1440px and its labels read @evidence (1.3s)
+  ✓  18 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 390px and its labels read @evidence (1.2s)
+  ✓  19 [chromium] › e2e/factory-authoring-console.spec.ts:270:2 › factory authoring console › shows the current-authorized release inbox and records an exact decision @evidence (1.1s)
+  ✓  20 [chromium] › e2e/factory-authoring-console.spec.ts:314:2 › factory authoring console › requests a bounded repair and refuses a widening replan @evidence (1.1s)
+  ✓  21 [chromium] › e2e/factory-authoring-console.spec.ts:346:2 › factory authoring console › authors with the real graph library, shows diagnostics, and exports @evidence (1.7s)
+  ✓  22 [chromium] › e2e/factory-authoring-console.spec.ts:383:2 › factory authoring console › refetches a stale revision and compares the exact pinned version before immutable publication @evidence (1.6s)
+  ✓  24 [chromium] › e2e/factory-authoring-console.spec.ts:467:2 › factory authoring console › keeps the server's answer when the session record cannot be read (582ms)
+  ✓  23 [chromium] › e2e/factory-authoring-console.spec.ts:425:2 › factory authoring console › starts a run of a published version, refuses bad input, and opens the queued run in Runs @evidence (1.8s)
+  ✓  25 [chromium] › e2e/factory-authoring-console.spec.ts:480:2 › factory authoring console › a draft a newer server wrote opens read-only and still exports @evidence (1.2s)
+  ✓  26 [chromium] › e2e/factory-authoring-console.spec.ts:502:2 › factory authoring console › creates and imports through the current membership project (1.2s)
+  ✓  27 [chromium] › e2e/factory-authoring-console.spec.ts:527:2 › factory authoring console › edits source and nodes, navigates nested graphs, and archives the draft (2.4s)
+  ✓  28 [chromium] › e2e/factory-authoring-console.spec.ts:585:2 › factory authoring console › keeps every failed authoring operation recoverable (2.5s)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓  29 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 1440px and its labels read @evidence (1.2s)
+  ✓  30 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 1440px and its labels read @evidence (1.2s)
+  ✓  31 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the dark app theme over a light system scheme at 390px and its labels read @evidence (1.2s)
+  ✓  32 [chromium] › e2e/factory-authoring-console.spec.ts:257:3 › factory authoring console › the graph canvas follows the light app theme over a dark system scheme at 390px and its labels read @evidence (1.2s)
+  ✓  33 [chromium] › e2e/factory-authoring-console.spec.ts:270:2 › factory authoring console › shows the current-authorized release inbox and records an exact decision @evidence (1.1s)
+  ✓  34 [chromium] › e2e/factory-authoring-console.spec.ts:314:2 › factory authoring console › requests a bounded repair and refuses a widening replan @evidence (1.3s)
+  ✓  35 [chromium] › e2e/factory-authoring-console.spec.ts:346:2 › factory authoring console › authors with the real graph library, shows diagnostics, and exports @evidence (1.8s)
+  ✓  36 [chromium] › e2e/factory-authoring-console.spec.ts:383:2 › factory authoring console › refetches a stale revision and compares the exact pinned version before immutable publication @evidence (1.6s)
+  ✓  38 [chromium] › e2e/factory-authoring-console.spec.ts:467:2 › factory authoring console › keeps the server's answer when the session record cannot be read (599ms)
+  ✓  37 [chromium] › e2e/factory-authoring-console.spec.ts:425:2 › factory authoring console › starts a run of a published version, refuses bad input, and opens the queued run in Runs @evidence (1.9s)
+  ✓  39 [chromium] › e2e/factory-authoring-console.spec.ts:480:2 › factory authoring console › a draft a newer server wrote opens read-only and still exports @evidence (1.1s)
+  ✓  40 [chromium] › e2e/factory-authoring-console.spec.ts:502:2 › factory authoring console › creates and imports through the current membership project (1.1s)
+  ✓  41 [chromium] › e2e/factory-authoring-console.spec.ts:527:2 › factory authoring console › edits source and nodes, navigates nested graphs, and archives the draft (2.3s)
+  ✓  42 [chromium] › e2e/factory-authoring-console.spec.ts:585:2 › factory authoring console › keeps every failed authoring operation recoverable (2.5s)
+
+  42 passed (34.8s)

@@ -1,0 +1,82 @@
+{
+  "package": "w01d",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "f64697be606580c2a622f3e3967e79e7f810f7ca",
+  "branch": "wp/w01d-materials-handover",
+  "base": "integ/w00 @ f30da62fac9a6ebcf175d129e9e649470597950b (merge-base confirmed)",
+  "verdict_summary": "The leaf correctly fixes the round-2 anti-pattern: chmod(materials, 0o777) is gone from the integration test entirely, and PodmanRunner now performs the material-directory handover itself (mode 0o770, then podman unshare chown to the guest's mapped uid keeping the runner's group), called from launchDetached before the container starts. No 0o777 appears anywhere in production or tests. A real-guest test proves a guest write succeeds with zero caller-side mode/ownership change beyond an initial 0o700, and a dedicated negative-posture test proves the handed-over directory is neither world-writable nor world-readable (mode & 0o007 === 0) with ownership moved to the guest and group kept as the runner's. A separate assertion proves a caller-placed input stays readable to the guest. The freeze section 16 line states the contract accurately. All static gates, both required heavy Podman suites (plus a bonus third), and the coverage gates pass at the exact head. ACCEPT-WITH-FIXES rather than plain ACCEPT because gate G3 in tasks/factory/w01d-GATES.md ('a directory the runner does not own is refused') is marked done with only a prose 'EVIDENCE' description of the source code and NO check command and NO test anywhere in the repository - unlike every other gate in the same file, which all cite a runnable command and a receipt. I independently verified the claim is true (all three refusal branches behave exactly as documented, plus a positive control), but that verification is mine, one-time, and external to the repo: nothing in the committed test suite would catch a future regression in this security-relevant guard. Fix required: add an automated test (in packages/@ezcorp/extension-runner/tests/podman.integration.test.ts or a lighter-weight harness) covering a missing directory, a non-directory/symlink, and a foreign-owned directory, each asserting the material_directory_invalid RunnerError.",
+  "tree_state": {
+    "git_status_porcelain_empty": true,
+    "head_matches_task": true
+  },
+  "diff_scope": {
+    "files": [
+      "docs/plans/2026-09-13-composable-factory-platform-interfaces.md",
+      "packages/@ezcorp/extension-runner/src/podman.ts",
+      "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts",
+      "tasks/factory/w01d-GATES.md",
+      "tasks/lessons.md"
+    ],
+    "all_within_terra_runtime_ownership": true,
+    "no_new_source_files": true,
+    "materials_ts_unchanged": true,
+    "coverage_thresholds_json_unchanged": true
+  },
+  "reruns": [
+    { "step": "bun install (root + web)", "exit_code": 0 },
+    { "step": "bun run typecheck", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/typecheck.log" },
+    { "step": "bun run lint", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/lint.log", "result": "8 pre-existing infos, no errors" },
+    { "step": "check-factory-boundaries", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/boundaries.log" },
+    { "step": "gate-integrity", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/gate-integrity.log" },
+    { "step": "grep 0o777 in production and tests", "exit_code": 1, "result": "no matches setting a mode to 0o777; only bitmask reads (mode & 0o777) and 'Never 0o777' documentation comments" },
+    { "step": "materials.test.ts (with coverage)", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/materials-test.log", "result": "7 pass / 0 fail / 21 expect() calls, unchanged since round 2" },
+    { "step": "full shared Podman suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun test --timeout 30000 --coverage ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit_code": 0, "result": "18 pass / 0 fail / 99 expect() calls - matches worker's own receipt exactly" },
+    { "step": "factory Podman suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 2400 bun test --timeout 30000 --coverage ./src/factory/package-preparation.podman.integration.test.ts", "exit_code": 0, "result": "1 pass / 0 fail / 6 expect() calls - matches worker's own receipt exactly" },
+    { "step": "bonus: attempt-runtime.integration.test.ts (worker's own G5 addition, not required by brief but ran for completeness)", "exit_code": 0, "result": "7 pass / 0 fail / 31 expect() calls - matches worker's own receipt exactly" },
+    { "step": "combined coverage run (all 4 files, one bun test invocation)", "exit_code": 0, "result": "33 pass / 0 fail / 157 expect() calls, matches worker's own podman-coverage.json plus the two extra files exactly" },
+    { "step": "new-file coverage gate", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/new-file-coverage.log", "result": "no new source files in this diff" },
+    { "step": "patch coverage gate", "exit_code": 0, "log": "/tmp/factory-platform-evidence/w01d-validation/patch-coverage.log", "result": "PASSED after combining all four test files into one bun test invocation - see measurement note below" }
+  ],
+  "measurement_note_coverage_instrumentation_quirk": {
+    "what_happened": "My first attempt ran podman.integration.test.ts, package-preparation.podman.integration.test.ts, and attempt-runtime.integration.test.ts as three SEPARATE bun test invocations sharing one coverage-dir (each overwriting the prior lcov.info - the same mistake documented in my own round-2 report), then merged with materials.test.ts's separate lcov. The resulting merge showed podman.ts lines 299-305 (the entirety of handOverMaterials's guard clauses) as zero-hit, failing patch-coverage.",
+    "diagnosis": "This is the coverage-instrumentation quirk this repo's own CLAUDE.md documents under 'Coverage trap - an importing-only shard's flat zero block used to outvote the shard that RAN the code': when podman.integration.test.ts runs alone vs combined with materials.test.ts (which also imports from ../src/podman), bun's per-process source instrumentation produces different, sourcemap-shifted hit records for the same lines. Running podman.integration.test.ts in isolation produced a flat DA:x,0 block for the whole handOverMaterials function even though the function demonstrably executes (the tests pass and depend on it).",
+    "resolution": "Reran all four relevant test files (podman.integration.test.ts, materials.test.ts, package-preparation.podman.integration.test.ts, attempt-runtime.integration.test.ts) as ONE combined bun test invocation with one coverage-dir - matching how the worker's own primary podman-coverage.json receipt was structured. That single-shard run shows real, nonzero hit counts for every line of handOverMaterials (e.g. line 299: 51 hits, line 304: 201 hits), and the merged patch-coverage gate then passes cleanly (33 pass / 157 expect() total, matching the worker's receipts across the relevant files).",
+    "important_caveat": "Patch/line coverage passing on handOverMaterials does NOT prove the three refusal branches (missing directory, non-directory, foreign-owned) were ever actually taken - each throw lives on the same line as its guarding if-condition, so line coverage is satisfied by the happy path (a valid, runner-owned directory) evaluating the condition and finding it false. This is consistent with, not contradictory to, the G3 finding below: the coverage gates passing was never going to catch the missing negative test."
+  },
+  "gate_weakening_checks": {
+    "skip_only_todo": "none in the diff",
+    "empty_catch": "none in the diff"
+  },
+  "interface_conformance": {
+    "freeze_section_16_new_dated_line": "confirmed - 'Section 6 material handover (W01, 2026-09-14)' accurately states: the runner performs the handover, refuses a non-runner-owned/non-directory path, sets mode 0o770 then moves ownership via podman unshare chown 65534:0 (order is load-bearing since ownership-change removes the runner's chmod ability), result is never world-readable or world-writable, caller-placed inputs keep their own mode (explicit chmod needed because writeFile's mode option is masked by umask), evidence at /tmp/factory-platform-evidence/w01d/"
+  },
+  "checklist_verification": {
+    "no_0o777_anywhere": "CONFIRMED - grep across src/ and tests/ shows zero mode-setting occurrences, only bitmask reads and comments",
+    "guest_write_succeeds_no_caller_side_mode_change": "CONFIRMED - real-guest test sets materials dir to 0o700 once and does nothing else; guest successfully reads a caller-placed input and writes two outputs",
+    "after_handover_not_world_writable_or_readable": "CONFIRMED - dedicated test asserts mode & 0o777 === 0o770 and mode & 0o007 === 0 (the 'other' bits) after a real handover",
+    "non_directory_or_foreign_owned_path_refused_with_typed_error": "PARTIALLY CONFIRMED - the code is correct (I independently verified all three refusal branches plus a positive control by calling the private handOverMaterials method directly at runtime; see downstream evidence below) but NO committed test in the repository exercises any of these paths, and GATES.md's G3 has no check command unlike every other gate. This is the one fix this leaf needs.",
+    "caller_placed_inputs_stay_readable": "CONFIRMED - real-guest test writes input.json with an explicit chmod 0o644 after the write (umask would otherwise mask writeFile's mode option to 0o600, which the worker's own GATES.md records measuring directly) and the guest reads it back correctly",
+    "freeze_section_16_states_contract": "CONFIRMED - see interface_conformance above",
+    "full_shared_and_factory_podman_suites_pass": "CONFIRMED - both pass at the exact head under the lock with an outer timeout, counts match the worker's own receipts exactly",
+    "typecheck_lint_boundaries_gate_integrity_coverage_gates": "CONFIRMED - all pass at the exact head with my own merged LCOV (after correcting my own measurement process for the instrumentation quirk above)",
+    "gates_file_and_evidence_folder_carry_receipts_at_head": "CONFIRMED for G1, G2, G4, G5, G6 (each cites a real command and a receipt whose exit code, counts, and SHA256 I independently reproduced or verified). NOT confirmed for G3 - see above."
+  },
+  "my_own_independent_verification_of_g3": {
+    "method": "handOverMaterials is a private TypeScript method, but TypeScript privacy is compile-time only; I constructed a minimal PodmanRunner instance and called (runner as any).handOverMaterials(directory) directly for five cases, without needing a full container build/start cycle since the refusal happens before any podman command runs.",
+    "script": "/tmp/factory-platform-evidence/w01d-validation/handover-refusal-repro.ts",
+    "output_log": "/tmp/factory-platform-evidence/w01d-validation/handover-refusal-repro-output.log",
+    "results": [
+      { "case": "missing_path", "refused": true, "code": "material_directory_invalid", "message": "Runner material directory does not exist" },
+      { "case": "plain_file", "refused": true, "code": "material_directory_invalid", "message": "Runner material directory is not a directory" },
+      { "case": "symlink_to_directory", "refused": true, "code": "material_directory_invalid", "message": "Runner material directory is not a directory" },
+      { "case": "foreign_owned_directory (used /tmp itself, owned by root, never mutated)", "refused": true, "code": "material_directory_invalid", "message": "Runner material directory is not owned by the runner" },
+      { "case": "runner_owned_directory (positive control)", "refused": false, "note": "handover completed (chmod + podman unshare chown both succeeded) as expected" }
+    ],
+    "conclusion": "The code behaves exactly as GATES.md's G3 claims. This is validator-supplied evidence, not worker-supplied, and does not become a standing regression protection once this validation ends."
+  },
+  "process_hygiene": {
+    "evidence_folder": "/tmp/factory-platform-evidence/w01d/ exists with INDEX.md, receipt.sh, w01d-handover-probe.sh (a real end-to-end shell-level probe of the positive path, outside bun:test, confirming the before/after mode+ownership transition), logs/, and SHA256SUMS",
+    "sha256sums_check": "all 7 logs verified OK against SHA256SUMS",
+    "gates_file": "tasks/factory/w01d-GATES.md exists, committed, 6 gates (G1-G6); 5 of 6 cite a runnable check command and matching receipt; G3 does not (see above)"
+  }
+}

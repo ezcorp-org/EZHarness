@@ -1,0 +1,34 @@
+  30 test files map to this commit (cap 12) — NOT running:
+    docs/extensions/examples/docs-updater/index.integration.test.ts
+    packages/@ezcorp/sdk/test/filesystem-harness.test.ts
+    scripts/check-patch-coverage-typeonly.test.ts
+    src/extensions/first-party-integration/docs-updater/git.test.ts
+    src/extensions/first-party-integration/repo-activity-notify/git.test.ts
+    src/extensions/project-git-refs.test.ts
+    src/extensions/__tests__/project-git-broker.test.ts
+    src/extensions/__tests__/project-open-pr.test.ts
+    src/extensions/__tests__/source-project-credentials.test.ts
+    src/factory/git-objects.test.ts
+    src/factory/reference-code/git-reader.test.ts
+    src/__tests__/biome-ignores-worktrees.test.ts
+    src/__tests__/extension-events-hub-branch.test.ts
+    src/__tests__/extensions-delete-route-policy.test.ts
+    src/__tests__/extensions-patch-route.test.ts
+    src/__tests__/gate-scripts.test.ts
+    src/__tests__/git-hooks.test.ts
+    src/__tests__/git-install.test.ts
+    src/__tests__/hub-render-pull.test.ts
+    src/__tests__/mock-cleanup-coverage.test.ts
+    src/__tests__/phase-2b-e2e.test.ts
+    src/__tests__/security/c3-extension-install.test.ts
+    src/__tests__/source-parser-git-coverage.test.ts
+    src/__tests__/source-parser.test.ts
+    src/__tests__/unlanded-branches.test.ts
+    src/__tests__/visual-evidence-select.test.ts
+    src/__tests__/workflow-run-persistence.test.ts
+    web/src/routes/api/import/__tests__/commit.test.ts
+    web/src/__tests__/extensions-api.test.ts
+    web/src/__tests__/extensions-events-route.test.ts
+  Above the 12-file cap a hook that ran them all would be slow enough to get bypassed,
+  and a bypassed hook checks nothing — so this blocks the commit instead of skipping silently.
+  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge

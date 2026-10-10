@@ -1,0 +1,28 @@
+CRAP: --changed against 1ef82e971fd101a566de62b89c08f2a025ad7838 → 53 measured file(s) in diff
+
+CRAP: 278 functions in 53 files (max 30, warn 15)
+
+Worst 15:
+     46.3  cc= 28 cov= 71%  web/src/routes/api/hub/pages/[id]/+server.ts:80 GET
+     26.0  cc= 26 cov=100%  src/integrations/github-user/config.ts:9 getGithubUserConfig
+     24.0  cc= 24 cov=100%  src/integrations/github-personal-prs/provider-transfer.ts:24 importSnapshotToSandbox
+     23.0  cc= 23 cov=100%  src/integrations/github-personal-prs/service.ts:292 confirmPersonalPr
+     23.0  cc= 23 cov=100%  src/integrations/github-user/broker.ts:221 <anonymous@221>
+     22.0  cc= 22 cov= 97%  src/db/migrate.ts:64 migrate
+     22.0  cc= 22 cov=100%  src/runtime/sandbox/controller/controller.ts:534 runNativeWorkspaceProcess
+     21.0  cc= 21 cov=100%  src/integrations/github-personal-prs/publisher.ts:64 publishFrozenDraft
+     21.0  cc= 21 cov=100%  src/integrations/github-personal-prs/review-diff.ts:71 buildReviewDiff
+     21.0  cc= 21 cov=100%  src/integrations/github-personal-prs/service.ts:92 importApprovedRepository
+     21.0  cc= 21 cov=100%  src/integrations/github-personal-prs/service.ts:129 preparePersonalPr
+     21.0  cc= 21 cov=100%  src/integrations/github-user/transport.ts:114 exchangeDeviceCode
+     20.0  cc= 20 cov=100%  packages/@ezcorp/extension-runner/src/dependencies.ts:100 resolveDependencies
+     20.0  cc= 20 cov=100%  src/runtime/sandbox/controller/controller.ts:242 dispatchMethod
+     19.0  cc= 19 cov=100%  packages/@ezcorp/extension-runner/src/dependencies.ts:36 packagePolicy
+
+25 function(s) above the warn line (not failing).
+
+✗ 1 function(s) you touched are over CRAP 30:
+     46.3  cc= 28 cov= 71%  web/src/routes/api/hub/pages/[id]/+server.ts:80 GET
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json

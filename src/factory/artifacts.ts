@@ -1,0 +1,188 @@
+import { FACTORY_PAGE_BYTES_LIMIT } from "@ezcorp/factory-sdk/page-bytes";
+import { randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { digestBytes } from "../extensions/v4/blobs";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import { releaseRows } from "../db/queries/extension-releases";
+import { assertFactoryIdentity } from "./records";
+import type { FactoryIdentity, ImmutableObjectReference } from "../../packages/@ezcorp/factory-orchestrator/src/contracts";
+import { canonicalizeJson, validateIJson, type JsonValue, type FactoryArtifactReference } from "@ezcorp/factory-sdk";
+import { assertFactoryArtifactReference, getFactoryArtifactBlob, putFactoryArtifactBlob, type FactoryArtifactBlobStore } from "./artifact-materials";
+
+export const FACTORY_ARTIFACT_MAX_BYTES = FACTORY_PAGE_BYTES_LIMIT;
+export const FACTORY_CANDIDATE_OUTPUT_MAX_BYTES = 16 * 1024 * 1024;
+export type FactoryArtifactKind = "definition_page" | "definition_manifest" | "transition_page" | "transition_manifest" | "execution_manifest" | "partition" | "candidate_output" | "material";
+
+export interface FactoryArtifactStageOptions {
+  readonly definitionDigest?: string;
+  readonly sourceSequence?: number;
+  readonly pageIndex?: number;
+  /** Exact compiler identity for a partition artifact. */
+  readonly partitionId?: string;
+  readonly interpreterScoped?: boolean;
+  /** Exact runner node/generation slot. Valid only for candidate_output. */
+  readonly candidateNodeInstanceId?: string;
+  readonly candidateGeneration?: number;
+  /** Exact auxiliary material admission dimension. Valid only for material. */
+  readonly materialKey?: string;
+}
+
+type ArtifactRow = { object_id: string; tenant_id: string; project_id: string; run_id: string; interpreter_id: string | null; kind: FactoryArtifactKind; definition_digest: string | null; source_sequence: number | string | null; page_index: number | null; partition_id: string | null; candidate_node_instance_id: string | null; candidate_generation: number | string | null; material_key: string | null; digest: string; blob_digest: string; storage_version: string; encoded_bytes: number | string };
+type FactoryArtifactScope = Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId"> & Partial<Pick<FactoryIdentity, "interpreterId">>;
+
+export class FactoryArtifactError extends Error {
+  constructor(readonly code: string) { super(code); this.name = "FactoryArtifactError"; }
+}
+
+function digest(raw: string): string { return `sha256:${raw}`; }
+function bytes(value: string): Uint8Array { return new TextEncoder().encode(value); }
+function text(value: Uint8Array): string { return new TextDecoder("utf-8", { fatal: true }).decode(value); }
+function maximumBytes(kind: FactoryArtifactKind): number { return kind === "candidate_output" ? FACTORY_CANDIDATE_OUTPUT_MAX_BYTES : FACTORY_ARTIFACT_MAX_BYTES; }
+function bounded(value: Uint8Array, kind: FactoryArtifactKind): void { if (value.byteLength < 1 || value.byteLength > maximumBytes(kind)) throw new FactoryArtifactError("factory_artifact_size_invalid"); }
+function sourceSequence(value: number | undefined): number | null { if (value === undefined) return null; if (!Number.isSafeInteger(value) || value < 1) throw new FactoryArtifactError("factory_artifact_identity_invalid"); return value; }
+function pageIndex(value: number | undefined): number | null { if (value === undefined) return null; if (!Number.isSafeInteger(value) || value < 0) throw new FactoryArtifactError("factory_artifact_identity_invalid"); return value; }
+function identity(value: Pick<FactoryIdentity, "tenantId" | "projectId" | "logicalRunId">): void { assertFactoryIdentity(value.tenantId, value.projectId, value.logicalRunId); }
+function reference(row: ArtifactRow): ImmutableObjectReference { return { objectId: row.object_id, digest: row.digest, encodedBytes: Number(row.encoded_bytes) }; }
+
+/** The columns one staged artifact is uniquely keyed by, once every rule about them holds. */
+interface StagedArtifactCoordinate {
+  readonly sequence: number | null;
+  readonly index: number | null;
+  readonly partitionId: string | null;
+  readonly candidateNodeInstanceId: string | null;
+  readonly candidateGeneration: number | null;
+  readonly materialKey: string | null;
+  readonly interpreterId: string | null;
+}
+
+/**
+ * Reads the coordinate the options ask for, refusing one the kind cannot carry.
+ *
+ * Each kind owns exactly one optional coordinate — a partition its partition id, a candidate
+ * output its node instance and generation, a material its key — so the pairing is checked as an
+ * equivalence in both directions. A partition without an id and an id without a partition are the
+ * same defect, and both would otherwise stage under a coordinate nothing can find again.
+ */
+function stagedArtifactCoordinate(identityValue: FactoryArtifactScope, kind: FactoryArtifactKind, options: FactoryArtifactStageOptions): StagedArtifactCoordinate {
+  const sequence = sourceSequence(options.sourceSequence);
+  const index = pageIndex(options.pageIndex);
+  const partitionId = options.partitionId ?? null;
+  if ((kind === "partition") !== (partitionId !== null)) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+  if (partitionId !== null) assertFactoryIdentity(partitionId);
+  const candidateNodeInstanceId = options.candidateNodeInstanceId ?? null;
+  const candidateGeneration = options.candidateGeneration ?? null;
+  if ((kind === "candidate_output") !== (candidateNodeInstanceId !== null && candidateGeneration !== null)) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+  if (candidateNodeInstanceId !== null) assertFactoryIdentity(candidateNodeInstanceId);
+  if (candidateGeneration !== null && (!Number.isSafeInteger(candidateGeneration) || candidateGeneration < 0)) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+  const materialKey = options.materialKey ?? null;
+  if ((kind === "material") !== (materialKey !== null)) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+  if (materialKey !== null) assertFactoryIdentity(materialKey);
+  const interpreterId = options.interpreterScoped === false ? null : identityValue.interpreterId ?? null;
+  if (options.interpreterScoped !== false && interpreterId === null) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+  if (interpreterId !== null) assertFactoryIdentity(interpreterId);
+  return { sequence, index, partitionId, candidateNodeInstanceId, candidateGeneration, materialKey, interpreterId };
+}
+
+/** True when a stored row disagrees with the content being staged at its coordinate. */
+function stagedArtifactConflicts(row: ArtifactRow, artifactDigest: string, definitionDigest: string | null, at: StagedArtifactCoordinate, encodedBytes: number): boolean {
+  return row.digest !== artifactDigest || row.definition_digest !== definitionDigest || row.partition_id !== at.partitionId || row.material_key !== at.materialKey || Number(row.encoded_bytes) !== encodedBytes;
+}
+
+/** Product-side immutable pointers. Blob digests are never an authorization handle. */
+export class FactoryArtifacts {
+  constructor(readonly database: TransactionalDb, private readonly blobs: FactoryArtifactBlobStore, readonly tenantId: string) { assertFactoryIdentity(tenantId); }
+
+  async stage(identityValue: FactoryArtifactScope, kind: FactoryArtifactKind, content: Uint8Array, options: FactoryArtifactStageOptions = {}): Promise<ImmutableObjectReference> {
+    const snapshot = { identity: { ...identityValue }, kind, content: Uint8Array.from(content), options: { ...options } };
+    return this.database.transaction(transaction => this.stageInTransaction(transaction, snapshot.identity, snapshot.kind, snapshot.content, snapshot.options));
+  }
+
+  /** Stages a reference within the caller's durable product transaction. */
+  async stageInTransaction(transaction: MigrationDb, identityValue: FactoryArtifactScope, kind: FactoryArtifactKind, content: Uint8Array, options: FactoryArtifactStageOptions = {}): Promise<ImmutableObjectReference> {
+    identityValue = { ...identityValue };
+    content = Uint8Array.from(content);
+    options = { ...options };
+    identity(identityValue);
+    if (identityValue.tenantId !== this.tenantId) throw new FactoryArtifactError("factory_artifact_tenant_denied");
+    bounded(content, kind);
+    const at = stagedArtifactCoordinate(identityValue, kind, options);
+    const rawDigest = digestBytes(content);
+    const artifactDigest = digest(rawDigest);
+    if (options.definitionDigest !== undefined && !/^sha256:[a-f0-9]{64}$/.test(options.definitionDigest)) throw new FactoryArtifactError("factory_artifact_digest_invalid");
+    const definitionDigest = options.definitionDigest ?? null;
+    const existing = await this.stagedRow(transaction, identityValue, kind, at);
+    if (existing) {
+      if (stagedArtifactConflicts(existing, artifactDigest, definitionDigest, at, content.byteLength)) throw new FactoryArtifactError("factory_artifact_conflict");
+      await this.verify(existing);
+      return reference(existing);
+    }
+    const objectId = `factory-artifact-${randomUUID()}`;
+    const { blobDigest: stored, storageVersion } = await putFactoryArtifactBlob(this.blobs, { tenantId: identityValue.tenantId, objectId }, content)
+      .catch(() => { throw new FactoryArtifactError("factory_artifact_corrupt"); });
+    const row: ArtifactRow = { object_id: objectId, tenant_id: identityValue.tenantId, project_id: identityValue.projectId, run_id: identityValue.logicalRunId, interpreter_id: at.interpreterId, kind, definition_digest: definitionDigest, source_sequence: at.sequence, page_index: at.index, partition_id: at.partitionId, candidate_node_instance_id: at.candidateNodeInstanceId, candidate_generation: at.candidateGeneration, material_key: at.materialKey, digest: artifactDigest, blob_digest: stored, storage_version: storageVersion, encoded_bytes: content.byteLength };
+    await transaction.execute(sql`INSERT INTO factory_artifacts(object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, candidate_node_instance_id, candidate_generation, material_key, digest, blob_digest, storage_version, encoded_bytes) VALUES (${row.object_id}, ${row.tenant_id}, ${row.project_id}, ${row.run_id}, ${row.interpreter_id}, ${row.kind}, ${row.definition_digest}, ${row.source_sequence}, ${row.page_index}, ${row.partition_id}, ${row.candidate_node_instance_id}, ${row.candidate_generation}, ${row.material_key}, ${row.digest}, ${row.blob_digest}, ${row.storage_version}, ${row.encoded_bytes}) ON CONFLICT DO NOTHING`);
+    const admitted = await this.stagedRow(transaction, identityValue, kind, at);
+    if (!admitted) throw new FactoryArtifactError("factory_artifact_admission_failed");
+    if (stagedArtifactConflicts(admitted, artifactDigest, definitionDigest, at, content.byteLength)) throw new FactoryArtifactError("factory_artifact_conflict");
+    return reference(admitted);
+  }
+
+  /**
+   * The one row a coordinate can name, locked for share.
+   *
+   * The staging path reads it twice — once to find an existing reference and once to confirm the
+   * insert was admitted — and both reads must select the same columns under the same lock, or the
+   * second could disagree with the first about what is already stored.
+   */
+  private async stagedRow(transaction: MigrationDb, identityValue: FactoryArtifactScope, kind: FactoryArtifactKind, at: StagedArtifactCoordinate): Promise<ArtifactRow | undefined> {
+    return releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, candidate_node_instance_id, candidate_generation, material_key, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} AND interpreter_id IS NOT DISTINCT FROM ${at.interpreterId} AND kind=${kind} AND source_sequence IS NOT DISTINCT FROM ${at.sequence} AND page_index IS NOT DISTINCT FROM ${at.index} AND partition_id IS NOT DISTINCT FROM ${at.partitionId} AND candidate_node_instance_id IS NOT DISTINCT FROM ${at.candidateNodeInstanceId} AND candidate_generation IS NOT DISTINCT FROM ${at.candidateGeneration} AND material_key IS NOT DISTINCT FROM ${at.materialKey} FOR SHARE`))[0];
+  }
+
+  async load(identityValue: FactoryArtifactScope, object: ImmutableObjectReference, kinds: readonly FactoryArtifactKind[], interpreterScoped = false): Promise<{ reference: ImmutableObjectReference; kind: FactoryArtifactKind; definitionDigest: string | null; sourceSequence: number | null; pageIndex: number | null; candidateNodeInstanceId: string | null; candidateGeneration: number | null; content: Uint8Array }> {
+    const identitySnapshot = { ...identityValue };
+    const objectSnapshot = { ...object };
+    const kindsSnapshot = [...kinds];
+    return this.database.transaction(transaction => this.loadInTransaction(transaction, identitySnapshot, objectSnapshot, kindsSnapshot, interpreterScoped));
+  }
+
+  /** Reads and digest-verifies a reference while the caller holds its product locks. */
+  async loadInTransaction(transaction: MigrationDb, identityValue: FactoryArtifactScope, object: ImmutableObjectReference, kinds: readonly FactoryArtifactKind[], interpreterScoped = false): Promise<{ reference: ImmutableObjectReference; kind: FactoryArtifactKind; definitionDigest: string | null; sourceSequence: number | null; pageIndex: number | null; candidateNodeInstanceId: string | null; candidateGeneration: number | null; content: Uint8Array }> {
+    identityValue = { ...identityValue };
+    object = { ...object };
+    kinds = [...kinds];
+    identity(identityValue);
+    if (identityValue.tenantId !== this.tenantId) throw new FactoryArtifactError("factory_artifact_tenant_denied");
+    try { assertFactoryArtifactReference({ artifactId: object.objectId, digest: object.digest, encodedBytes: object.encodedBytes }, FACTORY_CANDIDATE_OUTPUT_MAX_BYTES); }
+    catch { throw new FactoryArtifactError("factory_artifact_reference_invalid"); }
+    const row = releaseRows<ArtifactRow>(await transaction.execute(sql`SELECT object_id, tenant_id, project_id, run_id, interpreter_id, kind, definition_digest, source_sequence, page_index, partition_id, candidate_node_instance_id, candidate_generation, material_key, digest, blob_digest, storage_version, encoded_bytes FROM factory_artifacts WHERE object_id=${object.objectId} AND tenant_id=${identityValue.tenantId} AND project_id=${identityValue.projectId} AND run_id=${identityValue.logicalRunId} ${interpreterScoped ? sql`AND interpreter_id=${identityValue.interpreterId}` : sql``} FOR SHARE`))[0];
+    if (!row || !kinds.includes(row.kind) || row.digest !== object.digest || Number(row.encoded_bytes) !== object.encodedBytes || object.encodedBytes > maximumBytes(row.kind)) throw new FactoryArtifactError("factory_artifact_not_found");
+    const content = await this.verify(row);
+    return { reference: reference(row), kind: row.kind, definitionDigest: row.definition_digest, sourceSequence: row.source_sequence === null ? null : Number(row.source_sequence), pageIndex: row.page_index, candidateNodeInstanceId: row.candidate_node_instance_id, candidateGeneration: row.candidate_generation === null ? null : Number(row.candidate_generation), content };
+  }
+
+  /** Stages one canonical runner output for an exact candidate generation. */
+  async stageCandidateOutputInTransaction(transaction: MigrationDb, identityValue: FactoryArtifactScope, nodeInstanceId: string, candidateGeneration: number, content: Uint8Array): Promise<FactoryArtifactReference> {
+    assertFactoryIdentity(nodeInstanceId);
+    if (!Number.isSafeInteger(candidateGeneration) || candidateGeneration < 0) throw new FactoryArtifactError("factory_artifact_identity_invalid");
+    const stored = await this.stageInTransaction(transaction, identityValue, "candidate_output", content, { interpreterScoped: false, candidateNodeInstanceId: nodeInstanceId, candidateGeneration });
+    return { artifactId: stored.objectId, digest: stored.digest, encodedBytes: stored.encodedBytes };
+  }
+
+  private async verify(row: ArtifactRow): Promise<Uint8Array> {
+    if (!/^sha256:[a-f0-9]{64}$/.test(row.digest) || !row.storage_version || !Number.isSafeInteger(Number(row.encoded_bytes))) throw new FactoryArtifactError("factory_artifact_corrupt");
+    const content = await getFactoryArtifactBlob(this.blobs, { tenantId: row.tenant_id, objectId: row.object_id }, { blobDigest: row.blob_digest, storageVersion: row.storage_version });
+    if (content.byteLength !== Number(row.encoded_bytes) || digestBytes(content) !== row.digest.slice("sha256:".length)) throw new FactoryArtifactError("factory_artifact_corrupt");
+    return content;
+  }
+}
+
+function parseCanonicalJson(content: Uint8Array): JsonValue {
+  try {
+    const value: unknown = JSON.parse(text(content));
+    if (!validateIJson(value).ok || !Buffer.from(content).equals(Buffer.from(canonicalizeJson(value as JsonValue)))) throw new FactoryArtifactError("factory_artifact_json_invalid");
+    return value as JsonValue;
+  } catch { throw new FactoryArtifactError("factory_artifact_json_invalid"); }
+}
+
+export const artifactJson = { bytes, text, canonical: (value: unknown) => bytes(canonicalJson(value)), parse: parseCanonicalJson };

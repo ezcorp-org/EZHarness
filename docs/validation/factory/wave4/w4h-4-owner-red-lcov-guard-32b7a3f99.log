@@ -1,0 +1,24 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/coverage-leg-lcov-guard.test.ts:
+452 |       expect(proc.exitCode, proc.stderr.toString()).toBe(0);
+453 |       expect(output).toContain("FIRST_PASS_FAILURE_SENTINEL");
+454 |       expect(output.indexOf("FIRST_PASS_FAILURE_SENTINEL")).toBeLessThan(
+455 |         output.indexOf("Coverage recovery:"),
+456 |       );
+457 |       expect(output).toContain("passed the isolated plain re-run");
+                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "passed the isolated plain re-run"
+Received: "== host-shard mode (HOST_FILES_OVERRIDE, dev-only): 1 files ==\n\n--- pooled coverage failure: src/__tests__/coverage-leg-lcov-guard.test.ts (exit 1) ---\nFIRST_PASS_FAILURE_SENTINEL\n\nCoverage recovery: src/__tests__/coverage-leg-lcov-guard.test.ts produced no lcov in the pooled run (crash before the reporter could flush?) — re-running isolated WITH --coverage, up to 2 attempt(s):\n  - src/__tests__/coverage-leg-lcov-guard.test.ts: recovered coverage on attempt 1/2\n\n  0 pass | 0 fail | 1 files (shard 0/1)\n\nFailing non-gating files (TOLERATED — not in the pass/fail set P; thresholds are their gate):\n  - src/__tests__/coverage-leg-lcov-guard.test.ts\n"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4/src/__tests__/coverage-leg-lcov-guard.test.ts:457:22)
+      at withTmp (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4/src/__tests__/coverage-leg-lcov-guard.test.ts:67:12)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4/src/__tests__/coverage-leg-lcov-guard.test.ts:395:5)
+(fail) gate_host_failures: the shared host-pool pass/fail rule > the real wrapper prints the pooled failure before a clean retry [42.29ms]
+
+ 47 pass
+ 1 fail
+ 199 expect() calls
+Ran 48 tests across 1 file. [769.00ms]

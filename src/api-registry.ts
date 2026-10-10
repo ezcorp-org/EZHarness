@@ -55,6 +55,64 @@ export interface ApiRouteEntry {
 }
 
 export const apiRegistry: ApiRouteEntry[] = [
+  // Factory authoring, scoped to C01's authority table. Version publish is a
+  // `write` row gated by the project `factory.publish` grant, grant management
+  // is an `admin` row gated by the tenant-administrator role, and the trust,
+  // consent, and approval rows stay session-only because C01 requires an actual
+  // human session for each of them. Package install and quarantine is the one
+  // C01 row with no route: it needs W02's package lifecycle before it can be
+  // registered against a handler that enforces anything.
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions", description: "List current project factory drafts with trusted resource availability", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions", description: "Create revision 1 of a factory draft", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/import", description: "Import canonical JSON or supported YAML as revision 1", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Read one current project factory draft", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "PUT", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Save a factory draft at an exact revision", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/definitions/:factoryId", description: "Archive a factory draft at an exact revision", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/export", description: "Export a factory draft as canonical JSON or JSON-subset YAML", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/validate", description: "Validate unsaved factory source with author authority", category: "factories", scope: "write", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "List immutable published factory versions", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions", description: "Publish an exact pinned draft revision under the project factory.publish grant", category: "factories", scope: "write" },
+  { method: "GET", path: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version", description: "Read and verify one immutable factory version", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/definitions/:factoryId/runs", description: "Queue a run from a pinned factory version and input", category: "factories", scope: "chat", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs", description: "List bounded current project run summaries", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId", description: "Read canonical factory run status", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "POST", path: "/api/factories/projects/:projectId/runs/:runId/control", description: "Queue an authorized factory run control request", category: "factories", scope: "chat", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId/commands/:commandId", description: "Read the durable dispatch state of a scoped run command", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "GET", path: "/api/factories/projects/:projectId/grants", description: "List current project factory grants and revocations", category: "factories", scope: "read", harness: { controllable: true } },
+  { method: "PUT", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Issue or replace an exact project factory grant as a tenant administrator", category: "factories", scope: "admin" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/grants/:principalKind/:principalId/:action", description: "Revoke an exact project factory grant as a tenant administrator", category: "factories", scope: "admin" },
+  { method: "POST", path: "/api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials", description: "Issue one short-lived project factory service credential from an interactive tenant-admin session", category: "factories", scope: "session" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/service-accounts/:serviceAccountId/credentials/:credentialId", description: "Revoke one project factory service credential from an interactive tenant-admin session", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/release/trust", description: "Publish an exact trusted release package and validator lock from an interactive human session", category: "factories", scope: "session" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/release/trust", description: "Revoke the current release trust revision from an interactive human session", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/release/control", description: "Enable or disable protected release at an exact control epoch from an interactive human session", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/release/contracts/:contractId", description: "Approve the next sealed acceptance contract revision from an interactive human session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/projects/:projectId/releases", description: "Prepare one exact accepted candidate release and verify its recovery archive", category: "factories", scope: "chat" },
+  { method: "GET", path: "/api/factories/projects/:projectId/releases/:operationId", description: "Read a sanitized release operation after current project authorization", category: "factories", scope: "chat" },
+  { method: "POST", path: "/api/factories/projects/:projectId/releases/:operationId/approvals", description: "Request human approval for the exact pending release generation", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/release/approvals/:approvalId", description: "Approve or deny an exact release context from an interactive human session", category: "factories", scope: "session" },
+  { method: "GET", path: "/api/factories/projects/:projectId/release/notifications", description: "List delivered release approvals, uncertain outcomes, and completion receipts under current human authority", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/runs/:runId/approvals/:approvalId", description: "Answer the exact current generic factory approval command", category: "factories", scope: "session" },
+  { method: "PUT", path: "/api/factories/projects/:projectId/release/policies/:policyId", description: "Create a bounded automatic release policy from an interactive human session", category: "factories", scope: "session" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/release/policies/:policyId", description: "Revoke an exact automatic release policy revision from an interactive human session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/projects/:projectId/releases/:operationId/reconciliations", description: "Reconcile an uncertain release with operator reason and provider evidence", category: "factories", scope: "write" },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId/inspection", description: "Read one bounded run snapshot: nested runs, attempts, blockers, costs, artifacts, acceptance reasons, releases, and its event cursor", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId/events", description: "Stream a run's contiguous committed events from a signed snapshot cursor, rechecking read authority per batch", category: "factories", scope: "read" },
+  { method: "POST", path: "/api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/ticket", description: "Mint a one-minute download ticket for one run artifact and the calling principal", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/download", description: "Download one run artifact's exact bytes as an attachment under a current ticket", category: "factories", scope: "read" },
+  { method: "POST", path: "/api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/shares", description: "Grant another project a read of one artifact's exact bytes from an interactive human session", category: "factories", scope: "session" },
+  { method: "DELETE", path: "/api/factories/projects/:projectId/runs/:runId/artifacts/:artifactId/shares/:targetProjectId", description: "Revoke one cross-project artifact read from an interactive human session", category: "factories", scope: "session" },
+  { method: "GET", path: "/api/factories/tenants/:tenantId/restores", description: "List the tenant's restore epochs and their recovery reports (findings without raw detail, blocked checks, blocked runs), from an interactive tenant-administrator session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/tenants/:tenantId/restores/:restoreId/signatures", description: "Sign one recovery report by its digest from an interactive tenant-administrator session. The console refuses a report that no longer matches its stored digest; W15's restore then records the signature, moves unblocked runs to the new epoch, and reopens service", category: "factories", scope: "session" },
+  { method: "GET", path: "/api/factories/projects/:projectId/validator-materials", description: "Read the registered validator material a published version (?factoryId&factoryVersion) or a validator lock (?validatorLockDigest) names: the contract a release approval pins, without validator runtimes", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/projects/:projectId/shared-artifacts/:artifactId", description: "Read the exact bytes another project shared into this one", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/projects/:projectId/packages", description: "List the project's bound runner packages and their current trust state", category: "factories", scope: "read" },
+  { method: "POST", path: "/api/factories/projects/:projectId/packages", description: "Bind an installed v4 runner release to the project from an interactive tenant-administrator session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/projects/:projectId/packages/:referenceId/trust", description: "Publish, quarantine, or revoke a runner package at its exact trust revision from an interactive tenant-administrator session", category: "factories", scope: "session" },
+  { method: "GET", path: "/api/factories/projects/:projectId/packages/:referenceId/impact", description: "Preview the live runs a runner package trust transition would reach", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/projects/:projectId/packages/:referenceId/affected-runs", description: "Read the attempts a runner package quarantine or revocation reached and what the fence did (?trustRevision&limit&cursor)", category: "factories", scope: "read" },
+  { method: "GET", path: "/api/factories/tenants/:tenantId/purge-preview", description: "Preview the closing preconditions and audit loss of a tenant purge from an interactive tenant-administrator session", category: "factories", scope: "session" },
+  { method: "POST", path: "/api/factories/tenants/:tenantId/purge-requests", description: "Record an auditable tenant purge request from an interactive tenant-administrator session; it deletes nothing", category: "factories", scope: "session" },
   { method: "GET", path: "/api/github/connection", description: "Read the current user's personal GitHub connection status", category: "github", scope: "session" },
   { method: "DELETE", path: "/api/github/connection", description: "Disconnect the current user's GitHub account and invalidate pending authority", category: "github", scope: "session" },
   { method: "POST", path: "/api/github/authorize", description: "Start GitHub authorization bound to the current browser session", category: "github", scope: "session" },
@@ -83,6 +141,11 @@ export const apiRegistry: ApiRouteEntry[] = [
   { method: "POST", path: "/api/auth/logout", description: "End current session", category: "auth" },
   { method: "GET", path: "/api/auth/me", description: "Get current authenticated user", category: "auth", responseDescription: "User object with id, name, email, role" },
   { method: "POST", path: "/api/auth/setup", description: "Initial admin setup (first-run only)", category: "auth", schemaKey: "setupSchema" },
+  // C12 step 7: the provisioned installation's human bootstrap. The status is
+  // public and names only a state and an invitation; consent is session-only.
+  { method: "GET", path: "/api/installation/bootstrap/status", description: "Where the installation's first-administrator bootstrap stands (state and invitation only)", category: "auth", scope: "public", responseDescription: "{ state, invitationId }" },
+  { method: "POST", path: "/api/installation/bootstrap", description: "Explicit bootstrap consent by the first administrator (human session only)", category: "auth", scope: "session", responseDescription: "{ state, consentDigest, grants }" },
+  { method: "POST", path: "/api/installation/purge-approval", description: "An administrator's approval to purge this provisioned installation after teardown (human session only)", category: "auth", scope: "session", responseDescription: "{ approvalId, expiresAtMs }" },
   // F5 moved the BARE `/api/auth/invite` path out of the hooks PUBLIC_PATHS
   // allowlist into PUBLIC_SUBPATHS_ONLY (web/src/hooks.server.ts:397), so both
   // methods are now genuinely reachable by an authenticated admin — before

@@ -1,0 +1,373 @@
+Gate integrity	Set up job	﻿2026-10-09T17:19:57.4489649Z Current runner version: '2.337.0'
+Gate integrity	Set up job	2026-10-09T17:19:57.4510973Z ##[group]Runner Image Provisioner
+Gate integrity	Set up job	2026-10-09T17:19:57.4511699Z Hosted Compute Agent
+Gate integrity	Set up job	2026-10-09T17:19:57.4512194Z Version: 20261002.596
+Gate integrity	Set up job	2026-10-09T17:19:57.4512770Z Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Gate integrity	Set up job	2026-10-09T17:19:57.4513358Z Build Date: 2026-10-02T22:28:27Z
+Gate integrity	Set up job	2026-10-09T17:19:57.4513932Z Worker ID: {4e74c69c-7e21-452f-8bea-2e5310e30d40}
+Gate integrity	Set up job	2026-10-09T17:19:57.4514775Z Region: eastus
+Gate integrity	Set up job	2026-10-09T17:19:57.4515247Z Cloud: Azure
+Gate integrity	Set up job	2026-10-09T17:19:57.4515731Z ##[endgroup]
+Gate integrity	Set up job	2026-10-09T17:19:57.4516860Z ##[group]Operating System
+Gate integrity	Set up job	2026-10-09T17:19:57.4517367Z Ubuntu
+Gate integrity	Set up job	2026-10-09T17:19:57.4517916Z 24.04.5
+Gate integrity	Set up job	2026-10-09T17:19:57.4518365Z LTS
+Gate integrity	Set up job	2026-10-09T17:19:57.4518826Z ##[endgroup]
+Gate integrity	Set up job	2026-10-09T17:19:57.4519287Z ##[group]Runner Image
+Gate integrity	Set up job	2026-10-09T17:19:57.4519762Z Image: ubuntu-24.04
+Gate integrity	Set up job	2026-10-09T17:19:57.4520275Z Version: 20261004.327.1
+Gate integrity	Set up job	2026-10-09T17:19:57.4521152Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Gate integrity	Set up job	2026-10-09T17:19:57.4522605Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+Gate integrity	Set up job	2026-10-09T17:19:57.4523361Z ##[endgroup]
+Gate integrity	Set up job	2026-10-09T17:19:57.4524548Z ##[group]GITHUB_TOKEN Permissions
+Gate integrity	Set up job	2026-10-09T17:19:57.4526290Z Contents: read
+Gate integrity	Set up job	2026-10-09T17:19:57.4526875Z Metadata: read
+Gate integrity	Set up job	2026-10-09T17:19:57.4527331Z ##[endgroup]
+Gate integrity	Set up job	2026-10-09T17:19:57.4529034Z Secret source: Actions
+Gate integrity	Set up job	2026-10-09T17:19:57.4529862Z Cache mode: write
+Gate integrity	Set up job	2026-10-09T17:19:57.4530799Z Prepare workflow directory
+Gate integrity	Set up job	2026-10-09T17:19:57.4832787Z Prepare all required actions
+Gate integrity	Set up job	2026-10-09T17:19:57.4872074Z Getting action download info
+Gate integrity	Set up job	2026-10-09T17:19:57.7038689Z Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Gate integrity	Set up job	2026-10-09T17:19:57.8436813Z Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Gate integrity	Set up job	2026-10-09T17:19:58.0705803Z Complete job name: Gate integrity
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-09T17:19:58.1315678Z ##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1316541Z with:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1316881Z   fetch-depth: 0
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1317257Z   repository: ezcorp-org/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1320491Z   token: ***
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1320839Z   ssh-strict: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1321193Z   ssh-user: git
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1321542Z   persist-credentials: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1321924Z   clean: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1322272Z   sparse-checkout-cone-mode: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1322683Z   fetch-tags: false
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1323031Z   show-progress: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1323377Z   lfs: false
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1323697Z   submodules: false
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1324047Z   set-safe-directory: true
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1324765Z   allow-unsafe-pr-checkout: false
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1325402Z env:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1325764Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1326250Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.1326732Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2164513Z Syncing repository: ezcorp-org/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2166519Z ##[group]Getting Git version info
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2167136Z Working directory is '/home/runner/work/EZHarness/EZHarness'
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2168071Z [command]/usr/bin/git version
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2222584Z git version 2.55.0
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2243199Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2253461Z Temporarily overriding HOME='/home/runner/work/_temp/24ec4300-2a5a-4825-bd0f-256eb2d0f629' before making global git config changes
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2255305Z Adding repository directory to the temporary git global config as a safe directory
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2260943Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2310313Z Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2312986Z ##[group]Determining repository object format
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2314514Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2315253Z ##[group]Initializing the repository
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2318655Z [command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2429201Z hint: Using 'master' as the name for the initial branch. This default branch name
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2431110Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2432510Z hint: to use in all of your new repositories, which will suppress this warning,
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2433544Z hint: call:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2434358Z hint:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2435041Z hint: 	git config --global init.defaultBranch <name>
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2435677Z hint:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2436372Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2437564Z hint: 'development'. The just-created branch can be renamed via this command:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2438251Z hint:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2438634Z hint: 	git branch -m <name>
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2439117Z hint:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2439643Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2440483Z Initialized empty Git repository in /home/runner/work/EZHarness/EZHarness/.git/
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2442012Z [command]/usr/bin/git remote add origin https://github.com/ezcorp-org/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2491550Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2492308Z ##[group]Disabling automatic garbage collection
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2495432Z [command]/usr/bin/git config --local gc.auto 0
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2526355Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2527517Z ##[group]Setting up auth
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2528155Z Removing SSH command configuration
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2532012Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2562208Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2883824Z Removing HTTP extra header
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2889019Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.2929253Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3154435Z Removing includeIf entries pointing to credentials config files
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3159600Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3192191Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3388520Z [command]/usr/bin/git config --file /home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3423261Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path /home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3453730Z [command]/usr/bin/git config --local includeIf.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path /home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3485639Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git.path /github/runner_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3516048Z [command]/usr/bin/git config --local includeIf.gitdir:/github/workspace/.git/worktrees/*.path /github/runner_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3543149Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3543945Z ##[group]Fetching the repository
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:19:58.3549298Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules origin +refs/heads/*:refs/remotes/origin/* +refs/tags/*:refs/tags/* +e8eceb4e259c30429f4b994838167e6736ba543b:refs/remotes/pull/318/merge
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9608012Z From https://github.com/ezcorp-org/EZHarness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9609692Z  * [new branch]          chore/biome-2.5.6                        -> origin/chore/biome-2.5.6
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9611229Z  * [new branch]          chore/biome-denylist-and-no-explicit-any -> origin/chore/biome-denylist-and-no-explicit-any
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9612920Z  * [new branch]          chore/dependabot-group-pglite-pair       -> origin/chore/dependabot-group-pglite-pair
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9615077Z  * [new branch]          chore/drop-unused-svelte-drawer          -> origin/chore/drop-unused-svelte-drawer
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9617404Z  * [new branch]          chore/enable-biome-formatter             -> origin/chore/enable-biome-formatter
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9619827Z  * [new branch]          chore/lint-worktree-fix-and-codeowners   -> origin/chore/lint-worktree-fix-and-codeowners
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9622670Z  * [new branch]          chore/nested-resolver-comment-and-ratchet-assessment -> origin/chore/nested-resolver-comment-and-ratchet-assessment
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9625970Z  * [new branch]          chore/path-independent-assertions        -> origin/chore/path-independent-assertions
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9628328Z  * [new branch]          chore/pi-085-combined                    -> origin/chore/pi-085-combined
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9630670Z  * [new branch]          chore/projects-root-followup             -> origin/chore/projects-root-followup
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9633460Z  * [new branch]          chore/recover-dropped-test-and-prune-plan -> origin/chore/recover-dropped-test-and-prune-plan
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9636928Z  * [new branch]          chore/shrink-noexplicitany-override      -> origin/chore/shrink-noexplicitany-override
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9639223Z  * [new branch]          chore/testing-infra-review               -> origin/chore/testing-infra-review
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9641447Z  * [new branch]          chore/unsafe-optional-chaining           -> origin/chore/unsafe-optional-chaining
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9644063Z  * [new branch]          ci/coverage-gate-tells-the-truth         -> origin/ci/coverage-gate-tells-the-truth
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9646834Z  * [new branch]          ci/coverage-retry-preserve-instrumentation -> origin/ci/coverage-retry-preserve-instrumentation
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9649353Z  * [new branch]          ci/dependabot-exclude-breaking           -> origin/ci/dependabot-exclude-breaking
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9651431Z  * [new branch]          ci/dependency-audit-gate                 -> origin/ci/dependency-audit-gate
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9653442Z  * [new branch]          ci/dependency-boundary-guard             -> origin/ci/dependency-boundary-guard
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9655811Z  * [new branch]          ci/gate-integrity-biome-awareness        -> origin/ci/gate-integrity-biome-awareness
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9657886Z  * [new branch]          ci/gitleaks-secret-scan                  -> origin/ci/gitleaks-secret-scan
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9660100Z  * [new branch]          ci/harden-gate-integrity-detectors       -> origin/ci/harden-gate-integrity-detectors
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9662508Z  * [new branch]          ci/pin-actions-and-release-runtime       -> origin/ci/pin-actions-and-release-runtime
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9664713Z  * [new branch]          ci/quality-gates                         -> origin/ci/quality-gates
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9666718Z  * [new branch]          ci/test-pool-worker-watchdog             -> origin/ci/test-pool-worker-watchdog
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9668949Z  * [new branch]          ci/wire-chat-e2e-into-blocking-lane      -> origin/ci/wire-chat-e2e-into-blocking-lane
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9671623Z  * [new branch]          dependabot/bun/earendil-works/pi-agent-core-0.99.1 -> origin/dependabot/bun/earendil-works/pi-agent-core-0.99.1
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9674504Z  * [new branch]          dependabot/bun/earendil-works/pi-ai-0.99.1 -> origin/dependabot/bun/earendil-works/pi-ai-0.99.1
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9677493Z  * [new branch]          dependabot/bun/web/bun-minor-and-patch-04e1cc7ff2 -> origin/dependabot/bun/web/bun-minor-and-patch-04e1cc7ff2
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9680284Z  * [new branch]          diagnostic/chromium-context-0733/20260907 -> origin/diagnostic/chromium-context-0733/20260907
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9682703Z  * [new branch]          docs/local-verification-scope            -> origin/docs/local-verification-scope
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9684859Z  * [new branch]          evidence/pr-303                          -> origin/evidence/pr-303
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9686904Z  * [new branch]          feat/author-installations-names          -> origin/feat/author-installations-names
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9689054Z  * [new branch]          feat/chat-turn-collapse                  -> origin/feat/chat-turn-collapse
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9691311Z  * [new branch]          feat/composable-factory-platform         -> origin/feat/composable-factory-platform
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9693482Z  * [new branch]          feat/extension-v4                        -> origin/feat/extension-v4
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9695529Z  * [new branch]          feat/kb-share-a-file                     -> origin/feat/kb-share-a-file
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9697474Z  * [new branch]          feat/kilo-provider                       -> origin/feat/kilo-provider
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9699285Z  * [new branch]          feat/pi-0.83                             -> origin/feat/pi-0.83
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9701324Z  * [new branch]          feat/pluggable-infrastructure-v1         -> origin/feat/pluggable-infrastructure-v1
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9703615Z  * [new branch]          feat/projects-under-ezcorp               -> origin/feat/projects-under-ezcorp
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9705942Z  * [new branch]          feat/trusted-local-runner                -> origin/feat/trusted-local-runner
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9708138Z  * [new branch]          feat/workflow-output-template            -> origin/feat/workflow-output-template
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9710271Z  * [new branch]          feat/workflow-run-card                   -> origin/feat/workflow-run-card
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9713236Z  * [new branch]          fix/agents-page-breadcrumb               -> origin/fix/agents-page-breadcrumb
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9716514Z  * [new branch]          fix/audit-mcp-sdk-sharp                  -> origin/fix/audit-mcp-sdk-sharp
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9719878Z  * [new branch]          fix/audit-proxy-addr-source-map-js       -> origin/fix/audit-proxy-addr-source-map-js
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9723534Z  * [new branch]          fix/bundled-auto-wire-reconcile          -> origin/fix/bundled-auto-wire-reconcile
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9727057Z  * [new branch]          fix/bundled-bootstrap-runner-retry       -> origin/fix/bundled-bootstrap-runner-retry
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9730059Z  * [new branch]          fix/chat-stick-to-bottom-latch           -> origin/fix/chat-stick-to-bottom-latch
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9732550Z  * [new branch]          fix/compaction-readonly-and-implicit-any-let -> origin/fix/compaction-readonly-and-implicit-any-let
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9735326Z  * [new branch]          fix/connection-fault-stop-reason         -> origin/fix/connection-fault-stop-reason
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9738250Z  * [new branch]          fix/consent-hash-semantic-split          -> origin/fix/consent-hash-semantic-split
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9740770Z  * [new branch]          fix/context-denominator-follows-model-switch -> origin/fix/context-denominator-follows-model-switch
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9743639Z  * [new branch]          fix/default-extension-runner             -> origin/fix/default-extension-runner
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9745893Z  * [new branch]          fix/devstack-diagnostics                 -> origin/fix/devstack-diagnostics
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9747855Z  * [new branch]          fix/devstack-vite-ssr                    -> origin/fix/devstack-vite-ssr
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9750675Z  * [new branch]          fix/duplication-audit-fixes              -> origin/fix/duplication-audit-fixes
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9754668Z  * [new branch]          fix/e2e-hydration-readiness-gate         -> origin/fix/e2e-hydration-readiness-gate
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9758180Z  * [new branch]          fix/effort-on-custom-models              -> origin/fix/effort-on-custom-models
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9761413Z  * [new branch]          fix/etl-envelope-and-trigger-sweep       -> origin/fix/etl-envelope-and-trigger-sweep
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9765128Z  * [new branch]          fix/extension-install-path-portability   -> origin/fix/extension-install-path-portability
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9767623Z  * [new branch]          fix/extension-release-persistence        -> origin/fix/extension-release-persistence
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9770084Z  * [new branch]          fix/extension-uninstall-path-containment -> origin/fix/extension-uninstall-path-containment
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9773117Z  * [new branch]          fix/gate-vacuous-test-parser-extents     -> origin/fix/gate-vacuous-test-parser-extents
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9775989Z  * [new branch]          fix/git-fixture-environment-isolation    -> origin/fix/git-fixture-environment-isolation
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9778318Z  * [new branch]          fix/health-detail-unreachable            -> origin/fix/health-detail-unreachable
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9780427Z  * [new branch]          fix/hook-tests-without-git-env           -> origin/fix/hook-tests-without-git-env
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9782410Z  * [new branch]          fix/http-extension-uuid                  -> origin/fix/http-extension-uuid
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9784531Z  * [new branch]          fix/mask-canonical-worktrees             -> origin/fix/mask-canonical-worktrees
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9786516Z  * [new branch]          fix/mask-root-pi-secret                  -> origin/fix/mask-root-pi-secret
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9788525Z  * [new branch]          fix/memory-dedup-write-columns           -> origin/fix/memory-dedup-write-columns
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9790796Z  * [new branch]          fix/memory-extractor-silent-llm-failure  -> origin/fix/memory-extractor-silent-llm-failure
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9793209Z  * [new branch]          fix/mock-cleanup-comment-scrape          -> origin/fix/mock-cleanup-comment-scrape
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9795631Z  * [new branch]          fix/mock-llm-base-url-port               -> origin/fix/mock-llm-base-url-port
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9797609Z  * [new branch]          fix/rbacscopes-diff-revert               -> origin/fix/rbacscopes-diff-revert
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9799618Z  * [new branch]          fix/resources-proof-settle               -> origin/fix/resources-proof-settle
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9801654Z  * [new branch]          fix/save-memory-vacuous-tests            -> origin/fix/save-memory-vacuous-tests
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9803662Z  * [new branch]          fix/sharp-security-update                -> origin/fix/sharp-security-update
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9805822Z  * [new branch]          fix/tool-call-persist-losses             -> origin/fix/tool-call-persist-losses
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9807733Z  * [new branch]          fix/transformers-v4                      -> origin/fix/transformers-v4
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9809584Z  * [new branch]          fix/ts7-tsgo-migration                   -> origin/fix/ts7-tsgo-migration
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9811222Z  * [new branch]          main                                     -> origin/main
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9813074Z  * [new branch]          perf/pglite-migrated-snapshot-cache      -> origin/perf/pglite-migrated-snapshot-cache
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9815509Z  * [new branch]          refactor/extract-project-root-module     -> origin/refactor/extract-project-root-module
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9817631Z  * [new branch]          refactor/own-session-types               -> origin/refactor/own-session-types
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9819716Z  * [new branch]          security/api-registry-scope-ratchet      -> origin/security/api-registry-scope-ratchet
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9822016Z  * [new branch]          security/file-organizer-path-containment -> origin/security/file-organizer-path-containment
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9824416Z  * [new branch]          security/kb-retrieval-user-scope         -> origin/security/kb-retrieval-user-scope
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9826775Z  * [new branch]          security/project-permission-mode-authz   -> origin/security/project-permission-mode-authz
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9828910Z  * [new branch]          test/hermetic-drafts-handler             -> origin/test/hermetic-drafts-handler
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9831052Z  * [new branch]          test/no-assertions-on-user-managed-data  -> origin/test/no-assertions-on-user-managed-data
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9892953Z  * [new branch]          test/pin-wall-clock-and-parallelism      -> origin/test/pin-wall-clock-and-parallelism
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9896003Z  * [new branch]          test/session-characterization            -> origin/test/session-characterization
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9898519Z  * [new ref]             e8eceb4e259c30429f4b994838167e6736ba543b -> pull/318/merge
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9902716Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9904527Z ##[group]Determining the checkout info
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9906488Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9907515Z [command]/usr/bin/git sparse-checkout disable
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9909745Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9912259Z ##[group]Checking out the ref
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:04.9913404Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/318/merge
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:05.9941770Z Updating files:  59% (8737/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0031637Z Updating files:  60% (8784/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0116794Z Updating files:  61% (8930/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0203286Z Updating files:  62% (9077/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0300709Z Updating files:  63% (9223/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0396319Z Updating files:  64% (9369/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0498845Z Updating files:  65% (9516/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0595989Z Updating files:  66% (9662/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0706496Z Updating files:  67% (9809/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0801899Z Updating files:  68% (9955/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.0915963Z Updating files:  69% (10101/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1011585Z Updating files:  70% (10248/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1114665Z Updating files:  71% (10394/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1226723Z Updating files:  72% (10541/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1294402Z Updating files:  73% (10687/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1400445Z Updating files:  74% (10833/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1529081Z Updating files:  75% (10980/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1636075Z Updating files:  76% (11126/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1735618Z Updating files:  77% (11273/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1819368Z Updating files:  78% (11419/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.1923922Z Updating files:  79% (11565/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2019374Z Updating files:  80% (11712/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2124762Z Updating files:  81% (11858/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2231960Z Updating files:  82% (12004/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2350913Z Updating files:  83% (12151/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2436734Z Updating files:  84% (12297/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2533456Z Updating files:  85% (12444/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2624229Z Updating files:  86% (12590/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2711460Z Updating files:  87% (12736/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2803043Z Updating files:  88% (12883/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2897085Z Updating files:  89% (13029/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.2984002Z Updating files:  90% (13176/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3078846Z Updating files:  91% (13322/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3175428Z Updating files:  92% (13468/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3266208Z Updating files:  93% (13615/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3351702Z Updating files:  94% (13761/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3432303Z Updating files:  95% (13908/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3526375Z Updating files:  96% (14054/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3623786Z Updating files:  97% (14200/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3733127Z Updating files:  98% (14347/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3832765Z Updating files:  99% (14493/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3833145Z Updating files: 100% (14639/14639)
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3833889Z Updating files: 100% (14639/14639), done.
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3966206Z Note: switching to 'refs/remotes/pull/318/merge'.
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3966445Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3966625Z You are in 'detached HEAD' state. You can look around, make experimental
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3967013Z changes and commit them, and you can discard any commits you make in this
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3967468Z state without impacting any branches by switching back to a branch.
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3967689Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3967840Z If you want to create a new branch to retain commits you create, you may
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968204Z do so (now or later) by using -c with the switch command. Example:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968405Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968501Z   git switch -c <new-branch-name>
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968649Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968734Z Or undo this operation with:
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968873Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3968944Z   git switch -
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3969052Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3969217Z Turn off this advice by setting config variable advice.detachedHead to false
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3969519Z 
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.3969796Z HEAD is now at e8eceb4e2 Merge 3897fe923d371a61713636657103d13e73d92c6d into e3309906d4cac4927290dc5da6473be4619ab889
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.4018923Z ##[endgroup]
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.4064591Z [command]/usr/bin/git log -1 --format=%H
+Gate integrity	Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:06.4093053Z e8eceb4e259c30429f4b994838167e6736ba543b
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	﻿2026-10-09T17:20:06.4304878Z ##[group]Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4305197Z with:
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4305374Z   bun-version-file: .bun-version
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4305579Z   no-cache: false
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4307597Z   token: ***
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4307774Z env:
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4307957Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4308214Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.4308422Z ##[endgroup]
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.5583877Z Obtained version 1.4.2 from .bun-version
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.6241066Z Cache hit for: bun-gmoqYqdUbaYsI0KujeXt7Zg/p0I=
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.9649532Z Received 35684133 of 35684133 (100.0%), 121.1 MBs/sec
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.9650153Z Cache Size: ~34 MB (35684133 B)
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:06.9678890Z [command]/usr/bin/tar -xf /home/runner/work/_temp/0e341467-65e2-42b0-a159-70d68f8780e3/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:07.0748449Z Cache restored successfully
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:07.0768763Z [command]/home/runner/.bun/bin/bun --revision
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:07.0811982Z 1.4.2+744846f84
+Gate integrity	Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6	2026-10-09T17:20:07.0814583Z Using a cached version of Bun: 1.4.2+744846f84
+Gate integrity	Run git fetch --no-tags origin main	﻿2026-10-09T17:20:07.0947713Z ##[group]Run git fetch --no-tags origin main
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.0948087Z ^[[36;1mgit fetch --no-tags origin main^[[0m
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.1297888Z shell: /usr/bin/bash -e {0}
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.1298135Z env:
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.1298352Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.1298624Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.1298865Z ##[endgroup]
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.3092097Z From https://github.com/ezcorp-org/EZHarness
+Gate integrity	Run git fetch --no-tags origin main	2026-10-09T17:20:07.3092658Z  * branch                main       -> FETCH_HEAD
+Gate integrity	Run ./.github/actions/gate-integrity-deps	﻿2026-10-09T17:20:07.3209871Z Prepare all required actions
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3288111Z ##[group]Run ./.github/actions/gate-integrity-deps
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3288381Z env:
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3288578Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3288837Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3289050Z ##[endgroup]
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3333056Z ##[start-action display=Install gate-integrity parser;id=__self.__run]
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3356777Z ##[group]Run bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3357343Z ^[[36;1mbun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts^[[0m
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3416481Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3416922Z env:
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3417122Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3417386Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3417601Z ##[endgroup]
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.3515842Z bun install v1.4.2 (744846f84)
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.4321753Z 
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.4322817Z + typescript@5.9.3
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.4334484Z 
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.4335096Z 1 package installed [81.00ms]
+Gate integrity	Run ./.github/actions/gate-integrity-deps	2026-10-09T17:20:07.4377741Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=104]
+Gate integrity	Gate-integrity meta-check	﻿2026-10-09T17:20:07.4480035Z ##[group]Run bun scripts/gate-integrity.ts
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4480691Z ^[[36;1mbun scripts/gate-integrity.ts^[[0m
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4551713Z shell: /usr/bin/bash -e {0}
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4551935Z env:
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4552143Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4552412Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4552665Z   BASE_REF: origin/main
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4552853Z   GATE_CHANGE_APPROVED: 
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4553203Z   NODE_PATH: /home/runner/work/EZHarness/EZHarness/.github/gate-integrity-deps/node_modules
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:07.4553547Z ##[endgroup]
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6073324Z Gate integrity FAILED (8 finding(s)):
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6074516Z   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6075538Z   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6076586Z   coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6077514Z   coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6078513Z   coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6079495Z   coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6080396Z   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6081270Z   coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6081693Z 
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6081980Z If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+Gate integrity	Gate-integrity meta-check	2026-10-09T17:20:12.6206270Z ##[error]Process completed with exit code 1.
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	﻿2026-10-09T17:20:12.6312245Z Post job cleanup.
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.6973050Z [command]/usr/bin/git version
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7008959Z git version 2.55.0
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7035295Z Temporarily overriding HOME='/home/runner/work/_temp/23b72c53-2e87-4887-9855-8abca7af386d' before making global git config changes
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7036390Z Adding repository directory to the temporary git global config as a safe directory
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7038958Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7067021Z Removing SSH command configuration
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7072380Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7101320Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7320868Z Removing HTTP extra header
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7326237Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7355480Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7576443Z Removing includeIf entries pointing to credentials config files
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7582000Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7613253Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7614065Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7614994Z includeif.gitdir:/github/workspace/.git.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7615590Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7621041Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7644868Z /home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7670064Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-9cefe0a3\-317f\-433c\-a634\-26de5fec0669\.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7703716Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7729059Z /home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7736657Z [command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-9cefe0a3\-317f\-433c\-a634\-26de5fec0669\.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7772559Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7796260Z /github/runner_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7802136Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-9cefe0a3\-317f\-433c\-a634\-26de5fec0669\.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7833122Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7854889Z /github/runner_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7860159Z [command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-9cefe0a3\-317f\-433c\-a634\-26de5fec0669\.config
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.7891630Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Gate integrity	Post Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1	2026-10-09T17:20:12.8090241Z Removing credentials config '/home/runner/work/_temp/git-credentials-9cefe0a3-317f-433c-a634-26de5fec0669.config'
+Gate integrity	Complete job	﻿2026-10-09T17:20:12.8221727Z Cleaning up orphan processes

@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T07:41:57.904Z","level":"warn","msg":"unknown compaction strategy; falling back to 'trim'","requested":"does-not-exist"}
+{"ts":"2026-10-05T07:41:57.906Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"test-model","budget":1000,"before":30,"after":10,"droppedCount":21,"droppedTokens":2205}
+{"ts":"2026-10-05T07:41:57.906Z","level":"warn","msg":"context compaction applied","strategy":"xform-test","model":"test-model","budget":10,"before":1,"after":1,"droppedCount":99,"droppedTokens":1}
+{"ts":"2026-10-05T07:41:57.906Z","level":"warn","msg":"compaction strategy threw; passing history through unchanged","strategy":"xform-throws","model":"test-model","error":"Error: strategy boom"}
+{"ts":"2026-10-05T07:41:57.907Z","level":"warn","msg":"context compaction applied","strategy":"xform-records","model":"test-model","budget":10,"before":3,"after":3,"droppedCount":0,"droppedTokens":0}
+{"ts":"2026-10-05T07:41:57.907Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"test-model","budget":1000,"before":18,"after":4,"droppedCount":15,"droppedTokens":2223}
+{"ts":"2026-10-05T07:41:57.907Z","level":"warn","msg":"context compaction applied","strategy":"none","model":"test-model","budget":10,"before":2,"after":2,"droppedCount":0,"droppedTokens":0}
+
+ 53 pass
+ 0 fail
+ 133 expect() calls
+Ran 53 tests across 1 file. [456.00ms]

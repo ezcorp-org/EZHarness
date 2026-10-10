@@ -3,12 +3,23 @@ import { mkdtemp, writeFile, mkdir, rm, readFile, symlink } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createProjectCommandRunner, openProjectPullRequest, type ProjectCommandRunner } from "../project-open-pr";
+import { scratchGitEnv } from "../../__tests__/helpers/scratch-git";
 
 const directories: string[] = [];
 afterEach(async () => { for (const directory of directories.splice(0)) await rm(directory, { recursive: true, force: true }); });
 
+/**
+ * Isolated from the caller's own git context (a hook that exports `GIT_DIR`
+ * and friends would otherwise make these commands act on the hook's real
+ * repository instead of `root`/`cwd`). `home` is a hidden directory nested
+ * under the fixture's own `root`, so it never needs separate cleanup and
+ * `git add .`/`-A` never picks it up (it stays empty; nothing here ever
+ * writes to it).
+ */
 async function git(root: string, ...args: string[]) {
-  const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
+  const home = join(root, ".git-scratch-home");
+  await mkdir(home, { recursive: true });
+  const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...args], { cwd: root, env: scratchGitEnv(home), stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (exitCode !== 0) throw new Error(stderr);
   return stdout;
@@ -17,6 +28,8 @@ async function git(root: string, ...args: string[]) {
 async function fixture() {
   const root = await mkdtemp(join(tmpdir(), "extension-pr-test-"));
   directories.push(root);
+  const home = join(root, ".git-scratch-home");
+  await mkdir(home, { recursive: true });
   await git(root, "init", "-b", "main");
   await git(root, "config", "user.name", "Test");
   await git(root, "config", "user.email", "test@example.invalid");
@@ -34,7 +47,7 @@ async function fixture() {
       committed = await readFile(join(cwd, "tracked.txt"), "utf8");
       return { exitCode: 0, stdout: "", stderr: "" };
     }
-    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...argv.slice(1)], { cwd, stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
+    const child = Bun.spawn(["git", "-c", "core.hooksPath=/dev/null", ...argv.slice(1)], { cwd, env: scratchGitEnv(home), stdin: input === undefined ? "ignore" : new Blob([input]), stdout: "pipe", stderr: "pipe" });
     const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
     return { stdout, stderr, exitCode };
   };
@@ -79,6 +92,40 @@ describe("host pull request capability", () => {
     expect(result.ok).toBe(false);
     expect(fixtureData.commands.some((argv) => argv[1] === "push")).toBe(false);
     expect((await git(fixtureData.root, "worktree", "list", "--porcelain")).match(/^worktree /gm)).toHaveLength(1);
+  });
+
+  test("refuses a run id that would build a branch git cannot accept", async () => {
+    const fixtureData = await fixture();
+    // Both pass the run-id character class, and both produce a ref `git push` would reject: one
+    // ends a component with `.lock`, the other ends the name with a dot.
+    for (const runId of ["release.lock", "run."]) {
+      const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId, title: "Change", body: "" }, { run: fixtureData.run });
+      expect([runId, result]).toEqual([runId, { ok: false, error: "Invalid pull request input" }]);
+    }
+    expect(fixtureData.commands).toEqual([]);
+  });
+
+  test("takes the exact default branch from origin, including one with an underscore", async () => {
+    const fixtureData = await fixture();
+    await git(fixtureData.root, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main_v2");
+    await writeFile(join(fixtureData.root, "tracked.txt"), "after\n");
+    const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId: "run-6", title: "Change", body: "" }, { run: fixtureData.run });
+    expect(result).toEqual({ ok: true, url: "https://github.com/example/project/pull/1" });
+    const create = fixtureData.commands.find((argv) => argv[0] === "gh");
+    expect(create?.[create.indexOf("--base") + 1]).toBe("main_v2");
+    expect(create?.[create.indexOf("--head") + 1]).toBe("ez-code/run-6");
+    expect(fixtureData.commands.find((argv) => argv[1] === "push")?.[3]).toBe("HEAD:refs/heads/ez-code/run-6");
+  });
+
+  test("refuses a default branch that is not a valid ref", async () => {
+    const fixtureData = await fixture();
+    // Git itself refuses to store `refs/remotes/origin/broken.lock`, so the only way this reaches
+    // the caller is a remote that answers with one; the stub plays that remote.
+    const run: ProjectCommandRunner = async (argv, cwd, input) =>
+      argv[1] === "symbolic-ref" ? { exitCode: 0, stdout: "refs/remotes/origin/broken.lock\n", stderr: "" } : fixtureData.run(argv, cwd, input);
+    const result = await openProjectPullRequest({ projectRoot: fixtureData.root, runId: "run-7", title: "Change", body: "" }, { run });
+    expect(result).toEqual({ ok: false, error: "Invalid default branch" });
+    expect(fixtureData.commands.some((argv) => argv[1] === "push")).toBe(false);
   });
 
   test("rejects tracked platform data and non-GitHub remotes", async () => {

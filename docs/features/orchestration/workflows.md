@@ -1026,7 +1026,7 @@ None yet — this is the primary reference.
 
 ### Out of scope (deliberately not built)
 
-**Resuming an `awaiting_approval` run** — that status stays terminal; only `suspended` runs resume (and note it can only arise on the non-interactive path). **Enforcing the approval timeout** — the columns and the validation exist, the sweep does not (above). A read API or UI over the persisted run history; looped tool steps; arbitrary-code (JS) steps; a UI YAML editor; distributed scheduling for the runner (the lease makes a second host *safe*, it does not coordinate them). Per-step **cost** telemetry (tokens, USD) is also still out of scope — only the resolved provider/model is recorded.
+**Resuming an `awaiting_approval` run** — that status stays terminal; only `suspended` runs resume. Looped tool steps, arbitrary-code (JS) steps, a UI YAML editor, and distributed scheduling for the runner remain out of scope (the lease makes a second host *safe*, it does not coordinate them). Approval timeouts are enforced by the `HostMaintenanceDaemon` sweep, and the persisted run-history API and UI are described above.
 
 Async / background runs and resuming a **parked** run are no longer out of scope — see the async header, `WorkflowRunner`, and the two run-control routes above.
 

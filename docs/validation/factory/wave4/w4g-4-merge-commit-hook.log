@@ -1,0 +1,30 @@
+Checked 28 files in 25ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  25 test files map to this commit (cap 12) — NOT running:
+    src/factory/attempt-composition.test.ts
+    src/factory/dispatch-composition.test.ts
+    src/factory/installation-startup.test.ts
+    src/factory/key-composition.test.ts
+    src/factory/key-management.test.ts
+    src/factory/pool/process.test.ts
+    src/factory/pool/readiness.test.ts
+    src/factory/private-files.test.ts
+    src/factory/private-service-composition.test.ts
+    src/factory/recovery-composition.test.ts
+    src/factory/release-composition.test.ts
+    src/factory/release-declaration.test.ts
+    src/factory/restore-command.test.ts
+    src/factory/restore-composition.test.ts
+    src/factory/runner/guest-broker-transport.integration.test.ts
+    src/factory/runner/supervisor-process.podman.integration.test.ts
+    src/factory/runner/supervisor-process.test.ts
+    src/factory/runtime-composition.test.ts
+    src/factory/service-probes.test.ts
+    src/factory/service-readiness.test.ts
+    src/factory/startup-config.test.ts
+    src/factory/validator-declaration.test.ts
+    src/__tests__/pinned-bun-resolution.test.ts
+    tests/postgres/factory-pool-process.test.ts
+    tests/postgres/factory-restore.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 25 file(s) above; continuing with lint.
+[detached HEAD 0293a32eb] merge: wp/w4g-4 8617e00a9 into integ/w00 (W4G-4 private-path tests build their trees under a private temp root, not the hosted runner's home)

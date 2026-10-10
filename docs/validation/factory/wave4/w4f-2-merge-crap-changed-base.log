@@ -1,0 +1,22 @@
+CRAP: --changed against ffe6ea5071c6ba9d5eaf89fd166fe3a916219c88 → 4 measured file(s) in diff
+
+CRAP: 55 functions in 4 files (max 30, warn 15)
+
+Worst 15:
+     12.0  cc= 12 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:504 assertStoppedEventShape
+     12.0  cc= 12 cov=100%  src/factory/provisioning/control-plane.ts:144 controlPlaneRoute
+     11.0  cc= 11 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:540 applyStopped
+      9.0  cc=  9 cov=100%  src/factory/provisioning/fleet-cli.ts:56 fleetProvision
+      8.0  cc=  8 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:516 settleNodeStoppedByRun
+      7.0  cc=  7 cov=100%  src/factory/provisioning/control-plane.ts:131 mutationRoute
+      6.0  cc=  6 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:530 settleNodeStoppedOnFailure
+      6.0  cc=  6 cov=100%  src/factory/provisioning/control-plane.ts:171 <anonymous@171>
+      6.0  cc=  6 cov=100%  src/factory/provisioning/fleet.ts:69 storageDomainValid
+      5.0  cc=  5 cov=100%  src/factory/provisioning/fleet-cli.ts:103 upgradeRegister
+      5.0  cc=  5 cov=100%  src/factory/provisioning/fleet.ts:84 <anonymous@84>
+      5.0  cc=  5 cov=100%  src/factory/provisioning/fleet.ts:86 <anonymous@86>
+      5.0  cc=  5 cov=100%  src/factory/provisioning/fleet.ts:100 parseFactoryFleetSettings
+      4.0  cc=  4 cov=100%  src/factory/provisioning/control-plane.ts:104 provisionRoute
+      4.0  cc=  4 cov=100%  src/factory/provisioning/fleet-cli.ts:83 fleetRotate
+
+✓ no touched function exceeds CRAP 30

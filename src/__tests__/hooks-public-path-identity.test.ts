@@ -46,6 +46,7 @@ let secretThrows = false;
 let jwtPayload: Record<string, unknown> | null = null;
 let lookupResult: { session: { id: string }; viaPrevious: boolean } | null = null;
 let lookupThrows = false;
+let rotateThrows = false;
 let calls = {
   getJwtSecret: 0,
   hashToken: 0,
@@ -125,6 +126,7 @@ const sessionsMock = () => ({
   },
   rotateSessionToken: async () => {
     calls.rotate++;
+    if (rotateThrows) throw new Error("rotation CAS failed");
     return null;
   },
   deleteExpiredSessions: async () => {},
@@ -146,7 +148,7 @@ afterAll(() => {
 });
 
 // ── Fake RequestEvent factory ─────────────────────────────────────
-function makeEvent(path: string, opts: { method?: string; cookie?: string } = {}) {
+function makeEvent(path: string, opts: { method?: string; cookie?: string; routeId?: string } = {}) {
   const cookieSets: Array<{ name: string; value: string }> = [];
   const cookieDeletes: string[] = [];
   const cookies = {
@@ -169,7 +171,7 @@ function makeEvent(path: string, opts: { method?: string; cookie?: string } = {}
     }),
     url: new URL(`http://localhost${path}`),
     params: {},
-    route: { id: path },
+    route: { id: opts.routeId ?? path },
     cookies,
     locals: {} as App.Locals,
     platform: {},
@@ -230,6 +232,7 @@ beforeEach(() => {
   jwtPayload = null;
   lookupResult = null;
   lookupThrows = false;
+  rotateThrows = false;
   calls = {
     getJwtSecret: 0,
     hashToken: 0,
@@ -465,6 +468,41 @@ describe("hooks: the enforcing branch keeps every outcome", () => {
 
     expect(redirect).not.toBeNull();
     expect(redirect!.location).toBe("/login?reason=session_revoked&returnTo=%2Fprojects%2Fabc");
+  });
+
+  test("a failed sliding refresh keeps serving with the old cookie", async () => {
+    // Refresh is best-effort: signing succeeded, the rotation CAS threw.
+    jwtPayload = { ...ADMIN_PAYLOAD, iat: nowSeconds() - 400 * 24 * 3600 };
+    lookupResult = LIVE_ROW;
+    rotateThrows = true;
+
+    const { event, cookieSets } = makeEvent("/api/conversations", { cookie: "jwt-token" });
+    const { response, resolveCalls } = await callHandle(event);
+
+    expect(calls.signJWT).toBe(1);
+    expect(calls.rotate).toBe(1);
+    expect(cookieSets).toEqual([]);
+    expect(response!.status).toBe(200);
+    expect(resolveCalls).toBe(1);
+    expect(event.locals.user!.id).toBe("admin-1");
+  });
+
+  test("a registered factory route answers for itself while factories are off; other protected paths still need a session", async () => {
+    // The factory handler owns the disabled response ("Factories are disabled"), so it must see
+    // the request before any credential lookup. The exact registry match keeps the bypass narrow.
+    const factory = makeEvent("/api/factories/projects/p1/definitions", { routeId: "/api/factories/projects/[projectId]/definitions" });
+    const served = await callHandle(factory.event, async () => new Response("factory-disabled", { status: 404 }));
+    expect(served.resolveCalls).toBe(1);
+    expect(served.response!.status).toBe(404);
+    expect(await served.response!.text()).toBe("factory-disabled");
+    expect(factory.event.locals.user).toBeUndefined();
+    expect(calls.getJwtSecret).toBe(0);
+
+    // An unregistered verb on the same path is not bypassed.
+    const unregistered = makeEvent("/api/factories/projects/p1/definitions", { method: "PATCH", routeId: "/api/factories/projects/[projectId]/definitions" });
+    const refused = await callHandle(unregistered.event);
+    expect(refused.resolveCalls).toBe(0);
+    expect(refused.response!.status).toBe(401);
   });
 
   test("JWT secret unreachable on a protected path → request is served, not bounced", async () => {

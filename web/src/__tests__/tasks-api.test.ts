@@ -1,4 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import type { TaskSnapshot } from "../../../src/runtime/task-tracking-host";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
@@ -38,14 +39,22 @@ mock.module("$server/runtime/task-tracking-host", () => ({
 const mockUser: { id: string; email: string; name: string; role: string } = {
   id: "user-1", email: "test@test.com", name: "Test", role: "member",
 };
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 let mockScopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // Import handler AFTER all mocks are installed.
 const { GET } = await import("../routes/api/conversations/[id]/tasks/+server");

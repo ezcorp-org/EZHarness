@@ -1,0 +1,62 @@
+bun test v1.4.2 (744846f84)
+
+tests/service-detach.test.ts:
+359 |   const release = harness.holdForwardRequests();
+360 |   try {
+361 |     expect((await call(harness.socketPath, "/v4/start", startBody("legacy"))).status).toBe(200);
+362 |     const forward = settled(call(harness.socketPath, "/v4/request", { workerId: "legacy", method: "extension/discover", params: {} }));
+363 |     harness.notify("legacy", "log", { line: "ready" });
+364 |     expect(await call(harness.socketPath, "/v4/events", { workerId: "legacy" })).toEqual({ status: 200, body: { events: [{ method: "log", params: { line: "ready" } }] } });
+                                                                                       ^
+error: expect(received).toEqual(expected)
+
+@@ -2,12 +2,10 @@
+    "body": {
+-     "events": [
+-       {
+-         "method": "log",
+-         "params": {
+-           "line": "ready",
+-         },
+-       },
+-     ],
++     "error": {
++       "code": "unknown_worker",
++       "message": "Worker event stream is unavailable or already attached",
++       "retryable": false,
++       "stage": "runner",
++     },
+    },
+-   "status": 200,
++   "status": 400,
+  }
+
+- Expected  - 9
++ Received  + 7
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-9/packages/@ezcorp/extension-runner/tests/service-detach.test.ts:364:82)
+(fail) a host that never calls /v4/attach still polls its events and completes a forward request [37.81ms]
+377 |     const worker = await client.start(startBody("legacy-client") as unknown as StartRequest, async () => null);
+378 |     // As in the upgrade seed, the old client polls /v4/events in the background as soon as start returns and sends its
+379 |     // first request later. Wait until that poll has had its answer: parked (the worker is served) or refused (the old
+380 |     // client then cancels the worker it started).
+381 |     await until(() => harness.service.eventStreams().includes("legacy-client") || harness.cancelled("legacy-client"));
+382 |     expect(await settled(worker.request("extension/discover", {}))).toEqual({ resolved: "done" });
+                                                                          ^
+error: expect(received).toEqual(expected)
+
+  {
+-   "resolved": "done",
++   "rejected": "Worker session closed",
+  }
+
+- Expected  - 1
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-9/packages/@ezcorp/extension-runner/tests/service-detach.test.ts:382:69)
+(fail) the 3ec53eaa RunnerClient completes a forward request it sends after its first event poll [42.89ms]
+
+ 11 pass
+ 2 fail
+ 223 expect() calls
+Ran 13 tests across 1 file. [16.06s]

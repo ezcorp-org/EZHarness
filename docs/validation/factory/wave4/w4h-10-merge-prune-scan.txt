@@ -1,0 +1,5 @@
+no dir /tmp/factory-platform-evidence/w4h-10-sync
+candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: this.prune();
+candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: this.prune();
+candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: private prune(): void {
+prune scan: clean (3 hit(s))

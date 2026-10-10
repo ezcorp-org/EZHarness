@@ -463,6 +463,67 @@ function identityKey(def: WorkflowDefinition, identify: WorkflowIdentityResolver
 }
 
 /**
+ * The capability projection of one workflow closure, before any delegation
+ * context is attached.
+ *
+ * Extracted so the consent hash and the factory's legacy-workflow
+ * classifier read the SAME walk. Two walks would eventually disagree about
+ * what is "inside" a workflow, and the direction that disagreement fails is
+ * a classifier that admits a nested step the consent hash never saw.
+ */
+export interface WorkflowClosureCapabilities {
+  /** Every definition in the closure, sorted by name. */
+  graph: ConsentGraphMaterial[];
+  /** Nested names the resolver could not answer. */
+  unresolved: string[];
+  /** Cycle paths, each joined with `" -> "`. */
+  cycles: string[];
+  /** Nested names below the depth cap. */
+  tooDeep: string[];
+}
+
+/**
+ * Walks one workflow closure and projects each definition's capability set.
+ *
+ * The depth cap is deliberately not a parameter: every consumer must be
+ * bounded by the same graph the validator bounded.
+ */
+export function workflowClosureCapabilities(
+  root: WorkflowDefinition,
+  sources: ConsentHashSources,
+): WorkflowClosureCapabilities {
+  // ONE walk, shared with the validator (`workflow-closure.ts:6` names C3
+  // outright). Two walks would eventually disagree about what is "inside"
+  // a workflow, and the direction that disagreement fails is a hash that
+  // misses a nested edit the validator happily accepted.
+  const closure = collectWorkflowClosure(root, sources.resolve);
+  const graph = closure.definitions
+    .map((def) => ({
+      name: def.name,
+      identity: identityKey(def, sources.identify),
+      defaultModel: stableStringify(def.defaultModel ?? null),
+      // Declaration order is preserved: step order decides batch
+      // composition, so it is semantic here rather than incidental
+      // (`workflow-definition-hash.ts:40-44`).
+      steps: (def.steps ?? []).map(stepMaterial),
+      capabilities: capabilityKeys(
+        (def.steps ?? []).flatMap((step) => stepCapabilities(step, def, sources)),
+      ),
+    }))
+    // Sorted by name so a consumer depends on the SET of definitions and
+    // their identities, not on the order the walk happened to encounter
+    // them. Nothing is lost: encounter order is a function of the step
+    // arrays, and every definition's own identity already covers those.
+    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  return {
+    graph,
+    unresolved: [...new Set(closure.unresolved)].sort(),
+    cycles: [...new Set(closure.cycles.map((c) => c.join(" -> ")))].sort(),
+    tooDeep: [...new Set(closure.tooDeep)].sort(),
+  };
+}
+
+/**
  * ## Ruling: hash the VERSION ID — into the ADVISORY digest.
  *
  * *Deliberate, and now scoped.* We still fingerprint by version id rather
@@ -503,32 +564,7 @@ export function computeWorkflowConsentHash(
   delegation: ConsentDelegation,
   sources: ConsentHashSources,
 ): ConsentHashResult {
-  // ONE walk, shared with the validator (`workflow-closure.ts:6` names C3
-  // outright). Two walks would eventually disagree about what is "inside"
-  // a workflow, and the direction that disagreement fails is a hash that
-  // misses a nested edit the validator happily accepted. The depth cap is
-  // deliberately not a parameter: consent must be taken over the same
-  // graph the validator bounded.
-  const closure = collectWorkflowClosure(root, sources.resolve);
-
-  const graph = closure.definitions
-    .map((def) => ({
-      name: def.name,
-      identity: identityKey(def, sources.identify),
-      defaultModel: stableStringify(def.defaultModel ?? null),
-      // Declaration order is preserved: step order decides batch
-      // composition, so it is semantic here rather than incidental
-      // (`workflow-definition-hash.ts:40-44`).
-      steps: (def.steps ?? []).map(stepMaterial),
-      capabilities: capabilityKeys(
-        (def.steps ?? []).flatMap((step) => stepCapabilities(step, def, sources)),
-      ),
-    }))
-    // Sorted by name so the digest depends on the SET of definitions and
-    // their identities, not on the order the walk happened to encounter
-    // them. Nothing is lost: encounter order is a function of the step
-    // arrays, and every definition's own identity already covers those.
-    .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  const closure = workflowClosureCapabilities(root, sources);
 
   const material: ConsentHashMaterial = {
     v: CONSENT_HASH_MATERIAL_VERSION,
@@ -537,10 +573,10 @@ export function computeWorkflowConsentHash(
     projectId: delegation.projectId,
     runAs: { kind: delegation.runAs.kind, id: delegation.runAs.id },
     trigger: { kind: delegation.trigger.kind, spec: delegation.trigger.spec },
-    graph,
-    unresolved: [...new Set(closure.unresolved)].sort(),
-    cycles: [...new Set(closure.cycles.map((c) => c.join(" -> ")))].sort(),
-    tooDeep: [...new Set(closure.tooDeep)].sort(),
+    graph: closure.graph,
+    unresolved: closure.unresolved,
+    cycles: closure.cycles,
+    tooDeep: closure.tooDeep,
   };
 
   return {

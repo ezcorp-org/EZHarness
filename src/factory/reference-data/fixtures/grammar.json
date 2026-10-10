@@ -1,0 +1,269 @@
+{
+  "note": "Shared accept and reject vectors for the reference.data.v1 row grammar. The Bun parser in src/factory/reference-data/csv.ts and the Python parser in src/factory/runner/python/refdata/rows.py both read this file, so a divergence between the two runtimes is a test failure rather than a silent disagreement. Row-count and byte-count bounds differ between a whole input and one partition, so they are proved separately in each runtime instead of here.",
+  "partitions": [
+    {
+      "name": "golden-three-rows",
+      "csv": "record_id,category,amount_cents\na,alpha,100\nb,beta,250\nc,alpha,50\n",
+      "accepts": true,
+      "recordIds": [
+        "a",
+        "b",
+        "c"
+      ],
+      "amounts": [
+        "100",
+        "250",
+        "50"
+      ],
+      "code": ""
+    },
+    {
+      "name": "golden-without-trailing-newline",
+      "csv": "record_id,category,amount_cents\na,alpha,100\nb,beta,250\nc,alpha,50",
+      "accepts": true,
+      "recordIds": [
+        "a",
+        "b",
+        "c"
+      ],
+      "amounts": [
+        "100",
+        "250",
+        "50"
+      ],
+      "code": ""
+    },
+    {
+      "name": "zero-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,0\n",
+      "accepts": true,
+      "recordIds": [
+        "a"
+      ],
+      "amounts": [
+        "0"
+      ],
+      "code": ""
+    },
+    {
+      "name": "maximum-signed-64-bit-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,9223372036854775807\n",
+      "accepts": true,
+      "recordIds": [
+        "a"
+      ],
+      "amounts": [
+        "9223372036854775807"
+      ],
+      "code": ""
+    },
+    {
+      "name": "unicode-category",
+      "csv": "record_id,category,amount_cents\na,café,1\n",
+      "accepts": true,
+      "recordIds": [
+        "a"
+      ],
+      "amounts": [
+        "1"
+      ],
+      "code": ""
+    },
+    {
+      "name": "single-row",
+      "csv": "record_id,category,amount_cents\nonly,alpha,7\n",
+      "accepts": true,
+      "recordIds": [
+        "only"
+      ],
+      "amounts": [
+        "7"
+      ],
+      "code": ""
+    },
+    {
+      "name": "accounting-overflow",
+      "csv": "record_id,category,amount_cents\na,alpha,9223372036854775808\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_overflow"
+    },
+    {
+      "name": "far-past-the-domain",
+      "csv": "record_id,category,amount_cents\na,alpha,1000000000000000000000000000000\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_overflow"
+    },
+    {
+      "name": "negative-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,-1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "signed-positive-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,+1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "fractional-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,1.5\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "exponent-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,1e3\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "non-ascii-digit-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,٥\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "padded-amount",
+      "csv": "record_id,category,amount_cents\na,alpha, 1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_charset"
+    },
+    {
+      "name": "leading-zero-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,007\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_leading_zero"
+    },
+    {
+      "name": "empty-amount",
+      "csv": "record_id,category,amount_cents\na,alpha,\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "amount_empty"
+    },
+    {
+      "name": "duplicate-record-id",
+      "csv": "record_id,category,amount_cents\na,alpha,1\nb,beta,2\na,gamma,3\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "record_id_duplicate"
+    },
+    {
+      "name": "malformed-two-fields",
+      "csv": "record_id,category,amount_cents\na,alpha\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "row_field_count"
+    },
+    {
+      "name": "malformed-four-fields",
+      "csv": "record_id,category,amount_cents\na,alpha,1,extra\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "row_field_count"
+    },
+    {
+      "name": "empty-record-id",
+      "csv": "record_id,category,amount_cents\n,alpha,1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "record_id_empty"
+    },
+    {
+      "name": "empty-category",
+      "csv": "record_id,category,amount_cents\na,,1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "category_empty"
+    },
+    {
+      "name": "oversized-record-id",
+      "csv": "record_id,category,amount_cents\nxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx,alpha,1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "record_id_bytes"
+    },
+    {
+      "name": "oversized-category",
+      "csv": "record_id,category,amount_cents\na,yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy,1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "category_bytes"
+    },
+    {
+      "name": "header-mismatch",
+      "csv": "record_id,category,amount\na,alpha,1\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "header_mismatch"
+    },
+    {
+      "name": "header-missing",
+      "csv": "",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "header_missing"
+    },
+    {
+      "name": "header-blank",
+      "csv": "\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "header_mismatch"
+    },
+    {
+      "name": "header-only",
+      "csv": "record_id,category,amount_cents\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "row_empty"
+    },
+    {
+      "name": "carriage-return",
+      "csv": "record_id,category,amount_cents\r\na,alpha,1\r\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "row_carriage_return"
+    },
+    {
+      "name": "blank-line-between-rows",
+      "csv": "record_id,category,amount_cents\na,alpha,1\n\nb,beta,2\n",
+      "accepts": false,
+      "recordIds": [],
+      "amounts": [],
+      "code": "row_blank_line"
+    }
+  ]
+}

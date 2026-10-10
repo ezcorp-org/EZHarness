@@ -1,0 +1,60 @@
+=== heavy 2026-10-03T02:16:00Z
+HEAD 1476bf4630eda38d8d05a526630a4aa6572354f4 MERGE_HEAD  index-tree 8af737b0914edf0327fc008f756b8fd579eaccea
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+shared config hash at hold start: 44962525f1ca1a8b
+resource-gate 2026-10-03T02:16:00Z attestation-check disk=181G memAvailable=15GiB swapFreeKiB=5027316/17173956
+--- START attestation-check 2026-10-03T02:16:00Z
+--- END   attestation-check 2026-10-03T02:16:00Z exit=0 
+guard set: 13 files from guard-suites.sh
+resource-gate 2026-10-03T02:16:00Z guard-set disk=181G memAvailable=15GiB swapFreeKiB=5027316/17173956
+--- START guard-set 2026-10-03T02:16:00Z
+--- END   guard-set 2026-10-03T02:16:02Z exit=0  65 pass 0 fail 
+resource-gate 2026-10-03T02:16:02Z build-factory-sdk disk=181G memAvailable=15GiB swapFreeKiB=5027384/17173956
+--- START build-factory-sdk 2026-10-03T02:16:02Z
+--- END   build-factory-sdk 2026-10-03T02:16:02Z exit=0 
+resource-gate 2026-10-03T02:16:02Z build-factory-transport disk=181G memAvailable=15GiB swapFreeKiB=5027388/17173956
+--- START build-factory-transport 2026-10-03T02:16:02Z
+--- END   build-factory-transport 2026-10-03T02:16:02Z exit=0 
+resource-gate 2026-10-03T02:16:02Z build-factory-orchestrator disk=181G memAvailable=15GiB swapFreeKiB=5027388/17173956
+--- START build-factory-orchestrator 2026-10-03T02:16:02Z
+--- END   build-factory-orchestrator 2026-10-03T02:16:03Z exit=0 
+resource-gate 2026-10-03T02:16:03Z web-vitest-full disk=181G memAvailable=15GiB swapFreeKiB=5027396/17173956
+--- START web-vitest-full 2026-10-03T02:16:03Z
+--- END   web-vitest-full 2026-10-03T02:20:45Z exit=0  Tests 7843 passed (7843) 
+resource-gate 2026-10-03T02:20:45Z context-init-run1 disk=181G memAvailable=15GiB swapFreeKiB=5034072/17173956
+--- START context-init-run1 2026-10-03T02:20:45Z
+--- END   context-init-run1 2026-10-03T02:20:56Z exit=0  Tests 4 passed (4) 
+resource-gate 2026-10-03T02:20:56Z context-init-run2 disk=181G memAvailable=15GiB swapFreeKiB=5033988/17173956
+--- START context-init-run2 2026-10-03T02:20:56Z
+--- END   context-init-run2 2026-10-03T02:21:06Z exit=0  Tests 4 passed (4) 
+resource-gate 2026-10-03T02:21:06Z context-init-run3 disk=181G memAvailable=15GiB swapFreeKiB=5034096/17173956
+--- START context-init-run3 2026-10-03T02:21:06Z
+--- END   context-init-run3 2026-10-03T02:21:15Z exit=0  Tests 4 passed (4) 
+resource-gate 2026-10-03T02:21:15Z context-init-run4 disk=181G memAvailable=15GiB swapFreeKiB=5037212/17173956
+--- START context-init-run4 2026-10-03T02:21:15Z
+--- END   context-init-run4 2026-10-03T02:21:26Z exit=0  Tests 4 passed (4) 
+resource-gate 2026-10-03T02:21:26Z context-init-run5 disk=180G memAvailable=15GiB swapFreeKiB=5041216/17173956
+--- START context-init-run5 2026-10-03T02:21:26Z
+--- END   context-init-run5 2026-10-03T02:21:35Z exit=0  Tests 4 passed (4) 
+resource-gate 2026-10-03T02:21:35Z web-server-lcov disk=180G memAvailable=15GiB swapFreeKiB=5042388/17173956
+--- START web-server-lcov 2026-10-03T02:21:35Z
+--- END   web-server-lcov 2026-10-03T02:21:54Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-03T02:21:54Z coverage-merge disk=180G memAvailable=15GiB swapFreeKiB=5042568/17173956
+--- START coverage-merge 2026-10-03T02:21:54Z
+--- END   coverage-merge 2026-10-03T02:21:54Z exit=0 
+resource-gate 2026-10-03T02:21:54Z web-build disk=180G memAvailable=15GiB swapFreeKiB=5042568/17173956
+--- START web-build 2026-10-03T02:21:54Z
+--- END   web-build 2026-10-03T02:22:35Z exit=0 
+resource-gate 2026-10-03T02:22:35Z graph-mock-pass disk=180G memAvailable=15GiB swapFreeKiB=5090356/17173956
+--- START graph-mock-pass 2026-10-03T02:22:35Z
+--- END   graph-mock-pass 2026-10-03T02:23:22Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-10/graph/w4g-10-mock.json; nothing to dump
+mock pass w4g-10-mock outcome: passed
+resource-gate 2026-10-03T02:23:22Z crap-changed-base disk=180G memAvailable=15GiB swapFreeKiB=5083856/17173956
+--- START crap-changed-base 2026-10-03T02:23:22Z
+--- END   crap-changed-base 2026-10-03T02:23:22Z exit=0 
+resource-gate 2026-10-03T02:23:22Z merge-commit-gates disk=180G memAvailable=15GiB swapFreeKiB=5083884/17173956
+--- START merge-commit-gates 2026-10-03T02:23:22Z
+--- END   merge-commit-gates 2026-10-03T02:23:27Z exit=0 
+shared config hash at hold end: 44962525f1ca1a8b
+HEAVY DONE status=0 dirty=0 2026-10-03T02:23:27Z

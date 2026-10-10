@@ -1,0 +1,18 @@
+W4H-14 main sync (W-SYNC-3): report (written once, final)
+Owner w4h-14. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-14, branch wp/w4h-14-sync.
+HEAD 600685b246c98de6264423342e9d7d8d5cd52002 (gate-file commit; hook 0 test files)
+  on de8fa57eca63fd842f7cb6ccab8382e7167206d6 = Merge origin/main (e3309906d) into the wave head; parents 000f75d10 + e3309906d; hook 0 test files, lint clean.
+Base: integ/w00 000f75d10 (W4H-11 merged). Identity: archy noreply on both commits (author and committer). Shared config 888c78b9e94ea660 unchanged.
+Gate file: tasks/factory/w4h-14-GATES.md (force-added).
+
+Conflicts (5), resolved per the accepted step-0 table: hook-lib.sh OURS; git-hooks.test.ts OURS; web/package.json union (sharp 0.35.5 + patchedDependencies);
+bun.lock = the wave's 21 entries + MCP 1.31.0 (1.30.1 dropped); manifest.lock.json regenerated, --check 0.
+Lockfiles: pinned-Bun install --ignore-scripts left both locks byte-unchanged; vs the first parent only main's bump family moves (29 root, 28 web).
+Red at the raw merge: 7/7 legs red on conflict markers. Green at de8fa57ec: 7/7.
+Head legs: typecheck all programs 0 and svelte-check 0 (tc rule, lock-free, 17.2 GiB before, lowest 15.0); lint 0; boundaries 0; factory boundaries pass;
+guard 40 files 507/2 skip/0 fail; gate-integrity vs main = the 8 (findings-match PASS), vs 000f75d10 PASSED; coverage 10 suites 113/0 under the lock,
+new-file and patch vs 000f75d10 PASSED, vs e3309906d fail across the whole wave (none of the merge's 13 files named; wave4i-3 binds);
+frozen installs 0; audit-deps clean; web build 0; prune scan clean; migrations not applicable (no schema change).
+#329: no shared file with W4H-11; call-path links at resources script :242 (bootstrap) and :328 (per-cycle build wait, W4H-11's waitForBuildVerified);
+#329's wait runs after both, at most ~15 s per cycle against the 75-min shard timeout. #329 has no test; the resources proof was not run (not ordered).
+Log hashes: logs.sha256 (sha256, first 16 hex).

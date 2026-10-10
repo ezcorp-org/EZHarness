@@ -1,0 +1,38 @@
+diff --git a/src/__tests__/bundled-bootstrap-policy-change.test.ts b/src/__tests__/bundled-bootstrap-policy-change.test.ts
+index f5cf474b7..5ff894c24 100644
+--- a/src/__tests__/bundled-bootstrap-policy-change.test.ts
++++ b/src/__tests__/bundled-bootstrap-policy-change.test.ts
+@@ -1,6 +1,7 @@
+ import { afterAll, beforeEach, expect, mock, test } from "bun:test";
+ import { createHash } from "node:crypto";
+ import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
++import { restoreModuleMocks } from "./helpers/mock-cleanup";
+ 
+ /**
+  * Stages a bundled source through the REAL lifecycle, across a change to the
+@@ -46,7 +47,11 @@ const unavailable = async () => { throw new Error("not reached by source staging
+ // Staging queues each build and the bootstrap hands it to the runner in the
+ // background. Park it there: this test is about which builds get STAGED, and a
+ // runner that settled would add a failed-build transition it does not assert.
+-const parked = () => new Promise<never>(() => {});
++// The bootstrap chains every build on one process-wide queue, so a build
++// parked for ever would stall every later file in this process. Release them
++// when the file ends.
++const parkedBuilds: Array<(error: Error) => void> = [];
++const parked = () => new Promise<never>((_, reject) => { parkedBuilds.push(reject); });
+ 
+ function realLifecycle() {
+   return new ExtensionLifecycle({
+@@ -87,7 +92,11 @@ beforeEach(async () => {
+   runnerImageDigest = "runner-image-a";
+   await createUser({ email: "bundled-policy-admin@test.com", passwordHash: "h", name: "Admin", role: "admin" });
+ });
+-afterAll(closeTestDb);
++afterAll(async () => {
++  for (const release of parkedBuilds.splice(0)) release(new Error("test file ended"));
++  restoreModuleMocks();
++  await closeTestDb();
++});
+ 
+ test("a build-policy change stages a fresh build instead of an idempotency conflict", async () => {
+   await stageBundledExtensionSources(entries);

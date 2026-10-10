@@ -1,0 +1,15 @@
+# W4H-4 (lead GO): the device test and both C11 lanes at the merge commit, as validator-6 ran them: under the heavy lock (this
+# hold) AND the host GPU lock, load1 < 10. If the GPU lock stays contended (600 s) or load1 >= 10, the device test and the lanes
+# are NOT run here and validator-6's results carry (isolation 5 files 30/0, deployment-operations 11/0; device test 7/0), stated.
+GPU_LOCK=/run/user/1001/ezcorp-factory-local-gpu.lock
+LOAD1=$(cut -d' ' -f1 /proc/loadavg)
+if awk "BEGIN{exit !($LOAD1 < 10)}" && exec 9> "$GPU_LOCK" && flock -w 600 9; then
+  echo "W4H-4 extra: GPU lock held, load1 $LOAD1 $(date -u +%FT%TZ)" >> "$S"
+  leg device-test bun test --timeout 300000 ./packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts
+  leg lane-factory-isolation bash scripts/run-factory-lane-tests.sh factory-isolation
+  leg lane-factory-deployment-operations bash scripts/run-factory-lane-tests.sh factory-deployment-operations
+  flock -u 9; exec 9>&-
+  echo "W4H-4 extra: GPU lock released $(date -u +%FT%TZ)" >> "$S"
+else
+  echo "W4H-4 extra: GPU lock contended or load1 $LOAD1 >= 10: device test and lanes NOT run here; validator-6's results carry (stated in merge.json)" >> "$S"
+fi

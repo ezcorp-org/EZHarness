@@ -1,0 +1,38 @@
+Checked 10 files in 14ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/reference-data/pack-journey.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 61 expect() calls
+Ran 9 tests across 1 file. [4.35s]
+  bun: src/factory/reference-data/pack.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 31 expect() calls
+Ran 12 tests across 1 file. [407.00ms]
+  bun: src/factory/reference-data/publication.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 20 expect() calls
+Ran 7 tests across 1 file. [4.15s]
+  bun: src/factory/reference-data/reconcile.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 471 expect() calls
+Ran 17 tests across 1 file. [376.00ms]
+  bun: src/factory/runner/uv-command.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 18 expect() calls
+Ran 7 tests across 1 file. [1013.00ms]
+[detached HEAD a214eda2b] merge: wp/w4h-16-hosted-coverage-gaps f80fcda35 into integ/w00 (hosted coverage for pack, materials, publication, uv-command)

@@ -1,0 +1,4 @@
+Patch coverage gate FAILED (1 file(s) with uncovered changes):
+  src/factory/pool/service-server.ts: 1 changed line(s) uncovered: 46
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

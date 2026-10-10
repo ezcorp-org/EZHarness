@@ -1,0 +1,25 @@
+focused files: 238 auto-added: 190
+{"name": "sdk-build", "exitCode": 0, "start": "2026-09-21T22:13:23", "end": "2026-09-21T22:13:23"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-09-21T22:13:23", "end": "2026-09-21T22:13:23"}
+{"name": "sdk-tests", "exitCode": 0, "start": "2026-09-21T22:13:23", "end": "2026-09-21T22:13:40"}
+{"name": "focused", "exitCode": 0, "start": "2026-09-21T22:13:40", "end": "2026-09-21T22:21:58"}
+{"name": "web-coverage", "exitCode": 0, "start": "2026-09-21T22:21:58", "end": "2026-09-21T22:27:16"}
+{"name": "postgres", "exitCode": 0, "start": "2026-09-21T22:27:16", "end": "2026-09-21T22:36:32"}
+{"name": "types", "exitCode": 0, "start": "2026-09-21T22:36:32", "end": "2026-09-21T22:37:08"}
+{"name": "lint", "exitCode": 0, "start": "2026-09-21T22:37:08", "end": "2026-09-21T22:37:10"}
+{"name": "gate-integrity", "exitCode": 0, "start": "2026-09-21T22:37:10", "end": "2026-09-21T22:37:12"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-09-21T22:37:12", "end": "2026-09-21T22:37:12"}
+{"name": "orchestrator-build", "exitCode": 0, "start": "2026-09-21T22:37:12", "end": "2026-09-21T22:37:12"}
+{"name": "node-coverage", "exitCode": 0, "start": "2026-09-21T22:37:12", "end": "2026-09-21T22:39:07"}
+{"name": "pool-coverage", "exitCode": 0, "start": "2026-09-21T22:39:07", "end": "2026-09-21T22:39:24"}
+{"name": "compute-coverage", "exitCode": 0, "start": "2026-09-21T22:39:24", "end": "2026-09-21T22:39:57"}
+{"name": "provisioning-coverage", "exitCode": 0, "start": "2026-09-21T22:39:57", "end": "2026-09-21T22:40:00"}
+{"name": "python-coverage", "exitCode": 0, "start": "2026-09-21T22:40:00", "end": "2026-09-21T22:40:06"}
+{"name": "new-file", "base": "c6ac529d2", "exitCode": 0}
+{"name": "patch", "base": "c6ac529d2", "exitCode": 1}
+{"name": "new-file", "base": "bd6fd9714", "exitCode": 1}
+{"name": "patch", "base": "bd6fd9714", "exitCode": 1}
+{"name": "global-floor", "base": null, "exitCode": 1, "blocking": false}
+{"name": "crap-changed", "base": "origin/main", "exitCode": 1, "blocking": false}
+DONE failed=True
+combined exit 1

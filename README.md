@@ -240,7 +240,7 @@ See [docs/extensions/](docs/extensions/) for the full extension development guid
 ## Contributing
 
 Use the Bun version pinned in [`.bun-version`](.bun-version) (currently
-`1.3.14`). A fresh checkout needs separate root and web installs:
+`1.4.2`). A fresh checkout needs separate root and web installs:
 
 ```bash
 bun install --frozen-lockfile

@@ -3,12 +3,11 @@ import { sql } from "drizzle-orm";
 import { canonicalJson, sha256 } from "@ezcorp/extension-contract";
 import { getDb } from "../db/connection";
 import { releaseRows, type ReleaseDatabase } from "../db/queries/extension-releases";
-import { guardedFetch } from "../search/egress";
 import { authorizeProjectOperation } from "./project-access";
 import { getExtensionProjectBinding } from "./project-binding";
 import { readProjectGit } from "./project-git-broker";
 import { getPermissionEngine } from "./permission-engine";
-import { getSecret } from "./secrets-store";
+import { requestProjectGitHub } from "./project-github-transport";
 import { resolveReverseRpcMeta } from "./tool-executor/provenance";
 import type { RpcHandlerDeps } from "./tool-executor/rpc-handlers";
 import type { JsonRpcRequest, JsonRpcResponse } from "./types";
@@ -24,7 +23,7 @@ interface StoredProposal { state: "proposed" | "executing" | "completed" | "reje
 interface ProjectPullRequestDependencies {
   database: ReleaseDatabase;
   authorize(scope: ProjectScope, effect?: ProjectEffect): Promise<ProjectAuthority>;
-  request(scope: ProjectScope, path: string, method?: string, body?: unknown): Promise<unknown>;
+  request(scope: ProjectScope, path: string, method?: "GET" | "POST" | "PATCH" | "PUT", body?: unknown): Promise<unknown>;
   now?: () => number;
 }
 
@@ -34,7 +33,7 @@ export class ProjectPullRequests {
   private checkFiles(authority: ProjectAuthority, files: string[]) {
     if (!authority.writePaths.length || files.some(path => !authority.writePaths.some(prefix => prefix.endsWith("/") ? path.startsWith(prefix) : path === prefix))) throw new LifecycleError("write_scope_denied", "The pull request changes files outside the human-approved project write scope.");
   }
-  private async call(scope: ProjectScope, repository: string, path: string, method = "GET", body?: unknown): Promise<unknown> {
+  private async call(scope: ProjectScope, repository: string, path: string, method: "GET" | "POST" | "PATCH" | "PUT" = "GET", body?: unknown): Promise<unknown> {
     const authority = await this.dependencies.authorize(scope, method === "GET" ? undefined : { proposalId: (scope as ProjectProposal).id });
     if (authority.repository !== repository) throw new LifecycleError("project_changed", "The project origin changed. Request a new review.");
     return this.dependencies.request(scope, path, method, body);
@@ -162,14 +161,7 @@ export function getProjectPullRequests(deps: Pick<RpcHandlerDeps, "engine"> = { 
   return new ProjectPullRequests({ database: getDb(), authorize, request: async (scope, path, method = "GET", body) => {
     const effect = method === "GET" ? undefined : { proposalId: (scope as ProjectProposal).id };
     if (effect && !effect.proposalId) throw new LifecycleError("human_required", "GitHub writes require a recorded human decision.");
-    await authorize(scope, effect);
-    const token = await getSecret("github-projects", scope.projectId, "apiToken");
-    if (!token) throw new LifecycleError("credential_required", "Configure the host-owned GitHub credential for this project.");
-    const response = await guardedFetch(`https://api.github.com${path}`, { method, headers: { authorization: `Bearer ${token}`, accept: "application/vnd.github+json", "content-type": "application/json", "x-github-api-version": "2022-11-28" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }, { mode: "backend", allowedHosts: ["api.github.com"], maxRedirects: 0, maxBodyBytes: 2 * 1024 * 1024, timeoutMs: 15_000, retryConnectionFailures: false, authorizeUrl: async () => { await authorize(scope, effect); } });
-    if (!response.ok) throw new LifecycleError("github_failed", `GitHub returned HTTP ${response.status}.`);
-    const value = await response.json();
-    if (value && typeof value === "object" && "errors" in value) throw new LifecycleError("github_failed", "GitHub rejected the requested operation.");
-    return value;
+    return requestProjectGitHub({ projectId: scope.projectId, path, method, body, authorize: () => authorize(scope, effect) });
   } });
 }
 

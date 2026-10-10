@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { snapshotModules } from "./helpers/mock-cleanup";
 import { __resetChannelForTests } from "@ezcorp/sdk/runtime";
+import { assertBunSqlPipeliningOff } from "../db/bun-sql-pipelining";
+
+// W12e: a real-PostgreSQL suite opens Bun.SQL itself. On the Bun releases in src/db/bun-sql-pipelining-defect.json it
+// must start with BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 (Bun reads it only at process start), or it would run
+// with the pipelining defect the product refuses; so it fails here, by name, before any test runs.
+if (process.env.FACTORY_TEST_POSTGRES_URL || process.env.DATABASE_URL?.startsWith("postgres")) assertBunSqlPipeliningOff();
 
 // Isolate the test DB from the developer's persistent one. The real
 // `db/connection.ts` captures `DB_PATH` into a module-level const at load

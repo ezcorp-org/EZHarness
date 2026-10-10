@@ -1,0 +1,19 @@
+Checked 2 files in 6ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: src/__tests__/file-organizer-applier-reserved-dirs.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 18 expect() calls
+Ran 5 tests across 1 file. [389.00ms]
+  bun: src/__tests__/web-mock-pair-pollution.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 21 expect() calls
+Ran 7 tests across 1 file. [5.43s]
+[detached HEAD a3964cfb6] merge: wp/w4g-14 e28f29a01 into integ/w00 (W4G-14 the reserved-dirs test clears the process-wide project-root cache after pinning its root)

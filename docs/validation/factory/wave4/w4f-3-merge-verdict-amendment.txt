@@ -1,0 +1,7 @@
+W4F-3 merge ca4027e2a: validator-6's verdict file was amended (still ACCEPT at 6d8151b4e, first line unchanged).
+Addendum to w4f-3-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- w4f-3-merge.json's validatorVerdict cites sha256 fd1e519e20cdff5a..., the file as read before the merge commit.
+- validator-6 then added the tests/postgres/factory-admission-stop leg (5 pass, 0 fail, under the lock) and the head tree
+  f6aa6f2fd5232327a6ae5053c2a961b8a42d6dbf. The amended file has sha256 84448e4fc1b737f043b6968d7dbce8d3c8f4e2442a483fa68aa4cc70091627fd.
+- The copy committed in the receipts, w4f-3-validation.txt, is already the amended file (sha256 84448e4fc1b737f043b6968d7dbce8d3c8f4e2442a483fa68aa4cc70091627fd); no second copy is added.
+  The verdict (ACCEPT at 6d8151b4e) and its findings are unchanged.

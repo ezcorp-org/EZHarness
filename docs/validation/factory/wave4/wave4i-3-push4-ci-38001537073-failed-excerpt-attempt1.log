@@ -1,0 +1,129 @@
+# excerpt of `gh run view 38001537073 --log-failed` (integrator-5, push-log-excerpt.py)
+# full log: /tmp/factory-platform-evidence/w00/wave4i-3/push4/ci-38001537073/all-failed.log sha256 31106a300f3858e737ca6d2ef81618897d38738c272cadd8f6604f32a1641828 bytes 33755 lines 207
+
+## Gate integrity (22 lines; 21 kept)
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7224076Z ^[[36;1mbun scripts/gate-integrity.ts^[[0m
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283179Z shell: /usr/bin/bash -e {0}
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283327Z env:
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283464Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283651Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283810Z   BASE_REF: origin/main
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7283943Z   GATE_CHANGE_APPROVED: 
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7284175Z   NODE_PATH: /home/runner/work/EZHarness/EZHarness/.github/gate-integrity-deps/node_modules
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:46.7284424Z ##[endgroup]
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5452443Z Gate integrity FAILED (8 finding(s)):
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5453468Z   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5454888Z   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5456097Z   coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5457216Z   coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5458408Z   coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5459647Z   coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5460762Z   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5461828Z   coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5462360Z 
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5462820Z If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+Gate integrity	Gate-integrity meta-check	2026-10-09T22:52:51.5628739Z ##[error]Process completed with exit code 1.
+
+## Factory runner readiness precheck (26 lines; 26 kept)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	﻿2026-10-09T22:52:47.9173267Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9173788Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9440901Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9441207Z env:
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9441457Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9441804Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9442090Z   FACTORY_RUNNER_READ_TOKEN: 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9442353Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9442828Z ##[endgroup]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9601654Z 124 |   inspect?: typeof inspectFactoryRunners;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9602489Z 125 |   log?: Pick<Console, "log">;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9602943Z 126 | } = {}): Promise<number> {
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9603640Z 127 |   const env = options.env ?? process.env;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9604231Z 128 |   const token = env.FACTORY_RUNNER_READ_TOKEN;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9605680Z 129 |   if (!token) throw new Error("FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners");
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9606942Z                               ^
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9607710Z error: FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9609134Z       at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9610387Z       at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9611200Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9634111Z ##[error]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9643384Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9643634Z Bun v1.4.2 (Linux x64)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T22:52:47.9648476Z ##[error]Process completed with exit code 1.
+
+## Production proof (content) (112 lines; 21 kept)
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:16:55.1994109Z archived_image=localhost/ezcorp-extension-v4:legacy-main-537f074e
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:16:55.1995751Z archived_source=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:16:55.1997329Z archived_build_log=.cache/production-lifecycle/legacy-adoption/legacy/build/legacy-base-archive-build.log
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:02.8792527Z  Network ezcorp-legacy-adoption-old-0ba38748745f_default  Creating
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:02.9203052Z  Network ezcorp-legacy-adoption-old-0ba38748745f_default  Created
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:02.9208582Z  Container ezcorp-legacy-adoption-old-0ba38748745f-app  Creating
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:02.9480709Z  Container ezcorp-legacy-adoption-old-0ba38748745f-app  Created
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:02.9490986Z  Container ezcorp-legacy-adoption-old-0ba38748745f-app  Starting
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:03.0914247Z  Container ezcorp-legacy-adoption-old-0ba38748745f-app  Started
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:10.4392641Z LEGACY_ADOPTION_SEEDED
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:14.8544835Z  Network ezcorp-legacy-adoption-v4-0ba38748745f_default  Creating
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:14.8923231Z  Network ezcorp-legacy-adoption-v4-0ba38748745f_default  Created
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:14.8928169Z  Container ezcorp-legacy-adoption-v4-0ba38748745f-app  Creating
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:14.9190876Z  Container ezcorp-legacy-adoption-v4-0ba38748745f-app  Created
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:14.9200630Z  Container ezcorp-legacy-adoption-v4-0ba38748745f-app  Starting
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:17:15.0765103Z  Container ezcorp-legacy-adoption-v4-0ba38748745f-app  Started
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:24:27.1478804Z LEGACY_ADOPTION_ASSERTED
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:24:27.9622381Z LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:24:28.6402691Z Legacy adoption receipts: .cache/production-lifecycle/legacy-adoption/legacy
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:24:28.6461806Z legacy-adoption	0	2026-10-09T23:13:49.132Z	2026-10-09T23:24:28.642Z	639510	legacy-adoption
+Production proof (content)	Run the assigned production proofs	2026-10-09T23:24:28.6495771Z ##[error]Process completed with exit code 1.
+
+## Per-file coverage gate (19 lines; 19 kept)
+Per-file coverage gate	Require coverage producers to have succeeded	﻿2026-10-09T23:20:09.8532068Z ##[group]Run if [ "success" != "success" ] || \
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8533580Z ^[[36;1mif [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8534854Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8536138Z ^[[36;1m   [ "cancelled" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8537404Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8538854Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8540107Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8541367Z ^[[36;1m   [ "success" != "success" ] || \^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8542602Z ^[[36;1m   [ "success" != "success" ]; then^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8544265Z ^[[36;1m  echo "::error::coverage producers failed — coverage data is incomplete"^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8545857Z ^[[36;1m  exit 1^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8546749Z ^[[36;1mfi^[[0m
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8810886Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8812274Z env:
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8813255Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8814631Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.8815758Z ##[endgroup]
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.9010042Z ##[error]coverage producers failed — coverage data is incomplete
+Per-file coverage gate	Require coverage producers to have succeeded	2026-10-09T23:20:09.9024421Z ##[error]Process completed with exit code 1.
+
+## Production image extension lifecycle (14 lines; 14 kept)
+Production image extension lifecycle	Require the candidate and every proof runner	﻿2026-10-09T23:24:37.1384083Z ##[group]Run if [[ "$CANDIDATE_RESULT" != success || "$PROOFS_RESULT" != success ]]; then
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1386238Z ^[[36;1mif [[ "$CANDIDATE_RESULT" != success || "$PROOFS_RESULT" != success ]]; then^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1388314Z ^[[36;1m  echo "::error::Candidate image or production proof runners did not all succeed."^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1390116Z ^[[36;1m  exit 1^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1390889Z ^[[36;1mfi^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1631771Z shell: /usr/bin/bash -e {0}
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1633147Z env:
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1634143Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1635550Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1636738Z   CANDIDATE_RESULT: success
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1637773Z   PROOFS_RESULT: failure
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1638750Z ##[endgroup]
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1830930Z ##[error]Candidate image or production proof runners did not all succeed.
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T23:24:37.1845368Z ##[error]Process completed with exit code 1.
+
+## E2E (mock, no Docker) (14 lines; 14 kept)
+E2E (mock, no Docker)	Aggregate required browser results	﻿2026-10-09T23:24:41.7915621Z ##[group]Run echo "mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success"
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.7918443Z ^[[36;1mecho "mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success"^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.7921318Z ^[[36;1mif [ "success" != success ] || [ "success" != success ] || [ "success" != success ] || [ "failure" != success ] || [ "success" != success ] || [ "success" != success ]; then^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.7924855Z ^[[36;1m  echo "::error::A required browser lane, route coverage, production-image verification, or extension browser engine validation failed."^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.7926924Z ^[[36;1m  exit 1^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.7927709Z ^[[36;1mfi^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.8931748Z shell: /usr/bin/bash -e {0}
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.8932818Z env:
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.8933365Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.8934030Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.8934640Z ##[endgroup]
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.9141911Z mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.9174292Z ##[error]A required browser lane, route coverage, production-image verification, or extension browser engine validation failed.
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T23:24:41.9191487Z ##[error]Process completed with exit code 1.

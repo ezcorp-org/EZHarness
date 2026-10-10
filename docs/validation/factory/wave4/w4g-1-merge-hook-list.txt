@@ -1,0 +1,2 @@
+scripts/build-workspace-packages.test.ts
+scripts/container-workspace-registration.test.ts

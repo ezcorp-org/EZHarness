@@ -1,0 +1,3 @@
+scripts/lib/bundled-bootstrap-progress.test.ts
+scripts/lib/shipping-bootstrap-state.test.ts
+src/__tests__/e2e-bundled-bootstrap-wait.test.ts

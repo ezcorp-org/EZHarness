@@ -1,0 +1,60 @@
+W18 item C2 (wp/w18-hygiene-c2): final re-diff at 7ad678bb3, base integ/w00 d9d75f3be (W18c landed). validator-5,
+2026-09-29. "No open findings" HOLDS. validator-3's ACCEPT at 2e7b2850c carries over to 7ad678bb3. N1 stays informational.
+Receipts: /tmp/factory-platform-evidence/w18-hygiene-validation/v5-rediff-7ad678bb3/ (results.jsonl, logs/, range, merge and split
+diffs, hook-mapping-recomputed.txt) and rediff-7ad678bb3.out.
+
+- Shape: 2e7b2850c (validator-3's accepted head) is intact under the head. Over it, on the first-parent line, there are
+  exactly two commits: d80f7cc60, the --no-ff merge whose second parent is d9d75f3be, and 7ad678bb3, the split commit.
+- Identity: all 21 commits over d9d75f3be are archy <281643943+EZArchy@users.noreply.github.com>, as author and as committer.
+- C2's net patch (d9d75f3be..7ad678bb3) against its accepted patch (5da8fffed..2e7b2850c), file by file: 71 files, 0
+  unexpected changes. Only src/__tests__/gate-scripts.test.ts and packages/@ezcorp/sdk/src/test/filesystem.ts differ; both
+  are shared with W18c. scripts/gate-integrity.ts merged with C2's patch unchanged.
+- W18c's landed form is kept:
+  - Check 11 is present (COVERAGE_GATE_TOOLS and coverageGateToolViolations).
+  - The fs-stub's per-test restore (onTestFinished) is present.
+  - All of W18c's 262 gate-scripts test names are present, except three combined cases that are split by name, which I
+    read:
+    - "fails closed without TypeScript, then parses asserted and vacuous changed tests" is now 4 single-spawn cases.
+    - "the real gate: a planted edit in merge-lcov.ts fails, the unchanged tool set passes" is now 2 cases.
+    - "cover changes, reject missing measurements, and fail closed on an absent base" is now 7 cases, 2, 3 and 2, named
+      by those three parts.
+    - The head-side-read test keeps its name and gains the case "the committed head, an asserted test added above an old
+      unasserted one, passes".
+- Split commit 7ad678bb3:
+  - Its patch-id (73a0f10c81c33c47) equals the prep split 518ea3038 that I reviewed.
+  - 27 expect() lines removed and 27 added, the same multiset; the one textual change is runGate(...) to gate.runGate(...)
+    on the same fixture.
+  - One file changed, archy noreply.
+- Merge d80f7cc60's hook skip (EZ_SKIP_HOOK_TESTS=1 under the lead's list-bound ruling):
+  - I recomputed the mapping myself through the merge's own scripts/lib/hook-lib.sh staged_test_targets, over its 712 ACMR
+    paths against the first parent: 187 suites, plus the orchestrator package run, because orchestrator paths are staged.
+  - That set equals the 187 suites listed in the merge message, in both directions.
+  - Each of the 187 has exactly one receipt in hook-run/receipts at d80f7cc60, with exit 0, fail 0 and pass > 0. So does
+    the orchestrator package's bun run test. 188 receipts in total, none for an unlisted file.
+  - The owner's first factory-gateway-process red, from the wrapper's missing DATABASE_URL, is kept in red-run1/, and it
+    was rerun green.
+- Run alone at 7ad678bb3 under bun and bunx 1.3.14, each count nonzero:
+  - gate-scripts 248/0, with 623 expect() calls (the prepared number; the base did not change it)
+  - git-spawn-context-guard 19/0
+  - mock-cleanup-coverage 44/0
+  - web-mock-pair-pollution 5/0
+  - filesystem-harness 9/0
+  - the fs-stub pair (auto-note, then docs-updater's index.integration) 124/0
+- Static checks, all exit 0: typecheck, lint, and gate-integrity against d9d75f3be with the head's script. C2 touches no
+  watched coverage tool.
+- The shared .git/config sha256 was 44962525f1ca1a8b at start and at end. The tree was clean.
+- Script fault, fixed during this run: my message parser first took a prose mention "(gate-scripts.test.ts from 2e096117e)"
+  as a list entry. It now reads only whole-line path entries. The result above is from the corrected run.
+- Checks added by the lead's order:
+  - The ruled list sha256 ed8c3214ce09f6f6fb3c3166b61cb8002fa49694fb924e658efdef51488890d5 equals hookmap/hook-printed.txt
+    and hookmap/merge-d9d75f3be-hook-mapped.txt. The 187 files the hook printed at commit time (merge-commit-hook.log, "187
+    test files map to this commit ... EZ_SKIP_HOOK_TESTS=1 set — skipping the 187 file(s) above") are exactly that list, and
+    exactly my recomputed mapping.
+  - merge-commit-msg.txt is d80f7cc60's message (it differs only by git's trailing newline) and holds the ruling text
+    verbatim, including the VOID condition.
+  - d80f7cc60's tree is 3cb5bc7c3, the ruled trial tree.
+  - Hook-run receipts: 188 at d80f7cc60, 2908 pass, 0 fail.
+  - The owner's coverage gates at 7ad678bb3 against d9d75f3be (coverage-driver.log, head 7ad678bb3, dirty 0, config hash
+    44962525f1ca1a8b): 41 suites, 1020 pass, 0 fail, every exit 0. New-file PASSED (1 new source file gated). Patch PASSED
+    (7 files).
+- No heavy leg was needed: every suite above runs alone, and none starts a service.

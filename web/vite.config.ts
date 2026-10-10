@@ -3,6 +3,7 @@ import tailwindcss from '@tailwindcss/vite';
 import { visualizer } from 'rollup-plugin-visualizer';
 import { defineConfig } from 'vite';
 import { fileURLToPath } from 'node:url';
+import { previewPipelineGuard } from './src/lib/build/preview-pipeline-guard';
 
 const emptyNodeShim = fileURLToPath(
 	new URL('./src/lib/empty-node-shim.ts', import.meta.url),
@@ -26,6 +27,8 @@ export default defineConfig({
 	},
 	plugins: [
 		tailwindcss(),
+		// Before sveltekit(): Bun 1.4.0-1.4.2 kill vite preview on a pipelined request (see the file).
+		previewPipelineGuard(),
 		sveltekit(),
 		visualizer({ emitFile: true, filename: 'stats.html' })
 	],

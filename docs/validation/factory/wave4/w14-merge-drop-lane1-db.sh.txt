@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Drops exactly the product database the failed W14-merge lane run 1 kept for diagnosis (integrator's own scratch).
+set -u
+set -a; . /tmp/factory-platform-evidence/postgres.env; set +a
+port=$(podman port factory-platform-proof-postgres 5432 | head -1 | sed 's/.*://')
+export PGHOST=127.0.0.1 PGPORT=$port PGUSER=$POSTGRES_USER PGPASSWORD=$POSTGRES_PASSWORD PGDATABASE=$POSTGRES_DB
+unset POSTGRES_PASSWORD
+nix-shell -p postgresql_16 --run "psql -X -q -A -t -c 'DROP DATABASE IF EXISTS \"factory_services_product_1790490902705_5ab6bc\" WITH (FORCE)' -c \"SELECT count(*) FROM pg_database WHERE datname = 'factory_services_product_1790490902705_5ab6bc'\""

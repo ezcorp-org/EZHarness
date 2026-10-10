@@ -1,0 +1,232 @@
+diff --git a/src/__tests__/cov-fix-connection-postgres.test.ts b/src/__tests__/cov-fix-connection-postgres.test.ts
+index 83724244b..ee7eda5ab 100644
+--- a/src/__tests__/cov-fix-connection-postgres.test.ts
++++ b/src/__tests__/cov-fix-connection-postgres.test.ts
+@@ -79,6 +79,8 @@ interface FakeSqlClient {
+   close?: () => Promise<void>;
+   reserve?: () => Promise<FakeSqlClient>;
+   release?: () => void;
++  /** How many times this client's pool was drained. */
++  closed?: number;
+ }
+ 
+ /** A fake driver's answer: the bounded migrate lock's try-lock takes the lock; everything else returns no rows. */
+@@ -86,6 +88,31 @@ function grant(strings: TemplateStringsArray): Promise<unknown[]> {
+   return Promise.resolve(strings.join("").includes("pg_try_advisory_lock") ? [{ locked: true }] : []);
+ }
+ 
++/**
++ * The Bun.sql pool the opener seam hands initPostgres. A callable tagged
++ * template (advisory lock/unlock) that also exposes .close() for the drain
++ * branch. No `reserve` → the lock is taken on this bare client (the
++ * reserve-absent fallback) unless a test installs one.
++ */
++function createFakeSqlClient(): FakeSqlClient {
++  const client: FakeSqlClient = Object.assign(
++    (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
++      sqlCalls.push(strings.join("?"));
++      return grant(strings);
++    },
++    {
++      closed: 0,
++      close: async (): Promise<void> => {
++        client.closed = (client.closed ?? 0) + 1;
++      },
++    },
++  );
++  return client;
++}
++
++/** Every Bun.sql pool the opener seam has handed out, in open order. */
++const openedClients: FakeSqlClient[] = [];
++
+ function createReservedClient(events: string[]): FakeSqlClient {
+   return Object.assign(
+     (strings: TemplateStringsArray): Promise<unknown[]> => {
+@@ -100,21 +127,18 @@ interface FakePool {
+   execute: (...a: unknown[]) => Promise<unknown[]>;
+   transaction: (fn: (tx: FakeTx) => unknown, config?: unknown) => Promise<unknown>;
+   $client: FakeSqlClient;
+-  /** How many times THIS pool was drained. */
+-  closed: number;
++  /** How many times THIS pool's current client was drained. */
++  readonly closed: number;
+ }
+ 
+ /**
+- * A fresh fake pool per `drizzle()` call. Distinct instances (rather than one
+- * shared singleton) are what make the stale-pool reclaim observable: the guard
+- * must close the pool opened by the PREVIOUS boot, not the current one.
+- *
+- * `$client` is a callable tagged template (advisory lock/unlock) that also
+- * exposes .close() for the pool-drain branch. No `reserve` → the lock is taken
+- * on this bare client (the reserve-absent fallback).
++ * A fresh fake Drizzle handle per `drizzle()` call, around the client it was
++ * given. Distinct instances (rather than one shared singleton) are what make
++ * the stale-pool reclaim observable: the guard must close the pool opened by
++ * the PREVIOUS boot, not the current one.
+  */
+-function createFakePool(client?: FakeSqlClient): FakePool {
+-  const pool: FakePool = {
++function createFakePool(client: FakeSqlClient): FakePool {
++  return {
+     // Returns an array so initPostgres's execute() wrapper normalizes it to
+     // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
+     // marker/column scans to no-op.
+@@ -123,20 +147,9 @@ function createFakePool(client?: FakeSqlClient): FakePool {
+     // transaction object off the driver's class prototype), which is exactly
+     // why `db.execute`'s own wrap never reached `tx.execute` before this fix.
+     transaction: async (fn: (tx: FakeTx) => unknown, _config?: unknown) => fn(createFakeTx()),
+-    $client: client ?? Object.assign(
+-      (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
+-        sqlCalls.push(strings.join("?"));
+-        return grant(strings);
+-      },
+-      {
+-        close: async (): Promise<void> => {
+-          pool.closed += 1;
+-        },
+-      },
+-    ),
+-    closed: 0,
++    $client: client,
++    get closed() { return client.closed ?? 0; },
+   };
+-  return pool;
+ }
+ 
+ /** Every pool the driver has handed out, in open order. */
+@@ -158,9 +171,12 @@ const origJsonMapper = (PgJson.prototype as any).mapToDriverValue;
+ // loaded connection module's `./migrate` import and its lazy
+ // `import("drizzle-orm/bun-sql")`.
+ mock.module("drizzle-orm/bun-sql", () => ({
+-  drizzle: (config?: { client?: FakeSqlClient }) => {
+-    const pool = createFakePool(config?.client);
+-    if (config?.client) {
++  // initPostgres always hands Drizzle a client now (its swap point); the
++  // migration handle is the one built around a RESERVED connection, which is
++  // the only client with `release`.
++  drizzle: (config: { client: FakeSqlClient }) => {
++    const pool = createFakePool(config.client);
++    if (typeof config.client.release === "function") {
+       reservedMigrationPools.push(pool);
+       return pool;
+     }
+@@ -181,6 +197,11 @@ mock.module("../db/migrate", () => ({
+ }));
+ 
+ const conn = await import("../db/connection");
++conn.__test.setBunSqlPoolOpener(() => {
++  const client = createFakeSqlClient();
++  openedClients.push(client);
++  return client as never;
++});
+ 
+ afterAll(() => {
+   // Restore the real driver + migrate for any later test file.
+@@ -192,6 +213,7 @@ afterAll(() => {
+   // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   (PgJson.prototype as any).mapToDriverValue = origJsonMapper;
+   conn.__test.setState(null, null);
++  conn.__test.setBunSqlPoolOpener(null);
+   setReadiness({ state: "ready" });
+   restoreModuleMocks();
+ });
+@@ -261,7 +283,7 @@ describe("withPostgresMigrateLock — reserved migration failure cleanup (unit,
+   test("unlocks and releases the reserved client when its callback throws", async () => {
+     const events: string[] = [];
+     const reserved = createReservedClient(events);
+-    const primaryPool = createFakePool();
++    const primaryPool = createFakePool(createFakeSqlClient());
+     primaryPool.$client.reserve = async () => reserved;
+     conn.__test.setState(primaryPool, null);
+ 
+@@ -384,3 +406,44 @@ describe("initPostgres — tx.execute() is normalized the same as db.execute()",
+     await conn.closeDb();
+   });
+ });
++
++/**
++ * W09f: a Bun.sql connection whose prepared-statement bookkeeping has gone out
++ * of step with the server fails every request pipelined behind it with the
++ * same 08P01. Bun cannot evict one pooled connection, so the process replaces
++ * the pool behind Drizzle's client and keeps the same `db`.
++ */
++describe("recoverFromDriverDesync — the external pool is discarded after a statement desync", () => {
++  const desync = () => new Error("Failed query: SELECT audit.project_id", {
++    cause: Object.assign(new Error('bind message supplies 2 parameters, but prepared statement "Pselect $5" requires 1'), { errno: "08P01", routine: "exec_bind_message" }),
++  });
++
++  test("replaces the pool under the same Drizzle handle and drains the old one", async () => {
++    await conn.__test.initPostgres();
++    const db = conn.getDb();
++    const poisoned = openedClients.at(-1)!;
++    expect(await conn.recoverFromDriverDesync(desync(), () => 1_000_000)).toBe(true);
++    const fresh = openedClients.at(-1)!;
++    expect(fresh).not.toBe(poisoned);
++    expect(poisoned.closed).toBe(1);
++    // Same handle, new pool: new work reaches the fresh client.
++    expect(conn.getDb()).toBe(db);
++    expect((db.$client as FakeSqlClient).closed).toBe(0);
++    await conn.closeDb();
++    expect(fresh.closed).toBe(1);
++  });
++
++  test("leaves the pool alone for an ordinary failure, a repeat inside the interval, and no external pool", async () => {
++    await conn.__test.initPostgres();
++    const before = openedClients.length;
++    expect(await conn.recoverFromDriverDesync(new Error("duplicate", { cause: { errno: "23505" } }), () => 2_000_000)).toBe(false);
++    expect(await conn.recoverFromDriverDesync(desync(), () => 2_000_000)).toBe(true);
++    // Work already queued on the old pool reports the same desync; that is
++    // not a new poisoning, so it does not replace the fresh pool.
++    expect(await conn.recoverFromDriverDesync(desync(), () => 2_005_000)).toBe(false);
++    expect(await conn.recoverFromDriverDesync(desync(), () => 2_010_000)).toBe(true);
++    expect(openedClients.length).toBe(before + 2);
++    await conn.closeDb();
++    expect(await conn.recoverFromDriverDesync(desync(), () => 3_000_000)).toBe(false);
++  });
++});
+diff --git a/web/src/lib/server/factory-boot.ts b/web/src/lib/server/factory-boot.ts
+index 8ab7c7abc..133c59039 100644
+--- a/web/src/lib/server/factory-boot.ts
++++ b/web/src/lib/server/factory-boot.ts
+@@ -15,6 +15,7 @@
+ import { startFactoryInstallation, type FactoryInstallationStartup } from "$server/factory/installation-startup";
+ import { FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
+ import { setReadiness } from "$server/readiness";
++import { errorChain } from "$server/db/error-chain";
+ import type { TransactionalDb } from "$server/db/migrations/types";
+ 
+ export interface FactoryHostBootDependencies {
+@@ -24,6 +25,12 @@ export interface FactoryHostBootDependencies {
+   readonly boot: FactoryBootConfig;
+   readonly registerTeardown: (name: string, fn: () => Promise<void> | void) => void;
+   readonly log: Pick<Console, "info" | "error">;
++  /**
++   * Discard the database pool after a driver statement desync and say whether
++   * it did (`recoverFromDriverDesync`). A role that retried on a poisoned
++   * connection would fail the same way forever (W09f).
++   */
++  readonly recoverDatabase: (error: unknown) => Promise<boolean>;
+   /** Overrides {@link FACTORY_BOOT_BOUND_MS}. */
+   readonly bootBoundMs?: number;
+   /** How the host ends itself when boot outlives its bound. Defaults to `process.exit`. */
+@@ -89,8 +96,17 @@ export async function startFactoryForHost(
+         // run-inputs resolver it builds; naming it here would shadow that.
+         runOptions: hostRunOptions(env),
+         availableResourceClasses: (env.EZCORP_FACTORY_RESOURCE_CLASSES ?? "cpu").split(",").map((value) => value.trim()).filter(Boolean),
++        // The causes carry the server's own words (SQLSTATE, routine,
++        // statement); the top message of a driver error is only the query.
++        // After a driver statement desync the pool is replaced, so the role's
++        // retry reaches a fresh connection instead of the poisoned one.
+         report: (role, error) => {
+-          dependencies.log.error("[factory] background role failed", { role, error: String(error) });
++          const causes = errorChain(error).slice(1);
++          dependencies.log.error("[factory] background role failed", causes.length > 0 ? { role, error: String(error), causes } : { role, error: String(error) });
++          dependencies.recoverDatabase(error).then(
++            (replaced) => { if (replaced) dependencies.log.info("[factory] database pool replaced after a driver statement desync", { role }); },
++            (cause: unknown) => { dependencies.log.error("[factory] database pool replacement failed", { role, error: String(cause) }); },
++          );
+         },
+       },
+       databaseUrl: dependencies.databaseUrl,

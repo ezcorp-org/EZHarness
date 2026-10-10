@@ -1,0 +1,19 @@
+W4H-3c (scripts tests typechecked), 2026-10-04. Branch wp/w4h-3c, base integ/w00 edd373c59, head 67b1e13ec.
+Commits (archy noreply, author and committer):
+  eedfeab4a test(factory): typecheck scripts/**/*.test.ts in the backend test program            hook 1
+  758f4bf27 test(factory): the Temporal authorizer rejects a token whose payload is not JSON     hook 1
+  67b1e13ec docs(factory): W4H-3c gate file and todo section                                     hook 0
+Files: tsconfig.tests.json (one include), scripts/factory-temporal-authorizer.mjs (JSDoc only), scripts/lib/shipping-bootstrap-state.test.ts,
+  scripts/factory-temporal-authorizer.test.ts, tasks/factory/w4h-3c-GATES.md, tasks/todo.md. Under the 10-file stop line.
+
+Red at base: the base has no WorkflowStep.env (W4H-3b is unmerged), so the equivalent mutant drops WorkflowStep.shell (read only by
+  scripts tests). `bun run typecheck` exit 0 with it. red-mutant-typecheck.log, mutant.diff.
+Include: 46 of 46 scripts test files in the program. 8 errors in 2 files, fixed at the root (gate file lists file:line and fix).
+Green: the same mutant fails typecheck (TS2339 in two registration tests): green-mutant-typecheck.log. With W4H-3b's diff applied, the
+  program is clean and validator-6's `env` mutant fails with 4 errors: with-w4h-3b.log.
+Legs: typecheck 0, lint 0, boundaries 0; guard set 41 files 498 pass 2 skip 0 fail; coverage shipping-bootstrap-state.ts 78/78,
+  factory-temporal-authorizer.mjs 70/70; new-file and patch vs edd373c59 PASSED; vs origin/main both fail branch-wide (not this
+  package's files); gate-integrity vs origin/main: the eight standing findings; vs edd373c59: PASSED. Prune scan clean.
+CI: job `typecheck` (ci.yml, ubuntu-latest, 10 min timeout) runs `bun run typecheck` -> scripts/typecheck-tests.ts. Program 7306 -> 7376
+  files (+70). Local tests leg 31-38 s at head vs 37-50 s at base: within host noise (runtime.log).
+Merge: clean with integ/w00 and wp/w4h-3b.

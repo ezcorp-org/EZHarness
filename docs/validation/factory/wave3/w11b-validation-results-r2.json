@@ -1,0 +1,73 @@
+{
+  "schemaVersion": "factory.w11b-validation-results.v1",
+  "package": "W11b",
+  "round": 2,
+  "validator": "w11b-validation (independent, read-only)",
+  "verdict": "ACCEPT",
+  "head": "4dddf093400c5086014f5315e032562b6aafda16",
+  "branch": "wp/w11b-image-egress",
+  "mergeBaseWithIntegW00": "7d99dc75bc6da35f17c36a87ecad9cd9c3a8f1c6",
+  "integW00TipAtValidationTime": "63cd5afdccfd91f6563eb2f4016f4d3859e81efb",
+  "treeState": {
+    "gitStatusPorcelain": "empty",
+    "leafOwnCommitsSinceRound1": [
+      { "sha": "eb623ddd4afc6aec867373e03c7e5e9de2b72bb0", "subject": "docs(factory): seal the W11b receipts index after its producers, not before", "filesChanged": ["tasks/factory/w11b-GATES.md"] },
+      { "sha": "4dddf093400c5086014f5315e032562b6aafda16", "subject": "docs(factory): close the image pack's egress rows on the landed handover", "filesChanged": ["tasks/factory/w11b-GATES.md"] }
+    ],
+    "note": "Both leaf-authored commits touch only the gate file. The behavior change (B1/B6/B7 closing) comes entirely from merging integ/w00 at 7d99dc75b, which carries commit 26bafa23d (W01d, the runner-owned material directory handover) -- confirmed real and landed, not merely claimed."
+  },
+  "priorFindingsStatus": {
+    "F1_processConsistency": {
+      "roundOneSeverity": "medium",
+      "status": "closed by design, per team lead",
+      "note": "Team lead states the caller-side handover removal was on their instruction, and W12's interim copy is being deleted now that W01d landed. Independently confirmed W01d actually landed (packages/@ezcorp/extension-runner/src/podman.ts:handOverMaterials in commit 26bafa23d, merged via 7d99dc75b) and does exactly what the gate file claims: refuses a directory it does not own, chmod 0o770, then podman unshare chown to guest uid 65534 with gid 0. scripts/verify-factory-image-pack.ts's prepareMaterialDirectory now does only mkdir. No further action needed."
+    },
+    "F2_staleChecksum": {
+      "roundOneSeverity": "low",
+      "status": "closed, verified byte-for-byte",
+      "note": "receipts.json is now sealed as the last step (commit eb623ddd4) with every *Digest field derived by pairing it with its path field. Independently recomputed sha256 for all 8 digested artifacts in the receipt (gates.log, gates-w01d.log, journey-mount.json, publication.json, journey-w01d.json, journey-w01d-round2.json, publication-w01d.json, and the gateFileDigest copy of w11b-GATES.md) -- every one matches exactly."
+    }
+  },
+  "independentReruns": [
+    { "command": "bun test --timeout 30000 --coverage (6 reference-image files + check-factory-boundaries.test.ts)", "exitCode": 0, "result": "194 pass / 0 fail / 447 assertions across 7 files -- matches receipts.json's 'gates-w01d' typescript field exactly" },
+    { "command": "bun run typecheck", "exitCode": 0, "result": "backend, web, tests, e2e, Python (mypy --strict) all clean" },
+    { "command": "bun run lint", "exitCode": 0, "result": "0 errors (8 pre-existing infos in an unrelated file)" },
+    { "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0, "result": "F07/F13 pass" },
+    { "command": "bun scripts/gate-integrity.ts", "exitCode": 0, "result": "no gate-weakening or test-cheating detected" },
+    { "command": "nix-shell -p uv --run 'bash scripts/python-quality.sh all'", "exitCode": 0, "result": "183 test cases; 100% of 691 statements / 212 branches for src/factory/reference-image/python -- matches receipts exactly" },
+    { "command": "own bun scripts/merge-lcov.ts merge (bun round-2 focused suite + fresh python lcov)", "exitCode": 0, "result": "568 source files merged; materials.ts measured 72/72 lines (100%)" },
+    { "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exitCode": 0, "result": "PASSED: 1 new source file gated" },
+    { "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exitCode": 0, "result": "PASSED: all changed executable lines covered (2 files)" },
+    { "command": "flock /run/user/1001/ezcorp-factory-local-gpu.lock flock /tmp/ezcorp-validation-heavy.lock timeout 6600 bun scripts/verify-factory-image-pack.ts --label w11b-validator-r2 --fixtures --out <own path>", "exitCode": 0, "result": "own independent GPU journey, run entirely under the real landed W01d contract (no caller-side chmod/chown anywhere in this leaf's own script); all four seeds (11/23/37/53) egressed sealed-from-material-mount with no EPERM and no deferred-over-budget; all four byte-level claims (single-frame, dimensions-color, size, no-extra-payload) PASS on all four seeds; ocr-no-text correctly discriminated (seed 23 PASS, seeds 11/37/53 FAIL on real recognized text); both fixtures (sale-caption, blank-control) round-tripped via fetched-and-verified and behaved as expected (sale-caption failed ocr-no-text alone, blank-control passed all five); round reasonCode round.unmeasured because G16 (model credential) is absent, correctly not claimed as accepted" },
+    { "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 300 bun scripts/verify-factory-image-publication.ts --variant <own seed-23.normalized.png> --out <own path>", "exitCode": 0, "result": "own independent S3 publication rerun against the real store, using the accepted variant (seed 23) from my own GPU journey above, digest sha256:21b0fa6177170166a0c882a4039bfa27227a7d4db5e920fb2c9255f9e8d109a9, 998116 bytes; both accepted-variant.png and evidence.json show matchesReceipt=true and matchesSource=true (digest recomputed from the real SeaweedFS store read-back matches what was sent); repeat publish refused with factory_s3_manifest_published; the script's own finally block deleted exactly the object/manifest keys it created, so no store cleanup was needed from me" }
+  ],
+  "notRerun": [
+    "tests/postgres/factory-*.test.ts -- still no migration/schema file in this leaf's own diff (the two leaf commits touch only tasks/factory/w11b-GATES.md); the merged-in W01d/W12/W03c commits are other packages' own validated changes, out of scope for this round per the team lead's brief"
+  ],
+  "codeReview": {
+    "runnerHandoverVerified": "packages/@ezcorp/extension-runner/src/podman.ts (commit 26bafa23d, now merged) adds PodmanRunner.handOverMaterials: refuses a path that is not a real directory owned by the runner (lstat + uid check), sets mode 0o770, THEN podman-unshare-chowns to guest uid 65534 with gid 0 -- read directly, not inferred from prose. scripts/verify-factory-image-pack.ts's prepareMaterialDirectory (line 221-223) is now exactly 'await mkdir(directory, { recursive: true })' and nothing else.",
+    "noChmodChownRemains": "grep -rn 'chmod|chown|0o777|0777' across src/factory/reference-image/*.ts and scripts/verify-factory-image-pack.ts returns only prose in doc comments explaining the removed history -- zero executable occurrences, same as round 1.",
+    "digestChainVerified": "Independently recomputed sha256 for every *Digest-referenced file in receipts.json; all 8 match exactly, resolving F2 from round 1."
+  },
+  "findings": [],
+  "planConformance": {
+    "planSection": "W11 (parent, already accepted) -- W11b closes G15 and G18b specifically",
+    "bullets": [
+      { "bullet": "Execute seeds 11/23/37/53 in isolated GPU jobs (byte egress for the >1 MiB variants)", "proof": "Now proven under the landed contract: worker's logs/journey-w01d.json and logs/journey-w01d-round2.json (8 real 1024x1024 variants across two rounds, seven exceeding the 1,048,576-byte control-channel budget, all sealed-from-material-mount), PLUS my own independent rerun (4 more real variants, same result). All with zero caller-side chmod/chown." },
+      { "bullet": "published through W08 with exact verified bytes", "proof": "Worker's logs/publication-w01d.json (seed 23, 1,236,981 bytes, matchesReceipt/matchesSource true) PLUS my own independent rerun (seed 23 from my own journey, 998,116 bytes, matchesReceipt/matchesSource true, repeat refused, keys self-cleaned)." },
+      { "bullet": "every failed variant remains visible", "proof": "Both worker runs and my own rerun record every seed's full claim set including failures, never discarding a failed variant." },
+      { "bullet": "a round in which nothing passes is rejected, and the second round uses a revised prompt (C10 remedy, new B9)", "proof": "Worker's round 1 with the reference-brief prompt produced round.rejected with all four variants visible; round 2 used a revised prompt naming the failure (no text/letters/numbers/watermark/signature) rather than retrying the same prompt, and was not run a third time. Read and confirmed consistent with C10's 'at most two candidate rounds, revised prompt only in the second' rule." }
+    ]
+  },
+  "gateIntegrityAndDry": {
+    "loweredThresholds": "none found",
+    "newExcludes": "none found",
+    "skipOnlyTodo": "none found",
+    "gateWeakening": "none -- gate-integrity.ts exits 0"
+  },
+  "securityPosture": {
+    "credentialsInEvidence": "none found; EZCORP_FACTORY_STORAGE_SECRETS_DIR path referenced but no secret VALUE printed anywhere by me or in the receipts",
+    "storeHygiene": "the publication script's finally block deletes exactly the keys it created on every run (worker's and mine); no leftover objects",
+    "noComposeOrStoreManagement": "confirmed -- I ran no compose/docker/podman restart or storage setup command; only flock-wrapped test/journey producers"
+  }
+}

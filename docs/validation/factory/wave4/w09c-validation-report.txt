@@ -1,0 +1,119 @@
+W09c validation: compose the release profile set from the declaration
+======================================================================
+Validator: independent validator, 2026-09-24
+Head validated: wp/w09c-profiles a5a0069d5. The tree is clean, and integ/w00 873b04759 is merged
+(integ/w00 has since moved to d5ee52309, 16 commits ahead).
+Proof merge (mine): 42b2550ee. Parents: a5a0069d5 (wp/w09c-profiles) and f0aafe3a0 (wp/w01g-staging,
+current head, as instructed; the worker used b6fee475a).
+Evidence: /tmp/factory-platform-evidence/w09c-validation/ (final/, logs/, receipts/, lcov/, repro/)
+
+VERDICT: ACCEPT
+
+A release is published end to end through the real started application from a declared destination
+and profile. My three passes and both controls reproduce every claim on fresh databases. Every
+producer is green at the head. The member-scope fix is additive to W04a, fails closed by name, and
+carries more tests than claimed. The shared store is left clean. The findings are all low and are
+documentation or disclosure gaps.
+
+
+1. PROOF MERGE
+The merge conflicted in installation-startup.ts and tasks/todo.md. I kept both sides: W09c's
+`application: createReleaseOperations` and W01g's guest-broker listener and readiness. My resolution
+equals the worker's 0ee226cb7 apart from field order. My product tree differs from the worker's only
+by W01g's commits after b6fee475a (executions.ts, private-service-composition.ts, and tests).
+
+
+2. RERUNS (one heavy-lock hold, 00:17 to 00:33; df before 112 GB free, after 110 GB free, 94% used)
+
+| Producer                                                      | Exit | Result                              |
+|---------------------------------------------------------------|------|-------------------------------------|
+| Temporal suite via its own node --test harness                | 0    | 27 tests, 27 pass                   |
+| PostgreSQL/S3 producers with coverage (5 files)               | 0    | 73, 73, 5, 1, 18 pass               |
+| W04a PostgreSQL archive-writer suite                          | 0    | 10 pass                             |
+| typecheck, lint, boundaries, gate-integrity                   | 0    |                                     |
+| focused suites with coverage (15 files, including W04a's)     | 0    | all pass                            |
+| merge-lcov, then new-file and patch coverage, BASE_REF=integ/w00 | 0 | both PASSED                         |
+| three passes and two controls (final/run-three.sh)            | 0    | 5 of 5 as claimed                   |
+| cleanup of published objects, by exact version                | 0    | 9 removed                           |
+| read-only check of the store after cleanup                    | 0    | 9 keys checked, 0 versions remain   |
+
+Pass facts (fresh product database each; producing commit 42b2550ee; clean; recordFresh):
+- proof-1, proof-2, and proof-3:
+  - Acceptance was accepted, and the real contract route PUT release/contracts answered 200.
+  - Approval request and decide both answered 200.
+  - The operation succeeded/confirmed at tenant-01 / releases/pass-* with estimated spend 1000.
+  - The manifest in the ordinary store names data/part-0.csv and data/part-1.csv.
+  - The published bytes read back equal the guest's sealed output.
+  - The release-outcome event was applied, and the run timeline was queued, running, succeeded.
+- negative-undeclared-destination: factory_s3_profile_invalid at prepare. No operation, no manifest.
+  The run failed.
+- negative-revoked-policy: policy put 200 and revoke 200. The claim was refused with policy_revoked.
+  The operation stayed pending, with no manifest and no outcome event.
+
+
+3. RULINGS VERIFIED
+- Member-scope fix 06f886b61 is additive to W04a and disclosed (G14). I read it in full.
+  - archive-writer.ts gains optional `source`, `evidence` locations, and an `outputs` reader.
+  - With no locations, factoryArchiveMemberPlan keeps W04a's plan exactly.
+  - release-publication-set.ts evidenceLocations resolves each evidence member from durable records.
+    A sealed material is found in factory_artifact_materials. An attempt output is found in
+    factory_execution_terminals.
+  - A member is admitted only if its attempt is the verified candidate attempt, or a validator
+    assignment binds it to this candidate: same run, node instance, and candidate generation.
+  - A member with no record is refused factory_archive_member_scope_missing. An unbound attempt is
+    refused factory_archive_member_unbound. Neither falls back to the candidate scope.
+  - FactoryPublicationOutputReader re-proves the terminal names exactly that artifact, digest, and
+    size. It then loads the artifact through artifacts.loadInTransaction.
+- W04a suites are unchanged: no diff since the merge base in archive-writer.test.ts,
+  archive-writer.integration.test.ts, tests/postgres/factory-archive-writer.test.ts, or the suite
+  registration test. They are green: the first two in my focused leg, and the PostgreSQL suite 10/0.
+- Fix off: I turned off only the resolver's locations (sourcesFor returns no `evidence`) in a
+  scratch copy and ran the full PGlite lifecycle suite. Result: 67 pass, 6 fail, with
+  factory_archive_member_unavailable in the output. The worker reported four; their log ran a
+  filtered subset (0 pass, 4 fail). My full run adds two more red cases: "a delivery can never
+  reach another tenant" and "a revoked automatic policy and a rejected approval each fail the claim
+  by name". The fix carries more tests than claimed. That is an understatement, not a defect.
+- Authority answers match the contract (docs/plans/2026-09-12-composable-factory-platform-contracts.md):
+  - Line 33: "Creating a new project grants its owner author/publish/run/operate rights, but no
+    automatic release policy."
+  - Lines 28 and 30 make factory.approve and factory.release explicit project grants.
+  - Line 33 ends "This is human control, not a promise of two-person review."
+  - No separation-of-duties rule exists anywhere in the contracts. I searched for two-person,
+    separation, and same or different principal.
+- The protected-command-effects.ts addition, readReleaseCommandInTransaction, is read-only and
+  scoped to the operation's own tenant, project, and run. It reads every receipt through
+  readReceipt. It is disclosed with the coordinator ruling of 2026-09-22.
+
+
+4. FINDINGS (all LOW)
+F1 The output reader's named refusal is masked. archive-writer.ts:427-428 wraps every member read
+   in `catch { throw factory_archive_member_unavailable }`, so the reader's
+   factory_archive_member_unbound surfaces as unavailable. A missing reader (`this.outputs!`) fails
+   the same way through a TypeError. The resolver's refusals happen before the read, so they keep
+   their names. Suggest letting FactoryArchiveWriterError pass through the catch.
+F2 Undisclosed ownership change. src/__tests__/helpers/factory-run-lifecycle-suite.ts (owner W06,
+   section 12) gains 418 lines. The gate file's disclosure list does not name it.
+F3 Stale gate-file text.
+   - Open item 1 still says the real-application pass "is blocked upstream on W09d", but G7 and G12
+     close it.
+   - G5 says "no new source file", but src/factory/release-outcome-delivery.ts is new, with a
+     coverage key at 100. The new-file gate passes, so this is wording only.
+   - "This branch carries none of W09d's commits" is out of date after the 34b2ed825 merge.
+F4 The byte check is against a fixed string. The harness (full-stack-proof.ts:1177) compares the
+   published members with the guest's fixed output, not with the sealed objects read back from the
+   store. The receipts show both members sealed (materials) and published with exactly those bytes.
+   "The sealed bytes" holds in practice, but the check is weaker than the wording.
+F5 The kernel still issues a cancel-node when a Release node fails (Open items 2 and 4). This is
+   pinned by a test and ruled to the kernel backlog (W06/W13). It is not W09c's.
+
+
+5. HOUSEKEEPING
+- Scratch worktrees w09c-val-head, w09c-val-proof, and w09c-val-fixoff (the fix-off experiment) are
+  removed. The worker's tree is untouched and clean at a5a0069d5.
+- Dangling images: none were created during my run. Five older ones exist (2026-09-05 to
+  2026-09-23 03:17 UTC, from other sessions), and I left them alone.
+- The shared store is clean: the 9 objects my passes published were deleted by exact version, and
+  the read-only check found no remaining version under any published key
+  (logs/cleanup-published.log, logs/verify-published-gone.log).
+
+REFS (added 2026-09-24): proof merge 42b2550ee is kept by branch proof/w09c-validation.

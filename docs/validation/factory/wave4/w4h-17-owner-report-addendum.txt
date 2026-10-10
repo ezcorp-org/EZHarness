@@ -1,0 +1,21 @@
+W4H-17 report addendum 1 (2026-10-09T17:55:05Z). No commit, no change to report.txt. The lead's lane-only R3 form, run after the freeze.
+
+The lead ordered (two messages that crossed with my FREEZE): BROWSER_LCOV = r3-mock-full/lcov.info, the mock-full lane lcov alone,
+in validator-8's lcov-merge-repro.sh head mode over run 37960843272's 24 artifacts, on /tmp/w4h-17-snap-34461b806.
+coverage-thresholds.json: unchanged vs integ/w00 at 34461b806. Artifact hashes: unchanged (artifacts-SHA256SUMS checked after).
+
+1. Literal command (BROWSER_LCOV=r3-mock-full/lcov.info): check-coverage FAILED, 139 files below threshold.
+   The lane lcov's SF paths name the worktree (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-17/), not the hosted root, so REWRITE_ROOT
+   does not map them onto the snapshot. The merger dropped 619 records. FactoryConsole.svelte reads "listed in thresholds but no lcov data".
+   This red is a path mismatch, not a coverage result.
+   logs/r3-replay-lane.log c3d8e0c0b52f825f949bf7bb51999efa3737dbbf2cd8734def1ebc840909f9b5; logs/r3-replay-lane-check-coverage.log 292832ea2100b99d63c55f9bf3eff1dd26989320181b1b2aa65d218a39778749
+2. The same with the SF paths rewritten to the snapshot root (r3-hosted/lane-lcov-snap-root.info): FAILED, 32 files below threshold.
+   FactoryConsole.svelte is NOT among them. All 32 are web files that the other four browser lanes (mock-gate, evidence, fresh-setup,
+   real-auth) cover: for 32 of 32 the hosted five-lane browser lcov hits more lines than the mock-full lane alone; 18 have no record in
+   the mock-full lane at all. A single lane's lcov cannot stand in for the five-lane merged browser lcov that the gate reads.
+   logs/r3-replay-lane-snaproot.log 695e71cbb02a6e0f1bd1e174a61d37f47ceeaf087f305b21aa1bd9196c983fbf; logs/r3-replay-lane-snaproot-check-coverage.log cfaf1326828d2c40cbb6b19231fb7e39e9f85df9d996441103c042e5880b396d
+3. Therefore G5 stands on the two forms that keep the other lanes' records (report.txt, logs/r3-replay-summary.log): the hosted browser
+   lcov with only FactoryConsole.svelte's record replaced, and validator-8's hosted browser lcov plus EXTRA_LCOV: both "Coverage gate
+   PASSED: 2234 enforced file(s)"; the control fails on FactoryConsole.svelte line 199 only.
+   If the lead needs the gate to pass with a browser lcov made only by this branch, the next step is the full five-lane browser run
+   (w00/browser-part.sh, heavy lock) and its merged lcov. I do not start it while frozen; it needs the lead's order.

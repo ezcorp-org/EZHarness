@@ -1,0 +1,3 @@
+── Tests (staged) ─────────────────────────────────
+  no test file maps to the staged changes — skipping
+[detached HEAD 8221bec84] merge: wp/w4h-7b b4ec15e5c into integ/w00 (the R8 lost update is W4H-6's worker-channel stall; regression pins recorded (docs only))

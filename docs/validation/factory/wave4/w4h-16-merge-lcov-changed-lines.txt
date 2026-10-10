@@ -1,0 +1,7 @@
+per-file lcov proof: merge a214eda2b vs base 2737e385d; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-16-hosted-coverage-gaps/merged.lcov
+src/__tests__/helpers/factory-reference-data-guest-double.ts: file 93/93 lines hit; added lines 163, instrumented 93, uncovered 0
+src/__tests__/helpers/factory-reference-data-suite.ts: file 396/396 lines hit; added lines 5, instrumented 4, uncovered 0
+src/__tests__/helpers/factory-reference-data-world.ts: file 54/54 lines hit; added lines 85, instrumented 54, uncovered 0
+src/factory/reference-data/pack.ts: file 263/263 lines hit; added lines 88, instrumented 79, uncovered 0
+src/factory/runner/uv-command.ts: file 23/23 lines hit; added lines 3, instrumented 2, uncovered 0
+TOTAL instrumented added lines 232, uncovered 0

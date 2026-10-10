@@ -1,0 +1,23 @@
+packages/@ezcorp/sdk/src/v4/mcp.test.ts
+scripts/pinned-bun.test.ts
+src/db/bun-sql-pipelining.test.ts
+src/db/migrations/add-factory-usage-settlements.test.ts
+src/factory/pool/process.test.ts
+src/factory/private-https.integration.test.ts
+src/factory/private-https.test.ts
+src/factory/provisioning/database.test.ts
+src/factory/provisioning/fleet-cli.test.ts
+src/factory/provisioning/fleet.test.ts
+src/factory/provisioning/purge-approval.test.ts
+src/factory/provisioning/storage.test.ts
+src/__tests__/e2e-lanes.test.ts
+src/__tests__/factory-private-client.test.ts
+src/__tests__/factory-transport-settle.test.ts
+src/__tests__/search-egress.test.ts
+src/__tests__/setup-podman.test.ts
+src/__tests__/workflow-extension-loader.test.ts
+tests/postgres/bun-sql-request-queue.test.ts
+tests/postgres/factory-pool-mtls.test.ts
+tests/postgres/factory-pool-process.test.ts
+web/src/lib/build/preview-pipeline-guard.test.ts
+packages/@ezcorp/factory-orchestrator (node: bun run test)

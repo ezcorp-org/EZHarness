@@ -2,6 +2,7 @@ import { defineConfig, devices } from "@playwright/test";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedWebServer } from "./playwright-lane-bun";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const lanesManifest = JSON.parse(readFileSync(join(__dirname, "e2e", "lanes.json"), "utf8")) as {
@@ -29,9 +30,13 @@ const browserCoverage = process.env.EZCORP_BROWSER_COVERAGE === "1";
 // strictly as files under e2e/real-auth/. The Docker-run production lane opts
 // back in through DOCKER_TEST, while the real config derives its own list
 // as its exact testMatch below.
+// factory-services is excluded in BOTH modes: its journeys need real Temporal,
+// real object storage, and real credentials, which no mock preview provides.
+// Leaving it in the default collection would also break the exact mock/real
+// partition assertion in src/__tests__/e2e-lanes.test.ts.
 const mockExcludedLanes = isDocker
-	? ["external-model"]
-	: ["fresh-setup", "real-auth", "production-image", "external-model"];
+	? ["external-model", "factory-services"]
+	: ["fresh-setup", "real-auth", "production-image", "external-model", "factory-services"];
 const realTestIgnore = mockExcludedLanes.flatMap((lane) =>
 	lanesManifest.lanes[lane].map(
 		(path) => new RegExp(`${path.slice("web/".length).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
@@ -98,7 +103,7 @@ export default defineConfig({
 		{ name: "mobile-chromium", use: { ...devices["Pixel 5"] } },
 	],
 	...(!isDocker && {
-		webServer: {
+		webServer: pinnedWebServer({
 			// EZCORP_PREVIEW_APP_HOST activates the secure-preview origin
 			// dispatch for `*.preview.localhost` hosts (see
 			// e2e/preview-static.spec.ts). Normal app requests (Host=localhost)
@@ -106,8 +111,8 @@ export default defineConfig({
 			// shape. The DB-free access-denied + bad-code paths are asserted in
 			// plain preview; the full seeded handoff is Docker-gated.
 			command: browserCoverage
-				? `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
-				: `PI_SKIP_INIT=1 bun run build && EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
+				? `EZCORP_FACTORY_ENABLED=1 EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`
+				: `EZCORP_FACTORY_ENABLED=1 PI_SKIP_INIT=1 bun run build && EZCORP_FACTORY_ENABLED=1 EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 bun run preview -- --port ${previewPort} --strictPort`,
 			url: baseURL,
 			// The command runs a full production `bun run build` before `preview`
 			// can bind the port. On the constrained CI runner that build alone
@@ -120,6 +125,6 @@ export default defineConfig({
 			// value across fresh processes. The mock lane also changes its server
 			// environment, so its production preview must not reuse that cache.
 			env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0" },
-		},
+		}),
 	}),
 });

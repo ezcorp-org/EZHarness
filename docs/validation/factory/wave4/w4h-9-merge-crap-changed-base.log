@@ -1,0 +1,20 @@
+CRAP: --changed against e87f3804e77c332be5e5c4202dc221b27c257448 → 1 measured file(s) in diff
+
+CRAP: 11 functions in 1 files (max 30, warn 15)
+
+Worst 11:
+     18.0  cc= 18 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:116 startRunnerService
+     16.0  cc= 16 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:229 dispatch
+      6.0  cc=  6 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:205 collectEvents
+      5.0  cc=  5 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:188 replyToHost
+      3.0  cc=  3 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:153 startSession
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:212 <anonymous@212>
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:69 releaseAttachment
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:212 undelivered
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:221 <anonymous@221>
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:222 <anonymous@222>
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:224 <anonymous@224>
+
+2 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

@@ -1,0 +1,21 @@
+#!/usr/bin/env python3
+"""push-log-excerpt.py <all-failed.log> <run-id>: the ruled EXCERPT of a `gh run view <id> --log-failed` file (lead 2026-10-06, receipts-plan.md):
+per failed job, its error lines and the 40 lines around each "(fail)", "##[error]" and "BundledBootstrapTimeoutError" (20 before, 20 after),
+with a header naming the full log's sha256 and size (the full log stays in the evidence dir). Escape sequences are stripped; nothing else."""
+import hashlib, re, sys
+path, run = sys.argv[1], sys.argv[2]
+raw = open(path, 'rb').read(); text = re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', raw.decode('utf-8', 'replace'))
+lines = text.splitlines(); hit = re.compile(r'\(fail\)|##\[error\]|BundledBootstrapTimeoutError')
+print(f'# excerpt of `gh run view {run} --log-failed` (integrator-5, push-log-excerpt.py)')
+print(f'# full log: {path} sha256 {hashlib.sha256(raw).hexdigest()} bytes {len(raw)} lines {len(lines)}')
+jobs = {}
+for i, l in enumerate(lines): jobs.setdefault(l.split('\t', 1)[0], []).append(i)
+for job, idx in jobs.items():
+    keep = set()
+    for i in idx:
+        if hit.search(lines[i]): keep.update(j for j in range(i - 20, i + 21) if j in set(idx))
+    print(f'\n## {job} ({len(idx)} lines; {len(keep)} kept)')
+    prev = None
+    for j in sorted(keep):
+        if prev is not None and j != prev + 1: print('  ...')
+        print(lines[j]); prev = j

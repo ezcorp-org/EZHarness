@@ -1,0 +1,10 @@
+W4H-7 merge 8221bec84: the owner's final report and validator-5's addendum, added after the receipts (f07f1ed63).
+Addendum to w4h-7-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- Verdicts: the base verdict verdict-validator-5-w4h7.txt sha256 61f8ad386ae0c08f... (ACCEPT at b4ec15e5c; receipted as w4h-7-validation.txt)
+  and validator-5's addendum verdict-validator-5-w4h7-addendum.txt sha256 7280b0ebc0ddd66ef0ffd04b356d6c521739e34b82edb34149661357e1158e28, copied as
+  w4h-7-validation-addendum.txt: all 13 cited hashes verified against the named files; proof/w4h-7-fix byte-equal to W4H-6's runner src
+  diff; its own runs. The ACCEPT is unchanged.
+- Owner report: /tmp/factory-platform-evidence/w4h-7/report.txt (70 lines, written once at 02:05:39Z; the owner confirmed it final),
+  sha256 995d8994917ee8e117d89aa201579a6d42cf08c4457777b6231f8fb928ef4d11, copied as w4h-7-owner-report.txt.
+  w4h-7-merge.json's notes.ownerReport said it was pending; this closes that line.
+The merge, its hold and the publish are unchanged.

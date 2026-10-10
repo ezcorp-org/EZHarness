@@ -1,0 +1,6 @@
+# W4H-15 (integrator-5; lead's order 2026-10-08): CI-wiring-only change (ci.yml, db-postgres.yml, registration tests, type-only fields in
+# scripts/lib/ci-registration.ts). Targeted hold, NO combined run (lead's ruling: no measured code changes). unit.txt = the hook-mapped suites
+# plus every test that reads the workflows and is not in the guard set (one lcov leg each). new-file and patch vs the first parent BIND
+# (MCG_COVERAGE_INFORMATIONAL not set); gate-integrity both legs bind (base clean; origin/main = exactly the 8, a new line is a STOP).
+tc_leg typecheck-all bun run typecheck
+NOTEST=1 leg actionlint-compare bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-15-coverage-artifact-names/actionlint-compare.sh "$M"

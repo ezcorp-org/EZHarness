@@ -1,0 +1,351 @@
+import { lockFactoryScope } from "./locks";
+import { FactoryRecordError, assertFactoryIdentity as identity } from "./factory-identity";
+export { FactoryRecordError } from "./factory-identity";
+import { sql } from "drizzle-orm";
+import { canonicalJson, assertJson } from "@ezcorp/extension-contract";
+import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
+import { releaseRows as rows } from "../db/queries/extension-releases";
+import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
+import { digestObject } from "../extensions/v4/blobs";
+import type { FactoryServiceTokenIdentity } from "../auth/factory-service-token";
+import { isFactoryServiceTokenIdentity } from "../auth/factory-service-token";
+
+export interface FactoryRunKey {
+  readonly projectId: string;
+  readonly runId: string;
+}
+
+export interface FactoryRunRequest extends FactoryRunKey {
+  readonly definitionDigest: string;
+  readonly interpreterBuild: string;
+  readonly executionEpoch: number;
+  readonly input: unknown;
+  readonly principalId: string;
+  readonly principalKind?: "user" | "service";
+  readonly serviceCredential?: FactoryServiceTokenIdentity;
+}
+
+export interface FactoryAuditInput extends FactoryRunKey {
+  readonly interpreterId: string;
+  readonly sourceSequence: number;
+  readonly predecessorDigest: string | null;
+  readonly payload: unknown;
+}
+
+export interface FactoryAuditBatch extends FactoryAuditInput {
+  readonly tenantId: string;
+  readonly sequence: number;
+  readonly digest: string;
+}
+
+export interface FactoryProjection {
+  readonly sequence: number;
+  readonly digest: string;
+  readonly payload: unknown;
+}
+export interface FactoryProjectionUpdate extends FactoryProjection { readonly applied: boolean; }
+export interface FactoryPendingProjectionRun extends FactoryRunKey {}
+
+
+
+function positive(value: number): void {
+  if (!Number.isSafeInteger(value) || value < 1) throw new FactoryRecordError("factory_sequence_invalid");
+}
+
+function boundedPayload(value: unknown): string {
+  assertJson(value);
+  const payload = canonicalJson(value);
+  if (new TextEncoder().encode(payload).byteLength > 64 * 1024) throw new FactoryRecordError("factory_payload_too_large");
+  return payload;
+}
+
+export { identity as assertFactoryIdentity, boundedPayload as encodeFactoryPayload };
+
+function runRequest(input: unknown): { payload: string; request: FactoryRunRequest } {
+  const payload = boundedPayload(input);
+  const request = JSON.parse(payload) as FactoryRunRequest;
+  if (!request || typeof request !== "object") throw new FactoryRecordError("factory_request_invalid");
+  identity(request.projectId, request.runId, request.interpreterBuild, request.principalId);
+  positive(request.executionEpoch);
+  if (request.principalKind !== undefined && request.principalKind !== "user" && request.principalKind !== "service") throw new FactoryRecordError("factory_principal_invalid");
+  if (request.serviceCredential !== undefined && ((request.principalKind ?? "user") !== "service"
+    || request.serviceCredential.serviceAccountId !== request.principalId
+    || request.serviceCredential.projectId !== request.projectId
+    || !isFactoryServiceTokenIdentity(request.serviceCredential))) throw new FactoryRecordError("factory_principal_invalid");
+  if (!/^sha256:[a-f0-9]{64}$/.test(request.definitionDigest)) throw new FactoryRecordError("factory_definition_digest_invalid");
+  return { payload, request };
+}
+
+function auditId(tenantId: string, projectId: string, runId: string, kind: string, identity: unknown): string {
+  return `factory:${digestObject({ tenantId, projectId, runId, kind, identity })}`;
+}
+
+type AuditRow = { interpreter_id: string; source_sequence: string | number; sequence: string | number; predecessor_digest: string | null; digest: string; payload: string };
+
+/** The one definition of a canonical audit batch digest. */
+export function factoryAuditBatchDigest(tenantId: string, input: FactoryAuditInput): string {
+  return digestObject({ tenantId, projectId: input.projectId, runId: input.runId, interpreterId: input.interpreterId, sourceSequence: input.sourceSequence, predecessorDigest: input.predecessorDigest, payload: input.payload });
+}
+
+function batchFromRow(tenantId: string, key: FactoryRunKey, row: AuditRow): FactoryAuditBatch {
+  const input = { tenantId, projectId: key.projectId, runId: key.runId, interpreterId: row.interpreter_id, sourceSequence: Number(row.source_sequence), predecessorDigest: row.predecessor_digest, payload: JSON.parse(row.payload) };
+  const sequence = Number(row.sequence);
+  positive(input.sourceSequence);
+  positive(sequence);
+  if (factoryAuditBatchDigest(tenantId, input) !== row.digest) throw new FactoryRecordError("factory_audit_corrupt");
+  return { ...input, sequence, digest: row.digest };
+}
+
+/**
+ * Verifies one run's complete audit stream from any source, the database or the
+ * archive: every digest recomputes, the run sequence is contiguous from 1, and
+ * each interpreter's chain links to its predecessor. The first defect stops
+ * verification with the same codes the append and projection paths use.
+ */
+export function verifyFactoryAuditStream(tenantId: string, key: FactoryRunKey, batches: readonly FactoryAuditBatch[]): readonly FactoryAuditBatch[] {
+  identity(tenantId, key.projectId, key.runId);
+  const heads = new Map<string, { sourceSequence: number; digest: string }>();
+  batches.forEach((batch, index) => {
+    if (batch.tenantId !== tenantId || batch.projectId !== key.projectId || batch.runId !== key.runId) throw new FactoryRecordError("factory_scope_mismatch");
+    identity(batch.interpreterId);
+    positive(batch.sourceSequence);
+    if (batch.sequence !== index + 1) throw new FactoryRecordError(batch.sequence <= index ? "factory_audit_conflict" : "factory_audit_gap");
+    if (factoryAuditBatchDigest(tenantId, batch) !== batch.digest) throw new FactoryRecordError("factory_audit_corrupt");
+    const head = heads.get(batch.interpreterId);
+    if (batch.sourceSequence <= (head?.sourceSequence ?? 0)) throw new FactoryRecordError("factory_audit_conflict");
+    if (batch.sourceSequence !== (head?.sourceSequence ?? 0) + 1 || batch.predecessorDigest !== (head?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
+    heads.set(batch.interpreterId, { sourceSequence: batch.sourceSequence, digest: batch.digest });
+  });
+  return batches;
+}
+
+/** Product facts and recoverable projections. This repository does not schedule work. */
+export class FactoryRecords {
+  constructor(private readonly database: TransactionalDb, readonly tenantId: string) {
+    identity(tenantId);
+  }
+
+  async bindInstallation(): Promise<void> {
+    await this.database.transaction(async (transaction) => {
+      await transaction.execute(sql`INSERT INTO factory_installation (singleton, tenant_id) VALUES (1, ${this.tenantId}) ON CONFLICT (singleton) DO NOTHING`);
+      const installation = rows<{ tenant_id: string }>(await transaction.execute(sql`SELECT tenant_id FROM factory_installation WHERE singleton = 1 FOR UPDATE`))[0]!;
+      if (installation.tenant_id !== this.tenantId) throw new FactoryRecordError("factory_installation_mismatch");
+    });
+  }
+
+  async bindProject(projectId: string): Promise<void> {
+    await this.bindProjectInTransaction(this.database, projectId);
+  }
+
+  async bindProjectInTransaction(transaction: MigrationDb, projectId: string): Promise<boolean> {
+    identity(projectId);
+    return rows(await transaction.execute(sql`INSERT INTO factory_projects (tenant_id, project_id) VALUES (${this.tenantId}, ${projectId}) ON CONFLICT (tenant_id, project_id) DO NOTHING RETURNING project_id`)).length === 1;
+  }
+
+  async createRun(input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
+    const snapshot = runRequest(input).request;
+    return this.database.transaction(transaction => this.createRunInTransaction(transaction, snapshot, enqueue));
+  }
+
+  async createRunInTransaction(transaction: MigrationDb, input: FactoryRunRequest, enqueue: (transaction: MigrationDb, request: FactoryRunRequest) => Promise<void>): Promise<{ readonly created: boolean }> {
+    const { payload, request } = runRequest(input);
+    const digest = digestObject(request);
+    const installation = await lockFactoryScope(transaction, this.tenantId, request.projectId, "write");
+    if (!installation || installation.executionEpoch !== request.executionEpoch) throw new FactoryRecordError("factory_epoch_changed");
+    const inserted = rows(await transaction.execute(sql`INSERT INTO factory_runs
+      (tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload)
+      VALUES (${this.tenantId}, ${request.projectId}, ${request.runId}, ${request.definitionDigest}, ${request.interpreterBuild}, ${request.executionEpoch}, ${digest}, ${payload})
+      ON CONFLICT (tenant_id, project_id, run_id) DO NOTHING RETURNING run_id`));
+    if (inserted.length === 0) {
+      const existing = rows<{ request_digest: string }>(await transaction.execute(sql`SELECT request_digest FROM factory_runs WHERE tenant_id = ${this.tenantId} AND project_id = ${request.projectId} AND run_id = ${request.runId}`))[0]!;
+      if (existing.request_digest !== digest) throw new FactoryRecordError("factory_run_conflict");
+      return { created: false };
+    }
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, request.projectId, request.runId, "start", digest), request.principalKind === "service" ? null : request.principalId, "factory.run.requested", request.runId, { tenantId: this.tenantId, projectId: request.projectId, definitionDigest: request.definitionDigest, executionEpoch: request.executionEpoch, principalKind: request.principalKind ?? "user", principalId: request.principalId });
+    await enqueue(transaction, request);
+    return { created: true };
+  }
+
+  async readRunRequestInTransaction(transaction: MigrationDb, key: FactoryRunKey): Promise<FactoryRunRequest> {
+    identity(key.projectId, key.runId);
+    if (!await lockFactoryScope(transaction, this.tenantId, key.projectId)) throw new FactoryRecordError("factory_run_not_found");
+    const row = rows<{ request_digest: string; request_payload: string }>(await transaction.execute(sql`SELECT request_digest, request_payload FROM factory_runs WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} FOR SHARE`))[0];
+    if (!row) throw new FactoryRecordError("factory_run_not_found");
+    const { request } = runRequest(JSON.parse(row.request_payload));
+    if (digestObject(request) !== row.request_digest || request.projectId !== key.projectId || request.runId !== key.runId) throw new FactoryRecordError("factory_request_corrupt");
+    return request;
+  }
+
+  async appendAudit(request: FactoryAuditInput): Promise<FactoryAuditBatch> {
+    const snapshot = JSON.parse(boundedPayload(request)) as FactoryAuditInput;
+    return this.database.transaction(transaction => this.appendAuditInTransaction(transaction, snapshot));
+  }
+
+  async appendAuditInTransaction(transaction: MigrationDb, request: FactoryAuditInput): Promise<FactoryAuditBatch> {
+    const input = JSON.parse(boundedPayload(request)) as FactoryAuditInput;
+    identity(input.projectId, input.runId, input.interpreterId);
+    positive(input.sourceSequence);
+    const payload = boundedPayload(input.payload);
+    const digest = factoryAuditBatchDigest(this.tenantId, input);
+    const run = await this.lockRun(transaction, input);
+    const existing = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} AND source_sequence = ${input.sourceSequence}`))[0];
+    if (existing) {
+      if (existing.digest !== digest) throw new FactoryRecordError("factory_audit_conflict");
+      return batchFromRow(this.tenantId, input, existing);
+    }
+    const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId} AND interpreter_id = ${input.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
+    if (input.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || input.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
+    const sequence = Number(run.next_sequence);
+    positive(sequence);
+    positive(sequence + 1);
+    await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
+      VALUES (${this.tenantId}, ${input.projectId}, ${input.runId}, ${input.interpreterId}, ${input.sourceSequence}, ${sequence}, ${input.predecessorDigest}, ${digest}, ${payload})`);
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, input.projectId, input.runId, "transition", { interpreterId: input.interpreterId, sourceSequence: input.sourceSequence }), null, "factory.run.transition", input.runId, { tenantId: this.tenantId, projectId: input.projectId, digest, sequence });
+    await transaction.execute(sql`UPDATE factory_runs SET next_sequence = ${sequence + 1} WHERE tenant_id = ${this.tenantId} AND project_id = ${input.projectId} AND run_id = ${input.runId}`);
+    return { tenantId: this.tenantId, ...input, payload: JSON.parse(payload), sequence, digest };
+  }
+
+  /**
+   * Re-materializes one verified batch from the independent archive after its
+   * primary row expired or a restored database never held it. The batch must be
+   * the run's next contiguous sequence and link to its interpreter's head; an
+   * identical row is a no-op and a different one is a conflict.
+   */
+  async importArchivedAuditInTransaction(transaction: MigrationDb, request: FactoryAuditBatch): Promise<{ readonly imported: boolean }> {
+    const batch = JSON.parse(boundedPayload(request)) as FactoryAuditBatch;
+    if (batch.tenantId !== this.tenantId) throw new FactoryRecordError("factory_scope_mismatch");
+    identity(batch.projectId, batch.runId, batch.interpreterId);
+    positive(batch.sourceSequence);
+    positive(batch.sequence);
+    if (factoryAuditBatchDigest(this.tenantId, batch) !== batch.digest) throw new FactoryRecordError("factory_audit_corrupt");
+    await this.lockRun(transaction, batch);
+    const existing = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND (sequence = ${batch.sequence} OR (interpreter_id = ${batch.interpreterId} AND source_sequence = ${batch.sourceSequence}))`));
+    if (existing.length > 0) {
+      if (existing.length !== 1 || existing[0]!.digest !== batch.digest || Number(existing[0]!.sequence) !== batch.sequence) throw new FactoryRecordError("factory_audit_conflict");
+      return { imported: false };
+    }
+    // The next contiguous sequence is one past the highest row still held. It is
+    // not the run's next_sequence counter: collection removes rows and keeps the counter.
+    const held = Number(rows<{ sequence: string | number }>(await transaction.execute(sql`SELECT COALESCE(MAX(sequence), 0) AS sequence FROM factory_audit_batches WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId}`))[0]!.sequence);
+    if (batch.sequence !== held + 1) throw new FactoryRecordError(batch.sequence <= held ? "factory_audit_conflict" : "factory_audit_gap");
+    await this.insertImportedBatch(transaction, batch);
+    return { imported: true };
+  }
+
+  async readAuditBatchInTransaction(transaction: MigrationDb, key: FactoryRunKey & { readonly interpreterId: string }, sourceSequence: number): Promise<FactoryAuditBatch | null> {
+    identity(key.projectId, key.runId, key.interpreterId);
+    positive(sourceSequence);
+    const row = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND interpreter_id=${key.interpreterId} AND source_sequence=${sourceSequence}`))[0];
+    return row ? batchFromRow(this.tenantId, key, row) : null;
+  }
+
+  async readAudit(key: FactoryRunKey, after = 0, limit = 50): Promise<readonly FactoryAuditBatch[]> {
+    identity(key.projectId, key.runId);
+    if (!Number.isSafeInteger(after) || after < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new FactoryRecordError("factory_page_invalid");
+    const result = rows<AuditRow>(await this.database.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} AND sequence > ${after} ORDER BY sequence LIMIT ${limit}`));
+    return result.map((row) => batchFromRow(this.tenantId, key, row));
+  }
+
+  async project(request: FactoryAuditBatch, consumerId: string, reduce: (current: unknown, batch: FactoryAuditBatch) => unknown): Promise<FactoryProjection> {
+    const batch = JSON.parse(boundedPayload(request)) as FactoryAuditBatch;
+    const projected = await this.database.transaction(transaction => this.projectInTransaction(transaction, batch, consumerId, reduce));
+    return { sequence: projected.sequence, digest: projected.digest, payload: projected.payload };
+  }
+
+  /** Advances one verified audit cursor inside the caller's read-model transaction. */
+  async projectInTransaction(transaction: MigrationDb, request: FactoryAuditBatch, consumerId: string, reduce: (current: unknown, batch: FactoryAuditBatch) => unknown): Promise<FactoryProjectionUpdate> {
+    const batch = JSON.parse(boundedPayload(request)) as FactoryAuditBatch;
+    identity(batch.projectId, batch.runId, consumerId);
+    positive(batch.sequence);
+    if (batch.tenantId !== this.tenantId) throw new FactoryRecordError("factory_scope_mismatch");
+    await this.lockRun(transaction, batch);
+    const source = rows<AuditRow>(await transaction.execute(sql`SELECT interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND sequence = ${batch.sequence}`))[0];
+    if (!source || source.digest !== batch.digest || canonicalJson(batchFromRow(this.tenantId, batch, source)) !== canonicalJson(batch)) throw new FactoryRecordError("factory_projection_source_conflict");
+    const current = rows<{ sequence: string | number; digest: string; payload: string }>(await transaction.execute(sql`SELECT sequence, digest, payload FROM factory_run_projections
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND consumer_id = ${consumerId}`))[0];
+    if (current && Number(current.sequence) >= batch.sequence) return { sequence: Number(current.sequence), digest: current.digest, payload: JSON.parse(current.payload), applied: false };
+    if (batch.sequence !== Number(current?.sequence ?? 0) + 1) throw new FactoryRecordError("factory_projection_gap");
+    const payload = boundedPayload(reduce(current ? JSON.parse(current.payload) : null, batch));
+    await transaction.execute(sql`INSERT INTO factory_run_projections (tenant_id, project_id, run_id, consumer_id, sequence, digest, payload)
+      VALUES (${this.tenantId}, ${batch.projectId}, ${batch.runId}, ${consumerId}, ${batch.sequence}, ${batch.digest}, ${payload})
+      ON CONFLICT (tenant_id, project_id, run_id, consumer_id) DO UPDATE SET sequence = EXCLUDED.sequence, digest = EXCLUDED.digest, payload = EXCLUDED.payload, updated_at = NOW()`);
+    return { sequence: batch.sequence, digest: batch.digest, payload: JSON.parse(payload), applied: true };
+  }
+
+  async projectionProgress(key: FactoryRunKey, consumerId: string): Promise<{ readonly sequence: number; readonly digest: string | null; readonly lag: number }> {
+    identity(key.projectId, key.runId, consumerId);
+    const current = rows<{ sequence: string | number; digest: string }>(await this.database.execute(sql`SELECT sequence, digest FROM factory_run_projections WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId} AND consumer_id=${consumerId}`))[0];
+    const upper = rows<{ sequence: string | number }>(await this.database.execute(sql`SELECT COALESCE(MAX(sequence), 0) AS sequence FROM factory_audit_batches WHERE tenant_id=${this.tenantId} AND project_id=${key.projectId} AND run_id=${key.runId}`))[0]!;
+    const sequence = Number(current?.sequence ?? 0);
+    const maximum = Number(upper.sequence);
+    if (!Number.isSafeInteger(sequence) || sequence < 0 || !Number.isSafeInteger(maximum) || maximum < sequence) throw new FactoryRecordError("factory_projection_corrupt");
+    return { sequence, digest: current?.digest ?? null, lag: maximum - sequence };
+  }
+
+  /** Finds a small, stable page of runs whose durable consumer cursor trails their committed audit. */
+  async pendingProjectionRuns(consumerId: string, limit = 20): Promise<readonly FactoryPendingProjectionRun[]> {
+    identity(consumerId);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) throw new FactoryRecordError("factory_page_invalid");
+    const pending = rows<{ project_id: string; run_id: string }>(await this.database.execute(sql`SELECT audit.project_id, audit.run_id
+      FROM factory_audit_batches AS audit
+      LEFT JOIN factory_run_projections AS projection
+        ON projection.tenant_id = audit.tenant_id
+        AND projection.project_id = audit.project_id
+        AND projection.run_id = audit.run_id
+        AND projection.consumer_id = ${consumerId}
+      LEFT JOIN factory_run_projection_attempts AS attempt
+        ON attempt.tenant_id = audit.tenant_id
+        AND attempt.project_id = audit.project_id
+        AND attempt.run_id = audit.run_id
+        AND attempt.consumer_id = ${consumerId}
+      WHERE audit.tenant_id = ${this.tenantId}
+        AND audit.sequence > COALESCE(projection.sequence, 0)
+      GROUP BY audit.project_id, audit.run_id
+      ORDER BY CASE WHEN MAX(attempt.last_attempted_at) IS NULL THEN 0 ELSE 1 END,
+        MAX(attempt.last_attempted_at), MIN(audit.created_at), audit.project_id, audit.run_id
+      LIMIT ${limit}`));
+    return pending.map((row) => {
+      identity(row.project_id, row.run_id);
+      return { projectId: row.project_id, runId: row.run_id };
+    });
+  }
+
+  /** Records a scheduler attempt without advancing or modifying the audit cursor. */
+  async recordProjectionAttempt(key: FactoryRunKey, consumerId: string, errorCode: string | null): Promise<void> {
+    identity(key.projectId, key.runId, consumerId);
+    if (errorCode !== null) identity(errorCode);
+    await this.database.transaction(async transaction => {
+      await this.lockRun(transaction, key);
+      await transaction.execute(sql`INSERT INTO factory_run_projection_attempts
+        (tenant_id, project_id, run_id, consumer_id, attempt_count, last_error_code, last_attempted_at)
+        VALUES (${this.tenantId}, ${key.projectId}, ${key.runId}, ${consumerId}, 1, ${errorCode}, NOW())
+        ON CONFLICT (tenant_id, project_id, run_id, consumer_id) DO UPDATE
+          SET attempt_count = factory_run_projection_attempts.attempt_count + 1,
+            last_error_code = EXCLUDED.last_error_code,
+            last_attempted_at = NOW()`);
+    });
+  }
+
+  private async lockRun(transaction: MigrationDb, key: FactoryRunKey): Promise<{ next_sequence: string | number }> {
+    const run = rows<{ next_sequence: string | number }>(await transaction.execute(sql`SELECT next_sequence FROM factory_runs WHERE tenant_id = ${this.tenantId} AND project_id = ${key.projectId} AND run_id = ${key.runId} FOR UPDATE`))[0];
+    if (!run) throw new FactoryRecordError("factory_run_not_found");
+    return run;
+  }
+
+  /** The chained insert half of an archive import: the interpreter link, the row, its audit entry, and the counter. */
+  private async insertImportedBatch(transaction: MigrationDb, batch: FactoryAuditBatch): Promise<void> {
+    const predecessor = rows<{ source_sequence: string | number; digest: string }>(await transaction.execute(sql`SELECT source_sequence, digest FROM factory_audit_batches
+      WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId} AND interpreter_id = ${batch.interpreterId} ORDER BY source_sequence DESC LIMIT 1`))[0];
+    if (batch.sourceSequence !== Number(predecessor?.source_sequence ?? 0) + 1 || batch.predecessorDigest !== (predecessor?.digest ?? null)) throw new FactoryRecordError("factory_audit_gap");
+    const payload = boundedPayload(batch.payload);
+    await transaction.execute(sql`INSERT INTO factory_audit_batches (tenant_id, project_id, run_id, interpreter_id, source_sequence, sequence, predecessor_digest, digest, payload)
+      VALUES (${this.tenantId}, ${batch.projectId}, ${batch.runId}, ${batch.interpreterId}, ${batch.sourceSequence}, ${batch.sequence}, ${batch.predecessorDigest}, ${batch.digest}, ${payload})`);
+    await insertTransactionalAuditEntry(transaction, auditId(this.tenantId, batch.projectId, batch.runId, "transition", { interpreterId: batch.interpreterId, sourceSequence: batch.sourceSequence }), null, "factory.run.transition", batch.runId, { tenantId: this.tenantId, projectId: batch.projectId, digest: batch.digest, sequence: batch.sequence, source: "archive" });
+    await transaction.execute(sql`UPDATE factory_runs SET next_sequence = GREATEST(next_sequence, ${batch.sequence + 1}) WHERE tenant_id = ${this.tenantId} AND project_id = ${batch.projectId} AND run_id = ${batch.runId}`);
+  }
+}

@@ -1,0 +1,78 @@
+Patch coverage gate FAILED (75 file(s) with uncovered changes):
+  packages/@ezcorp/extension-runner/src/client.ts: 9 changed line(s) uncovered: 35,37,38,47,48,49,50,51,59
+  packages/@ezcorp/extension-runner/src/service.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  packages/@ezcorp/harness-client/src/index.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  packages/@ezcorp/harness-client/src/routes.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  scripts/check-factory-boundaries.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  scripts/check-factory-runners.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  scripts/check-required-checks.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/auth/factory-service-routes.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/auth/factory-service-token.ts: 23 changed line(s) uncovered: 31,54,55,56,57,58,59,64,68,69,70,84,95,96,97,98,99,100,101,102,103,104,105
+  src/auth/jwt.ts: 3 changed line(s) uncovered: 50,51,57
+  src/db/connection.ts: 2 changed line(s) uncovered: 815,823
+  src/db/queries/project-members.ts: 3 changed line(s) uncovered: 102,107,108
+  src/db/queries/projects.ts: 7 changed line(s) uncovered: 68,69,70,71,72,73,75
+  src/db/queries/service-accounts.ts: 3 changed line(s) uncovered: 442,443,444
+  src/db/queries/workflow-runs.ts: 1 changed line(s) uncovered: 205
+  src/extensions/clamp-permissions.ts: 1 changed line(s) uncovered: 586
+  src/extensions/host-maintenance-daemon.ts: 11 changed line(s) uncovered: 255,256,260,516,517,518,519,520,522,523,541
+  src/extensions/permissions.ts: 10 changed line(s) uncovered: 205,206,207,208,209,210,211,212,217,218
+  src/extensions/sensitive-environment.ts: 4 changed line(s) uncovered: 27,28,29,30
+  src/extensions/service-capabilities.ts: 1 changed line(s) uncovered: 23
+  src/extensions/v4/blobs.ts: 17 changed line(s) uncovered: 143,146,147,148,149,150,151,152,153,154,155,157,158,159,204,207,208
+  src/extensions/v4/deliveries.ts: 24 changed line(s) uncovered: 35,37,38,39,42,43,44,47,48,49,52,53,54,57,58,61,62,88,89,99,103,107,111,113
+  src/extensions/v4/lifecycle.ts: 13 changed line(s) uncovered: 75,76,274,275,279,293,294,295,296,297,299,311,350
+  src/factory/boot.ts: 40 changed line(s) uncovered: 47,48,54,55,61,63,64,65,67,68,72,73,76,77,81,82,85,86,87,91,92,97,99,100,101,102,103,105,106,107,108,112,113,117,118,121,122,123,124,125
+  src/factory/budgets.ts: 9 changed line(s) uncovered: 65,67,68,169,172,173,230,233,234
+  src/factory/compute-admissions.ts: 69 changed line(s) uncovered: 162,163,164,201,204,205,206,207,208,209,210,211,212,213,214,215,216,217,218,222,223,224,225,255,256,257,258,335,336,337,338,340,341,342,343,344,345,347,348,349,...
+  src/factory/encryption.ts: 95 changed line(s) uncovered: 60,61,62,116,117,118,119,120,121,122,123,124,125,126,127,128,160,163,164,165,166,167,168,169,170,171,173,175,176,177,178,179,180,181,182,183,225,226,227,228,...
+  src/factory/inbox.ts: 3 changed line(s) uncovered: 81,85,86
+  src/factory/orchestration-readiness.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/outbox.ts: 5 changed line(s) uncovered: 216,246,249,276,277
+  src/factory/pool/client.ts: 68 changed line(s) uncovered: 19,20,26,47,48,49,50,51,59,60,72,73,74,76,77,78,79,80,84,85,86,87,93,94,95,99,100,101,105,109,113,118,119,120,121,122,123,124,125,126,...
+  src/factory/pool/index.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/ledger.ts: 333 changed line(s) uncovered: 89,90,91,95,99,103,107,127,128,132,133,134,135,139,143,144,145,149,150,154,155,156,157,158,172,173,181,182,186,187,188,198,206,207,211,214,215,216,219,220,...
+  src/factory/pool/process.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/readiness.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/service-routes.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/service-server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/service.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/pool/wire.ts: 10 changed line(s) uncovered: 37,38,42,43,44,48,49,50,51,52
+  src/factory/private-files.ts: 67 changed line(s) uncovered: 6,7,8,20,21,22,23,24,25,26,27,28,29,30,31,32,34,35,36,37,38,39,40,41,43,45,46,48,49,50,51,57,58,59,64,65,66,67,68,69,...
+  src/factory/private-https.ts: 1 changed line(s) uncovered: 51
+  src/factory/provisioning/local.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/records.ts: 7 changed line(s) uncovered: 155,158,159,201,204,205,206
+  src/factory/runner/native.ts: 29 changed line(s) uncovered: 66,67,68,69,70,71,72,73,74,75,76,77,78,80,81,82,83,84,85,87,88,89,90,91,93,94,96,97,101
+  src/factory/runner/supervisor.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/trusted-command-gateway.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/idempotency.ts: 9 changed line(s) uncovered: 23,24,30,31,32,33,38,39,40
+  src/runtime/executor.ts: 4 changed line(s) uncovered: 1451,1452,1453,1454
+  src/runtime/factory-execution.ts: 100 changed line(s) uncovered: 82,83,84,86,87,95,96,97,98,99,101,102,103,105,108,112,116,121,122,124,125,131,132,133,134,135,136,141,142,143,145,146,147,148,149,150,157,161,165,169,...
+  src/runtime/preview/preview-token.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/runtime/stream-chat/build-pi-agent.ts: 14 changed line(s) uncovered: 67,68,77,78,79,80,81,82,112,113,132,180,181,182
+  src/runtime/stream-chat/failover.ts: 3 changed line(s) uncovered: 173,211,234
+  src/runtime/stream-chat/setup-tools.ts: 6 changed line(s) uncovered: 757,758,759,760,761,762
+  src/runtime/tools/shell.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/runtime/workflow-executor.ts: 67 changed line(s) uncovered: 145,146,757,763,764,765,766,767,771,776,778,782,783,784,785,786,787,788,789,791,793,794,797,798,799,892,893,894,895,897,898,915,916,917,918,919,920,921,922,924,...
+  web/src/hooks.server.ts: 1 changed line(s) uncovered: 535
+  web/src/lib/server/security/bearer-auth.ts: 13 changed line(s) uncovered: 81,82,83,84,85,86,103,104,105,106,107,108,110
+  web/src/routes/(app)/factories/+page.server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/export/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/runs/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/validate/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/versions/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/[factoryId]/versions/[version]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/definitions/import/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/grants/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/grants/[principalKind]/[principalId]/[action]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/runs/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/runs/[runId]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/runs/[runId]/approvals/[approvalId]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/runs/[runId]/commands/[commandId]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/runs/[runId]/control/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/service-accounts/[serviceAccountId]/credentials/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  web/src/routes/api/factories/projects/[projectId]/service-accounts/[serviceAccountId]/credentials/[credentialId]/+server.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

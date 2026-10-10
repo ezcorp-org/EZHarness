@@ -1,0 +1,38 @@
+{
+  "push": "fourth push of the wave: feat/composable-factory-platform 3897fe923 -> 6df16debf34547bf8d92001c524e14ec4e9f5459 (plain git push, exit 0 at 20:26:15Z 2026-10-09, first try, lock-free tc_run GREEN at 17.0 GiB, lowest 14.0; pre-push hook typecheck and svelte-check 620 files 0 errors; never --no-verify or --force). 6 commits since the last push (W4H-17 merge and receipts, the third-push receipts, docs line v4); 0 files outside web/e2e, docs and receipts in code terms.",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 20:24:20Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch rc 0 (only a forced update of origin/evidence/pr-303, not ours); HEAD = origin/feat = 3897fe923; ancestor of integ/w00 6df16debf; origin/main e3309906d unchanged; config-check rc 0 (29e61b63b05624e9); 6 commits ahead; disk 183G, MemAvailable 16.8 GiB, SwapFree 8.8 GiB",
+    "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating 3897fe923..6df16debf Fast-forward",
+    "3 installs": "installs-step.log / installs.log: resource gate green; bun and bunx 1.4.2; w00/installs-lib.sh 36e14c55cd666ed0 frozen_installs exit 0, every install --ignore-scripts (root, web + svelte-kit sync, gate-integrity deps: no changes; package builds); status empty",
+    "4 push": "push.sh 7554b025c3fb7bcd through w00/tc-gate.sh lock-free; push exit 0; HEAD = origin/feat = 6df16debf",
+    "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid 6df16debf, MERGEABLE, mergeStateStatus BLOCKED (checks running); a first read seconds after the push still showed 3897fe923 / UNKNOWN (kept as pr-318-early.json)",
+    "6 hosted": "ci 37986983940 (started 20:26:20Z; completed, failure; 58 jobs) and deps-audit 37986983267 (success). vs 37960843272 (its jobs json saved before that run's Gate integrity re-run): the tool counts NEW RED 6 (one is Gate integrity cancelled -> failure), fixed 1, same 50, red 2 -> 7; vs 37138524741: 20 -> 7, fixed 13."
+  },
+  "perFileCoverageGate": "GREEN (job 114022827295, success at 20:54:14Z): the hosted gate passes with W4H-15 (unique producer artifact names), W4H-16 (hosted coverage of the four files) and W4H-17 (the FactoryConsole import outcome); the reading the coordinator asked for.",
+  "reds": {
+    "Factory runner readiness precheck": "A: FACTORY_RUNNER_READ_TOKEN unset (expected)",
+    "Gate integrity": "A: 'Gate integrity FAILED (8 finding(s))', findings-match vs the expected list PASS (expected; the gate-change-approved label)",
+    "Production proof (content)": "D: the candidate build's FROM oven/bun:1.3.14-slim got '429 Too Many Requests' from registry-1.docker.io (Docker Hub anonymous pull rate limit)",
+    "Production proof (recovery)": "D: pulling docker://oven/bun@sha256:50317d83...: 429 / Too Many Requests (Docker Hub rate limit)",
+    "Production proof (resources)": "E (attempt 1, job 114013371056): the bootstrap passed; R4 'Cycle 1 runner FDs 26 did not return to baseline 25.' (verify-shipping-runtime-resources.ts:351); #329's settle (line 344) waits for the app's port-3000 connections only; the runner FD check right after is strict equality with no settle; the same symptom as W4H-11's local R5 at 88de7acce; latent. Package W4H-18 opened. Attempt 2 (job 114022823441, a single-job re-run ordered before the coordinator withdrew it; the withdrawal crossed): VOID for the race question - runner setup (setup-extension-runner-ci.sh --install) failed pulling docker.io/oven/bun@sha256:9114c058... with 'toomanyrequests: You have reached your unauthenticated pull rate limit' (D); the proof never ran.",
+    "Production image extension lifecycle": "B: aggregates the proofs ('Candidate image or production proof runners did not all succeed'); re-evaluated after attempt 2, still red",
+    "E2E (mock, no Docker)": "B: aggregates the production-image job; re-evaluated after attempt 2, still red"
+  },
+  "logs": "committed: the ruled excerpt of --log-failed (w00/push-log-excerpt.py 887368f0ceffe11e; the full log 778ae8d73ddf9a90 stays in the evidence dir), the rate-limit excerpt (every 429/toomanyrequests line of the three rate-limited logs with each full log's sha256), the resources attempt-1 job log whole (the FD failure), the attempt-2 steps json, and the classification and both comparisons",
+  "decisions": "coordinator 2026-10-09: no hosted re-runs now (the Docker Hub budget); W4H-18 for the runner-FD settle; the Docker Hub rate limit goes to the user (authenticated pulls or mirrored pinned images)",
+  "hostEvents": [
+    "none during the push window (20:24-21:01Z); shared .git/config at the accepted baseline 29e61b63b05624e9 at every step"
+  ],
+  "tooling": {
+    "push.sh": "7554b025c3fb7bcd",
+    "installs.sh": "1b614f1904042304",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/tc-gate.sh": "84f8b66f0bd3faf0",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "w00/push-log-excerpt.py": "887368f0ceffe11e",
+    "w00/findings-match.py": "de57fcec5cdcef56",
+    "baseline 37960843272 (made from its jobs json)": "b44b1bb29f096692",
+    "baseline 37138524741": "074c4b968060d499"
+  },
+  "receiptsBy": "integrator-5"
+}

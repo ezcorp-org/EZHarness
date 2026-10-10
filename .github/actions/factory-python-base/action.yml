@@ -1,0 +1,16 @@
+name: "Pinned factory Python base image"
+description: >
+  Put the pinned CPython base image on the runner, for the suites that run
+  it (python guest, applied controls). The reference comes from
+  DEFAULT_PYTHON_IMAGE, the value those suites read, never from this file:
+  scripts/setup-factory-python-base.ts pulls it by digest and proves the
+  digest resolves. Needs podman first
+  (scripts/setup-extension-runner-ci.sh --install). The PyArrow data image is
+  not pulled here; its journey suite runs in the lane that holds it.
+
+runs:
+  using: composite
+  steps:
+    - name: Pull the pinned Python base by digest
+      shell: bash
+      run: bun scripts/setup-factory-python-base.ts

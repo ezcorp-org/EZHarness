@@ -10,6 +10,9 @@ import { up as upClaimOwnerlessKbFilesOnce } from "./migrations/claim-ownerless-
 // project-root ARGUMENT comes from `getProjectRoot()` below.
 import { up as upNormalizeExtensionStateRoot } from "./migrations/normalize-extension-state-root";
 import { up as upRelativizeBundledInstallPaths } from "./migrations/relativize-bundled-install-paths";
+import { up as upFactoryExecutions } from "./migrations/add-factory-executions";
+import { up as upFactoryAttemptQueue } from "./migrations/add-factory-attempt-queue";
+import { up as upFactoryAttemptLaunches } from "./migrations/add-factory-attempt-launches";
 import type { MigrateDb } from "./migrations/types";
 // Value import is safe: `project-root.ts` depends only on `../logger` and
 // node builtins. It used to live in `../extensions/bundled.ts`, which
@@ -2505,6 +2508,7 @@ export async function migrate(db: MigrateDb): Promise<void> {
       updated_at TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT NOW()
     )
   `);
+  await db.execute(sql`ALTER TABLE service_accounts ADD COLUMN IF NOT EXISTS expires_at TIMESTAMP WITH TIME ZONE`);
   await db.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS uniq_service_account_name ON service_accounts(name)`);
   // FK index — ON DELETE RESTRICT scans this on every user delete to
   // decide whether to refuse. Required, not nice-to-have.
@@ -3037,9 +3041,143 @@ export async function migrate(db: MigrateDb): Promise<void> {
   await addGithubPersonalPrClaims(db);
   const { up: addWorkflowDelegationRelease } = await import("./migrations/add-workflow-delegation-release");
   await addWorkflowDelegationRelease(db);
+  const { up: addFactoryRecords } = await import("./migrations/add-factory-records");
+  await addFactoryRecords(db);
+  const { up: addFactoryInbox } = await import("./migrations/add-factory-inbox");
+  await addFactoryInbox(db);
+  const { up: addFactoryGrants } = await import("./migrations/add-factory-grants");
+  await addFactoryGrants(db);
+  const { up: addFactoryServiceCredentials } = await import("./migrations/add-factory-service-credentials");
+  await addFactoryServiceCredentials(db);
+  const { up: addFactoryBudgets } = await import("./migrations/add-factory-budgets");
+  await addFactoryBudgets(db);
+  const { up: addFactoryComputeAdmissions } = await import("./migrations/add-factory-compute-admissions");
+  await addFactoryComputeAdmissions(db);
+  const { up: addFactoryDefinitions } = await import("./migrations/add-factory-definitions");
+  await addFactoryDefinitions(db);
+  const { up: addFactoryRunLifecycle } = await import("./migrations/add-factory-run-lifecycle");
+  await addFactoryRunLifecycle(db);
+  const { up: addFactoryArtifacts } = await import("./migrations/add-factory-artifacts");
+  await addFactoryArtifacts(db);
+  const { up: addFactoryArtifactPartitionIdentity } = await import("./migrations/add-factory-artifact-partition-identity");
+  await addFactoryArtifactPartitionIdentity(db);
+  const { up: scopeFactoryArtifactPrimaryKey } = await import("./migrations/scope-factory-artifact-primary-key");
+  await scopeFactoryArtifactPrimaryKey(db);
+  const { up: addFactoryArtifactReadGrants } = await import("./migrations/add-factory-artifact-read-grants");
+  await addFactoryArtifactReadGrants(db);
+  const { up: addFactoryProjectionAttempts } = await import("./migrations/add-factory-projection-attempts");
+  await addFactoryProjectionAttempts(db);
+  const { up: addFactoryTransitionCommands } = await import("./migrations/add-factory-transition-commands");
+  await addFactoryTransitionCommands(db);
+  const { up: addFactoryChildRuns } = await import("./migrations/add-factory-child-runs");
+  await addFactoryChildRuns(db);
+  const { up: bindFactoryChildDefinitionSource } = await import("./migrations/bind-factory-child-definition-source");
+  await bindFactoryChildDefinitionSource(db);
+  const { up: bindFactoryChildStartClock } = await import("./migrations/bind-factory-child-start-clock");
+  await bindFactoryChildStartClock(db);
+  const { up: addFactoryAssurance } = await import("./migrations/add-factory-assurance");
+  await addFactoryAssurance(db);
+  const { up: strengthenFactoryAssurance } = await import("./migrations/strengthen-factory-assurance");
+  await strengthenFactoryAssurance(db);
+  const { up: bindFactoryAssuranceContractSnapshots } = await import("./migrations/bind-factory-assurance-contract-snapshots");
+  await bindFactoryAssuranceContractSnapshots(db);
+  const { up: repairTransactionalAuditMetadata } = await import("./migrations/repair-transactional-audit-metadata");
+  await repairTransactionalAuditMetadata(db);
+  const { up: addFactoryInstallationKeyWraps } = await import("./migrations/add-factory-installation-key-wraps");
+  await addFactoryInstallationKeyWraps(db);
+  const { up: addFactoryReleases } = await import("./migrations/add-factory-releases");
+  await addFactoryReleases(db);
+  const { up: addFactoryCommandApprovals } = await import("./migrations/add-factory-command-approvals");
+  await addFactoryCommandApprovals(db);
   const { extensionControlTools } = await import("../extensions/extension-control");
   for (const tool of extensionControlTools) {
     await db.execute(sql`UPDATE modes SET allowed_tools = array_append(allowed_tools, ${tool.name}) WHERE slug = 'ez' AND allowed_tools IS NOT NULL AND NOT (${tool.name} = ANY(allowed_tools))`);
   }
   await db.execute(sql`UPDATE modes SET allowed_tools = array_remove(array_remove(allowed_tools, 'extension-author/create_extension'), 'extension-author__create_extension') WHERE slug = 'ez'`);
+  await upFactoryExecutions(db);
+  await upFactoryAttemptQueue(db);
+  const { up: addFactoryReleaseAuthority } = await import("./migrations/add-factory-release-authority");
+  await addFactoryReleaseAuthority(db);
+  const { up: addFactoryTaskCompletions } = await import("./migrations/add-factory-task-completions");
+  await addFactoryTaskCompletions(db);
+  const { up: addFactoryTaskOutcomes } = await import("./migrations/add-factory-task-outcomes");
+  await addFactoryTaskOutcomes(db);
+  const { up: addFactoryValidatorMaterials } = await import("./migrations/add-factory-validator-materials");
+  await addFactoryValidatorMaterials(db);
+  const { up: allowFactoryValidatorMulticlaim } = await import("./migrations/allow-factory-validator-multiclaim");
+  await allowFactoryValidatorMulticlaim(db);
+  const { up: addFactoryPackagePreparations } = await import("./migrations/add-factory-package-preparations");
+  await addFactoryPackagePreparations(db);
+  const { up: addFactoryProtectedCommandEffects } = await import("./migrations/add-factory-protected-command-effects");
+  await addFactoryProtectedCommandEffects(db);
+  await upFactoryAttemptLaunches(db);
+  const { up: addFactoryArtifactMaterials } = await import("./migrations/add-factory-artifact-materials");
+  await addFactoryArtifactMaterials(db);
+  // Staging's order for W03's and W02's entries is preserved exactly; W05's remaining entries
+  // follow in their freeze order (38, 39, 40, then the new child alias table). Every one is
+  // self-idempotent and order-independent of the others, except that the validator report must
+  // follow the multi-claim splice, which sits immediately after add-factory-validator-materials.
+  const { up: addFactoryTaskStops } = await import("./migrations/add-factory-task-stops");
+  await addFactoryTaskStops(db);
+  const { up: addFactoryUsageSettlements } = await import("./migrations/add-factory-usage-settlements");
+  await addFactoryUsageSettlements(db);
+  const { up: addFactoryUsageReceiptC02Form } = await import("./migrations/add-factory-usage-receipt-c02-form");
+  await addFactoryUsageReceiptC02Form(db);
+  const { up: addFactoryUsageNoOperations } = await import("./migrations/add-factory-usage-no-operations");
+  await addFactoryUsageNoOperations(db);
+  const { up: addFactoryAdmissionOrigin } = await import("./migrations/add-factory-admission-origin");
+  await addFactoryAdmissionOrigin(db);
+  const { up: addFactoryValidatorAdmissionEvent } = await import("./migrations/add-factory-validator-admission-event");
+  await addFactoryValidatorAdmissionEvent(db);
+  const { up: addFactoryPackageQuarantine } = await import("./migrations/add-factory-package-quarantine");
+  await addFactoryPackageQuarantine(db);
+  const { up: addFactoryValidatorReport } = await import("./migrations/add-factory-validator-report");
+  await addFactoryValidatorReport(db);
+  const { up: addFactoryReleaseProfile } = await import("./migrations/add-factory-release-profile");
+  await addFactoryReleaseProfile(db);
+  const { up: addFactoryProtectedDecision } = await import("./migrations/add-factory-protected-decision");
+  await addFactoryProtectedDecision(db);
+  const { up: addFactoryChildArtifactAliases } = await import("./migrations/add-factory-child-artifact-aliases");
+  await addFactoryChildArtifactAliases(db);
+  const { up: addFactoryLegacyWorkflowAdapters } = await import("./migrations/add-factory-legacy-workflow-adapters");
+  await addFactoryLegacyWorkflowAdapters(db);
+  const { up: addFactoryInstallationBootstrap } = await import("./migrations/add-factory-installation-bootstrap");
+  await addFactoryInstallationBootstrap(db);
+  // W02c: the package fence's affected-run record. Depends only on the package
+  // trust revisions and the execution journal, both created above.
+  const { up: addFactoryPackageFenceRuns } = await import("./migrations/add-factory-package-fence-runs");
+  await addFactoryPackageFenceRuns(db);
+  // W04b: a revoked artifact share no longer blocks a new grant. Depends only on
+  // add-factory-artifact-read-grants, registered above.
+  const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
+  await allowFactoryArtifactRegrant(db);
+  // W01h fix round: a stop whose facts no longer verify becomes a reconciliation
+  // item. Depends only on add-factory-task-stops, registered above.
+  const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
+  await addFactoryTaskStopReconciliation(db);
+  // W03f: a stop settles from its journal's measured operations. Widens the three
+  // settlement CHECKs add-factory-usage-no-operations installed, registered above.
+  const { up: addFactoryUsageOperations } = await import("./migrations/add-factory-usage-operations");
+  await addFactoryUsageOperations(db);
+  // W02d R8: a dispatch refused after admission stops through a signed host stop. Depends only on add-factory-task-stops.
+  const { up: addFactoryTaskStopDispatchRefused } = await import("./migrations/add-factory-task-stop-dispatch-refused");
+  await addFactoryTaskStopDispatchRefused(db);
+  // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
+  const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
+  await addFactoryUsageEpochStale(db);
+  // W15f: a signed restore's proven end for every attempt of the epoch it left.
+  const { up: addFactoryAttemptSupersessions } = await import("./migrations/add-factory-attempt-supersessions");
+  await addFactoryAttemptSupersessions(db);
+  // W09e: a release's stop and its effect. Depends only on add-factory-releases, registered above.
+  const { up: addFactoryReleaseStop } = await import("./migrations/add-factory-release-stop");
+  await addFactoryReleaseStop(db);
+  // W09h: a task attempt stopped before compute admission. Depends only on add-factory-compute-admissions, registered above.
+  const { up: addFactoryComputeAdmissionStop } = await import("./migrations/add-factory-compute-admission-stop");
+  await addFactoryComputeAdmissionStop(db);
+  // W09h: the no-operations basis "nothing launched, all zero". Depends only on add-factory-usage-no-operations, registered above.
+  const { up: addFactoryUsageNothingLaunchedBasis } = await import("./migrations/add-factory-usage-nothing-launched-basis");
+  await addFactoryUsageNothingLaunchedBasis(db);
+  // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
+  const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
+  await addFactoryRecovery(db);
 }

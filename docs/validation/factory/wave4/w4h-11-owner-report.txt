@@ -1,0 +1,57 @@
+W4H-11 report (owners w4h-11, then w4h-11b from 2026-10-07). Final; written once on 2026-10-08.
+Branch wp/w4h-11-bootstrap-deadline, worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-11, base integ/w00 1bc5f63c7.
+Head 16f1228db. Commits:
+  2c4a535e4 fix(shipping): bundled bootstrap waits end on no progress, not a flat 360 s
+  b8a443fb3 feat(shipping): a finished bootstrap wait records its total and stall-clock maximum
+  88de7acce fix(shipping): a proof's single-build wait ends on no progress of the shared build queue
+  16f1228db docs(factory): W4H-11 gate file (tasks/factory/w4h-11-GATES.md, force-added: .gitignore:8 bare `tasks`)
+Identity: all four commits archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+Shared config /home/dev/work/EZCorp/EZHarness/.git/config: 888c78b9e94ea660 = accepted baseline after every git write; never written.
+
+R1 RED (coordinator ruling (A), 2026-10-06): hosted run 37383355593, both jobs 27 of 28 verified at a flat 360 s, 13.1-13.2 s
+  a build (hosted-timeline.txt); W4H-1's three local timeouts (17 / 5 / 6 of 28). Eight local container runs: all 28 of 28 at
+  294-357 s (margins 3.3-65.8 s; 10.5-12.8 s a build at 4.0 / 3.6 / 3.0 / 1.8 CPUs). No base runs after the ruling.
+R2 ROOT CAUSE (a), deadline model: a flat 360 s total over a serial 28-build chain whose length follows host contention (each build
+  guest is capped at 2 CPUs, packages/@ezcorp/extension-runner/src/core.ts:33). No installation stalls (not (b)).
+R3 FIX: scripts/lib/bundled-bootstrap-progress.ts is the one policy: the wait ends on no progress (stallMs 120000, counted from the
+  later of the last change and a live lease), bounded by a safety net (1544000 ms for 28 builds); the error names each unverified
+  build, its state and its time since the last transition; a finished wait's receipt carries progress {elapsedMs, maxStallClockMs,
+  stallMs, safetyNetMs, lastProgressAt}. Readers: shipping-bootstrap-state.ts waitForBundledBootstrap, the delivery proof,
+  web/e2e/fixtures/bundled-bootstrap.ts, and (88de7acce) waitForBuildVerified, to which production-lifecycle-client.ts waitVerified
+  delegates: one build waits on the progress of the awaited build plus the 28 bundled builds. 88de7acce came from R5 at b8a443fb3:
+  recovery's historical-upgrade was red on the old flat 360 s in waitVerified, behind the candidate's 28-build chain.
+R4 TESTS at 88de7acce: bundled-bootstrap-progress.test.ts 13 pass / 0 fail; shipping-bootstrap-state.test.ts 12 pass / 0 fail
+  (5 new for waitForBuildVerified); e2e-bundled-bootstrap-wait.test.ts 6 pass / 0 fail (at 2c4a535e4; file unchanged since).
+  Lines: shipping-bootstrap-state.ts 116/116 (all 43 changed lines), bundled-bootstrap-progress.ts 71/71, web/e2e/fixtures/
+  bundled-bootstrap.ts 47/48 (the one line is outside every hunk); the one changed line of production-lifecycle-client.ts (the
+  delegation) is exercised by the recovery E2E only. Mutation: a flat 360 s added back turns 2 of the new tests red.
+  CRAP worst 13.0 (max 30). New-file, patch and CRAP gates are vacuous for scripts/lib and web/e2e (scripts/coverage-config.ts:109).
+R5 GREEN E2E at 88de7acce, 4 CPUs (coordinator ruling: the 3.0-CPU legs add no information above the guest's 2-CPU cap), every leg
+  host_oom 0, every bootstrap wait 28 of 28 verified, stallMs 120000, safetyNetMs 1544000:
+    setup rc 0 (9.5 min)                    guard set rc 0: 39 files, 500 pass / 2 skip / 0 fail
+    resources rc 0: R4 10/10 cycles, elapsedMs 309745, maxStallClockMs 1063
+    content rc 0 (file-organizer, legacy-adoption): elapsedMs 288991, maxStallClockMs 1084
+    delivery rc 0: restart wait elapsedMs 364588 (past the old 360 s), maxStallClockMs 1075
+    recovery rc 0: runtime (elapsedMs 292416; r1 1181) and historical-upgrade "UPGRADE VERIFIED"
+  heavy.exit 0 at 2026-10-08T03:20:53Z. Evidence: /tmp/factory-platform-evidence/w4h-11/r5/ (heavy.log, heavy.exit, heavy-try1.log,
+  heavy-try2.log, gated*.log, hold-20261007T220338Z/, hold-20261008T024005Z/, hold-20261008T025542Z/) and r5-void-88de-oom/ (guard).
+  Not counted (recorded in G5): r5-released3/ (3 gate releases), r5-void4-oom/ (SIGKILL in a host OOM storm), r5-gaveup1/ (exit 91),
+  r5-b8a443fb3/ (6 legs green, recovery red: the finding behind 88de7acce), r5-void-88de-oom/ (resources VOID by ruling: host OOM and
+  the #329 R4 descriptor flake, e3309906d on main; content SIGTERM in a host OOM), hold 2 try 1's content (rc 1 in a 50-kill host OOM).
+Legs at 88de7acce: hook printed 2 suites, green; biome 0; check-boundaries 0 (6062 files); check-factory-boundaries 0;
+  gate-integrity integ/w00 PASS, origin/main = the 8 standing lines; prune scan clean (prune-scan-final.log);
+  typecheck exit 0 and svelte-check exit 0 (620 files, 0 errors) under the tc rule (typecheck-c3.log: MemAvailable 18.6 GiB before,
+  lowest 15.3 GiB); host node 24.21.0, not the 24.14.1 pin (no pinned node in /tmp/factory-tools).
+Sweep (coordinator ruling): /tmp/factory-platform-evidence/w4h-11/sweep-88de7acce.txt (sha256 d9dd603300fb8230...), 323 hits in 168
+  files, each file classified in the gate file; none is a bootstrap-chain wait outside the policy. Call-graph check: the b8a443fb3
+  receipts do NOT stand (resources and content execute the changed code); all legs reran at 88de7acce.
+Harness: /tmp/factory-platform-evidence/w4h-11/heavy.sh (sha256 ad785a7709865c10...): GIT_ guard (exit 9), resume only at >= 115 GB,
+  host OOM void (exit 5; heavy-void.test.sh 13505b28c151f1bb... 5/5), host-side guard leg.
+Cleanup: every container w4h-11-r5, volume w4h-11-storage-r5 and snapshot /tmp/w4h-11-home-snap-r5 removed by the harness; image
+  localhost/w4h-11-runner:24.04 removed by name on 2026-10-08. Nothing pruned.
+Leftover candidates (gate file): the root install race; conmon 2.2.1 without journald; legacy-adoption's `--load` under Podman 4.9;
+  coverage gates blind to scripts/lib and web/e2e; scripts/verify-extension-container.ts:40 flat 240 s build wait (no caller).
+Gate file: tasks/factory/w4h-11-GATES.md at 16f1228db (G1-G5, the eight-run table, shape exceptions, harness guards, sweep,
+  call-graph check, lessons, proposed W4H-1 G4 closing text). Lessons: /tmp/factory-platform-evidence/w4h-11/pending-lesson.md.
+Disclosures: 88de7acce was committed before the sweep-first ruling was read (the sweep changed nothing); the owner stopped two of its
+  own waiting re-queues (no lock held) so a resume ran only the legs not yet green.

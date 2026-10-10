@@ -1,0 +1,2 @@
+scripts/factory-temporal-authorizer.test.ts
+scripts/lib/shipping-bootstrap-state.test.ts

@@ -1,0 +1,5 @@
+Patch coverage gate FAILED (2 file(s) with uncovered changes):
+  packages/@ezcorp/factory-transport/src/index.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  src/factory/native-runner-policy.ts: 1 changed line(s) uncovered: 159
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

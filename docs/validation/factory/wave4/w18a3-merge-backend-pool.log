@@ -1,0 +1,5 @@
+umask=0022 head=ec14ad9477ecf2e8bc24e2d354fd6c39d8d61742 start=2026-09-25T18:46:47Z DATABASE_URL=unset
+
+================================
+  29024 pass | 0 fail | 1956 files
+================================

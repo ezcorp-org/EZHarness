@@ -1,0 +1,7 @@
+Hold try 1 on merge 8fc75ee6d (18:45:47-19:30:09Z 2026-10-09): heavy.exit 1, HEAVY DONE status=1. NOT a product red; kept by the lead's ruling.
+(i) browser-part exit 97: the hold's zero-test guard reads bun's "N pass" only; browser-part.sh itself ended rc 0 with every lane green
+    (build, transfers, mock-gate 283, mock-full 1466, evidence 394, fresh-setup 7, real-auth 108, merge 0, factory-services 13). Fix: NOTEST=1 (the after-runner's form).
+(ii) browser-checks check 3 (then binding for every file): 7 one-line drops vs the hosted all-lanes lcov of 37960843272, none in a factory file;
+    against the local wave4i-3 browser lcov at 6b9ff91ac (git diff 6b9ff91ac 8fc75ee6d -- web/ = the spec only) 4 drops in a different set:
+    run-to-run variance in the chat/streaming specs. Lead's ruling: check 3 binding for web/src/lib/factory/** and the factories routes, informational elsewhere.
+Every other leg green (checks 1-2, spec x3 42 passed, leg (g) all forms + control + artifacts hash-equal, gates status 0, main = the 8).

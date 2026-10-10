@@ -1,0 +1,5 @@
+Gate integrity: 4 finding(s) BYPASSED via GATE_CHANGE_APPROVED (maintainer label):
+  (bypassed) test file RENAMED (R097): web/e2e/real-auth/factory-authoring-flow.spec.ts → web/e2e/factory-authoring-flow.spec.ts — renames can de-gate pattern-matched test sets — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label

@@ -1,6 +1,7 @@
 # Stage 1: Build
-FROM docker.io/oven/bun:1.3.14 AS builder
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+FROM docker.io/oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS builder
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
 # Install root dependencies
@@ -12,6 +13,9 @@ COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: the @ezcorp/sdk `prepare` script (and root `postinstall`)
 # compile the SDK to dist/ via tsc, but the SDK source + tsconfig.build.json
 # haven't been COPY'd yet (only the package.json). Skip lifecycle here; we
@@ -21,6 +25,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY web/patches web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Copy source and build
@@ -29,13 +35,13 @@ COPY . .
 # source and tsconfigs are present. The web bundler follows each package's
 # `import` export to dist/, while Bun at runtime follows the `bun` export to
 # src/. Skipped at install-time above due to layer-cache constraints.
-RUN bun run --cwd packages/@ezcorp/sdk build \
-  && bun run --cwd packages/@ezcorp/harness-client build
+RUN bun run build:packages
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM docker.io/oven/bun:1.3.14-slim
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+FROM docker.io/oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
 # Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp
@@ -100,7 +106,7 @@ RUN apt-get update \
 #
 # Pinned rather than taken from the `cli.github.com` apt repo: a floating
 # version would invalidate this layer on every upstream release, the same
-# drift the pinned `oven/bun:1.3.14` base exists to avoid.
+# drift the pinned `oven/bun:1.4.2` base exists to avoid.
 ARG GH_VERSION=2.63.2
 ARG TARGETARCH
 RUN set -eux; \
@@ -184,6 +190,9 @@ COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: prevents the SDK's `prepare` (build) from running.
 # Two reasons: (1) the SDK source isn't COPY'd into this stage (only its
 # manifest), and (2) `--production` skips devDependencies including
@@ -194,6 +203,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web production dependencies (needed by SvelteKit server at runtime)
 COPY web/package.json web/bun.lock web/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY web/patches web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --production --frozen-lockfile --ignore-scripts
 
 # Copy backend source

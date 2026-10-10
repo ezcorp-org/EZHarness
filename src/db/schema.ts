@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, uniqueIndex, date, vector } from "drizzle-orm/pg-core";
+import { pgTable, text, timestamp, jsonb, integer, numeric, real, serial, bigserial, bigint, boolean, index, primaryKey, foreignKey, uniqueIndex, date, vector, customType, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { buildFactorySchema } from "./factory-schema";
 import type { PublishedExtensionRelease } from "@ezcorp/extension-contract";
 import type {
   AgentResult,
@@ -13,6 +14,8 @@ import type {
 } from "../types";
 import type { MemoryProvenance } from "../memory/types";
 import { EMBEDDING_DIMENSIONS } from "../memory/types";
+
+const factoryEncryptedBytes = customType<{ data: Uint8Array; driverData: Buffer }>({ dataType: () => "bytea" });
 // Tier vocabulary lives in the pure routing classifier (single source of
 // truth). Type-only import — erased at build, so it adds no runtime dep.
 import type { RoutingTier } from "../runtime/tier-classifier";
@@ -639,6 +642,7 @@ export const serviceAccounts = pgTable("service_accounts", {
   // no such case. Mandatory: there is deliberately no "unlimited" value.
   maxTokensPerDay: integer("max_tokens_per_day").notNull(),
   enabled: boolean("enabled").notNull().default(true),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
   disabledReason: text("disabled_reason"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -648,6 +652,9 @@ export const serviceAccounts = pgTable("service_accounts", {
   // to decide whether to refuse, so it is required, not nice-to-have.
   index("idx_service_accounts_created_by").on(table.createdByUserId),
 ]);
+
+/** The SQL-level definition used wherever a service principal authorizes work. */
+export const SERVICE_ACCOUNT_IS_LIVE_SQL = sql`enabled = true AND (expires_at IS NULL OR expires_at > now())`;
 
 export type ServiceAccountRow = typeof serviceAccounts.$inferSelect;
 export type NewServiceAccountRow = typeof serviceAccounts.$inferInsert;
@@ -1394,6 +1401,13 @@ export type KBChunk = typeof knowledgeBaseChunks.$inferSelect;
 export type NewKBChunk = typeof knowledgeBaseChunks.$inferInsert;
 
 // ── Extensions ────────────────────────────────────────────────────
+
+export const extensionReleaseInstallations = pgTable("extension_release_installations", {
+  id: text("id").primaryKey(),
+  ownerId: text("owner_id").notNull(),
+  scope: text("scope").notNull(),
+  payload: text("payload").notNull(),
+}, table => [index("extension_release_installations_owner").on(table.ownerId, table.scope)]);
 
 export const extensions = pgTable("extensions", {
   id: text("id").primaryKey().$defaultFn(() => crypto.randomUUID()),
@@ -2921,6 +2935,615 @@ export const extensionRuntimeLocks = pgTable("extension_runtime_locks", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [primaryKey({ columns: [table.installationId, table.key] })]);
 
+// Factory definitions live in a separate builder so these product tables can
+// refer to the established project and user records without a module cycle.
+export const {
+  factoryInstallation,
+  factoryProjects,
+  factoryRuns,
+  factoryAuditBatches,
+  factoryTransitionCommands,
+  factoryCommandOutbox,
+  factoryRunProjections,
+  factoryRunProjectionAttempts,
+  factoryInboxCursors,
+  factoryInboxEvents,
+  factoryGrants,
+  factoryServiceCredentials,
+  factoryBudgetEnvelopes,
+  factoryBudgetReservations,
+  factoryComputeAdmissions,
+  factoryMutationReceipts,
+  factoryDrafts,
+  factoryVersions,
+  factoryRunLifecycle,
+  factoryChildRuns,
+  factoryExecutions,
+  factoryAttemptSupersessions,
+  factoryAttemptQueue,
+  factoryExecutionOperationCursors,
+  factoryExecutionOperations,
+} = buildFactorySchema({ projects, users, serviceAccounts });
+/** Host-issued references for Factory ordinary object storage. */
+export const factoryArtifacts = pgTable("factory_artifacts", {
+  objectId: text("object_id").notNull(),
+  tenantId: text("tenant_id").notNull(),
+  projectId: text("project_id").notNull(),
+  runId: text("run_id").notNull(),
+  interpreterId: text("interpreter_id"),
+  kind: text("kind").notNull(),
+  definitionDigest: text("definition_digest"),
+  sourceSequence: bigint("source_sequence", { mode: "number" }),
+  pageIndex: integer("page_index"),
+  partitionId: text("partition_id"),
+  candidateNodeInstanceId: text("candidate_node_instance_id"),
+  candidateGeneration: bigint("candidate_generation", { mode: "number" }),
+  materialKey: text("material_key"),
+  digest: text("digest").notNull(),
+  blobDigest: text("blob_digest").notNull(),
+  storageVersion: text("storage_version").notNull(),
+  encodedBytes: integer("encoded_bytes").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.objectId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+]);
+/** Auxiliary immutable material records bound to one attempt operation. */
+export const factoryArtifactMaterials = pgTable("factory_artifact_materials", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  attemptId: text("attempt_id").notNull(), operationId: text("operation_id").notNull(),
+  objectName: text("object_name").notNull(), version: integer("version").notNull(),
+  mediaType: text("media_type").notNull(), digest: text("digest").notNull(),
+  totalBytes: bigint("total_bytes", { mode: "number" }).notNull(), chunkCount: integer("chunk_count").notNull(),
+  storageVersion: text("storage_version").notNull(), sealed: boolean("sealed").notNull().default(false),
+  objectId: text("object_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version] }),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.objectId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+]);
+
+/** Bounded chunk facts for one material version; the bytes stay in object storage. */
+export const factoryArtifactMaterialChunks = pgTable("factory_artifact_material_chunks", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  attemptId: text("attempt_id").notNull(), operationId: text("operation_id").notNull(),
+  objectName: text("object_name").notNull(), version: integer("version").notNull(),
+  chunkIndex: integer("chunk_index").notNull(), chunkDigest: text("chunk_digest").notNull(),
+  encodedBytes: integer("encoded_bytes").notNull(),
+  blobDigest: text("blob_digest").notNull(), storageVersion: text("storage_version").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version, table.chunkIndex] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.attemptId, table.operationId, table.objectName, table.version], foreignColumns: [factoryArtifactMaterials.tenantId, factoryArtifactMaterials.projectId, factoryArtifactMaterials.runId, factoryArtifactMaterials.attemptId, factoryArtifactMaterials.operationId, factoryArtifactMaterials.objectName, factoryArtifactMaterials.version] }).onDelete("restrict"),
+]);
+
+export const factoryExecutionTerminals = pgTable("factory_execution_terminals", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").primaryKey().references(() => factoryExecutions.attemptId, { onDelete: "restrict" }), requestDigest: text("request_digest").notNull(), resultDigest: text("result_digest").notNull(), terminalResultDigest: text("terminal_result_digest").notNull(), resultJson: text("result_json").notNull(),
+  outputArtifactId: text("output_artifact_id").notNull(), outputDigest: text("output_digest").notNull(), outputBytes: integer("output_bytes").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [uniqueIndex("factory_execution_terminals_candidate_key").on(table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.outputArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict")]);
+
+/** Tenant gateway launch records. These are never copied to the shared host. */
+export const factoryAttemptLaunches = pgTable("factory_attempt_launches", {
+  attemptId: text("attempt_id").primaryKey().references(() => factoryExecutions.attemptId, { onDelete: "restrict" }), tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), requestDigest: text("request_digest").notNull(), requestJson: jsonb("request_json").notNull(), reservationId: text("reservation_id").notNull(), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), allocationGeneration: bigint("allocation_generation", { mode: "number" }).notNull(), holderGeneration: bigint("holder_generation", { mode: "number" }).notNull(), allocationToken: text("allocation_token").notNull(), hostId: text("host_id").notNull(), packageReceiptDigest: text("package_receipt_digest").notNull(), packageReceiptJson: jsonb("package_receipt_json").notNull(), artifactDigest: text("artifact_digest").notNull(), workerId: text("worker_id").notNull().unique(), invocationId: text("invocation_id").notNull(), deviceGrantJson: jsonb("device_grant_json").notNull().default(sql`'{"devices": [], "cdiDevices": [], "capabilities": []}'::jsonb`), deviceGrantDigest: text("device_grant_digest"), terminalResultJson: jsonb("terminal_result_json"), terminalResultDigest: text("terminal_result_digest"), state: text("state").notNull().$type<"prepared" | "launching" | "launched" | "terminal" | "uncertain">(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), index("idx_factory_attempt_launches_recovery").on(table.state, table.updatedAt, table.tenantId, table.projectId, table.attemptId), uniqueIndex("uq_factory_attempt_launches_invocation").on(table.invocationId)]);
+
+export const factoryReleaseTrustRevisions = pgTable("factory_release_trust_revisions", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), state: text("state").notNull().$type<"active" | "revoked">(), packageLockJson: text("package_lock_json").notNull(), packageTrustDigest: text("package_trust_digest").notNull(), validatorTrustDigest: text("validator_trust_digest").notNull(), approvedBy: text("approved_by").notNull().references(() => users.id, { onDelete: "restrict" }), approvalGrantRevision: bigint("approval_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.revision] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryReleaseTrustCurrent = pgTable("factory_release_trust_current", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId] }), foreignKey({ columns: [table.tenantId, table.projectId, table.revision], foreignColumns: [factoryReleaseTrustRevisions.tenantId, factoryReleaseTrustRevisions.projectId, factoryReleaseTrustRevisions.revision] }).onDelete("restrict")]);
+
+export const factoryReleaseControls = pgTable("factory_release_controls", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), enabled: boolean("enabled").notNull().default(false), enableEpoch: bigint("enable_epoch", { mode: "number" }).notNull(), changedBy: text("changed_by").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryReleaseCandidateHistory = pgTable("factory_release_candidate_history", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(), attemptId: text("attempt_id").notNull().references(() => factoryExecutionTerminals.attemptId, { onDelete: "restrict" }), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(), terminalFactDigest: text("terminal_fact_digest").notNull(), outputArtifactId: text("output_artifact_id").notNull(), outputBytes: integer("output_bytes").notNull(), trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), packageTrustDigest: text("package_trust_digest").notNull(), validatorTrustDigest: text("validator_trust_digest").notNull(), proofDigest: text("proof_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration] }), uniqueIndex("factory_release_candidate_history_attempt_key").on(table.attemptId), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.trustRevision], foreignColumns: [factoryReleaseTrustRevisions.tenantId, factoryReleaseTrustRevisions.projectId, factoryReleaseTrustRevisions.revision] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.outputArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict")]);
+
+export const factoryRunnerPackageBindings = pgTable("factory_runner_package_bindings", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), referenceJson: text("reference_json").notNull(),
+  installationId: text("installation_id").notNull().references(() => extensionReleaseInstallations.id, { onDelete: "restrict" }), releaseId: text("release_id").notNull(), releaseDigest: text("release_digest").notNull(), sourceDigest: text("source_digest").notNull(), artifactDigest: text("artifact_digest").notNull(), imageDigest: text("image_digest").notNull(), manifestDigest: text("manifest_digest").notNull(), issuerId: text("issuer_id").notNull().references(() => users.id, { onDelete: "restrict" }), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryRunnerPackageTrustRevisions = pgTable("factory_runner_package_trust_revisions", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), state: text("state").notNull().$type<"active" | "quarantined" | "revoked">(), packageTrustDigest: text("package_trust_digest").notNull(), approvedBy: text("approved_by").notNull().references(() => users.id, { onDelete: "restrict" }), approvalGrantRevision: bigint("approval_grant_revision", { mode: "number" }).notNull(), installationGeneration: bigint("installation_generation", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest,t.revision] }), foreignKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest], foreignColumns: [factoryRunnerPackageBindings.tenantId,factoryRunnerPackageBindings.projectId,factoryRunnerPackageBindings.packageName,factoryRunnerPackageBindings.packageVersion,factoryRunnerPackageBindings.packageDigest,factoryRunnerPackageBindings.exportName,factoryRunnerPackageBindings.referenceDigest] }).onDelete("restrict")]);
+export const factoryRunnerPackageTrustCurrent = pgTable("factory_runner_package_trust_current", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest] }), foreignKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest,t.revision], foreignColumns: [factoryRunnerPackageTrustRevisions.tenantId,factoryRunnerPackageTrustRevisions.projectId,factoryRunnerPackageTrustRevisions.packageName,factoryRunnerPackageTrustRevisions.packageVersion,factoryRunnerPackageTrustRevisions.packageDigest,factoryRunnerPackageTrustRevisions.exportName,factoryRunnerPackageTrustRevisions.referenceDigest,factoryRunnerPackageTrustRevisions.revision] }).onDelete("restrict")]);
+export const factoryRunnerPreparationIntents = pgTable("factory_runner_preparation_intents", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), packageTrustDigest: text("package_trust_digest").notNull(), installationId: text("installation_id").notNull(), releaseId: text("release_id").notNull(), releaseDigest: text("release_digest").notNull(), sourceDigest: text("source_digest").notNull(), artifactDigest: text("artifact_digest").notNull(), imageDigest: text("image_digest").notNull(), manifestDigest: text("manifest_digest").notNull(), issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), bindingProtectedDigest: text("binding_protected_digest").notNull(), evidenceDigest: text("evidence_digest").notNull(), entrypoint: text("entrypoint").notNull(), intentDigest: text("intent_digest").notNull(), buildIdentity: text("build_identity").notNull(), state: text("state").notNull().$type<"prepared" | "completed">(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [primaryKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest,t.trustRevision] }), foreignKey({ columns: [t.tenantId,t.projectId,t.packageName,t.packageVersion,t.packageDigest,t.exportName,t.referenceDigest,t.trustRevision], foreignColumns: [factoryRunnerPackageTrustRevisions.tenantId,factoryRunnerPackageTrustRevisions.projectId,factoryRunnerPackageTrustRevisions.packageName,factoryRunnerPackageTrustRevisions.packageVersion,factoryRunnerPackageTrustRevisions.packageDigest,factoryRunnerPackageTrustRevisions.exportName,factoryRunnerPackageTrustRevisions.referenceDigest,factoryRunnerPackageTrustRevisions.revision] }).onDelete("restrict")]);
+
+export const factoryRunnerPreparationReceipts = pgTable("factory_runner_preparation_receipts", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), packageTrustDigest: text("package_trust_digest").notNull(), releaseDigest: text("release_digest").notNull(), sourceDigest: text("source_digest").notNull(), artifactDigest: text("artifact_digest").notNull(), imageDigest: text("image_digest").notNull(), manifestDigest: text("manifest_digest").notNull(), evidenceDigest: text("evidence_digest").notNull(), buildIdentity: text("build_identity").notNull(), receiptDigest: text("receipt_digest").notNull(), preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest, table.trustRevision] }), foreignKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest], foreignColumns: [factoryRunnerPackageBindings.tenantId, factoryRunnerPackageBindings.projectId, factoryRunnerPackageBindings.packageName, factoryRunnerPackageBindings.packageVersion, factoryRunnerPackageBindings.packageDigest, factoryRunnerPackageBindings.exportName, factoryRunnerPackageBindings.referenceDigest] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId,table.projectId,table.packageName,table.packageVersion,table.packageDigest,table.exportName,table.referenceDigest,table.trustRevision], foreignColumns: [factoryRunnerPackageTrustRevisions.tenantId,factoryRunnerPackageTrustRevisions.projectId,factoryRunnerPackageTrustRevisions.packageName,factoryRunnerPackageTrustRevisions.packageVersion,factoryRunnerPackageTrustRevisions.packageDigest,factoryRunnerPackageTrustRevisions.exportName,factoryRunnerPackageTrustRevisions.referenceDigest,factoryRunnerPackageTrustRevisions.revision] }).onDelete("restrict"), index("idx_factory_runner_preparation_current").on(table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest, table.trustRevision.desc())]);
+
+/** W02c: one sealed row per attempt a quarantine or revocation reached. Migration: `add-factory-package-fence-runs`. */
+export const factoryPackageFenceRuns = pgTable("factory_package_fence_runs", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), packageName: text("package_name").notNull(), packageVersion: text("package_version").notNull(), packageDigest: text("package_digest").notNull(), exportName: text("export_name").notNull(), referenceDigest: text("reference_digest").notNull(), trustRevision: bigint("trust_revision", { mode: "number" }).notNull(),
+  state: text("state").notNull().$type<"quarantined" | "revoked">(), reason: text("reason").notNull().$type<"factory_package_quarantined" | "factory_package_revoked">(),
+  runId: text("run_id").notNull(), attemptId: text("attempt_id").notNull(), attemptStatus: text("attempt_status").notNull().$type<"admitted" | "running">(), launchState: text("launch_state").$type<"prepared" | "launching" | "launched" | "terminal" | "uncertain">(),
+  disposition: text("disposition").notNull().$type<"cancel-requested" | "already-cancelling" | "run-terminal">(), cancellationEventId: text("cancellation_event_id"), recordedAtMs: bigint("recorded_at_ms", { mode: "number" }).notNull(), recordDigest: text("record_digest").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest, table.trustRevision, table.attemptId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.packageName, table.packageVersion, table.packageDigest, table.exportName, table.referenceDigest, table.trustRevision], foreignColumns: [factoryRunnerPackageTrustRevisions.tenantId, factoryRunnerPackageTrustRevisions.projectId, factoryRunnerPackageTrustRevisions.packageName, factoryRunnerPackageTrustRevisions.packageVersion, factoryRunnerPackageTrustRevisions.packageDigest, factoryRunnerPackageTrustRevisions.exportName, factoryRunnerPackageTrustRevisions.referenceDigest, factoryRunnerPackageTrustRevisions.revision] }).onDelete("restrict"),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  index("idx_factory_package_fence_runs_run").on(table.tenantId, table.projectId, table.runId),
+  check("factory_package_fence_runs_state_check", sql`${table.state} IN ('quarantined','revoked')`),
+  check("factory_package_fence_runs_reason_check", sql`${table.reason} IN ('factory_package_quarantined','factory_package_revoked')`),
+  check("factory_package_fence_runs_attempt_status_check", sql`${table.attemptStatus} IN ('admitted','running')`),
+  check("factory_package_fence_runs_launch_state_check", sql`${table.launchState} IS NULL OR ${table.launchState} IN ('prepared','launching','launched','terminal','uncertain')`),
+  check("factory_package_fence_runs_disposition_check", sql`${table.disposition} IN ('cancel-requested','already-cancelling','run-terminal')`),
+  check("factory_package_fence_runs_recorded_at_ms_check", sql`${table.recordedAtMs} >= 0`),
+  check("factory_package_fence_runs_record_digest_check", sql`${table.recordDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_package_fence_runs_check", sql`(${table.state} = 'quarantined') = (${table.reason} = 'factory_package_quarantined')`),
+  check("factory_package_fence_runs_check1", sql`(${table.disposition} = 'run-terminal') = (${table.cancellationEventId} IS NULL)`),
+]);
+
+export const factoryReleaseCurrentCandidates = pgTable("factory_release_current_candidates", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(), attemptId: text("attempt_id").notNull(), pointerRevision: bigint("pointer_revision", { mode: "number" }).notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId] }), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict")]);
+
+export const factoryValidatorMaterials = pgTable("factory_validator_materials", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), factoryId: text("factory_id").notNull(), factoryVersion: text("factory_version").notNull(), definitionDigest: text("definition_digest").notNull(),
+  contractId: text("contract_id").notNull(), contractVersion: text("contract_version").notNull(), contractDigest: text("contract_digest").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(),
+  mandatoryClaims: text("mandatory_claims").notNull(), claimGroups: text("claim_groups").notNull(), validatorsJson: text("validators_json").notNull(), materialDigest: text("material_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.factoryVersion] }),
+  uniqueIndex("factory_validator_materials_lock_key").on(table.tenantId, table.projectId, table.validatorLockDigest),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.factoryId, table.factoryVersion], foreignColumns: [factoryVersions.tenantId, factoryVersions.projectId, factoryVersions.factoryId, factoryVersions.version] }).onDelete("restrict"),
+]);
+
+export const factoryValidatorAssignments = pgTable("factory_validator_assignments", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), candidateNodeInstanceId: text("candidate_node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), validatorId: text("validator_id").notNull(),
+  validatorAttemptId: text("validator_attempt_id").notNull(), validatorAuthorityJson: text("validator_authority_json").notNull(), definitionDigest: text("definition_digest").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(),
+  candidateDigest: text("candidate_digest").notNull(), candidateArtifactId: text("candidate_artifact_id").notNull(), candidateArtifactDigest: text("candidate_artifact_digest").notNull(), candidateArtifactBytes: bigint("candidate_artifact_bytes", { mode: "number" }).notNull(),
+  runnerJson: text("runner_json").notNull(), runnerDigest: text("runner_digest").notNull(), environmentDigest: text("environment_digest").notNull(), configurationDigest: text("configuration_digest").notNull(), freshnessMs: bigint("freshness_ms", { mode: "number" }).notNull(),
+  trustRevision: bigint("trust_revision", { mode: "number" }).notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), assignmentDigest: text("assignment_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration, table.validatorId] }),
+  uniqueIndex("uq_factory_validator_assignment_attempt_claim").on(table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.validatorLockDigest], foreignColumns: [factoryValidatorMaterials.tenantId, factoryValidatorMaterials.projectId, factoryValidatorMaterials.validatorLockDigest] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.candidateNodeInstanceId, table.candidateGeneration], foreignColumns: [factoryReleaseCandidateHistory.tenantId, factoryReleaseCandidateHistory.projectId, factoryReleaseCandidateHistory.runId, factoryReleaseCandidateHistory.nodeInstanceId, factoryReleaseCandidateHistory.candidateGeneration] }).onDelete("restrict"),
+  foreignKey({ columns: [table.validatorAttemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.candidateArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+]);
+
+export const factoryValidatorResults = pgTable("factory_validator_results", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), validatorAttemptId: text("validator_attempt_id").notNull(), validatorId: text("validator_id").notNull(), verdict: text("verdict").notNull().$type<"PASS" | "FAIL" | "INCONCLUSIVE" | "VALIDATOR_ERROR">(), reportDigest: text("report_digest"), terminalFactDigest: text("terminal_fact_digest").notNull(),
+  artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), claimsJson: text("claims_json").notNull(), issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), evidenceDigest: text("evidence_digest").notNull(), resultDigest: text("result_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.validatorAttemptId, table.validatorId], foreignColumns: [factoryValidatorAssignments.tenantId, factoryValidatorAssignments.projectId, factoryValidatorAssignments.validatorAttemptId, factoryValidatorAssignments.validatorId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.validatorAttemptId], foreignColumns: [factoryExecutionTerminals.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.artifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  check("factory_validator_results_verdict_check", sql`${table.verdict} IN ('PASS', 'FAIL', 'INCONCLUSIVE', 'VALIDATOR_ERROR')`),
+  check("factory_validator_results_report_digest_check", sql`${table.reportDigest} IS NULL OR ${table.reportDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+/** Exact human-issued source-to-target artifact reads; the protected digest binds all usable metadata. */
+export const factoryArtifactReadGrants = pgTable("factory_artifact_read_grants", {
+  tenantId: text("tenant_id").notNull(), sourceProjectId: text("source_project_id").notNull(), sourceRunId: text("source_run_id").notNull(), sourceArtifactId: text("source_artifact_id").notNull(), targetProjectId: text("target_project_id").notNull(),
+  artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), artifactKind: text("artifact_kind").notNull(), storageVersion: text("storage_version").notNull(), mediaType: text("media_type").notNull(),
+  issuerId: text("issuer_id").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), protectedDigest: text("protected_digest").notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull().default(1), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  // W04b: one row per grant. A revoked row stays; only an active grant is unique.
+  primaryKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId, table.grantRevision] }),
+  uniqueIndex("idx_factory_artifact_read_grants_active").on(table.tenantId, table.sourceProjectId, table.sourceArtifactId, table.targetProjectId).where(sql`${table.revokedAt} IS NULL`),
+  check("factory_artifact_read_grants_grant_revision_check", sql`${table.grantRevision} > 0`),
+  index("idx_factory_artifact_read_grants_target").on(table.tenantId, table.targetProjectId, table.sourceArtifactId),
+  foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceArtifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.sourceProjectId, table.sourceRunId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.targetProjectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.issuerId], foreignColumns: [users.id] }).onDelete("restrict"),
+  check("factory_artifact_read_grants_digest_check", sql`${table.artifactDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_artifact_read_grants_bytes_check", sql`${table.artifactBytes} > 0 AND ${table.artifactBytes} <= 16777216`),
+  check("factory_artifact_read_grants_kind_check", sql`char_length(${table.artifactKind}) BETWEEN 1 AND 128`),
+  check("factory_artifact_read_grants_media_type_check", sql`char_length(${table.mediaType}) BETWEEN 1 AND 128`),
+  check("factory_artifact_read_grants_storage_version_check", sql`char_length(${table.storageVersion}) BETWEEN 1 AND 512`),
+  check("factory_artifact_read_grants_issuer_revision_check", sql`${table.issuerGrantRevision} > 0`),
+  check("factory_artifact_read_grants_protected_digest_check", sql`${table.protectedDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+/** Factory C04 assurance facts. Migrations own SQL constraints; this model keeps product queries typed. */
+export const factoryAcceptanceContracts = pgTable("factory_acceptance_contracts", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), contractId: text("contract_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
+  contractDigest: text("contract_digest").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(), mandatoryClaims: text("mandatory_claims").notNull(), claimGroups: text("claim_groups").notNull(), approvedBy: text("approved_by").notNull().references(() => users.id, { onDelete: "restrict" }), approvalGrantRevision: bigint("approval_grant_revision", { mode: "number" }).notNull(), protectedSnapshotDigest: text("protected_snapshot_digest"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.contractId, table.revision] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryAcceptanceEvidence = pgTable("factory_acceptance_evidence", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), evidenceId: text("evidence_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(), validatorId: text("validator_id").notNull(), validatorLockDigest: text("validator_lock_digest").notNull(), issuerGrantRevision: bigint("issuer_grant_revision", { mode: "number" }).notNull(), artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(), environmentDigest: text("environment_digest").notNull(), configurationDigest: text("configuration_digest").notNull(), runnerDigest: text("runner_digest").notNull(), claims: text("claims").notNull(), issuedAtMs: bigint("issued_at_ms", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), evidenceDigest: text("evidence_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.evidenceId] }), uniqueIndex("idx_factory_acceptance_evidence_candidate").on(table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.validatorId), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict")]);
+
+export const factoryAcceptanceDecisions = pgTable("factory_acceptance_decisions", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), decisionId: text("decision_id").notNull(), contractId: text("contract_id").notNull(), contractRevision: bigint("contract_revision", { mode: "number" }).notNull(), contractDigest: text("contract_digest").notNull(), contractSnapshotDigest: text("contract_snapshot_digest"), candidateDigest: text("candidate_digest").notNull(), evidenceSetDigest: text("evidence_set_digest").notNull(), decisionDigest: text("decision_digest").notNull(), runId: text("run_id"), nodeInstanceId: text("node_instance_id"), candidateGeneration: bigint("candidate_generation", { mode: "number" }), executionEpoch: bigint("execution_epoch", { mode: "number" }), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.decisionId] }), uniqueIndex("idx_factory_acceptance_decisions_candidate").on(table.tenantId, table.projectId, table.contractId, table.contractRevision, table.runId, table.nodeInstanceId, table.candidateGeneration, table.candidateDigest), foreignKey({ columns: [table.tenantId, table.projectId, table.contractId, table.contractRevision], foreignColumns: [factoryAcceptanceContracts.tenantId, factoryAcceptanceContracts.projectId, factoryAcceptanceContracts.contractId, factoryAcceptanceContracts.revision] }).onDelete("restrict")]);
+
+/** One immutable alias per parent attempt that consumes a child run's accepted artifact. */
+export const factoryChildArtifactAliases = pgTable("factory_child_artifact_aliases", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), aliasId: text("alias_id").notNull(),
+  parentRunId: text("parent_run_id").notNull(), parentInterpreterId: text("parent_interpreter_id").notNull(), parentCommandId: text("parent_command_id").notNull(),
+  parentNodeInstanceId: text("parent_node_instance_id").notNull(), parentCandidateGeneration: bigint("parent_candidate_generation", { mode: "number" }).notNull(), parentAttemptId: text("parent_attempt_id").notNull(),
+  parentExecutionEpoch: bigint("parent_execution_epoch", { mode: "number" }).notNull(), parentCancellationEpoch: bigint("parent_cancellation_epoch", { mode: "number" }).notNull(),
+  childRunId: text("child_run_id").notNull(), childDecisionId: text("child_decision_id").notNull(),
+  childNodeInstanceId: text("child_node_instance_id").notNull(), childCandidateGeneration: bigint("child_candidate_generation", { mode: "number" }).notNull(),
+  childCandidateDigest: text("child_candidate_digest").notNull(), childExecutionEpoch: bigint("child_execution_epoch", { mode: "number" }).notNull(),
+  artifactId: text("artifact_id").notNull(), artifactDigest: text("artifact_digest").notNull(), artifactBytes: bigint("artifact_bytes", { mode: "number" }).notNull(),
+  aliasDigest: text("alias_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.aliasId] }),
+  uniqueIndex("factory_child_artifact_aliases_parent_attempt_key").on(table.tenantId, table.projectId, table.parentRunId, table.parentInterpreterId, table.parentCommandId, table.parentAttemptId),
+  index("idx_factory_child_artifact_aliases_child").on(table.tenantId, table.projectId, table.childRunId, table.childDecisionId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.parentRunId, table.parentInterpreterId, table.parentCommandId], foreignColumns: [factoryChildRuns.tenantId, factoryChildRuns.projectId, factoryChildRuns.parentRunId, factoryChildRuns.parentInterpreterId, factoryChildRuns.parentCommandId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.parentAttemptId, table.tenantId, table.projectId, table.parentRunId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.childDecisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.childRunId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.artifactId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  check("factory_child_artifact_aliases_candidate_generation_check", sql`${table.parentCandidateGeneration} >= 0 AND ${table.childCandidateGeneration} >= 0`),
+  check("factory_child_artifact_aliases_epoch_check", sql`${table.parentExecutionEpoch} > 0 AND ${table.parentCancellationEpoch} >= 0 AND ${table.childExecutionEpoch} > 0`),
+  check("factory_child_artifact_aliases_artifact_bytes_check", sql`${table.artifactBytes} > 0`),
+  check("factory_child_artifact_aliases_candidate_digest_check", sql`${table.childCandidateDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_child_artifact_aliases_artifact_digest_check", sql`${table.artifactDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_child_artifact_aliases_alias_digest_check", sql`${table.aliasDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+
+/**
+ * A tenant administrator's attestation for a legacy workflow outside the
+ * non-publishing allowlist, bound to the pinned definition and to the
+ * classification the administrator saw.
+ */
+export const factoryLegacyAttestations = pgTable("factory_legacy_attestations", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), workflowName: text("workflow_name").notNull(),
+  definitionDigest: text("definition_digest").notNull(), classificationDigest: text("classification_digest").notNull(),
+  classificationJson: text("classification_json").notNull(), attestedBy: text("attested_by").notNull(),
+  attestationDigest: text("attestation_digest").notNull(), revoked: boolean("revoked").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.workflowName, table.definitionDigest] }),
+  check("factory_legacy_attestations_definition_digest_check", sql`${table.definitionDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_attestations_classification_digest_check", sql`${table.classificationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_attestations_attestation_digest_check", sql`${table.attestationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+
+/** The journal written and committed before the legacy engine is called. */
+export const factoryLegacyWorkflowStarts = pgTable("factory_legacy_workflow_starts", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(), idempotencyKey: text("idempotency_key").notNull(), workflowName: text("workflow_name").notNull(),
+  definitionDigest: text("definition_digest").notNull(), classificationDigest: text("classification_digest").notNull(),
+  attestationDigest: text("attestation_digest"), inputDigest: text("input_digest").notNull(), journalDigest: text("journal_digest").notNull(),
+  legacyRunId: text("legacy_run_id"), state: text("state").notNull().$type<"journaled" | "started" | "settled">(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId] }),
+  uniqueIndex("uq_factory_legacy_workflow_starts_key").on(table.tenantId, table.idempotencyKey),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  check("factory_legacy_workflow_starts_candidate_generation_check", sql`${table.candidateGeneration} >= 0`),
+  check("factory_legacy_workflow_starts_key_check", sql`${table.idempotencyKey} LIKE 'factory:%'`),
+  check("factory_legacy_workflow_starts_definition_digest_check", sql`${table.definitionDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_classification_digest_check", sql`${table.classificationDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_input_digest_check", sql`${table.inputDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_journal_digest_check", sql`${table.journalDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_workflow_starts_state_check", sql`${table.state} IN ('journaled', 'started', 'settled')`),
+  check("factory_legacy_workflow_starts_started_check", sql`${table.state} = 'journaled' OR ${table.legacyRunId} IS NOT NULL`),
+]);
+
+/** One recorded, digest-verified copy of a legacy output into the factory store. */
+export const factoryLegacyImports = pgTable("factory_legacy_imports", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(), sourceName: text("source_name").notNull(), legacyRunId: text("legacy_run_id").notNull(),
+  declaredDigest: text("declared_digest").notNull(), verifiedDigest: text("verified_digest").notNull(),
+  byteCount: bigint("byte_count", { mode: "number" }).notNull(), objectId: text("object_id").notNull(),
+  importDigest: text("import_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId, table.sourceName] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.attemptId], foreignColumns: [factoryLegacyWorkflowStarts.tenantId, factoryLegacyWorkflowStarts.projectId, factoryLegacyWorkflowStarts.runId, factoryLegacyWorkflowStarts.nodeInstanceId, factoryLegacyWorkflowStarts.candidateGeneration, factoryLegacyWorkflowStarts.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.objectId], foreignColumns: [factoryArtifacts.tenantId, factoryArtifacts.projectId, factoryArtifacts.objectId] }).onDelete("restrict"),
+  check("factory_legacy_imports_candidate_generation_check", sql`${table.candidateGeneration} >= 0`),
+  check("factory_legacy_imports_declared_digest_check", sql`${table.declaredDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_verified_digest_check", sql`${table.verifiedDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_byte_count_check", sql`${table.byteCount} > 0`),
+  check("factory_legacy_imports_import_digest_check", sql`${table.importDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_legacy_imports_digest_agreement_check", sql`${table.declaredDigest} = ${table.verifiedDigest}`),
+]);
+
+export const factoryReleaseApprovals = pgTable("factory_release_approvals", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(), operationId: text("operation_id").notNull(), contextDigest: text("context_digest").notNull(), decisionId: text("decision_id").notNull(), principalId: text("principal_id").notNull().references(() => users.id, { onDelete: "restrict" }), grantRevision: bigint("grant_revision", { mode: "number" }).notNull(), expectedGeneration: bigint("expected_generation", { mode: "number" }).notNull(), expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), status: text("status").notNull().$type<"pending" | "approved" | "rejected" | "consumed" | "revoked">(), approvedBy: text("approved_by").references(() => users.id, { onDelete: "restrict" }), approvedGrantRevision: bigint("approved_grant_revision", { mode: "number" }), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }), uniqueIndex("idx_factory_release_approvals_operation_generation").on(table.tenantId, table.projectId, table.operationId, table.expectedGeneration), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict")]);
+
+/** The installation's first-administrator redemption and explicit bootstrap consent (C01, C12 step 7). */
+export const factoryInstallationBootstrap = pgTable("factory_installation_bootstrap", {
+  installationId: text("installation_id").primaryKey(),
+  tenantId: text("tenant_id").notNull(),
+  invitationId: text("invitation_id").notNull(),
+  adminUserId: text("admin_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  state: text("state").notNull().$type<"redeemed" | "consented">(),
+  projectId: text("project_id"),
+  consentDigest: text("consent_digest"),
+  redeemedAt: timestamp("redeemed_at", { withTimezone: true }).notNull().defaultNow(),
+  consentedAt: timestamp("consented_at", { withTimezone: true }),
+}, (table) => [
+  foreignKey({ name: "factory_installation_bootstrap_project_fkey", columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict"),
+  check("factory_installation_bootstrap_state_check", sql`${table.state} IN ('redeemed', 'consented')`),
+  check("factory_installation_bootstrap_consent_digest_check", sql`${table.consentDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_installation_bootstrap_consent_check", sql`(${table.state} = 'consented') = (${table.projectId} IS NOT NULL AND ${table.consentDigest} IS NOT NULL AND ${table.consentedAt} IS NOT NULL)`),
+]);
+
+/** An administrator's session-issued approval to purge this installation; read by the operator's provisioner at purge. */
+export const factoryInstallationPurgeApprovals = pgTable("factory_installation_purge_approvals", {
+  approvalId: text("approval_id").primaryKey(),
+  installationId: text("installation_id").notNull(),
+  approvedByUserId: text("approved_by_user_id").notNull().references(() => users.id, { onDelete: "restrict" }),
+  reason: text("reason").notNull(),
+  approvedAt: timestamp("approved_at", { withTimezone: true }).notNull().defaultNow(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+}, (table) => [
+  check("factory_installation_purge_approvals_reason_check", sql`char_length(${table.reason}) BETWEEN 1 AND 256`),
+  check("factory_installation_purge_approvals_expiry_check", sql`${table.expiresAt} > ${table.approvedAt}`),
+]);
+
+/** Retained encrypted wraps for one installation data key; plaintext master keys never enter this schema. */
+export const factoryInstallationKeyWraps = pgTable("factory_installation_key_wraps", {
+  installationId: text("installation_id").notNull(),
+  wrapVersion: integer("wrap_version").notNull(),
+  masterKeyId: text("master_key_id").notNull(),
+  wrappedDataKey: factoryEncryptedBytes("wrapped_data_key").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.installationId, table.wrapVersion] })]);
+
+/** C06 retention ledger (W15). Tombstone and collection facts outlive the rows they describe. */
+export const factoryRetentionRecords = pgTable("factory_retention_records", {
+  tenantId: text("tenant_id").notNull(), subjectKind: text("subject_kind").notNull(), subjectId: text("subject_id").notNull(),
+  projectId: text("project_id"), runId: text("run_id"), retentionClass: text("retention_class").notNull(),
+  anchoredAtMs: bigint("anchored_at_ms", { mode: "number" }).notNull(), retainUntilMs: bigint("retain_until_ms", { mode: "number" }).notNull(), extensionReason: text("extension_reason"),
+  state: text("state").notNull().default("retained"),
+  archiveJson: text("archive_json"), archiveDigest: text("archive_digest"), archivedAtMs: bigint("archived_at_ms", { mode: "number" }),
+  tombstonedAtMs: bigint("tombstoned_at_ms", { mode: "number" }), collectedAtMs: bigint("collected_at_ms", { mode: "number" }), lastRefusal: text("last_refusal"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.subjectKind, table.subjectId] }),
+  index("idx_factory_retention_due").on(table.tenantId, table.state, table.retainUntilMs),
+]);
+
+/** The barrier's pause flag. Never guarded by the barrier gate it controls. */
+export const factoryCheckpointGate = pgTable("factory_checkpoint_gate", {
+  tenantId: text("tenant_id").notNull(), paused: boolean("paused").notNull().default(false), checkpointId: text("checkpoint_id"),
+  claimsPausedUntil: timestamp("claims_paused_until", { withTimezone: true }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId] })]);
+
+/** Every barrier attempt. Only a sealed row is a compatible checkpoint. */
+export const factoryCheckpoints = pgTable("factory_checkpoints", {
+  tenantId: text("tenant_id").notNull(), checkpointId: text("checkpoint_id").notNull(), state: text("state").notNull(),
+  executionEpoch: integer("execution_epoch").notNull(), keyWrapVersion: integer("key_wrap_version"), startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(), durationMs: integer("duration_ms").notNull(),
+  abortCode: text("abort_code"), productLsn: text("product_lsn"), manifestDigest: text("manifest_digest"), manifestArchiveJson: text("manifest_archive_json"),
+  previousCheckpointId: text("previous_checkpoint_id"), sealedAt: timestamp("sealed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.checkpointId] }),
+  index("idx_factory_checkpoints_sealed").on(table.tenantId, table.state, table.sealedAt),
+]);
+
+export const factoryCheckpointPolicy = pgTable("factory_checkpoint_policy", {
+  tenantId: text("tenant_id").notNull(), enforceFreshness: boolean("enforce_freshness").notNull().default(true),
+  maxAgeSeconds: integer("max_age_seconds").notNull().default(900),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId] }),
+  foreignKey({ columns: [table.tenantId], foreignColumns: [factoryInstallation.tenantId] }).onDelete("restrict"),
+]);
+
+/** One restore into a new execution epoch. Service stays closed until a human signs its report. */
+export const factoryRestoreEpochs = pgTable("factory_restore_epochs", {
+  tenantId: text("tenant_id").notNull(), restoreId: text("restore_id").notNull(), mode: text("mode").notNull(),
+  checkpointId: text("checkpoint_id").notNull(), manifestDigest: text("manifest_digest").notNull(),
+  previousEpoch: integer("previous_epoch").notNull(), executionEpoch: integer("execution_epoch").notNull(), state: text("state").notNull(),
+  reportJson: text("report_json"), reportDigest: text("report_digest"), signedBy: text("signed_by"),
+  signedAtMs: bigint("signed_at_ms", { mode: "number" }), enabledAtMs: bigint("enabled_at_ms", { mode: "number" }),
+  startedAtMs: bigint("started_at_ms", { mode: "number" }).notNull(),
+  /** The restored database's product state the moment the epoch opened, before restore wrote anything. */
+  openedStateJson: text("opened_state_json").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.restoreId] }),
+  uniqueIndex("factory_restore_epochs_epoch_key").on(table.tenantId, table.executionEpoch),
+]);
+
+export const factoryRestoreFindings = pgTable("factory_restore_findings", {
+  tenantId: text("tenant_id").notNull(), restoreId: text("restore_id").notNull(), findingId: text("finding_id").notNull(),
+  subjectKind: text("subject_kind").notNull(), subjectId: text("subject_id").notNull(), disposition: text("disposition").notNull(),
+  reason: text("reason").notNull(), detailJson: text("detail_json").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.restoreId, table.findingId] }),
+  foreignKey({ columns: [table.tenantId, table.restoreId], foreignColumns: [factoryRestoreEpochs.tenantId, factoryRestoreEpochs.restoreId] }).onDelete("restrict"),
+]);
+
+/** Release identities a restore imported from the independent archive because the restored database lacked them. */
+export const factoryRecoveredReleases = pgTable("factory_recovered_releases", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), operationId: text("operation_id").notNull(), restoreId: text("restore_id").notNull(),
+  runId: text("run_id").notNull(), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull(),
+  intentJson: text("intent_json").notNull(), intentDigest: text("intent_digest").notNull(),
+  receiptJson: text("receipt_json"), receiptDigest: text("receipt_digest"), providerVerified: boolean("provider_verified").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.operationId] }),
+  foreignKey({ columns: [table.tenantId, table.restoreId], foreignColumns: [factoryRestoreEpochs.tenantId, factoryRestoreEpochs.restoreId] }).onDelete("restrict"),
+]);
+
+export const factoryReleasePolicies = pgTable("factory_release_policies", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), policyId: text("policy_id").notNull(), principalKind: text("principal_kind").notNull().$type<"user" | "service">(), principalId: text("principal_id").notNull(),
+  action: text("action").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationPrefix: text("destination_prefix").notNull(), contractDigest: text("contract_digest").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
+  maxOperations: bigint("max_operations", { mode: "number" }).notNull(), usedOperations: bigint("used_operations", { mode: "number" }).notNull().default(0), maxSpendMicros: bigint("max_spend_micros", { mode: "number" }).notNull(), usedSpendMicros: bigint("used_spend_micros", { mode: "number" }).notNull().default(0),
+  expiresAtMs: bigint("expires_at_ms", { mode: "number" }).notNull(), revokedAtMs: bigint("revoked_at_ms", { mode: "number" }), createdBy: text("created_by").notNull().references(() => users.id, { onDelete: "restrict" }), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.policyId] }), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryReleaseOperations = pgTable("factory_release_operations", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), operationId: text("operation_id").notNull(), runId: text("run_id").notNull(), nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), candidateDigest: text("candidate_digest").notNull(),
+  decisionId: text("decision_id").notNull(), contractDigest: text("contract_digest").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(), releaseEnableEpoch: bigint("release_enable_epoch", { mode: "number" }).notNull(),
+  action: text("action").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationObject: text("destination_object").notNull(), expectedDestinationVersion: text("expected_destination_version"), destinationDigest: text("destination_digest").notNull(), canonicalRequest: text("canonical_request").notNull(), requestDigest: text("request_digest").notNull(), materialJson: text("material_json").notNull(), materialDigest: text("material_digest").notNull(), estimatedSpendMicros: bigint("estimated_spend_micros", { mode: "number" }).notNull(), deadlineMs: bigint("deadline_ms", { mode: "number" }).notNull(),
+  state: text("state").notNull().$type<"pending" | "executing" | "succeeded" | "failed" | "uncertain">(), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull().default(0), senderToken: text("sender_token"), dispatchStarted: boolean("dispatch_started").notNull().default(false), authorityKind: text("authority_kind").$type<"approval" | "policy">(), authorityId: text("authority_id"), policyRevision: bigint("policy_revision", { mode: "number" }), intentArchiveJson: text("intent_archive_json"), materialArchiveJson: text("material_archive_json"), receiptArchiveJson: text("receipt_archive_json"), receiptJson: text("receipt_json"), archiveReady: boolean("archive_ready").notNull().default(false), outcomeCode: text("outcome_code"),
+  // W09e: the stop of a release in flight, and what became of its effect.
+  stopCommandId: text("stop_command_id"), stopRequestedEpoch: bigint("stop_requested_epoch", { mode: "number" }), stopRequestedAtMs: bigint("stop_requested_at_ms", { mode: "number" }), stopEventJson: text("stop_event_json"), stopOutcome: text("stop_outcome").$type<"no_effect" | "published" | "unknown_at_deadline">(), lateEvidenceJson: text("late_evidence_json"), stopCostMicros: bigint("stop_cost_micros", { mode: "number" }), stopCostSource: text("stop_cost_source").$type<"proven-no-effect" | "provider-receipt" | "reserved-bound">(), stopCostBasis: text("stop_cost_basis"),
+  profileInputDigest: text("profile_input_digest"), profileResultDigest: text("profile_result_digest"), profileResolvedAtMs: bigint("profile_resolved_at_ms", { mode: "number" }), destinationRef: text("destination_ref"), destinationBranch: text("destination_branch"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.operationId] }), uniqueIndex("idx_factory_release_operations_identity").on(table.tenantId, table.projectId, table.runId, table.nodeInstanceId, table.candidateGeneration, table.action, table.destinationProvider, table.destinationAccount, table.destinationObject), foreignKey({ columns: [table.tenantId, table.projectId, table.decisionId], foreignColumns: [factoryAcceptanceDecisions.tenantId, factoryAcceptanceDecisions.projectId, factoryAcceptanceDecisions.decisionId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  check("factory_release_operations_profile_input_digest_check", sql`${table.profileInputDigest} IS NULL OR ${table.profileInputDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_release_operations_profile_result_digest_check", sql`${table.profileResultDigest} IS NULL OR ${table.profileResultDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_release_operations_profile_seal_check", sql`(${table.profileResultDigest} IS NULL) = (${table.profileInputDigest} IS NULL) AND (${table.profileResultDigest} IS NULL) = (${table.profileResolvedAtMs} IS NULL)`),
+  check("factory_release_operations_profile_resolved_at_check", sql`${table.profileResolvedAtMs} IS NULL OR ${table.profileResolvedAtMs} > 0`),
+  check("factory_release_operations_destination_ref_check", sql`${table.destinationRef} IS NULL OR ${table.destinationRef} LIKE 'refs/heads/ezcorp-factory/%'`),
+  check("factory_release_operations_destination_branch_check", sql`(${table.destinationRef} IS NULL) = (${table.destinationBranch} IS NULL)`),
+  check("factory_release_operations_profile_claimed_check", sql`${table.state} = 'pending' OR ${table.profileResultDigest} IS NOT NULL`),
+  check("factory_release_operations_stop_outcome_check", sql`${table.stopOutcome} IS NULL OR ${table.stopOutcome} IN ('no_effect','published','unknown_at_deadline')`),
+  check("factory_release_operations_stop_fields_check", sql`(${table.stopCommandId} IS NULL) = (${table.stopRequestedEpoch} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopRequestedAtMs} IS NULL) AND (${table.stopCommandId} IS NULL) = (${table.stopEventJson} IS NULL) AND (${table.stopOutcome} IS NULL OR ${table.stopCommandId} IS NOT NULL) AND (${table.stopRequestedEpoch} IS NULL OR ${table.stopRequestedEpoch} >= 1)`),
+  check("factory_release_operations_stop_cost_check", sql`(${table.stopOutcome} IS NULL) = (${table.stopCostSource} IS NULL) AND (${table.stopCostSource} IS NULL) = (${table.stopCostMicros} IS NULL) AND (${table.stopCostSource} IS NULL) = (${table.stopCostBasis} IS NULL) AND (${table.stopCostSource} IS NULL OR ${table.stopCostSource} IN ('proven-no-effect','provider-receipt','reserved-bound')) AND (${table.stopCostMicros} IS NULL OR ${table.stopCostMicros} >= 0) AND (${table.stopOutcome} IS DISTINCT FROM 'no_effect' OR (${table.stopCostSource} = 'proven-no-effect' AND ${table.stopCostMicros} = 0)) AND (${table.stopOutcome} IS DISTINCT FROM 'unknown_at_deadline' OR ${table.stopCostSource} = 'reserved-bound') AND (${table.stopOutcome} IS DISTINCT FROM 'published' OR ${table.stopCostSource} IN ('provider-receipt','reserved-bound'))`)]);
+
+export const factoryReleaseDestinationReservations = pgTable("factory_release_destination_reservations", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), destinationProvider: text("destination_provider").notNull(), destinationAccount: text("destination_account").notNull(), destinationObject: text("destination_object").notNull(), operationId: text("operation_id").notNull(), expectedVersion: text("expected_version"), dispatchGeneration: bigint("dispatch_generation", { mode: "number" }).notNull(), state: text("state").notNull().$type<"held" | "confirmed" | "released">(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.destinationProvider, table.destinationAccount, table.destinationObject] }), foreignKey({ columns: [table.tenantId, table.projectId, table.operationId], foreignColumns: [factoryReleaseOperations.tenantId, factoryReleaseOperations.projectId, factoryReleaseOperations.operationId] }).onDelete("restrict")]);
+
+export const factoryReleaseReconciliations = pgTable("factory_release_reconciliations", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), reconciliationId: text("reconciliation_id").notNull(), operationId: text("operation_id").notNull(), action: text("action").notNull().$type<"attach_receipt" | "confirm_no_effect" | "keep_uncertain">(), operatorId: text("operator_id").notNull().references(() => users.id, { onDelete: "restrict" }), reason: text("reason").notNull(), providerEvidenceJson: text("provider_evidence_json").notNull(), providerEvidenceDigest: text("provider_evidence_digest").notNull(), evidenceArchiveJson: text("evidence_archive_json").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.reconciliationId] }), foreignKey({ columns: [table.tenantId, table.projectId, table.operationId], foreignColumns: [factoryReleaseOperations.tenantId, factoryReleaseOperations.projectId, factoryReleaseOperations.operationId] }).onDelete("restrict")]);
+
+export const factoryNotifications = pgTable("factory_notifications", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), notificationId: text("notification_id").notNull(), deduplicationId: text("deduplication_id").notNull(), inputHash: text("input_hash").notNull(), state: text("state").notNull().$type<"queued" | "leased" | "delivered" | "cancelled" | "dead_letter" | "outcome_unknown">(), availableAt: bigint("available_at", { mode: "number" }).notNull(), leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0), payload: text("payload").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.notificationId] }), uniqueIndex("idx_factory_notifications_deduplication").on(table.tenantId, table.projectId, table.deduplicationId), foreignKey({ columns: [table.tenantId, table.projectId], foreignColumns: [factoryProjects.tenantId, factoryProjects.projectId] }).onDelete("restrict")]);
+
+export const factoryTaskCompletions = pgTable("factory_task_completions", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  attemptId: text("attempt_id").notNull().references(() => factoryExecutionTerminals.attemptId, { onDelete: "restrict" }), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_completions_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict")]);
+
+export const factoryTaskOutcomes = pgTable("factory_task_outcomes", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  attemptId: text("attempt_id").notNull(), reservationId: text("reservation_id").notNull(), inputDigest: text("input_digest").notNull(), authorityJson: text("authority_json").notNull(), resultJson: text("result_json").notNull(), evidenceDigest: text("evidence_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }), uniqueIndex("factory_task_outcomes_attempt_id_key").on(table.attemptId), foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"), foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"), check("factory_task_outcomes_input_digest_check", sql`${table.inputDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_evidence_digest_check", sql`${table.evidenceDigest} ~ '^sha256:[0-9a-f]{64}$'`), check("factory_task_outcomes_receipt_digest_check", sql`${table.receiptDigest} ~ '^sha256:[0-9a-f]{64}$'`)]);
+
+/**
+ * Sealed usage settlements. One row per reservation revision, carrying the one
+ * idempotent `usage-settled` event the kernel folds.
+ */
+export const factoryUsageSettlements = pgTable("factory_usage_settlements", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(),
+  reservationId: text("reservation_id").notNull(), revision: bigint("revision", { mode: "number" }).notNull(),
+  attemptId: text("attempt_id").notNull(),
+  source: text("source").notNull().$type<"stop" | "reconciliation" | "no-operations" | "operations" | "reserved-bound">(),
+  knownCostMicros: text("known_cost_micros").notNull(),
+  unknownCostMicros: text("unknown_cost_micros"),
+  providerReceiptDigest: text("provider_receipt_digest"),
+  stopReceiptDigest: text("stop_receipt_digest"),
+  restoreDigest: text("restore_digest"),
+  basis: text("basis"),
+  settledAtMs: bigint("settled_at_ms", { mode: "number" }).notNull(),
+  settlementDigest: text("settlement_digest").notNull(),
+  eventJson: text("event_json").notNull(), eventDigest: text("event_digest").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId, table.revision] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.reservationId], foreignColumns: [factoryBudgetReservations.tenantId, factoryBudgetReservations.projectId, factoryBudgetReservations.runId, factoryBudgetReservations.reservationId] }).onDelete("restrict"),
+  check("factory_usage_settlements_revision_check", sql`${table.revision} >= 1`),
+  check("factory_usage_settlements_source_check", sql`${table.source} IN ('stop','reconciliation','no-operations','operations','reserved-bound')`),
+  check("factory_usage_settlements_known_cost_check", sql`${table.knownCostMicros} ~ '^[0-9]+$'`),
+  check("factory_usage_settlements_unknown_cost_check", sql`${table.unknownCostMicros} IS NULL OR ${table.unknownCostMicros} ~ '^[0-9]+$'`),
+  // C02 form: bare 64-character lowercase hex, matching the SDK result
+  // validator and the generated schema. Coordinator ruling, 2026-09-20.
+  check("factory_usage_settlements_receipt_check", sql`${table.providerReceiptDigest} IS NULL OR ${table.providerReceiptDigest} ~ '^[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_settled_at_ms_check", sql`${table.settledAtMs} >= 0`),
+  check("factory_usage_settlements_settlement_digest_check", sql`${table.settlementDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_event_digest_check", sql`${table.eventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_usage_settlements_reconciliation_check", sql`${table.source} <> 'reconciliation' OR ${table.providerReceiptDigest} IS NOT NULL`),
+  // W03e and W03f: a stop-proven amount (no-operations, operations, reserved-bound) carries exactly its signed stop
+  // receipt and its basis, never a held cost or a provider receipt; a no-operations one is only a zero.
+  check("factory_usage_settlements_stop_receipt_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  // W09h: an attempt stopped before compute admission launched nothing, so its no-operations zero may name "nothing launched, all zero".
+  check("factory_usage_settlements_basis_check", sql`(${table.source} IN ('no-operations','operations','reserved-bound')) = (${table.basis} IS NOT NULL) AND (${table.basis} IS NULL OR (${table.source} = 'no-operations' AND ${table.basis} IN ('no-operations: compute at reserved bound', 'no-operations: nothing launched, all zero')) OR (${table.source} = 'operations' AND ${table.basis} IN ('provider-error: model usage measured, compute at reserved bound', 'operations: model usage measured, compute at reserved bound')) OR (${table.source} = 'reserved-bound' AND ${table.stopReceiptDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by stop') OR (${table.source} = 'reserved-bound' AND ${table.restoreDigest} IS NOT NULL AND ${table.basis} = 'unknown: charged at reserved bound; ended by restore supersession'))`),
+  check("factory_usage_settlements_no_operations_check", sql`(CASE WHEN ${table.source} IN ('no-operations','operations') THEN ${table.stopReceiptDigest} IS NOT NULL AND ${table.restoreDigest} IS NULL WHEN ${table.source} = 'reserved-bound' THEN (${table.stopReceiptDigest} IS NULL) <> (${table.restoreDigest} IS NULL) ELSE ${table.stopReceiptDigest} IS NULL AND ${table.restoreDigest} IS NULL END) AND (${table.source} NOT IN ('no-operations','operations','reserved-bound') OR (${table.unknownCostMicros} IS NULL AND ${table.providerReceiptDigest} IS NULL)) AND (${table.source} <> 'no-operations' OR ${table.knownCostMicros} = '0')`),
+  // W15f's signed restore that superseded the attempt, the second proof a reserved-bound settlement may rest on.
+  check("factory_usage_settlements_restore_digest_check", sql`${table.restoreDigest} IS NULL OR ${table.restoreDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+]);
+
+/**
+ * Sealed cancellation, uncertain stop, and host-confirmed stop facts. Every
+ * CHECK the migration declares is modeled here, so the PostgreSQL parity lane
+ * compares one schema rather than two.
+ */
+export const factoryTaskStops = pgTable("factory_task_stops", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(),
+  cancelCommandId: text("cancel_command_id").notNull(), attemptCommandId: text("attempt_command_id"), attemptId: text("attempt_id"), reservationId: text("reservation_id").notNull(),
+  // W02d R8: the worker a dispatch-refused stop addresses, and the node attempt whose usage it settles; present
+  // exactly for that source, whose attempt_id is NULL.
+  workerId: text("worker_id"), attemptAuthorityJson: text("attempt_authority_json"),
+  requestJson: text("request_json").notNull(), requestDigest: text("request_digest").notNull(),
+  source: text("source").notNull().default("terminal-outcome").$type<"terminal-outcome" | "sealed-launch" | "dispatch-refused">(),
+  state: text("state").notNull().$type<"accepted" | "uncertain" | "stopped" | "superseded">(),
+  supersededRestoreId: text("superseded_restore_id"),
+  uncertainEventJson: text("uncertain_event_json"), uncertainEventDigest: text("uncertain_event_digest"), stopReceiptJson: text("stop_receipt_json"), stopReceiptDigest: text("stop_receipt_digest"), stoppedEventJson: text("stopped_event_json"), stoppedEventDigest: text("stopped_event_digest"),
+  // W01h fix round: set once when the stop's facts no longer verify; the settlement scan skips it.
+  reconcileJson: text("reconcile_json"),
+  acceptedAtMs: bigint("accepted_at_ms", { mode: "number" }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId] }),
+  uniqueIndex("factory_task_stops_attempt_id_key").on(table.attemptId),
+  foreignKey({ columns: [table.attemptId, table.tenantId, table.projectId, table.runId], foreignColumns: [factoryExecutions.attemptId, factoryExecutions.tenantId, factoryExecutions.projectId, factoryExecutions.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.attemptId], foreignColumns: [factoryAttemptLaunches.attemptId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.attemptCommandId], foreignColumns: [factoryTaskOutcomes.tenantId, factoryTaskOutcomes.projectId, factoryTaskOutcomes.runId, factoryTaskOutcomes.interpreterId, factoryTaskOutcomes.commandId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.cancelCommandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
+  check("factory_task_stops_request_digest_check", sql`${table.requestDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_source_check", sql`${table.source} IN ('terminal-outcome','sealed-launch','dispatch-refused')`),
+  check("factory_task_stops_dispatch_refused_check", sql`(${table.source} = 'dispatch-refused') = (${table.attemptId} IS NULL) AND (${table.source} = 'dispatch-refused') = (${table.workerId} IS NOT NULL) AND (${table.source} = 'dispatch-refused') = (${table.attemptAuthorityJson} IS NOT NULL)`),
+  check("factory_task_stops_state_check", sql`${table.state} IN ('accepted','uncertain','stopped','superseded')`),
+  check("factory_task_stops_superseded_check", sql`(${table.state} = 'superseded') = (${table.supersededRestoreId} IS NOT NULL)`),
+  check("factory_task_stops_accepted_at_ms_check", sql`${table.acceptedAtMs} >= 0`),
+  check("factory_task_stops_uncertain_event_digest_check", sql`${table.uncertainEventDigest} IS NULL OR ${table.uncertainEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_stop_receipt_digest_check", sql`${table.stopReceiptDigest} IS NULL OR ${table.stopReceiptDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_stopped_event_digest_check", sql`${table.stoppedEventDigest} IS NULL OR ${table.stoppedEventDigest} ~ '^sha256:[0-9a-f]{64}$'`),
+  check("factory_task_stops_outcome_source_check", sql`${table.source} <> 'terminal-outcome' OR ${table.attemptCommandId} IS NOT NULL`),
+  check("factory_task_stops_accepted_state_check", sql`(${table.state} = 'accepted') = (${table.uncertainEventJson} IS NULL AND ${table.uncertainEventDigest} IS NULL AND ${table.stopReceiptJson} IS NULL AND ${table.stopReceiptDigest} IS NULL AND ${table.stoppedEventJson} IS NULL AND ${table.stoppedEventDigest} IS NULL) OR ${table.state} = 'superseded'`),
+  check("factory_task_stops_uncertain_pair_check", sql`(${table.uncertainEventJson} IS NULL) = (${table.uncertainEventDigest} IS NULL)`),
+  check("factory_task_stops_receipt_pair_check", sql`(${table.stopReceiptJson} IS NULL) = (${table.stopReceiptDigest} IS NULL)`),
+  check("factory_task_stops_stopped_pair_check", sql`(${table.stoppedEventJson} IS NULL) = (${table.stoppedEventDigest} IS NULL)`),
+  check("factory_task_stops_stopped_state_check", sql`(${table.state} = 'stopped') = (${table.stopReceiptJson} IS NOT NULL AND ${table.stoppedEventJson} IS NOT NULL)`),
+]);
+
+export const factoryCommandApprovals = pgTable("factory_command_approvals", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), approvalId: text("approval_id").notNull(),
+  runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  sourceSequence: bigint("source_sequence", { mode: "number" }).notNull(), sourceDigest: text("source_digest").notNull(),
+  nodeInstanceId: text("node_instance_id").notNull(), candidateGeneration: bigint("candidate_generation", { mode: "number" }).notNull(), attempt: bigint("attempt", { mode: "number" }).notNull(),
+  definitionDigest: text("definition_digest").notNull(), executionEpoch: bigint("execution_epoch", { mode: "number" }).notNull(), cancellationEpoch: bigint("cancellation_epoch", { mode: "number" }).notNull(),
+  initiatorKind: text("initiator_kind").notNull().$type<"user" | "service">(), initiatorId: text("initiator_id").notNull(), actorScope: text("actor_scope").notNull().$type<"owner" | "operator" | "tenant-contract-admin">(),
+  choicesJson: text("choices_json").notNull(), contextJson: text("context_json").notNull(), deadlineAtMs: bigint("deadline_at_ms", { mode: "number" }).notNull(),
+  contextDigest: text("context_digest").notNull(), protectedDigest: text("protected_digest").notNull(), status: text("status").notNull().$type<"pending" | "answered">(), choice: text("choice"),
+  decidedBy: text("decided_by").references(() => users.id, { onDelete: "restrict" }), decidedApproveRevision: bigint("decided_approve_revision", { mode: "number" }), decidedTrustRevision: bigint("decided_trust_revision", { mode: "number" }), decidedAtMs: bigint("decided_at_ms", { mode: "number" }),
+  eventJson: text("event_json"), eventDigest: text("event_digest"), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(), updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.approvalId] }),
+  uniqueIndex("factory_command_approvals_command_key").on(table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId),
+  index("idx_factory_command_approvals_pending").on(table.tenantId, table.projectId, table.status, table.deadlineAtMs, table.approvalId),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId], foreignColumns: [factoryRuns.tenantId, factoryRuns.projectId, factoryRuns.runId] }).onDelete("restrict"),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.sourceSequence], foreignColumns: [factoryAuditBatches.tenantId, factoryAuditBatches.projectId, factoryAuditBatches.runId, factoryAuditBatches.interpreterId, factoryAuditBatches.sourceSequence] }).onDelete("restrict"),
+]);
+
+export const factoryProtectedCommandEffects = pgTable("factory_protected_command_effects", {
+  tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),
+  kind: text("kind").notNull().$type<"request-acceptance" | "request-release">(), commandDigest: text("command_digest").notNull(), receiptJson: text("receipt_json").notNull(), receiptDigest: text("receipt_digest").notNull(), decision: text("decision").$type<"accepted" | "rejected">(), createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId] }),
+  foreignKey({ columns: [table.tenantId, table.projectId, table.runId, table.interpreterId, table.commandId], foreignColumns: [factoryTransitionCommands.tenantId, factoryTransitionCommands.projectId, factoryTransitionCommands.runId, factoryTransitionCommands.interpreterId, factoryTransitionCommands.commandId] }).onDelete("restrict"),
+  check("factory_protected_command_effects_decision_check", sql`${table.decision} IS NULL OR ${table.decision} IN ('accepted', 'rejected')`),
+  check("factory_protected_command_effects_decision_kind_check", sql`${table.kind} = 'request-acceptance' OR ${table.decision} IS NULL`),
+]);
 /** A tombstone authority row remains after disconnect to fence old OAuth callbacks. */
 export const githubUserAuthorities = pgTable("github_user_authorities", {
   userId: text("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),

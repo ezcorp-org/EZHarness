@@ -7,7 +7,7 @@ import { buildLimits, executionLimits, filesDigest, TrustedLocalRunner, TRUSTED_
 import { sha256 } from "../src/core";
 import { provision, source } from "./helpers";
 
-test("trusted-local requires an exact admin approval, audit and separate execution approval", async () => {
+test("trusted-local requires an exact admin approval, audit and separate execution approval, and refuses a device grant it cannot confine", async () => {
   const root = await mkdtemp(join(tmpdir(), "ez-trusted-local-"));
   const files = source();
   const sourceDigest = filesDigest(files);
@@ -28,5 +28,10 @@ test("trusted-local requires an exact admin approval, audit and separate executi
     const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits: executionLimits }, async () => null);
     try { expect(await worker.request("extension/invoke", { name: "echo", input: { message: "trusted" }, context })).toEqual({ message: "trusted" }); } finally { await worker.close(); }
     expect(audited).toBe(2);
+    // This mode omits every kernel control, so it cannot hold a guest to the
+    // device nodes an allocation authorized. The grant is refused, not ignored.
+    const deviceWorkerId = randomUUID();
+    await expect(runner.start({ workerId: deviceWorkerId, artifactDigest: result.artifactDigest!, context: { ...context, workerId: deviceWorkerId, invocationId: randomUUID(), deadline: Date.now() + 10_000 }, limits: executionLimits, devices: ["/dev/kfd"] }, async () => null)).rejects.toThrow("authorized device list");
+    expect((await runner.inspect(deviceWorkerId)).state).toBe("failed");
   } finally { await runner.close(); await rm(root, { recursive: true, force: true }); }
 }, 60_000);

@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+
+ 63 pass
+ 0 fail
+ 369 expect() calls
+Ran 63 tests across 1 file. [33.70s]
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-01T07:19:49.232Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [5.26s]
+merged 744 source files → /tmp/factory-provisioning-coverage.mRQh4I/merged.info
+kept 8 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4f-2/pg-provisioning/lcov.info

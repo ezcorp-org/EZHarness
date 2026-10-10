@@ -1,5 +1,7 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock, spyOn } from "bun:test";
 
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
+import { ExtensionRegistry } from "../../../src/extensions/registry";
 // ── Mutable auth/scope state swapped by individual tests ─────────────────
 // `authUser` drives requireAuth/requireRole. `apiKeyScopes` drives
 // requireScope (undefined == cookie auth; arrays == API-key request).
@@ -77,16 +79,40 @@ const mockCheckRole = mock((locals: unknown, role: string) => {
 	}
 });
 
-mock.module("$server/auth/middleware", () => ({
-	requireAuth: mockRequireAuth,
-	checkAuth: mockCheckAuth,
-	requireRole: mockRequireRole,
-	checkRole: mockCheckRole,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkProjectRole/requireTeamRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too — both the missing-export
+// shape (the F1 guard's own concern) and, worse here, a VALUE conflict: this
+// file's requireAuth reads a mutable per-test authUser, while another file's
+// own override could be a fixed literal a shared registration would then
+// impose on this file's tests instead. beforeAll (test-execution time, after
+// every earlier file's own top-level code has already loaded) plus a
+// complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests, and afterAll hands the alias back to the real
+// module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
-mock.module("$lib/server/security/api-keys", () => ({
+// Registered in beforeAll below, not here at module top level — item C2
+// (W18 hygiene). This alias was previously registered at top level with NO
+// restoration at all (afterAll only restored reloadSpy/killAllSpy) — a
+// real, pre-existing test-authorization gap, confirmed independently by
+// running this file paired with extension-settings-api.test.ts on the
+// ORIGINAL committed sources: a read-only key's PUT/DELETE wrongly returned
+// 200 instead of 403, because this file's mockRequireScope override (which
+// allows everything unconditionally unless apiKeyScopes says otherwise) was
+// still active for extension-settings-api.test.ts's own tests, which run
+// after this file in the same process and never re-claim the alias
+// themselves. beforeAll + afterAll hand-back close it, same pattern as the
+// auth/middleware fix above.
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: mockRequireScope,
-}));
+});
+// Truly real (no override) — handed back in afterAll, separate from
+// apiKeysExports above which bakes this file's own requireScope override in.
+const realApiKeys = webLibModule("server/security/api-keys", {});
 
 // ── DB/query mocks ───────────────────────────────────────────────────────
 const extensionFixture = {
@@ -129,7 +155,7 @@ const mockListExtensions = mock(async () => listedExtensions ?? (extensionStore 
 const mockDeleteExtension = mock(async (_id: string) => true);
 const mockGetExtensionByName = mock(async (_name: string) => nameLookup);
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
 	getExtension: mockGetExtension,
 	// The GET route resolves its route param as a REFERENCE (id OR manifest
 	// name) so the post-install `/extensions/<name>` deep-link renders. This
@@ -172,7 +198,8 @@ mock.module("$server/db/queries/extensions", () => ({
 			},
 		};
 	},
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 // ── Installer mocks ──────────────────────────────────────────────────────
 const installedRecord = (overrides: Partial<any> = {}) => ({
@@ -239,13 +266,39 @@ mock.module("$server/logger", () => ({
 }));
 
 // ── Registry mock (reload is a no-op in tests) ───────────────────────────
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it. spyOn() the real instance's reload()/killAll() instead,
+// fetched in beforeAll (test-execution time), not at this file's own top
+// level — otherwise two files that both call getInstance() during the
+// shared loading phase would capture the SAME instance, and the first
+// file's own resetInstance() would leave the second file's spy on a stale,
+// discarded object.
 const mockReload = mock(async () => {});
 const mockKillAll = mock(() => {});
-mock.module("$server/extensions/registry", () => ({
-	ExtensionRegistry: {
-		getInstance: () => ({ reload: mockReload, killAll: mockKillAll }),
-	},
-}));
+let reloadSpy: ReturnType<typeof spyOn>;
+let killAllSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+	reloadSpy = spyOn(ExtensionRegistry.getInstance(), "reload").mockImplementation(mockReload);
+	killAllSpy = spyOn(ExtensionRegistry.getInstance(), "killAll").mockImplementation(mockKillAll);
+	mock.module("$server/auth/middleware", () => ({
+		...realAuthMiddleware,
+		requireAuth: mockRequireAuth,
+		checkAuth: mockCheckAuth,
+		requireRole: mockRequireRole,
+		checkRole: mockCheckRole,
+	}));
+	mock.module("$lib/server/security/api-keys", () => apiKeysExports);
+});
+afterAll(() => {
+	reloadSpy.mockRestore();
+	killAllSpy.mockRestore();
+	ExtensionRegistry.resetInstance();
+	mock.module("$server/auth/middleware", () => realAuthMiddleware);
+	mock.module("$lib/server/security/api-keys", () => realApiKeys);
+});
 
 // ── Security check mock ──────────────────────────────────────────────────
 const mockHasSecurityViolation = mock(async (_id: string) => false);
@@ -276,7 +329,16 @@ const lifecycleDisable = mock(async () => {
   if (lifecycleDisableFailure) throw lifecycleDisableFailure;
   extensionStore = { ...extensionStore, enabled: false, disabledByUser: true };
 });
-mock.module("$server/extensions/extension-lifecycle-service", () => ({
+// The lifecycle service is mocked on its RELATIVE path ONLY — no
+// `$server/extensions/extension-lifecycle-service` registration at all
+// (item C, W18 hygiene: an alias registration can never be withdrawn). A
+// route resolves that alias natively to the same record as the relative
+// path when nothing has claimed the alias separately, so the stub still
+// reaches it. Spread the real module under the fake so no export name is
+// ever missing.
+const realLifecycleService = serverModule("extensions/extension-lifecycle-service", {});
+mock.module("../../../src/extensions/extension-lifecycle-service", () => ({
+  ...realLifecycleService,
   getExtensionLifecycle: async () => ({
     inspect: async () => {
       if (!extensionStore || legacy) {

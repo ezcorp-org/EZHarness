@@ -6,8 +6,10 @@
  * error envelope, invalid tree, grant-fed allowlist — runs without a
  * real extension process.
  */
-import { test, expect, describe, mock, afterAll } from "bun:test";
+import { test, expect, describe, mock, afterAll, beforeAll, spyOn } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { ExtensionRegistry } from "../extensions/registry";
+import type { ExtensionProcess } from "../extensions/subprocess";
 
 // $lib/server/context pulls the whole server boot — stub the accessors
 // the module needs (the PRODUCTION callPage path reads them). getExecutor
@@ -31,22 +33,30 @@ let __fakeProcResponse: unknown = null;
 // path stamps on the `ezcorp/page.render` forward call — and resolve the
 // live provenance token mid-call.
 let __fakeProcInspect: ((method: string, params: Record<string, unknown>) => void) | null = null;
-mock.module("$server/extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      getProcess: async (id: string) => {
-        fakeRegistryCalls.push(`getProcess:${id}`);
-        return {
-          call: async (method: string, params: Record<string, unknown>) => {
-            fakeRegistryCalls.push(`call:${method}:${String(params.pageId)}`);
-            __fakeProcInspect?.(method, params);
-            return { jsonrpc: "2.0", id: 1, result: __fakeProcResponse };
-          },
-        };
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it, breaking every OTHER consumer's real methods. spyOn() the
+// real instance's getProcess() instead. Fetched in beforeAll, not at this
+// file's own top level: two files that both call getInstance() during the
+// shared loading phase (before any file resets the singleton) would
+// otherwise capture the SAME instance, and the first file's own
+// resetInstance() would leave the second file's spy on a stale, discarded
+// object.
+let getProcessSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  getProcessSpy = spyOn(ExtensionRegistry.getInstance(), "getProcess").mockImplementation(async (id: string) => {
+    fakeRegistryCalls.push(`getProcess:${id}`);
+    return {
+      call: async (method: string, params: Record<string, unknown>) => {
+        fakeRegistryCalls.push(`call:${method}:${String(params.pageId)}`);
+        __fakeProcInspect?.(method, params);
+        return { jsonrpc: "2.0", id: 1, result: __fakeProcResponse };
       },
-    }),
-  },
-}));
+    } as unknown as ExtensionProcess;
+  });
+});
 mock.module("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
     async ensureSubprocessRpcWired(id: string) {
@@ -105,6 +115,12 @@ afterAll(() => {
   mock.module("$server/db/queries/projects", () => require("../db/queries/projects"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
+  // Un-spy BEFORE resetInstance(): resetInstance() calls the instance's own
+  // killAll(), and leaving a throwing/altered spy in place could make it
+  // misbehave; either way it would leave the spied instance active for
+  // every later file that reaches the same shared singleton.
+  getProcessSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
 });
 
 const PAGE = { id: "dashboard", title: "Dash" };

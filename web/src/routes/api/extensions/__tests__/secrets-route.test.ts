@@ -10,8 +10,8 @@
  *   - unknown extension / unknown project / missing fields short-circuit, and
  *   - auth + `extensions` scope are both enforced.
  */
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -32,13 +32,21 @@ import * as httpErrorsActual from "../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
 
 // Scope gate: allowed by default; overridden per-test via `scopeResponse`.
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // requireAuth real impl throws a 401 Response when no user — keep it real.
-import * as middlewareActual from "../../../../../../src/auth/middleware";
-mock.module("$server/auth/middleware", () => middlewareActual);
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) makes THIS file's own (real,
+// unmodified) module active for THIS file's own tests, and afterAll hands
+// the alias back to the real module so a later file in the same process
+// starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 // Extension RBAC (deny-by-default core). Default mock = "member with the
 // `secrets` scope granted" so the pre-RBAC cases stay valid; the deny matrix
@@ -87,9 +95,10 @@ const deleteSecretCalls: Array<{
   opts: unknown;
 }> = [];
 
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtension: async (id: string) => extensionsById[id] ?? null,
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async (id: string) => projectsById[id] ?? undefined,
@@ -121,7 +130,13 @@ const { POST, DELETE } = await import(
   "../../../../../../web/src/routes/api/extensions/[id]/secrets/+server"
 );
 
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   scopeResponse = null;

@@ -3,6 +3,23 @@ import { requireScope } from "../../web/src/lib/server/security/api-keys";
 import { readdir } from "node:fs/promises";
 import { join } from "node:path";
 
+const SKIP_DIRS = ["auth", "health", "favicon"];
+
+async function findServerFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true });
+  const files: string[] = [];
+  for (const entry of entries) {
+    const fullPath = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (SKIP_DIRS.includes(entry.name)) continue;
+      files.push(...(await findServerFiles(fullPath)));
+    } else if (entry.name === "+server.ts") {
+      files.push(fullPath);
+    }
+  }
+  return files;
+}
+
 describe("requireScope", () => {
   test("returns 403 when API key lacks required scope", () => {
     const result = requireScope({ apiKeyScopes: ["read"] }, "chat");
@@ -72,26 +89,16 @@ describe("scope enforcement coverage", () => {
     // limiter, slug shape gate and body-size caps, all before dispatch.
     // Session scopes cannot apply — the caller is an external system.
     "/hooks/[extensionId]/[slug]/+server.ts",
+    // A provisioned installation's bootstrap state (C12 step 7, W16), read by
+    // the operator's control plane from outside through the ingress before any
+    // person exists. It answers only a state and the invitation it concerns
+    // (no person, project or grant), and 404 on an installation that was not
+    // provisioned. Public in the API registry and in the hook's PUBLIC_PATHS.
+    "/installation/bootstrap/status/+server.ts",
   ]);
 
   test("all non-auth API routes contain a scope, role, or auth gate", async () => {
     const apiDir = join(import.meta.dir, "../../web/src/routes/api");
-    const skipDirs = ["auth", "health", "favicon"];
-
-    async function findServerFiles(dir: string): Promise<string[]> {
-      const entries = await readdir(dir, { withFileTypes: true });
-      const files: string[] = [];
-      for (const entry of entries) {
-        const fullPath = join(dir, entry.name);
-        if (entry.isDirectory()) {
-          if (skipDirs.includes(entry.name)) continue;
-          files.push(...(await findServerFiles(fullPath)));
-        } else if (entry.name === "+server.ts") {
-          files.push(fullPath);
-        }
-      }
-      return files;
-    }
 
     const serverFiles = await findServerFiles(apiDir);
     expect(serverFiles.length).toBeGreaterThan(25);
@@ -149,6 +156,18 @@ describe("scope enforcement coverage", () => {
         // logic. Accepting the wrapper keeps this textual scan accurate without
         // forcing a redundant inline `requireScope` into every route.
         !content.includes("authGithubRoute") &&
+        // handleFactoryApi is the factory routes' complete boundary. It
+        // rejects a disabled feature before lookup, resolves the authenticated
+        // principal, applies the route's exact read/write/session scope, and
+        // only then dispatches an SDK-validated request. Keep the import and
+        // call checks together so mentioning the wrapper in prose is not enough.
+        !(relative.startsWith("/factories/") && content.includes('_shared"') && (content.includes("handleFactoryApi(event,") || content.includes("handleFactorySessionApi(event,"))) &&
+        // The console routes that answer a stream or bytes are accepted on one
+        // call pair: `resolveFactoryPrincipal(event, { scope: "read" })`, which
+        // runs `requireScope(event.locals, options.scope)`, reached through
+        // `handleFactoryConsoleRaw(event,`. The next test pins that the pair
+        // runs before `route.run(`, so before any byte is produced.
+        !(relative.startsWith("/factories/") && content.includes('_console"') && content.includes("handleFactoryConsoleRaw(event,")) &&
         !(content.includes('from "$lib/server/extensions/mcp-request"') && content.includes("mcpControlRequest(locals,")) &&
         // `verifyWebhookAuth` (src/extensions/webhook-auth.ts) is the public
         // webhook-ingress route's gate: constant-time per-hook bearer-secret
@@ -164,5 +183,43 @@ describe("scope enforcement coverage", () => {
     }
 
     expect(missing).toEqual([]);
+    // The factory gate lives in the route kit that `_shared.ts` delegates to.
+    const factoryGate = await Bun.file(join(import.meta.dir, "../../web/src/lib/server/factory/route-kit.ts")).text();
+    expect(factoryGate).toContain("requireScope(event.locals, options.scope)");
+    expect(factoryGate).toContain("requireSessionAuth(event.locals)");
+    expect(await Bun.file(`${apiDir}/factories/_shared.ts`).text()).toContain("resolveFactoryPrincipal(event, options)");
+    expect(await Bun.file(`${apiDir}/factories/_console.ts`).text()).toContain('resolveFactoryPrincipal(event, { scope: "read" })');
+  });
+
+  test("every console stream, download, and shared-artifact route checks the principal and its scope before any byte", async () => {
+    const apiDir = join(import.meta.dir, "../../web/src/routes/api");
+    const raw: string[] = [];
+    for (const file of await findServerFiles(apiDir)) {
+      const content = await Bun.file(file).text();
+      if (!content.includes("handleFactoryConsoleRaw")) continue;
+      raw.push(file.replace(apiDir, ""));
+      // The whole handler is the wrapper: nothing runs, and nothing is sent, outside it.
+      expect(content).toMatch(/export const GET: RequestHandler = event => handleFactoryConsoleRaw\(event, \{/);
+      expect(content).not.toMatch(/export const (POST|PUT|PATCH|DELETE)/);
+    }
+    expect(raw.sort()).toEqual([
+      "/factories/projects/[projectId]/runs/[runId]/artifacts/[artifactId]/download/+server.ts",
+      "/factories/projects/[projectId]/runs/[runId]/events/+server.ts",
+      "/factories/projects/[projectId]/shared-artifacts/[artifactId]/+server.ts",
+    ]);
+    const kit = await Bun.file(`${apiDir}/factories/_console.ts`).text();
+    const start = kit.indexOf("export async function handleFactoryConsoleRaw");
+    const body = kit.slice(start, kit.indexOf("\n}\n", start));
+    const resolve = body.indexOf('const principal = resolveFactoryPrincipal(event, { scope: "read" });');
+    const refuse = body.indexOf("if (principal instanceof Response) return principal;");
+    const run = body.indexOf("route.run(");
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(resolve).toBeGreaterThan(0);
+    expect(refuse).toBeGreaterThan(resolve);
+    expect(run).toBeGreaterThan(refuse);
+    expect(body.slice(0, resolve)).not.toMatch(/new Response|ReadableStream|route\./);
+    const routeKit = await Bun.file(join(import.meta.dir, "../../web/src/lib/server/factory/route-kit.ts")).text();
+    const resolver = routeKit.slice(routeKit.indexOf("export function resolveFactoryPrincipal"), routeKit.indexOf("function requestPrincipal"));
+    expect(resolver).toContain("requireScope(event.locals, options.scope)");
   });
 });

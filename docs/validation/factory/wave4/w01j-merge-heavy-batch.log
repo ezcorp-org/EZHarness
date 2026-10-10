@@ -1,0 +1,20 @@
+=== heavy 2026-09-27T23:58:02Z
+HEAD a24a619ad972f95aa777f15d0c27d66d6d53ffbe MERGE_HEAD a55bfe3e8f64ae990facd3c76ddee57a32f2be9c index-tree 8048122ad83c6b674d3750b690a04c7d72f31257
+resource-gate 2026-09-27T23:58:02Z focused-lcov disk=113G memAvailable=16GiB swapFreeKiB=6739468/17173956
+--- START focused-lcov 2026-09-27T23:58:02Z
+--- END   focused-lcov 2026-09-27T23:58:05Z exit=0  31 pass 0 fail 
+resource-gate 2026-09-27T23:58:05Z web-server-lcov disk=113G memAvailable=16GiB swapFreeKiB=6739512/17173956
+--- START web-server-lcov 2026-09-27T23:58:05Z
+--- END   web-server-lcov 2026-09-27T23:58:24Z exit=0  Tests 166 passed (166) 
+resource-gate 2026-09-27T23:58:24Z coverage-merge disk=113G memAvailable=17GiB swapFreeKiB=6739620/17173956
+--- START coverage-merge 2026-09-27T23:58:24Z
+--- END   coverage-merge 2026-09-27T23:58:25Z exit=0 
+resource-gate 2026-09-27T23:58:25Z web-build disk=113G memAvailable=17GiB swapFreeKiB=6739628/17173956
+--- START web-build 2026-09-27T23:58:25Z
+--- END   web-build 2026-09-27T23:59:05Z exit=0 
+resource-gate 2026-09-27T23:59:05Z graph-mock-pass disk=113G memAvailable=17GiB swapFreeKiB=6739888/17173956
+--- START graph-mock-pass 2026-09-27T23:59:05Z
+--- END   graph-mock-pass 2026-09-27T23:59:53Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w01j-merge/graph/w01j-merge-mock.json; nothing to dump
+mock pass w01j-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T23:59:54Z

@@ -1,0 +1,55 @@
+W4H-8 report (reports 2 and 3 folded), as sent to validator-5 and the coordinator at 2026-10-04 22:2xZ, followed by the closing
+section. Paths below are relative to /tmp/factory-platform-evidence/w4h-8/ unless they name a repository file.
+
+Head: wp/w4h-8 36bc7afb8 on integ/w00 87e1e197c (W4H-6 merged). Code head baa11afc3; 36bc7afb8 adds only
+tasks/factory/w4h-8-GATES.md. Identity: archy noreply only. No transport code.
+
+Commits:
+- c18a31f27 (b) DurableDeliveryQueue.renew fenced like settle + dispatchDurableDelivery heartbeat at lease/3, no overlap, stop on a
+  lost lease and before settle; extension deliveries opt in.
+- fb7fc8cf4 (c) delivery-runtime injectable ticker; a tick never attaches to a drain in flight.
+- a64f80cdb one private ownership check behind settle and renew; renew on ExtensionDeliveryQueue, FactoryCommandOutbox
+  (scope-checked) and FactoryReleases.renewNotification; w4h-8b's cases adopted.
+- baa11afc3 tests pin the heartbeat at lease/3.
+
+Rebase: patch-ids equal per commit (receipts/rebase-equivalence.txt). Hook count per commit: 2, 1, 3, 2, 0 (none above 12).
+
+Expected-red mutants (all red; mutants.txt, script mutants.sh):
+- renew without the token fence: 4 fail
+- heartbeat at the full lease: 2 fail; at half the lease: 2 fail
+- drain failure logged per tick (the `if (ticking || draining) return;` guard removed): 1 fail
+
+delivery_lease_lost counts:
+| Run                                              | Lines |
+| hosted run 37138524741                           | 63    |
+| 52d8ba079, 4 CPUs, full lane (red-full/)         | 65    |
+| 52d8ba079, 4 CPUs, the two specs alone (dbg-two/)| 46    |
+| baa11afc3, 4 CPUs, the two specs (final-two/)    | 0     |
+
+Specs at baa11afc3, via gated-flock (exit file final.exit = 0; load < 10 checked inside the lock):
+extension-browser-cancel.spec.ts:6 and ez-factory-job-run.spec.ts:81 both passed (2 passed, 0 failed). Red at base kept as history
+(red-full/, dbg-two/).
+
+Consumers at baa11afc3 under the lock (heavy-pg/summary.txt): tests/postgres factory-attempt-queue, -inbox, -records, -releases
+45 pass 0 fail; attempt-queue and releases integration, factory-inbox, -records, -compute-admissions 65 pass 0 fail.
+
+Lock-free at a64f80cdb (baa11afc3 adds tests only): queue-unit 86 pass, typecheck 0, lint 0, boundaries 0, gate-integrity the 8
+standing label findings only (light/); guard 39 files 477 pass 2 skip 0 fail (guard.log); coverage: new-file passed, patch passed
+for 5 files (cov-final.txt).
+
+Scratch scratch/w4h-8-on-w4h-6 (f9b8b17c5): removed (worktree and branch); its six W4H-6 commits are on integ.
+Dup-transport status: proof/w4h-8-dup-transport = b455014f4 kept as a proof branch, not in the head. It is an independent
+implementation of the transport fix (FIFO reads parking Bun's file-I/O pool); W4H-6's fix is the merged one, so it is evidence,
+not an open defect.
+
+Gates doc: tasks/factory/w4h-8-GATES.md (G1-G6). Runner homes were temporary runner directories removed by the lane; no images built.
+
+Closing
+- F1 and F2 (validator-5, surviving mutants: settle without `await inFlight;`, and the tick guard reduced to `if (ticking) return;`)
+  fixed at d40da7a8b, one test-only commit: each red with its mutant (f1f2/f1-red.log, f1f2/f2-red.log), green unmodified
+  (f1f2/green.log, 39 pass 0 fail), earlier mutants still red (f1f2/mutants-rerun.txt). Hook: 2 suites (11, 16 pass).
+- F3 (validator-5) fixed at 2aec44d68, docs only: G4 now states that the spec-level red is at 52d8ba079 (pre-W4H-6), the spec-level
+  fix is W4H-6's, both specs pass at 87e1e197c base and head with 0 lines, and W4H-8's own red/green is at unit level. Hook: 0.
+- Final head 2aec44d68, merged into integ/w00 as 5b8d5556f (integrator-3; receipts 9ede86fd1).
+- Not changed: FactoryCommandOutbox.renew and FactoryReleases.renewNotification have no production caller (the heartbeat is wired
+  for extension deliveries only).

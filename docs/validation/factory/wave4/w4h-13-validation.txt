@@ -1,0 +1,69 @@
+ACCEPT wp/w4h-13-hook-git-env at 196552004
+Reader set: src/__tests__/git-hooks.test.ts (the only changed test file and the only hook-mapped suite; 29 pass, 0 fail, 0 void, lcov on),
+plus the guard set w00/guard-suites.sh (39 files, 500 pass, 2 skip, 0 fail). No script, hook or source file changes, so no other test
+reads a changed file.
+
+validator-6, 2026-10-06. Base integ/w00 1bc5f63c7. Record: /tmp/factory-platform-evidence/validator-6/w4h-13/hold-196552004/
+(script hold-w4h13.sh, run 14:25:17Z to 14:28:51Z). Snapshot in /tmp/v5-snaps, outside the evidence dir, removed at the end.
+
+HEAD: the lead's order named 67dda914e. The owner then committed 196552004 at 14:18:41Z, before my legs started. It changes only
+  tasks/factory/w4h-13-GATES.md (+16 -5). I validated the tip, as my interim message to the lead stated; every log of mine names 196552004.
+  Commits over the base, all archy noreply as author and committer (identity 3/3):
+    8ac43c218 test(hooks): a staged suite's bare git init leaves the shared config byte-equal
+    67dda914e docs(factory): W4H-13 gate file - hook git env, R1 red on origin/main, green at base
+    196552004 docs(factory): W4H-13 gate file - record main's gap and the main hook-lib red
+  Files: src/__tests__/git-hooks.test.ts (+64 -1), tasks/factory/w4h-13-GATES.md (new, force-added past .gitignore:8 by the lead's ruling).
+
+SCOPE: `git diff --exit-code 1bc5f63c7 196552004 -- scripts/ .githooks/` exit 0. hook-lib.sh is unchanged. The base already carries
+  48da9c886: without_git_context removes every ^GIT_ name (from compgen -e) for all three runners (hook-lib.sh lines 237, 247, 253).
+
+THE NEW CASE ("pre-commit hook > a staged suite that runs git"):
+  - GREEN at the head: 1 pass, 0 fail (run alone with -t), and 29/0 for the whole file.
+  - RED with the bun runner's scrub removed, in my private snapshot only (`without_git_context bun test --timeout 30000` replaced by
+    `bun test --timeout 30000` in scripts/lib/hook-lib.sh). 2 fails, both the scrub's own cases:
+      "a staged test's bare `git init` leaves the shared config byte-equal": core.bare Expected "false", Received "true";
+      "runs each staged suite without the git context the hook exports" (the base's case): the fake bun saw GIT_DIR.
+    The snapshot was restored (dirty=0 at the end).
+  - The fixture never touches the real git dir (read): every git call uses baseEnv = withoutGitContext(process.env) and a cwd under a
+    mkdtemp root. The primary repo, its linked worktree and the output dir are temp dirs in `created`, removed in afterAll. The fixture
+    symlinks the tree's scripts/ and node_modules, and the hook only reads them. Under the mutant the leaked GIT_DIR is the FIXTURE's
+    worktree git dir, so the bare flip lands in the fixture's config, as the red shows.
+  - The assertions are not vacuous: 1 pass; core.bare "false"; the fixture's shared config byte-equal; no GIT_* seen by the staged
+    suite; the inner repo's .git/HEAD exists; the commit landed.
+  - Note: the base's older case sets GIT_DIR to the tree's own git dir on purpose, but its fake bun only prints the environment and
+    writes nothing. It is not part of this package.
+
+REAL SHARED CONFIG (/home/dev/work/EZCorp/EZHarness/.git/config):
+  - 14:24:11Z, before the hold: 888c78b9e94ea660 (the baseline; the user's repair of the 546e460d3bfa387b incident had landed).
+  - Hold start: config-check exit 0, "888c78b9e94ea660 = accepted baseline".
+  - Around the suites (git-hooks file, the new case alone, the mutant): fc56b169d5f2706f before and fc56b169d5f2706f after. Byte-equal.
+  - Hold end: config-check exit 1, 696e30f3f879fcf9, "only in branch/remote sections: added ['branch \"fix/hook-tests-without-git-env\"']".
+    Another session created that branch (fc495fd2b, archy, 14:26:58Z, "fix(hooks): run staged tests without the git context the hook
+    exports"). It is benign under the config rule. core.bare reads false.
+
+HOOK COUNT: 1 suite on 8ac43c218 (owner's commit-1.log: "bun: src/__tests__/git-hooks.test.ts", 29 pass). The two docs commits map
+  nothing. My hook-mapped computation at the tip agrees: 1 suite.
+
+STANDARD LEGS at 196552004, all exit 0 unless stated:
+  typecheck; lint; check-factory-boundaries; check-boundaries;
+  gate-integrity base leg (vs 1bc5f63c7) PASSED; origin/main leg exactly the 8 expected lines (found set = expected set, 8 findings);
+  new-file vs integ/w00 PASSED (no new source file); patch vs integ/w00 PASSED (0 files with changed executable lines);
+  new-file and patch vs origin/main (informational) exit 1 on the whole integ-vs-main diff, naming no file of this change;
+  CRAP: no touched function over 30; unit with lcov 29/0; SDK 246/0; guard set 500 pass, 2 skip, 0 fail;
+  prune scan (w00/prune-scan.sh a4a59601cec26963) "clean (0 hit(s))".
+
+OWNER EVIDENCE: the owner's legs (logs/final-legs.log) ran at 8ac43c218, before the two docs commits. My legs above are the record at
+  the tip. The owner's mutation ran in their own branch worktree and was restored; no shared tree was touched.
+
+HEAD CHECK (lead's update): `git diff --name-only 67dda914e 196552004` and `git diff --name-only 8ac43c218 196552004` each list only
+  tasks/factory/w4h-13-GATES.md; excluding that file, the tree at 196552004 equals 8ac43c218. The owner's report.txt names 67dda914e;
+  accepted as written once.
+OWNER'S ORIGIN/MAIN RED (read): r3-mutation-red-origin-main.log (script mutation-red-main.sh) swaps origin/main beaff68c8's
+  hook-lib.sh into the owner's own worktree (numstat 12 81), runs the new case alone, and restores it ("restored: 0 diff lines").
+  Result: 0 pass, 1 fail, core.bare Expected "false", Received "true" at git-hooks.test.ts:596. So the case is red against main's
+  real hook-lib.sh as well as against my one-line mutant. The flip lands in the fixture's config (readCfg(primary)), not the real one.
+TIMING: my hold started 14:25:17Z, after I read the baseline myself at 14:24:11Z; the lead's repair word names the same 14:24Z.
+
+FOR THE USER (from the gate file, not a finding against this package): origin/main beaff68c8 lacks 48da9c886, so every main-based
+  worktree stays exposed until it lands there. The branch fix/hook-tests-without-git-env (fc495fd2b) appeared during this hold; I
+  did not validate it.

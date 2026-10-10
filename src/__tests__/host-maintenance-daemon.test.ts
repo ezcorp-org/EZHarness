@@ -544,43 +544,28 @@ describe("getSweepIntervalMs — env-var parsing", () => {
 // ── Tick safety ──────────────────────────────────────────────────────
 
 describe("HostMaintenanceDaemon — tick safety", () => {
-  test("tickOnce swallows runSweep throw → returns empty outcome, doesn't crash", async () => {
-    // We can't easily make `runSweep` throw without more wiring. The
-    // simplest reproducible failure path is to seed a row with
-    // structurally-invalid `grantedPermissions` shape — runSweep is
-    // defensive about each field type, so it likely won't throw.
-    // Instead we use a stub-and-mock approach: replace the daemon's
-    // `tickOnce` body via a wrapped instance whose getDb throws.
-    // This proves the contract — daemon catches, logs, returns empty.
-    //
-    // The contract that survives this is "next tick still fires" —
-    // the tickOnce promise resolves with the empty TickOutcome
-    // shape, the daemon's setInterval callback is unaffected.
+  test("tickOnce contains a clock failure and the next tick still runs", async () => {
+    // Capture the boot cutoff with a healthy clock, then fail at the tick
+    // boundary. The failure must not stop later maintenance passes.
+    let failClock = false;
     const daemon = new HostMaintenanceDaemon({
       wakeIntervalMs: 60_000,
       skipLockfile: true,
-    });
-
-    // Monkey-patch private opts.now to throw — this hits the inner
-    // try/catch in tickOnce. (Public surface doesn't expose a
-    // throwing seam without DB-mock-swap; the now() injection point
-    // is a clean test seam.)
-    const throwingDaemon = new HostMaintenanceDaemon({
-      wakeIntervalMs: 60_000,
-      skipLockfile: true,
       now: () => {
-        throw new Error("simulated clock failure");
+        if (failClock) throw new Error("simulated clock failure");
+        return Date.now();
       },
     });
-
-    expect(await throwingDaemon.start()).toBe(true);
-    const outcome = await throwingDaemon.tickOnce();
-    expect(outcome.applied).toBe(0);
-    expect(outcome.skippedConcurrent).toBe(0);
-    expect(outcome.audits).toBe(0);
-    expect(outcome.errors).toEqual([]);
-    throwingDaemon.stop();
-    daemon.stop();
+    expect(await daemon.start()).toBe(true);
+    try {
+      failClock = true;
+      expect(await daemon.tickOnce()).toMatchObject({ applied: 0, skippedConcurrent: 0, audits: 0, errors: [], workflowOrphans: 0 });
+      failClock = false;
+      expect((await daemon.tickOnce()).errors).toEqual([]);
+      expect(await daemon.start()).toBe(true);
+    } finally {
+      daemon.stop();
+    }
   });
 
   test("tick after concurrent rewrite — only the still-aged grant applies, no errors", async () => {

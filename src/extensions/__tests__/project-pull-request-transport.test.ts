@@ -74,3 +74,21 @@ test("credential absence HTTP failures and GraphQL errors stay inside host bound
   expect(error?.message).toBe("GitHub rejected the requested operation.");
   expect(JSON.stringify(error)).not.toContain("host-only-token");
 });
+
+
+test("host GitHub transport captures approved request bytes and rejects foreign paths", async () => {
+  const { requestProjectGitHub } = await import("../project-github-transport");
+  const authorize = mock(async () => {});
+  const body = { title: "approved title" };
+  const signal = new AbortController().signal;
+  const pending = requestProjectGitHub({ projectId: "project", path: "/repos/owner/repository/pulls", method: "POST", body, authorize, signal });
+  body.title = "changed after authorization began";
+  await pending;
+  expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ method: "POST", body: '{"title":"approved title"}', signal });
+  expect(authorize).toHaveBeenCalledTimes(2);
+  const calls = fetcher.mock.calls.length;
+  for (const path of ["https://foreign.test/", "//foreign.test/", "/repos/owner/repository#fragment", "/repos/owner/\nrepository"]) {
+    await expect(requestProjectGitHub({ projectId: "project", path, authorize })).rejects.toMatchObject({ code: "github_path_invalid" });
+  }
+  expect(fetcher.mock.calls.length).toBe(calls);
+});

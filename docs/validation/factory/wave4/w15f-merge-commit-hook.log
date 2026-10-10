@@ -1,0 +1,58 @@
+Checked 22 files in 46ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/db/factory-schema.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 7 expect() calls
+Ran 2 tests across 1 file. [625.00ms]
+  bun: src/db/migrations/add-factory-attempt-supersessions.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 3 pass
+ 0 fail
+ 11 expect() calls
+Ran 3 tests across 1 file. [1.58s]
+  bun: src/db/migrations/add-factory-usage-epoch-stale.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [1300.00ms]
+  bun: src/factory/attempt-supersessions.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 1 pass
+ 0 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [488.00ms]
+  bun: src/factory/dispatch-composition.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 42 pass
+ 0 fail
+ 191 expect() calls
+Ran 42 tests across 1 file. [1.61s]
+  bun: src/factory/usage-epoch.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 6 pass
+ 0 fail
+ 52 expect() calls
+Ran 6 tests across 1 file. [2.44s]
+  bun: src/__tests__/migrate.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 79 expect() calls
+Ran 8 tests across 1 file. [2.64s]
+  bun: tests/postgres/factory-usage-epoch.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 6 pass
+ 0 fail
+ 52 expect() calls
+Ran 6 tests across 1 file. [5.29s]

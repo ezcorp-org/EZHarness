@@ -1,0 +1,1050 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import type { RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { certificates } from "../../__tests__/helpers/factory-certificates";
+import { factoryHostLaunchIntent } from "../../__tests__/helpers/factory-host-launch-intent";
+import { createGatewayTransport, GatewayStatusError } from "@ezcorp/factory-transport";
+import { factoryAttemptLaunchIntentToWire } from "./attempt-wire";
+import { FACTORY_HOST_LAUNCH_PATH } from "./host-launch-service";
+import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
+import { createPublicKey, generateKeyPairSync } from "node:crypto";
+import { chmod, readFile, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+import { readFactoryServiceReadiness, factorySupervisorReadinessOptions } from "../service-readiness";
+import {
+  createFactoryConfiguredGuestBroker,
+  loadFactoryHostKey,
+  factorySupervisorRecord,
+  FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
+  FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
+  parseFactorySupervisorProcessConfig,
+  factoryHostRunnerProbe,
+  runConfiguredFactorySupervisor,
+  startFactoryConfiguredHostServices,
+  runFactorySupervisorMain,
+  startFactorySupervisorMain,
+  factorySupervisorProductionDependencies,
+  productionMainDependencies,
+  type FactorySupervisorProcessConfig,
+  type FactorySupervisorProcessDependencies,
+} from "./supervisor-process";
+import { makeFactoryTempPrivateRoot } from "../../__tests__/helpers/factory-private-root";
+
+const roots: string[] = [];
+afterEach(async () => { await Promise.all(roots.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+
+async function privateRoot(): Promise<string> {
+  const directory = await makeFactoryTempPrivateRoot("w09-supervisor-");
+  roots.push(directory);
+  await chmod(directory, 0o700);
+  return directory;
+}
+
+function config(root: string, overrides: Partial<FactorySupervisorProcessConfig> = {}): Record<string, unknown> {
+  return {
+    schemaVersion: "factory.supervisor-process.v1",
+    installationId: "installation-01",
+    hostId: "host-01",
+    hostKeyPath: join(root, "host.key"),
+    hostKeyId: "host-key-1",
+    runnerRoot: join(root, "runner"),
+    readinessFilePath: join(root, "supervisor.json"),
+    readinessHeartbeatMs: 1_000,
+    ...overrides,
+  };
+}
+
+function configFor(runnerRoot: string): Record<string, unknown> {
+  return {
+    schemaVersion: "factory.supervisor-process.v1", installationId: "installation-01", hostId: "host-01",
+    hostKeyPath: "/run/secrets/host.key", hostKeyId: "host-key-1", runnerRoot,
+    readinessFilePath: "/run/factory/supervisor.json", readinessHeartbeatMs: HEARTBEAT_MS,
+  };
+}
+
+async function writeConfig(root: string, overrides: Partial<FactorySupervisorProcessConfig> = {}): Promise<string> {
+  const path = join(root, "supervisor-config.json");
+  await writeFile(path, JSON.stringify(config(root, overrides)), { mode: 0o600 });
+  await chmod(path, 0o600);
+  return path;
+}
+
+async function writeHostKey(root: string): Promise<void> {
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const path = join(root, "host.key");
+  await writeFile(path, privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+  await chmod(path, 0o600);
+}
+
+let abortController: AbortController | undefined;
+const certificateRoots: string[] = [];
+
+const HEARTBEAT_MS = 1_000;
+
+/**
+ * Drives both loops without a real timer.
+ *
+ * The two loops are told apart by the interval they ask for: the cadence wait
+ * is one heartbeat, and the probe bound is four. The fixture counts cadence
+ * waits and stops after a bounded number, and leaves the bound pending so the
+ * probe wins its race unless a test says otherwise. Nothing asserts on elapsed
+ * time; `now` is a value the test moves by hand.
+ *
+ * The cadence wait yields a MACROTASK rather than resolving inline. A wait that
+ * resolves on the microtask queue starves the other loop's file I/O: the
+ * publish loop spins write-wait-write forever and the observation never lands,
+ * which is a property of the fake and not of the code under test. A real timer
+ * yields, so the fake yields too.
+ */
+function dependencies(overrides: Partial<FactorySupervisorProcessDependencies> = {}, cadenceWaitsBeforeStop = 4, options: { readonly probeBoundElapses?: boolean } = {}): FactorySupervisorProcessDependencies {
+  let cadence = 0;
+  return {
+    loadHostKey: loadFactoryHostKey,
+    createRunnerProbe: () => ({ probe: async () => {}, instance: () => undefined, close: async () => {} }),
+    createReadiness: factorySupervisorProductionDependencies.createReadiness,
+    startServices: async () => ({ stop: () => {} }),
+    now: () => 1_000_000,
+    wait: async (milliseconds, waitSignal) => {
+      if (milliseconds !== HEARTBEAT_MS) {
+        // The probe bound. Pending until the observation ends, so a probe that
+        // returns always beats it, unless the test says the bound elapses.
+        if (options.probeBoundElapses) return;
+        return new Promise<void>((resolve) => {
+          if (waitSignal.aborted) return resolve();
+          waitSignal.addEventListener("abort", () => { resolve(); }, { once: true });
+        });
+      }
+      cadence += 1;
+      if (cadence >= cadenceWaitsBeforeStop) abortController?.abort();
+      await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    },
+    ...overrides,
+  };
+}
+
+/**
+ * A readiness writer that records every update as `lifecycle:errorCode` and
+ * stops the run once `until` holds for the records so far.
+ *
+ * A test that asserts on a published observation stops on that fact, never on
+ * a heartbeat count (W4G-12). The observer's first step is a real file read of
+ * the host key and the publisher's is not, so a count the two loops share can
+ * run out before the observer has published anything: on a loaded host the
+ * record under test was never written. The heartbeat count stays only as a
+ * backstop, so a run that never publishes the fact ends and fails by assertion.
+ */
+function stopOnPublished(published: string[], until: (records: readonly string[]) => boolean): FactorySupervisorProcessDependencies["createReadiness"] {
+  return () => ({ write: async (update) => {
+    published.push(`${update.lifecycle}:${update.errorCode ?? ""}`);
+    if (until(published)) abortController?.abort();
+    return { ...update } as never;
+  } });
+}
+
+/** The backstop for a run that stops on a published fact: generous, never the stop that a passing run relies on. */
+const BACKSTOP_CADENCE_WAITS = 1_000;
+
+/**
+ * The host key read as a loaded host reads it: slower than many heartbeat
+ * ticks. The tests that assert on a published observation use it, so a stop
+ * condition that races the read fails on every run, not once in a while.
+ */
+async function slowHostKey(path: string): Promise<void> {
+  await Bun.sleep(50);
+  await loadFactoryHostKey(path);
+}
+
+describe("parseFactorySupervisorProcessConfig", () => {
+  test("accepts a complete document and refuses every incomplete one", async () => {
+    const root = await privateRoot();
+    expect(parseFactorySupervisorProcessConfig(config(root)).hostId).toBe("host-01");
+    expect(parseFactorySupervisorProcessConfig({ ...config(root), readinessHeartbeatMs: undefined as never })).toBeDefined();
+
+    for (const bad of [
+      null, "text", [],
+      { ...config(root), schemaVersion: "factory.supervisor-process.v2" },
+      { ...config(root), installationId: "" },
+      { ...config(root), hostId: "with\0null" },
+      { ...config(root), hostKeyPath: "" },
+      { ...config(root), hostKeyId: "" },
+      { ...config(root), runnerRoot: "" },
+      { ...config(root), readinessFilePath: "" },
+      { ...config(root), readinessHeartbeatMs: 999 },
+      { ...config(root), surprise: 1 },
+    ]) {
+      expect(() => parseFactorySupervisorProcessConfig(bad)).toThrow("factory supervisor config is invalid");
+    }
+    const missing = { ...config(root) } as Record<string, unknown>;
+    delete missing.hostKeyId;
+    expect(() => parseFactorySupervisorProcessConfig(missing)).toThrow("factory supervisor config is invalid");
+  });
+});
+
+describe("loadFactoryHostKey", () => {
+  test("proves the key loads and refuses bytes that are not a key", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    await expect(loadFactoryHostKey(join(root, "host.key"))).resolves.toBeUndefined();
+
+    const wrong = join(root, "not-a-key");
+    await writeFile(wrong, "not a key", { mode: 0o600 });
+    await chmod(wrong, 0o600);
+    await expect(loadFactoryHostKey(wrong)).rejects.toBeDefined();
+    await expect(loadFactoryHostKey(join(root, "absent.key"))).rejects.toBeDefined();
+  });
+});
+
+describe("factorySupervisorRecord", () => {
+  const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: false };
+  const none = { hostKeyReady: false, runnerReady: false, hostServicesReady: false };
+  // A host that publishes no launch or stop service; the services cases below
+  // set `servicesConfigured` themselves.
+  const unpublished = { hostServicesReady: false, servicesConfigured: false };
+
+  test("starting means it has not looked yet, and never carries a reason", () => {
+    // A reader must be able to tell a supervisor that has not looked from one
+    // that looked and did not like what it saw.
+    expect(factorySupervisorRecord({ attempted: false, ...none, ...unpublished, observedAtMs: 0 }, 1_000, 500))
+      .toEqual({ lifecycle: "starting", facts: none });
+  });
+
+  test("publishes ready only for a fresh observation of both facts", () => {
+    expect(factorySupervisorRecord({ attempted: true, ...facts, ...unpublished, observedAtMs: 900 }, 1_000, 500)).toEqual({ lifecycle: "ready", facts });
+    // Exactly at the bound is still current; one past it is not.
+    expect(factorySupervisorRecord({ attempted: true, ...facts, ...unpublished, observedAtMs: 500 }, 1_000, 500)).toEqual({ lifecycle: "ready", facts });
+    expect(factorySupervisorRecord({ attempted: true, ...facts, ...unpublished, observedAtMs: 499 }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts, errorCode: "observation_stale" });
+  });
+
+  test("never asserts a fact nobody is still checking", () => {
+    const aged = factorySupervisorRecord({ attempted: true, ...facts, ...unpublished, observedAtMs: 1 }, 1_000_000, 500);
+    expect(aged).toEqual({ lifecycle: "degraded", facts, errorCode: "observation_stale" });
+  });
+
+  test("a failed observation names the failing fact", () => {
+    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, ...unpublished, observedAtMs: 0, errorCode: "runner_unavailable" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false, hostServicesReady: false }, errorCode: "runner_unavailable" });
+    expect(factorySupervisorRecord({ attempted: true, ...none, ...unpublished, observedAtMs: 0, errorCode: "host_key_unavailable" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: none, errorCode: "host_key_unavailable" });
+    expect(factorySupervisorRecord({ attempted: true, hostKeyReady: true, runnerReady: false, ...unpublished, observedAtMs: 0, errorCode: "runner_probe_timeout" }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts: { hostKeyReady: true, runnerReady: false, hostServicesReady: false }, errorCode: "runner_probe_timeout" });
+  });
+
+  test("the cadence ratios leave the reader two missed writes of margin", () => {
+    // The reader accepts within heartbeat * 3 and the publisher writes every
+    // heartbeat, so the probe bound may exceed a write interval without ever
+    // making a record arrive stale.
+    expect(FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS).toBeGreaterThan(3);
+    expect(FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS).toBeGreaterThan(FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS);
+  });
+});
+
+describe("runConfiguredFactorySupervisor", () => {
+  test("a probe slower than the write interval does not delay the heartbeat", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+
+    // The defect this replaces: the probe was awaited BETWEEN writes, so the
+    // write interval was probeLatency + heartbeat against a reader window of
+    // heartbeat * 3. A probe that never returns within the cycle made every
+    // record arrive already stale, intermittently, depending on host load.
+    const writes: string[] = [];
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), instance: () => undefined, close: async () => {} }),
+      createReadiness: () => ({ write: async (update) => { writes.push(update.lifecycle); return { ...update } as never; } }),
+    }, 4));
+
+    // Written on its own cadence while the probe never returned once.
+    expect(writes.filter((lifecycle) => lifecycle !== "stopped").length).toBeGreaterThanOrEqual(2);
+    expect(writes.at(-1)).toBe("stopped");
+  });
+
+  test("publishes ready once both facts are observed, and a reader accepts it", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const scope = factorySupervisorReadinessOptions({ hostId: "host-01", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 1_000 });
+
+    let observed: unknown;
+    let probes = 0;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => { probes += 1; }, instance: () => undefined, close: async () => {} }),
+      wait: async () => {
+        // Both loops share this; read after the publish loop has written once.
+        try { observed = await readFactoryServiceReadiness(scope); } catch { /* not ready yet */ }
+        if (observed) abortController!.abort();
+        await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+      },
+    }));
+    expect(probes).toBeGreaterThan(0);
+    expect(observed).toMatchObject({ service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
+  });
+
+  test("bounds the probe and names a timeout as its own failure", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: string[] = [];
+    const asked: number[] = [];
+
+    // The bound elapses at once while the probe never answers, which is what
+    // proves the probe is raced against it rather than awaited.
+    const fixture = dependencies({
+      loadHostKey: slowHostKey,
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), instance: () => undefined, close: async () => {} }),
+      createReadiness: stopOnPublished(published, (records) => records.some((entry) => entry.includes("runner_probe_timeout"))),
+    }, BACKSTOP_CADENCE_WAITS, { probeBoundElapses: true });
+    await runConfiguredFactorySupervisor(path, abortController.signal, { ...fixture, wait: async (milliseconds, waitSignal) => { asked.push(milliseconds); await fixture.wait(milliseconds, waitSignal); } });
+    expect(asked).toContain(HEARTBEAT_MS * FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS);
+    expect(published.some((entry) => entry.includes("runner_probe_timeout"))).toBe(true);
+  });
+
+  test("a wait that ends because the process is stopping is not a timed-out probe", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: string[] = [];
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: () => new Promise<void>(() => {}), instance: () => undefined, close: async () => {} }),
+      wait: async () => { abortController!.abort(); await new Promise<void>((resolve) => { setTimeout(resolve, 0); }); },
+      createReadiness: () => ({ write: async (update) => { published.push(`${update.lifecycle}:${update.errorCode ?? ""}`); return { ...update } as never; } }),
+    }));
+    expect(published.some((entry) => entry.includes("runner_probe_timeout"))).toBe(false);
+    expect(published.at(-1)).toBe("stopped:");
+  });
+
+  test("names which fact failed rather than simply not publishing", async () => {
+    const root = await privateRoot();
+    const path = await writeConfig(root);
+    const published: string[] = [];
+    const until = (record: string) => stopOnPublished(published, (records) => records.includes(record));
+
+    // No host key on disk: the first fact fails.
+    abortController = new AbortController();
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({ loadHostKey: slowHostKey, createReadiness: until("degraded:host_key_unavailable") }, BACKSTOP_CADENCE_WAITS));
+    expect(published.some((entry) => entry === "degraded:host_key_unavailable")).toBe(true);
+
+    published.length = 0;
+    abortController = new AbortController();
+    await writeHostKey(root);
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
+      createRunnerProbe: () => ({ probe: async () => { throw new Error("podman is not answering"); }, instance: () => undefined, close: async () => {} }),
+      createReadiness: until("degraded:runner_unavailable"),
+    }, BACKSTOP_CADENCE_WAITS));
+    expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
+  });
+
+  test("takes no observation at all when the signal has already aborted, and still records why", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    const controller = new AbortController();
+    controller.abort();
+    let probed = 0;
+    let closed = 0;
+    await runConfiguredFactorySupervisor(path, controller.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => { probed += 1; }, instance: () => undefined, close: async () => { closed += 1; } }),
+    }));
+    expect(probed).toBe(0);
+    // The run still closes what it built, so an immediate abort leaves no
+    // store lease behind either.
+    expect(closed).toBe(1);
+    expect(JSON.parse(await Bun.file(join(root, "supervisor.json")).text())).toMatchObject({ lifecycle: "stopped" });
+  });
+
+  test("refuses a config path that is not a readable document", async () => {
+    const root = await privateRoot();
+    const path = join(root, "bad.json");
+    await writeFile(path, "{not json", { mode: 0o600 });
+    await chmod(path, 0o600);
+    await expect(runConfiguredFactorySupervisor(path, new AbortController().signal, dependencies())).rejects.toThrow("factory supervisor config is invalid");
+    await expect(runConfiguredFactorySupervisor(join(root, "absent.json"), new AbortController().signal, dependencies())).rejects.toBeDefined();
+  });
+});
+
+describe("factoryHostRunnerProbe", () => {
+  test("builds the runner ONCE and probes it repeatedly", async () => {
+    const constructed: string[] = [];
+    let initialized = 0;
+    class Runner {
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      // The host services share this one instance, so the fake carries the
+      // whole container surface even where a test only drives `initialize`.
+      async build(): Promise<never> { throw new Error("the probe must not build"); }
+      async start(): Promise<never> { throw new Error("the probe must not start a guest"); }
+      async cancel(): Promise<void> {}
+      async inspect(id: string): Promise<RunnerInspection> { return { id, state: "unknown", diagnostics: [] }; }
+      async collectArtifacts(): Promise<WorkspaceFiles> { return {}; }
+      async initialize(): Promise<void> { initialized += 1; }
+      async close(): Promise<void> {}
+    }
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
+
+    await probe.probe(config);
+    await probe.probe(config);
+    await probe.probe(config);
+
+    // The defect this replaces: a runner per call. PodmanRunner's store lease is
+    // an exclusive flock child held for the instance's life, so the second
+    // instance on the same root fails runner_store_busy and every successful
+    // one leaks a child.
+    expect(constructed).toEqual(["/tmp/w09-runner-root"]);
+    expect(initialized).toBe(3);
+  });
+
+  test("closes the instance it built, and builds a fresh one afterwards", async () => {
+    let closed = 0;
+    const constructed: string[] = [];
+    class Runner {
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      // The host services share this one instance, so the fake carries the
+      // whole container surface even where a test only drives `initialize`.
+      async build(): Promise<never> { throw new Error("the probe must not build"); }
+      async start(): Promise<never> { throw new Error("the probe must not start a guest"); }
+      async cancel(): Promise<void> {}
+      async inspect(id: string): Promise<RunnerInspection> { return { id, state: "unknown", diagnostics: [] }; }
+      async collectArtifacts(): Promise<WorkspaceFiles> { return {}; }
+      async initialize(): Promise<void> {}
+      async close(): Promise<void> { closed += 1; }
+    }
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
+
+    await probe.probe(config);
+    await probe.close();
+    expect(closed).toBe(1);
+    // Closing twice must not close a runner that is no longer held.
+    await probe.close();
+    expect(closed).toBe(1);
+
+    await probe.probe(config);
+    expect(constructed).toHaveLength(2);
+  });
+
+  test("closing before any probe is safe", async () => {
+    // The supervisor closes the probe in its run's `finally`, which is reached
+    // even when the run fails before the first heartbeat. That close must not
+    // construct the very runner the failed start was avoiding.
+    let loaded = 0;
+    const probe = factoryHostRunnerProbe(async () => { loaded += 1; throw new Error("the loader must not be reached"); });
+    await expect(probe.close()).resolves.toBeUndefined();
+    expect(loaded).toBe(0);
+  });
+
+  test("a failed initialize propagates, and the next probe retries the same instance", async () => {
+    let attempts = 0;
+    const constructed: string[] = [];
+    class Runner {
+      constructor(readonly options: { root: string }) { constructed.push(options.root); }
+      // The host services share this one instance, so the fake carries the
+      // whole container surface even where a test only drives `initialize`.
+      async build(): Promise<never> { throw new Error("the probe must not build"); }
+      async start(): Promise<never> { throw new Error("the probe must not start a guest"); }
+      async cancel(): Promise<void> {}
+      async inspect(id: string): Promise<RunnerInspection> { return { id, state: "unknown", diagnostics: [] }; }
+      async collectArtifacts(): Promise<WorkspaceFiles> { return {}; }
+      async initialize(): Promise<void> { attempts += 1; if (attempts === 1) throw new Error("isolation_unavailable"); }
+      async close(): Promise<void> {}
+    }
+    const probe = factoryHostRunnerProbe(async () => Runner);
+    const config = parseFactorySupervisorProcessConfig(configFor("/tmp/w09-runner-root"));
+
+    await expect(probe.probe(config)).rejects.toThrow("isolation_unavailable");
+    // The runner clears its own memo on failure, so the retry is a real retry
+    // against the instance that already holds the store lease.
+    await probe.probe(config);
+    expect(constructed).toHaveLength(1);
+    expect(attempts).toBe(2);
+  });
+});
+
+describe("runFactorySupervisorMain", () => {
+  test("wires both stop signals and removes them again", async () => {
+    const once: string[] = [];
+    const removed: string[] = [];
+    let observed: AbortSignal | undefined;
+    await runFactorySupervisorMain(["bun", "supervisor-process.ts", "/run/config.json"], {
+      runConfigured: async (path, signal) => { expect(path).toBe("/run/config.json"); observed = signal; },
+      once: (event) => { once.push(event); },
+      removeListener: (event) => { removed.push(event); },
+      fail: () => { throw new Error("must not fail"); },
+    });
+    expect(once).toEqual(["SIGINT", "SIGTERM"]);
+    expect(removed).toEqual(["SIGINT", "SIGTERM"]);
+    expect(observed?.aborted).toBe(false);
+  });
+
+  test("a stop signal aborts the run", async () => {
+    const listeners: Array<() => void> = [];
+    let aborted = false;
+    await runFactorySupervisorMain(["bun", "supervisor-process.ts", "/run/config.json"], {
+      runConfigured: async (_path, signal) => {
+        signal.addEventListener("abort", () => { aborted = true; });
+        for (const listener of listeners) listener();
+      },
+      once: (_event, listener) => { listeners.push(listener); },
+      removeListener: () => {},
+      fail: () => {},
+    });
+    expect(aborted).toBe(true);
+  });
+
+  test("requires exactly one config path", async () => {
+    const unused = { runConfigured: async () => {}, once: () => {}, removeListener: () => {}, fail: () => {} };
+    await expect(runFactorySupervisorMain(["bun", "supervisor-process.ts"], unused)).rejects.toThrow("config path is required");
+    await expect(runFactorySupervisorMain(["bun", "supervisor-process.ts", "a", "b"], unused)).rejects.toThrow("config path is required");
+  });
+});
+
+describe("startFactorySupervisorMain", () => {
+  test("runs only when this module is the process entry", () => {
+    const calls: string[] = [];
+    const dependenciesFor = { runConfigured: async (path: string) => { calls.push(path); }, once: () => {}, removeListener: () => {}, fail: () => {} };
+    startFactorySupervisorMain(["bun", "/other/entry.ts", "/run/config.json"], import.meta.url, dependenciesFor);
+    expect(calls).toEqual([]);
+    startFactorySupervisorMain([], import.meta.url, dependenciesFor);
+    expect(calls).toEqual([]);
+  });
+
+  test("reports a failed run through the injected failure path", async () => {
+    const failures: number[] = [];
+    startFactorySupervisorMain(["bun", new URL(import.meta.url).pathname, "/run/config.json"], import.meta.url, {
+      runConfigured: async () => { throw new Error("boom"); },
+      once: () => {}, removeListener: () => {},
+      fail: () => { failures.push(1); },
+    });
+    await new Promise<void>((resolve) => { setTimeout(resolve, 0); });
+    expect(failures).toEqual([1]);
+  });
+});
+
+describe("factorySupervisorProductionDependencies", () => {
+  test("its wait resolves on abort and on elapse, never rejecting", async () => {
+    const controller = new AbortController();
+    const settled: string[] = [];
+    const waiting = factorySupervisorProductionDependencies.wait(60_000, controller.signal)
+      .then(() => settled.push("resolved"), () => settled.push("rejected"));
+    controller.abort();
+    await waiting;
+    expect(settled).toEqual(["resolved"]);
+
+    const aborted = new AbortController();
+    aborted.abort();
+    await factorySupervisorProductionDependencies.wait(60_000, aborted.signal);
+    await factorySupervisorProductionDependencies.wait(1, new AbortController().signal);
+    expect(settled).toEqual(["resolved"]);
+  });
+
+  test("builds a readiness writer for the exact host it is configured for", async () => {
+    const root = await privateRoot();
+    const writer = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root)));
+    const published = await writer.write({ lifecycle: "ready", facts: { hostKeyReady: true, runnerReady: true , hostServicesReady: false } });
+    // The supervisor serves every installation on its host: its record names the host and no installation.
+    expect(published).toMatchObject({ service: "host-supervisor", instanceId: "host-01" });
+    expect(Object.keys(published)).not.toContain("installationId");
+
+    const noHeartbeat = factorySupervisorProductionDependencies.createReadiness(parseFactorySupervisorProcessConfig(config(root, { readinessHeartbeatMs: undefined })));
+    expect(await noHeartbeat.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false , hostServicesReady: false } })).toMatchObject({ lifecycle: "starting" });
+  });
+});
+
+/** A complete host services section whose material sits in `root`. */
+const services = (root: string) => ({
+  hostname: "127.0.0.1",
+  port: 8600,
+  peerTenants: { "tenant-a": "tenant-01" },
+  hostKeyIdPath: join(root, "host.kid"),
+  tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "server.pem"), privateKeyPath: join(root, "server.key") },
+});
+
+describe("the host services this supervisor publishes", () => {
+
+  test("the parser takes a complete section and refuses every incomplete one", async () => {
+    const root = await privateRoot();
+    const complete = services(root);
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services).toEqual(complete as never);
+    // Absent is legal: a deployment whose runner lives in the product process
+    // publishes no host services.
+    expect(parseFactorySupervisorProcessConfig(config(root)).services).toBeUndefined();
+
+    for (const broken of [
+      { ...complete, hostname: "" },
+      { ...complete, port: 0 },
+      { ...complete, port: 70_000 },
+      { ...complete, peerTenants: {} },
+      { ...complete, peerTenants: { ok: "" } },
+      { ...complete, peerTenants: { "": "tenant-01" } },
+      { ...complete, peerTenants: { " padded": "tenant-01" } },
+      { ...complete, peerTenants: { ok: "tenant-01 " } },
+      { ...complete, peerTenants: { ok: 7 } },
+      { ...complete, peerTenants: ["tenant-a"] },
+      { ...complete, peerTenants: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`peer-${index}`, "tenant-01"])) },
+      { ...complete, hostKeyIdPath: "" },
+      { ...complete, tls: { caPath: "a", certificatePath: "b" } },
+      { ...complete, tls: { ...complete.tls, extra: "x" } },
+      { ...complete, extra: "x" },
+      "not a record",
+    ]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: broken } as never))).toThrow("factory supervisor config is invalid");
+    }
+  });
+
+  test("retained host keys are one to sixteen exact entries (W02d D6)", async () => {
+    const root = await privateRoot();
+    const complete = { ...services(root), retainedHostKeys: [{ hostKeyId: "host-key-0", publicKeyPath: join(root, "host-key-0.pub") }] };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services).toEqual(complete as never);
+    const entry = complete.retainedHostKeys[0]!;
+    for (const retainedHostKeys of [[], Array.from({ length: 17 }, () => entry), [{ hostKeyId: "" , publicKeyPath: "p" }], [{ hostKeyId: "k" }], [{ ...entry, extra: "x" }], ["not a record"], entry]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, retainedHostKeys } } as never))).toThrow("factory supervisor config is invalid");
+    }
+  });
+
+  test("the unbound allowedPeers list is refused by name, alone or beside peerTenants (W01i)", async () => {
+    const root = await privateRoot();
+    const { peerTenants, ...rest } = services(root);
+    for (const old of [{ ...rest, allowedPeers: ["tenant-a"] }, { ...rest, peerTenants, allowedPeers: ["tenant-a"] }]) {
+      expect(() => parseFactorySupervisorProcessConfig(config(root, { services: old } as never)))
+        .toThrow("services.allowedPeers is replaced by services.peerTenants, which binds each peer identity to its tenant");
+    }
+    // Sixty-four peers, one per installation a host may serve, is the bound.
+    const full = Object.fromEntries(Array.from({ length: 64 }, (_, index) => [`peer-${index}`, `tenant-${index}`]));
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...rest, peerTenants: full } } as never)).services?.peerTenants).toEqual(full);
+  });
+
+  test("the pool and guest broker sections are each optional, complete, or refused", async () => {
+    const root = await privateRoot();
+    const complete = services(root);
+    const endpoint = {
+      baseUrl: "https://127.0.0.1:8700",
+      serviceTokenPath: join(root, "pool.token"),
+      tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+    };
+    // With a pool this host can tell C03 that a process group is gone, which is
+    // the only way the product's own confirmation ever settles. With a guest
+    // broker a sandboxed guest can stage an output, which is the only way it
+    // can return COMPLETED.
+    for (const section of ["pool"] as const) {
+      expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: endpoint } } as never)).services?.[section]).toEqual(endpoint as never);
+      // Without one the host still starts, and each missing route is refused
+      // by name where it is needed.
+      expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.[section]).toBeUndefined();
+
+      for (const broken of [
+        { ...endpoint, baseUrl: "" },
+        { ...endpoint, serviceTokenPath: "" },
+        { ...endpoint, tls: { caPath: "a", certificatePath: "b" } },
+        { ...endpoint, tls: { ...endpoint.tls, extra: "x" } },
+        { ...endpoint, extra: "x" },
+        "not a record",
+      ]) {
+        expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, [section]: broken } } as never))).toThrow("factory supervisor config is invalid");
+      }
+    }
+
+    // One guest-broker route per tenant: this host serves every installation of its fleet.
+    const brokers = { "tenant-01": endpoint, "tenant-02": { ...endpoint, baseUrl: "https://127.0.0.1:8701" } };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, guestBrokers: brokers } } as never)).services?.guestBrokers).toEqual(brokers);
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: complete } as never)).services?.guestBrokers).toBeUndefined();
+    const refused = (services: Record<string, unknown>) => expect(() => parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, ...services } } as never))).toThrow("factory supervisor config is invalid");
+    // The single host-wide form is gone, alone or beside the keyed one.
+    refused({ guestBroker: endpoint });
+    refused({ guestBroker: endpoint, guestBrokers: brokers });
+    // An entry without a tenant, a padded tenant, no entries, too many, or not a map.
+    refused({ guestBrokers: { "": endpoint } });
+    refused({ guestBrokers: { " tenant-01": endpoint } });
+    refused({ guestBrokers: {} });
+    refused({ guestBrokers: Object.fromEntries(Array.from({ length: 65 }, (_, index) => [`tenant-${index}`, endpoint])) });
+    refused({ guestBrokers: [endpoint] });
+    refused({ guestBrokers: "not a record" });
+    // Every entry is an exact endpoint.
+    for (const broken of [{ ...endpoint, baseUrl: "" }, { ...endpoint, serviceTokenPath: "" }, { ...endpoint, tls: { caPath: "a", certificatePath: "b" } }, { ...endpoint, extra: "x" }, "not a record"]) {
+      refused({ guestBrokers: { ...brokers, "tenant-03": broken } });
+    }
+  });
+
+  test("binds once after the first good probe, publishes the fact, and releases on stop", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    const published: Array<{ lifecycle: string; hostServicesReady: boolean }> = [];
+    let started = 0;
+    let stopped = 0;
+    const runner = { async initialize() {}, async close() {} } as never;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
+      startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
+      // Stop on the fact under test, not on a heartbeat count: the observer does
+      // real file I/O and the publisher does not, so a count shared by both
+      // loops can run out before the observer has bound anything. Three ready
+      // records span several heartbeats of the bound listener.
+      createReadiness: () => ({ write: async (update) => {
+        published.push({ lifecycle: update.lifecycle, hostServicesReady: update.facts.hostServicesReady! });
+        if (published.filter((entry) => entry.lifecycle === "ready" && entry.hostServicesReady).length === 3) abortController?.abort();
+        return { ...update } as never;
+      } }),
+    }, BACKSTOP_CADENCE_WAITS));
+
+    // Bound ONCE across several heartbeats: rebinding each beat would drop live
+    // connections, and the listener is released before the process says stopped.
+    expect(started).toBe(1);
+    expect(stopped).toBe(1);
+    expect(published.some((entry) => entry.lifecycle === "ready" && entry.hostServicesReady)).toBe(true);
+    expect(published.at(-1)).toEqual({ lifecycle: "stopped", hostServicesReady: false });
+  });
+
+  test("a bind that fails degrades by name and is retried on the next heartbeat", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    const published: string[] = [];
+    let attempts = 0;
+    const runner = { async initialize() {}, async close() {} } as never;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
+      startServices: async () => {
+        attempts += 1;
+        if (attempts === 1) throw new Error("address in use");
+        return { stop: () => {} };
+      },
+      // Stop once the retried bind is published ready (see the test above).
+      createReadiness: stopOnPublished(published, (records) => records.includes("ready:")),
+    }, BACKSTOP_CADENCE_WAITS));
+
+    expect(attempts).toBeGreaterThan(1);
+    expect(published.some((entry) => entry === "degraded:host_services_unavailable")).toBe(true);
+    expect(published.some((entry) => entry === "ready:")).toBe(true);
+  });
+
+  test("a runner that never answers never publishes a host service", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root, { services: services(root) } as never);
+    abortController = new AbortController();
+    const published: string[] = [];
+    let started = 0;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
+      createRunnerProbe: () => ({ probe: async () => { throw new Error("isolation_unavailable"); }, instance: () => undefined, close: async () => {} }),
+      startServices: async () => { started += 1; return { stop: () => {} }; },
+      // Two published failures: the runner was observed twice and refused both times.
+      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "degraded:runner_unavailable").length === 2),
+    }, BACKSTOP_CADENCE_WAITS));
+
+    // A host that accepted a launch its runner cannot serve would report a start
+    // it never made.
+    expect(published.filter((entry) => entry === "degraded:runner_unavailable").length).toBe(2);
+    expect(started).toBe(0);
+  });
+
+  test("a host that publishes no services stays ready on its own two facts", async () => {
+    const root = await privateRoot();
+    await writeHostKey(root);
+    const path = await writeConfig(root);
+    abortController = new AbortController();
+    const published: string[] = [];
+    let started = 0;
+
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
+      startServices: async () => { started += 1; return { stop: () => {} }; },
+      // Two ready records: the host stays ready across heartbeats without a listener.
+      createReadiness: stopOnPublished(published, (records) => records.filter((entry) => entry === "ready:").length === 2),
+    }, BACKSTOP_CADENCE_WAITS));
+
+    expect(started).toBe(0);
+    expect(published.filter((entry) => entry === "ready:").length).toBe(2);
+    expect(published.some((entry) => entry.endsWith(":host_services_unavailable"))).toBe(false);
+  });
+
+  test("a configured host whose listener never bound reads as degraded, not ready", () => {
+    const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: false };
+    expect(factorySupervisorRecord({ attempted: true, ...facts, servicesConfigured: true, observedAtMs: 900 }, 1_000, 500))
+      .toEqual({ lifecycle: "degraded", facts, errorCode: "host_services_unavailable" });
+    // The same observation on a host that publishes none is simply ready.
+    expect(factorySupervisorRecord({ attempted: true, ...facts, servicesConfigured: false, observedAtMs: 900 }, 1_000, 500))
+      .toEqual({ lifecycle: "ready", facts });
+  });
+
+  test("a host whose document names no services.guestBrokers refuses a staging frame and a model request by name", async () => {
+    const broker = await createFactoryConfiguredGuestBroker(undefined);
+    const frame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
+    // The guest can tell "this host carries nothing" from "the broker said no".
+    await expect(broker.invoke({} as never, frame)).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBrokers") });
+    // A model request travels the same route, so its refusal names the same missing section.
+    await expect(broker.invoke({} as never, { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("services.guestBrokers") });
+    // Any other payload keeps the host's general refusal, with its own message.
+    await expect(broker.invoke({} as never, { kind: "validator-report" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable", message: expect.stringContaining("no contract defines") });
+  });
+
+  /** Two real mutual-TLS product routes, one per tenant, each counting what reaches it. */
+  async function tenantRoutes() {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "host-01");
+    for (const [name, value] of [["ca.pem", certs.ca], ["client.pem", certs.clientCert], ["client.key", certs.clientKey], ["host.token", "host-token"]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    const hits = { "tenant-01": 0, "tenant-02": 0 };
+    // Each route answers 503, so the client raises the route's own status: the
+    // assertion reads which route answered, not what it said.
+    const servers = (["tenant-01", "tenant-02"] as const).map((tenantId) => Bun.serve({
+      hostname: "127.0.0.1", port: 0,
+      tls: { key: certs.serverKey, cert: certs.serverCert, ca: certs.ca, requestCert: true },
+      fetch: () => { hits[tenantId] += 1; return new Response(null, { status: 503 }); },
+    }));
+    const endpoint = (port: number) => ({ baseUrl: `https://127.0.0.1:${port}`, serviceTokenPath: join(root, "host.token"), tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") } });
+    const broker = await createFactoryConfiguredGuestBroker({ "tenant-01": endpoint(servers[0]!.port!), "tenant-02": endpoint(servers[1]!.port!) });
+    return { broker, hits, stop: () => { for (const server of servers) server.stop(true); } };
+  }
+  const stagingFrame = { schemaVersion: "factory.guest-material-begin.v1", operationId: "run:node:0:0", operationIndex: 0, objectName: "result.json", version: 1, mediaType: "application/json", totalBytes: 2, chunkCount: 1 };
+  const attemptOf = (tenantId: string) => ({ authority: { tenantId }, broker: { attemptToken: "attempt-token", audience: "installation" } }) as never;
+
+  test("each attempt's frame goes to its own tenant's route and to no other", async () => {
+    const { broker, hits, stop } = await tenantRoutes();
+    try {
+      await expect(broker.invoke(attemptOf("tenant-01"), stagingFrame)).rejects.toMatchObject({ name: "GatewayStatusError" });
+      expect(hits).toEqual({ "tenant-01": 1, "tenant-02": 0 });
+      await expect(broker.invoke(attemptOf("tenant-02"), { schemaVersion: "factory.guest-model-request.v1" })).rejects.toMatchObject({ name: "GatewayStatusError" });
+      expect(hits).toEqual({ "tenant-01": 1, "tenant-02": 1 });
+      // Concurrent attempts of both tenants still land on their own routes.
+      await Promise.allSettled([...Array.from({ length: 4 }, () => broker.invoke(attemptOf("tenant-01"), stagingFrame)), ...Array.from({ length: 3 }, () => broker.invoke(attemptOf("tenant-02"), stagingFrame))]);
+      expect(hits).toEqual({ "tenant-01": 5, "tenant-02": 4 });
+    } finally { stop(); }
+  });
+
+  test("a frame for a tenant with no route is refused by name and reaches no route", async () => {
+    const { broker, hits, stop } = await tenantRoutes();
+    try {
+      for (const tenantId of ["tenant-03", "", "TENANT-01", "tenant-01 "]) {
+        await expect(broker.invoke(attemptOf(tenantId), stagingFrame)).rejects.toMatchObject({ code: "factory_host_broker_tenant_unconfigured", name: "FactoryHostBrokerTenantUnconfiguredError", tenantId });
+      }
+      // Refused before anything else is decided: even a payload no route answers.
+      await expect(broker.invoke(attemptOf("tenant-03"), { kind: "validator-report" })).rejects.toMatchObject({ code: "factory_host_broker_tenant_unconfigured" });
+      expect(hits).toEqual({ "tenant-01": 0, "tenant-02": 0 });
+    } finally { stop(); }
+  });
+
+  test("startFactoryConfiguredHostServices refuses when the section is absent", async () => {
+    const root = await privateRoot();
+    await expect(startFactoryConfiguredHostServices(parseFactorySupervisorProcessConfig(config(root)), {} as never))
+      .rejects.toThrow("factory supervisor host services are not configured");
+  });
+
+  test("startFactoryConfiguredHostServices binds from the configured material", async () => {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeHostKey(root);
+    // The parser refuses port 0 as a deployment fact, so the test takes a real
+    // free port and releases it before the listener binds it.
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    const parsed = parseFactorySupervisorProcessConfig(config(root, { services: { ...services(root), port } } as never));
+    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    try {
+      expect(listener).toBeDefined();
+    } finally {
+      listener.stop();
+    }
+  });
+
+  test("a configured pool and guest broker become the clients the host routes use", async () => {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey], ["client.pem", certs.clientCert], ["client.key", certs.clientKey]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeFile(join(root, "pool.token"), "supervisor-token", { mode: 0o600 });
+    await chmod(join(root, "pool.token"), 0o600);
+    await writeHostKey(root);
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    // Built before the listener binds. Neither endpoint is reached here —
+    // building a client reads its secrets and nothing else — so this asserts
+    // the configured material composes, not that either answered. The guest
+    // broker's forwarding is proven over a real route in
+    // `guest-broker-transport.integration.test.ts`.
+    const parsed = parseFactorySupervisorProcessConfig(config(root, {
+      services: {
+        ...services(root), port,
+        pool: {
+          baseUrl: "https://127.0.0.1:1",
+          serviceTokenPath: join(root, "pool.token"),
+          tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+        },
+        guestBrokers: {
+          "tenant-a": {
+            baseUrl: "https://127.0.0.1:2",
+            serviceTokenPath: join(root, "pool.token"),
+            tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key") },
+          },
+        },
+      },
+    } as never));
+    const listener = await startFactoryConfiguredHostServices(parsed, { async initialize() {}, async close() {} } as never);
+    try {
+      expect(listener).toBeDefined();
+    } finally {
+      listener.stop();
+    }
+  });
+});
+
+describe("a host restarted after it tombstoned a worker (W02d R8, ruling (A) ii)", () => {
+  /** A host process's material in a private root, its config, and a caller holding the tenant's client certificate. */
+  async function hostFixture() {
+    const root = await privateRoot();
+    const certs = await certificates(certificateRoots, "tenant-a");
+    for (const [name, value] of [["ca.pem", certs.ca], ["server.pem", certs.serverCert], ["server.key", certs.serverKey], ["client.pem", certs.clientCert], ["client.key", certs.clientKey], ["token", "unused-by-the-host-routes"]] as const) {
+      await writeFile(join(root, name), value, { mode: 0o600 });
+      await chmod(join(root, name), 0o600);
+    }
+    await writeFile(join(root, "host.kid"), "host-key-1", { mode: 0o600 });
+    await writeHostKey(root);
+    const probe = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    const port = probe.port;
+    probe.stop(true);
+    const configure = (extra: Record<string, unknown> = {}) => writeConfig(root, { services: { ...services(root), port, peerTenants: { "tenant-a": "tenant-a" }, ...extra } } as never);
+    // The host process: the supervisor's own host services, over a runtime that shows no container for any worker.
+    const script = join(root, "host.ts");
+    await writeFile(script, `import { parseFactorySupervisorProcessConfig, startFactoryConfiguredHostServices } from ${JSON.stringify(new URL("./supervisor-process.ts", import.meta.url).pathname)};
+const config = parseFactorySupervisorProcessConfig(JSON.parse(await Bun.file(process.argv[2]).text()));
+const runner = {
+  async initialize() {}, async close() {}, async build() { throw new Error("unused"); }, async cancel() {}, async abort() {}, async collectArtifacts() { return {}; },
+  async start() { throw new Error("this runtime starts nothing"); },
+  async inspect(id) { return { id, state: "unknown", diagnostics: [] }; },
+};
+const listener = await startFactoryConfiguredHostServices(config, runner);
+process.on("SIGTERM", () => { listener.stop(); process.exit(0); });
+console.log("bound");
+`, { mode: 0o600 });
+    /** Runs one host process for `during`, stops it, and returns what `during` returned. */
+    const withHost = async <Result>(configPath: string, during: () => Promise<Result>): Promise<Result> => {
+      const child = Bun.spawn([process.execPath, script, configPath], { stdout: "pipe", stderr: "pipe" });
+      try {
+        const reader = child.stdout.getReader();
+        let seen = "";
+        const deadline = Date.now() + 20_000;
+        while (!seen.includes("bound") && Date.now() < deadline) {
+          const chunk = await reader.read();
+          if (chunk.done) break;
+          seen += new TextDecoder().decode(chunk.value);
+        }
+        reader.releaseLock();
+        if (!seen.includes("bound")) throw new Error(`the host process did not bind: ${seen}${await new Response(child.stderr).text()}`);
+        return await during();
+      } finally { child.kill(); await child.exited; }
+    };
+    const transport = await createGatewayTransport({
+      baseUrl: `https://127.0.0.1:${port}`, serverName: "localhost",
+      tls: { caPath: join(root, "ca.pem"), certificatePath: join(root, "client.pem"), privateKeyPath: join(root, "client.key"), serviceTokenPath: join(root, "token") },
+    });
+    const call = async (path: string, value: unknown) => {
+      try {
+        const answer = await transport.request("POST", path, value, 1 << 20, AbortSignal.timeout(15_000));
+        return { status: answer.statusCode, body: JSON.parse(answer.body.toString()) as Record<string, unknown> };
+      } catch (error) {
+        if (!(error instanceof GatewayStatusError)) throw error;
+        return { status: error.response.statusCode, body: JSON.parse(error.response.body.toString()) as Record<string, unknown> };
+      }
+    };
+    const stopOf = (intent: ReturnType<typeof factoryHostLaunchIntent>) => ({ attemptId: intent.request.authority.attemptId, reservationId: intent.lease.reservationId, workerId: intent.workerId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration, hostId: "host-01", reason: "cancelled", tenantId: "tenant-a" });
+    const launch = (intent: ReturnType<typeof factoryHostLaunchIntent>) => call(FACTORY_HOST_LAUNCH_PATH, { intent: factoryAttemptLaunchIntentToWire(intent) });
+    return { root, configure, withHost, call, stopOf, launch };
+  }
+
+  test("the restarted supervisor process loads its tombstones and refuses the worker's launch worker_stopped", async () => {
+    const host = await hostFixture();
+    const configPath = await host.configure();
+    const intent = factoryHostLaunchIntent("host-01");
+    // The first host process never saw the worker: it tombstones it and signs its absence, then stops.
+    const stopped = await host.withHost(configPath, () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)));
+    expect(stopped).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    // The restarted host process refuses the worker before anything starts.
+    expect(await host.withHost(configPath, () => host.launch(intent))).toEqual({ status: 409, body: { error: "worker_stopped" } });
+  }, 60_000);
+
+  test("after a key rotation, the retained key keeps the refusal, and only that worker is refused (W02d D6)", async () => {
+    const host = await hostFixture();
+    const intent = factoryHostLaunchIntent("host-01");
+    const other = factoryHostLaunchIntent("host-01", undefined, "attempt-other");
+    expect(await host.withHost(await host.configure(), () => host.call(FACTORY_HOST_STOP_PATH, host.stopOf(intent)))).toMatchObject({ status: 200 });
+    // Rotate: the retired key's public half stays trusted by name; the host signs with a new key from now on.
+    const retiredPath = join(host.root, "host-key-1.pub");
+    await writeFile(retiredPath, createPublicKey(await readFile(join(host.root, "host.key"), "utf8")).export({ type: "spki", format: "pem" }) as string, { mode: 0o600 });
+    await writeHostKey(host.root);
+    await writeFile(join(host.root, "host.kid"), "host-key-2", { mode: 0o600 });
+    const retained = await host.withHost(await host.configure({ retainedHostKeys: [{ hostKeyId: "host-key-1", publicKeyPath: retiredPath }] }),
+      async () => ({ stopped: await host.launch(intent), other: await host.launch(other) }));
+    expect(retained.stopped).toEqual({ status: 409, body: { error: "worker_stopped" } });
+    // Another worker is not refused by the tombstone: the host is not failing closed.
+    expect(retained.other.body.error).not.toBe("worker_stopped");
+    // Without the retained key the same entry is unverifiable: every launch is refused, the other worker's too.
+    expect(await host.withHost(await host.configure(), () => host.launch(other))).toEqual({ status: 409, body: { error: "worker_stopped" } });
+  }, 90_000);
+});
+
+describe("the real supervisor entry", () => {
+  test("prints the cause before it sets the exit code", () => {
+    // A silent exit 1 is the one symptom a reader cannot act on, and this
+    // default is what the process actually runs with. The line is written
+    // first, so a reader still sees it if anything later in the shutdown path
+    // throws.
+    const printed: unknown[][] = [];
+    const error = console.error;
+    const previous = process.exitCode;
+    console.error = (...parts: unknown[]) => { printed.push(parts); expect(process.exitCode).toBe(previous); };
+    try {
+      productionMainDependencies.fail(new Error("supervisor configuration refused"));
+    } finally {
+      console.error = error;
+    }
+    expect(process.exitCode).toBe(1);
+    process.exitCode = previous ?? 0;
+    expect(printed).toHaveLength(1);
+    expect(String(printed[0]![1])).toContain("supervisor configuration refused");
+
+    // A refusal that is not an Error still names itself rather than printing
+    // "[object Object]".
+    const second: unknown[][] = [];
+    console.error = (...parts: unknown[]) => { second.push(parts); };
+    try {
+      productionMainDependencies.fail("factory-configuration-invalid");
+    } finally {
+      console.error = error;
+    }
+    process.exitCode = previous ?? 0;
+    expect(String(second[0]![1])).toBe("factory-configuration-invalid");
+  });
+
+  test("the signal hooks it installs are the process's own", () => {
+    // `once` and `removeListener` are the pair that lets a SIGTERM stop the
+    // supervisor exactly once; a default nothing measures is a default that
+    // can be wrong.
+    const listener = () => {};
+    productionMainDependencies.once("SIGTERM", listener);
+    expect(process.listeners("SIGTERM")).toContain(listener);
+    productionMainDependencies.removeListener("SIGTERM", listener);
+    expect(process.listeners("SIGTERM")).not.toContain(listener);
+  });
+});

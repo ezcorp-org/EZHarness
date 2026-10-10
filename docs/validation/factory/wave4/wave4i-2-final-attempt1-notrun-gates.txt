@@ -1,0 +1,6 @@
+resource-gate 2026-10-05T11:36:32Z final-merge-gates disk=248G memAvailable=14GiB swapFreeKiB=3469856/17173956 floors disk>=100G swap>=2097152KiB
+head=1c84df6d5d5aba0703ee433ae711450728d16d66 start=2026-10-05T11:36:32Z bun=1.4.2
+runner inputs MISSING: /tmp/factory-platform-evidence/wave4i-2-lcov-inputs (the runner's merge was blocked; see /tmp/factory-platform-evidence/wave4i-2-coverage-results.json mergeBlockedBy)
+browser inputs: 1 from /tmp/factory-platform-evidence/w00/wave4i-2/after/browser/browser-merged
+gates NOT RUN: an input set is missing (named above); this is a red, not a skip
+end=2026-10-05T11:36:32Z status=1 dirty=0 lcov-sha256=

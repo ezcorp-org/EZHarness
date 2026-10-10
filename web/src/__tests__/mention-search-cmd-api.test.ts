@@ -1,4 +1,5 @@
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
+import { webLibModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,13 +17,19 @@ mock.module("$server/runtime/workspace/target", () => ({
 	projectRequiresSandbox: async () => sandboxed,
 }));
 
-mock.module("$server/auth/middleware", () => ({
-	requireAuth: () => ({ id: "test-user", role: "admin" }),
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
 	requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 mock.module("$lib/server/workflow-access", () => ({
 	listVisibleWorkflows: async () => [],
@@ -120,10 +127,15 @@ beforeAll(async () => {
 	projectRoot = await mkdtemp(join(tmpdir(), "cmd-search-proj-"));
 	await mkdir(join(projectRoot), { recursive: true });
 	nextProject = { id: "proj-1", path: projectRoot };
+	mock.module("$server/auth/middleware", () => ({
+		...realAuthMiddleware,
+		requireAuth: () => ({ id: "test-user", role: "admin" }),
+	}));
 });
 
 afterAll(async () => {
 	await rm(projectRoot, { recursive: true, force: true });
+	mock.module("$server/auth/middleware", () => realAuthMiddleware);
 });
 
 beforeEach(() => {

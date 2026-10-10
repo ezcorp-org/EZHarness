@@ -1,0 +1,2 @@
+scripts/setup-factory-python-base.test.ts
+src/__tests__/git-hooks.test.ts

@@ -1,0 +1,15 @@
+diff --git a/src/db/migrate.ts b/src/db/migrate.ts
+index 9370e8ebd..5a05afe65 100644
+--- a/src/db/migrate.ts
++++ b/src/db/migrate.ts
+@@ -3141,6 +3141,10 @@ export async function migrate(db: MigrateDb): Promise<void> {
+   // add-factory-artifact-read-grants, registered above.
+   const { up: allowFactoryArtifactRegrant } = await import("./migrations/allow-factory-artifact-regrant");
+   await allowFactoryArtifactRegrant(db);
++  // W01h fix round: a stop whose facts no longer verify becomes a reconciliation
++  // item. Depends only on add-factory-task-stops, registered above.
++  const { up: addFactoryTaskStopReconciliation } = await import("./migrations/add-factory-task-stop-reconciliation");
++  await addFactoryTaskStopReconciliation(db);
+   // W15f: the uncertain-hold mark for an attempt a restore's epoch left behind.
+   const { up: addFactoryUsageEpochStale } = await import("./migrations/add-factory-usage-epoch-stale");
+   await addFactoryUsageEpochStale(db);

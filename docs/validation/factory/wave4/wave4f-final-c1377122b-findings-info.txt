@@ -1,0 +1,7 @@
+INFORMATIONAL (lead 2026-10-01): the c1377122b gate-integrity leg lists the wave's own coverage-tool changes since the first wave 4 base; it is not judged against the origin/main 8-line set. The comparison below is recorded for information only.
+expected file /tmp/factory-platform-evidence/w00/expected-integ-findings-vs-main.txt sha256 9ec5cdcbce67c7acd03f7e901e70e2159109054c95af706f4d0bc5c2c682c2cd
+found:    scripts/check-coverage.ts | scripts/check-new-file-coverage.ts | scripts/check-patch-coverage.ts | scripts/coverage-attestations.json | scripts/lcov-noise-filter.ts | scripts/merge-lcov.ts | web/e2e/real-auth/factory-authoring-flow.spec.ts → web/e2e/factory-authoring-flow.spec.ts
+expected: scripts/check-coverage.ts | scripts/check-new-file-coverage.ts | scripts/check-patch-coverage.ts | scripts/coverage-attestations.json | scripts/factory-orchestrator-v8-to-lcov.mjs | scripts/merge-browser-route-coverage.sh | scripts/merge-lcov.ts | scripts/node-v8-to-lcov.mjs
+EXTRA (new gate change): scripts/lcov-noise-filter.ts | web/e2e/real-auth/factory-authoring-flow.spec.ts → web/e2e/factory-authoring-flow.spec.ts
+MISSING (tree no longer matches the ruling): scripts/factory-orchestrator-v8-to-lcov.mjs | scripts/merge-browser-route-coverage.sh | scripts/node-v8-to-lcov.mjs
+c1377122b leg: FAIL

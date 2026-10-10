@@ -18,9 +18,12 @@ import {
   type CacheRetention,
 } from "./cache-retention";
 import { appendMemoryTailBlock } from "./system-cache-split";
+import { createFactoryAgentRuntime, type FactoryExecutionContext } from "../factory-execution";
 
 /** Subset of streamChat's options the pi-agent construction reads. */
 export interface BuildPiAgentOptions {
+  /** Factory attempts use a brokered provider transport and durable effect hooks. */
+  factoryExecution?: FactoryExecutionContext;
   thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
   /**
    * Per-model history-compaction overrides (resolved from settings by
@@ -61,6 +64,9 @@ export function buildPiAgent(
   conversationId: string,
 ): Agent {
   const { resolved, initialCred } = resolvedModel;
+  const factoryRuntime = options.factoryExecution
+    ? createFactoryAgentRuntime(options.factoryExecution)
+    : undefined;
 
   // When using OAuth, the standard API endpoints (google-generative-ai, openai-responses)
   // use API key auth which is incompatible with OAuth tokens. Resolve the actual
@@ -72,10 +78,16 @@ export function buildPiAgent(
   // withKeylessAuth: the Agent forwards a fixed config to pi-ai, never call
   // headers, so a keyless credential's "send no Authorization" rule has to
   // ride on the model — see KEYLESS_TOKEN in providers/credentials.ts.
-  const model = withKeylessAuth(
-    resolveModelForCredential(resolved.piModel, resolved.provider, initialCred.type),
-    initialCred.token,
-  );
+  //
+  // A factory attempt takes neither rule: its model is the gateway-approved
+  // configuration, the broker holds the credential, and the model is part of
+  // the brokered request identity, so no host credential may reshape it.
+  const model = factoryRuntime
+    ? resolved.piModel
+    : withKeylessAuth(
+      resolveModelForCredential(resolved.piModel, resolved.provider, initialCred.type),
+      initialCred.token,
+    );
 
   // Prefix-cache retention for THIS turn. Anthropic caches the system
   // prompt + tools + conversation prefix; a long TTL keeps that stable
@@ -104,7 +116,8 @@ export function buildPiAgent(
   const isAnthropic = model.api === "anthropic-messages";
   const memoryTail = ctx.systemMemoryTail;
 
-  return new Agent({
+  const streamFn = factoryRuntime ? factoryRuntime.streamFn : streamSimple;
+  const agentOptions: ConstructorParameters<typeof Agent>[0] = {
     initialState: {
       systemPrompt: isAnthropic ? (ctx.system ?? "") : (ctx.system ?? "") + (memoryTail ?? ""),
       model,
@@ -123,7 +136,7 @@ export function buildPiAgent(
     // "@earendil-works/pi-ai/compat" itself), so this is a no-op restore, not a
     // transport change. Guarded by build-pi-agent-stream-fn.test.ts, which
     // constructs a REAL Agent through this path.
-    streamFn: streamSimple,
+    streamFn,
     // Pin pi's default retry-delay cap (60s) explicitly — a purely
     // DEFENSIVE pin, not a behavior change. What this knob actually does
     // (verified against pi-ai source): only the openai-codex provider
@@ -169,5 +182,15 @@ export function buildPiAgent(
       // tools), tail stays short. No-op for non-Anthropic payloads.
       return applyCacheRetention(body, supportsLongRetention, cacheRetention);
     },
-  });
+  };
+
+  if (factoryRuntime) {
+    delete agentOptions.getApiKey;
+    Object.assign(agentOptions, {
+      beforeToolCall: factoryRuntime.beforeToolCall,
+      afterToolCall: factoryRuntime.afterToolCall,
+    });
+  }
+
+  return new Agent(agentOptions);
 }

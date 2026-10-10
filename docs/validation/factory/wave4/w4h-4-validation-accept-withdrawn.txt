@@ -1,0 +1,58 @@
+VERDICT (validator-6) — W4H-4 at 32b7a3f99 (wp/w4h-4, owner w4h-4), base integ/w00 52d8ba079: ACCEPT
+DEPLOYMENT PREREQUISITE (not a finding): the hosted lanes for the two bound tests need the self-hosted runners labelled factory-gpu and
+factory-real, which the user has not created yet. Until they exist, those two tests run on no hosted runner (by design: no hosted
+runner has their preconditions).
+
+5 commits, all archy noreply as author and committer: 8ee0a5c72 (manifest and both selections), 170c7dd18 (journey binding split out),
+e613a833f (journey bound to factory-deployment-operations with the image-pin precondition), c5e527b1d (the device test's named
+precondition), 32b7a3f99 (gates doc only over c5e527b1d). Files: ci.yml, check-factory-lanes.ts and its test,
+scripts/lib/test-file-sets.sh, scripts/run-factory-lane-tests.sh (new), scripts/lib/combined-runner-legs.ts,
+podman-devices.integration.test.ts, ci-test-set-drift.test.ts, factory-ci-registration.test.ts, the gates doc.
+Where: snapshots (validator-5 v5_snapshot) in /tmp/v5-snaps, outside the evidence dir, removed with snap_rm. Records:
+w4g-validation/w4h4/hold-32b7a3f99/ and mutants-32b7a3f99/. Shared config (config-check.py --check-only): exit 0 at every start and end
+("888c78b9e94ea660 = accepted baseline").
+
+(a) MANIFEST (FACTORY_LANES in scripts/check-factory-lanes.ts, read by both lane jobs and the hosted sets):
+  `--bound-tests` = packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts and
+  src/factory/reference-data/journey.integration.test.ts. The device test is bound to factory-isolation (ci.yml runs-on
+  [self-hosted, factory-gpu]); the journey to factory-deployment-operations (runs-on [self-hosted, factory-real]) with boundImagePins
+  src/factory/reference-data/image/pinned.json (`--lane-images` = localhost/ezcorp-factory-python-data@sha256:f9cc7477…). Both jobs run
+  `bash scripts/run-factory-lane-tests.sh <job>`. Each bound test has a precondition that fails loudly, never a skip:
+  - device test: the case "precondition: this host exposes the factory-gpu lane's device profile" and a requireHostDevices() check
+    before the two cases that hand host devices to a guest, both "Precondition failed: this host lacks <devices>. podman-devices.
+    integration runs only in the factory-gpu lane …" (proved below);
+  - journey: run-factory-lane-tests.sh checks `podman image exists` for every pinned image before any test and exits 3 with
+    "Precondition failed: lane <job> needs the pinned image <image> on this runner, and it is absent." (code review).
+  Lane gate (`bun scripts/check-factory-lanes.ts`) exit 0.
+  HOSTED SELECTION (scripts/lib/test-file-sets.sh, P = passfail_files, C = coverage_host_files, in my snapshot): at the head P+C have 4040
+  lines and name the device test 0 times and the journey 0 times; with test-file-sets.sh and check-factory-lanes.ts at 52d8ba079 they
+  have 4044 lines and name each twice (P and C). The owner's runner-shaped selection logs agree (shard 3 selected the device test,
+  shard 1 the journey at the base; none at the head). lane_bound_test_files fails closed (non-zero with a message) when the manifest
+  gives no list.
+(b) LANE RUNS, mine, at 32b7a3f99 under the heavy lock (gated-flock, GATE_TRIES=1) and the host's GPU lock
+  ($XDG_RUNTIME_DIR/ezcorp-factory-local-gpu.lock), load1 2.6-3.6: factory-isolation 5 files, 30 pass, 0 fail;
+  factory-deployment-operations 1 file (the journey, after the image-pin precondition passed), 11 pass, 0 fail.
+(c) DEVICE TEST: 7 pass, 0 fail on this host (it has /dev/kfd, renderD128, renderD129). Precondition mutants (one host device replaced by
+  /dev/dri/renderD199, a name the runner accepts and that this host lacks):
+  - WITH the named precondition: RED by assertion, 3 cases, each "Precondition failed" (6 lines): the precondition case, "a v4 start
+    that names no devices still receives the host configuration", "a factory start receives exactly the devices its grant names and
+    nothing else".
+  - WITHOUT it (the throw disabled): the v4 start fails in the runtime with `RunnerError: Error: stat /dev/dri/renderD199: no such file or
+    directory` — the hosted failure shape — and only the precondition case's own assertion still names the gap.
+  - A first mutant try with "/dev/kfd-v6-absent" is void: the runner refuses that name in beforeAll (invalid_device) before any case runs.
+  No test or runner path passes a device beyond what a start names: the CPU factory start sees none; the factory start receives exactly
+  its grant (renderD128); the runner-shaped container ran with no --device and no --privileged (owner's container).
+(d) CONTAINER REPRODUCTION: the owner's runner-shaped container cannot reach the device step on three variants (crun setgroups; crun
+  ping_group_range read-only; mount proc not permitted with unmask=/proc/sys); the gates doc states the limit plainly and names the
+  hosted log ("RunnerError: Error: stat /dev/kfd: no such file or directory", run 37138524741, shard 3) as the red of record. Accepted as
+  ruled; my renderD199 mutant above reproduces that failure shape on this host.
+(e) DISCLOSED: repro-test.sh first exited with the container's last echo (rc 0 beside a failed test); fixed to exit with the highest test
+  exit (gates doc, "Note").
+(f) LIST-7 DECISION recorded in the gates doc: neither biome-ignores-worktrees.test.ts nor applied-controls.integration.test.ts is bound
+  (the hosted runner has both preconditions; the shard container's shape — node, then the factory-python-base pull — is a leftover item).
+(g) STANDARD LEGS: typecheck, lint, check-factory-boundaries, check-boundaries 0; hook-mapped unit suites (check-factory-lanes,
+  ci-test-set-drift, combined-runner-legs, factory-ci-registration), each nonzero, with lcov: 69 pass, 0 fail;
+  scripts/check-factory-lanes.ts LF 301 LH 301; SDK 246/0; new-file and patch gates against 52d8ba079 PASSED; CRAP: no touched function
+  over 30; vs origin/main neither gate output names a file of this change; gate-integrity base leg clean, origin/main leg equals the 8
+  paths; guard set 36 files 468 pass, 2 skip (BPF), 0 fail; prune scan (w00/prune-scan.sh a4a59601cec26963) "clean (0 hit(s))";
+  identity 5/5.

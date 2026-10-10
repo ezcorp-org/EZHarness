@@ -33,7 +33,7 @@ mock.module("../db/queries/settings", () => ({
 afterAll(() => restoreModuleMocks());
 
 import { getModels } from "@earendil-works/pi-ai/compat";
-import { resolveModelObject } from "../providers/registry";
+import { getOAuthModelIds, resolveModelForCredential, resolveModelObject, resolveOAuthModel } from "../providers/registry";
 import { getCapabilities } from "../providers/model-capabilities";
 
 test("resolveModelObject('openai', 'gpt-5.5') falls back to OAuth override", () => {
@@ -117,4 +117,31 @@ test("does NOT borrow a TEMPLATED sibling baseUrl (google-vertex {location})", (
   const m = resolveModelObject("google-vertex", "no-such-vertex-model");
   expect(m.api).toBe("openai-completions");
   expect(m.baseUrl).toBe("https://api.openai.com/v1");
+});
+
+// W10c (C10 revision 2026-10-03, amended 16:00Z): the factory pin gpt-6-luna is served by a
+// ChatGPT-plan OAuth login. Since pi-ai 0.87.1 the openai-codex catalog ships the id, so the
+// registry resolves the catalog entry itself and LOCAL_OAUTH_OVERRIDES carries none.
+test("gpt-6-luna enters the registry for the openai OAuth login as the openai-codex catalog entry", () => {
+  const catalog = getModels("openai-codex").find((m) => m.id === "gpt-6-luna");
+  if (!catalog) throw new Error("pi-ai's openai-codex catalog no longer ships gpt-6-luna");
+  expect(catalog).toMatchObject({ api: "openai-codex-responses", provider: "openai-codex", baseUrl: "https://chatgpt.com/backend-api", reasoning: true, input: ["text", "image"], contextWindow: 272_000, maxTokens: 128_000 });
+  expect(getOAuthModelIds("openai")?.has("gpt-6-luna")).toBe(true);
+  expect(resolveOAuthModel("openai", "gpt-6-luna")).toEqual(catalog);
+});
+
+test("gpt-6-luna never enters another provider's OAuth list", () => {
+  expect(getOAuthModelIds("google")?.has("gpt-6-luna")).toBe(false);
+  expect(resolveOAuthModel("google", "gpt-6-luna")).toBeNull();
+  expect(resolveOAuthModel("anthropic", "gpt-6-luna")).toBeNull();
+});
+
+test("an OAuth credential sends gpt-6-luna to the subscription endpoint under the public provider name", () => {
+  const resolved = resolveModelObject("openai", "gpt-6-luna");
+  expect(resolveModelForCredential(resolved, "openai", "oauth")).toMatchObject({ id: "gpt-6-luna", provider: "openai", api: "openai-codex-responses", baseUrl: "https://chatgpt.com/backend-api" });
+});
+
+test("a misspelt id is refused by name for the OAuth login", () => {
+  expect(resolveOAuthModel("openai", "gpt-6-lunna")).toBeNull();
+  expect(() => resolveModelForCredential(resolveModelObject("openai", "gpt-6-lunna"), "openai", "oauth")).toThrow(/Model "gpt-6-lunna" is not supported with openai OAuth/);
 });

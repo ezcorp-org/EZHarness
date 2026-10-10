@@ -1,0 +1,21 @@
+# Docker Hub rate-limit lines (429 / toomanyrequests) from the three rate-limited job logs of run 37986983940 (integrator-5);
+# each full log stays in the evidence dir; its sha256 and size are named.
+
+## production-proof-content-job.log: sha256 b07a606aa69c954143830adfa359a64f3b433259f12517ec74a64237da361a7b bytes 56388; 4 matching line(s)
+135: 2026-10-09T20:31:57.2429029Z Updating files:  81% (11925/14721)
+592: 2026-10-09T20:49:06.0702408Z #5 ERROR: unexpected status from HEAD request to https://registry-1.docker.io/v2/oven/bun/manifests/1.3.14-slim: 429 Too Many Requests
+607: 2026-10-09T20:49:06.0706265Z ERROR: failed to build: failed to solve: oven/bun:1.3.14-slim: failed to resolve source metadata for docker.io/oven/bun:1.3.14-slim: unexpected status from HEAD request to https://registry-1.docker.io/v2/oven/bun/manifests/1.3.14-slim: 429 Too Many Requests
+631: 2026-10-09T20:49:06.7342997Z Beginning upload of artifact content to blob storage
+
+## production-proof-recovery-job.log: sha256 e6a17b32d8c42c6562efc61cfee9bf71c711faecac0af166079c6133cd8250e4 bytes 53706; 3 matching line(s)
+114: 2026-10-09T20:31:53.6514297Z [command]/usr/bin/git checkout --progress --force refs/remotes/pull/318/merge
+313: 2026-10-09T20:32:16.3942976Z + pdf-parse@2.4.5
+499: 2026-10-09T20:52:41.6739360Z time="2026-10-09T20:52:41Z" level=warning msg="Failed, retrying in 1s ... (1/3). Error: initializing source docker://oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834: reading manifest sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull 
+
+## production-proof-resources-attempt2.log: sha256 fe72cc4a211c073314b2917efb115d42cdba6e7758c683e4e4ff84774a309680 bytes 38388; 6 matching line(s)
+183: 2026-10-09T20:57:41.7429595Z state without impacting any branches by switching back to a branch.
+344: 2026-10-09T20:58:06.4298662Z Get:5 http://azure.archive.ubuntu.com/ubuntu noble-security InRelease [126 kB]
+394: 2026-10-09T20:58:48.3431935Z time="2026-10-09T20:58:48Z" level=warning msg="Failed, retrying in 1s ... (1/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull 
+395: 2026-10-09T20:59:25.6741341Z time="2026-10-09T20:59:25Z" level=warning msg="Failed, retrying in 1s ... (2/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull 
+396: 2026-10-09T20:59:58.0354218Z time="2026-10-09T20:59:58Z" level=warning msg="Failed, retrying in 1s ... (3/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull 
+397: 2026-10-09T21:00:30.4497207Z Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit

@@ -18,16 +18,16 @@
  * Runs in the P∩C sweep (src/__tests__ → the CI cov-shards gate it).
  */
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { laneArgs } from "../../scripts/e2e-lane-args.ts";
 import lanesManifest from "../../web/e2e/lanes.json";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 const BASH = Bun.which("bash");
-const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model"] as const;
+const LANE_NAMES = ["mock-gate", "mock-full", "fresh-setup", "real-auth", "production-image", "evidence", "external-model", "factory-services"] as const;
 const OPTIONAL_OPERATOR_LANES = ["external-model"] as const;
 
 // Every browser spec is now wired to a strict CI lane. Keep lane membership
@@ -231,6 +231,271 @@ describe("e2e lane manifest", () => {
   test("evidence members all carry @evidence", () => {
     const untagged = lanes.evidence!.filter((f) => !evidenceTagged.has(f));
     expect(untagged, `evidence entries without @evidence:\n  ${untagged.join("\n  ")}`).toEqual([]);
+  });
+
+  test("factory-services is registered in every canonical consumer", async () => {
+    const [collector, merger, localCoverage, config, ci] = await Promise.all([
+      Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text(),
+      Bun.file(join(REPO_ROOT, "scripts/merge-browser-route-coverage.sh")).text(),
+      Bun.file(join(REPO_ROOT, "scripts/run-browser-route-coverage.sh")).text(),
+      Bun.file(join(REPO_ROOT, "web/playwright.config.ts")).text(),
+      Bun.file(join(REPO_ROOT, ".github/workflows/ci.yml")).text(),
+    ]);
+    expect(Object.hasOwn(lanes, "factory-services")).toBe(true);
+    // The collector accepts it as a lane name and dispatches it.
+    expect(collector).toContain("|factory-services) ;;");
+    expect(collector).toContain("  factory-services)");
+    // Both aggregation paths know it, and both make it REQUIRED once declared.
+    expect(merger).toContain("required_lanes+=(factory-services)");
+    expect(localCoverage).toContain("for lane in factory-services; do");
+    // The mock partition must never sweep it up.
+    expect(config).toContain('"external-model", "factory-services"');
+    // A real CI job consumes it on the labelled runner.
+    const job = ciJobBlock(ci, "factory-product-e2e");
+    expect(job).toContain("collect-browser-route-coverage-lane.sh factory-services");
+    expect(job).toContain("factory-real");
+    expect(job).toContain("browser-v8-factory-services");
+  });
+
+  test("factory-services is populated by W14 with its real-application journeys, and every consumer still fails closed on an empty lane", async () => {
+    // W14 populated this lane deliberately: its specs and its Playwright
+    // configuration landed together. The guards below are unchanged and are
+    // what stop an emptied lane from ever being collected as a pass.
+    // W18c (2026-09-27) moved the factory authoring spec here from real-auth: that lane never enables factories.
+    expect(lanes["factory-services"]).toEqual(["web/e2e/factory-authoring-flow.spec.ts", "web/e2e/factory-services-console.spec.ts"]);
+    expect(laneArgs(lanes, "factory-services")).toEqual(["e2e/factory-authoring-flow\\.spec\\.ts$", "e2e/factory-services-console\\.spec\\.ts$"]);
+    expect(() => laneArgs({ ...lanes, "factory-services": [] }, "factory-services")).toThrow("lane 'factory-services' is missing/empty in web/e2e/lanes.json");
+    const config = await Bun.file(join(REPO_ROOT, "web/playwright.factory-services.config.ts")).text();
+    // Every lane member runs through the real stack: no fetch mocks, the real-auth hydration fixture.
+    expect(config).toContain('lanes.lanes["factory-services"]');
+    expect(config).toContain("bun e2e/factory-services/stack.ts");
+    for (const spec of lanes["factory-services"]!) {
+      const source = await Bun.file(join(REPO_ROOT, spec)).text();
+      expect(source).toContain('from "./fixtures/hydration.js"');
+      expect(source).not.toContain("test-base");
+      expect(source).not.toContain("page.route(");
+    }
+    const collector = await Bun.file(join(REPO_ROOT, "scripts/collect-browser-route-coverage-lane.sh")).text();
+    const block = collector.split("  factory-services)")[1]?.split("\n    ;;")[0] ?? "";
+    expect(block).toContain("FACTORY_TEST_POSTGRES_URL:?");
+    expect(block).toContain("EZCORP_FACTORY_STORAGE_SECRETS_DIR:?");
+    expect(block).toContain("FACTORY_TEMPORAL_CLI:?");
+    expect(block).toContain("web/playwright.factory-services.config.ts");
+    expect(block).toMatch(/\[ "\$\{#args\[@\]\}" -gt 0 \]/);
+  });
+
+  test("the factory-services journeys start only after the stack says it is held", async () => {
+    // Playwright RACES a webServer's `url` check against its `wait` pattern: the first to resolve releases
+    // globalSetup. The product server answers /api/ready while the stack is still creating the administrator,
+    // so with a `url` the global setup read a state file the stack had not written yet (ENOENT; W18c lane
+    // proof, 2026-09-27). Only the "held" line, printed after the state file exists, may gate the lane.
+    const { default: config } = await import("../../web/playwright.factory-services.config.ts");
+    const server = config.webServer as { url?: string; port?: number; wait?: { stdout?: RegExp } };
+    expect(server.url).toBeUndefined();
+    expect(server.port).toBeUndefined();
+    expect(server.wait?.stdout?.test("[factory-services] held at http://127.0.0.1:4191; logs in /tmp/x")).toBe(true);
+    expect(server.wait?.stdout?.test('{"msg":"ready"}')).toBe(false);
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const written = stack.indexOf("await writeFile(FACTORY_SERVICES_STATE_PATH");
+    expect(written).toBeGreaterThan(0);
+    expect(stack.indexOf("[factory-services] held at")).toBeGreaterThan(written);
+  });
+
+  test("every lane starts its server only under the pinned Bun, and refuses another Bun by name", async () => {
+    // A system Bun 1.4.2 first on PATH started lane servers under the wrong runtime while .bun-version pinned
+    // 1.3.14 (W09e, 2026-09-27): the webServer commands resolve `bun` from PATH. Every Playwright config wraps
+    // its webServer in pinnedWebServer, every lane script runs lane_bun_pin before anything else, and the
+    // factory-services stack checks its own runtime. The server launchers (start-*-preview.sh) run only under a
+    // guarded webServer and the pinned fixture wrapper, so they carry no pin of their own.
+    const pinned = (await Bun.file(join(REPO_ROOT, ".bun-version")).text()).trim();
+    const configs = [...new Bun.Glob("playwright*.config.ts").scanSync({ cwd: join(REPO_ROOT, "web") })].sort();
+    expect(configs.length).toBeGreaterThanOrEqual(8);
+    const serverKeys: string[] = [];
+    for (const config of configs) {
+      const text = await Bun.file(join(REPO_ROOT, "web", config)).text();
+      for (const [, value] of text.matchAll(/^\s*webServer:\s*(.*)$/gm)) {
+        serverKeys.push(config);
+        expect(value, `${config}: its webServer is not wrapped in pinnedWebServer`).toContain("pinnedWebServer(");
+      }
+    }
+    expect(new Set(serverKeys).size).toBe(5);
+    const laneScripts = [
+      "scripts/collect-browser-route-coverage-lane.sh",
+      "scripts/run-browser-route-coverage.sh",
+      "scripts/test-e2e.sh",
+      "scripts/run-kokoro-realmodel-e2e.sh",
+      "web/e2e/run-real-auth-fixture.sh",
+    ];
+    for (const script of laneScripts) {
+      const lines = (await Bun.file(join(REPO_ROOT, script)).text()).split("\n");
+      const pin = lines.findIndex((line) => line.trim() === "lane_bun_pin");
+      const firstBun = lines.findIndex((line) => !line.trimStart().startsWith("#") && /\bbunx?\s/.test(line));
+      expect(pin, `${script}: never calls lane_bun_pin`).toBeGreaterThan(0);
+      expect(lines[pin - 1], `${script}: lane_bun_pin without sourcing lane-bun.sh`).toContain("lib/lane-bun.sh");
+      if (firstBun >= 0) expect(firstBun, `${script}: runs bun before lane_bun_pin`).toBeGreaterThan(pin);
+    }
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    expect(stack).toContain("if (Bun.version !== PINNED_BUN) throw new Error(`lane Bun mismatch");
+    expect(stack).not.toMatch(/Bun\.spawn\(\["bun"/);
+
+    // Behaviour, with a stand-in for another Bun first on PATH. Its version is derived to differ from the pin: the
+    // stand-in used to report the system Bun's 1.4.2, which stopped being "another Bun" when W12e pinned 1.4.2.
+    const other = pinned === "0.0.1" ? "0.0.2" : "0.0.1";
+    expect(other).not.toBe(pinned);
+    const fake = mkdtempSync(join(tmpdir(), "lane-bun-"));
+    try {
+      writeFileSync(join(fake, "bun"), `#!/bin/sh\necho ${other}\n`, { mode: 0o755 });
+      const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
+      const server = { command: "bun e2e/factory-services/stack.ts" };
+      expect(() => pinnedWebServer(server, { ...process.env, PATH: `${fake}:${process.env.PATH}` })).toThrow(
+        `lane Bun mismatch: PATH resolves bun ${other}, .bun-version pins ${pinned}`,
+      );
+      expect(pinnedWebServer(server, { ...process.env, PATH: `${dirname(process.execPath)}:${process.env.PATH}` })).toBe(server);
+      const bash = Bun.which("bash")!;
+      const run = (env: Record<string, string>) =>
+        Bun.spawnSync([bash, "-c", ". scripts/lib/lane-bun.sh; lane_bun_pin && bun --version"], {
+          cwd: REPO_ROOT,
+          env: { HOME: fake, PATH: `${fake}:${dirname(bash)}:/usr/bin:/bin`, ...env },
+        });
+      const refused = run({});
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bun ${other} (${fake}/bun), .bun-version pins ${pinned}`);
+      const pinnedRun = run({ EZCORP_PINNED_BUN_DIR: dirname(process.execPath) });
+      expect(pinnedRun.exitCode).toBe(0);
+      expect(pinnedRun.stdout.toString().trim()).toBe(pinned);
+
+      // The pinned `bun` first, but `bunx` resolving to another Bun (W01g-fix: the pinned directory had no
+      // bunx, so `bunx --bun vite build`, `bunx vitest` and `bunx playwright` ran under the system Bun).
+      const bunOnly = mkdtempSync(join(tmpdir(), "lane-bun-only-"));
+      try {
+        symlinkSync(process.execPath, join(bunOnly, "bun"));
+        writeFileSync(join(fake, "bunx"), `#!/bin/sh\necho ${other}\n`, { mode: 0o755 });
+        const splitPath = `${bunOnly}:${fake}:${process.env.PATH}`;
+        expect(() => pinnedWebServer(server, { ...process.env, PATH: splitPath })).toThrow(
+          `lane Bun mismatch: PATH resolves bunx ${other}, .bun-version pins ${pinned}`,
+        );
+        const split = run({ PATH: `${bunOnly}:${fake}:${dirname(bash)}:/usr/bin:/bin` });
+        expect(split.exitCode).toBe(1);
+        expect(split.stderr.toString()).toContain(`lane Bun mismatch: PATH resolves bunx ${other} (${fake}/bunx), .bun-version pins ${pinned}`);
+        expect(split.stderr.toString()).not.toContain(`resolves bun ${other}`);
+        // A directory holding only a pinned `bun` is not a pinned directory.
+        expect(run({ PATH: `${fake}:${dirname(bash)}:/usr/bin:/bin`, EZCORP_PINNED_BUN_DIR: bunOnly }).exitCode).toBe(1);
+      } finally {
+        rmSync(bunOnly, { recursive: true, force: true });
+      }
+    } finally {
+      rmSync(fake, { recursive: true, force: true });
+    }
+  });
+
+  test("every lane guard names the Bun it asserted, so a lane log shows its runtime", async () => {
+    // The guards printed nothing on a pass, so no log of the W18c final browser run at dc3b64234 named the Bun
+    // its servers ran under, and a driver that read the runtime from the log found nothing (2026-09-27). Each
+    // guard now prints one "lane Bun:" line on a pass; the Playwright guard also names the runner's runtime.
+    const pinned = (await Bun.file(join(REPO_ROOT, ".bun-version")).text()).trim();
+    const pinDir = dirname(process.execPath);
+    const bash = Bun.which("bash")!;
+    const shell = Bun.spawnSync([bash, "-c", ". scripts/lib/lane-bun.sh; lane_bun_pin"], {
+      cwd: REPO_ROOT,
+      env: { HOME: tmpdir(), PATH: `${dirname(bash)}:/usr/bin:/bin`, EZCORP_PINNED_BUN_DIR: pinDir },
+    });
+    expect(shell.exitCode).toBe(0);
+    expect(shell.stderr.toString().trim()).toBe(`lane Bun: bun ${pinned} (${pinDir}/bun), bunx ${pinned} (${pinDir}/bunx)`);
+
+    const { pinnedWebServer } = await import("../../web/playwright-lane-bun.ts");
+    const server = { command: "bun e2e/factory-services/stack.ts" };
+    // The main Playwright process: no TEST_WORKER_INDEX, whatever the caller's environment holds.
+    const env: NodeJS.ProcessEnv = { ...process.env, PATH: `${pinDir}:${process.env.PATH}`, TEST_WORKER_INDEX: undefined };
+    const printed: string[] = [];
+    expect(pinnedWebServer(server, env, (line) => printed.push(line))).toBe(server);
+    const runner = process.versions.bun ? `bun ${process.versions.bun}` : `node ${process.versions.node}`;
+    expect(printed).toEqual([
+      `lane Bun: bun ${pinned} (${pinDir}/bun), bunx ${pinned} (${pinDir}/bunx); Playwright runner ${runner} (${process.execPath})`,
+    ]);
+    // Playwright loads the config again in every worker; only the main process prints.
+    const workerPrinted: string[] = [];
+    expect(pinnedWebServer(server, { ...env, TEST_WORKER_INDEX: "0" }, (line) => workerPrinted.push(line))).toBe(server);
+    expect(workerPrinted).toEqual([]);
+
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const check = stack.indexOf("if (Bun.version !== PINNED_BUN) throw");
+    const named = stack.search(/console\.error\(`lane Bun: the factory-services stack runs under bun \$\{Bun\.version\} \(\$\{BUN\}\)`\);/);
+    expect(named).toBeGreaterThan(check);
+  });
+
+  test("the factory-services lane removes its saved browser session when the run ends", async () => {
+    // The global setup saves the administrator's session (a live cookie) to web/e2e/.factory-services-auth.json
+    // and nothing removed it, so every lane run left a credential file in the checkout (W18c measurement at
+    // 36fcf0fcc: the derived mask test found it). Playwright runs the function a globalSetup returns as the
+    // global teardown; the setup returns one that removes the file it wrote.
+    const setup = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/global-setup.ts")).text();
+    expect(setup).toMatch(/export default async function globalSetup\(\): Promise<\(\) => Promise<void>>/);
+    const saved = setup.indexOf("await context.storageState({ path: FACTORY_SERVICES_AUTH_PATH });");
+    const teardown = setup.indexOf("return async () => {\n\t\tawait rm(FACTORY_SERVICES_AUTH_PATH, { force: true });\n\t};");
+    expect(saved).toBeGreaterThan(0);
+    expect(teardown).toBeGreaterThan(saved);
+    const config = await Bun.file(join(REPO_ROOT, "web/playwright.factory-services.config.ts")).text();
+    expect(config).not.toContain("globalTeardown");
+  });
+
+  test("the factory-services stack removes its state file and its request files when it stops", async () => {
+    // The state file holds the stack administrator's email and password, and the stack never removed it, so a
+    // lane run left it in the checkout (W18c, 2026-09-28: validator-5's hold lists the ignored files under web/e2e
+    // before and after the lane and fails any new one). stop() runs on the webServer's SIGTERM, on a failure and
+    // when the hold ends; it now removes every file the stack keeps beside the state file.
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const start = stack.indexOf("async function stop(");
+    const body = stack.slice(start, stack.indexOf("\n}\n", start));
+    expect(start).toBeGreaterThan(0);
+    expect(body).toContain(
+      "await Promise.all([FACTORY_SERVICES_STATE_PATH, STOP_FILE, FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, FACTORY_SERVICES_RESTORE_REQUEST_PATH].map(path => rm(path, { force: true })));",
+    );
+  });
+
+  test("the factory-services stack leaves no request file behind", async () => {
+    // Each journey asks the held stack for work through a request file beside the state file. The stack
+    // deleted the future-draft request after serving it but not the restore request, so every lane run left
+    // an untracked web/e2e/.factory-services-state.json.restore-request (W18c final measurement, 2026-09-27).
+    const stack = await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text();
+    const handler = (name: string) => stack.slice(stack.indexOf(`async function ${name}(`), stack.indexOf("\n}\n", stack.indexOf(`async function ${name}(`)));
+    expect(handler("writeFutureDraft")).toContain("await rm(FACTORY_SERVICES_FUTURE_DRAFT_REQUEST_PATH, { force: true });");
+    expect(handler("openRestoreEpoch")).toContain("await rm(FACTORY_SERVICES_RESTORE_REQUEST_PATH, { force: true });");
+    const ignored = Bun.spawnSync(
+      ["git", "check-ignore", "web/e2e/.factory-services-state.json.restore-request", "web/e2e/.factory-services-state.json.future-draft-request", "web/e2e/.factory-services-state.json.stop"],
+      { cwd: REPO_ROOT },
+    );
+    expect(ignored.stdout.toString().trim().split("\n")).toHaveLength(3);
+  });
+
+  test("a lane whose server never enables factories carries no spec that calls /api/factories", async () => {
+    // src/factory/boot.ts serves /api/factories only when EZCORP_FACTORY_ENABLED=1. The real-auth and
+    // fresh-setup lanes start their server through playwright.real.config.ts and scripts/run-real-e2e.ts,
+    // which never set it, so a factory spec there can only fail ("Factories are disabled", 404). One did,
+    // from bdfa1c9f6 until W18c moved it to factory-services (2026-09-27), unseen because CI never ran on
+    // the branch. If those launchers start enabling factories, this guard lets such specs back in.
+    const launchers = await Promise.all(["web/playwright.real.config.ts", "scripts/run-real-e2e.ts"].map(path => Bun.file(join(REPO_ROOT, path)).text()));
+    const enabled = launchers.some(text => /EZCORP_FACTORY_ENABLED\s*[:=]\s*["']?1/.test(text));
+    const callers: string[] = [];
+    for (const lane of ["real-auth", "fresh-setup"]) {
+      for (const spec of lanes[lane] ?? []) {
+        if ((await Bun.file(join(REPO_ROOT, spec)).text()).includes("/api/factories")) callers.push(`${lane}: ${spec}`);
+      }
+    }
+    expect(enabled ? [] : callers).toEqual([]);
+    // The guard is live: the lanes are populated, and the factory-services config does enable factories.
+    expect((lanes["real-auth"] ?? []).length).toBeGreaterThan(10);
+    expect(await Bun.file(join(REPO_ROOT, "web/e2e/factory-services/stack.ts")).text()).toContain('EZCORP_FACTORY_ENABLED: "1"');
+  });
+
+  test("the service lane is collected and aggregated through the same path as the mandatory five", async () => {
+    const localCoverage = await Bun.file(join(REPO_ROOT, "scripts/run-browser-route-coverage.sh")).text();
+    // A second, weaker collection path would let an added lane skip artifact
+    // archiving or a failure rule the mandatory lanes cannot skip, so there is
+    // exactly ONE collector function and both loops call it.
+    expect([...localCoverage.matchAll(/^collect_lane\(\) \{$/gm)]).toHaveLength(1);
+    expect([...localCoverage.matchAll(/collect_lane "\$lane" \|\| lane_status=1/g)]).toHaveLength(2);
+    expect(localCoverage).toContain('archive_playwright_artifacts "$lane_output" "$lane"');
+    expect(localCoverage).toMatch(/export EZCORP_BROWSER_COVERAGE_SERVICE_LANES="\$\{EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0\}"/);
   });
 
   test("there is no unwired browser backlog", () => {

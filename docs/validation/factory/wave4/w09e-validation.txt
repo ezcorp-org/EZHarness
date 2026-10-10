@@ -1,0 +1,52 @@
+2026-09-27 validator-4 on W09e ef0868738c3f5c06018821a5b237ad6a5a965cf6 (wp/w09e-release-stop; base integ/w00 326e5e725,
+merged with integ a24a619ad = the integ head at the hold): ACCEPT. The two review findings (M1 medium, L1 low) are fixed
+and verified at this head.
+
+Identity: every commit over 326e5e725 is archy with the noreply address as author and committer (12 at the review head
+63d97ef49, plus 1872820e3 merge, fc03c0076, 4bfad4885, 4a19553e0, f89eaec08, ef0868738). Shared .git/config sha256
+prefix 44962525f1ca1a8b before, at the hold's start and end.
+
+Review (tree-review-63d97ef49.txt): R1-R7 and the cost record read correct. The merge 1872820e3 (integ a24a619ad)
+keeps both sides on three files and cites the 20:09Z EZ_SKIP_HOOK_TESTS ruling with its 29 suites. fc03c0076 renders
+the three cost lines.
+M1 (medium) fixed by 4a19553e0: at ef0868738 the lifecycle suite is 92/0; with settleStopped's two-proof rule weakened
+  to `if (!absent)` it is 91/1, the failure being exactly "the provider's absence alone proves nothing while the sender
+  cannot be proven stopped" (logs/head/lifecycle-ef0868738.log, lifecycle-m1-mutant.log).
+L1 (low) fixed by f89eaec08: stop_cost_check ties a published outcome to provider-receipt or reserved-bound; with the
+  clause removed the PGlite migration test is 0/1 (logs/head/l1-check-mutant.log).
+
+Mutants (review at 63d97ef49, receipts/mutants.json; race at ef0868738 below), trees clean after each:
+  killed on PGlite: E3 deadline never unknown, E6 an unstarted dispatch counted uncertain, E7 cost overwritten, E8 no late
+    evidence, E9 delivery accepting a stopped release, E10 no backoff doubling, E11 effect on any node; M1's mutant; L1's.
+  E1 claim accepts a stopped release: killed by the PostgreSQL race test (3/1: "a stop that takes the row first fails the
+    release before dispatch, and the claim finds it stopped").
+  E2 dispatch start not fenced by stop_command_id: survives the race test (4/0). Equivalent: a stop before the dispatch
+    starts sets the release 'failed', so beginDispatch's state='executing' condition refuses it with
+    factory_release_sender_fenced either way; the clause is defence in depth. No finding.
+  E5 listClaimable without stop_command_id IS NULL: equivalent for the same reason (the stopped release is no longer
+    'pending'). No finding.
+
+Hold under flock --close at ef0868738, BASE_REF=a24a619ad (22:33:13Z to 22:43:15Z; gate before every leg: 16-17 GiB
+available, 5-6 GiB swap, 112-113 GB; bun and bunx asserted 1.3.14; dirty after 0; receipts/hold/, logs/hold/):
+  race-baseline tests/postgres/factory-release-stop-race.test.ts                        4/0
+  race-E1 (claim accepts stopped)                                                        3/1 (killed)
+  race-E2 (dispatch start not fenced)                                                    4/0 (equivalent)
+  postgres, 15 suites with lcov (task-stops, stop-lock-order, run-lifecycle, run-lifecycle-s3, releases,
+    release-stop-race, release-stop-migration, release-declare-race, restore, checkpoint, console, private-service,
+    schema, archive-writer, s3-publication)                                             340/0
+  unit-coverage, 12 files (release-stops, backoff, dispatch-composition, delivery, adapters, s3-publication,
+    private-service-composition, protected-command-effects, the migration, releases integration, console
+    integration, run-lifecycle)                                                         251/0
+  sdk-coverage packages/@ezcorp/factory-sdk/src (31 files)                                236/0
+  orchestrator-coverage scripts/factory-orchestrator-coverage.sh (node test runner, coverage/orch/test-progress.log)
+                                                                                          91/0
+  web-coverage run-format.unit + FactoryRunInspector.component (vitest under Node)        21/21
+  merge-lcov 1366 files; new-file gate PASSED (3 files); patch gate PASSED (19 files)
+Static at ef0868738: boundary suites 48/0; check-factory-boundaries, gate-integrity, typecheck, lint, schema drift 0.
+Not run by me: the graph-proof runbook mock pass and the e2e console spec. The worker ran both at the a24a619ad
+staging with bunx pinned (report.txt, logs/final/); W09e's code has not changed since then except the M1 test and
+the L1 CHECK.
+
+Note (not a finding): once recorded, unknown_at_deadline stays the stop outcome and its bound cost stays even if an
+operator later confirms no effect or a receipt lands (the state moves). That is consistent with W03f's "the deadline
+decides once".

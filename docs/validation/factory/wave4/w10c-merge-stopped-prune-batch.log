@@ -1,0 +1,15 @@
+=== heavy 2026-10-04T18:25:39Z
+HEAD 49dbcc56265777d594b6ef9549d50e5d78a2021f MERGE_HEAD  index-tree 46d6fab1fcdcc41738c2386fc298f42a29d852a9
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-04T18:25:39Z hold-start disk=99G memAvailable=13GiB swapFreeKiB=4169988/17173956
+resource-gate hold-start STOP: disk 99G below the 100 GB floor
+--- RELEASE hold-start resource gate red inside the lock: exit 75, the caller re-queues 2026-10-04T18:25:39Z
+=== heavy 2026-10-04T18:30:39Z
+HEAD 49dbcc56265777d594b6ef9549d50e5d78a2021f MERGE_HEAD  index-tree 46d6fab1fcdcc41738c2386fc298f42a29d852a9
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-04T18:30:39Z hold-start disk=101G memAvailable=8GiB swapFreeKiB=4190268/17173956
+config: 888c78b9e94ea660 = accepted baseline
+shared config hash at hold start: 888c78b9e94ea660 (accepted baseline 888c78b9e94ea660)
+prune scan: exit 3 (prune scan: STOP (6 hit(s)))
+STOP: prune scan found a prune command (prune-scan.txt); report to the lead
+HEAVY DONE status=1 dirty=0 2026-10-04T18:30:39Z

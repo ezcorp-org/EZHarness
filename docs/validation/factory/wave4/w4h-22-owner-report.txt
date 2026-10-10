@@ -1,0 +1,43 @@
+W4H-22 report (owner w4h-22; validator validator-8; integrator integrator-5). FROZEN after this file.
+
+Branch wp/w4h-22-toast-outcome from integ/w00 fe445d241f2cd6e76fc242c621bf6ac5f7ae2ba5. No merge, no rebase.
+Commits:
+  b5bd7267222bcf5ceb301c15d1fb4266c6238c07 test(e2e): await the refused-add outcome, not a 5 s clock (W4H-22)   hook: 0 suites, biome passed
+  a708a22c8dd2f3dd252920c2e5df122c27e12412 docs(factory): W4H-22 gates and todo review (refused-add outcome wait)   hook: 0 suites; docs only
+Identity: archy <281643943+EZArchy@users.noreply.github.com> on both (author and committer). Shared config: accepted baseline.
+
+Root cause: the hosted red (run 38001537073) was the Hub page title wait at :521 (default 5000 ms) over a live render, not the toast
+wait. The toast wait had the same fixed-clock defect. Lead accepted the correction.
+Fix: spec only. Await the Hub page GET (200), then the title; the prompt dialog; the add-folder POST response with status 200 and body
+exactly {ok:false, message:"Path must be an absolute, valid filesystem path."}; then the toast at once (4 s bound, inside its 5 s life).
+20 s bound per live round-trip, as the beforeAll title wait. No sleep.
+
+Gates (tasks/factory/w4h-22-GATES.md): G1 R1 red first; G2 holds green; G3 three mutants red by assertion; G4 R3 content shard green
+(file-organizer 13 passed, case 3.5 s; legacy-adoption 0); G5 light legs; G6 gate-integrity integ PASS, main exactly the 8;
+G7 typecheck rc=0 and guard set 41 files 511 pass 2 skip 0 fail, under the lock.
+
+Receipts:
+  r1/R1-receipt.txt  69aedb99e03cf06e60e922f73439eaaa0b35e1a2b8eb71445658166365bd97a8
+  r2/R2-receipt.txt  4edf8f9c5b59f42272fbaeec65331c816d24ca6c1ac2669ffae089b7627d3e4c
+  r3/hold-20261010T011754Z/proof-content.log  47d62009467bf688de38834033396199deedffd2f0eae24230ec2fca6f76f6bd
+  r3/hold-20261010T011754Z/receipts-content/file-organizer/runtime/playwright.log  107460e535343e177ef2cecb7fc7536344a5c89056596397c2463da0733f8b84
+  r3/host-legs.log  51c35d00d90d631fedabb39ee4d772d1c8fab4cd2bd9df675bfec29c96b1012e
+  r3/guard-set.log  c3a9c2125f3cd3c32bb3fd0c20127914edae7bdca811d698b2d62a14fd7730c0
+  r3/typecheck.log  38db2e0b6be7946d2f0f3a115eeaf590756897623044d1ab5b57d2ae0ba6cb84
+  logs/final-legs.log  82a2e0fb3476f649309762cdafda47e925280bcdaa07f8467489418b1ef39521
+  logs/final-gate-integrity-integ_w00.log  b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda
+  logs/final-gate-integrity-origin_main.log  258f14dafba2b14d0837fbfdf266be035e6463b11355d35785f0f31501b21dea
+  logs/final-crap-changed-lcov.log  7bc8bad2d995944d11ef3e9051ef763e47fe5fc1ac538fca7fcf18ddcd4fe4d2
+  logs/final-lint.log  56c6d557e61566ef1eec3a98cb1eb6abfa9e421a5cf3d3a5abcd4b4b3e6e962a
+  logs/prune-scan-final.log  (clean, 0 hits)
+  hosted-38001537073-content-job.log  3ab7fb96052c2ec856e9eb8051bfdf93afb0d7975013b47cd139ae6fa87dab42
+Proof refs (scratch, never on the branch): proof/w4h-22-r1-page-hold 80784c6495b21fea3c038d7b98f5cdc5500b42b5,
+  proof/w4h-22-r1-dispatch-hold 24dca81ffc8576ea4ae1aacff57dbab3b609ae27, proof/w4h-22-r2-page-hold 49732230cb937c3e122f993c25483b70e653247c,
+  proof/w4h-22-r2-dispatch-hold 6812164cdd51dbf78383e0681dd20f1e9cb84b36, proof/w4h-22-r2-dispatch-hold-near-life 5df735bc4ca3661bf2efe347af24eec4422174a8,
+  proof/w4h-22-r2-mutant-no-refusal 72e7141de72533843b0a6159da16be4245e696dc, proof/w4h-22-r2-mutant-accepted f636e1d699d856adea4726f253c370e6a2af9405,
+  proof/w4h-22-r2-mutant-no-toast 6db27d65665e01dec4b765072c5beda612aaabaa.
+Disclosures: R1 try 1 void (job scripts mode 0600, setup exit 126, nothing ran). App ids 0:0 under rootless Podman (as W4H-18).
+  Typecheck was refused lock-free (w4h-21 held the lock) and ran in my R3 hold. Runner image localhost/w4h-22-runner:24.04 removed by name;
+  no container, volume or snapshot of mine is left. Never pruned.
+Open: none in scope. Leftover candidate: the content shard keeps no Playwright trace or screenshot on failure.
+File shas: spec blob at head 661609fd0998841e67b5e4e38aaae125a70bb7aa; gate file blob beecfa055f3fa27e5964a80b57a4b1e600f4ca04.

@@ -1,0 +1,57 @@
+{
+ "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/wave2a-staging-sdk-coverage/lcov.info",
+   "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81"
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/wave2a-staging-product-coverage/lcov.info",
+   "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81"
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/wave2a-staging-postgres-coverage/lcov.info",
+   "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81"
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/wave2a-staging-node-coverage/lcov.info",
+   "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81"
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/wave2a-staging-web-coverage/lcov.info",
+   "head": "4acc452ea45d95430f5c4f84b54ad15a29b70a81",
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "644987ada",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "644987ada",
+   "exitCode": 1
+  },
+  {
+   "name": "new-file",
+   "base": "c6ac529d2",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "c6ac529d2",
+   "exitCode": 1
+  }
+ ]
+}

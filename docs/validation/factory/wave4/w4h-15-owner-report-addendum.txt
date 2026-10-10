@@ -1,0 +1,21 @@
+W4H-15 report addendum (report.txt stays as written once; sha256 82ac7631fc3ff1362901d5f415906716f2225d1ff5c06669f62f050010a38dc9)
+Head: 36b79827cc0ce52a8116d9e717cd9c772f55365a (clean). Written 2026-10-08T08:33:17Z.
+New commit: 36b79827c docs(factory): W4H-15 gates - actionlint over every workflow, the guard set under the lock, where the 4 leftover files are measured (docs only; code head stays 28c04b874).
+Applied from team-lead's three messages:
+- Both workflow files: the guard models ci.yml plus every reusable workflow it calls (db-postgres.yml via ci.yml:1247); the fix renames in both.
+- If-conditions: none of the 7 uploads has an `if:`; each rename step directly precedes its upload with no `if:` (same default condition).
+- Globs: new names lcov_factory_*.info match coverage-artifacts/*.info and fall outside lcov_web_vitest_*.info.
+- actionlint over all 9 workflows, base (git archive 1b96d2730 .github) vs head: same 3 label findings, none new -> logs/r3-actionlint-all.log
+- Guard set (41) and workflow readers (26) rerun inside the heavy lock at f1774df59: 511/2 skip/0 fail and 296/11 skip/0 fail; heavy.exit 0
+  -> logs/r3-guard-locked.log, logs/r3-guard-locked-output.log. Disclosure: the first runs (G4, G7) were lock-free, per common.md's guard-set rule.
+- Leftover cause (gate file "Open"): pack/materials/publication.ts are measured locally only by combined-runner leg factory-reference-data
+  (scripts/combined-runner-legs.json:35, "CI GAP", user decision 2026-09-27 16:36Z: publish the data image first); uv-command.ts 20-21: the
+  hosted real-uv step (ci.yml:130) runs without coverage. The local producer for those 2 lines was not traced further.
+SHA256:
+663d8853858afcece897ccac20cabdd8afc4e56e4e7e099ed5b0ceb549385a42  logs/r3-actionlint-all.log
+8da29af4b781e2372a1d49ad11ca65e4840ae9de23a9a7bff91fae41cefddcec  logs/r3-guard-locked.log
+a98867f994acb163f5c927d9a22b8dde068e265e0502d1018dfcfd593828907e  logs/r3-guard-locked-output.log
+8f5d8baf764ee84d3c5e117e0abbd05ff0d0f930ea278f2180b6f921b341b093  logs/commit-3.log
+1faf5d293d352727eab2dbf1f20f093a6812058870c7dedff62e14b724d7fd8f  guard-locked.sh
+8d27869cc71ae5496081ddf47d254fb5a60d0fc208e2e844662bfe277a81b92c  guard-list-locked.txt
+9a271f2a916b0b6ee6cecb2426f0b3206ef074578be55d9bc94f6f3fe3ab86aa  heavy.exit

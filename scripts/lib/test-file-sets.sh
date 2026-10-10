@@ -97,7 +97,48 @@ script_test_files() {
   find scripts -name "*.test.ts" ! -path "*/node_modules/*"
 }
 
+# Factory SDK tests use the same isolated Bun producer as the extension v4
+# packages. Keep one definition and consume it from both P and C so a factory
+# test cannot be measured without also gating pass/fail.
+factory_sdk_test_files() {
+  find packages/@ezcorp/factory-sdk -name "*.test.ts" ! -path "*/node_modules/*"
+}
+
+# Node-only Temporal tests. The factory-orchestrator coverage producer consumes
+# this exact set after installing its pinned test server.
+factory_orchestrator_test_files() {
+  find packages/@ezcorp/factory-orchestrator/test -name "*.test.ts" ! -path "*/node_modules/*" | sort -u
+}
+
+# Lane-bound test files (wave 4h rule (b)): a test whose precondition only a
+# labelled self-hosted lane's runner has (a GPU device node, a locally built
+# image) runs in that lane's job and in NO hosted shard. ONE manifest names
+# them: FACTORY_LANES[].boundTests in scripts/check-factory-lanes.ts. The lane
+# job reads it through scripts/run-factory-lane-tests.sh; P and C below
+# subtract it, so the shards and the residual job never select those files.
+#
+# The lookup runs ONCE, here, while the caller sources this file, and in the
+# caller's own shell. A failed or empty lookup therefore stops the caller:
+# every caller runs `set -e` before it sources this file, and the hook checks
+# `|| return 1`. Doing the lookup inside passfail_files instead would fail in a
+# subshell (`< <(passfail_files)`), and the wrapper would continue with an
+# empty P. The lookup is tooling, so it runs the pinned Bun by path
+# (pinned_bun_binary). A fake `bun` that a test puts first on PATH cannot answer it.
+# shellcheck source=scripts/lib/lane-bun.sh
+. "${BASH_SOURCE[0]%/*}/lane-bun.sh"
+if ! LANE_BOUND_TEST_FILES=$(pinned=$(pinned_bun_binary) && "$pinned" "${BASH_SOURCE[0]%/*}/../check-factory-lanes.ts" --bound-tests) \
+  || [ -z "$LANE_BOUND_TEST_FILES" ]; then
+  echo "test-file-sets: the lane manifest (scripts/check-factory-lanes.ts --bound-tests) gave no list; stopping before any test set is built" >&2
+  return 1 2>/dev/null || exit 1
+fi
+LANE_BOUND_TEST_FILES=$(printf '%s\n' "$LANE_BOUND_TEST_FILES" | sort -u)
+
+lane_bound_test_files() {
+  printf '%s\n' "$LANE_BOUND_TEST_FILES"
+}
+
 passfail_files() {
+  local bound=$LANE_BOUND_TEST_FILES
   {
     # `set +e` is essential: the callers run under `set -e`, and a find against
     # a not-yet-created dir (e.g. a feature branch's integration tree) exits
@@ -116,6 +157,7 @@ passfail_files() {
     # reason — never by silently shrinking back to a dir allowlist.
     find src -name "*.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # First-party BUNDLED extensions (src/extensions/bundled.ts). This tree was
     # in NO pool: its three test files (memory-extractor index + manifest-load,
@@ -161,7 +203,7 @@ passfail_files() {
     # RESIDUAL_ONLY mode asserts this file's presence in P\C, so membership
     # drift (rename / C absorbing it) fails loudly instead of de-gating.
     printf '%s\n' web/src/__tests__/route-contract.test.ts
-  } 2>/dev/null | sort -u
+  } 2>/dev/null | sort -u | comm -23 - <(printf '%s\n' "$bound")
 }
 
 # The SCOPED web bun:test files that run in the backend per-file pool — ONE
@@ -223,6 +265,7 @@ web_utility_coverage_files() {
     web/src/lib/__tests__/select-mode.test.ts \
     web/src/lib/__tests__/shortcuts.test.ts \
     web/src/lib/__tests__/theme.test.ts \
+    web/src/lib/build/preview-pipeline-guard.test.ts \
     web/src/lib/chat/page-handlers/__tests__/inline-tool-handlers.test.ts \
     web/src/lib/components/tool-cards/price-chart-logic.test.ts \
     web/src/lib/workers/__tests__/agent-fuzzy-search-bridge.test.ts \
@@ -330,6 +373,8 @@ web_host_files() {
 # C — the coverage host set (per-file --coverage). See header for the
 # include/exclude rationale.
 coverage_host_files() {
+  # The lane-bound files leave C exactly as they leave P (see lane_bound_test_files).
+  local bound=$LANE_BOUND_TEST_FILES
   {
     # See passfail_files: scoped `set +e` so a missing dir doesn't silently
     # truncate the list under the callers' `set -e`.
@@ -354,6 +399,7 @@ coverage_host_files() {
       ! \( -path "src/integrations/github-projects/__tests__/*" -name "*integration*" \) \
       ! -path "src/__tests__/production-image-lifecycle-launch.integration.test.ts"
     find packages/@ezcorp/extension-contract packages/@ezcorp/extension-runner -name "*.test.ts" ! -path "*/node_modules/*"
+    factory_sdk_test_files
     find worker -name "*.test.ts" ! -path "*/node_modules/*"
     # Bundled extensions — same sweep as P (no exclusions), so `extensions/**`
     # is BOTH pass/fail-gated and coverage-measured. P∩C membership also
@@ -374,7 +420,7 @@ coverage_host_files() {
     # The suggest-leg files are subtracted below — ONE definition
     # (suggest_leg_files) serves both this exclusion and the runner.
   } 2>/dev/null | sort -u | comm -23 - <(
-    { suggest_leg_files; web_utility_coverage_files; } | sort -u
+    { suggest_leg_files; web_utility_coverage_files; printf '%s\n' "$bound"; } | sort -u
   )
 }
 
@@ -399,11 +445,13 @@ suggest_leg_files() {
 }
 
 # SDK leg: top-level test/ + co-located entities/__tests__/ (the canonical
-# coverage for entities/{validate,tools,storage,slug}.ts).
+# coverage for entities/{validate,tools,storage,slug}.ts) + v4/ + browser/ +
+# git/ (item C, W18 hygiene GC5 — withoutGitContext(), the one production
+# git-context-isolation rule every host-side git wrapper delegates to).
 sdk_leg_files() {
   {
     set +e
-    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser -name "*.test.ts"
+    find packages/@ezcorp/sdk/test packages/@ezcorp/sdk/src/entities/__tests__ packages/@ezcorp/sdk/src/v4 packages/@ezcorp/sdk/src/browser packages/@ezcorp/sdk/src/git -name "*.test.ts"
   } 2>/dev/null | sort -u
 }
 

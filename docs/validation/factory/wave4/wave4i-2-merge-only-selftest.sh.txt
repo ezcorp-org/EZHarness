@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# merge-only-selftest.sh: --merge-only on a SCRATCH prefix (mo-selftest) over a copy of wave4i-2's blocked results and links to
+# wave4i-2's coverage folders. Cases: three refusals, the blocked state reproduced, and the merge block run with the two producers
+# marked green but without lcov (they fail by name as missing). Takes the heavy lock briefly per case (the runner's own fcntl).
+set -u
+E=/tmp/factory-platform-evidence; W=$E/w00/wave4i-2; R=$W/combined-integration.py.next; T=mo-selftest; H=1c84df6d5d5aba0703ee433ae711450728d16d66
+cd $E; for d in wave4i-2-*-coverage; do ln -sfn $E/$d $E/$T-${d#wave4i-2-}; done
+rm -f $E/$T-manifest-cov-shard-coverage $E/$T-manifest-cov-extras-coverage   # not produced yet: stays missing
+PLAN_ONLY=1 bash $W/merge-only.sh $T x $R 2>/dev/null | python3 -c 'import sys;t=sys.stdin.read();open(sys.argv[1],"w").write(t[t.index("{"):])' $E/$T-plan.json
+st=0; n=0
+case_() { local name=$1 want=$2 json=$3; n=$((n+1)); cp $E/wave4i-2-results.json $E/$T-results.json; echo "$json" > $W/mo-case.json
+  PATCH_BASES= GATE_LOG=/dev/null bash $W/merge-only.sh $T $W/mo-case.json $R > $W/mo-$name.log 2>&1; local rc=$?
+  if grep -q -- "$want" $W/mo-$name.log; then echo "PASS $name (exit $rc)"; else echo "FAIL $name (exit $rc; wanted '$want')"; st=1; fi; }
+rec() { echo "{\"name\":\"$1\",\"head\":\"$2\",\"exitCode\":$3,\"testsRan\":$4}"; }
+case_ refuse-name "not in the plan" "[$(rec nope $H 0 5)]"
+case_ refuse-zero "ran zero tests" "[$(rec manifest-cov-shard $H 0 0)]"
+case_ refuse-head "is not for HEAD" "[$(rec manifest-cov-shard deadbeef 96 0)]"
+case_ blocked '"mergeBlockedBy": \["manifest-cov-shard", "manifest-cov-extras"\]' "[$(rec manifest-cov-shard $H 96 0),$(rec manifest-cov-extras $H 96 0)]"
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));assert d["producers"]==[] and d["checks"]==[];print("PASS blocked: no merge ran")' $E/$T-coverage-results.json || st=1
+case_ merge '"mergeBlockedBy": \[\]' "[$(rec manifest-cov-shard $H 0 7),$(rec manifest-cov-extras $H 0 7)]"
+python3 - $E/$T-coverage-results.json $E/$T-results.json <<'PY' || st=1
+import json,sys
+c=json.load(open(sys.argv[1])); r=json.load(open(sys.argv[2]))
+miss=sorted(p['producer'] for p in c['producers'] if 'missing' in p); inp=[p for p in c['producers'] if 'input' in p]
+merge=[k for k in c['checks'] if k['name']=='merge']
+std=[x['name'] for x in r if x.get('standalone')]
+print('merge inputs', len(inp), 'missing', miss, 'merge', merge, 'quality', [(k['name'],k.get('exitCode')) for k in c['checks'] if k['name']!='merge'], 'standalone', std)
+assert miss==['manifest-cov-extras','manifest-cov-shard'] and merge and merge[0]['exitCode']==0 and sorted(std)==miss
+print('PASS merge: the existing merge block ran; the two producers fail by name as missing')
+PY
+echo "$n cases, status $st"; exit $st

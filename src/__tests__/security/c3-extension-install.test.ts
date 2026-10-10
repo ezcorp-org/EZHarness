@@ -1,12 +1,12 @@
 
 import { afterAll, expect, mock, test, beforeAll } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";
 import { ADMIN_USER, MEMBER_USER, createMockEvent, mockServerAlias } from "../helpers/mock-request";
 
 mockServerAlias();
-const scopes = () => ({ requireScope: () => null });
-mock.module("$lib/server/security/api-keys", scopes);
-mock.module("../../../web/src/lib/server/security/api-keys", scopes);
+const scopes = webLibModule("server/security/api-keys", { requireScope: () => null });
+mock.module("$lib/server/security/api-keys", () => scopes);
+mock.module("../../../web/src/lib/server/security/api-keys", () => scopes);
 const { POST } = await import("../../../web/src/routes/api/extensions/+server");
 afterAll(() => restoreModuleMocks());
 
@@ -33,7 +33,7 @@ test("unauthenticated requests remain denied before the retirement response", as
 
 
 import { eq } from "drizzle-orm";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "../helpers/test-pglite";
@@ -42,18 +42,17 @@ import { extensions, extensionSecrets, projectMembers, users } from "../../db/sc
 import { setSecret, deleteSecret } from "../../extensions/secrets-store";
 import { resolveProjectSourceCredential } from "../../extensions/source-import";
 import type { LifecycleActor } from "../../extensions/v4/types";
+import { scratchRepository } from "../helpers/scratch-git";
 
 mockDbConnection();
-const root = await mkdtemp(join(tmpdir(), "ez-source-secret-db-"));
+const scratchRoot = join(tmpdir(), `ez-source-secret-db-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+const scratch = scratchRepository(scratchRoot, { name: "Fixture", email: "fixture@example.invalid" });
+const root = scratch.dir;
 beforeAll(async () => {
   await setupTestDb();
-  for (const args of [["init"], ["remote", "add", "origin", "git@github.com:owner/private.git"]]) {
-    const child = Bun.spawn(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-    const errors = await new Response(child.stderr).text();
-    if (await child.exited !== 0) throw new Error(errors);
-  }
+  scratch.git("remote", "add", "origin", "git@github.com:owner/private.git");
 });
-afterAll(async () => { await closeTestDb(); await rm(root, { recursive: true, force: true }); });
+afterAll(async () => { await closeTestDb(); await rm(scratchRoot, { recursive: true, force: true }); });
 
 test("production project lookup reads encrypted credentials and observes rotation and account revocation", async () => {
   const database = getTestDb();

@@ -1,0 +1,7 @@
+./scripts/check-required-checks.test.ts
+./src/__tests__/factory-ci-registration.test.ts
+./scripts/factory-orchestrator-registration.test.ts
+./src/__tests__/podman-compose-wrapper.test.ts
+./src/__tests__/container-engine.test.ts
+./src/__tests__/runtime-version-pins.test.ts
+./src/__tests__/merge-lcov-compiled-output.test.ts

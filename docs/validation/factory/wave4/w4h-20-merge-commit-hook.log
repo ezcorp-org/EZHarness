@@ -1,0 +1,24 @@
+Checked 4 files in 5ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/lcov-artifact-names-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 10 expect() calls
+Ran 4 tests across 1 file. [356.00ms]
+  bun: scripts/lib/ci-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 28 expect() calls
+Ran 16 tests across 1 file. [354.00ms]
+  bun: scripts/setup-factory-python-base.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 359 expect() calls
+Ran 10 tests across 1 file. [374.00ms]
+[detached HEAD 2e1008de8] merge: wp/w4h-20-lint-warnings 6e9f8a2c6 into integ/w00 (the four pre-existing lint warnings)

@@ -11,10 +11,11 @@ import {
   symlinkSync,
   writeFileSync,
 } from "node:fs";
-import { createServer } from "node:net";
+import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { UNSANDBOXED_ACK_SENTENCE, UNSANDBOXED_ACK_VARIABLE } from "../extensions/runner-mode";
+import { writeFileWithMode } from "./helpers/exact-mode";
 
 /**
  * Drives `scripts/setup-podman.sh` — the one-command install — against a
@@ -382,9 +383,15 @@ async function withRunnerSocket<T>(
   mkdirSync(runnerDir, { recursive: true });
   let connectionObserved = false;
   let authenticatedCanonicalProbeObserved = false;
+  const accepted = new Set<Socket>();
   const server = createServer((connection) => {
     connectionObserved = true;
-    if (!responsive) return;
+    accepted.add(connection);
+    connection.once("close", () => accepted.delete(connection));
+    // A socket that does not answer still reads: Bun 1.4 (like Node) surfaces a peer's FIN on a paused socket only
+    // once something reads it, so an unread socket never closes and server.close() below would wait for ever. It
+    // drains the request and writes nothing, so it still does not answer as a runner.
+    if (!responsive) { connection.resume(); return; }
     let request = "";
     let responded = false;
     connection.on("data", (chunk) => {
@@ -432,6 +439,8 @@ async function withRunnerSocket<T>(
     }
     return result;
   } finally {
+    // Every accepted socket is destroyed first, so teardown cannot hang on a peer that is still connected.
+    for (const connection of accepted) connection.destroy();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 }
@@ -484,7 +493,8 @@ describe("setup-podman.sh — the env file", () => {
   test("refuses an existing env file with group or other access and changes nothing", () => {
     const env = scratch("Darwin");
     const original = "EZCORP_ENCRYPTION_SECRET=keep-this-secret\n";
-    writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o644 });
+    // Exact mode: a umask-masked 0644 came out private on a 077 runner.
+    writeFileWithMode(env.EZ_SETUP_ENV_FILE, original, 0o644);
 
     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
 

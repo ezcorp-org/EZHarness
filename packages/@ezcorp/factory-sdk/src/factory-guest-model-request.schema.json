@@ -1,0 +1,134 @@
+{
+  "$id": "urn:ezcorp:factory:guest-model-request:v1",
+  "$ref": "#/definitions/FactoryGuestModelRequest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestModelMessage": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "$ref": "#/definitions/FactoryGuestModelRole"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "text"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestModelRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "maxOutputTokens": {
+          "type": "number"
+        },
+        "messages": {
+          "items": {
+            "$ref": "#/definitions/FactoryGuestModelMessage"
+          },
+          "type": "array"
+        },
+        "model": {
+          "$ref": "#/definitions/FactoryModelPin",
+          "description": "Exactly the pin the runner request carries; anything else is refused."
+        },
+        "operationId": {
+          "description": "The journalled operation this call belongs to. One call may be in flight per operation.",
+          "type": "string"
+        },
+        "operationIndex": {
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-model-request.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "operationId",
+        "operationIndex",
+        "model",
+        "messages",
+        "maxOutputTokens"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestModelRole": {
+      "enum": [
+        "system",
+        "user",
+        "assistant"
+      ],
+      "type": "string"
+    },
+    "FactoryModelPin": {
+      "additionalProperties": false,
+      "properties": {
+        "configuration": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "configurationDigest": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "policy": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "policyDigest": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "configurationDigest",
+        "configuration",
+        "policyDigest",
+        "policy"
+      ],
+      "type": "object"
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

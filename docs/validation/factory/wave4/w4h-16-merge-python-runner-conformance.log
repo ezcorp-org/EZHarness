@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-09T16:31:57.622Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-09T16:31:57.626Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-09T16:31:57.627Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-09T16:31:57.627Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"8fe7bb2c-ea48-444b-b278-70a7db1ebdaf"}
+{"ts":"2026-10-09T16:31:57.637Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"model","budget":1,"before":2,"after":2,"droppedCount":0,"droppedTokens":0}
+
+ 6 pass
+ 0 fail
+ 332 expect() calls
+Ran 6 tests across 2 files. [7.49s]

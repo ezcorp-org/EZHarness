@@ -63,6 +63,7 @@
  * merge to prove the squash-immunity claim against the real `git cherry`.
  */
 import { Glob } from "bun";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 
 /** Branch families of the ez-factory program — the DEFAULT scope, not the
  *  only one. The next program will have different prefixes; pass
@@ -370,8 +371,14 @@ export function parseArgs(argv: readonly string[]): Cli {
   };
 }
 
+// Item C, W18 hygiene GC5: strip ambient GIT_* vars (GIT_DIR and friends), so
+// this script's git calls can never be silently redirected onto a poisoned
+// ambient repository context instead of `cwd` — see @ezcorp/sdk/git's
+// docblock for the full threat model and why the strip is deliberately
+// narrow (no HOME override, so the host's own credential/proxy config still
+// applies to any authenticated remote this script might reach).
 function run(args: string[], cwd: string): { ok: boolean; stdout: string; stderr: string } {
-  const p = Bun.spawnSync(["git", ...args], { cwd });
+  const p = Bun.spawnSync(["git", ...args], { cwd, env: withoutGitContext(process.env) });
   return {
     ok: p.exitCode === 0,
     stdout: p.stdout.toString(),

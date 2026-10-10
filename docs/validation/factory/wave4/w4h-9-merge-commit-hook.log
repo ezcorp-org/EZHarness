@@ -1,0 +1,10 @@
+Checked 3 files in 19ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/service-detach.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 238 expect() calls
+Ran 16 tests across 1 file. [16.55s]
+[detached HEAD 4550c2f66] merge: wp/w4h-9 c49f4b727 into integ/w00 (the runner service accepts events before attach and delivers a reverse call once per attachment)

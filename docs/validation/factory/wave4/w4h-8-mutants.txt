@@ -1,0 +1,6 @@
+renew-without-token-fence exit=1 (RED-killed)  40 pass 4 fail  failing: shared durable delivery queue concurrency > renews only the lease its owner still holds, and never one that ran out or was taken;durable extension deliveries > a stale lease token cannot renew, before or after the delivery is reclaimed;durable extension deliveries > a running handler cannot keep a l
+heartbeat-at-full-lease exit=1 (RED-killed)  42 pass 2 fail  failing: lease heartbeat during dispatch > the interval schedule renews at a third of the lease, so two renewals may fail before it lapses;durable extension deliveries > by default a dispatch renews its 60 s lease every 20 s while the handler runs;
+heartbeat-at-half-lease exit=1 (RED-killed)  42 pass 2 fail  failing: lease heartbeat during dispatch > the interval schedule renews at a third of the lease, so two renewals may fail before it lapses;durable extension deliveries > by default a dispatch renews its 60 s lease every 20 s while the handler runs;
+drain-failure-logged-per-tick exit=1 (RED-killed)  43 pass 1 fail  failing: one failing drain is logged once, however many timer ticks find it in flight;
+ M src/delivery-queue/durable-delivery-queue.test.ts
+ M src/extensions/v4/deliveries.test.ts

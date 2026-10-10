@@ -1,0 +1,4 @@
+tc-gate 2026-10-08T08:52:43Z typecheck-all GREEN: MemAvailable=14.4GiB >= 12GiB (in-lock=1); start
+tc-gate 2026-10-08T08:53:29Z typecheck-all END: exit=0; MemAvailable before 14.4GiB, lowest during 11.5GiB, after 14.3GiB
+tc-gate 2026-10-08T10:29:16Z typecheck-all GREEN: MemAvailable=18.0GiB >= 12GiB (in-lock=1); start
+tc-gate 2026-10-08T10:30:03Z typecheck-all END: exit=0; MemAvailable before 18.0GiB, lowest during 14.3GiB, after 17.8GiB

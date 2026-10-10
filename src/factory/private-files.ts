@@ -1,0 +1,143 @@
+import { constants } from "node:fs";
+import { randomUUID } from "node:crypto";
+import { mkdir, open, rename, unlink, type FileHandle } from "node:fs/promises";
+import { basename, dirname, resolve } from "node:path";
+
+function owner(): number {
+  const uid = process.getuid?.();
+  if (uid === undefined) throw new Error("Private files require a POSIX owner.");
+  return uid;
+}
+
+function privateError(message: string): Error { return new Error(message); }
+
+const STICKY = 0o1000;
+
+/**
+ * The verdict on one directory component of a private path, from its owner and mode alone.
+ * A foreign ancestor above the first owned directory may not be group- or world-writable,
+ * except a root-owned sticky one such as /tmp: there no other user can rename or unlink the
+ * entry this user owns, and the walk opens that entry through the parent's descriptor without
+ * following links. Below the first owned directory nothing foreign is allowed. An owned
+ * directory must be 0700; only the leaf may be repaired, and only when the caller asks.
+ * Returns "repair" when the owned leaf needs chmod 0700, otherwise whether it is owned.
+ */
+export function privateComponentVerdict(
+  status: { readonly uid: number; readonly mode: number },
+  uid: number,
+  state: { readonly reachedOwnedDirectory: boolean; readonly mayRepair: boolean },
+): "foreign" | "owned" | "repair" {
+  if (status.uid !== uid) {
+    const rootSticky = status.uid === 0 && (status.mode & STICKY) !== 0;
+    if (state.reachedOwnedDirectory || ((status.mode & 0o022) !== 0 && !rootSticky)) throw privateError("Private path has a writable foreign ancestor.");
+    return "foreign";
+  }
+  if ((status.mode & 0o077) === 0) return "owned";
+  if (!state.mayRepair) throw privateError("Private path has a non-private owned ancestor.");
+  return "repair";
+}
+
+/**
+ * Opens every directory component through its already-open parent. Foreign
+ * ancestors may only be non-writable (or root-owned and sticky); the first
+ * owned directory and all of its descendants must be private. The caller
+ * owns the returned descriptor.
+ */
+export interface PrivateDirectoryOptions { readonly createLeaf?: boolean; readonly repairOwnedLeaf?: boolean }
+export async function privateDirectory(path: string, options: PrivateDirectoryOptions = {}): Promise<FileHandle> {
+  const uid = owner();
+  let directory = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+  let reachedOwnedDirectory = false;
+  try {
+    const components = resolve(path).split("/").filter(Boolean);
+    for (const [index, component] of components.entries()) {
+      let child: FileHandle;
+      try { child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
+      catch (error) {
+        if (!options.createLeaf || (error as NodeJS.ErrnoException).code !== "ENOENT" || !reachedOwnedDirectory) throw error;
+        // A concurrent writer may create the leaf first; the checks below still apply to it.
+        await mkdir(`/proc/self/fd/${directory.fd}/${component}`, { mode: 0o700 }).catch((mkdirError: NodeJS.ErrnoException) => { if (mkdirError.code !== "EEXIST") throw mkdirError; });
+        child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
+      }
+      const status = await child.stat();
+      if (!status.isDirectory()) { await child.close(); throw privateError("Private path component is not a directory."); }
+      let verdict: ReturnType<typeof privateComponentVerdict>;
+      try { verdict = privateComponentVerdict(status, uid, { reachedOwnedDirectory, mayRepair: options.repairOwnedLeaf === true && index === components.length - 1 }); }
+      catch (error) { await child.close(); throw error; }
+      if (verdict === "repair") await child.chmod(0o700);
+      if (verdict !== "foreign") reachedOwnedDirectory = true;
+      await directory.close();
+      directory = child;
+    }
+    if (!reachedOwnedDirectory) throw privateError("Private path has no owned directory.");
+    return directory;
+  } catch (error) {
+    await directory.close();
+    throw error;
+  }
+}
+
+/** Reads one owned, private regular file through a directory descriptor. */
+export async function readPrivate(directory: FileHandle, name: string, length: number): Promise<Uint8Array> {
+  const bytes = await readPrivateBounded(directory, name, length);
+  if (bytes.byteLength !== length) throw privateError("Private file must be exact-sized.");
+  return bytes;
+}
+
+/** Reads one owned private regular leaf after its bounded size check. */
+export async function readPrivateBounded(directory: FileHandle, name: string, maximumLength: number): Promise<Uint8Array> {
+  if (basename(name) !== name || !Number.isSafeInteger(maximumLength) || maximumLength < 1) throw privateError("Private file leaf is invalid.");
+  const handle = await open(`/proc/self/fd/${directory.fd}/${name}`, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const status = await handle.stat();
+    if (!status.isFile() || status.uid !== owner() || (status.mode & 0o077) !== 0 || status.size < 1 || status.size > maximumLength) throw privateError("Private file must be owned, private, regular, and bounded.");
+    const bytes = Buffer.allocUnsafe(status.size);
+    const { bytesRead } = await handle.read(bytes, 0, status.size, 0);
+    if (bytesRead !== status.size) throw privateError("Private file changed during its bounded read.");
+    return Uint8Array.from(bytes);
+  } finally {
+    await handle.close();
+  }
+}
+
+/** Reads one owned private file by path, opening its directory first. */
+export async function readPrivatePath(path: string, maximumLength: number): Promise<Uint8Array> {
+  const absolute = resolve(path);
+  const directory = await privateDirectory(dirname(absolute));
+  try {
+    return await readPrivateBounded(directory, basename(absolute), maximumLength);
+  } finally {
+    await directory.close();
+  }
+}
+
+/** {@link readPrivatePath}, decoded as strict UTF-8. */
+export async function readPrivateText(path: string, maximumLength: number): Promise<string> {
+  return new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path, maximumLength));
+}
+
+/** Atomically replaces one bounded file in an owned private directory. */
+export async function writePrivateBoundedAtomic(path: string, bytes: Uint8Array, maximumLength: number): Promise<void> {
+  if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || !Number.isSafeInteger(maximumLength) || maximumLength < 1 || bytes.byteLength > maximumLength) throw privateError("Private file output is invalid.");
+  const absolute = resolve(path);
+  const leaf = basename(absolute);
+  if (!leaf || leaf === "." || leaf === "..") throw privateError("Private file leaf is invalid.");
+  const directory = await privateDirectory(dirname(absolute), { createLeaf: true, repairOwnedLeaf: true });
+  const temporary = `.${leaf}.${process.pid}.${randomUUID()}.tmp`;
+  const temporaryPath = `/proc/self/fd/${directory.fd}/${temporary}`;
+  const finalPath = `/proc/self/fd/${directory.fd}/${leaf}`;
+  let handle: FileHandle | undefined;
+  let failure: unknown;
+  try {
+    handle = await open(temporaryPath, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+    await handle.writeFile(bytes);
+    await handle.sync();
+    await handle.close(); handle = undefined;
+    await rename(temporaryPath, finalPath);
+    await directory.sync();
+  } catch (error) { failure = error; }
+  try { await handle?.close(); } catch (error) { failure ??= error; }
+  try { await unlink(temporaryPath); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") failure ??= error; }
+  try { await directory.close(); } catch (error) { failure ??= error; }
+  if (failure !== undefined) throw failure;
+}

@@ -1,0 +1,7 @@
+head 2e529f1bb541f18f30496a08e2227af0dac1b167 dirty:  bun=1.4.2 bunx=1.4.2
+run 1 gate mem=15G swap=3G disk=151G start=2026-10-05T00:50:07Z
+resource-gate 2026-10-05T00:50:07Z e2e-run-1 disk=151G memAvailable=15GiB swapFreeKiB=3951316/17173956 floors disk>=100G swap>=2097152KiB
+run 1 exit=0 end=2026-10-05T00:56:40Z   3 passed (6.5m) 
+run 2 gate mem=15G swap=3G disk=151G start=2026-10-05T00:56:40Z
+resource-gate 2026-10-05T00:56:40Z e2e-run-2 disk=151G memAvailable=15GiB swapFreeKiB=3577348/17173956 floors disk>=100G swap>=2097152KiB
+run 2 exit=0 end=2026-10-05T01:03:08Z   3 passed (6.5m) 

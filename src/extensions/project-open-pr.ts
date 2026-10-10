@@ -2,6 +2,7 @@ import { mkdtemp, rm, mkdir, copyFile, lstat, realpath } from "node:fs/promises"
 import { constants } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { gitHeadRef, isValidGitBranchName } from "./project-git-refs";
 
 export interface ProjectPullRequestInput {
   projectRoot: string;
@@ -80,7 +81,11 @@ export function createProjectCommandRunner(githubToken?: string, limits = { time
 }
 
 export async function openProjectPullRequest(input: ProjectPullRequestInput, options: ProjectPullRequestOptions = {}): Promise<{ ok: boolean; url?: string; error?: string }> {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(input.runId) || input.runId.includes("..") || !input.title.trim() || input.title.length > 500 || input.body.length > 100_000) return { ok: false, error: "Invalid pull request input" };
+  // The head branch is built from the run id and then pushed and passed to `gh` as an argv, so the
+  // ref grammar decides whether it is usable, not the run id's character class alone. Without this
+  // a run id ending in `.lock` or `.` produced a branch git refuses at push time.
+  const branch = `ez-code/${input.runId}`;
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/.test(input.runId) || !isValidGitBranchName(branch) || !input.title.trim() || input.title.length > 500 || input.body.length > 100_000) return { ok: false, error: "Invalid pull request input" };
   const projectRoot = await realpath(input.projectRoot);
   const run = options.run ?? createProjectCommandRunner(options.githubToken);
   async function checked(argv: string[], cwd = projectRoot, stdin?: string): Promise<string> {
@@ -96,10 +101,9 @@ export async function openProjectPullRequest(input: ProjectPullRequestInput, opt
     const remoteMatch = /^(?:https:\/\/github\.com\/|git@github\.com:)([a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+?)(?:\.git)?$/.exec(remote);
     if (!remoteMatch) throw new Error("Pull requests require an exact github.com origin");
     const repository = remoteMatch[1]!;
-    const branch = `ez-code/${input.runId}`;
     const baseResult = await run(["git", "symbolic-ref", "refs/remotes/origin/HEAD"], projectRoot);
     const base = baseResult.exitCode === 0 ? baseResult.stdout.trim().replace(/^refs\/remotes\/origin\//, "") : "main";
-    if (!/^[a-zA-Z0-9][a-zA-Z0-9._/-]{0,199}$/.test(base) || base.includes("..")) throw new Error("Invalid default branch");
+    if (!isValidGitBranchName(base)) throw new Error("Invalid default branch");
     const tracked = (await checked(["git", "ls-files", "-z"])).split("\0").filter(Boolean);
     if (tracked.some((path) => path.split("/").includes(".ezcorp"))) throw new Error("Platform data must not be tracked in the project");
     temporaryRoot = await mkdtemp(join(tmpdir(), "ezcorp-pr-"));
@@ -125,7 +129,7 @@ export async function openProjectPullRequest(input: ProjectPullRequestInput, opt
     await checked(["git", "switch", "-c", branch], worktree);
     await checked(["git", "add", "-A"], worktree);
     await checked(["git", "commit", "-m", input.title], worktree);
-    await checked(["git", "push", `https://github.com/${repository}.git`, `HEAD:refs/heads/${branch}`], worktree);
+    await checked(["git", "push", `https://github.com/${repository}.git`, `HEAD:${gitHeadRef(branch)}`], worktree);
     const url = (await checked(["gh", "pr", "create", "--repo", repository, "--base", base, "--head", branch, "--title", input.title, "--body", input.body], worktree)).trim();
     if (!/^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+\/pull\/\d+$/.test(url)) throw new Error("Pull request creation returned an invalid URL");
     return { ok: true, url };

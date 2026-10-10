@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# producer-leg.sh <leg>: ONE combined-runner coverage producer of wave4i-2, run alone under the heavy lock (integrator-4,
+# lead's option 1, 2026-10-05). Called by gated-flock.sh (outside wait GATED_FLOCK_START_MEM_GIB=15).
+# The leg's command is read from the runner's own plan (wave4i-2-plan.json), so COV_OUT is the path the runner's merge reads.
+# The runner's own gate for these legs stays: 15 GiB available, 2 GiB swap free, 100 + 20 GB disk; red inside the lock = exit 75.
+# PostgreSQL as in the runner: FACTORY_TEST_POSTGRES_URL set (inside pg(), never on argv), DATABASE_URL absent; bound 7200 s.
+set -u
+LEG=${1:?leg}
+case "$LEG" in manifest-cov-shard|manifest-cov-extras) ;; *) echo "REFUSED: unknown leg $LEG"; exit 2;; esac
+E=/tmp/factory-platform-evidence
+D=$E/w00/wave4i-2/producers/$LEG; mkdir -p "$D"
+export RESOURCE_GATE_MEM_GIB=15 RESOURCE_GATE_DISK_GB=120
+. $E/w00/heavy-lib.sh   # veto, pin + flag, env, hold-start gate (exit 75 if red), leg + zero-test guard
+CMD=$(python3 -c 'import json,sys;print(next(c["command"][2] for c in json.load(open(sys.argv[1]))["checks"] if c["name"]==sys.argv[2]))' $E/wave4i-2-plan.json "$LEG") \
+  || { echo "REFUSED: $LEG not in the plan" >> "$S"; exit 2; }
+[ "$(git rev-parse HEAD)" = 1c84df6d5d5aba0703ee433ae711450728d16d66 ] || { echo "REFUSED: head is not 1c84df6d5" >> "$S"; exit 2; }
+COV=$(grep -oE 'COV_OUT=[^ ]+' <<< "$CMD" | cut -d= -f2)
+[ ! -e "$COV" ] || { echo "REFUSED: $COV exists already" >> "$S"; exit 2; }
+echo "leg $LEG command: $CMD" >> "$S"
+leg "$LEG" pg env -u DATABASE_URL timeout 7200 bash -c "$CMD"
+echo "lcov under $COV: $(find "$COV" -name '*.info' 2>/dev/null | wc -l) file(s)" >> "$S"
+heavy_done

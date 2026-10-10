@@ -44,6 +44,9 @@
     "prepublishOnly": "bun run build",
     "test": "bun test"
   },
+  "dependencies": {
+    "@ezcorp/factory-sdk": "workspace:*"
+  },
   "devDependencies": {
     "@types/bun": "1.4.2",
     "@types/node": "^26.6.3"

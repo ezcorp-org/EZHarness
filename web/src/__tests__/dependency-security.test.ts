@@ -64,7 +64,7 @@ test("SvelteKit sets, reads, and clears the app session with the patched cookie 
 });
 
 test("SvelteKit serializes page data with the patched devalue", async () => {
-  expect(kitRequire("devalue/package.json").version).toBe("5.9.3");
+  expect(kitRequire("devalue/package.json").version).toBe("5.9.4");
   const { parse, stringify } = await import(pathToFileURL(kitRequire.resolve("devalue")).href);
   const pageData = { conversations: [{ id: "chat-1", title: "<script>unsafe</script>" }], active: true };
   expect(parse(stringify(pageData))).toEqual(pageData);
@@ -80,7 +80,7 @@ test("Ajv's patched URI parser treats percent-encoded host letters as equal", ()
 });
 
 test("jsdom's WebSocket constructor loads the patched undici", () => {
-  expect(jsdomRequire("undici/package.json").version).toBe("8.10.2");
+  expect(jsdomRequire("undici/package.json").version).toBe("8.11.2");
   const { JSDOM } = jsdomRequire("jsdom");
   const dom = new JSDOM("", { url: "https://example.test/" });
   try {

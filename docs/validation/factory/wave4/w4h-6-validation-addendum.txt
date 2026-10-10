@@ -1,0 +1,13 @@
+W4H-6 verdict addendum, validator-5, 2026-10-04: docs-only commit over the validated code head
+
+VERDICT: ACCEPT wp/w4h-6 at 4bcd76089 (docs-only over 346e8767c). The ACCEPT at 346e8767c carries forward (rule: docs-only commits
+over a validated code head).
+Base verdict: verdict-validator-5-w4h6.txt, sha256 e7f22f69c00f239cff54ecd4f28da5df9f81431be0c99410490b9da75d555ca3.
+
+`git diff --name-only 346e8767c 4bcd76089`:
+  tasks/factory/w4h-6-GATES.md
+(1 file, +17 -2; the G6 of record entry.) No code, test or tool file.
+- Identity: 4bcd76089 archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+- Weakening-pattern scan on added lines: 1 hit, the file name src/__tests__/biome-ignores-worktrees.test.ts in prose. Read: not a weakening.
+- The entry cites the three G6 log sha256s that the base verdict accepted (9f452afd..., 3668bd62..., b721f70d...), all three present.
+- Config check: exit 0 (888c78b9e94ea660 = accepted baseline).

@@ -1,0 +1,12 @@
+CRAP: --changed against edd373c5927d371a39d14cc087058b7084976099 → 3 measured file(s) in diff
+
+CRAP: 5 functions in 3 files (max 30, warn 15)
+
+Worst 5:
+      9.0  cc=  9 cov=100%  src/providers/factory-broker.ts:85 factoryProviderReadiness
+      5.0  cc=  5 cov=100%  src/providers/factory-broker.ts:182 stream
+      4.0  cc=  4 cov=100%  src/providers/factory-broker.ts:175 createFactoryProviderBroker
+      3.0  cc=  3 cov=100%  src/providers/factory-broker.ts:116 credentialRunsPin
+      2.0  cc=  2 cov=100%  src/providers/factory-broker.ts:131 subscriptionOnly
+
+✓ no touched function exceeds CRAP 30

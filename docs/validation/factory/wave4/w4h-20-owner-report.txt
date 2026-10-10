@@ -1,0 +1,43 @@
+W4H-20 owner report — the four biome lint warnings on integ/w00 (written once; FREEZE after this file)
+
+Branch: wp/w4h-20-lint-warnings from integ/w00 95bc71b20386d133ba4efe42545629b5f1313e40 (no merge, no rebase).
+Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-20 (clean). Evidence: /tmp/factory-platform-evidence/w4h-20/.
+
+Commits (author and committer: archy <281643943+EZArchy@users.noreply.github.com>):
+  ae1612f2f9eaaf4d9d289a376c8c7217db3f2496 fix(lint): clear the four biome warnings at their root (W4H-20)
+    hook: biome check rc 0; 3 suites mapped, 30 pass / 0 fail (commit-fix-hook.log)
+  6e9f8a2c698ee22c53c50cff33492abe994017c9 docs(gates): W4H-20 gate file — the four biome lint warnings
+    hook: 0 suites mapped (commit-gates-hook.log)
+Diff 95bc71b20..HEAD: 5 files: scripts/lib/ci-registration.ts, scripts/lcov-artifact-names-registration.test.ts,
+  scripts/setup-factory-python-base.test.ts, tests/postgres/helpers/factory-recovery-databases.ts, tasks/factory/w4h-20-GATES.md.
+  No biome.json change.
+
+Note on integ: integ/w00 moved to 31b9a8d93 (the W4H-18 merge) at 22:28:09Z, after every leg here ran (22:02Z-22:30Z;
+  the BASE_REF legs ran at 22:02Z-22:10Z, when integ/w00 was 95bc71b20). The W4H-18 merge did not change any of my four files.
+  `git merge-tree --write-tree integ/w00 HEAD` is clean (tree 20ac57df2205ddfe8d8725188800758ea3de8e16).
+
+Checklist:
+  R1 red   DONE  r1-red-lint.log: 4 warnings (3 files), 0 errors, at 95bc71b20.
+  R2 fix   DONE  ghExpr(expression) in scripts/lib/ci-registration.ts (the existing shared module both tests import;
+                 one definition, rule not weakened). adminSql() asserts, then returns the client; the field stays private readonly.
+  R2 lint  DONE  four files 0/0; whole repo 0/0 (6145 files); bun run lint rc 0.
+  R2 unit  DONE  each file alone with lcov: lcov-artifact-names 4/0, setup-factory-python-base 10/0, ci-registration 16/0.
+  R2 PG    DONE  tests/postgres/factory-restore.test.ts on own PostgreSQL w4h-20-pg (pgvector pg15, 15.19): 17 pass / 0 fail
+                 (tries 2 and 3; same lcov bytes). Try 1 VOID: 0/1 because my script lacked EZCORP_FACTORY_STORAGE_SECRETS_DIR.
+  R2 cov   DONE  patch gate PASSED (1 file); new-file gate vacuous (no new source file); changed lines hit:
+                 ci-registration.ts:56,57; factory-recovery-databases.ts:42,43,44,55 (outside SOURCE_GLOBS: the gate does not judge it).
+  typecheck DONE in the lock through tc-gate: typecheck exit 0; svelte-check exit 0 (620 files, 0 errors, 0 warnings).
+  boundaries DONE 0 violations; factory boundaries pass.
+  gate-integrity DONE integ: PASSED; origin/main: exactly the 8 known coverage-tool findings, no new line.
+  hook-mapped DONE 3 suites 30/0.  prune DONE clean (0 hits).  guard set DONE 41 files: 511 pass, 2 skip, 0 fail.
+  gate file DONE tasks/factory/w4h-20-GATES.md (G1-G9, force-added, one commit).
+
+Open / for the lead:
+  1. Shared w00/tc-gate.sh race: tc_run's memory sampler inherits the typecheck lock fd, and its last `sleep 2` can hold the lock up to 2 s
+     after a tc_run. A back-to-back tc_run (as tc_leg runs typecheck, then svelte-check) reads "another typecheck runs" and exits 75 (seen
+     22:09:47Z). My heavy.sh probes the lock for at most 5 s before svelte-check. I did not edit the shared file.
+  2. ci-registration.test.ts alone does not run ghExpr (line 56); the two consumer tests do. No direct test was added (scope: no other file).
+  3. Outside scope: web's Vite config prints a configLoader 'native' warning (an import without a file extension, vite.config.ts:6).
+  4. heavy.sh was edited twice between hold tries (the S3 export after try 1, the tc-lock probe after try 2). Try 3 ran the final script.
+
+Hold receipts: gated-flock.log; heavy.exit = 0; heavy-20261009T222741Z/ (final), heavy-20261009T220700Z/ (try 2), heavy-20261009T220241Z/ (try 1 VOID).

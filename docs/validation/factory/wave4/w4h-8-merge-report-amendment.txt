@@ -1,0 +1,7 @@
+W4H-8 merge 5b8d5556f: the owner's report was written after the merge and is added here.
+Addendum to w4h-8-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- w4h-8-merge.json's notes.ownerReport says no report.txt existed under /tmp/factory-platform-evidence/w4h-8/ at receipt time. The owner
+  had reported by message only.
+- The owner (w4h-8) then wrote /tmp/factory-platform-evidence/w4h-8/report.txt from those messages (2026-10-04 23:25Z, after the merge;
+  it changes nothing in the merged tree), sha256 5efbe1edec75b9ac67ff69b9d0272ee675436f08dc39fb4c61c268f8bd57b686, copied as w4h-8-owner-report.txt.
+The merge, its hold, the verdicts and the publish are unchanged.

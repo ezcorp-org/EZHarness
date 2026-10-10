@@ -1,0 +1,67 @@
+VERDICT (validator-6) — W4H-9 at c49f4b727 (wp/w4h-9, owner w4h-1), base integ/w00 104cb2237: ACCEPT; R3d (the full historical-upgrade lane) OPEN locally for load — the hosted lane after the push is its proof of record (not a fail)
+This verdict also closes the "recovery seed finding" item of my W4H-1 verdict (side finding 2). The W4H-1 production-image proofs stay with w4h-1.
+
+3 commits, all archy noreply as author and committer: 0498c0a52 (start claim: the starter owns its worker), 02c53fb7a (each reverse
+call reaches an attachment once), 138ace386 (gates and todo). Code: packages/@ezcorp/extension-runner/src/service.ts only; tests:
+tests/service-detach.test.ts (three new cases) and tests/runner-client-3ec53eaa-fixture.ts (new).
+Where: clean snapshots (v5_snapshot) under /tmp, outside the evidence dir; all removed. Record: w4g-validation/w4h9/ (5.5 MB).
+Shared config (config-check.py --check-only): exit 0 at every start and end ("888c78b9e94ea660 = accepted baseline").
+
+REVIEW: start attaches the session for its starter as an unclaimed start claim; the starter's first /v4/attach (idempotent) or
+/v4/events claims it; a release clears the claim, so a released or woken worker still needs /v4/attach; lease, renewal and release
+rules unchanged. A per-attachment delivered set hands each reverse call once; a release clears it, so a replacement holder gets every
+unanswered call; a reply retires its entry. No protocol versioning. As the gate file says, the window in which another authenticated
+caller could take an unclaimed start attachment equals the window that existed between start and attach before (the protocol has
+no host identity). The fixture equals the 3ec53eaa client (git show 3ec53eaa66…:packages/@ezcorp/extension-runner/src/client.ts)
+except two import paths and a header comment.
+
+R1 RED, mine:
+  (a) unit: the head's service-detach.test.ts against the base service.ts: RED by assertion, 3 cases — "a host that never calls
+      /v4/attach still polls its events and completes a forward request", "the 3ec53eaa RunnerClient completes a forward request
+      it sends after its first event poll", "the 3ec53eaa RunnerClient answers each reverse call once and keeps its worker".
+      Against service.ts at 0498c0a52 (fix 1 only): RED, the reverse-call case only.
+  (b) E2E: scripts/verify-docker-upgrade.sh, VERIFY_UPGRADE_SEMANTIC_ONLY=1 on podman, run from a BASE snapshot (the runner service
+      runs on the host from the checkout that runs the script) with the candidate image built from `git archive 104cb2237` (own tag,
+      removed): exit 1, "operation_failed" (w4h9/e2e-base-from-base-snapshot/). My first "base" run used the head snapshot, so the
+      fixed service answered (exit 0); it is void as a red and kept as a record (w4h9/hold-138ace386/e2e-base/).
+MUTANTS (in the snapshot, restored after each): start claim removed (`attachHost(session); session.startClaim = true;`): RED, the 3
+  new cases; the delivered filter removed (`undelivered = () => session.events`): RED, the reverse-call case; a release that no longer
+  clears `attached`: RED, 9 failures across the recovery suites (the disconnect matrix, lease release, replacement host, held
+  forward request, lease renewal by a non-holder) — a released or woken worker must still re-attach, and the tests hold it. One
+  mutant relaxing collectEvents' first guard SURVIVED; it is equivalent (the attached check after the park still refuses).
+R3 GREEN, mine:
+  (a) service-detach.test.ts 14 pass, 0 fail.
+  (b) every recovery and attach suite, unchanged by the diff (git diff on them: 0), each alone and nonzero: client-reattach 2,
+      service-detach 14, service 5, ext-dev 4, runner-connection 7, host-launch-supervisor 13 (45 pass, 0 fail). Podman suites in a
+      fresh snapshot under the lock: main.integration 1, podman.integration 19, provision.integration 3,
+      host-launch-transport.integration 6, supervisor.podman.integration 2 (31 pass, 0 fail). (A first podman run overlapped a manual
+      mutant of mine in the same snapshot and named one path wrongly; it is void and was rerun clean.)
+  (c) E2E semantic-only on podman from the HEAD snapshot with the candidate from `git archive 138ace386`: exit 0, UPGRADE_STATE_SEEDED,
+      candidate and restore asserted (load 4.3-7.1 under 10; gated-flock with the exit file; images removed by tag).
+  (d) OPEN: the full historical-upgrade lane (owner's R3d, starved by load, re-queued); not run by me.
+LEGS: typecheck, lint, check-factory-boundaries, check-boundaries 0; hook-mapped suite (service-detach) plus the six recovery suites
+  with lcov: 45 pass, 0 fail, none VOID; service.ts LF 207 LH 207 (FNH 51/55); SDK 246/0; new-file gate PASSED (no new source file;
+  the fixture is under tests/), patch gate PASSED (service.ts); CRAP max 18.0 (startRunnerService), dispatch 16.0, collectEvents 6.0,
+  all at 100 percent; vs origin/main neither gate output names a file of this change; guard set 39 files 477 pass, 2 skip, 0 fail;
+  gate-integrity: base leg clean against 104cb2237, origin/main leg equals the 8 paths; prune scan (efffa0178530c74a) "clean (0 hit(s))".
+IDENTITY: 3/3 archy noreply.
+
+ADDENDUM — the head c49f4b727 (carry-over instance W4H-9-pins, w00/ruling-proof-carry-over.txt; A = 138ace386, B = c49f4b727)
+`git diff --name-only 138ace386 c49f4b727` = packages/@ezcorp/extension-runner/tests/service-detach.test.ts, tasks/factory/w4h-9-GATES.md;
+`git diff --name-only 02c53fb7a c49f4b727` adds tasks/todo.md; no source file changed after 02c53fb7a. Commits 17d1762fd (two pinned
+attach-rule cases: "a released worker refuses an event poll until a host attaches it again", "after the starter claims its worker, a
+second attach is refused") and c49f4b727 (gates doc), both archy noreply. Carried from A as ruled: the E2E runs (base red from a BASE
+snapshot, head green), the clean podman rerun (31/0), the mutants and the fixture check above.
+Rerun at B (w4g-validation/w4h9/hold-c49f4b727/, a fresh snapshot outside the evidence dir, removed):
+  - service-detach.test.ts 16 pass, 0 fail (the two pinned cases included).
+  - The owner's mutation, the claim-clearing line on /v4/attach removed (`session.startClaim = false;` before `attachHost(session);`):
+    RED by assertion, 2 cases — "after the starter claims its worker, a second attach is refused" and "a dropped connection releases
+    the attachment from the runtime's own signal, never from the lease". Restored clean.
+  - typecheck, lint, both boundary checks 0; identity 5/5 archy noreply; gate-integrity base leg clean against 104cb2237, origin/main
+    leg equals the 8 paths; guard set 477 pass, 2 skip, 0 fail; SDK 246/0; new-file gate PASSED (no new source), patch gate PASSED
+    (service.ts, all changed executable lines covered); CRAP 0 findings over 30; prune scan (efffa0178530c74a) "clean (0 hit(s))";
+    config-check exit 0 at start and end.
+  - Coverage note: with the hook-mapped suite alone (service-detach), service.ts is LF 207 LH 198 and the origin/main patch output
+    names service.ts once; with the six recovery suites as well (the run at A, same source), it is LH 207 and named 0 times. The
+    package-base patch gate passes either way.
+The equivalent mutant (collectEvents' first guard relaxed) is explained above, not a finding.

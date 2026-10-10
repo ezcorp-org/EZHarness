@@ -1,0 +1,66 @@
+W4H-2 (wp/w4h-2, pinned uv for the hosted test jobs): ACCEPT at 069fb8248. validator-5, 2026-10-03. Base integ/w00
+52d8ba079. No finding above low. G10 (the next hosted run) is the coordinator's and stays open.
+Receipts: /tmp/factory-platform-evidence/w4g-validation/v5-w4h2/: hold-069fb8248/ (results.jsonl, logs/, tree-review.tsv,
+merged.lcov, cov-helper/), hold-069fb8248.out, logs/red-52d8ba079.log and logs/green-069fb8248.log (container), and my own
+Containerfile, container-suites.sh, mutate-job.py and hold.sh. Everything ran from clean snapshots, never from the owner's worktree:
+- The container runs use a fresh `git archive`.
+- The hold uses a git archive of 069fb8248 made a private repository: objects by alternates, HEAD at the head, index read from
+  the tree, git status clean, nothing written to the shared .git.
+
+(1) Red at 52d8ba079 in a runner-shaped container. Image localhost/v5-w4h2-runner:24.04 (d128aae338e0), written by me:
+    Ubuntu 24.04; the log line reads "uid 1001 home 755 bun 1.4.2 python3 3.12.3 uv: none nix: none"; --cpus 4, --memory 8g.
+    uv-command.test.ts plus python-runner.integration.test.ts give 5 pass, 5 fail, "bun test exit=1". Each of the 5 fails with
+    "UvUnavailableError: no 'uv' available; install uv or provide nix-shell. The Python lanes cannot be skipped.":
+      resolveUvBinary > on this host the real resolution gives a runnable uv, reused for every command
+      C02 golden fixtures accept identically through the Bun SDK and a real host Python process
+      C02 golden rejections refuse forged pins, unsafe counters, money, schemas, usage, and checkpoints with the same issue code in both runtimes
+      a malformed envelope is refused by the host entry point rather than crashing it
+      real Python child writes branch coverage for the canonical C02 runner
+    Log sha256 0f03ab1e29a6af8d26c0a81c51453503b3bfae087f3d350b9671d6fdc2379a8b.
+(2) Green at 069fb8248 in the same image. I extracted every `run:` step of the snapshot's
+    .github/actions/setup-python-toolchain/action.yml with Bun.YAML and ran it as written, honouring GITHUB_PATH. The log shows
+    "uv-x86_64-unknown-linux-gnu.tar.gz: OK" (sha256 verified) and "uv: /tmp/uv-pinned/uv uv 0.11.8"; then 10 pass, 0 fail,
+    "bun test exit=0". Log sha256 9c14d5ef28fb27b900064676ce76b844cbd21a1641250de118430382f6a49edd.
+(3) One pin source:
+    - Outside tests, tasks, docs and lock files, `git grep -F 0.11.8` finds only ".uv-version:1:0.11.8".
+    - The action reads the version from .uv-version, has no inputs, verifies the sha256, and keys its cache on
+      hashFiles('.uv-version', ...).
+    - scripts/uv-toolchain-registration.test.ts is 4/0 at the head, and each of these mutants turns it red by assertion:
+      - a second literal "# uv 0.11.8" appended to ci.yml
+      - another install, "# run: pip install uv", appended to release-sdk.yml
+      - the setup-python-toolchain line removed from each one of factory-schema-kernel, cov-shard, cov-extras,
+        backend-critical, residual-tests (ci.yml) and release (release-sdk.yml): six job-scoped mutants, each red
+    - scripts/gate-integrity-deps-registration.test.ts is 3/0, and red with gate-integrity-deps removed from release-sdk.yml's
+      release job (W4G-6's gap, closed).
+    - The tree was restored after every mutant.
+(4) One shared helper: both registration tests import readWorkflows, runsBackendSuites and stepsNeedingAction from
+    scripts/lib/ci-registration.ts, and no other .ts file defines those functions. Its own lcov, from ci-registration.test.ts
+    plus both registration tests (20/0), is LF 44, LH 44, FNF 13, FNH 13. The file is gated, in SOURCE_GLOBS.
+(5) No skip and no resolver change: src/factory/runner/uv-command.ts is unchanged against the base. The diff adds no .skip,
+    .todo, .only or EXCLUDES. The pin assertions removed from python-quality-registration.test.ts are all in the new test
+    (pin format, the `tr -d '[:space:]' < .uv-version` read, sha256sum --check, no /tmp/factory-tools), and one is stricter:
+    "nix", where it was "nix-shell". The 2 skips in the guard set are older environment conditions (mcp-seccomp-profile BPF,
+    podman-compose-wrapper Docker CLI) in files W4H-2 does not touch.
+(6) Gates, from the snapshot:
+    - typecheck 0, lint 0, check-factory-boundaries 0, check-boundaries 0
+    - gate-integrity against 52d8ba079: PASSED, no findings
+    - gate-integrity against origin/main: the set equals w00/expected-integ-findings-vs-main.txt (8 lines, sha256
+      9ec5cdcbce67c7ac): "origin/main leg: PASS"
+    - The hook-mapped suites, recomputed with the snapshot's hook-lib.sh staged_test_targets: commit 78751416a, 7 paths, 4
+      suites, each alone with lcov and nonzero: gate-integrity-deps-registration 3, ci-registration 13,
+      python-quality-registration 9, uv-toolchain-registration 4. Commit 069fb8248, 2 paths, 0 suites.
+    - merge-lcov. New-file coverage PASSED ("no new source files in this diff"). Patch coverage PASSED ("all changed executable
+      lines covered (1 file(s))"). Both against 52d8ba079.
+    - CRAP --changed against 52d8ba079: "no touched function exceeds CRAP 30" (0 measured files in the diff).
+    - Guard set: 37 files, 471 pass, 2 skip, 0 fail.
+    - actionlint 1.7.12 (nix store) on ci.yml and release-sdk.yml: the same 3 findings at the head and at the base, all runner
+      labels (factory-gpu once, factory-real twice).
+    - gitleaks (digest pinned) on the changed files: no leaks.
+(7) Identity: both commits (78751416a, 069fb8248) are archy <281643943+EZArchy@users.noreply.github.com>, as author and as
+    committer.
+    The shared /home/dev/work/EZCorp/EZHarness/.git/config sha256 reads 943cc5e58a5165a6 at the start and at the end of every
+    run. It is the changed value (remote.pr-head, added at about 17:39Z by nobody on the team). I recorded it and did not edit it.
+    My lib's expected hash is now the value observed at each hold's start.
+
+Fault of my own, fixed: my first hold ran CRAP before the merged lcov existed ("coverage/lcov.info not found"). CRAP now runs
+after the merge. The second full run, from which every result above comes, is green.

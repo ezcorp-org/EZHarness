@@ -11,9 +11,9 @@
     "auto-note": {
       "directory": "docs/extensions/examples/auto-note",
       "entrypoint": "extension.ts",
-      "files": 11,
-      "bytes": 134976,
-      "sourceDigest": "a5a7d4ed45148538ae04fbb1d8e207147058356372a4537f91984cb052986070"
+      "files": 12,
+      "bytes": 136200,
+      "sourceDigest": "f52d0d0549d5640899c67f04df9a30404c9e6fad9eb8cd0a6deb8ae0eb99f4bc"
     },
     "cash-recovery-agent": {
       "directory": "docs/extensions/examples/cash-recovery-agent",
@@ -32,9 +32,9 @@
     "claude-design": {
       "directory": "docs/extensions/examples/claude-design",
       "entrypoint": "extension.ts",
-      "files": 27,
-      "bytes": 603470,
-      "sourceDigest": "dc9c8bc8595b82d5a2f43cb56f7629751d8af7a5bc7164c35629fb4d29a80664"
+      "files": 28,
+      "bytes": 604960,
+      "sourceDigest": "db39b459db9dd880c3bff8af6d7fd2df527a28051c23806f89042c9701f6a08d"
     },
     "code-quality": {
       "directory": "docs/extensions/examples/code-quality",
@@ -61,8 +61,8 @@
       "directory": "docs/extensions/examples/docs-updater",
       "entrypoint": "extension.ts",
       "files": 9,
-      "bytes": 112709,
-      "sourceDigest": "a587ba3df2eb30d05a7c78b8cc9f92645e8cc2e9dc3ddbc2922bb3846d06006e"
+      "bytes": 113350,
+      "sourceDigest": "1d4adbbd548eac67a7de6fb7b06ad82686fe65c8f48c31c02e7fe5aed5cf51e2"
     },
     "excel": {
       "directory": "docs/extensions/examples/excel",
@@ -88,9 +88,9 @@
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
-      "files": 25,
-      "bytes": 203872,
-      "sourceDigest": "c0789628de98045396d2421269af9bbe940bc9e9118ad4f3053f84bb6cc63394"
+      "files": 26,
+      "bytes": 205533,
+      "sourceDigest": "31b8d5a5eea0aa048b68a9a5f1c7b2d6a041b604f66a477f3ed2c57e7e33ff23"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
@@ -117,8 +117,8 @@
       "directory": "docs/extensions/examples/graded-card-scanner",
       "entrypoint": "extension.ts",
       "files": 60,
-      "bytes": 312238,
-      "sourceDigest": "5b074901d12a98f7cee57b0ec5db8c43f085f681cebab3b5268397c43ff38550"
+      "bytes": 312100,
+      "sourceDigest": "9b5d049b2be9bfe1d62a601cb387f99422678f4c541587b6c91f2f2b7518d177"
     },
     "harness-smoke-test": {
       "directory": "docs/extensions/examples/harness-smoke-test",
@@ -201,8 +201,8 @@
       "directory": "docs/extensions/examples/repo-activity-notify",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 30071,
-      "sourceDigest": "f95698ea3460aec4c99b0cf8e634921b7460958ceddfc81beb36303e638aabed"
+      "bytes": 30491,
+      "sourceDigest": "44701b0bc3c499f8fa1be51a240f13b59a786acf4f0f448142553949b814a0a4"
     },
     "research-agent": {
       "directory": "docs/extensions/examples/research-agent",
@@ -243,8 +243,8 @@
       "directory": "docs/extensions/examples/substack-pilot",
       "entrypoint": "extension.ts",
       "files": 33,
-      "bytes": 237947,
-      "sourceDigest": "37caf336edaa8132fcfe989f523f2f2fd13509b870d7dac2ab2b69024d66fcb7"
+      "bytes": 238791,
+      "sourceDigest": "167536f09a78adc1079fcf75400d1d92430787ec5297d1a553d8600430336c30"
     },
     "substack-pipeline": {
       "directory": "docs/extensions/examples/substack-pipeline",
@@ -257,8 +257,8 @@
       "directory": "docs/extensions/examples/task-stack",
       "entrypoint": "extension.ts",
       "files": 6,
-      "bytes": 79206,
-      "sourceDigest": "c6132b22ee5edc721db6b3bedcbcdca83019b9043602c363dacb9114555eecba"
+      "bytes": 78320,
+      "sourceDigest": "93fe85c14ddda30b178e17ce4b6b9622f5db5839b9d1f670b9a09c6dd2cd02e2"
     },
     "task-tracking": {
       "directory": "docs/extensions/examples/task-tracking",
@@ -355,8 +355,8 @@
       "directory": "packages/@ezcorp/ai-kit",
       "entrypoint": "extension.ts",
       "files": 53,
-      "bytes": 398412,
-      "sourceDigest": "8f613ddc71aca8ae637cec3d18c884963ec9ff0af1b793140425036166115535"
+      "bytes": 401485,
+      "sourceDigest": "b8add6a3c41a856e8d32e39ab0ed6f9158a4838b03d6801e7be0b9e6ecad8515"
     }
   }
 }

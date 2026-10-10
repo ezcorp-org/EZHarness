@@ -51,6 +51,7 @@ test("Unix API checks peer UID and bearer and carries bidirectional RPC", async 
     const notification = new Promise(resolve => { const unsubscribe = execution.onNotification((method, params) => { unsubscribe(); resolve({ method, params }); }); });
     await execution.request("notify", { key: "updated" });
     expect(await notification).toEqual({ method: "changed", params: { key: "updated" } });
+    await expect(new RunnerClient({ socketPath, token }).attach({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async () => null)).rejects.toThrow("already attached");
     await execution.close();
     expect(closed).toBe(true);
   } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }

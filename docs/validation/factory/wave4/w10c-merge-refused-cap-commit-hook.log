@@ -1,0 +1,25 @@
+Checked 23 files in 13ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  13 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/factory-sdk/src/reference-execution.test.ts
+    scripts/factory-graph-proof/deployment.test.ts
+    scripts/factory-graph-proof/harness-hygiene.test.ts
+    scripts/verify-factory-reference-code-provider.test.ts
+    src/factory/reference-code/generate.test.ts
+    src/factory/reference-code/pack.test.ts
+    src/factory/reference-code/repair.integration.test.ts
+    src/factory/reference-code/review.test.ts
+    src/factory/reference-image/lock.test.ts
+    src/factory/reference-image/publication.test.ts
+    src/factory/reference-image/semantic-quorum.test.ts
+    src/providers/factory-broker.test.ts
+    src/__tests__/registry-oauth-model-resolution.test.ts
+  Above the 12-file cap a hook that ran them all would be slow enough to get bypassed,
+  and a bypassed hook checks nothing — so this blocks the commit instead of skipping silently.
+  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge
+  and skip the file(s) above here (pre-push and CI still run them).
+
+✗ pre-commit: a unit test covering your staged changes failed, or too many map to this commit
+  fix:    bun test --timeout 30000 <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)
+  bypass: git commit --no-verify   (or EZ_SKIP_HOOKS=1 git commit …)
+  note:   CI enforces this same check — bypassing only defers it.

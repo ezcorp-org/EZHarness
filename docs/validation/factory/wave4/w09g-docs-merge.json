@@ -1,0 +1,75 @@
+{
+ "package": "w09g (docs follow-up)",
+ "branch": "wp/w09g-vite-bun-import",
+ "head": "d54f5090decda1666d050e4e567d2a84dcd2c595",
+ "codeHead": "b40472cbf (merged in b944553cd)",
+ "ruling": "lead 2026-09-27: W09g's docs-only commit did not make the W09g merge; merge it as a docs-only follow-up with fast checks and a diff check, before W03f",
+ "verdict": "validator-4's ACCEPT at b40472cbf stands for the code; d54f5090d changes only tasks/factory/w09g-GATES.md (Results section), archy noreply as author and committer",
+ "mergeSha": "ebad5d8244e72e6d05890291aabcae8ef2820e1f",
+ "tree": "7866006ac115bfa321898763fac4b20d50c6990e",
+ "parents": [
+  "bd62dd9e0adcdd515e6f15c95186a76494d3fb8a",
+  "d54f5090decda1666d050e4e567d2a84dcd2c595"
+ ],
+ "diffCheck": "git diff --name-only b40472cbf d54f5090d = tasks/factory/w09g-GATES.md only; the staged delta equals the branch delta byte for byte; the merge commit changes only that file",
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-27T19:38:04Z",
+   "end": "2026-09-27T19:38:05Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "7ecebd0e8d43ad742a6039cb3e89ecfda30b8f80bfd7f05d50e45e31810be840"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-27T19:38:05Z",
+   "end": "2026-09-27T19:38:50Z",
+   "command": "bun run typecheck",
+   "logSha256": "effdd681063243c628a34a97c7a6fd6b6f9317a7f6233cc12cb6b9d2654de5ce"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-27T19:38:50Z",
+   "end": "2026-09-27T19:38:52Z",
+   "command": "bun run lint",
+   "logSha256": "67d0a734bbfba7755dfef9ba4d71d0e2a89b111120c81effdb44d372a46f0b43"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-27T19:39:02Z",
+   "end": "2026-09-27T19:39:04Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-27T19:39:04Z",
+   "end": "2026-09-27T19:39:09Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:39:09Z",
+   "end": "2026-09-27T19:39:13Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "6902331fb33bf8ec0a426821f2014184a0009aff13f7ca868b7529773ec0aeb1"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:39:13Z",
+   "end": "2026-09-27T19:39:15Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "508ddd75ff6c6c4abccd9d0c5b3b3f3fbfcf0d27cf48f2b73c00955b8156bf6e"
+  }
+ ],
+ "gatesAtMergeCommit": "gate-integrity PASSED vs origin/main and bd62dd9e0; new-file PASSED (none); patch PASSED (0 files)",
+ "heavy": "none (docs only)"
+}

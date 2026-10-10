@@ -1,0 +1,268 @@
+{
+  "run": "wave4g",
+  "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0",
+  "start": "start 2026-10-01T17:58:23Z head 19dbd60fd7a958173035f43115710ad8bed3b7e0",
+  "pinLine": "head 19dbd60fd7a958173035f43115710ad8bed3b7e0 bun 1.4.2 bunx 1.4.2 flag=1",
+  "summaryEnds": [
+    "combined exit=1 end 2026-10-01T19:19:52Z",
+    "after-runner exit=0 end 2026-10-01T20:02:25Z (legs in /tmp/factory-platform-evidence/w00/wave4g/after/heavy-batch.log)",
+    "final-merge-gates exit=1 end 2026-10-01T20:02:49Z (AUTHORITATIVE gates: /tmp/factory-platform-evidence/w00/wave4g/final/gates.txt; runner coverage-results INTERIM)"
+  ],
+  "plan": {
+    "file": "wave4g-plan.txt",
+    "lines": 1315,
+    "sha256": "bfedf53a9bddcd6a942b6174fd1b39622c22c5cafdaaacd4937c6eb48f3684d4",
+    "summary": [
+      "plan: /tmp/factory-platform-evidence/w00/wave4g/plan.txt (1315 lines, sha256 bfedf53a9bddcd6a)",
+      "autoExtra (own legs, one bun process per file): 323 files",
+      "autoExtraChunks: 9",
+      "autoExtraExcludedNodeRunner (node --test packages, covered by the node-coverage leg): [\"./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/validation.test.ts\"]",
+      "pgSteps (own postgres-<name> legs): [\"./tests/postgres/pool-one.test.ts\", \"./tests/postgres/bun-sql-pool-replacement.test.ts\", \"./tests/postgres/bun-sql-request-queue.test.ts\", \"./tests/postgres/factory-assurance.test.ts\"]"
+    ]
+  },
+  "drivers": {
+    "run.sh (as run)": "53b4219e62047f2e3584546714c4b3749ae511550eedca8a2f699aab64d1d0d4",
+    "after-runner.sh": "996f3a48b5237d49cb6941d7695757c738d9973bde4a0717aaaac115f18e79b9",
+    "final-merge-gates.sh": "c038e3b6098d82a101d1837b3a4522cf148eb041458509ad9f4a24f055369297",
+    "driver-guards.txt": "cbcb3c92d2760b1d4ed683c2bec1918b178bc9500aeb9f188d0fd7383d01a810",
+    "legs-from-manifest.py": "8a8933fd107d4509e7dbf59cdeeeb7d0c6b80bc205c52441471cea7bba09b653",
+    "combined-integration.py (runner)": "f4a81b8b97940edca26d1d834992559f7ae9a218abc17db7bf9508a908ef90a8",
+    "browser-part.sh": "c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+    "heavy-lib.sh": "6fff62469d9d5be903f7874b048d769f3db00f70d15e3e553420ad6c508a0fc7"
+  },
+  "runner": {
+    "legs": 38,
+    "exitCodes": {
+      "sdk-build": 0,
+      "transport-build": 0,
+      "sdk-tests": 0,
+      "focused": 0,
+      "web-coverage": 0,
+      "web-bun-coverage": 0,
+      "postgres": 0,
+      "postgres-pool-one": 0,
+      "postgres-bun-sql-pool-replacement": 0,
+      "postgres-bun-sql-request-queue": 0,
+      "postgres-factory-assurance": 0,
+      "types": 0,
+      "lint": 0,
+      "gate-integrity": 1,
+      "boundaries": 0,
+      "orchestrator-build": 0,
+      "node-coverage": 0,
+      "pool-coverage": 0,
+      "compute-coverage": 0,
+      "provisioning-coverage": 0,
+      "python-coverage": 0,
+      "auto-extra-0": 0,
+      "auto-extra-1": 0,
+      "auto-extra-2": 0,
+      "auto-extra-3": 0,
+      "auto-extra-4": 0,
+      "auto-extra-5": 0,
+      "auto-extra-6": 0,
+      "auto-extra-7": 0,
+      "auto-extra-8": 0,
+      "podman-podman": 0,
+      "podman-attempt-runtime": 0,
+      "podman-supervisor": 0,
+      "podman-package-preparation": 0,
+      "manifest-cov-shard": 0,
+      "manifest-cov-extras": 0,
+      "manifest-web-security-coverage": 0,
+      "manifest-factory-reference-data": 0
+    },
+    "testsRanTotal": 48131,
+    "dirty": [
+      "False"
+    ],
+    "coverageResults": "INTERIM (wave4g-coverage-results-interim.json); the final gates are authoritative"
+  },
+  "afterRunner": {
+    "legs": {
+      "guard-set": {
+        "exit": 0,
+        "tail": "60 pass 0 fail"
+      },
+      "web-build": {
+        "exit": 0,
+        "tail": ""
+      },
+      "graph-mock-pass": {
+        "exit": 0,
+        "tail": ""
+      },
+      "w09e-e2e-console": {
+        "exit": 0,
+        "tail": "22 passed (playwright)"
+      },
+      "w03f-reference-data-journey": {
+        "exit": 0,
+        "tail": "11 pass 0 fail"
+      },
+      "browser-part": {
+        "exit": 0,
+        "tail": ""
+      }
+    },
+    "mockPass": [
+      "mock pass wave4g-mock outcome: passed"
+    ]
+  },
+  "browser": {
+    "steps": [
+      {
+        "name": "build",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-roundtrip",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-check",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "mock-gate",
+        "exit": 0,
+        "passed": 259
+      },
+      {
+        "name": "mock-full",
+        "exit": 0,
+        "passed": 1466
+      },
+      {
+        "name": "evidence",
+        "exit": 0,
+        "passed": 393
+      },
+      {
+        "name": "fresh-setup",
+        "exit": 0,
+        "passed": 7
+      },
+      {
+        "name": "real-auth",
+        "exit": 0,
+        "passed": 107
+      },
+      {
+        "name": "merge",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "factory-services",
+        "exit": 0,
+        "passed": 13
+      }
+    ],
+    "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  "finalGates": {
+    "rows": [
+      "merge exit=0 | merged 2338 source files \u2192 coverage/lcov.info",
+      "global-floor exit=0 | \u2713 at or above the 90% floor (margin 8.06 points)",
+      "per-file-thresholds exit=0 | Coverage gate PASSED: 2192 enforced file(s) at or above threshold.",
+      "new-file-origin_main exit=0 | New-file coverage gate PASSED: 458 new source file(s) gated.",
+      "patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (513 file(s)).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "new-file-c1377122b exit=0 | New-file coverage gate PASSED: 193 new source file(s) gated.",
+      "patch-c1377122b exit=0 | Patch coverage gate PASSED: all changed executable lines covered (373 file(s)).",
+      "gate-integrity-c1377122b exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "crap-changed-origin_main exit=0 | \u2713 no touched function exceeds CRAP 30"
+    ],
+    "end": [
+      "end=2026-10-01T20:02:49Z status=1 dirty=0 lcov-sha256=ab677fcdeb0b7a5f"
+    ],
+    "crapChangedOriginMain": [
+      "CRAP: --changed against origin/main \u2192 485 measured file(s) in diff",
+      "CRAP: 6430 functions in 485 files (max 30, warn 15)",
+      "\u2713 no touched function exceeds CRAP 30"
+    ]
+  },
+  "configHash": {
+    "before": "44962525f1ca1a8b",
+    "after": "44962525f1ca1a8b"
+  },
+  "receiptsBy": "integrator-3",
+  "headNote": "19dbd60fd = the W-SYNC merge 787f8676c (origin/main 31052930d into integ/w00 6fe920150) plus w-sync's docs-only gates commit",
+  "wsync": {
+    "merge": "787f8676c4f4dcc45093fe67af992f5e21ad4cf0",
+    "parents": [
+      "6fe920150534ae106771ada3b319805407c8b5ca (integ/w00)",
+      "31052930df81d03c2c57625e23f23d7fca49797d (origin/main)"
+    ],
+    "tree": "3667d4bcea1a6f510a676594d99ad1c6b38198c1",
+    "gatesCommit": "19dbd60fd7a958173035f43115710ad8bed3b7e0 (tasks/factory/w-sync-GATES.md only)",
+    "commitNote": "the merge commit was made by the user by hand under the lead's ruling, after the permission checkers refused the skip-variable commit (ruling w00/w-sync-merge/ruling-hook-skip-3667d4bce.txt)",
+    "publish": "w00/detached-merge/publish-existing.sh: CAS update-ref integ/w00 6fe920150 -> 787f8676c at 2026-10-01T17:57:23Z (parents, archy identity, verdict line and config hash checked; no install-relevant change), then ff-only to 19dbd60fd",
+    "verdict": {
+      "file": "w-sync-validation/verdict-validator-6-wsync.txt (copied as wave4g-w-sync-validation.txt)",
+      "sha256AtPublishAndCopy": "ffdd2e31a634869fe20ddfae9c33ce447404f6882ea98388d018ca8742a3f96d",
+      "earlierVersion": "dd157b18dddeb18e (before the identity block was added; still ACCEPT, same first line)"
+    },
+    "ownerReceipts": {
+      "dir": "/tmp/factory-platform-evidence/w-sync/",
+      "files": [
+        "/tmp/factory-platform-evidence/w-sync/backend-suites.txt",
+        "/tmp/factory-platform-evidence/w-sync/commit-attempt-1.log",
+        "/tmp/factory-platform-evidence/w-sync/commit-attempt-2.log",
+        "/tmp/factory-platform-evidence/w-sync/commit-final.log",
+        "/tmp/factory-platform-evidence/w-sync/commit-gates.log",
+        "/tmp/factory-platform-evidence/w-sync/commit-msg-final.txt",
+        "/tmp/factory-platform-evidence/w-sync/commit-msg.txt",
+        "/tmp/factory-platform-evidence/w-sync/final-backend-suites.txt",
+        "/tmp/factory-platform-evidence/w-sync/final-web-suites.txt",
+        "/tmp/factory-platform-evidence/w-sync/fix",
+        "/tmp/factory-platform-evidence/w-sync/gate-integrity-match-pre-commit.txt",
+        "/tmp/factory-platform-evidence/w-sync/heavy",
+        "/tmp/factory-platform-evidence/w-sync/heavy-final",
+        "/tmp/factory-platform-evidence/w-sync/heavy-legs-final.log",
+        "/tmp/factory-platform-evidence/w-sync/heavy-legs-final.sh",
+        "/tmp/factory-platform-evidence/w-sync/heavy-legs.log",
+        "/tmp/factory-platform-evidence/w-sync/heavy-legs.sh",
+        "/tmp/factory-platform-evidence/w-sync/hook-extra",
+        "/tmp/factory-platform-evidence/w-sync/hook-extra.log",
+        "/tmp/factory-platform-evidence/w-sync/hook-extra.sh",
+        "/tmp/factory-platform-evidence/w-sync/hook-predicted-2.txt",
+        "/tmp/factory-platform-evidence/w-sync/hook-predicted.txt",
+        "/tmp/factory-platform-evidence/w-sync/import-suites.txt",
+        "/tmp/factory-platform-evidence/w-sync/leg-boundaries.log",
+        "/tmp/factory-platform-evidence/w-sync/leg-gate-integrity.log",
+        "/tmp/factory-platform-evidence/w-sync/leg-guard-set.log",
+        "/tmp/factory-platform-evidence/w-sync/leg-lint.log",
+        "/tmp/factory-platform-evidence/w-sync/leg-typecheck.log",
+        "/tmp/factory-platform-evidence/w-sync/leg-web-check.log",
+        "/tmp/factory-platform-evidence/w-sync/main-changed-tests.txt",
+        "/tmp/factory-platform-evidence/w-sync/names-vs-integ.txt",
+        "/tmp/factory-platform-evidence/w-sync/names-vs-main.txt",
+        "/tmp/factory-platform-evidence/w-sync/ruled-receipts.sh",
+        "/tmp/factory-platform-evidence/w-sync/ruled-receipts.txt",
+        "/tmp/factory-platform-evidence/w-sync/ruled-web",
+        "/tmp/factory-platform-evidence/w-sync/setup.log",
+        "/tmp/factory-platform-evidence/w-sync/setup.sh",
+        "/tmp/factory-platform-evidence/w-sync/static-legs-final.log",
+        "/tmp/factory-platform-evidence/w-sync/static-legs.log",
+        "/tmp/factory-platform-evidence/w-sync/static-legs.sh",
+        "/tmp/factory-platform-evidence/w-sync/web-suites.txt"
+      ]
+    },
+    "gateChangeDecision": "w00/w-sync-merge/gate-change-decision.txt (scripts/check-web-vitest-coverage.ts, main's #319, for a base comparison against 6fe920150); not used: no wave4g leg compares against 6fe920150"
+  },
+  "gateIntegrity": {
+    "originMain": "raw exit 1 = exactly the 8-line expected set (sha256 9ec5cdcbce67c7ac): findings-match PASS (runner and final gates)",
+    "c1377122b": "INFORMATIONAL: lists the wave's coverage-tool changes and main's scripts/check-web-vitest-coverage.ts (wave4g-final-c1377122b-findings-info.txt)"
+  },
+  "interimNote": "the runner's interim new-file vs origin/main (the 5 browser-only Svelte files) and patch vs c1377122b (main's ChatMessage.svelte and ConversationList.svelte lines) were red before the browser producer; the final gates with the browser lanes pass both",
+  "knownGap": "build-pi-agent.ts: the wave's factory-branch mutant survived validator-6's keyless suite because no keyless or OAuth factory case exists; recorded as a known gap, not a defect of the merge (lead 2026-10-01)",
+  "crap": "origin/main CRAP over the full-pool lcov: see finalGates.crapChangedOriginMain",
+  "lockLane": "LOCK_LANE=integrator-3 (runner veto check); heavy-lib.sh checks integrator-2 and LOCK_LANE",
+  "verifier": "validator-6's verify-receipts.py at prefix /tmp/factory-platform-evidence/wave4g: 18 PASS, 1 FAIL ('pin and flag named'): the driver printed the pin into summary.log ('head 19dbd60fd... bun 1.4.2 bunx 1.4.2 flag=1', pinLine above), not into the runner log the verifier reads; run.sh now also writes it as the runner log's first line (future runs)"
+}

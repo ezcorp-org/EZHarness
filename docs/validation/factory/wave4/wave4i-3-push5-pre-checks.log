@@ -1,0 +1,16 @@
+pre-checks 2026-10-10T05:09:09Z (integrator-5, push-checklist step 1, sixth push: the W4H-21 + W4H-22 batch)
+toplevel: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform
+status --porcelain lines: 0
+branch: feat/composable-factory-platform
+core.bare: file:/home/dev/work/EZCorp/EZHarness/.git/config	false file:/home/dev/work/EZCorp/EZHarness/.git/worktrees/composable-factory-platform/config.worktree	false 
+ident: archy <281643943+EZArchy@users.noreply.github.com>
+fetch rc=0
+HEAD:        fe445d241f2cd6e76fc242c621bf6ac5f7ae2ba5
+origin/feat: fe445d241f2cd6e76fc242c621bf6ac5f7ae2ba5
+HEAD = origin/feat: yes
+HEAD ancestor of integ/w00 (c786088df): rc=0
+origin/main: e3309906d
+config: 29e61b63b05624e9 = accepted baseline
+config-check rc=0
+ahead: 12 commits
+resources: disk 181G MemAvailable: 18.9 GiB SwapFree: 8.8 GiB 

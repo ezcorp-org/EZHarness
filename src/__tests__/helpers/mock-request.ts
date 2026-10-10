@@ -46,7 +46,17 @@ export function mockServerAlias() {
     "$server/providers/credentials": "../../providers/credentials",
     "$server/providers/encryption": "../../providers/encryption",
     "$server/providers/registry": "../../providers/registry",
-    "$server/db/connection": "../../db/connection",
+    // NOT "$server/db/connection". Registering it hijacks the specifier for
+    // the whole PROCESS, and the factory below is lazy: in a pooled run it
+    // first resolves at a LATER file's module-hoist moment, before that file's
+    // own `mockDbConnection()` has run, and freezes the alias on the real,
+    // uninitialised connection. Every web route that file then loads calls the
+    // real `getDb()` and dies with "Database not initialized" — measured on
+    // `installer-idempotent-local.test.ts` behind
+    // `executor-slash-command-expansion-e2e.test.ts`. Unregistered, a `web/`
+    // importer resolves `$server/db/connection` through its own tsconfig to
+    // the same `src/db/connection` module `mockDbConnection()` mocks, which is
+    // what every suite here wants. A suite that needs a STUB registers its own.
     "$server/db/schema": "../../db/schema",
   };
 
@@ -61,6 +71,36 @@ export function mockServerAlias() {
   for (const [alias, path] of Object.entries(libAliases)) {
     mock.module(alias, () => require(path));
   }
+}
+
+/**
+ * Every export of `web/src/lib/server/context.ts`, inert, with the suite's own
+ * overrides applied on top.
+ *
+ * That module cannot be loaded from a `bun:test` under `src/` — its whole
+ * import graph is `$server/*` and `$lib/*` — so a suite that needs a route's
+ * context has to stub the alias outright. A `$lib/*` registration is
+ * PERMANENT and its factory DEFINES the export set for the rest of the
+ * process, so a partial stub does not shadow the other exports, it deletes
+ * them: the next suite whose route imports `getGoalHost` cannot link, and
+ * bun reports one unhandled error where a whole test file used to be.
+ * Measured on `executor-slash-command-expansion-e2e.test.ts` behind either
+ * mentions suite. Spread this and override what the suite actually drives;
+ * keep it in step with the real module's export list.
+ */
+export function serverContextStub(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    ensureInitialized: async () => {},
+    getExecutor: () => ({ listAgents: () => [] }),
+    getWorkflowExecutor: () => ({}),
+    getBus: () => ({ emit: () => {}, on: () => () => {} }),
+    getCommandRegistry: () => ({ listCommands: () => [] }),
+    getGoalHost: () => null,
+    getWorkflows: () => [],
+    getCachedWorkflows: () => [],
+    reloadWorkflows: async () => {},
+    ...overrides,
+  };
 }
 
 /**

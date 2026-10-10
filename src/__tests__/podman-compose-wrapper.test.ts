@@ -48,6 +48,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { GIT_REGULAR_FILE_MODE, writeTrackedFile } from "./helpers/exact-mode";
 
 const REPO_ROOT = resolve(import.meta.dir, "..", "..");
 const WRAPPER_SOURCE = join(REPO_ROOT, "scripts/podman-compose.sh");
@@ -89,18 +90,18 @@ symlinkSync(RESOLVER, join(SANDBOX, "scripts/resolve-runner-group.sh"));
 symlinkSync(SOURCE_STATE_RESOLVER, join(SANDBOX, "scripts/resolve-dev-image-source-state.sh"));
 symlinkSync(SOURCE_STATE_IMPLEMENTATION, join(SANDBOX, "scripts/resolve-dev-image-source-state.ts"));
 symlinkSync(Bun.which("dirname") ?? "/usr/bin/dirname", join(BIN_NO_DOCKER, "dirname"));
-writeFileSync(TRACKED_SOURCE, "clean source\n");
+writeTrackedFile(TRACKED_SOURCE, "clean source\n");
 symlinkSync("image-backed-source.txt", TRACKED_LINK);
 mkdirSync(join(SANDBOX, "tasks"));
-writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
 mkdirSync(join(SANDBOX, "extensions/example/__tests__"), { recursive: true });
-writeFileSync(join(SANDBOX, "extensions/example/__tests__/baseline.ts"), "tracked extension fixture\n");
+writeTrackedFile(join(SANDBOX, "extensions/example/__tests__/baseline.ts"), "tracked extension fixture\n");
 copyFileSync(join(REPO_ROOT, ".dockerignore"), join(SANDBOX, ".dockerignore"));
 appendFileSync(
   join(SANDBOX, ".dockerignore"),
   "\n# Test-harness files, not fixture image inputs.\nbin*\n*.sock\nenv.prod\ncaller-*.env\nignored-generated/\ncase-excluded.conf\nweb/playwright-report\nweb/test-results\nparent-excluded\n!parent-excluded/reincluded.txt\n",
 );
-writeFileSync(
+writeTrackedFile(
   join(SANDBOX, "docker-compose.yml"),
   `services:
   probe:
@@ -112,7 +113,13 @@ writeFileSync(
         EZCORP_BUILD_SOURCE_STATE: \${EZCORP_BUILD_SOURCE_STATE:-\${EZCORP_BUILD_SOURCE_STATE_DEFAULT:-unknown}}
 `,
 );
-writeFileSync(join(SANDBOX, "compose.podman.yml"), "services: {}\n");
+writeTrackedFile(join(SANDBOX, "compose.podman.yml"), "services: {}\n");
+// Tracked files are written as a git checkout leaves them (helpers/exact-mode):
+// the source-state resolver counts any other permission as a Docker
+// build-context change, so a 077 runner saw this clean fixture as dirty.
+// copyFileSync keeps the source's mode, and a checkout made under umask 077
+// holds a 0600 .dockerignore, which failed ten tests at every umask.
+chmodSync(join(SANDBOX, ".dockerignore"), GIT_REGULAR_FILE_MODE);
 
 // Records what the wrapper handed to Compose, then exits 0 — the wrapper
 // `exec`s it, so this is the last word on what the invocation actually was.
@@ -613,13 +620,13 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("records tracked source changes in the Docker-context default", () => {
-    writeFileSync(TRACKED_SOURCE, "dirty source\n");
+    writeTrackedFile(TRACKED_SOURCE, "dirty source\n");
     try {
       expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
         "dirty",
       );
     } finally {
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
     }
     expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
   });
@@ -628,15 +635,15 @@ describe("podman wrapper — the invocation it guarantees", () => {
     sandboxGit("update-index", "--assume-unchanged", "image-backed-source.txt");
     try {
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
-      writeFileSync(TRACKED_SOURCE, "changed behind the index hint\n");
+      writeTrackedFile(TRACKED_SOURCE, "changed behind the index hint\n");
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
       chmodSync(TRACKED_SOURCE, 0o755);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
       chmodSync(TRACKED_SOURCE, 0o600);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
       chmodSync(TRACKED_SOURCE, 0o644);
       sandboxGit("update-index", "--no-assume-unchanged", "image-backed-source.txt");
     }
@@ -648,10 +655,10 @@ describe("podman wrapper — the invocation it guarantees", () => {
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
       rmSync(TRACKED_SOURCE);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
     } finally {
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
       sandboxGit("update-index", "--no-skip-worktree", "image-backed-source.txt");
     }
   });
@@ -665,12 +672,12 @@ describe("podman wrapper — the invocation it guarantees", () => {
     try {
       // Same length and restored mtime: Git's configured stat shortcut reports
       // this path clean, but Docker sends the changed bytes.
-      writeFileSync(TRACKED_SOURCE, "dirty source\n");
+      writeTrackedFile(TRACKED_SOURCE, "dirty source\n");
       utimesSync(TRACKED_SOURCE, cachedTime, cachedTime);
       expect(sandboxGit("diff", "--name-only", "HEAD", "--", "image-backed-source.txt")).toBe("");
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("dirty");
     } finally {
-      writeFileSync(TRACKED_SOURCE, "clean source\n");
+      writeTrackedFile(TRACKED_SOURCE, "clean source\n");
       sandboxGit("config", "--unset-all", "core.trustctime");
       sandboxGit("config", "--unset-all", "core.checkStat");
       sandboxGit("update-index", "--really-refresh", "image-backed-source.txt");
@@ -692,7 +699,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
   });
 
   test("ignores tracked changes that Docker excludes from the build context", () => {
-    writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
+    writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
     try {
       expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
         "clean",
@@ -700,17 +707,17 @@ describe("podman wrapper — the invocation it guarantees", () => {
       rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
     } finally {
-      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
     }
   });
 
   test("ignores hidden-index changes and absence when Docker excludes the path", () => {
     sandboxGit("update-index", "--assume-unchanged", "tasks/audit-note.md");
     try {
-      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "hidden excluded change\n");
+      writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "hidden excluded change\n");
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
     } finally {
-      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
       sandboxGit("update-index", "--no-assume-unchanged", "tasks/audit-note.md");
     }
 
@@ -719,7 +726,7 @@ describe("podman wrapper — the invocation it guarantees", () => {
       rmSync(TRACKED_DOCKER_EXCLUDED_SOURCE);
       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
     } finally {
-      writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
+      writeTrackedFile(TRACKED_DOCKER_EXCLUDED_SOURCE, "not an image input\n");
       sandboxGit("update-index", "--no-skip-worktree", "tasks/audit-note.md");
     }
   });

@@ -1,0 +1,32 @@
+=== heavy 2026-10-05T18:32:58Z
+HEAD 1c84df6d5d5aba0703ee433ae711450728d16d66 MERGE_HEAD  index-tree e468b389727bb228cb455000b820e18c467688c8
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T18:32:58Z hold-start disk=241G memAvailable=15GiB swapFreeKiB=5125112/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+guard set: 39 files from guard-suites.sh
+resource-gate 2026-10-05T18:32:58Z guard-set disk=241G memAvailable=15GiB swapFreeKiB=5125112/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START guard-set 2026-10-05T18:32:58Z
+--- END   guard-set 2026-10-05T18:34:07Z exit=0  500 pass 0 fail 
+resource-gate 2026-10-05T18:34:07Z web-build disk=241G memAvailable=14GiB swapFreeKiB=5298580/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START web-build 2026-10-05T18:34:07Z
+--- END   web-build 2026-10-05T18:34:50Z exit=0 
+resource-gate 2026-10-05T18:34:50Z graph-mock-pass disk=241G memAvailable=15GiB swapFreeKiB=4914756/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START graph-mock-pass 2026-10-05T18:34:50Z
+--- END   graph-mock-pass 2026-10-05T18:35:42Z exit=0 
+bash: /tmp/factory-platform-evidence/w01h/graph/dump-and-drop.sh: No such file or directory
+mock pass wave4i-2-mock outcome: passed
+resource-gate 2026-10-05T18:35:43Z w09e-e2e-console disk=241G memAvailable=14GiB swapFreeKiB=4998256/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START w09e-e2e-console 2026-10-05T18:35:43Z
+--- END   w09e-e2e-console 2026-10-05T18:36:35Z exit=0 
+resource-gate 2026-10-05T18:36:35Z w03f-reference-data-journey disk=241G memAvailable=15GiB swapFreeKiB=3276792/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START w03f-reference-data-journey 2026-10-05T18:36:35Z
+--- END   w03f-reference-data-journey 2026-10-05T18:39:55Z exit=0  11 pass 0 fail 
+resource-gate 2026-10-05T18:39:55Z browser-part disk=241G memAvailable=14GiB swapFreeKiB=4895760/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START browser-part 2026-10-05T18:39:55Z
+--- END   browser-part 2026-10-05T19:22:12Z exit=0 
+browser lane mock-gate: 283 passed
+browser lane mock-full: 1466 passed
+browser lane evidence: 394 passed
+browser lane fresh-setup: 7 passed
+browser lane real-auth: 108 passed
+browser lane factory-services: 13 passed
+HEAVY DONE status=0 dirty=0 2026-10-05T19:22:12Z

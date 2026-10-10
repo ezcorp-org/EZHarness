@@ -1,0 +1,34 @@
+{
+ "defect": "OPEN DEFECT runner-outcome-unknown-stuck-run",
+ "ruling": "coordinator 2026-09-25: not a flake; open defect in the runner/supervisor path (W01g code already on integ/w00, not W19a's); the empty supervisor log tail is a second defect in its diagnostics; investigation assigned to w01g-fix as a new package",
+ "pass": {
+  "label": "control-no-pin",
+  "mode": "mock",
+  "startedAt": "2026-09-25T00:38:31.757Z",
+  "finishedAt": "2026-09-25T00:50:59.410Z",
+  "proofTree": "8aef5b06a (staged W19a merge)"
+ },
+ "observed": [
+  "run 0cf6a8f4-0a86-48a2-a9b0-8ea00ce75a77 timeline queued -> running, never terminal",
+  "node prepare (attempt 0cf6a8f4-...:prepare:dispatch-node:4, attempt 1 of max 3): launch state 'launched', no execution terminal row, attempt queue state outcome_unknown / runner_outcome_unknown, available_at 1790296786828 (00:39:46.8Z); the run then issued cancel-node:5 and neither retried nor failed",
+  "web log: 'background role failed attempt-dispatch:outcome-unknown:...: the attempt settled with an unknown outcome'",
+  "process log tails: supervisor 0 bytes, pool 0 bytes (second defect: no diagnostics)",
+  "node infer never dispatched, so the control's refusal was never observed; the same prepare node passed in the other 7 passes"
+ ],
+ "hostContext": {
+  "candidateContainer": "ez-v4-4535b41c5e89ca30431b13db4b64681e (Bun image, label io.ezcorp.runner=a3ec5577...): create 00:39:20, start 00:39:21, stop 00:39:44, died 137, removed 00:39:45; the timing matches the dispatch (~00:39:17) and the unknown outcome (00:39:46.8) but no event attribute names the run, so the link is not proven",
+  "otherSessions": "the journal shows another session's sudo systemctl daemon-reload / 'systemctl show ezharness' at 00:38:32-00:38:57Z, and podman restarted ezharness-searxng-1 and ezharness-app-1 in the window",
+  "load": "no log recorded the host 1-minute load for the pass window (coordinator notes load 45 to 60 from other sessions around then)",
+  "podmanEventsForRun": "0 events name the run id or w19a"
+ },
+ "files": [
+  "db-rows.json (every factory row with this run_id, 17 tables, dumped read-only 2026-09-25T01:52:26Z)",
+  "pass-record-extract.json",
+  "control-no-pin.json / .log / .server.log",
+  "process-tail-*.log",
+  "podman-events.json (00:38:00-00:51:30Z, all containers)",
+  "podman-events-run.json (empty)",
+  "host-journal-excerpt.log",
+  "dump-db-rows.sh, dump.sql"
+ ]
+}

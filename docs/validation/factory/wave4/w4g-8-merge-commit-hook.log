@@ -1,0 +1,10 @@
+Checked 1 file in 9ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/podman.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 103 expect() calls
+Ran 19 tests across 1 file. [135.49s]
+[detached HEAD 9e5065ebf] merge: wp/w4g-8 4da74575f into integ/w00 (W4G-8 the stdin-fault guest runs with the transport's --log-driver=none under the CI conmon)

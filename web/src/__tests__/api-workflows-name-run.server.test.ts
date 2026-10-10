@@ -8,9 +8,16 @@
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
+import type { WorkflowRun } from "$server/types";
 
 const ctx = vi.hoisted(() => {
-  const runWorkflow = vi.fn(async () => ({ id: "run-1", status: "success" }));
+  const runWorkflow = vi.fn(async (..._args: unknown[]): Promise<WorkflowRun> => ({
+    id: "run-1",
+    workflowName: "w1",
+    status: "success",
+    startedAt: 1,
+    steps: [],
+  }));
   return {
     getCachedWorkflows: vi.fn(() => [] as unknown[]),
     getWorkflowExecutor: vi.fn(() => ({ runWorkflow })),
@@ -56,7 +63,13 @@ function systemEntry(definition = W1) {
 
 beforeEach(() => {
   ctx.getCachedWorkflows.mockReset().mockReturnValue([]);
-  ctx.runWorkflow.mockReset().mockResolvedValue({ id: "run-1", status: "success" });
+  ctx.runWorkflow.mockReset().mockResolvedValue({
+    id: "run-1",
+    workflowName: "w1",
+    status: "success",
+    startedAt: 1,
+    steps: [],
+  });
   ctx.getWorkflowExecutor.mockReset().mockReturnValue({ runWorkflow: ctx.runWorkflow });
   authz.canRunWorkflow.mockReset().mockResolvedValue({ allowed: true });
 });
@@ -157,6 +170,24 @@ describe("POST /api/workflows/[name]/run", () => {
 		expect(res.status).toBe(400);
 		const body = (await res.json()) as { error?: string };
 		expect(body.error).toBe("Invalid request body");
+	});
+
+	test("keeps the existing empty-input fallback for malformed JSON", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		const event = makeRequestEvent("http://localhost/api/workflows/w1/run", {
+			locals: authedUser,
+			params: { name: "w1" },
+			request: {
+				method: "POST",
+				headers: { "content-type": "application/json" },
+				body: "{",
+			},
+		});
+
+		const res = await POST(event);
+
+		expect(res.status).toBe(200);
+		expect(ctx.runWorkflow).toHaveBeenCalledWith(W1, {}, undefined, "u1");
 	});
 
 	test("runs the workflow (with projectId + input) and returns the run", async () => {
@@ -288,5 +319,176 @@ describe("POST /api/workflows/[name]/run — X-EZ-Workflow-Async", () => {
 		// the process down along with every other run in flight.
 		expect(res.status).toBe(202);
 		await new Promise((r) => setTimeout(r, 10));
+	});
+});
+
+describe("POST /api/workflows/[name]/run — caller idempotency", () => {
+	test("namespaces a bounded caller key before it reaches the executor", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: { topic: "x" },
+				headers: { "Idempotency-Key": "attempt-17" },
+			}),
+		);
+
+		expect(res.status).toBe(200);
+		expect(ctx.runWorkflow).toHaveBeenCalledWith(
+			W1,
+			{ topic: "x" },
+			undefined,
+			"u1",
+			undefined,
+			{ idempotencyKey: "factory:attempt-17" },
+		);
+	});
+
+	test("rejects a caller key whose stored factory key would exceed the v4 bound", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: {},
+				headers: { "Idempotency-Key": "x".repeat(193) },
+			}),
+		);
+
+		expect(res.status).toBe(400);
+		expect(ctx.runWorkflow).not.toHaveBeenCalled();
+	});
+
+	test("returns 409 when a caller key identifies different canonical input", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		ctx.runWorkflow.mockRejectedValue(
+			Object.assign(new Error("This key already identifies a different workflow run."), {
+				name: "WorkflowIdempotencyConflictError",
+				code: "idempotency_conflict",
+			}),
+		);
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: { version: 2 },
+				headers: { "Idempotency-Key": "same-key" },
+			}),
+		);
+
+		expect(res.status).toBe(409);
+		expect(await res.json()).toMatchObject({
+			error: "This key already identifies a different workflow run.",
+		});
+	});
+
+	test("a keyed async retry acknowledges the executor's durable run id", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		ctx.runWorkflow.mockImplementation((...args: unknown[]) => {
+			const options = args[5] as { onRunCreated: (run: WorkflowRun) => void };
+			options.onRunCreated({
+				id: "durable-run",
+				workflowName: "w1",
+				status: "running",
+				startedAt: 1,
+				steps: [],
+			});
+			return new Promise(() => {});
+		});
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: { topic: "x" },
+				headers: {
+					"Idempotency-Key": "async-retry",
+					"X-EZ-Workflow-Async": "1",
+				},
+			}),
+		);
+
+		expect(res.status).toBe(202);
+		expect(await res.json()).toMatchObject({ id: "durable-run", status: "running" });
+		const options = ctx.runWorkflow.mock.calls[0]?.[5] as unknown as Record<string, unknown>;
+		expect(options.idempotencyKey).toBe("factory:async-retry");
+		expect(typeof options.onRunCreated).toBe("function");
+	});
+
+	test("a keyed async failure after durable creation is observed", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		const failed = Promise.withResolvers<never>();
+		const errorLog = vi.spyOn(console, "error").mockImplementation(() => {});
+		ctx.runWorkflow.mockImplementation((...args: unknown[]) => {
+			const options = args[5] as { onRunCreated: (run: WorkflowRun) => void };
+			options.onRunCreated({
+				id: "durable-before-failure",
+				workflowName: "w1",
+				status: "running",
+				startedAt: 1,
+				steps: [],
+			});
+			return failed.promise;
+		});
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: {},
+				headers: {
+					"Idempotency-Key": "async-failure",
+					"X-EZ-Workflow-Async": "1",
+				},
+			}),
+		);
+		const failure = new Error("failed after insert");
+		failed.reject(failure);
+		await Promise.resolve();
+		await Promise.resolve();
+
+		expect(res.status).toBe(202);
+		expect(errorLog).toHaveBeenCalledWith(
+			"async workflow run failed outside the executor",
+			expect.any(String),
+			failure,
+		);
+		errorLog.mockRestore();
+	});
+
+	test("a keyed async start does not acknowledge an unpersisted run", async () => {
+		ctx.getCachedWorkflows.mockReturnValue([systemEntry()]);
+		ctx.runWorkflow.mockResolvedValue({
+			id: "not-durable",
+			workflowName: "w1",
+			status: "error",
+			startedAt: 1,
+			steps: [],
+			result: {
+				success: false,
+				output: null,
+				error: {
+					code: "run-persistence-failed",
+					message: "durable row missing",
+				},
+			},
+		});
+
+		const res = await POST(
+			makeEvent({
+				name: "w1",
+				locals: authedUser,
+				body: {},
+				headers: {
+					"Idempotency-Key": "missing-row",
+					"X-EZ-Workflow-Async": "1",
+				},
+			}),
+		);
+
+		expect(res.status).toBe(400);
+		expect(await res.json()).toMatchObject({ error: "durable row missing" });
 	});
 });

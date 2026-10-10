@@ -1,0 +1,6 @@
+renew-without-token-fence exit=1 (RED-killed)  42 pass 4 fail  failing: shared durable del
+heartbeat-at-full-lease exit=1 (RED-killed)  44 pass 2 fail  failing: lease heartbeat duri
+heartbeat-at-half-lease exit=1 (RED-killed)  44 pass 2 fail  failing: lease heartbeat duri
+drain-failure-logged-per-tick exit=1 (RED-killed)  44 pass 2 fail  failing: one failing dr
+ M src/delivery-queue/durable-delivery-queue.test.ts
+ M src/extensions/__tests__/delivery-runtime.test.ts

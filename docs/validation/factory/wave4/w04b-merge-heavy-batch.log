@@ -1,0 +1,56 @@
+=== heavy batch 2026-09-24T20:13:36Z
+HEAD 6964dec93663450ffd74050ef24db6be0110c548 MERGE_HEAD 9e76bc6ef4bada354201e1ab134e51b4244e4111 index-tree c74aa12c6a880b4bcd71fff4afd4ba01ed6b7faf umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  184G  90% /
+--- START pg-factory-archive-writer 2026-09-24T20:13:36Z
+--- END   pg-factory-archive-writer 2026-09-24T20:16:50Z exit=0  10 pass 0 fail 
+--- START pg-factory-artifact-access 2026-09-24T20:16:50Z
+--- END   pg-factory-artifact-access 2026-09-24T20:18:05Z exit=0  2 pass 0 fail 
+--- START pg-factory-assurance 2026-09-24T20:18:05Z
+--- END   pg-factory-assurance 2026-09-24T20:18:17Z exit=0  17 pass 0 fail 
+--- START pg-factory-attempt-queue 2026-09-24T20:18:17Z
+--- END   pg-factory-attempt-queue 2026-09-24T20:18:28Z exit=0  1 pass 0 fail 
+--- START pg-factory-checkpoint 2026-09-24T20:18:28Z
+--- END   pg-factory-checkpoint 2026-09-24T20:19:11Z exit=0  12 pass 0 fail 
+--- START pg-factory-child-artifacts 2026-09-24T20:19:11Z
+--- END   pg-factory-child-artifacts 2026-09-24T20:19:23Z exit=0  5 pass 0 fail 
+--- START pg-factory-definitions 2026-09-24T20:19:23Z
+--- END   pg-factory-definitions 2026-09-24T20:19:48Z exit=0  11 pass 0 fail 
+--- START pg-factory-grants 2026-09-24T20:19:48Z
+--- END   pg-factory-grants 2026-09-24T20:20:02Z exit=0  13 pass 0 fail 
+--- START pg-factory-lazy-commands 2026-09-24T20:20:02Z
+--- END   pg-factory-lazy-commands 2026-09-24T20:21:18Z exit=0  7 pass 0 fail 
+--- START pg-factory-lazy-input 2026-09-24T20:21:18Z
+--- END   pg-factory-lazy-input 2026-09-24T20:21:30Z exit=0  3 pass 0 fail 
+--- START pg-factory-migration-restart 2026-09-24T20:21:30Z
+--- END   pg-factory-migration-restart 2026-09-24T20:23:40Z exit=0  17 pass 0 fail 
+--- START pg-factory-package-fence 2026-09-24T20:23:40Z
+--- END   pg-factory-package-fence 2026-09-24T20:27:56Z exit=0  17 pass 0 fail 
+--- START pg-factory-package-preparation 2026-09-24T20:27:56Z
+--- END   pg-factory-package-preparation 2026-09-24T20:32:30Z exit=0  22 pass 0 fail 
+--- START pg-factory-release-authority 2026-09-24T20:32:30Z
+--- END   pg-factory-release-authority 2026-09-24T20:32:46Z exit=0  14 pass 0 fail 
+--- START pg-factory-release-declare-race 2026-09-24T20:32:46Z
+--- END   pg-factory-release-declare-race 2026-09-24T20:33:36Z exit=0  4 pass 0 fail 
+--- START pg-factory-releases 2026-09-24T20:33:36Z
+--- END   pg-factory-releases 2026-09-24T20:33:48Z exit=0  23 pass 0 fail 
+--- START pg-factory-restore 2026-09-24T20:33:48Z
+--- END   pg-factory-restore 2026-09-24T20:34:49Z exit=0  13 pass 0 fail 
+--- START pg-factory-retention 2026-09-24T20:34:49Z
+--- END   pg-factory-retention 2026-09-24T20:35:04Z exit=0  13 pass 0 fail 
+--- START pg-factory-run-inputs 2026-09-24T20:35:04Z
+--- END   pg-factory-run-inputs 2026-09-24T20:35:17Z exit=0  5 pass 0 fail 
+--- START pg-factory-run-lifecycle-s3 2026-09-24T20:35:17Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-24T20:36:17Z exit=0  66 pass 0 fail 
+--- START pg-factory-run-lifecycle 2026-09-24T20:36:17Z
+--- END   pg-factory-run-lifecycle 2026-09-24T20:36:59Z exit=0  66 pass 0 fail 
+--- START pg-factory-s3-publication 2026-09-24T20:36:59Z
+--- END   pg-factory-s3-publication 2026-09-24T20:39:33Z exit=0  18 pass 0 fail 
+--- START pg-factory-schema 2026-09-24T20:39:33Z
+--- END   pg-factory-schema 2026-09-24T20:39:42Z exit=0  2 pass 0 fail 
+--- START pg-factory-service-credentials 2026-09-24T20:39:42Z
+--- END   pg-factory-service-credentials 2026-09-24T20:39:50Z exit=0  5 pass 0 fail 
+--- START pg-factory-task-stops 2026-09-24T20:39:50Z
+--- END   pg-factory-task-stops 2026-09-24T20:40:08Z exit=0  18 pass 0 fail 
+--- START pg-factory-validator-materials 2026-09-24T20:40:08Z
+--- END   pg-factory-validator-materials 2026-09-24T20:40:21Z exit=0  9 pass 0 fail 
+BATCH DONE status=0 2026-09-24T20:40:21Z

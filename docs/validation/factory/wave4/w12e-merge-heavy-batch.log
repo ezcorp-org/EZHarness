@@ -1,0 +1,133 @@
+=== heavy 2026-10-01T06:35:33Z
+HEAD e6cdcf02a06d994d1db3013d941749f03d016793 MERGE_HEAD  index-tree 7475c19b31f1cfff70357e06b59a976fdb79228a
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-01T06:35:33Z attestation-check disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START attestation-check 2026-10-01T06:35:33Z
+--- END   attestation-check 2026-10-01T06:35:33Z exit=0 
+guard set: 12 files from guard-suites.sh
+resource-gate 2026-10-01T06:35:33Z guard-set disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START guard-set 2026-10-01T06:35:33Z
+--- END   guard-set 2026-10-01T06:35:35Z exit=0  60 pass 0 fail 
+resource-gate 2026-10-01T06:35:35Z build-factory-sdk disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START build-factory-sdk 2026-10-01T06:35:35Z
+--- END   build-factory-sdk 2026-10-01T06:35:35Z exit=0 
+resource-gate 2026-10-01T06:35:35Z build-factory-transport disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START build-factory-transport 2026-10-01T06:35:35Z
+--- END   build-factory-transport 2026-10-01T06:35:35Z exit=0 
+resource-gate 2026-10-01T06:35:35Z build-factory-orchestrator disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START build-factory-orchestrator 2026-10-01T06:35:35Z
+--- END   build-factory-orchestrator 2026-10-01T06:35:35Z exit=0 
+resource-gate 2026-10-01T06:35:35Z build-sdk disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START build-sdk 2026-10-01T06:35:35Z
+--- END   build-sdk 2026-10-01T06:35:35Z exit=0 
+resource-gate 2026-10-01T06:35:35Z pg-request-queue-x3 disk=233G memAvailable=16GiB swapFreeKiB=3009244/17173956
+--- START pg-request-queue-x3 2026-10-01T06:35:35Z
+--- END   pg-request-queue-x3 2026-10-01T06:35:56Z exit=0  2 pass 0 fail 2 pass 0 fail 2 pass 0 fail 
+resource-gate 2026-10-01T06:35:56Z pg-pool-one disk=233G memAvailable=16GiB swapFreeKiB=3014120/17173956
+--- START pg-pool-one 2026-10-01T06:35:56Z
+--- END   pg-pool-one 2026-10-01T06:35:58Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-01T06:35:58Z pg-factory-pool-mtls disk=233G memAvailable=16GiB swapFreeKiB=3014288/17173956
+--- START pg-factory-pool-mtls 2026-10-01T06:35:58Z
+--- END   pg-factory-pool-mtls 2026-10-01T06:35:59Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-01T06:35:59Z pg-factory-pool-process disk=233G memAvailable=16GiB swapFreeKiB=3014564/17173956
+--- START pg-factory-pool-process 2026-10-01T06:35:59Z
+--- END   pg-factory-pool-process 2026-10-01T06:36:01Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-01T06:36:01Z pg-bun-sql-pool-replacement disk=233G memAvailable=16GiB swapFreeKiB=3014644/17173956
+--- START pg-bun-sql-pool-replacement 2026-10-01T06:36:01Z
+--- END   pg-bun-sql-pool-replacement 2026-10-01T06:36:06Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-01T06:36:06Z pg-factory-assurance disk=233G memAvailable=16GiB swapFreeKiB=3014804/17173956
+--- START pg-factory-assurance 2026-10-01T06:36:06Z
+--- END   pg-factory-assurance 2026-10-01T06:36:12Z exit=0  17 pass 0 fail 
+resource-gate 2026-10-01T06:36:12Z pg-factory-pool-service disk=233G memAvailable=16GiB swapFreeKiB=3014944/17173956
+--- START pg-factory-pool-service 2026-10-01T06:36:12Z
+--- END   pg-factory-pool-service 2026-10-01T06:36:13Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-01T06:36:13Z pg-factory-schema disk=233G memAvailable=16GiB swapFreeKiB=3014960/17173956
+--- START pg-factory-schema 2026-10-01T06:36:13Z
+--- END   pg-factory-schema 2026-10-01T06:36:18Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-01T06:36:18Z unit-scripts-pinned-bun-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015008/17173956
+--- START unit-scripts-pinned-bun-test-ts 2026-10-01T06:36:18Z
+--- END   unit-scripts-pinned-bun-test-ts 2026-10-01T06:36:18Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-01T06:36:18Z unit-src-db-bun-sql-pipelining-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015020/17173956
+--- START unit-src-db-bun-sql-pipelining-test-ts 2026-10-01T06:36:18Z
+--- END   unit-src-db-bun-sql-pipelining-test-ts 2026-10-01T06:36:20Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-01T06:36:20Z unit-src-db-migrations-add-factory-usage-settlements-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015032/17173956
+--- START unit-src-db-migrations-add-factory-usage-settlements-test-ts 2026-10-01T06:36:20Z
+--- END   unit-src-db-migrations-add-factory-usage-settlements-test-ts 2026-10-01T06:36:21Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-01T06:36:21Z unit-src-factory-pool-process-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015032/17173956
+--- START unit-src-factory-pool-process-test-ts 2026-10-01T06:36:21Z
+--- END   unit-src-factory-pool-process-test-ts 2026-10-01T06:36:23Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-01T06:36:23Z unit-src-factory-private-https-integration-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015144/17173956
+--- START unit-src-factory-private-https-integration-test-ts 2026-10-01T06:36:23Z
+--- END   unit-src-factory-private-https-integration-test-ts 2026-10-01T06:36:24Z exit=0  15 pass 0 fail 
+resource-gate 2026-10-01T06:36:24Z unit-src-factory-provisioning-database-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015176/17173956
+--- START unit-src-factory-provisioning-database-test-ts 2026-10-01T06:36:24Z
+--- END   unit-src-factory-provisioning-database-test-ts 2026-10-01T06:36:25Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-01T06:36:25Z unit-src-factory-provisioning-fleet-cli-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015176/17173956
+--- START unit-src-factory-provisioning-fleet-cli-test-ts 2026-10-01T06:36:25Z
+--- END   unit-src-factory-provisioning-fleet-cli-test-ts 2026-10-01T06:36:25Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-01T06:36:25Z unit-src-factory-provisioning-fleet-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015176/17173956
+--- START unit-src-factory-provisioning-fleet-test-ts 2026-10-01T06:36:25Z
+--- END   unit-src-factory-provisioning-fleet-test-ts 2026-10-01T06:36:26Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-01T06:36:26Z unit-src-factory-provisioning-purge-approval-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015180/17173956
+--- START unit-src-factory-provisioning-purge-approval-test-ts 2026-10-01T06:36:26Z
+--- END   unit-src-factory-provisioning-purge-approval-test-ts 2026-10-01T06:36:26Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-01T06:36:27Z unit-src-factory-provisioning-storage-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015188/17173956
+--- START unit-src-factory-provisioning-storage-test-ts 2026-10-01T06:36:27Z
+--- END   unit-src-factory-provisioning-storage-test-ts 2026-10-01T06:36:27Z exit=0  64 pass 0 fail 
+resource-gate 2026-10-01T06:36:27Z unit-src-__tests__-e2e-lanes-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015192/17173956
+--- START unit-src-__tests__-e2e-lanes-test-ts 2026-10-01T06:36:27Z
+--- END   unit-src-__tests__-e2e-lanes-test-ts 2026-10-01T06:36:32Z exit=0  31 pass 0 fail 
+resource-gate 2026-10-01T06:36:32Z unit-src-__tests__-factory-private-client-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015488/17173956
+--- START unit-src-__tests__-factory-private-client-test-ts 2026-10-01T06:36:32Z
+--- END   unit-src-__tests__-factory-private-client-test-ts 2026-10-01T06:36:34Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-01T06:36:34Z unit-src-__tests__-factory-transport-settle-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015492/17173956
+--- START unit-src-__tests__-factory-transport-settle-test-ts 2026-10-01T06:36:34Z
+--- END   unit-src-__tests__-factory-transport-settle-test-ts 2026-10-01T06:36:35Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-01T06:36:35Z unit-src-__tests__-search-egress-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015504/17173956
+--- START unit-src-__tests__-search-egress-test-ts 2026-10-01T06:36:35Z
+--- END   unit-src-__tests__-search-egress-test-ts 2026-10-01T06:36:36Z exit=0  80 pass 0 fail 
+resource-gate 2026-10-01T06:36:36Z unit-src-__tests__-setup-podman-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3015504/17173956
+--- START unit-src-__tests__-setup-podman-test-ts 2026-10-01T06:36:36Z
+--- END   unit-src-__tests__-setup-podman-test-ts 2026-10-01T06:37:06Z exit=0  98 pass 0 fail 
+resource-gate 2026-10-01T06:37:06Z unit-src-__tests__-workflow-extension-loader-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3066116/17173956
+--- START unit-src-__tests__-workflow-extension-loader-test-ts 2026-10-01T06:37:06Z
+--- END   unit-src-__tests__-workflow-extension-loader-test-ts 2026-10-01T06:37:06Z exit=0  25 pass 0 fail 
+resource-gate 2026-10-01T06:37:06Z unit-src-factory-private-https-test-ts disk=233G memAvailable=16GiB swapFreeKiB=3066136/17173956
+--- START unit-src-factory-private-https-test-ts 2026-10-01T06:37:06Z
+--- END   unit-src-factory-private-https-test-ts 2026-10-01T06:37:07Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-01T06:37:07Z sdk-lcov disk=233G memAvailable=16GiB swapFreeKiB=3066136/17173956
+--- START sdk-lcov 2026-10-01T06:37:07Z
+--- END   sdk-lcov 2026-10-01T06:37:20Z exit=0  246 pass 0 fail 
+resource-gate 2026-10-01T06:37:20Z sdk-mcp-lcov disk=233G memAvailable=16GiB swapFreeKiB=3066796/17173956
+--- START sdk-mcp-lcov 2026-10-01T06:37:20Z
+--- END   sdk-mcp-lcov 2026-10-01T06:37:21Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-01T06:37:21Z web-guard disk=233G memAvailable=16GiB swapFreeKiB=3066804/17173956
+--- START web-guard 2026-10-01T06:37:21Z
+--- END   web-guard 2026-10-01T06:37:22Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-01T06:37:22Z orchestrator-package-test disk=233G memAvailable=16GiB swapFreeKiB=3066844/17173956
+--- START orchestrator-package-test 2026-10-01T06:37:22Z
+--- END   orchestrator-package-test 2026-10-01T06:39:02Z exit=0 ℹ pass 92 ℹ fail 0 
+resource-gate 2026-10-01T06:39:02Z orchestrator-node disk=233G memAvailable=16GiB swapFreeKiB=3158864/17173956
+--- START orchestrator-node 2026-10-01T06:39:02Z
+--- END   orchestrator-node 2026-10-01T06:41:03Z exit=0 ℹ pass 92 ℹ fail 0 ℹ pass 92 ℹ fail 0 
+resource-gate 2026-10-01T06:41:04Z pg-provisioning-gateway disk=233G memAvailable=16GiB swapFreeKiB=3174336/17173956
+--- START pg-provisioning-gateway 2026-10-01T06:41:04Z
+--- END   pg-provisioning-gateway 2026-10-01T06:41:44Z exit=0  63 pass 0 fail 1 pass 0 fail 
+resource-gate 2026-10-01T06:41:44Z web-server-lcov disk=233G memAvailable=16GiB swapFreeKiB=3209616/17173956
+--- START web-server-lcov 2026-10-01T06:41:44Z
+--- END   web-server-lcov 2026-10-01T06:42:04Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-01T06:42:04Z coverage-merge disk=233G memAvailable=17GiB swapFreeKiB=3210016/17173956
+--- START coverage-merge 2026-10-01T06:42:04Z
+--- END   coverage-merge 2026-10-01T06:42:05Z exit=0 
+resource-gate 2026-10-01T06:42:05Z web-build disk=233G memAvailable=16GiB swapFreeKiB=3210044/17173956
+--- START web-build 2026-10-01T06:42:05Z
+--- END   web-build 2026-10-01T06:42:45Z exit=0 
+resource-gate 2026-10-01T06:42:45Z graph-mock-pass disk=233G memAvailable=17GiB swapFreeKiB=3210772/17173956
+--- START graph-mock-pass 2026-10-01T06:42:45Z
+--- END   graph-mock-pass 2026-10-01T06:43:33Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w12e-merge/graph/w12e-merge-mock.json; nothing to dump
+mock pass w12e-merge-mock outcome: passed
+resource-gate 2026-10-01T06:43:33Z merge-commit-gates disk=233G memAvailable=16GiB swapFreeKiB=3209228/17173956
+--- START merge-commit-gates 2026-10-01T06:43:33Z
+--- END   merge-commit-gates 2026-10-01T06:43:38Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-10-01T06:43:38Z

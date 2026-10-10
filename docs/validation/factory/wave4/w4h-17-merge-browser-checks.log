@@ -1,0 +1,12 @@
+merged 2 browser raw receipt(s) → /tmp/w4h17-browser-checks/mock-full-merged.json
+1. merged: web/src/lib/factory/FactoryConsole.svelte LF 333 LH 333 DA:199 1
+2. mock-full lane alone: web/src/lib/factory/FactoryConsole.svelte LF 333 LH 333 DA:199 1
+3. drop check vs hosted base: 471 base files; BINDING (factory files): 0 drop(s); INFORMATIONAL (elsewhere): 7
+   drop (informational) web/src/lib/api.ts: LH 205 < base 206; lines hit at base, not at the merge: [819]
+   drop (informational) web/src/lib/chat/page-handlers/send-message.ts: LH 69 < base 72; lines hit at base, not at the merge: [818, 819, 827]
+   drop (informational) web/src/lib/components/ChatInput.svelte: LH 306 < base 307; lines hit at base, not at the merge: [566]
+   drop (informational) web/src/lib/components/ChatThread.svelte: LH 757 < base 758; lines hit at base, not at the merge: [1269]
+   drop (informational) web/src/lib/components/ContextUsageIndicator.svelte: LH 109 < base 110; lines hit at base, not at the merge: [145]
+   drop (informational) web/src/lib/components/ProjectRail.svelte: LH 58 < base 59; lines hit at base, not at the merge: [60]
+   drop (informational) web/src/routes/(app)/admin/dashboard/+page.svelte: LH 446 < base 447; lines hit at base, not at the merge: [266]
+BROWSER CHECKS: PASS

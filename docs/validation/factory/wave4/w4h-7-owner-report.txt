@@ -1,0 +1,70 @@
+W4H-7 report: "concurrent task_add loses an update" (R8)
+Owner w4h-7. Validator verdict: ACCEPT (validator-5, 61f8ad386ae0c08f). Evidence directory: /tmp/factory-platform-evidence/w4h-7/ (E/ below).
+
+1. Outcome
+The R8 "lost update" is not a read-modify-write race in the task-state write path. It is the worker-channel stall that W4H-6 found
+and fixed (merged in integ/w00 at 87e1e197c). W4H-7 changes no product or test file. Its package is the evidence record: two docs-only
+commits (the gates doc, tasks/todo.md and tasks/lessons.md).
+
+2. Cause
+The write path is serialised:
+- task_add saves at docs/extensions/examples/task-tracking/index.ts:748, inside withLock (index.ts:1343-1346).
+  Correction: an interim report said index.ts:752; the line is :748.
+- In a v4 worker, withLock takes a host-held row lock: packages/@ezcorp/sdk/src/runtime/lock.ts:46-68 and
+  src/extensions/runtime-locks.ts:57-81.
+- The host write locks the conversation row (FOR UPDATE) and checks the expected revision in the same transaction:
+  src/runtime/task-tracking-host.ts:154-163.
+The stall: the extension runner read each worker's out and err FIFOs on Bun's file-system thread pool (one thread per CPU). Two live
+workers on 4 CPUs fill the pool. The trace (E/host-trace-1/iter-3.log, sha256 a4e56eb4e8337072) shows:
+- worker B takes the lock, reads and sends its write;
+- worker A is refused once, and its retry never reaches the host;
+- B's answer arrives only after the 30 s deadline closes both workers.
+Result: revisions 2 of 3 expected, the CI signature. A passing run had no overlap. The trace lines were in the test helper and host only,
+were never committed, and their diff is E/trace-instrumentation.diff.
+
+3. Legs (only executed runs are counted; sha256 prefixes are 16 hex characters)
+Red at 52d8ba079:
+- ctr-red-52d8-v3 (runner-shaped container: Ubuntu 24.04, podman 4.9.3, conmon 2.2.1, 4 CPUs, 16 GiB, clean git archive snapshot):
+  exit 1 at 20:43Z, red at run 1, "Expected length: 3 / Received length: 2". run-1.log 05d5b8fc2b08fe55.
+- host-probe-1 (host, taskset 0-3, --coverage): red at run 1. iter-1.log 49979574f7b79f14.
+- host-trace-1: red at run 3. iter-3.log a4e56eb4e8337072.
+- pool2-red-base (unchanged suite with UV_THREADPOOL_SIZE=2): red at run 1. summary 035f5e86b5732987.
+- e2e-red-base (task-panel-durability, 4 CPUs, own fixtures, port 4917): spec :107 "Test timeout of 60000ms exceeded";
+  :75 passed; :138 did not run. run-1.log f1911c4b07974b44.
+Green with W4H-6's runner src (proof/w4h-7-fix 40875d887 = 52d8ba079 + E/w4h6-runner-src.diff, sha256 f0e6db66f3cbde1a):
+- ctr-green-fix-v3 (same container, diff applied in the snapshot): exit 0 at 21:12Z, 20 of 20. summary e8b6c29fa29d1fbc.
+- host-green-fix-v3: exit 0 at 21:20Z, 20 of 20. summary 7792b4187b304bcd.
+- host-green-fix-probe-v2: 10 of 10. summary 47ffe6b40235280d.
+- pool2-green-fix-v2 (UV_THREADPOOL_SIZE=2): 10 of 10. summary 1773ed82ef378fc9.
+- e2e-green-fix-v2: 2 of 2 runs, 3 passed each. run-1.log dd5c0def82a6af08, run-2.log 94b8c31328329744.
+Green on merged integ/w00 87e1e197c:
+- e2e-merged-87e1: exit 0 at 22:10Z, 2 of 2 runs, 3 passed each. run-1.log d83ae4a8e7cde6a9, run-2.log 0857f496f9b2cc32.
+- host-merged-87e1: exit 0 at 22:27Z, 10 of 10. summary 43215a1861c928c2.
+G4b, the branch head 2e529f1bb on 6ac2458c7 (W4H-9 changed extension-runner/src/service.ts, which the real-auth stack uses):
+- e2e-head: exit 0 at 01:03Z, 2 of 2 runs, 3 passed each. run-1.log ee9d089ce1565145, run-2.log a796da9661c13b3f,
+  summary 4b414d82dca50d64.
+Lock-free at the head: the guard set, 39 files, 477 pass, 0 fail, 2 existing platform skips (E/guard-head.log). gate-integrity: only the
+8 known wave findings that need the gate-change-approved label (E/gate-integrity-head.log).
+Regression pins (no new test, by coordinator ruling): task-panel-durability.spec.ts:107 and task-state-isolated.integration.test.ts,
+with W4H-6's channel-pool test as the unit pin of the cause.
+
+4. Process lapse and fix
+- The first loop scripts waited for the resource gate inside the heavy lock (up to about 10 minutes on the container leg).
+- They also counted gate-skipped iterations as runs.
+Fix: the v2 and v3 scripts check the gate inside the lock with no wait, and exit 75 on a red gate or a 1-minute load of 10 or more. Every
+leg runs through w00/gated-flock.sh with an exit file, and only executed runs count. The early counts were not used as gate evidence. The
+lesson is in tasks/lessons.md.
+
+5. Cleanup
+Removed by name at 21:57:51Z: snapshot snap-52d8ba079 (3.2 GB, with podman unshare rm -rf; its identity is in
+E/snap-52d8ba079.sha256), container w4h-7-runner (2.1 GB) with its volume w4h-7-storage (0.7 GB), and image localhost/w4h-7-runner:24.04.
+Host free disk went from 151 to 160 GB. The scratch worktree .worktrees/w4h-7-on-w4h6 is also removed. No prune was run.
+
+6. Closing
+- Final head: wp/w4h-7b b4ec15e5c on integ/w00 6ac2458c7 (worktree .worktrees/w4h-7b), with two commits:
+  2e529f1bb docs(factory): W4H-7 gates - the R8 "lost update" is the worker-channel stall W4H-6 fixed; red at 52d8ba079, green on the merged fix
+  b4ec15e5c docs(factory): W4H-7 gate G4b - the E2E spec is green at the branch head on 6ac2458c7; regression pins and the index.ts:748 correction
+- The hook mapped 0 suites on both commits. Identity is archy noreply only.
+- proof/w4h-7-fix 40875d887 is kept as a receipt ref. Its code is subsumed by W4H-6 (56c9579d7 is an ancestor of integ/w00).
+- .worktrees/w4h-7 (wp/w4h-7 at 52d8ba079, no commits) is pending removal on the coordinator's word after the merge.
+- Gates doc: tasks/factory/w4h-7-GATES.md.

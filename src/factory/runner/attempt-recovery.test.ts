@@ -1,0 +1,396 @@
+import { afterEach, beforeEach, expect, test } from "bun:test";
+import { sql } from "drizzle-orm";
+import { canonicalJson } from "@ezcorp/extension-contract";
+import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@ezcorp/extension-contract";
+import type { FactoryRunnerRequest, FactoryRunnerResult } from "@ezcorp/factory-sdk";
+import { generateKeyPairSync } from "node:crypto";
+import { createFactoryLaunchFixture, factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest, type FactoryLaunchFixture } from "../../__tests__/helpers/factory-attempt-launch-fixture";
+import type { FactoryRunnerDispatchReadiness } from "../package-preparation";
+import type { PoolLease } from "../pool/ledger";
+import { FactoryDatabaseAttemptLaunchStore, IsolatedFactoryAttemptRuntime, factoryTerminalResultDigest, signFactoryPhysicalStopReceipt, type FactoryUnsignedPhysicalStopReceipt } from "./attempt-runtime";
+
+const hostKeys = generateKeyPairSync("rsa", { modulusLength: 2048 });
+const signStopReceipt = async (receipt: FactoryUnsignedPhysicalStopReceipt) => signFactoryPhysicalStopReceipt(receipt, "recovery-host-key", hostKeys.privateKey);
+
+/** Counts every physical start and every guest invocation so a duplicate cannot pass unseen. */
+class CountingRunner implements Runner {
+  starts = 0;
+  attaches = 0;
+  invocations = 0;
+  private readonly states = new Map<string, RunnerInspection["state"]>();
+  constructor(private readonly result: FactoryRunnerResult) {}
+  async build(): Promise<never> { throw new Error("build is not part of attempt recovery"); }
+  async collectArtifacts(): Promise<never> { throw new Error("artifact collection is not part of attempt recovery"); }
+  async inspect(id: string): Promise<RunnerInspection> { return { id, state: this.states.get(id) ?? "unknown", diagnostics: [] }; }
+  async cancel(id: string): Promise<void> { this.states.set(id, "cancelled"); }
+  async start(input: StartRequest): Promise<RunnerExecution> {
+    this.starts += 1;
+    this.states.set(input.workerId, "running");
+    return this.execution(input.workerId);
+  }
+  async attach(input: StartRequest): Promise<RunnerExecution> {
+    this.attaches += 1;
+    return { workerId: input.workerId, request: async () => { throw new Error("a reattached guest must never receive another invocation"); }, close: async () => {}, onNotification: () => () => {} };
+  }
+  private execution(workerId: string): RunnerExecution {
+    return {
+      workerId,
+      request: async (method) => {
+        if (method !== "extension/invoke") throw new Error(`unexpected guest method ${method}`);
+        this.invocations += 1;
+        return this.result;
+      },
+      close: async () => {},
+      onNotification: () => () => {},
+    };
+  }
+}
+
+const pool = { acknowledgeStart: async () => renewedLease, renew: async () => renewedLease };
+let renewedLease: PoolLease;
+let fixture: FactoryLaunchFixture;
+let request: FactoryRunnerRequest;
+
+beforeEach(async () => {
+  request = factoryLaunchRequest();
+  renewedLease = { ...factoryLaunchLease, tenantId: request.authority.tenantId, fence: "recovery-fence", deadlineAt: new Date(Date.now() + 600_000), resources: {} };
+  fixture = await createFactoryLaunchFixture(request);
+});
+afterEach(async () => { await fixture.close(); });
+
+function runtime(runner: Runner, options: { presentStopReceipt?: () => Promise<void>; broker?: () => Promise<unknown>; readiness?: FactoryRunnerDispatchReadiness; onMint?: () => void } = {}): IsolatedFactoryAttemptRuntime {
+  return new IsolatedFactoryAttemptRuntime({
+    runner,
+    launches: new FactoryDatabaseAttemptLaunchStore(fixture.db),
+    pool,
+    broker: { invoke: options.broker ?? (async () => { throw new Error("recovery must not reach the broker"); }) },
+    signStopReceipt,
+    presentStopReceipt: options.presentStopReceipt ?? (async () => {}),
+    readiness: options.readiness ?? { assertDispatchReady: async () => factoryLaunchPackage(request) },
+    mintAttemptToken: async () => { options.onMint?.(); return "minted-attempt-token"; },
+  });
+}
+
+/** The database constraint a statement violated, so a test proves the schema and not only the code. */
+async function violatedConstraint(statement: ReturnType<typeof sql>): Promise<string | undefined> {
+  try {
+    await fixture.db.execute(statement);
+  } catch (error) {
+    const cause = (error as { cause?: { constraint?: string } }).cause;
+    return cause?.constraint;
+  }
+  return undefined;
+}
+
+/** The durable launch state, so a denial that releases its claim is provable. */
+async function launchState(attemptId: string): Promise<string | undefined> {
+  const rows = await fixture.db.execute(sql`SELECT state FROM factory_attempt_launches WHERE attempt_id=${attemptId}`) as unknown as { rows?: { state: string }[] } | { state: string }[];
+  const list = Array.isArray(rows) ? rows : rows.rows ?? [];
+  return list[0]?.state;
+}
+
+test("a fresh gateway reads the same terminal result without a second invocation", async () => {
+  const completed = factoryLaunchCompletedResult();
+  const runner = new CountingRunner(completed);
+  const first = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(first.disposition).toBe("started");
+  expect(await first.wait()).toEqual(completed);
+  expect(runner.starts).toBe(1);
+  expect(runner.invocations).toBe(1);
+
+  const recovered = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(recovered.disposition).toBe("terminal");
+  expect(recovered.invocationId).toBe(first.invocationId);
+  expect(await recovered.wait()).toEqual(completed);
+  expect(runner.starts).toBe(1);
+  expect(runner.invocations).toBe(1);
+  expect(runner.attaches).toBe(0);
+});
+
+test("the result is durable before it is acknowledged, so a crash at the acknowledgement boundary still recovers it", async () => {
+  const completed = factoryLaunchCompletedResult("acknowledge");
+  const runner = new CountingRunner(completed);
+  const crashing = runtime(runner, { presentStopReceipt: async () => { throw new Error("gateway crashed before acknowledging the stop receipt"); } });
+  const opened = await crashing.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  await expect(opened.wait()).rejects.toThrow("crashed before acknowledging");
+  expect(runner.invocations).toBe(1);
+
+  const stored = await new FactoryDatabaseAttemptLaunchStore(fixture.db).terminalResult(request.authority.attemptId);
+  expect(stored).toEqual(completed);
+  const recovered = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(await recovered.wait()).toEqual(completed);
+  expect(runner.invocations).toBe(1);
+});
+
+test("a crash before the result boundary leaves no result and refuses to invoke again", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  await store.claimStart(request.authority.attemptId);
+  const recovered = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(recovered.disposition).toBe("uncertain");
+  await expect(recovered.wait()).rejects.toThrow("outcome is uncertain");
+  expect(await store.terminalResult(request.authority.attemptId)).toBeUndefined();
+  expect(runner.starts).toBe(0);
+  expect(runner.invocations).toBe(0);
+});
+
+test("a losing concurrent claimant returns the winner's exact result instead of inventing one", async () => {
+  const completed = factoryLaunchCompletedResult("concurrent");
+  const runner = new CountingRunner(completed);
+  const winner = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  const loser = await runtime(runner).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(loser.disposition).toBe("attached");
+  await expect(loser.wait()).rejects.toThrow("durable terminal result");
+
+  expect(await winner.wait()).toEqual(completed);
+  expect(await loser.wait()).toEqual(completed);
+  expect(runner.starts).toBe(1);
+  expect(runner.invocations).toBe(1);
+});
+
+test("a second different terminal result for the same attempt is rejected and the first survives", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  const first = factoryLaunchCompletedResult("first");
+  await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(await store.recordTerminal(request.authority.attemptId, first)).toEqual(first);
+  expect(await store.recordTerminal(request.authority.attemptId, first)).toEqual(first);
+  await expect(store.recordTerminal(request.authority.attemptId, factoryLaunchCompletedResult("second"))).rejects.toThrow("already recorded a different terminal result");
+  expect(await store.terminalResult(request.authority.attemptId)).toEqual(first);
+});
+
+test("a corrupted durable result is rejected rather than replayed", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  const completed = factoryLaunchCompletedResult("corrupt");
+  await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  await store.recordTerminal(request.authority.attemptId, completed);
+  const tampered = { ...completed, journalCursor: 5, workspaceCheckpoint: { ...completed.workspaceCheckpoint!, journalCursor: 5 } };
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET terminal_result_json=${canonicalJson(tampered)}::jsonb WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.terminalResult(request.authority.attemptId)).rejects.toThrow("does not match its durable digest");
+  expect(await violatedConstraint(sql`UPDATE factory_attempt_launches SET terminal_result_json=NULL,terminal_result_digest=${factoryTerminalResultDigest(completed)} WHERE attempt_id=${request.authority.attemptId}`)).toBe("factory_attempt_launches_terminal_result_paired_check");
+  expect(await violatedConstraint(sql`UPDATE factory_attempt_launches SET terminal_result_digest='not-a-digest' WHERE attempt_id=${request.authority.attemptId}`)).toBe("factory_attempt_launches_terminal_result_digest_check");
+});
+
+test("a different attempt number is a different invocation with its own durable result", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  const retry = factoryLaunchRequest({ attemptId: "attempt-recovery-retry", attemptNumber: 4 });
+  await fixture.admit(retry);
+  const original = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  const second = await store.prepare(retry, factoryLaunchLease, factoryLaunchPackage(retry));
+  expect(second.invocationId).not.toBe(original.invocationId);
+  await store.recordTerminal(request.authority.attemptId, factoryLaunchCompletedResult("original"));
+  expect(await store.terminalResult(retry.authority.attemptId)).toBeUndefined();
+});
+
+test("recording or reading a terminal result for an absent launch intent fails closed", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  await expect(store.terminalResult("attempt-absent")).rejects.toThrow("launch intent is missing");
+  await expect(store.recordTerminal("attempt-absent", factoryLaunchCompletedResult())).rejects.toThrow("launch intent is missing");
+  await expect(store.recordTerminal(request.authority.attemptId, { schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: 0, operations: [] } as unknown as FactoryRunnerResult)).rejects.toThrow("Factory terminal result is invalid");
+});
+
+test("a package revoked between the durable claim and the token mint denies the launch", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let minted = false;
+  const denied = runtime(runner, {
+    readiness: { assertDispatchReady: async () => { throw new Error("factory_package_not_prepared"); } },
+    onMint: () => { minted = true; },
+  });
+  await expect(denied.open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("factory_package_not_prepared");
+  expect(minted).toBe(false);
+  expect(runner.starts).toBe(0);
+  expect(runner.invocations).toBe(0);
+});
+
+test("a readiness receipt that no longer matches the persisted package denies the launch", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let minted = false;
+  const drifted = runtime(runner, {
+    readiness: { assertDispatchReady: async () => ({ ...factoryLaunchPackage(request), artifactDigest: "f".repeat(64) }) },
+    onMint: () => { minted = true; },
+  });
+  await expect(drifted.open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("changed before the attempt token was minted");
+  expect(minted).toBe(false);
+  expect(runner.starts).toBe(0);
+});
+
+test("a guest control frame is answered only when it carries the started worker and invocation", async () => {
+  const completed = factoryLaunchCompletedResult("frames");
+  const brokerInputs: unknown[] = [];
+  let reverse: ((method: string, input: unknown) => Promise<unknown>) | undefined;
+  let started: StartRequest | undefined;
+  const capturing: Runner = {
+    build: async () => { throw new Error("unused"); },
+    collectArtifacts: async () => { throw new Error("unused"); },
+    inspect: async (id) => ({ id, state: started ? "running" : "unknown", diagnostics: [] }),
+    cancel: async () => {},
+    start: async (input, rpc) => {
+      started = input;
+      reverse = rpc;
+      return { workerId: input.workerId, request: async () => completed, close: async () => {}, onNotification: () => () => {} };
+    },
+  };
+  const opened = await runtime(capturing, { broker: async () => { brokerInputs.push("invoked"); return { accepted: true }; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(opened.disposition).toBe("started");
+  const context = started!.context;
+  expect(context.invocationId).toBe(opened.invocationId);
+  expect(context.workerId).toBe(opened.workerId);
+
+  expect(await reverse!("factory.broker", { context, input: { kind: "model" } })).toEqual({ accepted: true });
+  await expect(reverse!("factory.tool", { context, input: {} })).rejects.toThrow("capability is denied");
+  await expect(reverse!("factory.broker", { context: { ...context, invocationId: "other-invocation" }, input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { context: { ...context, workerId: "other-worker" }, input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { input: {} })).rejects.toThrow("does not match its worker, invocation, and attempt");
+  await expect(reverse!("factory.broker", { context })).rejects.toThrow("has no input");
+  await expect(reverse!("factory.broker", [1, 2])).rejects.toThrow("control frame is invalid");
+  expect(brokerInputs).toEqual(["invoked"]);
+});
+
+test("two model tuples share one package and export, and revoking one denies only its dispatch", async () => {
+  const tupleA = factoryLaunchRequest({ attemptId: "attempt-tuple-a", model: "model-a" });
+  const tupleB = factoryLaunchRequest({ attemptId: "attempt-tuple-b", model: "model-b", configurationDigest: `sha256:${"9".repeat(64)}` });
+  await fixture.admit(tupleA);
+  await fixture.admit(tupleB);
+  expect(tupleA.runner.package).toBe(tupleB.runner.package);
+  expect(tupleA.runner.export).toBe(tupleB.runner.export);
+
+  const revoked = new Set<string>();
+  const readiness: FactoryRunnerDispatchReadiness = {
+    assertDispatchReady: async (dispatch) => {
+      const reference = canonicalJson((dispatch as { runner: unknown }).runner);
+      if (revoked.has(reference)) throw new Error("factory_package_revoked");
+      return { ...factoryLaunchPackage(tupleA), reference: (dispatch as { runner: FactoryRunnerRequest["runner"] }).runner };
+    },
+  };
+  const completed = factoryLaunchCompletedResult("tuple-a");
+  const runner = new CountingRunner(completed);
+  const openedA = await runtime(runner, { readiness }).open(tupleA, factoryLaunchLease, { ...factoryLaunchPackage(tupleA), reference: tupleA.runner });
+  expect(await openedA.wait()).toEqual(completed);
+
+  revoked.add(canonicalJson(tupleB.runner));
+  await expect(runtime(runner, { readiness }).open(tupleB, factoryLaunchLease, { ...factoryLaunchPackage(tupleB), reference: tupleB.runner })).rejects.toThrow("factory_package_revoked");
+
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  expect(await store.terminalResult(tupleA.authority.attemptId)).toEqual(completed);
+  expect(await store.terminalResult(tupleB.authority.attemptId)).toBeUndefined();
+  expect(runner.starts).toBe(1);
+  expect(runner.invocations).toBe(1);
+
+  expect(await launchState(tupleB.authority.attemptId)).toBe("prepared");
+
+  revoked.clear();
+  const recoveredB = await runtime(runner, { readiness }).open(tupleB, factoryLaunchLease, { ...factoryLaunchPackage(tupleB), reference: tupleB.runner });
+  expect(recoveredB.disposition).toBe("started");
+  expect(recoveredB.invocationId).not.toBe(openedA.invocationId);
+  expect(await recoveredB.wait()).toEqual(completed);
+  expect(runner.starts).toBe(2);
+});
+
+test("a denial while reattaching a live guest records durable uncertainty instead of a fresh token", async () => {
+  const runner = new CountingRunner(factoryLaunchCompletedResult());
+  let ready = true;
+  let minted = 0;
+  const gated = { assertDispatchReady: async () => { if (!ready) throw new Error("factory_package_revoked"); return factoryLaunchPackage(request); } };
+  const started = await runtime(runner, { readiness: gated, onMint: () => { minted += 1; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(started.disposition).toBe("started");
+  expect(minted).toBe(1);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+
+  ready = false;
+  await expect(runtime(runner, { readiness: gated, onMint: () => { minted += 1; } }).open(request, factoryLaunchLease, factoryLaunchPackage(request))).rejects.toThrow("factory_package_revoked");
+  expect(minted).toBe(1);
+  expect(runner.attaches).toBe(0);
+  expect(await launchState(request.authority.attemptId)).toBe("uncertain");
+});
+
+/** A runner whose inspect can be made to fail or hang under test control. */
+class InspectFaultRunner implements Runner {
+  cancels = 0;
+  starts = 0;
+  mode: "running" | "throw" | "hang" | "cancelled" = "running";
+  private release: ((value: RunnerInspection) => void) | undefined;
+  constructor(private readonly result: FactoryRunnerResult) {}
+  async build(): Promise<never> { throw new Error("build is not part of this test"); }
+  async collectArtifacts(): Promise<never> { throw new Error("artifact collection is not part of this test"); }
+  private readonly started = new Set<string>();
+  async start(input: StartRequest): Promise<RunnerExecution> {
+    this.starts += 1;
+    this.started.add(input.workerId);
+    return { workerId: input.workerId, request: async () => this.result, close: async () => {}, onNotification: () => () => {} };
+  }
+  async cancel(): Promise<void> { this.cancels += 1; }
+  async inspect(id: string): Promise<RunnerInspection> {
+    if (this.mode === "throw") throw new Error("podman inspect transport failed");
+    if (this.mode === "hang") return new Promise<RunnerInspection>(resolve => { this.release = resolve; });
+    if (!this.started.has(id)) return { id, state: "unknown", diagnostics: [] };
+    return { id, state: this.mode === "cancelled" ? "cancelled" : "running", diagnostics: [] };
+  }
+  /** Ends a held inspect with a state the caller chooses. */
+  settleHang(state: RunnerInspection["state"]): void { this.release?.({ id: "held", state, diagnostics: [] }); this.release = undefined; }
+  get held(): boolean { return this.release !== undefined; }
+}
+
+test("an inspect transport failure is never read as physical absence", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("inspect-fail"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(opened.disposition).toBe("started");
+
+  runner.mode = "throw";
+  await expect(opened.stop("cancelled")).rejects.toThrow("podman inspect transport failed");
+  // A failed observation proves nothing: no signed receipt, and the launch is
+  // not recorded terminal on the strength of an API error.
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+  expect(runner.cancels).toBe(1);
+});
+
+test("a worker still running after cancel is uncertain, not stopped", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("still-running"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+  await expect(opened.stop("cancelled")).rejects.toThrow("absence is not physically confirmed");
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+});
+
+test("a hanging inspect yields no receipt until it returns a real terminal observation", async () => {
+  const runner = new InspectFaultRunner(factoryLaunchCompletedResult("inspect-hang"));
+  const receipts: unknown[] = [];
+  const live = runtime(runner, { presentStopReceipt: async () => { receipts.push("presented"); } });
+  const opened = await live.open(request, factoryLaunchLease, factoryLaunchPackage(request));
+
+  runner.mode = "hang";
+  const stopping = opened.stop("cancelled").then(() => "resolved", error => (error as Error).message);
+  // Drain the microtask queue so the stop has certainly reached the held inspect.
+  while (!runner.held) await Promise.resolve();
+  expect(receipts).toEqual([]);
+  expect(await launchState(request.authority.attemptId)).toBe("launched");
+
+  // A held observation that finally reports "running" still refuses to settle.
+  runner.settleHang("running");
+  expect(await stopping).toContain("absence is not physically confirmed");
+  expect(receipts).toEqual([]);
+});
+
+test("a stale device grant is rejected when its holding lease no longer matches", async () => {
+  const store = new FactoryDatabaseAttemptLaunchStore(fixture.db);
+  const intent = await store.prepare(request, factoryLaunchLease, factoryLaunchPackage(request));
+  expect(intent.devices.holderGeneration).toBe(factoryLaunchLease.holderGeneration);
+
+  // The grant seals its holder generation and host, so moving either recomputes
+  // a different digest than the one stored beside it.
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET holder_generation=${factoryLaunchLease.holderGeneration + 1} WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.terminalResult(request.authority.attemptId)).resolves.toBeUndefined();
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET holder_generation=${factoryLaunchLease.holderGeneration}, host_id='other-host' WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+
+  // Injecting devices into the stored facts cannot launder them either: the
+  // digest seals the device lists alongside the lease that authorized them.
+  await fixture.db.execute(sql`UPDATE factory_attempt_launches SET host_id=${factoryLaunchLease.hostId}, device_grant_json=${canonicalJson({ devices: ["/dev/kfd"], cdiDevices: [], capabilities: ["compute", "utility"] })}::jsonb WHERE attempt_id=${request.authority.attemptId}`);
+  await expect(store.claimStart(request.authority.attemptId)).rejects.toThrow("device grant digest is invalid");
+});

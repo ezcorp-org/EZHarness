@@ -1,0 +1,49 @@
+GATE 2026-10-06T01:55:04Z MemAvailable=13GiB SwapFree=0GiB disk=193GB
+GATE FAIL
+GATE FAIL
+GATE 2026-10-06T02:45:13Z MemAvailable=10GiB SwapFree=2GiB disk=193GB
+GATE OK
+=== final legs HEAD ac20f1a8a365bfaaaba7b7d69251a286ffafd937 2026-10-06T02:45:13Z
+unit-core rc=0  5 pass 0 fail 
+unit-image-precondition rc=0  4 pass 0 fail 
+unit-ci-registration rc=0  16 pass 0 fail 
+unit-podman-guest-job-registration rc=0  7 pass 0 fail 
+unit-factory-storage-action-registration rc=0  4 pass 0 fail 
+merge-lcov rc=0 
+new-file-integ_w00 rc=0 
+patch-integ_w00 rc=0 
+gate-integrity-integ_w00 rc=1 
+new-file-origin_main rc=1 
+patch-origin_main rc=1 
+gate-integrity-origin_main rc=1 
+crap-changed rc=0 
+guard list 40 files, holds the new guard: 1
+guard-set rc=0  507 pass 0 fail 
+typecheck rc=0 
+lint rc=0 
+boundaries rc=0 
+lanes rc=0 
+=== end 2026-10-06T02:47:45Z
+GATE 2026-10-06T13:09:42Z MemAvailable=6GiB SwapFree=3GiB disk=161GB
+GATE OK
+=== final legs HEAD 643f12dd588a2a0d871f4bfa4dd0f2448b24a92c 2026-10-06T13:09:42Z
+unit-core rc=0  5 pass 0 fail 
+unit-image-precondition rc=0  4 pass 0 fail 
+unit-ci-registration rc=0  16 pass 0 fail 
+unit-podman-guest-job-registration rc=0  7 pass 0 fail 
+unit-factory-storage-action-registration rc=0  4 pass 0 fail 
+merge-lcov rc=0 
+new-file-integ_w00 rc=0 
+patch-integ_w00 rc=0 
+gate-integrity-integ_w00 rc=0 
+new-file-origin_main rc=1 
+patch-origin_main rc=1 
+gate-integrity-origin_main rc=1 
+crap-changed rc=0 
+guard list 40 files, holds the new guard: 1
+guard-set rc=0  507 pass 0 fail 
+typecheck rc=0 
+lint rc=0 
+boundaries rc=0 
+lanes rc=0 
+=== end 2026-10-06T13:13:08Z

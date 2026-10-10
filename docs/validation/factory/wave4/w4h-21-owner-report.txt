@@ -1,0 +1,68 @@
+W4H-21 report (owner w4h-21, 2026-10-10T01:2xZ). The Factory Temporal coverage producer fails loudly; it never hangs in silence.
+
+Branch wp/w4h-21-orchestrator-fail-loud, worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-21, from integ/w00 fe445d241.
+integ/w00 has since moved to fdc1a2de9: one docs-only commit that touches none of this branch's files. No merge, no rebase.
+Identity: archy <281643943+EZArchy@users.noreply.github.com> on every commit (author and committer). config-check: accepted baseline.
+
+COMMITS
+  6334954bd fix(scripts): print node's cancelled count with the totals, so a timed-out test never reads fail 0 (W4H-21)   hook: 1 suite, 3 pass
+  b6762be39 fix(ci): the factory Temporal producer fails loudly before the job timeout (W4H-21)                            hook: 1 suite, 7 pass
+  5efac62eb fix(scripts): pass the inner timeout as bare seconds and match the tee line by regex, so the registration test lints clean (W4H-21)  hook: 1 suite, 7 pass
+  b21eb4c57 docs(factory): W4H-21 gates and todo (fail-loud Temporal producer)                                            hook: no test maps (docs)
+
+WHAT CHANGED
+  scripts/factory-orchestrator-coverage.sh
+    - --test-timeout=200000 (200 s; the slowest green test is 60.03 s, a 3.33x margin) and --test-force-exit.
+    - the spec reporter to stdout, with tee to $COV_OUT/test-progress.log.
+    - an inner timeout of 450 s + 30 s kill grace. On a non-zero exit: the last 60 progress-log lines, the totals, then the exit.
+  scripts/lib/test-totals.sh: also prints "ℹ cancelled N". A timed-out test is cancelled, not failed.
+  .github/workflows/ci.yml: ONE new step uploads coverage-shard/test-progress.log (if: always(), if-no-files-found: warn,
+    name factory-temporal-test-progress). timeout-minutes is unchanged at 10.
+  No change to the test set, the coverage includes or the thresholds.
+
+ARITHMETIC (600 s job)
+  The job spends 28.4 s (green 37986983940) to 33.2 s (red 38001537073) before step 7. The non-node part of the script
+  takes 4.8 s locally. The steps after the script take about 1-2 s. Inner + grace = 480 s, which leaves 120 s, about
+  80 s of it slack. The registration test enforces inner + grace + 120 <= job seconds. Hang path: the hosted green step
+  took 152.8 s, plus at most 200 s for one hung test, so about 353 s, which is below 450 s.
+
+PROOF (receipts in /tmp/factory-platform-evidence/w4h-21/; sha256 prefixes)
+  R1 red at base: r1-registration-red.log 3c1476d2c1d4bce6 (first run); r1-red-at-base-final.log 2c24f754b2fa7e44
+    (the committed tests on the base files: 3 pass, 7 fail, (a)-(e) plus the totals test).
+  R1 silence: repro-base-jobcancel/job-log-form.log 7e5228c3d205a4c8 (zero output lines until the cancel);
+    repro-base/job-log-form.log ef0f11aed2dd4d40 (21.6 s of nothing, then totals only, no test name, "fail 0").
+  R2 red first (totals): r2-totals-red.log aa84766a8b8b84a6.
+  R2 per-test path: repro-head/job-log-form.log aeedb40ec5f664d5. The hanging test is named at 200 s, the totals show
+    "cancelled 1", exit 1 at 203 s, below the simulated 566 s cancel.
+  R2 inner-timeout path: repro-head-toplevel/job-log-form.log ea4f15defef21065. A load-time hang ends at exit 124 at
+    453 s, with the tail and the totals.
+  R2 mutants: mutants.out aea2550a… All three are RED: per-test removed on (b), stdout removed on (c), inner 600 on (a).
+  R3 (heavy lock): producer-head-r3/receipt.txt 318a378fe718ba53. 92/92 pass, 0 cancelled, 120 s. Slowest test 60.03 s.
+    LCOV per file is equal to the base run (producer-base/receipt.txt 49b4793d3eaf0045): 17 files, 2169/2169 lines, 701/747 branches.
+  Light legs: logs/final-legs.log 93b02ebe27d6d40a.
+    - lint 0/0; boundaries, lanes, prune and CRAP clean.
+    - new-file and patch vs integ PASS (vacuous: scripts and tests only).
+    - gate-integrity: integ PASS; main exactly the 8 (258f14dafba2b14d).
+    - actionlint: the 3 label findings at head = base.
+  Heavy hold: heavy/heavy-batch.log 7f2fdd42345542b5, heavy.exit 0.
+    - typecheck exit 0 in the lock (18.8 GiB before, lowest 15.4).
+    - guard set: 41 files, 516 pass, 2 skip, 0 fail.
+    - 16 workflow-reading tests: 252 pass, 0 fail.
+  Hosted logs copied: hosted-38001537073-factory-temporal-job.log 750c71261c617c60, hosted-green-37986983940-factory-temporal-job.log f3d865cafd6fef60.
+
+OPEN
+  The hosted hang itself did not reproduce: three local real-producer runs were green (137 s, 121 s, 120 s). The next
+  hosted red names the test in the job log and in the uploaded artifact. One test to watch: "continues only from a
+  quiescent state and restores absolute timers" takes 60.0 s in every run, which looks like a real 60 s wait.
+  Scratch files (repro runner, hang tests) live only in this evidence dir and were never committed.
+
+FILE SHAS at b21eb4c57 (sha256 prefix)
+  scripts/factory-orchestrator-coverage.sh 894c9d5933ca6f05
+  scripts/lib/test-totals.sh 191db0c31b632ac3
+  .github/workflows/ci.yml 2eafd7f24597e024
+  scripts/factory-orchestrator-registration.test.ts 3961d3742553c32f
+  src/__tests__/test-totals.test.ts 1d6882e997ff22df
+  tasks/factory/w4h-21-GATES.md 97f3c4e863cb9cc3
+  brief w00/briefs/w4h-21.md 874189e99b958b6c
+
+FROZEN after this file.

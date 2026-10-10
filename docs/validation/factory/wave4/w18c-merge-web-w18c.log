@@ -1,0 +1,15 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+      Coverage enabled with v8
+
+
+ Test Files  8 passed (8)
+      Tests  95 passed (95)
+   Start at  17:49:04
+   Duration  9.88s (transform 43%, environment 28%, setup 9%, import 9%, tests 8%, worker 2%)
+
+Environment  jsdom was created 8 times · 2.91s total, 28% of tracked time
+             create it once per worker with pool: 'vmThreads' (keeps per-file isolation) or isolate: false (shares it across files)
+             learn more: https://vitest.dev/guide/improving-performance#test-environments
+
+kept 597 configured Node/V8 product-source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w18c-merge/webw18c/lcov.info

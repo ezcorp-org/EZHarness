@@ -1,5 +1,7 @@
 name: ci
 env:
+  # Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: "1"
   BUN_RUNTIME_TRANSPILER_CACHE_PATH: "0"
 
 # Bun is PINNED (not "latest") in every job: an unannounced bun release can
@@ -7,6 +9,8 @@ env:
 # cold-cache `--frozen-lockfile` installs until the @types devDeps fix.
 # 1.3.14 verified green 2026-06-11 (full local job sweep + cold-cache
 # clean-clone install). Bump deliberately, with a local re-verification.
+# 1.4.2 (W12e, 2026-09): fixes 1.3.14's Bun.sql request-queue defect; its
+# acceptance is tests/postgres/bun-sql-request-queue.test.ts (db-postgres.yml).
 #
 # The bun pin is SINGLE-SOURCED in the top-level `.bun-version` file: the
 # composite action .github/actions/setup and every direct setup-bun call
@@ -41,6 +45,274 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  factory-runner-readiness:
+    name: Factory runner readiness precheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: .bun-version
+      - name: Require online real and GPU runners before self-hosted jobs queue
+        env:
+          FACTORY_RUNNER_READ_TOKEN: ${{ secrets.FACTORY_RUNNER_READ_TOKEN }}
+          FACTORY_TEST_TENANT_COUNT: "10"
+        run: bun scripts/check-factory-runners.ts
+
+  factory-schema-kernel:
+    name: Factory schema and kernel
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Build factory SDK
+        run: bun run --cwd packages/@ezcorp/factory-sdk build
+      - name: Enforce deterministic validation and C13 reuse
+        run: bun scripts/check-factory-boundaries.ts
+      - name: Every factory deployment image is pinned by digest
+        run: bun scripts/check-factory-deployment-locks.ts
+      # `src/*.schema.json` is generated only (interface freeze, section 12).
+      # Nothing regenerates it during the SDK build, so before this step a hand
+      # edit to a wire schema shipped green. The gate regenerates, byte-compares,
+      # and restores the committed bytes.
+      - name: Reject hand-edited generated schemas
+        run: bun scripts/check-schema-generate-drift.ts
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
+      - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
+      - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
+        env:
+          FACTORY_ONLY: "1"
+        run: bash scripts/test.sh
+
+  # C11 lane 2 of 7. The Node orchestrator build plus BOTH runtime conformance
+  # suites against the same generated schema, and each runtime's OWN measured
+  # coverage: coverage.py for Python, never a Bun leg standing in for it.
+  factory-runner-contracts:
+    name: Factory runner contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - uses: ./.github/actions/setup-python-toolchain
+      - name: Build the Node orchestrator from the pinned lock
+        run: bun run --cwd packages/@ezcorp/factory-orchestrator build
+      - name: Run strict Python lint, strict types, standard-library tests, and coverage.py LCOV
+        env:
+          PYTHON_COVERAGE_OUT: coverage-factory-python
+        run: bash scripts/python-quality.sh all
+      # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
+      - name: Name the LCOV for the merged coverage download
+        run: mv coverage-factory-python/lcov.info coverage-factory-python/lcov_factory_python.info
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-python
+          path: coverage-factory-python/lcov_factory_python.info
+          retention-days: 3
+          if-no-files-found: error
+      # Both runners validate the SAME generated schema. Running them in one
+      # step keeps a pass from one runtime from being read as conformance for
+      # the other.
+      - name: Run the Bun and Python runner conformance suites against the same generated schema
+        run: |
+          bun test --timeout 120000 \
+            ./src/factory/runner/native.integration.test.ts \
+            ./src/factory/runner/python-runner.integration.test.ts
+
+  factory-temporal:
+    name: Factory Temporal integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: .node-version
+      - name: Install pinned Temporal test server
+        shell: bash
+        run: |
+          curl --fail --location --retry 3 --output /tmp/temporal-test-server.tar.gz \
+            https://github.com/temporalio/sdk-java/releases/download/v1.38.0/temporal-test-server_1.38.0_linux_amd64.tar.gz
+          echo '41df834fe8e1ac59619e13908f41b63e4d1054f37634a2f89033d8cf6af71b96  /tmp/temporal-test-server.tar.gz' | sha256sum --check
+          mkdir -p /tmp/factory-tools/temporal-test-server
+          tar -xzf /tmp/temporal-test-server.tar.gz -C /tmp/factory-tools/temporal-test-server
+          chmod u+x /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+      - name: Provision private Node runtime directory
+        run: sudo install -d -m 700 -o "$(id -u)" -g "$(id -g)" "/run/user/$(id -u)"
+      - name: Run Node-only factory workflow, cancellation, and saved-history replay
+        env:
+          COV_OUT: coverage-shard
+          FACTORY_TEMPORAL_TEST_SERVER: /tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+        run: bash scripts/factory-orchestrator-coverage.sh
+      # On every outcome, a hang or a cancel too, keep the spec reporter's progress log: it names the last test that ran (W4H-21).
+      - name: Upload the factory Temporal test progress log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: factory-temporal-test-progress
+          path: coverage-shard/test-progress.log
+          retention-days: 3
+          if-no-files-found: warn
+      # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
+      - name: Name the LCOV for the merged coverage download
+        run: mv coverage-shard/lcov.info coverage-shard/lcov_factory_orchestrator.info
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: lcov-cov-factory-orchestrator
+          path: coverage-shard/lcov_factory_orchestrator.info
+          retention-days: 3
+          if-no-files-found: error
+
+  # ── C11 lanes 5-7: dedicated hardware and real credentials ────────────────
+  #
+  # These three request SELF-HOSTED runner labels. Every one of them declares
+  # `needs: [factory-runner-readiness]` so that when no runner carries the
+  # label the candidate fails through that five-minute precheck instead of
+  # sitting in GitHub's queue for up to 24 hours. That dependency is the whole
+  # reason the precheck exists; before this change it guarded `factory-real`
+  # and `factory-gpu` while no job requested either label (W00 discrepancy 17).
+  #
+  # They are expected to be RED until the runners, secrets, and W13-W17 sources
+  # exist. That is the intended fail-closed state: an unavailable runtime is a
+  # failed readiness, never a skipped success. See
+  # docs/validation/factory/stage-2b/ for the exact external changes to apply.
+
+  # C11 lane 5 of 7. Real CPU/GPU runtime profiles: a CPU attempt must see NO
+  # devices and a GPU attempt must see EXACTLY the authorized one.
+  factory-isolation:
+    name: Factory isolation
+    runs-on: [self-hosted, factory-gpu]
+    needs: [factory-runner-readiness]
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Provision the rootless container runtime
+        run: bash scripts/setup-extension-runner-ci.sh --install
+      - name: Prove CPU attempts see no device and the GPU attempt sees exactly one
+        run: bash scripts/verify-factory-local-gpu.sh
+      # The file list is the lane manifest (FACTORY_LANES in
+      # scripts/check-factory-lanes.ts): the shared container observations plus
+      # the device-bound test, which no hosted shard selects.
+      - name: Run the real container crash, reconnect, cancel, and device observations
+        run: bash scripts/run-factory-lane-tests.sh factory-isolation
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: factory-isolation-results
+          path: tasks/testing-gaps/factory-isolation/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  # C11 lane 6 of 7. Service-backed browser journeys on the `factory-services`
+  # lane (W14). `web/e2e/factory-services/stack.ts` boots the whole real stack.
+  # It needs the Temporal CLI dev server: the Java test server cannot report
+  # task-queue pollers, so the orchestrator's readiness never opens on it.
+  factory-product-e2e:
+    name: Factory product and domain E2E
+    runs-on: [self-hosted, factory-real]
+    needs: [factory-runner-readiness, browser-coverage-build]
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+        with:
+          web: "true"
+          sync: "true"
+          playwright: "true"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: browser-coverage-build
+          path: web
+      - run: bash scripts/verify-browser-build-transfer.sh --check
+      - name: Run the service-backed factory browser journeys
+        shell: bash
+        env:
+          FACTORY_TEST_POSTGRES_URL: ${{ secrets.FACTORY_TEST_POSTGRES_URL }}
+          EZCORP_FACTORY_STORAGE_SECRETS_DIR: ${{ secrets.EZCORP_FACTORY_STORAGE_SECRETS_DIR }}
+          FACTORY_TEMPORAL_CLI: ${{ secrets.FACTORY_TEMPORAL_CLI }}
+        run: |
+          EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"
+          export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
+          EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/factory-services" \
+            bash scripts/collect-browser-route-coverage-lane.sh factory-services
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: browser-v8-factory-services
+          path: tasks/testing-gaps/browser/v8-coverage/factory-services/
+          retention-days: 3
+          if-no-files-found: error
+
+  # C11 lane 7 of 7. Installation, provisioning, upgrade, rollback, and restore
+  # against real storage and a real engine.
+  factory-deployment-operations:
+    name: Factory deployment and operations
+    runs-on: [self-hosted, factory-real]
+    needs: [factory-runner-readiness]
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ezcorp_deployment
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      FACTORY_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/ezcorp_deployment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Start factory object storage
+        id: factory-storage-up
+        uses: ./.github/actions/factory-storage
+        with:
+          command: up
+      - name: Verify the deployed object storage is real and reachable
+        # --restart-stores is safe here only because this job creates and
+        # tears down its own ephemeral storage stack above/below (never pass
+        # it against a shared host's long-lived stores — see
+        # docs/factory-local-storage.md).
+        run: bun scripts/verify-factory-storage.ts --restart-stores
+      - name: Provision a tenant against the real engine
+        run: bun test --timeout 120000 ./tests/postgres/factory-provisioning.test.ts
+      # The lane manifest's bound tests for this runner (FACTORY_LANES in
+      # scripts/check-factory-lanes.ts): the reference-data journey needs the
+      # pinned data image, which no registry holds and no hosted shard selects.
+      # The runner script fails by name when this runner lacks that image.
+      - name: Run the lane-bound reference-data journey
+        run: bash scripts/run-factory-lane-tests.sh factory-deployment-operations
+      - name: Prove a compatible upgrade preserves data
+        run: bash scripts/verify-docker-upgrade.sh
+      - name: Prove a rollback restores the previous release
+        run: bash scripts/verify-docker-rollback.sh
+      - name: Prove a backup restores to a consistent position
+        run: bun scripts/verify-backup-rollback.ts
+      # Only after a start step that ran: `down` cannot prove ownership of a set it never made (W4H-5).
+      - name: Stop factory object storage
+        if: always() && steps.factory-storage-up.outcome != 'skipped'
+        uses: ./.github/actions/factory-storage
+        with:
+          command: down
+
   dev-image-provenance:
     name: Dev image provenance
     runs-on: ubuntu-latest
@@ -86,9 +358,13 @@ jobs:
         with:
           web: "true"
           sync: "true"
+      # scripts/typecheck.sh now has a fourth leg, mypy --strict over the
+      # locked Python distribution, so this job needs the pinned uv. Without
+      # it python-quality.sh fails closed rather than reducing its scope.
+      - uses: ./.github/actions/setup-python-toolchain
       # scripts/typecheck.sh runs backend (tsconfig.typecheck.json) + web
-      # (svelte-kit sync + scoped tsc). Both currently pass, so this is a
-      # hard gate.
+      # (svelte-kit sync + scoped tsc) + backend tests/e2e + the locked Python
+      # distribution. All currently pass, so this is a hard gate.
       - run: bun run typecheck
 
   # Svelte template/type check (wave 3 — previously NO job checked .svelte
@@ -144,7 +420,7 @@ jobs:
       # full shared-library LCOV used by the existing coverage gate.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version-file: .node-version
       - name: Run Vitest shard with V8 coverage
         run: |
           bash scripts/web-vitest-coverage.sh --output coverage-shard/web-vitest-${{ matrix.i }} --shard ${{ matrix.i }}/3
@@ -672,6 +948,16 @@ jobs:
       # what `bun run lint` itself does.
       - name: Dependency boundaries
         run: bun scripts/check-boundaries.ts
+      # Biome has no Python analyzer, so every Python line in the repository was
+      # unlinted. Folded into THIS job for the same reason as the boundary check
+      # above: `Lint (biome)` is already a required status check, and a
+      # standalone job would ship advisory until an admin registers it.
+      # `bun run lint` itself stays Biome-only: it must keep working inside the
+      # scratch worktrees that src/__tests__/biome-ignores-worktrees.test.ts
+      # creates, which contain no Python project and no uv.
+      - uses: ./.github/actions/setup-python-toolchain
+      - name: Python lint (ruff, locked distribution)
+        run: bash scripts/python-quality.sh lint
       # Secret scan (gitleaks). Folded into THIS job for the same reason as the
       # boundary check above: it is cheap enough to ride along on an existing
       # job, and `Lint (biome)` is ALREADY a required status check. A standalone
@@ -745,9 +1031,9 @@ jobs:
           bun-version-file: .bun-version # single pin source; see note at top
       - run: git fetch --no-tags origin main
       # The assertion-path detector uses TypeScript's AST. Keep that parser
-      # isolated from the full workspace install and locked to its own manifest.
-      - name: Install gate-integrity parser
-        run: bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
+      # isolated from the full workspace install and locked to its own manifest;
+      # one definition, shared with every job that runs the backend suites.
+      - uses: ./.github/actions/gate-integrity-deps
       # Anti-tamper / anti-cheat meta-check. A maintainer-only
       # `gate-change-approved` label sets GATE_CHANGE_APPROVED=1 to bypass.
       - name: Gate-integrity meta-check
@@ -756,6 +1042,13 @@ jobs:
           GATE_CHANGE_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'gate-change-approved') && '1' || '' }}
           NODE_PATH: ${{ github.workspace }}/.github/gate-integrity-deps/node_modules
         run: bun scripts/gate-integrity.ts
+      # The C11 lane inventory is a meta-check about CI itself, so it belongs
+      # beside the anti-tamper check rather than inside a lane it judges. It
+      # fails when a required lane job, producer, artifact, runner label, or
+      # readiness dependency is missing — W00 discrepancy 17 was exactly a
+      # precheck guarding labels that no job requested.
+      - name: C11 verification-lane inventory
+        run: bun scripts/check-factory-lanes.ts
 
   # ── Backend tests + coverage, sharded into a single per-file pass ──────────
   # Each shard runs a 1-of-N stride slice of the coverage host set under
@@ -782,6 +1075,13 @@ jobs:
           sync: "true"
       - name: Verify rootless extension runner controls
         run: bash scripts/setup-extension-runner-ci.sh --install
+      # Any shard can draw the python guest and applied controls suites, which
+      # run the pinned Python base by digest (W4H-3).
+      - uses: ./.github/actions/factory-python-base
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
+      - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -812,6 +1112,10 @@ jobs:
           web: "true"
           sync: "true"
       - run: bash scripts/setup-extension-runner-ci.sh --install
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
+      - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run coverage legs
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -870,6 +1174,10 @@ jobs:
         with:
           web: "true"
           sync: "true"
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
+      - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run curated critical set
         env:
           CRITICAL_ONLY: "1"
@@ -928,6 +1236,10 @@ jobs:
           web: "true"
           sync: "true"
       - run: bash scripts/setup-extension-runner-ci.sh --install
+      # The backend suites spawn gate-integrity (rule 11), which needs its locked parser.
+      - uses: ./.github/actions/gate-integrity-deps
+      # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
+      - uses: ./.github/actions/setup-python-toolchain
       - name: Run residual pass/fail set
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -988,16 +1300,19 @@ jobs:
     name: Per-file coverage gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage]
+    needs: [cov-shard, cov-extras, web-security-coverage, test-web-shard, browser-route-coverage, factory-temporal, factory-runner-contracts, external-postgres]
     if: always()
     steps:
       - name: Require coverage producers to have succeeded
         run: |
           if [ "${{ needs.cov-shard.result }}" != "success" ] || \
              [ "${{ needs.cov-extras.result }}" != "success" ] || \
+             [ "${{ needs.factory-temporal.result }}" != "success" ] || \
+             [ "${{ needs.factory-runner-contracts.result }}" != "success" ] || \
              [ "${{ needs.web-security-coverage.result }}" != "success" ] || \
              [ "${{ needs.test-web-shard.result }}" != "success" ] || \
-             [ "${{ needs.browser-route-coverage.result }}" != "success" ]; then
+             [ "${{ needs.browser-route-coverage.result }}" != "success" ] || \
+             [ "${{ needs.external-postgres.result }}" != "success" ]; then
             echo "::error::coverage producers failed — coverage data is incomplete"
             exit 1
           fi
@@ -1105,10 +1420,14 @@ jobs:
         with:
           bun-version-file: .bun-version # single pin source; see note at top
       # StrykerJS 10 requires Node >= 22, and the vitest runner is a Node
-      # process — Bun cannot host it.
+      # process — Bun cannot host it. The floor is read from the single Node
+      # pin (`.node-version`, 24.14.1) rather than a literal `node-version:
+      # "22"`: `src/__tests__/runtime-version-pins.test.ts` fails any literal
+      # in this workflow, and a floating 22.x is the drift that pin exists to
+      # stop. 24.14.1 satisfies Stryker's `>= 22`.
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: "22"
+          node-version-file: .node-version
       - run: git fetch --no-tags origin main
       - run: bun install --frozen-lockfile
       # web is NOT a bun workspace — without this second install web/node_modules

@@ -1,0 +1,6 @@
+== host-shard mode: shard 0/1 → 2023 files ==
+merged 1693 source files → /tmp/factory-platform-evidence/wave4i-3-manifest-cov-shard-coverage/lcov_shard_0.info
+pre-merged 2023 per-file lcov(s) → /tmp/factory-platform-evidence/wave4i-3-manifest-cov-shard-coverage/lcov_shard_0.info
+emitted per-file timings → /tmp/factory-platform-evidence/wave4i-3-manifest-cov-shard-coverage/timings-shard-0.json
+
+  30103 pass | 0 fail | 2023 files (shard 0/1)

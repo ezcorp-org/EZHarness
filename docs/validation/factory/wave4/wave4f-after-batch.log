@@ -1,0 +1,31 @@
+=== heavy 2026-10-01T09:05:39Z
+HEAD baeade9767e431720be300c1953e6e2e9758cdfa MERGE_HEAD  index-tree c1e65c20289d63265665b93b80c11c6803dddc7d
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+guard set: 12 files from guard-suites.sh
+resource-gate 2026-10-01T09:05:39Z guard-set disk=239G memAvailable=16GiB swapFreeKiB=2436488/17173956
+--- START guard-set 2026-10-01T09:05:39Z
+--- END   guard-set 2026-10-01T09:05:41Z exit=0  60 pass 0 fail 
+resource-gate 2026-10-01T09:05:41Z web-build disk=239G memAvailable=16GiB swapFreeKiB=2436516/17173956
+--- START web-build 2026-10-01T09:05:41Z
+--- END   web-build 2026-10-01T09:06:22Z exit=0 
+resource-gate 2026-10-01T09:06:22Z graph-mock-pass disk=239G memAvailable=17GiB swapFreeKiB=2324424/17173956
+--- START graph-mock-pass 2026-10-01T09:06:22Z
+--- END   graph-mock-pass 2026-10-01T09:07:09Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/wave4f/after/graph/wave4f-mock.json; nothing to dump
+mock pass wave4f-mock outcome: passed
+resource-gate 2026-10-01T09:07:09Z w09e-e2e-console disk=239G memAvailable=16GiB swapFreeKiB=2313432/17173956
+--- START w09e-e2e-console 2026-10-01T09:07:09Z
+--- END   w09e-e2e-console 2026-10-01T09:07:57Z exit=0 
+resource-gate 2026-10-01T09:07:57Z w03f-reference-data-journey disk=239G memAvailable=15GiB swapFreeKiB=2341080/17173956
+--- START w03f-reference-data-journey 2026-10-01T09:07:57Z
+--- END   w03f-reference-data-journey 2026-10-01T09:11:08Z exit=0  11 pass 0 fail 
+resource-gate 2026-10-01T09:11:08Z browser-part disk=239G memAvailable=16GiB swapFreeKiB=2395956/17173956
+--- START browser-part 2026-10-01T09:11:08Z
+--- END   browser-part 2026-10-01T09:48:04Z exit=0 
+browser lane mock-gate: 259 passed
+browser lane mock-full: 1449 passed
+browser lane evidence: 393 passed
+browser lane fresh-setup: 7 passed
+browser lane real-auth: 107 passed
+browser lane factory-services: 13 passed
+HEAVY DONE status=0 dirty=0 2026-10-01T09:48:04Z

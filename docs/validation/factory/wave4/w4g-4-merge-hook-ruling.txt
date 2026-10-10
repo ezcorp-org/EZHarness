@@ -1,0 +1,14 @@
+COORDINATOR RULING (team-lead, 2026-10-03T05:27:19Z) — W4G-4 merge commit, list-bound hook skip (re-issued for base e777ceb09; the
+fda4108e8 ruling is VOID and kept as ruling-hook-skip-w4g4-merge-VOID-base-fda4108e8.txt)
+
+Applies to: exactly one commit: the merge of wp/w4g-4 8617e00a9 (code tree 46bcce826 at 95920067d, gates doc on top) into integ/w00 at
+e777ceb09, made detached by the archy identity via w00/detached-merge/commit.sh, trial tree e4f37b339. The pre-commit hook maps 25 test
+files to this commit (cap 12) and would BLOCK; this ruling allows EZ_SKIP_HOOK_TESTS=1 for that one commit only.
+Bound to the printed list as a SET: /tmp/factory-platform-evidence/w00/w4g-merge/w4g-4/ruling-request-printed-list.txt (sha256 fbff217d5feaada2); the hook's printed set at e777ceb09 (hook-mapped-8617e00a9.txt,
+sha256 fbff217d5feaada2) equals it. The hook's printed "NOT running" list at commit time must equal this set exactly; a different
+set, a different base than e777ceb09, a different branch head than 8617e00a9, or any other variable (EZ_SKIP_HOOKS, --no-verify, a raised
+EZ_PRECOMMIT_TEST_MAX) VOIDS the ruling.
+Conditions before publish: (1) every listed file runs green one process per file in the merge hold under the lock, with lcov, and the receipt
+names each with its counts; (2) validator-6's ACCEPT names 8617e00a9; (3) the gates read clean base / the 8 expected lines against origin/main;
+(4) the shared config hashes 44962525f1ca1a8b at commit, hold start, hold end and publish. If the permission checker refuses the skip-variable
+commit, the integrator stops and reports; the user runs the exact prepared command by hand (as at W-SYNC); nothing else is tried.

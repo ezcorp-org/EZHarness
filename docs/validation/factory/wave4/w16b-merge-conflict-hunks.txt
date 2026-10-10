@@ -1,0 +1,161 @@
+diff --cc scripts/factory-graph-proof/stack.ts
+index 580cd3066,397765ca1..000000000
+--- a/scripts/factory-graph-proof/stack.ts
++++ b/scripts/factory-graph-proof/stack.ts
+@@@ -33,13 -33,16 +33,21 @@@ import { connect as netConnect } from "
+  import { setTimeout as sleep } from "node:timers/promises";
+  import { SQL } from "bun";
+  import type { JsonValue } from "@ezcorp/factory-sdk";
+++<<<<<<< HEAD
+ +import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
+ +import { GUEST_BROKER_AUDIENCE, GUEST_BROKER_ISSUER, INSTALLATION, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+++=======
++ import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
+++>>>>>>> wp/w16b-guest-brokers-keyed
+  
+ -export const TENANT = "tenant-01";
+ -export const INSTALLATION = "installation-w19a";
+ -export const HOST_ID = "host-w19a";
+ -const POOL_ID = "pool-w19a";
+ -const NAMESPACE = "tenant-01.factory";
+ -const SUPERVISOR_SUBJECT = "supervisor-w19a";
+ +export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
+ +/** How often the streamed logs are redacted while a pass runs. */
+ +const REDACT_INTERVAL_MS = 2_000;
+  const TEMPORAL_CLI = process.env.W19A_TEMPORAL_CLI ?? "/tmp/factory-tools/temporal-cli/temporal";
+++<<<<<<< HEAD
+++=======
++ const GUEST_BROKER_ISSUER = "w19a-proof";
+++>>>>>>> wp/w16b-guest-brokers-keyed
+  
+  export interface StackOptions {
+    readonly repo: string;
+@@@ -304,25 -268,43 +312,43 @@@ export async function startStack(option
+    const guestBuild = await options.buildGuest(runnerRoot);
+    record.guestBuild = guestBuild;
+  
+ +  // Every port and path a document names, fixed before the first document is written.
+ +  const layout: StackLayout = {
+ +    root, poolDatabase, poolUrl: poolUrl.toString(),
+ +    ports: { pool: freePort(), hostService: freePort(), guestBroker: freePort(), temporalTls: freePort(), temporalHttp: freePort(), gateway: freePort(), privateService: freePort() },
+ +    runnerProfiles: options.runnerProfiles(guestBuild),
+ +    ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
+ +  };
+ +  const { temporalTls: temporalTlsPort, temporalHttp: temporalHttpPort, gateway: gatewayPort, privateService: privateServicePort, guestBroker: guestBrokerPort } = layout.ports;
+ +
+    // ── Pool admission process ──
+ -  const poolPort = freePort();
+ -  await privateWrite(join(secrets, "pool.json"), JSON.stringify({
+ -    schemaVersion: "factory.pool-process.v1", installationId: INSTALLATION, poolId: POOL_ID,
+ -    hostname: "127.0.0.1", port: poolPort,
+ -    database: { credentialsPath: join(secrets, "pool-database.json"), expectedDatabase: poolDatabase, expectedRole: decodeURIComponent(poolUrl.username) },
+ -    tls: { privateKeyPath: join(secrets, "server.key"), certificatePath: join(secrets, "server.pem"), caPath: join(secrets, "ca.pem") },
+ -    tokens: { issuer: "factory-proof", audience: "factory-pool", publicKeyPaths: { proof: join(secrets, "pool-token.pem") } },
+ -    identities: {
+ -      tenants: { "tenant-a": { tenantId: TENANT, tokenSubject: TENANT } },
+ -      supervisors: { [SUPERVISOR_SUBJECT]: { supervisorId: SUPERVISOR_SUBJECT, tokenSubject: SUPERVISOR_SUBJECT, hostIds: [HOST_ID] } },
+ -    },
+ -    resources: { capacities: { cpu: 4 }, gpuHosts: [], hosts: [HOST_ID] },
+ -    readinessFilePath: join(root, "readiness", "pool.json"), readinessHeartbeatMs: 2_000,
+ -  }));
+ +  await privateWrite(join(secrets, "pool.json"), JSON.stringify(poolDocument(layout)));
+    start("pool", bun, [join(repo, "src/factory/pool/process.ts"), join(secrets, "pool.json")]);
+  
+-   // ── Host supervisor, carrying guest frames back over services.guestBroker ──
++   // ── Host supervisor, carrying guest frames back over services.guestBrokers ──
+    const { privateKey: hostKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    await privateWrite(join(secrets, "host.key"), hostKey.export({ type: "pkcs8", format: "pem" }).toString());
+    await privateWrite(join(secrets, "host.kid"), "host-key-1");
+    await privateWrite(join(secrets, "host.pub"), createPublicKey(hostKey).export({ type: "spki", format: "pem" }).toString());
+++<<<<<<< HEAD
+ +  await privateWrite(join(secrets, "supervisor.json"), JSON.stringify(supervisorDocument(layout)));
+++=======
++   const hostServicePort = freePort();
++   const guestBrokerPort = freePort();
++   const supervisorTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "supervisor.pem"), privateKeyPath: join(secrets, "supervisor.key") };
++   await privateWrite(join(secrets, "supervisor.json"), JSON.stringify({
++     schemaVersion: "factory.supervisor-process.v1", installationId: INSTALLATION, hostId: HOST_ID,
++     hostKeyPath: join(secrets, "host.key"), hostKeyId: "host-key-1",
++     runnerRoot, readinessFilePath: join(root, "readiness", "supervisor.json"), readinessHeartbeatMs: 2_000,
++     services: {
++       hostname: "127.0.0.1", port: hostServicePort, allowedPeers: ["tenant-a"], hostKeyIdPath: join(secrets, "host.kid"),
++       tls: { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "server.pem"), privateKeyPath: join(secrets, "server.key") },
++       pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: join(secrets, "supervisor.token"), tls: supervisorTls },
++       // One route per tenant; this stack runs one tenant.
++       guestBrokers: { [TENANT]: { baseUrl: `https://127.0.0.1:${guestBrokerPort}`, serviceTokenPath: join(secrets, "guest-broker-host.token"), tls: supervisorTls } },
++     },
++   }));
+++>>>>>>> wp/w16b-guest-brokers-keyed
+    start("supervisor", bun, [join(repo, "src/factory/runner/supervisor-process.ts"), join(secrets, "supervisor.json")]);
+  
+    // ── Temporal behind a mutual-TLS terminator ──
+@@@ -333,7 -317,46 +359,50 @@@
+    for (let attempt = 0; attempt < 30 && !await reachable(temporalTlsPort); attempt++) await sleep(500);
+  
+    // ── The product's startup document ──
+++<<<<<<< HEAD
+ +  const startup = startupDocument(layout);
+++=======
++   const gatewayPort = freePort();
++   const privateServicePort = freePort();
++   const clientTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "client.pem"), privateKeyPath: join(secrets, "client.key") };
++   const serverTls = { caPath: join(secrets, "ca.pem"), certificatePath: join(secrets, "server.pem"), privateKeyPath: join(secrets, "server.key") };
++   const startup = {
++     schemaVersion: "factory.startup.v1",
++     installationId: INSTALLATION, tenantId: TENANT, poolId: POOL_ID, hostId: HOST_ID,
++     temporalNamespace: NAMESPACE,
++     orphanSweepIntervalMs: 30_000,
++     orchestrationReadinessFilePath: join(root, "readiness", "orchestration.json"),
++     poolReadinessFilePath: join(root, "readiness", "pool.json"),
++     supervisorReadinessFilePath: join(root, "readiness", "supervisor.json"),
++     readinessHeartbeatMs: 5_000,
++     readinessRetry: { delayMs: 2_000, windowMs: 240_000 },
++     gateway: { hostname: "127.0.0.1", port: gatewayPort, tls: clientTls },
++     privateService: {
++       hostname: "127.0.0.1", port: privateServicePort, certificateIdentity: "tenant-a", tls: serverTls,
++       tokens: { issuer: "factory-proof", audience: "factory-pool", publicKeyPaths: { proof: join(secrets, "pool-token.pem") } },
++     },
++     temporalHttp: { endpoint: `http://127.0.0.1:${temporalHttpPort}` },
++     pool: { baseUrl: `https://127.0.0.1:${poolPort}`, serviceTokenPath: join(secrets, "tenant.token"), tls: clientTls },
++     hostLaunch: {
++       baseUrl: `https://127.0.0.1:${hostServicePort}`, serverName: "localhost",
++       attemptTokenSecretPath: join(secrets, "attempt-token"),
++       tls: { ...clientTls, serviceTokenPath: join(secrets, "tenant.token") },
++     },
++     hostStopKeys: [{ hostId: HOST_ID, hostKeyId: "host-key-1", publicKeyPath: join(secrets, "host.pub") }],
++     guestBroker: {
++       hostname: "127.0.0.1", port: guestBrokerPort, hosts: { [SUPERVISOR_SUBJECT]: HOST_ID }, tls: serverTls,
++       tokens: { issuer: GUEST_BROKER_ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: join(secrets, "guest-broker-host-token.pem") } },
++     },
++     runnerProfiles: options.runnerProfiles(guestBuild),
++     ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
++     storage: {
++       ordinary: { endpoint: "http://127.0.0.1:18333", bucket: TENANT, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: join(secrets, "ordinary-storage.json") },
++       archive: { endpoint: "http://127.0.0.1:18334", bucket: TENANT, prefix: "archive", credentialSet: "archive", credentialsPath: join(secrets, "archive-storage.json") },
++     },
++     keys: { masterKeyFilePath: masterKeyPath, masterKeyId, wrappedKeyFilePath: wrappedKeyPath, grantableRoots: [join(root, "project")] },
++     workers: { idleDelayMs: 200, batch: 4 },
++   };
+++>>>>>>> wp/w16b-guest-brokers-keyed
+    await privateWrite(join(secrets, "factory-startup.json"), JSON.stringify(startup));
+    record.startupDocument = { runnerProfiles: startup.runnerProfiles, modelProvider: options.modelProvider ?? null, guestBroker: { port: guestBrokerPort, hosts: startup.guestBroker.hosts } };
+  
+diff --cc src/factory/startup-config.ts
+index 7fb6e8266,4562b5d2d..000000000
+--- a/src/factory/startup-config.ts
++++ b/src/factory/startup-config.ts
+@@@ -19,10 -19,9 +19,14 @@@ import { resolve } from "node:path"
+  import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+  import { factoryModelSamplingOptions } from "./model-configuration";
+  import { factoryModelPinMatchesRunner } from "./native-runner-policy";
+ +import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
+  import { isPlainRecord } from "./plain-values";
+  import { readPrivatePath } from "./private-files";
+++<<<<<<< HEAD
+ +import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
+++=======
++ import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
+++>>>>>>> wp/w16b-guest-brokers-keyed
+  
+  export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
+  const MAX_CONFIG_BYTES = 64 * 1024;

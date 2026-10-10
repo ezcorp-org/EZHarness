@@ -1,0 +1,4 @@
+Running 18 security bun:test suites under --coverage (6 parallel)...
+  378 pass | 0 fail | 18 security suites
+merged 337 source files → /tmp/tmp.hjCBN4i7oT/merged.lcov
+wrote 10 security source record(s) → coverage-shard/lcov_security.info

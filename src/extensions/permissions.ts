@@ -202,9 +202,20 @@ export async function resolveGrantPrefixCanonical(
  */
 async function resolveReservedSensitiveDirs(): Promise<string[]> {
   const root = getProjectRoot();
+  const configuredSecretsDir = process.env.EZCORP_SECRETS_DIR;
+  const secretFiles = [
+    join(root, ".pi-secret"),
+    join(root, ".pi-salt"),
+    join(root, ".env"),
+    join(process.cwd(), ".pi-secret"),
+    join(process.cwd(), ".pi-salt"),
+    join(process.cwd(), ".env"),
+  ];
   const raw = [
     join(root, ".ezcorp", "data"),
     join(root, ".ezcorp", "backups"),
+    ...secretFiles,
+    ...(configuredSecretsDir ? [configuredSecretsDir] : []),
     ...getDbMaskDirs(),
   ];
   const resolved = await Promise.all(

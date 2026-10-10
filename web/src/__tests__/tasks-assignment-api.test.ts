@@ -1,4 +1,5 @@
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port";
 import type {
   TaskSnapshot,
@@ -113,13 +114,19 @@ mock.module("$server/db/queries/agent-configs", () => ({
 
 // ── Mock auth + scope middleware ────────────────────────────────────
 
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => locals?.user ?? mockUser,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) plus a complete serverModule()
+// factory make THIS file's own requireAuth override active for THIS file's
+// own tests, and afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // ── Mock event bus ──────────────────────────────────────────────────
 
@@ -135,7 +142,7 @@ const mockStreamChat = mock(async (..._args: any[]) => ({}));
 // executor before streamChat (Wave-5 steer P4 guard) — the mock must accept it.
 const mockExecutor = { streamChat: mockStreamChat, registerRunMode: () => {} };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -143,7 +150,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$lib/server/command-resolver", () => ({
   buildCommandResolver: () => async () => null,
@@ -205,6 +213,16 @@ mock.module("$server/runtime/pending-messages", () => ({
 // ── Mock types re-export ────────────────────────────────────────────
 
 mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => locals?.user ?? mockUser,
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 // ── Import handlers AFTER mocks ─────────────────────────────────────
 

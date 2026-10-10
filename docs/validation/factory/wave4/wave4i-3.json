@@ -1,0 +1,242 @@
+{
+  "run": "wave4i-3",
+  "head": "6b9ff91aca1b0e4bd1e19483dc663a6d04174936",
+  "start": "start 2026-10-08T04:37:07Z head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936",
+  "pinLine": "head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 bun 1.4.2 bunx 1.4.2 flag=1",
+  "summaryEnds": [
+    "combined exit=1 end 2026-10-08T06:21:37Z",
+    "after-runner exit=0 end 2026-10-08T07:13:37Z (legs in /tmp/factory-platform-evidence/w00/wave4i-3/after/heavy-batch.log)",
+    "final-merge-gates exit=1 end 2026-10-08T07:14:00Z (AUTHORITATIVE gates: /tmp/factory-platform-evidence/w00/wave4i-3/final/gates.txt; runner coverage-results INTERIM)"
+  ],
+  "plan": {
+    "file": "wave4i-3-plan.txt",
+    "lines": 1505,
+    "sha256": "958d31916bef980a6752c49aa3d09d819a1b819d3c19c9c8acca2d9e740d8f41",
+    "summary": [
+      "plan: /tmp/factory-platform-evidence/w00/wave4i-3/plan.txt (1505 lines, sha256 958d31916bef980a)",
+      "autoExtra (own legs, one bun process per file): 371 files",
+      "autoExtraChunks: 10",
+      "autoExtraExcludedNodeRunner (node --test packages, covered by the node-coverage leg): [\"./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/validation.test.ts\"]",
+      "pgSteps (own postgres-<name> legs): [\"./tests/postgres/pool-one.test.ts\", \"./tests/postgres/bun-sql-pool-replacement.test.ts\", \"./tests/postgres/bun-sql-request-queue.test.ts\", \"./tests/postgres/factory-assurance.test.ts\"]"
+    ]
+  },
+  "drivers": {
+    "run.sh (as run)": "c9d89941d1499ac6dae0486523c08ba547ce339de8871b800ec76bf5d16ccb1d",
+    "after-runner.sh": "996f3a48b5237d49cb6941d7695757c738d9973bde4a0717aaaac115f18e79b9",
+    "final-merge-gates.sh": "c038e3b6098d82a101d1837b3a4522cf148eb041458509ad9f4a24f055369297",
+    "driver-guards.txt": "cbcb3c92d2760b1d4ed683c2bec1918b178bc9500aeb9f188d0fd7383d01a810",
+    "legs-from-manifest.py": "8a8933fd107d4509e7dbf59cdeeeb7d0c6b80bc205c52441471cea7bba09b653",
+    "combined-integration.py (runner)": "bc5b463c8aa87cbf786b452280250bcb316d05494a0ba8515f7292cd3dbbb37b",
+    "browser-part.sh": "c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+    "heavy-lib.sh": "2ae9cc616d683d4eb88bce17a9c5d31b2e397ab39369d9fb7aad43217cfe5286"
+  },
+  "runner": {
+    "legs": 39,
+    "exitCodes": {
+      "sdk-build": 0,
+      "transport-build": 0,
+      "sdk-tests": 0,
+      "focused": 0,
+      "web-coverage": 0,
+      "web-bun-coverage": 0,
+      "postgres": 0,
+      "postgres-pool-one": 0,
+      "postgres-bun-sql-pool-replacement": 0,
+      "postgres-bun-sql-request-queue": 0,
+      "postgres-factory-assurance": 0,
+      "types": 0,
+      "lint": 0,
+      "gate-integrity": 1,
+      "boundaries": 0,
+      "orchestrator-build": 0,
+      "node-coverage": 0,
+      "pool-coverage": 0,
+      "compute-coverage": 0,
+      "provisioning-coverage": 0,
+      "python-coverage": 0,
+      "auto-extra-0": 0,
+      "auto-extra-1": 0,
+      "auto-extra-2": 0,
+      "auto-extra-3": 0,
+      "auto-extra-4": 0,
+      "auto-extra-5": 0,
+      "auto-extra-6": 0,
+      "auto-extra-7": 0,
+      "auto-extra-8": 0,
+      "auto-extra-9": 0,
+      "podman-podman": 0,
+      "podman-attempt-runtime": 0,
+      "podman-supervisor": 0,
+      "podman-package-preparation": 0,
+      "manifest-cov-shard": 0,
+      "manifest-cov-extras": 0,
+      "manifest-web-security-coverage": 0,
+      "manifest-factory-reference-data": 0
+    },
+    "testsRanTotal": 49468,
+    "dirty": [
+      "False"
+    ],
+    "coverageResults": "INTERIM (wave4i-3-coverage-results-interim.json); the final gates are authoritative"
+  },
+  "afterRunner": {
+    "legs": {
+      "guard-set": {
+        "exit": 0,
+        "tail": "507 pass 0 fail"
+      },
+      "web-build": {
+        "exit": 0,
+        "tail": ""
+      },
+      "graph-mock-pass": {
+        "exit": 0,
+        "tail": ""
+      },
+      "w09e-e2e-console": {
+        "exit": 0,
+        "tail": "22 passed (playwright)"
+      },
+      "w03f-reference-data-journey": {
+        "exit": 0,
+        "tail": "11 pass 0 fail"
+      },
+      "browser-part": {
+        "exit": 0,
+        "tail": ""
+      }
+    },
+    "mockPass": [
+      "mock pass wave4i-3-mock outcome: passed"
+    ]
+  },
+  "browser": {
+    "steps": [
+      {
+        "name": "build",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-roundtrip",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-check",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "mock-gate",
+        "exit": 0,
+        "passed": 283
+      },
+      {
+        "name": "mock-full",
+        "exit": 0,
+        "passed": 1466
+      },
+      {
+        "name": "evidence",
+        "exit": 0,
+        "passed": 394
+      },
+      {
+        "name": "fresh-setup",
+        "exit": 0,
+        "passed": 7
+      },
+      {
+        "name": "real-auth",
+        "exit": 0,
+        "passed": 108
+      },
+      {
+        "name": "merge",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "factory-services",
+        "exit": 0,
+        "passed": 13
+      }
+    ],
+    "head": "6b9ff91aca1b0e4bd1e19483dc663a6d04174936"
+  },
+  "finalGates": {
+    "rows": [
+      "merge exit=0 | merged 2384 source files \u2192 coverage/lcov.info",
+      "global-floor exit=0 | \u2713 at or above the 90% floor (margin 8.08 points)",
+      "per-file-thresholds exit=0 | Coverage gate PASSED: 2233 enforced file(s) at or above threshold.",
+      "new-file-origin_main exit=0 | New-file coverage gate PASSED: 460 new source file(s) gated.",
+      "patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (518 file(s)).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "crap-changed-origin_main exit=0 | \u2713 no touched function exceeds CRAP 30"
+    ],
+    "end": [
+      "end=2026-10-08T07:14:00Z status=1 dirty=0 lcov-sha256=dc11870132ec7aee"
+    ],
+    "crapChangedOriginMain": [
+      "CRAP: --changed against origin/main \u2192 489 measured file(s) in diff",
+      "CRAP: 6490 functions in 489 files (max 30, warn 15)",
+      "\u2713 no touched function exceeds CRAP 30"
+    ]
+  },
+  "configHash": {
+    "before": "888c78b9e94ea660",
+    "after": "29e61b63b05624e9",
+    "note": "888c78b9e94ea660 at the wrapper start and end (wrapper.log) and at every hold; after the run another session added only [branch \"fix/auth-invite-signup-link-oct08\"]; config-check.py --accept-note accepted it as the baseline by the 2026-10-03 rule at the receipts (wave4i-3-receipts-config-check.txt); [core]/[extensions] unchanged, no [user]"
+  },
+  "receiptsBy": "integrator-5",
+  "runOfRecord": "wave4i-3 at integ/w00 6b9ff91ac (W4H-11, W4H-14 main sync and their receipts on top of wave4i-2's head lineage; origin/main e3309906d is its ancestor). One attempt, no VOID try: the runner ran all 39 legs including the 5 manifest producers (their own 15 GiB gates passed in-run from 05:45:52Z; no exit 96), so plan step 2 (standalone producers + --merge-only) was NOT needed.",
+  "bindingJudgement": "final-merge-gates.sh with BASES=origin/main at head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 vs origin/main e3309906d: merge, global floor, per-file thresholds, new-file, patch, CRAP --changed; gate-integrity origin/main = the 8 standing findings (findings-match PASS). Second pass vs 1c84df6d5 (the last combined head, wave4i-2).",
+  "history": [
+    "04:37:07Z wave4i-3 started at 6b9ff91ac on the lead's word (wrapper w00/wave4i/run.sh, WAVE_RUN=wave4i-3, PREV_COMBINED_HEAD=1c84df6d5); start: df -BG / 324G, MemAvailable 17.9 GiB, SwapFree 3.0 GiB (the 140 GiB start rule met); preflight (both Temporal binaries) OK; config 888c78b9e94ea660; prune scan vs 1c84df6d5 clean (12 hits, 0 STOP)",
+    "06:21:37Z runner end ('combined exit=1' = the known interim shape): 39/39 legs, 49468 testsRan, every leg exit 0 except gate-integrity (= the 8); mergeBlockedBy []; interim checks vs origin/main: patch 0, global-floor 0, crap-changed 0, new-file 1 only on the 5 BROWSER_CANONICAL_SOURCES .svelte files (FactoryConsole, FactoryGraph, FactoryGraphBoundary, FactoryNode, (app)/factories/+page) whose coverage comes from the browser part",
+    "06:21:37-07:13:37Z after-runner through gated-flock (after.exit 0; HEAVY DONE status=0 dirty=0)",
+    "07:13:37-07:14:00Z final gates vs origin/main (binding); driver exit 0; wrapper end 07:14:00Z, head unchanged, dirty=0, config 888c78b9e94ea660",
+    "07:17:27-07:17:46Z final gates vs the second base 1c84df6d5 (by hand, plan step 3)"
+  ],
+  "producersInRun": "manifest-cov-shard 30103 pass / 0 fail over 2023 files (shard 0/1); manifest-cov-extras, manifest-web-security-coverage, manifest-factory-reference-data (11 + 11 tests) exit 0; factory-temporal covered by the node-coverage leg. The runner's own producer gate (15 GiB) passed by itself; no standalone producer, no --merge-only.",
+  "typesLeg": "the runner's types leg ran through w00/tc-gate.sh (in-lock 12 GiB rule): 05:17:11-05:18:03Z exit 0, MemAvailable 18.9 GiB before, 13.7 lowest (wave4i-3-tc-gate.log)",
+  "afterRunnerSummary": "guard set 507/0 (40 files); web-build 0; graph-mock-pass passed; W09e console 0; W03f reference-data journey 11/0; browser part (bun and bunx 1.4.2): build, transfer-roundtrip, transfer-check 0; mock-gate 283, mock-full 1466, evidence 394, fresh-setup 7, real-auth 108, factory-services 13; browser merge 0",
+  "finalGatesSummary": {
+    "originMain": "final/gates.txt 3817700c7ff8c68a 07:13:37-07:14:00Z at MemAvailable 15 GiB: 397 runner + 1 browser inputs; merge 0 (2384 files; merged lcov dc11870132ec7aee; 0 SF outside /tmp); global floor 0 (margin 8.08); per-file 0 (2233 files); new-file 0 (460 new files); patch 0 (518 files); crap-changed 0; gate-integrity origin/main exit 1 = the 8 (final-origin-main-expected-match.txt 66386f4d4639ace0, PASS). The interim new-file finding on the 5 .svelte files is gone once the browser lcov joins.",
+    "base1c84df6d5": "final-1c84df6d5/gates.txt 11aafe3390b821d7 07:17:27-07:17:46Z: same merged lcov; global floor 0; per-file 0; new-file 0 (no new source files); patch 0 (3 files); gate-integrity vs 1c84df6d5 0 (PASSED); its origin/main leg = the 8 (final-1c84df6d5-origin-main-expected-match.txt 66386f4d4639ace0, PASS)"
+  },
+  "memoryAtStarts": "start 04:37:07Z 17.9 GiB / swap 3.0; producers from 05:45:52Z >= 15 GiB (their gate); after-runner 06:21:37Z 17 GiB / swap 3.8; final passes 07:13:37Z 15 GiB and 07:17:27Z 16 GiB; host OOM kills during the run (04:37-07:18Z): 0",
+  "hostEvents": [
+    "2026-10-06 17:46:09Z - 2026-10-08 ~03:46Z: the shared proof PostgreSQL was DEAD (podman state stale 'running' with a gone pid after the OOM storms killed it and its conmon); found by the W4H-11 merge hold try 1 (graph mock pass 'PostgresError: Failed to connect'); repaired by the coordinator (podman stop -t 2; podman start with crash recovery; 193 databases intact; port re-bound); this run's PostgreSQL legs ran on the repaired server",
+    "2026-10-06 22:09-22:14Z host OOM storm (160 kills): a pool of 21 bun processes outside any container (another session's stress test, /tmp/stress-base-panel-*.log), 34.1 GB; victims included the rootless podman pause process, conmon and the archive S3 store (Exited 137); it voided W4H-11's R5 setup (exit 4)",
+    "2026-10-07 21:47-23:00Z host OOM storms: tsgo processes of another session in obviousRepos/obvious/.worktrees/skip-review-fixes/apps/api (pid 2055939 12.7 GB; an 11 GB tsgo killed 21:47:54Z; pids 2884893, 2962589, 2978825 at 7.3 / 5.3 / 4.0 GB; up to 50 kills in one window); they voided W4H-11 R5 legs (resources hold 1, content try 1), never a leg of this run",
+    "2026-10-07 02:2x-15:03Z disk recovery from 66 GB: our merged clean package worktrees removed (11 at 02:23Z, 6 at 14:39Z); the user's podman cleanup and nix GC; the user's w00/worktree-cleanup-user.sh --apply (others' stale worktrees, uncommitted changes archived under w00/worktree-archive/) 68 -> 134 GB; the user's root-only cleanup -> 202 GB (19:42Z) and 337 GB (21:31Z); 324 GB at this run's start",
+    "2026-10-07 14:42-14:45Z shared S3 stores: the archive store's container had been removed by the user's `podman rm` of exited containers (named data volume intact) and was recreated by the coordinator from the repo compose after `podman network reload --all`; the ordinary store restarted; both healthy (403 on 18333/18334)",
+    "w01h/graph/dump-and-drop.sh still missing (systemd-tmpfiles, q /tmp 10d; the user's exclusions not set): the after-runner's mock pass logged 'No such file or directory' after the pass; no effect on any result"
+  ],
+  "tooling": {
+    "w00/wave4i/run.sh (wrapper, as run)": "84a30d25a16d865b",
+    "w00/wave4f/run.sh (driver, as run = run.sh.as-run)": "c9d89941d1499ac6",
+    "w00/combined-integration.py (as run)": "bc5b463c8aa87cbf",
+    "w00/wave4f/after-runner.sh": "996f3a48b5237d49",
+    "w00/wave4f/final-merge-gates.sh": "c038e3b6098d82a1",
+    "w00/heavy-lib.sh": "2ae9cc616d683d4e",
+    "w00/tc-gate.sh": "84f8b66f0bd3faf0",
+    "w00/gated-flock.sh": "0fa5256a2e87cb40",
+    "w00/resource-gate.sh": "530b792cc01e4ed4",
+    "w00/prune-scan.sh": "a4a59601cec26963",
+    "w00/findings-match.py": "de57fcec5cdcef56",
+    "w00/expected-integ-findings-vs-main.txt": "9ec5cdcbce67c7ac",
+    "w00/bun-pin.sh": "8efbd53ee7b13838",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/own-pg.sh": "ad7babdd3199dfc0",
+    "w00/wave4f/run-receipt-json.py": "67d82b783f144e9d",
+    "w00/wave4f/run-receipt-sources.sh": "8e17795dd9a357e4",
+    "w00/merge-receipts.sh": "168f24d032144a19",
+    "Temporal test server (preflight)": "daa58458d32f6254",
+    "Temporal CLI v1.9.1 (preflight)": "712217694cac9f78"
+  },
+  "planNote": "DRY at 6b9ff91ac 04:36Z and the run's own plan: 1505 lines, sha256 958d31916bef980a (39 legs; 371 auto-extra files in 10 chunks; pgSteps 4); the plan at 0363f883a kept as plan-0363f883a.txt 24ad8dd9bd98d28e (1499 lines; before the types leg moved to tc_run and before W4H-11's two tests joined auto-extra)"
+}

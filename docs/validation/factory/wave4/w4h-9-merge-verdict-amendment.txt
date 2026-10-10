@@ -1,0 +1,10 @@
+W4H-9 merge 4550c2f66: validator-6's separate addendum at c49f4b727 is added; the verdict of record is unchanged.
+Addendum to w4h-9-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- Verdict of record: verdict-validator-6-w4h9.txt sha256 f419a60774769a4b... (ACCEPT at c49f4b727, R3d open), receipted as w4h-9-validation.txt.
+  History: verdict-validator-6-w4h9.138ace386.txt sha256 57c8414c8b9119f3..., receipted as w4h-9-validation-138ace386.txt.
+- Added: verdict-validator-6-w4h9-addendum.txt sha256 b320bf4063ac61183ef0793d847de4b67dfece4060f6274773822f95e7508fa4, copied as
+  w4h-9-validation-addendum.txt (instance W4H-9-pins: the carry from 138ace386 and the reruns at c49f4b727, covering 17d1762fd and c49f4b727).
+- Its correction to the receipt note "the two pinned attach-rule cases": the owner's mutation reds only the "second attach is refused"
+  case and one existing case; the "released worker refuses an event poll" case is pinned by the release-clears-attached line (10 red
+  when that line is removed).
+The merge, its hold and the publish are unchanged.

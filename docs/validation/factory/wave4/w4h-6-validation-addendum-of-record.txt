@@ -1,0 +1,32 @@
+W4H-6 verdict addendum, validator-5, 2026-10-04: docs-only head 4bcd76089 over the validated code head 346e8767c
+
+VERDICT: ACCEPT wp/w4h-6 at 4bcd76089. Everything in the base verdict carries from 346e8767c (carry-over instance W4H-6-M1:
+tasks/factory/w4h-6-GATES.md is ALLOWED "any"; docs-only commits over a validated code head keep the verdict).
+Base verdict: verdict-validator-5-w4h6.txt, sha256 e7f22f69c00f239cff54ecd4f28da5df9f81431be0c99410490b9da75d555ca3.
+This file supersedes my earlier note verdict-validator-5-w4h6-4bcd76089.txt (same conclusion, fewer checks).
+
+1. `git diff --name-only 346e8767c 4bcd76089`:
+     tasks/factory/w4h-6-GATES.md
+   1 file, +17 -2: G6 changes from open to the G6 of record entry. No code, test or tool file.
+
+2. The G6 entry against my section 6, each item checked against the owner's logs:
+   - Head 346e8767c, tree e2627561e: matches (g6/hold.log "G6 start 2026-10-04T20:51:31Z load=4.59 container_tree=e2627561e...";
+     git: 346e8767c^{tree} = e2627561ef521b2908a2a0c02997d5aa54e0853e).
+   - list 0 2524/0, 165 files, sha256 9f452afd74f60696ae4f84b4262b3fcb767645a625da3e44d08a4651cafad36f: matches.
+   - list 2 2300/0, 167 files, sha256 3668bd622caba3b83f3effe15766e63dd091895d3774c73e0252b85e92be25fb: matches.
+   - list 7 2220/3, 167 files, sha256 b721f70d26586dd1d1b07ab3f31a8c5fdcfb3884d4cf51d35eef8fe537335c72: matches.
+   - The two list-7 files named: src/__tests__/biome-ignores-worktrees.test.ts (2 tests, exit 127, no node) and
+     src/factory/runner/applied-controls.integration.test.ts (1, pinned python image absent): matches; "not a W4H-6 defect",
+     the fix on the leftover list.
+   - Run window 20:51:31Z-20:58:21Z, gated-flock 824013cc3cdfd471, exit file 0, load 4.59, host_oom 0 in every leg: matches
+     g6/hold.log. Not in the entry: list 0 recorded cgroup_oom=1; the gates doc's existing note explains these as guests at their
+     own --memory limit inside the limit tests (list 0 is 2524/0).
+   - Disk per list (2 MB coverage output, 2-3 GB transient host disk): the owner's figures; I did not measure them.
+   - Void record: g6/void-record.txt names void1 (lists 0 and 2 green: 2524/0, 2300/0; list 7 not run) and void2 (list 0 2524/0,
+     list 2 2299/1 "browseMarketplace perf ... < 10x a plain browse" wall-clock; list 7 not run), both released by the in-lock
+     gate at disk 98-99 GB, both "not G6". Checked against their logs: matches. Neither is used in my verdict.
+   - The checkout-name note (snap-56c9579d7, updated in place, tree e2627561e for this run): consistent with the tree check above.
+
+3. Identity: 4bcd76089 archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+4. Added-line pattern scan: 1 hit, the file name biome-ignores-worktrees in prose; read, not a weakening.
+5. Config check: exit 0 (888c78b9e94ea660 = accepted baseline).

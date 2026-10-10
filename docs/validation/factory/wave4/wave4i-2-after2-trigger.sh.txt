@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# after2-trigger.sh (integrator-4; lead's orders 2026-10-05 18:25Z; final form 18:4xZ): STRICT order under the memory constraint:
+# extras first, after-2 only on extras exit 0 (running the browser part while extras waits pushes the 15 GiB further away). Waits for extras's gated-flock to END (heavy.exit written, no gated-flock for it running), then:
+#   exit 0 : launch stage2 (after-2 only); exit 0
+#   exit 91: keep the file as heavy.exit.giveup-<n>; log time, last gate line, host figures; re-queue extras alone at once (the same
+#            call, a fresh heavy.exit, gate-requeue-<n>.log; detached); NO after-2; exit 10 so the owner reports and restarts this trigger
+#   other  : launch nothing; exit 11 (owner reports the red)
+# stage2 runs detached (setsid) so this waiter ends at the decision and wakes the owner; the owner then waits on stage2's pid.
+set -u
+E=/tmp/factory-platform-evidence; O=$E/w00/wave4i-2; P=$O/producers; X=$P/manifest-cov-extras; L=$P/trigger.log
+host() { echo "MemAvailable=$(awk '/^MemAvailable:/{printf "%.1f", $2/1048576}' /proc/meminfo)GiB SwapFree=$(awk '/^SwapFree:/{printf "%.1f", $2/1048576}' /proc/meminfo)GiB disk=$(df -BG --output=avail / | tail -1 | tr -d ' ') load=$(cut -d' ' -f1 /proc/loadavg)"; }
+echo "trigger start $(date -u +%FT%TZ)" >> $L
+while [ ! -f $X/heavy.exit ] || pgrep -f 'gated-flock[.]sh manifest-cov-extras' > /dev/null; do sleep 30; done
+rc=$(cat $X/heavy.exit)
+case "$rc" in
+  0)  echo "extras exit 0 seen $(date -u +%FT%TZ); host: $(host); stage2: after-2" | tee -a $L; req=0;;
+  91) n=$(find $X -name 'heavy.exit.giveup-*' | wc -l); req=$((n + 1)); mv $X/heavy.exit $X/heavy.exit.giveup-$req
+      echo "extras GAVE UP (exit 91) seen $(date -u +%FT%TZ); last gate line: $(grep -h outside-lock $(command ls -t $X/gate*.log | head -1) | tail -1); host now: $(host); extras re-queue $req (no after-2)" | tee -a $L
+      setsid nohup env GATED_FLOCK_START_MEM_GIB=15 GATED_FLOCK_EXIT_FILE=$X/heavy.exit bash $E/w00/gated-flock.sh manifest-cov-extras $X/gate-requeue-$req.log \
+        bash $P/producer-leg.sh manifest-cov-extras > /dev/null 2>&1 < /dev/null &
+      echo "extras re-queue $req pid $! $(date -u +%FT%TZ)" | tee -a $L; exit 10;;
+  *)  echo "extras RED exit $rc seen $(date -u +%FT%TZ); nothing launched" | tee -a $L; exit 11;;
+esac
+setsid nohup bash $P/stage2.sh 0 > /dev/null 2>&1 < /dev/null &
+echo "stage2 (after-2) pid $! launched $(date -u +%FT%TZ)" | tee -a $L; exit 0

@@ -5,6 +5,8 @@ declare global {
 		// interface Error {}
 		interface Locals {
 			user?: import("../../src/auth/types").AuthUser;
+			/** Validated only for the exact registered factory service route. */
+			factoryServicePrincipal?: import("../../src/auth/factory-service-token").FactoryServiceTokenClaims;
 			/** Verified durable browser session, stable across cookie rotation. */
 			sessionId?: string;
 			apiKeyScopes?: import("./lib/server/security/api-keys").ApiKeyScope[];

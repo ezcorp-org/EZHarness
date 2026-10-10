@@ -54,6 +54,20 @@ export function configureTrustedLocalRunner(next: TrustedLocalHooks): void {
   hooks = next;
 }
 
+/**
+ * Forget the installed hooks and any constructed runner, returning this
+ * module to the state a process starts in. The application configures once at
+ * startup and never unconfigures, so nothing in production calls this; it
+ * exists so a suite that configures the real wiring can hand the next suite in
+ * a pooled `bun test` process the unconfigured module it expects, the same way
+ * `ExtensionRegistry.resetInstance()` hands back a fresh registry. The caller
+ * closes the runner it built — this only drops the reference.
+ */
+export function resetTrustedLocalRunner(): void {
+  hooks = undefined;
+  runner = undefined;
+}
+
 export function resolveTrustedLocalRunner(): Promise<TrustedLocalRunner> {
   // Also what the CLI's offline verify hits in this mode: it has no human
   // acknowledgement to record, so it cannot build here by design.

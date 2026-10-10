@@ -1,0 +1,184 @@
+{
+  "verdict": "ACCEPT",
+  "head": "ee5f52c49f0959cb71bc0a33aabcdd7c9aaf9d18",
+  "round": 2,
+  "package": "w13",
+  "branch": "wp/w13-composition",
+  "previousValidatedHead": "f06ec9861b297239a3b108a080eec1ed3fc998f6",
+  "producerHeadForCitedReceipts": "91bb818bc6d97ab524c4965f950e77914b689cb2",
+  "mergeBase": "cfbc3c767846170a201727547ad9794b155b910a",
+  "mergeBaseEqualsIntegW00": true,
+  "treeCleanBefore": true,
+  "treeCleanAfter": true,
+  "report": "/tmp/factory-platform-evidence/w13-validation/report-r2.md",
+  "round1Report": "/tmp/factory-platform-evidence/w13-validation/report.md",
+  "receipts": "/tmp/factory-platform-evidence/w13-validation/r2/receipts.jsonl",
+  "mergedLcov": "/tmp/factory-platform-evidence/w13-validation/r2/lcov-merged.info",
+  "delta": {
+    "commits": [
+      {"sha": "91bb818bc", "subject": "fix(factory): close the validator's five bookkeeping and disclosure findings"},
+      {"sha": "8d2930e91", "subject": "docs(factory): re-point every cited receipt at one head"},
+      {"sha": "ee5f52c49", "subject": "docs(factory): record the confirming gate runs"}
+    ],
+    "files": [
+      {"path": "docs/plans/2026-09-13-composable-factory-platform-interfaces.md", "kind": "documentation", "lines": "+2"},
+      {"path": "packages/@ezcorp/factory-sdk/src/reference-execution.test.ts", "kind": "sdk test fixture"},
+      {"path": "src/__tests__/helpers/factory-run-lifecycle-suite.ts", "kind": "test helper under src/", "lines": "+26"},
+      {"path": "tasks/factory/w13-GATES.md", "kind": "documentation"},
+      {"path": "tasks/todo.md", "kind": "documentation"}
+    ],
+    "productionSourceChanged": false,
+    "fullRerunWarranted": true,
+    "fullRerunReason": "src/__tests__/helpers/factory-run-lifecycle-suite.ts is source under src/ other than the two SDK test/fixture files, and the real-PostgreSQL lifecycle suite drives it"
+  },
+  "findingStatus": [
+    {
+      "id": "F1",
+      "round1Severity": "medium",
+      "status": "closed",
+      "title": "Gate file claimed every cited receipt came from the final head; counts did not reproduce",
+      "verification": "every EVIDENCE line in tasks/factory/w13-GATES.md now names a head-* record; all ten head-* receipts were produced at 91bb818bc; git diff --name-only 91bb818bc HEAD is exactly tasks/factory/w13-GATES.md so the code is byte-identical at the validated head; every published count reproduces on my own rerun",
+      "countChecks": [
+        {"receipt": "head-classification", "published": "29 pass, 87 assertions", "rerun": "29 pass, 87 assertions", "match": true},
+        {"receipt": "head-adapter", "published": "22 pass, 77 assertions", "rerun": "22 pass, 77 assertions", "match": true},
+        {"receipt": "head-composition", "published": "32 pass, 149 assertions", "rerun": "32 pass, 149 assertions", "match": true},
+        {"receipt": "head-sdk-references", "published": "41 pass, 331 assertions", "rerun": "41 pass, 331 assertions", "match": true},
+        {"receipt": "head-lifecycle", "published": "74 pass, 1129 assertions", "rerun": "74 pass, 1129 assertions", "match": true},
+        {"receipt": "head-postgres", "published": "103 pass, 4229 assertions", "rerun": "103 pass, 4229 assertions", "match": true},
+        {"receipt": "head-static-gates", "published": "32 pass summed, eight checks exit 0", "rerun": "32 pass, 839 assertions, eight checks exit 0", "match": true},
+        {"receipt": "head-backend-pool", "published": "27347 pass, 0 fail, 1835 files", "rerun": "27347 pass, 0 fail, 1835 files", "match": true},
+        {"receipt": "head-coverage", "published": "576 pass", "rerun": "thirteen leg banners summing to 576", "match": true}
+      ],
+      "narrowerCheckCommands": [
+        {"gate": "G8", "published": "exit 0 with 60 pass", "rerun": "60 pass, 957 assertions", "match": true},
+        {"gate": "G11", "published": "exit 0 with 3 pass", "rerun": "3 pass, 43 assertions", "match": true},
+        {"gate": "G10", "published": "no count", "rerun": "11 pass, 66 assertions"},
+        {"gate": "G12", "published": "no count", "rerun": "18 pass, 88 assertions"}
+      ],
+      "nonHeadNamesRemaining": {"names": ["merge-backend-pool", "merge2-backend-pool", "final-backend-pool"], "context": "G14 supplementary sentence about earlier heads, labelled as history, not offered as the gate's evidence", "acceptable": true},
+      "errorRecordedRatherThanHidden": true
+    },
+    {
+      "id": "F2",
+      "round1Severity": "low",
+      "status": "closed",
+      "title": "Stale SDK comment and hand-written fixture",
+      "verification": "packages/@ezcorp/factory-sdk/src/reference-execution.test.ts imports factoryChildAcceptanceResult from ./child-acceptance and builds the fixture with it; the comment is rewritten and accurate; grep -rn childAcceptanceSchema packages/ src/ returns nothing"
+    },
+    {
+      "id": "F3",
+      "round1Severity": "low",
+      "status": "closed",
+      "title": "mock-cleanup.ts missing from the shared-file disclosure table",
+      "verification": "the row is present, marked 'not in section 12', naming the MODULE_PATHS entry, the forcing gate, and that it is strictly additive"
+    },
+    {
+      "id": "F4",
+      "round1Severity": "low",
+      "status": "closed",
+      "title": "Third writer on protected-command-effects.ts with no recorded owner sign-off",
+      "verification": "interface freeze section 16 carries two dated lines attributed to W13 (2026-09-20); the first names the file, the two existing owners and their scopes, exactly what W13 adds, the coordinator's decision verbatim, and why the branch cannot live elsewhere; the second records the new SDK file as coordinator answer 4; the gate file gains a dedicated subsection",
+      "coordinatorDecisionVerbatim": "the third writer is approved for W13's acceptance-only child mode because the change is additive and owned by the same Sol lifecycle/controls group",
+      "validatorCaveat": "I verified the line exists, is dated, is attributed, and carries both the approval and the reason. I cannot independently verify the coordinator uttered the quoted sentence."
+    },
+    {
+      "id": "F5",
+      "round1Severity": "low",
+      "status": "closed-more-strongly-than-asked",
+      "title": "Exact aliases proven by construction rather than directly",
+      "verification": "a direct test was added rather than an annotation",
+      "directTest": {
+        "file": "src/__tests__/helpers/factory-run-lifecycle-suite.ts",
+        "inTest": "an acceptance-only child returns its accepted artifact and creates no release operation",
+        "asserts": [
+          "FactoryChildArtifacts.bind succeeds with the acceptance-only receipt's own decisionId against a real parent attempt row",
+          "the returned alias carries the child run id, the child decision id, and the accepted artifact",
+          "the parent still has no row in factory_acceptance_decisions",
+          "binding a decision the child never took is refused with factory_assurance_not_found"
+        ],
+        "runsOn": ["pglite", "real postgres"]
+      },
+      "todoWordingAccurate": true,
+      "remainingGap": "the production call from the child-completion path, which is W09b's wiring round"
+    },
+    {
+      "id": "F6",
+      "round1Severity": "low",
+      "status": "closed",
+      "title": "static-gates receipts under-reported their pass count",
+      "verification": "receipt.py now uses re.findall and sums every banner; the pool's aggregate banner replaces the per-file sum rather than adding to it; a new guard refuses a receipt for a command that wrote nothing",
+      "reparseAudit": {
+        "recordsChecked": ["static-gates-reparsed", "merge-static-gates-reparsed", "merge2-static-gates-reparsed", "final-static-gates-reparsed"],
+        "appendedNotEdited": true,
+        "eachNamesItsSource": true,
+        "logPathSameAsSource": true,
+        "logSha256MatchesSourceRecord": true,
+        "logSha256MatchesFileOnDisk": true,
+        "onlyCountsChanged": "13 to 32",
+        "originalsRetained": true
+      },
+      "headStaticGatesNative": {"pass": 32, "assertions": 839, "myRerun": {"pass": 32, "assertions": 839, "breakdown": "13 + 3 + 16 pass, 204 + 596 + 39 assertions"}}
+    }
+  ],
+  "reruns": [
+    {"record": "r2-static", "exitCode": 0, "checks": 8, "checkFailures": 0, "pass": 32, "assertions": 839, "gateIntegrity": "no gate-weakening or test-cheating changes detected", "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-static-20260921T015019Z.log"},
+    {"record": "r2-lanes", "exitCode": 0, "c11Lanes": 7, "laneTestPass": 20, "postgresRegistrationTestPass": 5, "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-lanes-20260921T015116Z.log"},
+    {"record": "r2-cited", "exitCode": 0, "commandsRerun": 9, "allPublishedCountsReproduce": true, "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-cited-20260921T015117Z.log"},
+    {"record": "r2-coverage", "exitCode": 0, "legs": 13, "legFailures": 0, "legPassSum": 576, "baseRef": "cfbc3c767846170a201727547ad9794b155b910a", "newFileGate": {"result": "PASSED", "newSourceFiles": 9}, "patchGate": {"result": "PASSED", "files": 19}, "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-coverage-20260921T014835Z.log"},
+    {"record": "r2-postgres", "exitCode": 0, "pass": 103, "fail": 0, "assertions": 4229, "files": 5, "realPostgres": true, "realS3": true, "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-postgres-20260921T014937Z.log"},
+    {"record": "r2-backend-pool", "exitCode": 0, "pass": 27347, "fail": 0, "files": 1835, "log": "/tmp/factory-platform-evidence/w13-validation/r2/logs/r2-backend-pool-20260921T015024Z.log"},
+    {"record": "secret-scan", "exitCode": 0, "credentialValueAnywhere": false}
+  ],
+  "newFileLineCoverage": {
+    "packages/@ezcorp/factory-sdk/src/child-acceptance.ts": "67/67",
+    "src/db/migrations/add-factory-legacy-workflow-adapters.ts": "9/9",
+    "src/factory/child-release-mode.ts": "8/8",
+    "src/factory/legacy-workflow/adapter.ts": "198/198",
+    "src/factory/legacy-workflow/classification.ts": "45/45",
+    "src/factory/legacy-workflow/import.ts": "96/96",
+    "src/factory/legacy-workflow/status.ts": "50/50",
+    "src/factory/reference-catalog/catalog.ts": "139/139",
+    "src/factory/reference-catalog/pack.ts": "59/59"
+  },
+  "gateIntegrity": {
+    "gateIntegrityScript": "passed",
+    "deltaAddsSkipOnlyTodo": 0,
+    "deltaAddsEmptyCatch": 0,
+    "deltaLowersThreshold": 0,
+    "deltaAddsExclusion": 0
+  },
+  "securityPosture": {
+    "credentialValueInAnyOutput": false,
+    "argvExposureResidue": false,
+    "destructiveActions": 0
+  },
+  "informationalNotes": [
+    {
+      "id": "N1",
+      "title": "The interface freeze document is itself a coordinator-owned shared file and is not in the gate file's shared-file table",
+      "detail": "W13 edited docs/plans/2026-09-13-composable-factory-platform-interfaces.md; the table does not list it. Same class as F3. Conventional for section 16, where other packages add dated entries under W01 and W18 attributions, and directed by the coordinator's round-two brief, so sanctioned.",
+      "suggestion": "add the row for completeness",
+      "blocking": false
+    },
+    {
+      "id": "N2",
+      "title": "One phrase in the gate file is a commit off",
+      "detail": "It says the two confirm-* receipts were produced at 'this documentation commit itself'. They were produced at 8d2930e91 and the sentence now lives in ee5f52c49. Both are documentation-only over identical code; git diff --name-only 8d2930e91 HEAD is exactly the gate file.",
+      "blocking": false
+    },
+    {
+      "id": "N3",
+      "title": "A gate's CHECK and its EVIDENCE receipt measure different sets",
+      "detail": "G11's CHECK names one file worth 3 tests while its receipt covers five files worth 41. Same pattern for G1, G2, G10 and G12. Pre-existing rather than new; the receipt is a superset containing the CHECK and both numbers are accurate for what they measure.",
+      "suggestion": "per-CHECK receipts if the coordinator wants the two figures to match",
+      "blocking": false
+    }
+  ],
+  "round1ConclusionsStillHold": true,
+  "blockingIssues": [],
+  "openItems": [
+    {"item": "real reference.catalog.v1 pull request with actual child bytes", "status": "open", "honest": true, "corroborated": true},
+    {"item": "C11 detection bound for an orphaned legacy run", "status": "routed to W09b", "honest": true, "corroborated": true},
+    {"item": "production composition of the legacy adapter", "status": "routed to W09b", "honest": true, "corroborated": true}
+  ]
+}

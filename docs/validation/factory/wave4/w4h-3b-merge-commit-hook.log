@@ -1,0 +1,32 @@
+scripts/setup-factory-python-base.test.ts:101:89 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+     99 │   test("every host-shard coverage step runs after the base action", () => {
+    100 │     const steps = stepsNeedingAction(workflows(), ACTION, runsHostShard);
+  > 101 │     expect(steps.map((step) => step.where)).toContain("ci.yml cov-shard (Coverage shard ${{ matrix.shard }}): Run shard (tests + coverage)");
+        │                                                                                         ^^^^^^^^^^^^^^^^^^
+    102 │     expect(steps.filter((step) => !step.preceded).map((step) => step.where)).toEqual([]);
+    103 │   });
+  
+  i Turn the string into a template string.
+  
+
+Checked 3 files in 4ms. No fixes applied.
+Found 1 warning.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/lib/ci-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 26 expect() calls
+Ran 14 tests across 1 file. [466.00ms]
+  bun: scripts/setup-factory-python-base.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 350 expect() calls
+Ran 10 tests across 1 file. [354.00ms]
+[detached HEAD 536b8ae42] merge: wp/w4h-3b 91351d6b5 into integ/w00 (the CI-registration helper widens compatibly for the Python base step)

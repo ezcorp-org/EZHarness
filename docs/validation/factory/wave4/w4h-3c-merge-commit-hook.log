@@ -1,0 +1,17 @@
+Checked 4 files in 7ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/factory-temporal-authorizer.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 56 expect() calls
+Ran 15 tests across 1 file. [388.00ms]
+  bun: scripts/lib/shipping-bootstrap-state.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [397.00ms]
+[detached HEAD 392dac7dd] merge: wp/w4h-3c 67b1e13ec into integ/w00 (scripts tests join the CI typecheck program)

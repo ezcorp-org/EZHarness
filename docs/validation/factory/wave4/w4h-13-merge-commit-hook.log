@@ -1,0 +1,10 @@
+Checked 1 file in 46ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/__tests__/git-hooks.test.ts
+bun test v1.4.2 (744846f84)
+
+ 29 pass
+ 0 fail
+ 244 expect() calls
+Ran 29 tests across 1 file. [5.49s]
+[detached HEAD fb2813ce4] merge: wp/w4h-13-hook-git-env 196552004 into integ/w00 (W4H-13: the hook's staged suites leave the shared config byte-equal)

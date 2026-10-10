@@ -48,8 +48,10 @@
 		"@electric-sql/pglite": "0.5.8",
 		"@electric-sql/pglite-pgvector": "0.0.9",
 		"@huggingface/transformers": "^4.3.0",
+		"@xyflow/svelte": "1.6.6",
 		"ansi_up": "^6.0.6",
 		"diff2html": "^3.4.56",
+		"elkjs": "0.12.0",
 		"highlight.js": "^11.12.0",
 		"isomorphic-dompurify": "^4.4.0",
 		"kokoro-js": "^1.2.0",
@@ -64,5 +66,8 @@
 		"cookie": "0.7.2",
 		"qs": "6.16.0",
 		"sharp": "0.35.5"
+	},
+	"patchedDependencies": {
+		"@stryker-mutator/vitest-runner@10.0.0": "patches/@stryker-mutator%2Fvitest-runner@10.0.0.patch"
 	}
 }

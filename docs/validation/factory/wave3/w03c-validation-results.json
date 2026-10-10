@@ -1,0 +1,120 @@
+{
+  "package": "w03c",
+  "validated_package": "w03c",
+  "validator": "independent (Sonnet)",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w03-stop",
+  "branch": "wp/w03c-composition-inputs",
+  "headAtValidation": "dc0608a8480c9426803742767a0a891b2a320513",
+  "baseForDelta": "f30da62fac9a6ebcf175d129e9e649470597950b",
+  "commitsInDelta": [
+    { "sha": "7c837d20b0a01e4265d47ff73d307506d488f43e", "subject": "feat(factory): supply the two composition inputs W09's stop and usage roles need" },
+    { "sha": "dc0608a8480c9426803742767a0a891b2a320513", "subject": "docs(factory): record the W03c gates" }
+  ],
+  "treeState": { "gitStatusPorcelainEmpty": true },
+  "filesInDelta": [
+    "src/__tests__/factory-compute-admissions.test.ts",
+    "src/__tests__/helpers/factory-pool-suite.ts",
+    "src/__tests__/helpers/factory-run-lifecycle-suite.ts",
+    "src/__tests__/helpers/factory-task-stops-suite.ts",
+    "src/factory/pool/client.ts",
+    "src/factory/pool/ledger.ts",
+    "src/factory/pool/service-routes.ts",
+    "src/factory/pool/service.ts",
+    "src/factory/task-stops.ts",
+    "src/factory/usage-settlement.test.ts",
+    "src/factory/usage-settlement.ts",
+    "tasks/factory/w03c-GATES.md",
+    "tests/postgres/factory-pool-http.test.ts"
+  ],
+  "ownershipCheck": {
+    "w03OwnedFilesTouched": ["src/factory/pool/ledger.ts", "src/factory/task-stops.ts", "src/factory/usage-settlement.ts", "src/__tests__/helpers/factory-pool-suite.ts", "src/__tests__/helpers/factory-budgets-suite.ts (unchanged this round)"],
+    "declaredCrossings": [
+      { "file": "src/__tests__/helpers/factory-run-lifecycle-suite.ts", "trueOwner": "Sol controls (W06), per freeze section 12", "disclosedByWorker": true, "changeScope": "one-line stub addition (confirmStopped: unavailable) to satisfy the widened PoolAdmissionClient interface, twice" },
+      { "file": "src/__tests__/factory-compute-admissions.test.ts", "trueOwner": "not explicitly listed in section 12's table by this name; underlying module compute-admissions.ts is W03-owned", "disclosedByWorker": true, "changeScope": "one-line stub method addition" }
+    ],
+    "undeclaredFilesNotOwnedByAnyoneInFreeze": ["src/factory/pool/client.ts", "src/factory/pool/service.ts", "src/factory/pool/service-routes.ts"],
+    "undeclaredFilesVerification": "grepped the full interface freeze doc and the plan doc for these three paths; neither assigns an owner. Worker's claim 'not named in section 12' independently confirmed.",
+    "concurrentEditRisk": "checked git log --all on every non-ancestor branch for post-integ/w00 commits touching these three files; wp/w09-startup and wp/w13-composition (the two live branches most likely to also touch pool composition) have zero unique commits touching them beyond an inherited merge. No collision found."
+  },
+  "reruns": [
+    { "producer": "typecheck", "command": "bun run typecheck", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/typecheck.log" },
+    { "producer": "lint", "command": "bun run lint", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/lint.log" },
+    { "producer": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/boundaries.log" },
+    { "producer": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/gate-integrity.log" },
+    {
+      "producer": "static-registry",
+      "command": "bun test --timeout 120000 ./scripts/factory-c13-inventory.test.ts ./scripts/factory-postgres-suite-registration.test.ts ./scripts/check-factory-boundaries.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 43, "fail": 0, "expectCalls": 224 },
+      "log": "/tmp/factory-platform-evidence/w03c-validation/registry-checks-full.log",
+      "matchesWorkerReceipt": "static.json (43 pass / 0 fail / 224 expect) -- reproduced exactly"
+    },
+    {
+      "producer": "focused-coverage",
+      "command": "flock -w 1500 /tmp/ezcorp-validation-heavy.lock timeout 1200 bun test --timeout 600000 --coverage --coverage-reporter=lcov --coverage-dir=.../lcov/focused ./src/__tests__/factory-task-stops.test.ts ./src/factory/pool/ledger.integration.test.ts ./src/factory/pool/service-routes.test.ts ./src/factory/pool/client.test.ts ./src/factory/usage-settlement.test.ts ./src/__tests__/factory-budgets.test.ts ./src/__tests__/factory-compute-admissions.test.ts ./src/__tests__/factory-run-lifecycle.test.ts ./src/factory/pool/lazy-sql-assertions.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 146, "fail": 0, "expectCalls": 1460 },
+      "log": "/tmp/factory-platform-evidence/w03c-validation/focused.log",
+      "matchesWorkerReceipt": "focused.json (146 pass / 0 fail / 1460 expect) -- reproduced exactly"
+    },
+    {
+      "producer": "postgres",
+      "command": "flock -w 1500 /tmp/ezcorp-validation-heavy.lock timeout 1200 bun test --timeout 240000 --coverage --coverage-reporter=lcov --coverage-dir=.../lcov/postgres ./tests/postgres/factory-pool.test.ts ./tests/postgres/factory-pool-http.test.ts ./tests/postgres/factory-pool-service.test.ts ./tests/postgres/factory-task-stops.test.ts ./tests/postgres/factory-budgets.test.ts",
+      "exitCode": 0,
+      "tests": { "pass": 61, "fail": 0, "expectCalls": 383 },
+      "log": "/tmp/factory-platform-evidence/w03c-validation/postgres.log",
+      "matchesWorkerReceipt": "postgres.json (61 pass / 0 fail / 383 expect) -- reproduced exactly"
+    },
+    {
+      "producer": "merge-lcov",
+      "command": "bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w03c-validation/lcov/all/*.lcov' coverage/lcov.info",
+      "exitCode": 0,
+      "log": "/tmp/factory-platform-evidence/w03c-validation/merge-lcov.log",
+      "resultingLineCoverage": {
+        "src/factory/pool/client.ts": "144/144",
+        "src/factory/pool/service.ts": "52/52",
+        "src/factory/pool/service-routes.ts": "96/96",
+        "src/factory/pool/ledger.ts": "445/445",
+        "src/factory/task-stops.ts": "310/310",
+        "src/factory/usage-settlement.ts": "216/216"
+      },
+      "matchesReceipt": "matches the addendum's claimed six-module 100% line counts exactly"
+    },
+    { "producer": "new-file-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/new-file-coverage.log", "result": "PASSED: no new source files in this diff" },
+    { "producer": "patch-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exitCode": 0, "log": "/tmp/factory-platform-evidence/w03c-validation/patch-coverage.log", "result": "PASSED: all changed executable lines covered (6 file(s))" }
+  ],
+  "receiptsChecked": [
+    { "path": "/tmp/factory-platform-evidence/w03c/static.json", "claimedCounts": "43 pass / 0 fail / 224 expect", "agreesWithRerun": true },
+    { "path": "/tmp/factory-platform-evidence/w03c/focused.json", "claimedCounts": "146 pass / 0 fail / 1460 expect", "agreesWithRerun": true },
+    { "path": "/tmp/factory-platform-evidence/w03c/postgres.json", "claimedCounts": "61 pass / 0 fail / 383 expect", "agreesWithRerun": true },
+    { "path": "/tmp/factory-platform-evidence/w03c/coverage-gates.json", "claimedExit": 0, "agreesWithRerun": true },
+    { "path": "/tmp/factory-platform-evidence/w03c/head-static.json", "claimedExit": 0, "agreesWithRerun": true },
+    { "path": "/tmp/factory-platform-evidence/w03c/smoke.json", "note": "not independently rerun (pre-commit smoke check, superseded by static/focused/postgres reruns)" }
+  ],
+  "dirtyFileHashVerification": "all 12 dirtyOrUntracked SHA-256 hashes recorded in the worker's pre-commit receipts (static.json/focused.json/postgres.json) diffed byte-for-byte against git show 7c837d20b:<path> | sha256sum -- identical for every file",
+  "cpuHostDefectVerification": {
+    "claim": "a CPU reservation records no host in the pool ledger; three comparison sites previously compared strictly, which refused a real CPU stop confirmation. Fix: treat a recorded host as must-not-contradict, absence as no opinion. GPU still refuses a foreign host.",
+    "sitesVerified": [
+      "src/factory/pool/ledger.ts:554 FactoryPoolLedger.confirmStopped -- `input.hostId !== undefined && row.host_id !== null && row.host_id !== input.hostId` -- only refuses when the ledger *does* record a host and it disagrees",
+      "src/factory/task-stops.ts:~277 FactoryTaskStops.confirm -- `(acknowledged.hostId !== undefined && acknowledged.hostId !== receipt.hostId)` -- same policy",
+      "src/factory/pool/service.ts new acknowledgeStopped -- `current.hostId !== undefined && current.hostId !== input.hostId` -- same policy",
+      "src/factory/pool/client.ts confirmStopped -- `result.hostId !== undefined && result.hostId !== hostId` -- same policy at the wire-response validation layer"
+    ],
+    "testsVerified": [
+      "src/__tests__/helpers/factory-pool-suite.ts CPU test: a foreign hostId on a hostless (CPU) reservation is accepted (no opinion), acknowledged.hostId is undefined",
+      "src/__tests__/helpers/factory-pool-suite.ts GPU test: acknowledgeStopped with hostId='gpu-elsewhere' against a GPU reservation whose recorded host is 'gpu-ack' throws 'host is stale'",
+      "tests/postgres/factory-pool-http.test.ts: real mTLS round trip of the same CPU-path semantics"
+    ],
+    "verdict": "confirmed as described; fix is consistent across all four comparison sites; GPU foreign-host refusal is intact and tested"
+  },
+  "confirmStoppedReleasesNoCapacity": {
+    "claim": "the tenant's acknowledgeStopped route never mutates the pool ledger; only the supervisor's confirmStopped route does",
+    "verification": "read src/factory/pool/service.ts acknowledgeStopped: calls only this.ledger.status(...) (a read) and returns the current row; no call to any ledger mutation method and no this.ledger.schedule() call, unlike the supervisor confirmStopped handler two lines above which does both. Test asserts pool.status('ack') stays 'running' before the supervisor confirms, and stays byte-equal to the settled snapshot across repeated/concurrent tenant acknowledgements after.",
+    "verdict": "confirmed"
+  },
+  "gateIntegrityAndDry": "No .skip/.only/.todo, no EXCLUDES, no empty catch{}, no lowered coverage thresholds in the delta (grep-verified). No new C13 shared-module boundary needed (check-factory-boundaries.ts unchanged and reruns green). db-postgres.yml correctly untouched since no new tests/postgres suite file was added (only an existing one, factory-pool-http.test.ts, was extended); factory-postgres-suite-registration.test.ts reruns green, confirming this.",
+  "securityPosture": "No credential values found in any receipt or rerun log (grep-verified against the real POSTGRES_PASSWORD value). Tenant/supervisor certificate separation is enforced and tested (tenant cert cannot call the supervisor route and vice versa; cross-tenant denial tested; malformed-field rejection tested). No authority check removed.",
+  "verdict": "ACCEPT",
+  "verdictHead": "dc0608a8480c9426803742767a0a891b2a320513",
+  "findings": []
+}

@@ -1,0 +1,94 @@
+{
+  "package": "W01",
+  "verdict": "REJECT",
+  "note_on_deliverables": "The validator.md protocol asked for report.md and results.json. My harness (a Write-tool hook scoped to this subagent) hard-blocked writing any file named/patterned like a report ('report.md' specifically triggered: \"Subagents should return findings as text, not write report files\"). This is enforced at the tool layer, not a choice I made. results.json (this file) carries the full structured findings; the complete prose report is in my final chat message to the coordinator, since the coordinator's own instructions anticipated chat as a fallback path.",
+  "head": "80d7e4236dfaf9ea6dc0462c60ef3c0d8160a817",
+  "base_of_delta": "1d75ee74f79f0d8502c5069d38410893bc5636ff",
+  "tree_clean_start_and_end": true,
+  "commits_in_delta_chronological": [
+    {"sha": "6f46f13e5", "subject": "fix(factory): let a checkpoint implementer actually satisfy the seam"},
+    {"sha": "1ca5ab33b", "subject": "docs(factory): record the checkpoint seam assignability finding"},
+    {"sha": "d51e095b1", "subject": "test(factory): pin the workspace-checkpoint seam against its real return type"},
+    {"sha": "95725953b", "subject": "test(factory): prove an API failure never counts as physical absence"},
+    {"sha": "6cbd3f992", "subject": "docs(factory): commit the W01 gate file and reopen G4 and G10"},
+    {"sha": "0c83bee96", "subject": "docs(factory): correct the assertion count and record the reruns"},
+    {"sha": "9156b824a", "subject": "fix(runner): decouple guest lifetime from the supervising process"},
+    {"sha": "c49c62937", "subject": "test(runner): accept both terminal podman states in the controlled fault"},
+    {"sha": "e491b2e85", "subject": "docs(factory): close G4 and G10 on the decoupled guest lifetime"},
+    {"sha": "80d7e4236", "subject": "docs(factory): record receipt provenance per commit"}
+  ],
+  "diffstat_vs_1d75ee74f": "10 files changed, 374 insertions(+), 18 deletions(-); entirely inside packages/@ezcorp/extension-runner/{src,tests}, src/factory/runner/, tasks/",
+  "scope_conformance": "confirmed: no file outside W01-owned surface touched; no frozen consumer-facing signature changed (Runner, StartRequest, FactoryAttemptOpen, FactoryHostLaunchProtocol, device grant all untouched). FactoryWorkspaceCheckpoint.checkpoint return type change (JsonValue -> FactoryCheckpointReference) is W01's own internal seam, not the frozen surface (frozen surface is FactoryOperationSettlement.workspaceCheckpoint in W03-owned src/factory/executions.ts, confirmed typed JsonValue at the real call site executions.ts:112, matching what supervisor.ts now converts to via canonicalJson before journal.settle).",
+  "reruns": [
+    {"producer": "Full Podman suite run 1", "command": "flock /tmp/ezcorp-validation-heavy.lock bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=.../podman-run1 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit": 0, "result": "15 pass / 0 fail / 78 expect()", "worker_claim": "15/0/78", "match": true},
+    {"producer": "Full Podman suite run 2 (back to back)", "command": "same as run 1, fresh coverage dir", "exit": 0, "result": "15 pass / 0 fail / 78 expect()", "worker_claim": "15/0/78", "match": true},
+    {"producer": "attempt-runtime.integration.test.ts", "command": "flock ... bun test --timeout 300000 --coverage ...", "exit": 0, "result": "6 pass / 0 fail / 27 expect()", "worker_claim": "6/0/27", "match": true},
+    {"producer": "supervisor.podman.integration.test.ts", "command": "flock ... bun test --timeout 300000 --coverage ...", "exit": 0, "result": "2 pass / 0 fail / 6 expect()", "worker_claim": "2/0/6", "match": true},
+    {"producer": "package-preparation.podman.integration.test.ts", "command": "flock ... bun test --timeout 300000 --coverage ...", "exit": 0, "result": "1 pass / 0 fail / 6 expect()", "worker_claim": "1/0/6", "match": true},
+    {"producer": "Focused suites (8 files, worker's exact command from final-focused-suites.json)", "command": "flock ... bun test --timeout 120000 --coverage --coverage-dir=.../focused-suites ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts ./src/factory/runner/guest-frames.test.ts ./src/factory/runner/workspace-checkpoint-seam.test.ts ./src/factory/runner/supervisor.integration.test.ts ./src/__tests__/factory-migration-restart.test.ts ./scripts/check-factory-boundaries.test.ts ./packages/@ezcorp/extension-runner/tests/protocol.test.ts", "exit": 0, "result": "74 pass / 0 fail / 249 expect()", "worker_claim": "74/0 pass-fail (worker did not restate an assertion count for this exact set)", "match": true},
+    {"producer": "6 real-Postgres producers", "command": "flock ... postgres-env.sh bun test --timeout 300000 --coverage ... ./tests/postgres/factory-{schema,migration-restart,executions,attempt-queue,execution-gateway,package-preparation}.test.ts", "exit": 0, "result": "28 pass / 0 fail / 2794 expect()", "worker_claim": "28/0/2794", "match": true},
+    {"producer": "bun run typecheck", "exit": 0, "result": "pass"},
+    {"producer": "bun run lint", "exit": 0, "result": "pass, 8 pre-existing infos, all under web/, unrelated to W01"},
+    {"producer": "bun scripts/check-factory-boundaries.ts", "exit": 0, "result": "pass"},
+    {"producer": "bun scripts/gate-integrity.ts", "exit": 0, "result": "pass"},
+    {"producer": "merge-lcov.ts (my 7 producer LCOVs) -> coverage/lcov.info (gitignored)", "exit": 0, "result": "591 source files merged"},
+    {"producer": "BASE_REF=integ/w00 check-new-file-coverage.ts", "exit": 0, "result": "3 new source file(s) gated", "worker_claim": "3 new source file(s) gated", "match": true},
+    {"producer": "BASE_REF=integ/w00 check-patch-coverage.ts", "exit": 0, "result": "all changed executable lines covered (10 file(s))", "worker_claim": "10 file(s) per worker's own final-static-gates.log at commit e491b2e85 (tasks/factory/w01-GATES.md G15 prose is stale at 9, see Finding 4)", "match": true},
+    {"producer": "per-file coverage from my merged LCOV", "result": {"podman.ts": "356/356", "protocol.ts": "86/86", "attempt-runtime.ts": "307/307", "supervisor.ts": "72/72", "guest-frames.ts": "13/13", "add-factory-attempt-launches.ts": "23/23"}},
+    {"producer": "podman ps -a before/during/after all reruns", "result": "55 containers throughout; only 2 ever Up, both pre-existing/unrelated (nostalgic_lovelace, 7 days old; factory-platform-proof-postgres, the shared proof DB); no leftover container from any of my reruns"}
+  ],
+  "findings": [
+    {
+      "id": 1,
+      "severity": "HIGH - blocking",
+      "title": "The /channel bind mount lets a guest plant a symlink the host later dereferences, breaking the sandbox boundary",
+      "location": "packages/@ezcorp/extension-runner/src/podman.ts:142-153 (launchDetached: mkdir mode 0o700 then chmod 0o777 at line 145), :161-186 (channelTransport, unguarded open() at line 163), :196 (args(): the only ro=false mount any guest receives), :342 (attach() calling channelTransport unconditionally on every recovery)",
+      "description": "The per-attempt channel directory is created 0o700 then immediately widened to 0o777 and bind-mounted into the guest read-write (the only rw mount any guest gets; the pre-existing /workspace mount stays ro=true and is immune). channelTransport() reopens in/out/err by path with plain fs/promises open(), with no lstat/file-type check, on both initial launch and every attach()/recovery. Because the DIRECTORY (not just the FIFOs' own mode bits) is guest-writable, and unlinkat/symlinkat are both permitted by the shipped seccomp allow-list, a guest can unlink a channel entry and replace it with a symlink to an arbitrary absolute host path. I built and ran a live PoC (see poc_evidence below) reproducing the exact mount/permission/security-flag configuration shipped in podman.ts: an unprivileged, fully sandboxed container (cap-drop=ALL, no-new-privileges, read-only rootfs, network=none, user=65534:65534 remapped by rootless Podman to subordinate UID 231069) replaced /channel/out with a symlink to a file outside any container, and a plain host-side open(path,'r') -- exactly what channelTransport() does -- read the planted host file's content instead of the guest's own stream. This is unconditionally reachable via attach()/recovery (not a timing race): an already-running guest can hold arbitrary code execution for an unbounded time before any supervisor reattaches. This directly violates the 'no secret reachable by a guest' security-posture requirement and is a new attack surface introduced by this exact delta (the superseded podman-attach mechanism had no writable host directory mounted into the guest at all).",
+      "poc_evidence": "/tmp/factory-platform-evidence/w01-revalidation/logs/symlink-swap-poc.md (full commands, exact output, independently authored and run in a scratch directory outside any worktree)",
+      "remediation_options": [
+        "Bind-mount the three FIFO files individually (type=bind,src=<dir>/in,dst=/channel/in, x3) so the guest can read/write FIFO data via already-open descriptors but cannot unlink/rename a directory entry it lacks directory-level write access to.",
+        "lstat() each path in channelTransport() and reject if it is not still the expected FIFO before open()-ing it, on every call including reattach.",
+        "Do not widen the leaf directory to 0o777; resolve the guest's actual rootless-Podman subordinate-mapped UID/GID and chown/chmod the three FIFO files precisely to that identity instead of loosening the containing directory for 'other'."
+      ]
+    },
+    {
+      "id": 2,
+      "severity": "informational",
+      "title": "Guest-side shim contract is an open coordination item for W02, correctly not yet in the freeze",
+      "location": "packages/@ezcorp/extension-runner/src/podman.ts:14 (guestShim constant); design record /tmp/factory-platform-evidence/w01/DESIGN-guest-lifetime.md",
+      "description": "The shim now defines how any guest (including a future Python bridge from W02) receives its control channel. The design record already flags this as an open, non-blocking coordination note for the W00 coordinator. Confirmed unaddressed as of this delta; should get a freeze entry before W02 needs it."
+    },
+    {
+      "id": 3,
+      "severity": "resolved",
+      "title": "Prior validation's Finding 3 (API-failure/timeout must never prove absence) and Finding 9 (device-grant staleness untested) are both now covered by real, non-vacuous tests",
+      "location": "src/factory/runner/attempt-recovery.test.ts (new tests added in 95725953b); guarded production code at src/factory/runner/attempt-runtime.ts:570-573 (stopPhysical's inspect() call, no try/catch, only succeeded/failed/cancelled count as terminal) and :317 (device_grant_digest mismatch throw)",
+      "description": "Four new tests: 'an inspect transport failure is never read as physical absence' (asserts stop() rethrows the exact transport error, no receipt, launch stays 'launched'); 'a worker still running after cancel is uncertain, not stopped'; 'a hanging inspect yields no receipt until it returns a real terminal observation'; 'a stale device grant is rejected when its holding lease no longer matches' (raw-SQL tampers holder_generation, host_id, and device_grant_json independently, each asserted to throw 'device grant digest is invalid'). Traced each assertion to the exact single-line production guard it exercises; removing any guard would make the corresponding test fail to throw. All four ran clean as part of the focused-suite rerun (74 pass)."
+    },
+    {
+      "id": 4,
+      "severity": "low",
+      "title": "tasks/factory/w01-GATES.md G15 prose is stale (9 files vs the actual 10)",
+      "location": "tasks/factory/w01-GATES.md, G15 bullet",
+      "description": "G15's evidence text still reads 'covered (9 file(s))', stale from before this delta. The worker's own rerun receipt at commit e491b2e85 (logs/final-static-gates.log, after the guest-lifetime fix) already shows 10 file(s), which I also reproduced independently. Not a pass/fail discrepancy, and the correct number already exists in the worker's own raw log -- just an unrevised prose line, the same class of issue as the prior validation round's INDEX.md assertion-count finding."
+    },
+    {
+      "id": 5,
+      "severity": "informational",
+      "title": "Design claim confirmed: builds never use the new FIFO path; FramedTransport is not a public export",
+      "location": "packages/@ezcorp/extension-runner/src/podman.ts (build/launch/run unchanged); src/index.ts (public export list unchanged)",
+      "description": "build()/launch()/run() are byte-for-byte unchanged; only start() (shared by v4 and factory callers) now routes through launchDetached/channelTransport, which is the intended design and is proven by the full shared Podman suite (including non-factory tests) passing unchanged. FramedTransport/FramedStream/FramedSink are new internal types in protocol.ts but are not exported from the package's public index.ts -- purely additive, no consumer-facing freeze surface changed."
+    }
+  ],
+  "item_b_sigkill_test_review": {
+    "main_test": "packages/@ezcorp/extension-runner/tests/podman.integration.test.ts:86-111 is state-driven: starts a real child supervisor, waits for its own 'READY' stdout line (no fixed sleep), SIGKILLs it and awaits child.exited (an observed fact), THEN constructs a fresh supervisor and asserts inspect() reports 'running' strictly before any attach() call.",
+    "controlled_fault_variant": "podman.integration.test.ts:113-146 does not exercise PodmanRunner at all; it independently reproduces the superseded mechanism (raw podman run --detach -i + podman attach holding stdin) against a throwaway container, confirms running before killing the holder, then polls the container's own state (bounded 120 attempts, no fixed sleep) until terminal and asserts exit code 7 (the guest's own end-of-input handler). Read the fault injection: it is a faithful, deterministic reproduction of the pre-fix architecture, not a mock. Because it never calls into podman.ts, there is no meaningful 'revert-and-rerun' experiment against it -- it characterizes real Podman's stdin-forwarding behavior, the causal mechanism the design record cites, and it passed deterministically in both of my reruns. Paired with the main test (which proves the NEW mechanism survives the identical kill), this constitutes a genuine A/B causality proof. Considered fully satisfied."
+  },
+  "item_d_guard_confirmation": "Confirmed by direct inspection against production lines attempt-runtime.ts:570-573 and :317 (see finding 3). Both tests assert rejects.toThrow on a message tied to a single-line conditional; removing either guard makes the scenario resolve successfully instead of throwing, so neither test can pass vacuously.",
+  "item_e_gates": "All static and coverage gates green against my own independently-merged LCOV built from all 7 of my own producer runs (both Podman runs, attempt-runtime integration, supervisor-podman, package-preparation-podman, focused suites, 6 Postgres producers) -- 591 source files merged, matching the worker's reported 100% coverage on every touched executable file.",
+  "item_f_scope_and_frozen_signatures": "All ten commits touch only W01-owned files (packages/@ezcorp/extension-runner/{src,tests}, src/factory/runner/, tasks/). No W02/W03/W04/W05 file touched. No frozen consumer-facing signature changed. See scope_conformance field for the FactoryWorkspaceCheckpoint detail.",
+  "not_reverified": [
+    "Real production host service account's actual filesystem reach for Finding 1's impact blast radius -- the boundary violation itself is proven unconditionally; practical impact depends on deployment specifics better assessed by the coordinator.",
+    "First-launch (non-recovery) exploitation of Finding 1 -- plausible given FIFO O_RDWR opens never block and the guest's fs.openSync calls are synchronous while the host's connect is async, but not needed to establish severity since the recovery path alone is unconditionally reachable."
+  ]
+}

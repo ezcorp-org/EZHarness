@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# installs-lib.sh: ONE definition of "fresh frozen installs plus package builds" for a checked-out tree (commit.sh,
+# publish-existing.sh, the feature worktree before a push). Source after bun_pin <repo>.
+#   frozen_installs <repo> <log>: every install with --ignore-scripts (web then runs svelte-kit sync by name); root install (the root postinstall runs scripts/setup-git-hooks.sh,
+#   whose `git config extensions.worktreeConfig true` writes the SHARED repo config, which no agent may edit; the hooks are
+#   already wired per worktree), web, .github/gate-integrity-deps, then the postinstall's builds and every other package
+#   with a build script, in dependency order. Refuses when a package with a build script is missing from the order.
+FROZEN_BUILD_ORDER="sdk factory-sdk factory-transport factory-orchestrator extension-contract harness-client"
+frozen_installs() {
+  local r=${1:?repo} log=${2:?log} p
+  ( cd "$r" || exit 2
+    for p in packages/@ezcorp/*/package.json; do
+      python3 -c "import json,sys;sys.exit(0 if json.load(open(sys.argv[1])).get('scripts',{}).get('build') else 1)" "$p" || continue
+      n=$(basename "$(dirname "$p")"); case " $FROZEN_BUILD_ORDER " in *" $n "*) ;; *) echo "REFUSED: package $n has a build script but is not in FROZEN_BUILD_ORDER"; exit 3;; esac
+    done
+    echo "frozen_installs at $(git rev-parse HEAD) bun $(bun --version) bunx $(bunx --version) flag=${BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING-unset}"
+    bun install --frozen-lockfile --ignore-scripts || exit 4
+    # web too runs with --ignore-scripts (lead ruling 2026-10-05, the hard rule "installs with --ignore-scripts"); its one wanted
+    # lifecycle step, the prepare script's svelte-kit sync, runs by name after the install
+    (cd web && bun install --frozen-lockfile --ignore-scripts && bunx svelte-kit sync) || exit 5
+    (cd .github/gate-integrity-deps && bun install --frozen-lockfile --ignore-scripts) || exit 6
+    for p in $(echo "$FROZEN_BUILD_ORDER"); do bun run --cwd "packages/@ezcorp/$p" build || { echo "build of $p failed"; exit 7; }; done
+    echo "frozen_installs done"
+  ) >> "$log" 2>&1
+}

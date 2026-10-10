@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# W4H-17 hold binding browser checks (integrator-5). <repo> <browser-part out dir> <mock-full receipts dir> <hosted base browser lcov> <work dir>
+# 1. merged browser lcov (all lanes, at the merge): FactoryConsole.svelte LF 333, LH 333, DA:199 >= 1.
+# 2. mock-full lane ALONE: its receipts merged and converted with expectedFiles = FactoryConsole only (the owner's method; a single lane cannot
+#    satisfy the route manifest): DA:199 >= 1.
+# 3. no file drops vs the hosted base browser lcov (run 37960843272, all lanes, at 3897fe923). Lead's ruling 2026-10-09: BINDING for files under
+#    web/src/lib/factory/ and web/src/routes/(app)/factories/ (what the changed spec reaches); INFORMATIONAL elsewhere (every drop still printed).
+set -uo pipefail
+REPO=$1 BP=$2 MF=$3 BASE=$4 WK=$5; . /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$REPO" || exit 95; cd "$REPO" || exit 2
+rm -rf "$WK"; mkdir -p "$WK"; M=$BP/browser-merged/lcov.info; [ -s "$M" ] || { echo "no merged browser lcov at $M"; exit 1; }
+mapfile -t R < <(find "$MF" -type f -name 'chromium-worker-*.json' | sort); [ "${#R[@]}" -gt 0 ] || { echo "no mock-full receipts in $MF"; exit 1; }
+bun scripts/browser-coverage-to-lcov.ts --merge-raw "$WK/mock-full-merged.json" "${R[@]}" || exit 1
+python3 -I -c 'import json,sys; d=json.load(open(sys.argv[1])); d.pop("expectedRouteFiles",None); d["expectedFiles"]=["web/src/lib/factory/FactoryConsole.svelte"]; json.dump(d,open(sys.argv[2],"w"))' "$WK/mock-full-merged.json" "$WK/mock-full-fc.json" || exit 1
+bun scripts/browser-coverage-to-lcov.ts "$WK/mock-full-fc.json" "$WK/mock-full-fc.lcov" || exit 1
+python3 -I - "$M" "$WK/mock-full-fc.lcov" "$BASE" <<'PY'
+import sys, re
+def load(p):
+    recs, cur = {}, None
+    for l in open(p, errors="replace"):
+        l = l.strip()
+        if l.startswith("SF:"):
+            k = re.sub(r"^.*?/(web/|src/|packages/|scripts/)", r"\1", l[3:]); cur = recs.setdefault(k, {})
+        elif l.startswith("DA:") and cur is not None:
+            n, h = l[3:].split(",")[:2]; cur[int(n)] = cur.get(int(n), 0) + int(h)
+    return recs
+merged, lane, base = (load(p) for p in sys.argv[1:4]); FC = "web/src/lib/factory/FactoryConsole.svelte"; ok = True
+fc = merged.get(FC, {}); lf, lh = len(fc), sum(1 for v in fc.values() if v > 0)
+print(f"1. merged: {FC} LF {lf} LH {lh} DA:199 {fc.get(199)}"); ok &= (lf == 333 and lh == 333 and (fc.get(199) or 0) >= 1)
+lc = lane.get(FC, {}); print(f"2. mock-full lane alone: {FC} LF {len(lc)} LH {sum(1 for v in lc.values() if v > 0)} DA:199 {lc.get(199)}"); ok &= (lc.get(199) or 0) >= 1
+drops, info = [], []
+BIND = re.compile(r"^web/src/(lib/factory/|routes/(\(app\)/)?factories/)")
+for f, d in sorted(base.items()):
+    bh = sum(1 for v in d.values() if v > 0); m = merged.get(f)
+    tgt = drops if BIND.match(f) else info
+    if m is None: tgt.append(f"{f}: missing at the merge (base LH {bh})"); continue
+    mh = sum(1 for v in m.values() if v > 0)
+    if mh < bh: tgt.append(f"{f}: LH {mh} < base {bh}; lines hit at base, not at the merge: {sorted(n for n, v in d.items() if v > 0 and not m.get(n))[:20]}")
+print(f"3. drop check vs hosted base: {len(base)} base files; BINDING (factory files): {len(drops)} drop(s); INFORMATIONAL (elsewhere): {len(info)}")
+[print("   DROP (binding) " + x) for x in drops]; [print("   drop (informational) " + x) for x in info]; ok &= not drops
+print("BROWSER CHECKS:", "PASS" if ok else "FAIL"); sys.exit(0 if ok else 1)
+PY

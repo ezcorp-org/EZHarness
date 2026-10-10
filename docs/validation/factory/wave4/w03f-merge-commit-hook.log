@@ -1,0 +1,73 @@
+Checked 34 files in 50ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/factory-sdk/src/guest-model-response.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 5 pass
+ 0 fail
+ 16 expect() calls
+Ran 5 tests across 1 file. [501.00ms]
+  bun: packages/@ezcorp/factory-sdk/src/kernel.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 30 pass
+ 0 fail
+ 170 expect() calls
+Ran 30 tests across 1 file. [5.38s]
+  bun: packages/@ezcorp/factory-sdk/src/validation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 7 pass
+ 0 fail
+ 72 expect() calls
+Ran 7 tests across 1 file. [505.00ms]
+  bun: src/db/migrations/add-factory-usage-operations.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 31 expect() calls
+Ran 2 tests across 1 file. [1256.00ms]
+  bun: src/factory/dispatch-composition.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 50 pass
+ 0 fail
+ 216 expect() calls
+Ran 50 tests across 1 file. [1.70s]
+  bun: src/factory/runner/guest-model-broker.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 54 expect() calls
+Ran 12 tests across 1 file. [519.00ms]
+  bun: src/factory/runner/guest-model-journal.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 19 expect() calls
+Ran 4 tests across 1 file. [494.00ms]
+  bun: src/factory/runner/provider-one-hop.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 11 pass
+ 0 fail
+ 55 expect() calls
+Ran 11 tests across 1 file. [542.00ms]
+  bun: src/factory/usage-settlement.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 138 expect() calls
+Ran 12 tests across 1 file. [498.00ms]
+  bun: src/__tests__/migrate.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 79 expect() calls
+Ran 8 tests across 1 file. [2.47s]
+[detached HEAD ee9117e0a] merge: wp/w03f-provider-settle c02f2b0fa into integ/w00 (W03f provider settle)

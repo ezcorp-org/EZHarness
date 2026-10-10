@@ -1,0 +1,15 @@
+CRAP: --changed against ae697c49d65040c5b481c89248853bf0a268da40 → 2 measured file(s) in diff
+
+CRAP: 6 functions in 2 files (max 30, warn 15)
+
+Worst 6:
+     20.0  cc= 20 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:317 probeSecurity
+      4.0  cc=  4 cov=100%  packages/@ezcorp/extension-runner/src/core.ts:109 <anonymous@109>
+      4.0  cc=  4 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:341 requireImage
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/core.ts:22 RunnerCommandError.constructor
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/core.ts:93 capture
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/core.ts:95 <anonymous@95>
+
+1 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

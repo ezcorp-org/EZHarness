@@ -44,7 +44,7 @@ import { getWorkflowByName } from "../db/queries/workflows";
 import { getLatestWorkflowVersion } from "../db/queries/workflow-versions";
 import { workflowScopeKey } from "./workflow-scope-key";
 import { systemCachedWorkflow, type CachedWorkflow } from "./workflow-scope";
-import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
+import { resolveWorkflowServiceOrigin, workflowReleaseCanExecute, WORKFLOW_RELEASE_AUTHORITY_LOST, type WorkflowExecutionAuthority, type HostWorkflowParentResolver } from "./workflow-release-assets";
 import type { InvocationGuard } from "../extensions/runtime-locks";
 import { createHostServiceInvocation, createServiceInvocation, type ServiceInvocation } from "../extensions/service-invocation";
 import { getWorkflowRuntime, workflowResumeEntry } from "./workflow/runtime-registry";
@@ -54,6 +54,7 @@ import {
   findWorkflowRunByIdempotencyKey,
   getWorkflowRunRow,
   insertWorkflowRun,
+  listWorkflowStepRunRows,
   loadStepResults,
   markWorkflowRunInBatch,
   readWorkflowRunDelegationBudget,
@@ -64,6 +65,12 @@ import {
   workflowRunNestingDepth,
   type TerminalWorkflowRunStatus,
 } from "../db/queries/workflow-runs";
+import { isUniqueViolation } from "../db/unique-violation";
+import {
+  InvalidIdempotencyKeyError,
+  idempotencyInputDigest,
+  isFactoryIdempotencyKey,
+} from "../idempotency";
 import {
   upsertWorkflowStepIteration,
   type WorkflowStepIterationUpsert,
@@ -129,6 +136,15 @@ export class WorkflowCursorWriteError extends Error {
         `${cause instanceof Error ? cause.message : String(cause)}`,
     );
     this.name = "WorkflowCursorWriteError";
+  }
+}
+
+export class WorkflowIdempotencyConflictError extends Error {
+  readonly code = "idempotency_conflict";
+
+  constructor() {
+    super("This key already identifies a different workflow run.");
+    this.name = "WorkflowIdempotencyConflictError";
   }
 }
 
@@ -341,6 +357,9 @@ export interface WorkflowRunOptions {
    * {@link PendingPermissionGate}.
    */
   pendingPermissions?: PendingPermissionGate;
+  /** Called after a new durable row is confirmed, or an existing keyed
+   * run is found. The async HTTP route uses this boundary for its 202. */
+  onRunCreated?: (run: WorkflowRun) => void;
 }
 
 /**
@@ -436,6 +455,24 @@ interface AgentAttemptOutcome {
  * The name and behaviour are unchanged for every existing caller.
  */
 export { workflowScopeKey };
+
+/**
+ * The last slot of a finished batch that actually executed, and the step that produced it.
+ *
+ * `results` is `Promise.all` over `batch.map`, so it is in BATCH ORDER, and any failure already
+ * threw — so the only `undefined` entries left are SKIPPED steps. A skipped step therefore never
+ * becomes `$prev`, and a batch that executed nothing at all returns undefined so `$prev` keeps
+ * naming the last real result from an earlier batch. Name and value come from the SAME index,
+ * which is what preserves "cursor.prevStepName names the step whose result IS $prev".
+ */
+function lastExecutedResult(results: readonly (AgentResult | undefined)[], batch: readonly WorkflowStep[]): { result: AgentResult; name: string | null } | undefined {
+  for (let i = results.length - 1; i >= 0; i--) {
+    const result = results[i];
+    if (result === undefined) continue;
+    return { result, name: batch[i]?.name ?? null };
+  }
+  return undefined;
+}
 
 export class WorkflowExecutor {
   private readonly persist: boolean;
@@ -735,6 +772,52 @@ export class WorkflowExecutor {
     throw new WorkflowSuspendedError(opts.prevStepName ?? "<boundary>", "budget-exceeded");
   }
 
+  private async findFactoryRun(
+    workflowName: string,
+    idempotencyKey: string,
+    input: Record<string, unknown>,
+    projectId: string | undefined,
+    userId: string | undefined,
+  ): Promise<WorkflowRun | undefined> {
+    const existing = await findWorkflowRunByIdempotencyKey(workflowName, idempotencyKey);
+    if (!existing) return undefined;
+    const requestedDigest = idempotencyInputDigest({
+      input,
+      projectId: projectId ?? null,
+      userId: userId ?? null,
+    });
+    const existingDigest = idempotencyInputDigest({
+      input: existing.input,
+      projectId: existing.projectId,
+      userId: existing.userId,
+    });
+    if (requestedDigest !== existingDigest) throw new WorkflowIdempotencyConflictError();
+
+    const steps = (await listWorkflowStepRunRows(existing.id)).map((row): WorkflowStepRun => ({
+      stepName: row.stepName,
+      runId: row.runId ?? "",
+      status: row.status,
+      ...(row.iterations === null ? {} : { iterations: row.iterations }),
+      ...(row.provider === null ? {} : { provider: row.provider }),
+      ...(row.model === null ? {} : { model: row.model }),
+      ...(row.attempt === null ? {} : { attempt: row.attempt }),
+      ...(row.inputTokens === null ? {} : { inputTokens: row.inputTokens }),
+      ...(row.outputTokens === null ? {} : { outputTokens: row.outputTokens }),
+      ...(row.errorCode === null ? {} : { errorCode: row.errorCode }),
+      ...(row.skippedReason === null ? {} : { skippedReason: row.skippedReason }),
+    }));
+    return {
+      id: existing.id,
+      workflowName,
+      ...(existing.projectId === null ? {} : { projectId: existing.projectId }),
+      status: existing.status,
+      startedAt: existing.startedAt.getTime(),
+      ...(existing.finishedAt === null ? {} : { finishedAt: existing.finishedAt.getTime() }),
+      steps,
+      ...(existing.result === null ? {} : { result: existing.result }),
+    };
+  }
+
   async runWorkflow(
     workflow: WorkflowDefinition,
     input: Record<string, unknown>,
@@ -824,6 +907,14 @@ export class WorkflowExecutor {
       parentResolver?: HostWorkflowParentResolver;
     },
   ): Promise<WorkflowRun> {
+    const idempotencyKey = opts?.idempotencyKey;
+    const usesFactoryKey = idempotencyKey?.startsWith("factory:") === true;
+    if (usesFactoryKey && !isFactoryIdempotencyKey(idempotencyKey)) {
+      throw new InvalidIdempotencyKeyError();
+    }
+    if (usesFactoryKey && !this.persist) {
+      throw new Error("Factory idempotency requires durable workflow persistence.");
+    }
     const workflowRun: WorkflowRun = {
       id: opts?.runId ?? crypto.randomUUID(),
       workflowName: workflow.name,
@@ -836,13 +927,39 @@ export class WorkflowExecutor {
     const authority = { ...opts, userId, projectId };
     const parentResolver = opts?.parentResolver ?? this.createHostParentResolver(workflow, authority);
     if (!isPureWorkflowExecutor(this) && (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, authority, undefined, parentResolver))) {
-      throw new Error("Workflow release authority is no longer available");
+      throw new Error(WORKFLOW_RELEASE_AUTHORITY_LOST);
+    }
+
+    if (usesFactoryKey) {
+      try {
+        const existing = await this.findFactoryRun(
+          workflow.name,
+          idempotencyKey,
+          input,
+          projectId,
+          userId,
+        );
+        if (existing) {
+          opts?.onRunCreated?.(existing);
+          return existing;
+        }
+      } catch (error) {
+        if (error instanceof WorkflowIdempotencyConflictError) throw error;
+        return this.refuseWorkflow(
+          workflowRun,
+          "run-persistence-failed",
+          "Workflow could not start because its durable run record was not confirmed",
+          userId,
+          "start-refusal",
+          false,
+        );
+      }
     }
 
     // `userId` scopes workflow:* SSE delivery to the initiating user
     // (fail-closed filter — see sse-conversation-filter.ts). CLI runs
     // have no user and are observed via stdout/DB, not SSE.
-    this.bus.emit("workflow:start", { workflowRun, userId });
+    if (!usesFactoryKey) this.bus.emit("workflow:start", { workflowRun, userId });
 
     // Durable mirror. Written up-front (status `running`) so a crash
     // mid-run leaves a row the boot sweep can drain, rather than no
@@ -925,13 +1042,47 @@ export class WorkflowExecutor {
       });
     };
     try {
-      await persistStart.call(this, "insert", insertRun);
-    } catch {
+      if (usesFactoryKey) await insertRun();
+      else await persistStart.call(this, "insert", insertRun);
+    } catch (error) {
+      // A unique-key conflict is a CONCURRENT START of the same logical run,
+      // never a durability failure, and that is true of every namespace —
+      // `nested:` as much as `factory:`. Gating the discrimination on the
+      // factory prefix left a `nested:` conflict reported as
+      // `run-persistence-failed`, which says the row was not confirmed when
+      // in fact a row with that exact key already exists.
+      //
+      // `persistCritical` wraps the driver error in a `WorkflowCursorWriteError`
+      // whose `cause` is drizzle's wrapper, and `isUniqueViolation` looks one
+      // level down from what it is handed. Unwrapping exactly this one known
+      // envelope is what lets it reach the SQLSTATE; walking `cause` blindly
+      // would make an unrelated nested error look like a conflict.
+      const violation = error instanceof WorkflowCursorWriteError ? error.cause : error;
+      if (idempotencyKey !== undefined && isUniqueViolation(violation)) {
+        try {
+          const existing = await this.findFactoryRun(
+            workflow.name,
+            idempotencyKey,
+            input,
+            projectId,
+            userId,
+          );
+          if (existing) {
+            opts?.onRunCreated?.(existing);
+            return existing;
+          }
+        } catch (lookupError) {
+          if (lookupError instanceof WorkflowIdempotencyConflictError) throw lookupError;
+        }
+      }
       return this.refuseWorkflow(workflowRun, "run-persistence-failed", "Workflow could not start because its durable run record was not confirmed", userId, "start-refusal", false);
     }
 
+    if (usesFactoryKey) this.bus.emit("workflow:start", { workflowRun, userId });
+    opts?.onRunCreated?.(workflowRun);
+
     if (!isPureWorkflowExecutor(this) && !await workflowReleaseCanExecute(entry, { ...opts, userId, projectId }, undefined, parentResolver)) {
-      return this.refuseWorkflow(workflowRun, "release-unavailable", "Workflow release authority is no longer available", userId, "start-refusal");
+      return this.refuseWorkflow(workflowRun, "release-unavailable", WORKFLOW_RELEASE_AUTHORITY_LOST, userId, "start-refusal");
     }
     return this.executeFrom({
       workflow,
@@ -1160,7 +1311,7 @@ export class WorkflowExecutor {
     // and it names what it compared so the refusal is actionable rather
     // than a bare "changed".
     if (entry.definition !== workflow || !await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
-      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+      return refuseTransient("not-resumable", WORKFLOW_RELEASE_AUTHORITY_LOST);
     }
     const currentHash = workflowExecutionHash(workflow, entry.extensionRelease);
     if (entry.source === "extension" && row.definitionHash === null) {
@@ -1186,7 +1337,7 @@ export class WorkflowExecutor {
 
     const depth = await workflowRunNestingDepth(row.parentRunId, MAX_WORKFLOW_NESTING_DEPTH);
     if (!await workflowReleaseCanExecute(entry, row, undefined, parentResolver)) {
-      return refuseTransient("not-resumable", "Workflow release authority is no longer available");
+      return refuseTransient("not-resumable", WORKFLOW_RELEASE_AUTHORITY_LOST);
     }
     return this.executeFrom({
       workflow,
@@ -1266,10 +1417,7 @@ export class WorkflowExecutor {
     pendingPermissions?: PendingPermissionGate;
   }): Promise<WorkflowRun> {
     const { workflow, input, workflowRun, projectId, userId, signal } = ctx;
-    const invocationGuard: InvocationGuard | undefined = !isPureWorkflowExecutor(this) && (ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId) ? async database => {
-      await ctx.invocationGuard?.(database);
-      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error("Workflow release authority is no longer available");
-    } : undefined;
+    const invocationGuard = this.composeInvocationGuard(ctx);
     const stepResults = ctx.stepResults;
     const skippedSteps = ctx.skippedSteps;
     // `$prev` for the batch we are about to run. On a fresh run there is
@@ -1461,10 +1609,7 @@ export class WorkflowExecutor {
     try {
       if (externallyAborted) throw new WorkflowAbortError();
       if (ctx.releasePrincipal.runAsKind === "service") {
-        if (!invocationGuard) throw new Error("Service workflow authority guard is unavailable");
-        toolCtx.serviceInvocation = ctx.releaseEntry.source === "extension" || await resolveWorkflowServiceOrigin(ctx.releasePrincipal)
-          ? await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard)
-          : await createHostServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRun.id, invocationGuard);
+        toolCtx.serviceInvocation = await this.openServiceInvocation(ctx, workflowRun.id, invocationGuard);
       }
 
       const batches = this.resolveExecutionOrder(workflow.steps);
@@ -1737,11 +1882,10 @@ export class WorkflowExecutor {
         // $prev" (pinned in `workflow-run-persistence.test.ts`) now that
         // the last slot of a batch is no longer necessarily the last
         // executed one.
-        for (let i = results.length - 1; i >= 0; i--) {
-          if (results[i] === undefined) continue;
-          prevResult = results[i];
-          prevStepName = batch[i]?.name ?? null;
-          break;
+        const advanced = lastExecutedResult(results, batch);
+        if (advanced) {
+          prevResult = advanced.result;
+          prevStepName = advanced.name;
         }
 
         // ── Boundary ────────────────────────────────────────────────
@@ -1780,157 +1924,19 @@ export class WorkflowExecutor {
         });
       }
 
-      workflowRun.status = "success";
-      workflowRun.finishedAt = Date.now();
-      const finalResult = prevResult ?? { success: true, output: null };
-      // outputTemplate is rendered ONLY here, on a clean success — never on
-      // `awaiting_approval` / `suspended` / `cancelled` / `error`, all of
-      // which already carry their own explanation (the last successful
-      // output, or the error itself). The template promises a report of
-      // WHAT THE RUN PRODUCED, which only a success actually did.
-      //
-      // Additive: `finalResult` (the verbatim `output`/`success`/`error`
-      // triple every pre-existing caller already reads) is spread first and
-      // never altered — `renderedOutput` can only ADD a key, never replace
-      // one, so a run whose definition has no `outputTemplate` produces the
-      // exact same `result` object this line always has.
-      workflowRun.result = workflow.outputTemplate
-        ? { ...finalResult, renderedOutput: renderOutputTemplate(workflow.outputTemplate, finalResult.output) }
-        : finalResult;
-      this.bus.emit("workflow:complete", { workflowRun, userId });
+      this.applyRunSuccess(workflowRun, workflow, prevResult, userId);
     } catch (err) {
       cancelInFlight();
       gateAbort.abort();
-      if (externallyAborted || err instanceof WorkflowAbortError) {
-        workflowRun.status = "cancelled";
-        workflowRun.finishedAt = Date.now();
-        workflowRun.result = {
-          success: false,
-          output: null,
-          error: { code: "cancelled", message: "workflow cancelled" },
-        };
-        this.bus.emit("workflow:error", {
-          workflowRun,
-          error: "workflow cancelled",
-          userId,
-        });
-      } else if (err instanceof WorkflowApprovalRequiredError) {
-        // Not an error: every automatable step ran, and the graph then
-        // reached one that needs a human. Reported as its own terminal
-        // state so nothing downstream can mistake it for `success`.
-        //
-        // `output` carries the LAST SUCCESSFUL result, which is what makes a
-        // parked run actionable: the human who completes it out-of-band
-        // needs the handoff payload the graph built (a draft id, a verify
-        // report, whatever the final transform assembled). With `null` there
-        // the payload died with the run and the operator had only an error
-        // message to work from. `success` stays false and the
-        // `awaiting_approval` error code is unchanged, so nothing that
-        // branches on either is affected.
-        workflowRun.status = "awaiting_approval";
-        workflowRun.finishedAt = Date.now();
-        workflowRun.result = {
-          success: false,
-          output: prevResult?.output ?? null,
-          error: { code: "awaiting_approval", message: err.message },
-        };
-        this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
-      } else if (err instanceof WorkflowSuspendedError) {
-        // NOT terminal. The run is alive and answerable; the row records
-        // where to pick up and nothing finalizes it.
-        //
-        // The cursor keeps this batch's index, so resume RE-ENTERS the
-        // batch the parked step belongs to — siblings that already
-        // finished are restored from their persisted output rather than
-        // re-run. `prevStepName` is carried through UNCHANGED: it is the
-        // `$prev` THIS batch saw, and recomputing it would give the
-        // resumed half of the run a different `$prev` than the first half.
-        //
-        // It reads the running variable, not `ctx.cursor.prevStepName`.
-        // Those are the same value only while the run is still in the
-        // batch it entered on; a run that advanced a batch and then parked
-        // would otherwise record the entry batch's `$prev` — stale, and
-        // silently wrong on resume.
-        //
-        // Written through the STRICT path, because a swallowed suspend
-        // leaves the row at `running` while this process walks away —
-        // and the recovery sweep would then classify it by `run_phase`
-        // instead of parking it. If the write fails we fall through to a
-        // loud `cursor-write-failed` rather than returning a `suspended`
-        // object no row agrees with.
-        try {
-          await this.persistCritical("suspend", () =>
-            suspendWorkflowRun(workflowRun.id, {
-              reason: err.reason,
-              cursor: {
-                batchIndex: currentBatchIndex,
-                completedSteps: [...completedSteps],
-                prevStepName,
-              },
-            }),
-          );
-          suspended = true;
-          workflowRun.status = "suspended";
-          workflowRun.result = {
-            success: false,
-            output: prevResult?.output ?? null,
-            error: { code: "suspended", message: err.message },
-          };
-          // Deliberately NOT `finishedAt` — the run has not finished.
-          this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
-          // ...and, when the park was an approval, say who can unblock it.
-          //
-          // A separate event rather than a field on the one above: that
-          // one is consumed as "this run stopped" by the workflows page,
-          // and widening its meaning would make every existing consumer
-          // responsible for noticing a new branch. The answer surfaces
-          // subscribe to THIS one and nothing else.
-          //
-          // Emitted only AFTER the suspend write landed. Announcing an
-          // answerable approval on a run whose row still says `running`
-          // would hand the user a card whose answer `answerApproval`
-          // refuses — it requires `suspended`.
-          if (err.approval) {
-            this.bus.emit("workflow:approval_request", {
-              ...err.approval,
-              workflowRunId: workflowRun.id,
-              workflowName: workflowRun.workflowName,
-              ...(userId ? { userId } : {}),
-            });
-          }
-        } catch (writeErr) {
-          const message =
-            writeErr instanceof Error ? writeErr.message : String(writeErr);
-          workflowRun.status = "error";
-          workflowRun.finishedAt = Date.now();
-          workflowRun.result = {
-            success: false,
-            output: null,
-            error: { code: "cursor-write-failed", message },
-          };
-          this.bus.emit("workflow:error", { workflowRun, error: message, userId });
-        }
-      } else if (err instanceof WorkflowCursorWriteError) {
-        // The run may well have executed correctly up to here, but its
-        // recorded position is not trustworthy — and a run whose
-        // bookkeeping is wrong must not report success, or a later resume
-        // would re-execute a batch that already ran. Coded distinctly so
-        // an operator can tell a durability failure from a workflow one.
-        workflowRun.status = "error";
-        workflowRun.finishedAt = Date.now();
-        workflowRun.result = {
-          success: false,
-          output: null,
-          error: { code: "cursor-write-failed", message: err.message },
-        };
-        this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
-      } else {
-        const error = err instanceof Error ? err.message : String(err);
-        workflowRun.status = "error";
-        workflowRun.finishedAt = Date.now();
-        workflowRun.result = { success: false, output: null, error };
-        this.bus.emit("workflow:error", { workflowRun, error, userId });
-      }
+      suspended = await this.applyRunFailure(err, {
+        workflowRun,
+        userId,
+        externallyAborted,
+        prevResult,
+        prevStepName,
+        completedSteps,
+        currentBatchIndex,
+      });
     } finally {
       toolCtx.serviceInvocation?.close();
       if (signal) signal.removeEventListener("abort", onAbort);
@@ -1978,6 +1984,214 @@ export class WorkflowExecutor {
     }
 
     return workflowRun;
+  }
+
+
+  /**
+   * Records the terminal state one failed, cancelled, or parked run reaches.
+   *
+   * Split out of `executeFrom`'s catch so each exception class owns one named
+   * outcome rather than one arm of a chain nine screens long. The branches run
+   * in the same order and write the same status, result, and events; a park is
+   * the one non-terminal outcome, and it is reported back so the teardown can
+   * skip the finalize that would terminalize a run still alive.
+   */
+  private async applyRunFailure(err: unknown, state: {
+    workflowRun: WorkflowRun;
+    userId: string | undefined;
+    externallyAborted: boolean;
+    prevResult: AgentResult | undefined;
+    prevStepName: WorkflowCursor["prevStepName"];
+    completedSteps: readonly string[];
+    currentBatchIndex: number;
+  }): Promise<boolean> {
+    const { workflowRun, userId } = state;
+    let suspended = false;
+    if (state.externallyAborted || err instanceof WorkflowAbortError) {
+      workflowRun.status = "cancelled";
+      workflowRun.finishedAt = Date.now();
+      workflowRun.result = {
+        success: false,
+        output: null,
+        error: { code: "cancelled", message: "workflow cancelled" },
+      };
+      this.bus.emit("workflow:error", {
+        workflowRun,
+        error: "workflow cancelled",
+        userId,
+      });
+    } else if (err instanceof WorkflowApprovalRequiredError) {
+      // Not an error: every automatable step ran, and the graph then
+      // reached one that needs a human. Reported as its own terminal
+      // state so nothing downstream can mistake it for `success`.
+      //
+      // `output` carries the LAST SUCCESSFUL result, which is what makes a
+      // parked run actionable: the human who completes it out-of-band
+      // needs the handoff payload the graph built (a draft id, a verify
+      // report, whatever the final transform assembled). With `null` there
+      // the payload died with the run and the operator had only an error
+      // message to work from. `success` stays false and the
+      // `awaiting_approval` error code is unchanged, so nothing that
+      // branches on either is affected.
+      workflowRun.status = "awaiting_approval";
+      workflowRun.finishedAt = Date.now();
+      workflowRun.result = {
+        success: false,
+        output: state.prevResult?.output ?? null,
+        error: { code: "awaiting_approval", message: err.message },
+      };
+      this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+    } else if (err instanceof WorkflowSuspendedError) {
+      // NOT terminal. The run is alive and answerable; the row records
+      // where to pick up and nothing finalizes it.
+      //
+      // The cursor keeps this batch's index, so resume RE-ENTERS the
+      // batch the parked step belongs to — siblings that already
+      // finished are restored from their persisted output rather than
+      // re-run. `prevStepName` is carried through UNCHANGED: it is the
+      // `$prev` THIS batch saw, and recomputing it would give the
+      // resumed half of the run a different `$prev` than the first half.
+      //
+      // It reads the running variable, not `ctx.cursor.prevStepName`.
+      // Those are the same value only while the run is still in the
+      // batch it entered on; a run that advanced a batch and then parked
+      // would otherwise record the entry batch's `$prev` — stale, and
+      // silently wrong on resume.
+      //
+      // Written through the STRICT path, because a swallowed suspend
+      // leaves the row at `running` while this process walks away —
+      // and the recovery sweep would then classify it by `run_phase`
+      // instead of parking it. If the write fails we fall through to a
+      // loud `cursor-write-failed` rather than returning a `suspended`
+      // object no row agrees with.
+      try {
+        await this.persistCritical("suspend", () =>
+          suspendWorkflowRun(workflowRun.id, {
+            reason: err.reason,
+            cursor: {
+              batchIndex: state.currentBatchIndex,
+              completedSteps: [...state.completedSteps],
+              prevStepName: state.prevStepName,
+            },
+          }),
+        );
+        suspended = true;
+        workflowRun.status = "suspended";
+        workflowRun.result = {
+          success: false,
+          output: state.prevResult?.output ?? null,
+          error: { code: "suspended", message: err.message },
+        };
+        // Deliberately NOT `finishedAt` — the run has not finished.
+        this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+        // ...and, when the park was an approval, say who can unblock it.
+        //
+        // A separate event rather than a field on the one above: that
+        // one is consumed as "this run stopped" by the workflows page,
+        // and widening its meaning would make every existing consumer
+        // responsible for noticing a new branch. The answer surfaces
+        // subscribe to THIS one and nothing else.
+        //
+        // Emitted only AFTER the suspend write landed. Announcing an
+        // answerable approval on a run whose row still says `running`
+        // would hand the user a card whose answer `answerApproval`
+        // refuses — it requires `suspended`.
+        if (err.approval) {
+          this.bus.emit("workflow:approval_request", {
+            ...err.approval,
+            workflowRunId: workflowRun.id,
+            workflowName: workflowRun.workflowName,
+            ...(userId ? { userId } : {}),
+          });
+        }
+      } catch (writeErr) {
+        const message =
+          writeErr instanceof Error ? writeErr.message : String(writeErr);
+        workflowRun.status = "error";
+        workflowRun.finishedAt = Date.now();
+        workflowRun.result = {
+          success: false,
+          output: null,
+          error: { code: "cursor-write-failed", message },
+        };
+        this.bus.emit("workflow:error", { workflowRun, error: message, userId });
+      }
+    } else if (err instanceof WorkflowCursorWriteError) {
+      // The run may well have executed correctly up to here, but its
+      // recorded position is not trustworthy — and a run whose
+      // bookkeeping is wrong must not report success, or a later resume
+      // would re-execute a batch that already ran. Coded distinctly so
+      // an operator can tell a durability failure from a workflow one.
+      workflowRun.status = "error";
+      workflowRun.finishedAt = Date.now();
+      workflowRun.result = {
+        success: false,
+        output: null,
+        error: { code: "cursor-write-failed", message: err.message },
+      };
+      this.bus.emit("workflow:error", { workflowRun, error: err.message, userId });
+    } else {
+      const error = err instanceof Error ? err.message : String(err);
+      workflowRun.status = "error";
+      workflowRun.finishedAt = Date.now();
+      workflowRun.result = { success: false, output: null, error };
+      this.bus.emit("workflow:error", { workflowRun, error, userId });
+    }
+    return suspended;
+  }
+
+  /** Records the terminal state of a clean success, including the rendered output template. */
+  private applyRunSuccess(workflowRun: WorkflowRun, workflow: WorkflowDefinition, prevResult: AgentResult | undefined, userId: string | undefined): void {
+    workflowRun.status = "success";
+    workflowRun.finishedAt = Date.now();
+    const finalResult = prevResult ?? { success: true, output: null };
+    // outputTemplate is rendered ONLY here, on a clean success — never on
+    // `awaiting_approval` / `suspended` / `cancelled` / `error`, all of
+    // which already carry their own explanation (the last successful
+    // output, or the error itself). The template promises a report of
+    // WHAT THE RUN PRODUCED, which only a success actually did.
+    //
+    // Additive: `finalResult` (the verbatim `output`/`success`/`error`
+    // triple every pre-existing caller already reads) is spread first and
+    // never altered — `renderedOutput` can only ADD a key, never replace
+    // one, so a run whose definition has no `outputTemplate` produces the
+    // exact same `result` object this line always has.
+    workflowRun.result = workflow.outputTemplate
+      ? { ...finalResult, renderedOutput: renderOutputTemplate(workflow.outputTemplate, finalResult.output) }
+      : finalResult;
+    this.bus.emit("workflow:complete", { workflowRun, userId });
+  }
+
+  /**
+   * The guard every step of this run re-checks its release authority through, or undefined.
+   *
+   * Undefined is the common case and the fast one: a plain host workflow with no extension
+   * release, no caller guard, no parent, and no delegation has nothing to re-check, so the step
+   * loop makes no query at all.
+   */
+  private composeInvocationGuard(ctx: {
+    parentResolver?: HostWorkflowParentResolver;
+    releaseEntry: CachedWorkflow;
+    releasePrincipal: WorkflowExecutionAuthority;
+    invocationGuard?: InvocationGuard;
+  }): InvocationGuard | undefined {
+    if (isPureWorkflowExecutor(this)) return undefined;
+    if (!(ctx.releaseEntry.source === "extension" || ctx.invocationGuard || ctx.releasePrincipal.parentRunId || ctx.releasePrincipal.delegationId)) return undefined;
+    return async database => {
+      await ctx.invocationGuard?.(database);
+      if (!await workflowReleaseCanExecute(ctx.releaseEntry, ctx.releasePrincipal, database, ctx.parentResolver)) throw new Error(WORKFLOW_RELEASE_AUTHORITY_LOST);
+    };
+  }
+
+  /** The service invocation a `runAsKind: "service"` run executes its tool steps under. */
+  private async openServiceInvocation(ctx: {
+    releaseEntry: CachedWorkflow;
+    releasePrincipal: WorkflowExecutionAuthority;
+  }, workflowRunId: string, invocationGuard: InvocationGuard | undefined): Promise<ServiceInvocation> {
+    if (!invocationGuard) throw new Error("Service workflow authority guard is unavailable");
+    return ctx.releaseEntry.source === "extension" || await resolveWorkflowServiceOrigin(ctx.releasePrincipal)
+      ? await createServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRunId, invocationGuard)
+      : await createHostServiceInvocation(ctx.releaseEntry, ctx.releasePrincipal, workflowRunId, invocationGuard);
   }
 
   /**
@@ -3028,7 +3242,7 @@ export async function resumeClaimedRun(
       result: {
         success: false,
         output: null,
-        error: { code: "not-resumable", message: "Workflow release authority is no longer available" },
+        error: { code: "not-resumable", message: WORKFLOW_RELEASE_AUTHORITY_LOST },
       },
     };
   }

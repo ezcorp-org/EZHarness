@@ -5,6 +5,7 @@
 
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
+import { findProjectRoot } from "@ezcorp/sdk/runtime";
 
 export type InstallTarget = "claude-code" | "cursor" | "zed" | "windsurf" | "ezcorp";
 
@@ -120,17 +121,23 @@ async function copySkills(destBase: string, dryRun: boolean): Promise<void> {
   }
 }
 
-// ── walk up for project root ──────────────────────────────────────────────────
+// ── project root ──────────────────────────────────────────────────────────────
 
-function findProjectRoot(startDir: string): string | null {
-  let dir = nodePath.resolve(startDir);
-  for (let i = 0; i < 20; i++) {
-    if (nodeFs.existsSync(nodePath.join(dir, ".git"))) return dir;
-    const parent = nodePath.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+/**
+ * The git repository enclosing `startDir`, found by the SDK's one walk
+ * (`findProjectRoot`): a `.git` directory that holds `HEAD`, or a worktree or
+ * submodule `.git` file that names its `gitdir:`. A stray empty `.git`
+ * directory (such as one left in a shared `/tmp`) is not a repository. The
+ * walk reads the filesystem only, so it needs no `git` executable (the
+ * isolated extension build's runner image ships none, W4H-1) and no caller
+ * `GIT_*` variable can redirect it.
+ */
+function enclosingProjectRoot(startDir: string): string {
+  try {
+    return findProjectRoot(nodePath.resolve(startDir));
+  } catch (cause) {
+    throw new Error("Could not find a project root (no git repository encloses the current directory). Pass --project <path>.", { cause });
   }
-  return null;
 }
 
 // ── targets ───────────────────────────────────────────────────────────────────
@@ -207,12 +214,7 @@ async function installWindsurf(opts: Required<Pick<InstallOptions, "home" | "dry
 }
 
 async function installEzcorp(opts: Required<Pick<InstallOptions, "home" | "dryRun" | "cwd">> & { projectPath?: string }): Promise<void> {
-  const root = opts.projectPath ?? findProjectRoot(opts.cwd);
-  if (!root) {
-    throw new Error(
-      "Could not find a project root (no .git directory found). Pass --project <path>.",
-    );
-  }
+  const root = opts.projectPath ?? enclosingProjectRoot(opts.cwd);
 
   const extensionsDir = nodePath.join(root, ".ezcorp", "extensions");
   const linkTarget = nodePath.join(extensionsDir, "ai-kit");

@@ -1,0 +1,1564 @@
+import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
+import { validateFactoryApiPayloadDigest } from "./api.js";
+import { validateExpression } from "./expressions.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
+import {
+  FACTORY_LAZY_INPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_LIMITS,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
+  FACTORY_GUEST_MODEL_LIMITS,
+  FACTORY_LIMITS,
+  type FactoryGuestMaterialIdentity,
+  type FactoryGuestMaterialRequest,
+  type FactoryGuestMaterialResponse,
+  type FactoryGuestModelRequest,
+  type FactoryGuestModelResponse,
+  type CompiledExecutionManifest,
+  type CompiledArtifactDescriptor,
+  type CompiledFactory,
+  type CompiledPartition,
+  type CompiledPartitionArtifact,
+  type CompiledPartitionInboundEdge,
+  type CompiledPartitionOutboundEdge,
+  type FactoryArtifactReference,
+  type FactoryApiRequest,
+  type FactoryApiResponse,
+  type FactoryGraph,
+  type FactoryNode,
+  type FactoryRunnerOperationResult,
+  type FactoryRunnerRequest,
+  type FactoryRunnerResult,
+  type FactoryTransportValue,
+  type FactoryDurableInput,
+  type FactoryUsage,
+  type FactoryValidatorClaimOutcome,
+  type FactoryValidatorClaimReport,
+  type FactoryValidatorError,
+  type FactoryValidatorProvenance,
+  type FactoryValidatorReport,
+  type JsonValue,
+  type PortSchema,
+  type ValidationIssue,
+  type ValidationResult,
+} from "./types.js";
+
+const PORT_SCHEMA_KEYS = new Set([
+  "$defs", "$ref", "additionalProperties", "const", "description", "enum", "items",
+  "maxItems", "maxLength", "maximum", "minItems", "minLength", "minimum",
+  "properties", "required", "title", "type",
+]);
+const TYPES = new Set(["array", "boolean", "integer", "null", "number", "object", "string"]);
+
+function own(object: object, key: PropertyKey): boolean {
+  return  Object.hasOwn(object, key);
+}
+
+function issue(code: string, message: string, path: readonly (string | number)[]): ValidationResult {
+  return { ok: false, issues: [{ code, message, path }] };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function decodePointerToken(token: string): string | undefined {
+  let result = "";
+  for (let index = 0; index < token.length; index += 1) {
+    const character = token[index] as string;
+    if (character !== "~") {
+      result += character;
+      continue;
+    }
+    const escaped = token[index + 1];
+    if (escaped === "0") result += "~";
+    else if (escaped === "1") result += "/";
+    else return undefined;
+    index += 1;
+  }
+  return result;
+}
+
+function resolveLocalReference(root: PortSchema, reference: string): PortSchema | undefined {
+  if (!reference.startsWith("#")) return undefined;
+  if (reference === "#") return root;
+  if (!reference.startsWith("#/")) return undefined;
+  let value: unknown = root;
+  for (const rawToken of reference.slice(2).split("/")) {
+    const token = decodePointerToken(rawToken);
+    if (token === undefined || !isRecord(value) || !own(value, token)) return undefined;
+    value = value[token];
+  }
+  return isRecord(value) ? (value as PortSchema) : undefined;
+}
+
+export function resolveSchemaReference(root: PortSchema, reference: string): PortSchema | undefined {
+  return resolveLocalReference(root, reference);
+}
+
+function checkOptionalInteger(record: Record<string, unknown>, key: string, path: readonly (string | number)[]): ValidationResult {
+  if (!own(record, key)) return { ok: true };
+  const value = record[key];
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
+    ? { ok: true }
+    : issue("SCHEMA_BOUND_INVALID", `${key} must be a nonnegative safe integer.`, [...path, key]);
+}
+
+/** Keyword shapes: every supported keyword carries the declared JSON type. */
+function validateSchemaKeywordTypes(input: Record<string, unknown>, path: readonly (string | number)[]): ValidationResult {
+  if (own(input, "title") && typeof input.title !== "string") return issue("SCHEMA_DESCRIPTION_INVALID", "title must be a string.", [...path, "title"]);
+  if (own(input, "description") && typeof input.description !== "string") return issue("SCHEMA_DESCRIPTION_INVALID", "description must be a string.", [...path, "description"]);
+  if (own(input, "additionalProperties") && typeof input.additionalProperties !== "boolean") return issue("SCHEMA_ADDITIONAL_PROPERTIES_INVALID", "additionalProperties must be boolean.", [...path, "additionalProperties"]);
+  if (own(input, "properties") && !isRecord(input.properties)) return issue("SCHEMA_PROPERTIES_INVALID", "properties must be an object.", [...path, "properties"]);
+  if (own(input, "$defs") && !isRecord(input.$defs)) return issue("SCHEMA_DEFS_INVALID", "$defs must be an object.", [...path, "$defs"]);
+  if (own(input, "items") && !isRecord(input.items)) return issue("SCHEMA_ITEMS_INVALID", "items must be one schema.", [...path, "items"]);
+  if (own(input, "required") && (!Array.isArray(input.required) || input.required.some((name) => typeof name !== "string"))) return issue("SCHEMA_REQUIRED_INVALID", "required must be an array of strings.", [...path, "required"]);
+  if (own(input, "enum") && (!Array.isArray(input.enum) || input.enum.length === 0)) return issue("SCHEMA_ENUM_INVALID", "enum must be a nonempty array.", [...path, "enum"]);
+  for (const key of ["minItems", "maxItems", "minLength", "maxLength"]) {
+    const result = checkOptionalInteger(input, key, path);
+    if (!result.ok) return result;
+  }
+  for (const key of ["minimum", "maximum"]) if (own(input, key) && (typeof input[key] !== "number" || !Number.isFinite(input[key]))) return issue("SCHEMA_BOUND_INVALID", `${key} must be finite.`, [...path, key]);
+  return { ok: true };
+}
+
+/** `const` and `enum` literals: I-JSON, and enum members unique by value. */
+function validateSchemaLiterals(input: Record<string, unknown>, path: readonly (string | number)[]): ValidationResult {
+  if (own(input, "const")) {
+    const result = validateIJson(input.const);
+    if (!result.ok) return issue("SCHEMA_CONST_INVALID", "const must be I-JSON.", [...path, "const", ...result.issues[0]!.path]);
+  }
+  if (Array.isArray(input.enum)) {
+    const enumValues = input.enum as unknown[];
+    for (let index = 0; index < enumValues.length; index += 1) {
+      const result = validateIJson(enumValues[index]);
+      if (!result.ok) return issue("SCHEMA_ENUM_INVALID", "Every enum value must be I-JSON.", [...path, "enum", index]);
+      if (enumValues.slice(0, index).some((value) => jsonEqual(value as JsonValue, enumValues[index] as JsonValue))) return issue("SCHEMA_ENUM_INVALID", "Enum values must be unique.", [...path, "enum", index]);
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * A node is either a local reference or a typed node, never both.
+ *
+ * The reference arm returns the referenced node's own verdict; a successful one
+ * falls back to the caller, which still owes the REFERENCING node its `$defs`
+ * walk (the one execution keyword a reference is allowed to carry).
+ */
+function validateSchemaTypeOrReference(input: Record<string, unknown>, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
+  if (typeof input.$ref === "string") {
+    if (Object.keys(input).some((key) => key !== "$ref" && key !== "$defs" && key !== "title" && key !== "description")) return issue("SCHEMA_REF_SIBLING", "A local reference cannot have execution siblings.", path);
+    const target = resolveLocalReference(root, input.$ref);
+    if (!target) return issue("SCHEMA_REF_INVALID", "Reference must resolve through a local JSON Pointer.", [...path, "$ref"]);
+    return validateSchemaNode(target, root, [...path, "$ref"], ancestors);
+  }
+  if (own(input, "$ref")) return issue("SCHEMA_REF_INVALID", "$ref must be a string.", [...path, "$ref"]);
+  const type = input.type;
+  const types = Array.isArray(type) ? type : typeof type === "string" ? [type] : [];
+  const validNullable = types.length === 2 && types.includes("null") && types[0] !== types[1];
+  if (types.length === 0) return issue("SCHEMA_TYPE_REQUIRED", "A port schema type is required.", [...path, "type"]);
+  if (types.some((entry) => typeof entry !== "string" || !TYPES.has(entry)) || (types.length !== 1 && !validNullable)) return issue("SCHEMA_TYPE_UNSUPPORTED", "Type must be one supported type or a nullable union.", [...path, "type"]);
+  return { ok: true };
+}
+
+/** Paired bounds must not cross. */
+function validateSchemaBoundOrder(schema: PortSchema, path: readonly (string | number)[]): ValidationResult {
+  if (schema.minItems !== undefined && schema.maxItems !== undefined && schema.minItems > schema.maxItems) return issue("SCHEMA_BOUND_ORDER", "minItems cannot exceed maxItems.", path);
+  if (schema.minLength !== undefined && schema.maxLength !== undefined && schema.minLength > schema.maxLength) return issue("SCHEMA_BOUND_ORDER", "minLength cannot exceed maxLength.", path);
+  if (schema.minimum !== undefined && schema.maximum !== undefined && schema.minimum > schema.maximum) return issue("SCHEMA_BOUND_ORDER", "minimum cannot exceed maximum.", path);
+  return { ok: true };
+}
+
+/** The subschemas a node owns: properties, required names, items, and `$defs`. */
+function validateSchemaChildren(input: Record<string, unknown>, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
+  const properties = isRecord(input.properties) ? input.properties : undefined;
+  if (properties) for (const [name, child] of Object.entries(properties)) {
+    const result = validateSchemaNode(child, root, [...path, "properties", name], ancestors);
+    if (!result.ok) return result;
+  }
+  if (Array.isArray(input.required)) {
+    const seen = new Set<string>();
+    for (const name of input.required) {
+      if (seen.has(name) || !properties || !own(properties, name)) return issue("SCHEMA_REQUIRED_INVALID", "Required names must be unique declared properties.", [...path, "required"]);
+      seen.add(name);
+    }
+  }
+  if (isRecord(input.items)) {
+    const result = validateSchemaNode(input.items, root, [...path, "items"], ancestors);
+    if (!result.ok) return result;
+  }
+  if (isRecord(input.$defs)) for (const [name, child] of Object.entries(input.$defs)) {
+    const result = validateSchemaNode(child, root, [...path, "$defs", name], ancestors);
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
+
+function validateSchemaNode(input: unknown, root: PortSchema, path: readonly (string | number)[], ancestors: ReadonlySet<object>): ValidationResult {
+  if (!isRecord(input)) return issue("SCHEMA_OBJECT_REQUIRED", "A port schema must be an object.", path);
+  for (const key of Object.keys(input)) if (!PORT_SCHEMA_KEYS.has(key)) return issue("SCHEMA_KEYWORD_UNSUPPORTED", `Unsupported schema keyword: ${key}.`, [...path, key]);
+  if (ancestors.has(input)) return issue("SCHEMA_RECURSIVE", "Recursive schemas are not supported.", path);
+  const nextAncestors = new Set(ancestors);
+  nextAncestors.add(input);
+
+  const keywords = validateSchemaKeywordTypes(input, path);
+  if (!keywords.ok) return keywords;
+  const literals = validateSchemaLiterals(input, path);
+  if (!literals.ok) return literals;
+  const typing = validateSchemaTypeOrReference(input, root, path, nextAncestors);
+  if (!typing.ok) return typing;
+  const order = validateSchemaBoundOrder(input as PortSchema, path);
+  if (!order.ok) return order;
+  return validateSchemaChildren(input, root, path, nextAncestors);
+}
+
+export function validatePortSchema(schema: PortSchema): ValidationResult {
+  return validateSchemaNode(schema, schema, [], new Set());
+}
+
+function valueTypeMatches(type: string, value: JsonValue): boolean {
+  if (type === "null") return value === null;
+  if (type === "array") return Array.isArray(value);
+  if (type === "object") return value !== null && typeof value === "object" && !Array.isArray(value);
+  if (type === "integer") return typeof value === "number" && Number.isSafeInteger(value);
+  return typeof value === type;
+}
+
+function validateStringValue(schema: PortSchema, value: string, path: readonly (string | number)[]): ValidationResult {
+  const length = unicodeLength(value);
+  if (schema.minLength !== undefined && length < schema.minLength) return issue("VALUE_MIN_LENGTH", "String is shorter than minLength.", path);
+  if (schema.maxLength !== undefined && length > schema.maxLength) return issue("VALUE_MAX_LENGTH", "String is longer than maxLength.", path);
+  return { ok: true };
+}
+
+function validateNumberValue(schema: PortSchema, value: number, path: readonly (string | number)[]): ValidationResult {
+  if (schema.minimum !== undefined && value < schema.minimum) return issue("VALUE_MINIMUM", "Number is below minimum.", path);
+  if (schema.maximum !== undefined && value > schema.maximum) return issue("VALUE_MAXIMUM", "Number is above maximum.", path);
+  return { ok: true };
+}
+
+function validateArrayValue(schema: PortSchema, root: PortSchema, value: readonly JsonValue[], path: readonly (string | number)[]): ValidationResult {
+  if (schema.minItems !== undefined && value.length < schema.minItems) return issue("VALUE_MIN_ITEMS", "Array has fewer items than minItems.", path);
+  if (schema.maxItems !== undefined && value.length > schema.maxItems) return issue("VALUE_MAX_ITEMS", "Array has more items than maxItems.", path);
+  if (schema.items) for (let index = 0; index < value.length; index += 1) {
+    const result = validateValueNode(schema.items, root, value[index] as JsonValue, [...path, index]);
+    if (!result.ok) return result;
+  }
+  return { ok: true };
+}
+
+function validateObjectValue(schema: PortSchema, root: PortSchema, value: { readonly [key: string]: JsonValue }, path: readonly (string | number)[]): ValidationResult {
+  for (const required of schema.required ?? []) if (!own(value, required)) return issue("VALUE_REQUIRED", `Missing required property: ${required}.`, [...path, required]);
+  for (const [key, child] of Object.entries(value)) {
+    const propertySchema = schema.properties && own(schema.properties, key) ? schema.properties[key] : undefined;
+    if (!propertySchema) {
+      if (schema.additionalProperties === false) return issue("VALUE_ADDITIONAL_PROPERTY", `Unexpected property: ${key}.`, [...path, key]);
+    } else {
+      const result = validateValueNode(propertySchema, root, child, [...path, key]);
+      if (!result.ok) return result;
+    }
+  }
+  return { ok: true };
+}
+
+function validateValueNode(schema: PortSchema, root: PortSchema, value: JsonValue, path: readonly (string | number)[]): ValidationResult {
+  if (schema.$ref) {
+    const target = resolveLocalReference(root, schema.$ref);
+    return target ? validateValueNode(target, root, value, path) : issue("SCHEMA_REF_INVALID", "The local schema reference is invalid.", path);
+  }
+  const types = Array.isArray(schema.type) ? schema.type : [schema.type as string];
+  if (!types.some((type) => valueTypeMatches(type, value))) return issue("VALUE_TYPE", `Expected ${types.join(" or ")}.`, path);
+  if (schema.const !== undefined && !jsonEqual(schema.const, value)) return issue("VALUE_CONST", "Value does not match const.", path);
+  if (schema.enum && !schema.enum.some((candidate) => jsonEqual(candidate, value))) return issue("VALUE_ENUM", "Value is not in enum.", path);
+  if (typeof value === "string") {
+    const text = validateStringValue(schema, value, path);
+    if (!text.ok) return text;
+  }
+  if (typeof value === "number") {
+    const numeric = validateNumberValue(schema, value, path);
+    if (!numeric.ok) return numeric;
+  }
+  if (Array.isArray(value)) {
+    const items = validateArrayValue(schema, root, value, path);
+    if (!items.ok) return items;
+  }
+  if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+    const properties = validateObjectValue(schema, root, value, path);
+    if (!properties.ok) return properties;
+  }
+  return { ok: true };
+}
+
+export function validateValue(schema: PortSchema, value: JsonValue): ValidationResult {
+  const schemaResult = validatePortSchema(schema);
+  if (!schemaResult.ok) return schemaResult;
+  const valueResult = validateIJson(value);
+  if (!valueResult.ok) return valueResult;
+  return validateValueNode(schema, schema, value, []);
+}
+
+function dereference(schema: PortSchema, root: PortSchema): PortSchema | undefined {
+  let current: PortSchema | undefined = schema;
+  const seen = new Set<PortSchema>();
+  while (current?.$ref) {
+    if (seen.has(current)) return undefined;
+    seen.add(current);
+    current = resolveLocalReference(root, current.$ref);
+  }
+  return current;
+}
+function typeSet(schema: PortSchema): ReadonlySet<string> {
+  return new Set(Array.isArray(schema.type) ? schema.type : [schema.type as string]);
+}
+/** Every producer type is accepted by the consumer; integer widens to number. */
+function containedTypes(producer: PortSchema, consumer: PortSchema): boolean {
+  const producerTypes = typeSet(producer);
+  const consumerTypes = typeSet(consumer);
+  for (const type of producerTypes) if (!consumerTypes.has(type) && !(type === "integer" && consumerTypes.has("number"))) return false;
+  return true;
+}
+
+/** The producer's fixed values are a subset of the values the consumer admits. */
+function containedValues(producer: PortSchema, consumer: PortSchema): boolean {
+  if (consumer.const !== undefined && (producer.const === undefined || !jsonEqual(producer.const, consumer.const))) return false;
+  if (consumer.enum) {
+    const values = producer.const !== undefined ? [producer.const] : producer.enum;
+    if (!values || values.some((value) => !consumer.enum?.some((candidate) => jsonEqual(value, candidate)))) return false;
+  }
+  return true;
+}
+
+/** Each consumer bound is declared by the producer and is at least as tight. */
+function containedBounds(producer: PortSchema, consumer: PortSchema): boolean {
+  if (consumer.minimum !== undefined && (producer.minimum === undefined || producer.minimum < consumer.minimum)) return false;
+  if (consumer.maximum !== undefined && (producer.maximum === undefined || producer.maximum > consumer.maximum)) return false;
+  if (consumer.minLength !== undefined && (producer.minLength === undefined || producer.minLength < consumer.minLength)) return false;
+  if (consumer.maxLength !== undefined && (producer.maxLength === undefined || producer.maxLength > consumer.maxLength)) return false;
+  if (consumer.minItems !== undefined && (producer.minItems === undefined || producer.minItems < consumer.minItems)) return false;
+  if (consumer.maxItems !== undefined && (producer.maxItems === undefined || producer.maxItems > consumer.maxItems)) return false;
+  return true;
+}
+
+/** Required names, per-property containment, and the open/closed object rule. */
+function containedProperties(producer: PortSchema, consumer: PortSchema, producerRoot: PortSchema, consumerRoot: PortSchema): boolean {
+  for (const required of consumer.required ?? []) if (!producer.required?.includes(required)) return false;
+  for (const [key, property] of Object.entries(producer.properties ?? {})) {
+    const target = consumer.properties && own(consumer.properties, key) ? consumer.properties[key] : undefined;
+    if (target ? !contained(property, target, producerRoot, consumerRoot) : consumer.additionalProperties === false) return false;
+  }
+  if (producer.additionalProperties !== false) {
+    for (const key of Object.keys(consumer.properties ?? {})) if (!producer.properties || !own(producer.properties, key)) return false;
+  }
+  return !(producer.additionalProperties !== false && consumer.additionalProperties === false);
+}
+
+function contained(producerInput: PortSchema, consumerInput: PortSchema, producerRoot: PortSchema, consumerRoot: PortSchema): boolean {
+  const producer = dereference(producerInput, producerRoot);
+  const consumer = dereference(consumerInput, consumerRoot);
+  if (!producer || !consumer) return false;
+  if (!containedTypes(producer, consumer)) return false;
+  if (!containedValues(producer, consumer)) return false;
+  if (!containedBounds(producer, consumer)) return false;
+  if (consumer.items && (!producer.items || !contained(producer.items, consumer.items, producerRoot, consumerRoot))) return false;
+  return containedProperties(producer, consumer, producerRoot, consumerRoot);
+}
+
+export function isSchemaContained(producer: PortSchema, consumer: PortSchema): boolean {
+  return validatePortSchema(producer).ok && validatePortSchema(consumer).ok && contained(producer, consumer, producer, consumer);
+}
+
+export function firstValidationIssue(result: ValidationResult): ValidationIssue | undefined {
+  return result.ok ? undefined : result.issues[0];
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+function validDigest(value: string, prefixed: boolean): boolean {
+  const content = prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value;
+  if (content.length !== 64) return false;
+  for (const character of content) {
+    if (!((character >= "0" && character <= "9") || (character >= "a" && character <= "f"))) return false;
+  }
+  return true;
+}
+
+function safeCounter(value: number, minimum = 0): boolean {
+  return Number.isSafeInteger(value) && value >= minimum;
+}
+
+function boundedText(value: string, maximum = 256): boolean {
+  if (value.length === 0 || unicodeLength(value) > maximum) return false;
+  for (const character of value) if (character.charCodeAt(0) < 32) return false;
+  return true;
+}
+
+function isSortedUnique(values: readonly string[]): boolean {
+  for (let index = 0; index < values.length; index += 1) {
+    if (index > 0 && compareText(values[index - 1] as string, values[index] as string) >= 0) return false;
+  }
+  return true;
+}
+
+function compareInbound(left: CompiledPartitionInboundEdge, right: CompiledPartitionInboundEdge): number {
+  return compareText(left.nodeId, right.nodeId) || compareText(left.fromNodeId, right.fromNodeId) || compareText(left.fromPartitionId, right.fromPartitionId);
+}
+
+function compareOutbound(left: CompiledPartitionOutboundEdge, right: CompiledPartitionOutboundEdge): number {
+  return compareText(left.nodeId, right.nodeId) || compareText(left.toNodeId, right.toNodeId) || compareText(left.toPartitionId, right.toPartitionId);
+}
+
+function encodedBytes(value: JsonValue): number {
+  return new TextEncoder().encode(canonicalizeJson(value)).byteLength;
+}
+
+function partitionPayload(partition: CompiledPartition, factory: CompiledFactory): CompiledPartitionArtifact {
+  const { encodedBytes: _encodedBytes, digest: _digest, ...manifest } = partition;
+  return {
+    schemaVersion: "factory.partition.v1",
+    factoryDigest: factory.digest,
+    ...manifest,
+    nodes: partition.nodeIds.map((id) => factory.indexes.nodeById[id]!),
+  };
+}
+
+function executionManifest(factory: CompiledFactory): CompiledExecutionManifest {
+  return {
+    schemaVersion: "factory.execution-manifest.v1",
+    factoryDigest: factory.digest,
+    inputPorts: factory.definition.inputPorts,
+    outputPorts: factory.definition.outputPorts,
+    bounds: {
+      runDeadlineMs: factory.definition.bounds.runDeadlineMs!,
+      maxExpandedNodes: factory.definition.bounds.maxExpandedNodes,
+      maxScopeDepth: factory.definition.bounds.maxScopeDepth,
+    },
+    outputs: factory.definition.graph.outputs,
+  };
+}
+
+/** One flattened graph node: its ID, the node, its I-JSON form, and its scope depth. */
+type GraphNodeEntry = {
+  readonly id: string;
+  readonly node: FactoryNode;
+  readonly value: JsonValue;
+  readonly depth: number;
+};
+
+function graphNodes(root: FactoryGraph): readonly GraphNodeEntry[] {
+  const result: { id: string; node: FactoryNode; value: JsonValue; depth: number }[] = [];
+  const pending: { graph: FactoryGraph; depth: number }[] = [{ graph: root, depth: 1 }];
+  while (pending.length > 0) {
+    const { graph, depth } = pending.pop()!;
+    for (let index = graph.nodes.length - 1; index >= 0; index -= 1) {
+      const node = graph.nodes[index]!;
+      result.push({ id: node.id, node, value: node as unknown as JsonValue, depth });
+      if (node.kind === "branch") {
+        pending.push({ graph: node.else, depth: depth + 1 }, { graph: node.then, depth: depth + 1 });
+      } else if (node.kind === "map" || node.kind === "loop") {
+        pending.push({ graph: node.body, depth: depth + 1 });
+      }
+    }
+  }
+  return result;
+}
+
+function expandedNodeCount(graph: FactoryGraph, limit: number): number {
+  let count = 0;
+  for (const node of graph.nodes) {
+    count += 1;
+    if (node.kind === "branch") count += Math.max(expandedNodeCount(node.then, limit), expandedNodeCount(node.else, limit));
+    else if (node.kind === "map") count += node.maxItems * expandedNodeCount(node.body, limit);
+    else if (node.kind === "loop") count += node.maxIterations * expandedNodeCount(node.body, limit);
+    if (!Number.isSafeInteger(count) || count > limit) return limit + 1;
+  }
+  return count;
+}
+
+function validateSchemaRecord(record: Readonly<Record<string, PortSchema>>, path: readonly (string | number)[]): ValidationResult {
+  for (const [name, schema] of Object.entries(record)) {
+    const checked = validatePortSchema(schema);
+    if (!checked.ok) return issue("COMPILED_PORT_SCHEMA", "Compiled port schema is outside the supported subset.", [...path, name]);
+  }
+  return { ok: true };
+}
+
+function sameKeys(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
+  const leftKeys = Object.keys(left).sort(compareText);
+  const rightKeys = Object.keys(right).sort(compareText);
+  return leftKeys.length === rightKeys.length && leftKeys.every((key, index) => key === rightKeys[index]);
+}
+
+/** Both port records of one node are inside the supported schema subset. */
+function validateNodePorts(node: FactoryNode): ValidationResult {
+  const inputs = validateSchemaRecord(node.inputPorts ?? {}, ["indexes", "nodeById", node.id, "inputPorts"]);
+  if (!inputs.ok) return inputs;
+  return validateSchemaRecord(node.outputPorts ?? {}, ["indexes", "nodeById", node.id, "outputPorts"]);
+}
+
+function validateNodeRepairableInputs(node: FactoryNode): ValidationResult {
+  const repairableInputs = node.kind === "task" || node.kind === "subfactory" ? node.repairableInputs : undefined;
+  if (repairableInputs !== undefined && (new Set(repairableInputs).size !== repairableInputs.length || repairableInputs.some(name => !Object.hasOwn(node.inputPorts ?? {}, name) || node.bindings?.[name]?.kind !== "literal"))) return issue("COMPILED_REPAIR_INPUT", "Repairable inputs must be unique existing literal-bound input ports.", ["indexes", "nodeById", node.id, "repairableInputs"]);
+  return { ok: true };
+}
+
+/** The bounds every node kind may carry: deadline, retry policy, task iterations. */
+function validateNodeBounds(factory: CompiledFactory, node: FactoryNode): ValidationResult {
+  if (node.deadlineMs !== undefined && (!safeCounter(node.deadlineMs, 1) || node.deadlineMs > FACTORY_LIMITS.maximumNodeDeadlineMs || node.deadlineMs > factory.definition.bounds.runDeadlineMs!)) return issue("COMPILED_NODE_DEADLINE", "Node deadline exceeds launch or run bounds.", ["indexes", "nodeById", node.id, "deadlineMs"]);
+  if (node.retry !== undefined && (node.kind !== "task" || !safeCounter(node.retry.maxAttempts, 1) || node.retry.maxAttempts > 3 || !safeCounter(node.retry.initialDelayMs) || !safeCounter(node.retry.maximumDelayMs) || node.retry.maximumDelayMs < node.retry.initialDelayMs)) return issue("COMPILED_RETRY", "Compiled retry policy is invalid.", ["indexes", "nodeById", node.id, "retry"]);
+  if (node.kind === "task" && node.maxIterations !== undefined && !safeCounter(node.maxIterations, 1)) return issue("COMPILED_TASK_BOUND", "Task iteration bound must be positive.", ["indexes", "nodeById", node.id, "maxIterations"]);
+  return { ok: true };
+}
+
+function validateBranchNode(node: Extract<FactoryNode, { kind: "branch" }>): ValidationResult {
+  if (!validateExpression(node.condition).ok || !sameKeys(node.then.outputs, node.outputPorts ?? {}) || !sameKeys(node.else.outputs, node.outputPorts ?? {})) return issue("COMPILED_BRANCH", "Branch expression and explicit outputs must be valid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateMapNode(factory: CompiledFactory, node: Extract<FactoryNode, { kind: "map" }>): ValidationResult {
+  if (!safeCounter(node.maxItems) || node.maxItems > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxConcurrency, 1) || node.maxConcurrency > FACTORY_LIMITS.maxConcurrentActivities || !validatePortSchema(node.itemSchema).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_MAP", "Map bounds, item schema, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateLoopNode(factory: CompiledFactory, node: Extract<FactoryNode, { kind: "loop" }>): ValidationResult {
+  if (!safeCounter(node.maxIterations, 1) || node.maxIterations > factory.definition.bounds.maxExpandedNodes || !safeCounter(node.maxElapsedMs, 1) || node.maxElapsedMs > factory.definition.bounds.runDeadlineMs! || !validatePortSchema(node.carriedSchema).ok || !validatePortSchema(node.resultSchema).ok || !validateExpression(node.until).ok || !validateExpression(node.nextInput).ok || !sameKeys(node.body.outputs, node.outputPorts ?? {})) return issue("COMPILED_LOOP", "Loop bounds, schemas, expressions, or explicit outputs are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateJoinNode(node: Extract<FactoryNode, { kind: "join" }>): ValidationResult {
+  if (node.predecessors.length === 0 || new Set(node.predecessors).size !== node.predecessors.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.winners) return issue("COMPILED_JOIN", "Join predecessors and winners output are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateApprovalNode(node: Extract<FactoryNode, { kind: "approval" }>): ValidationResult {
+  if (!safeCounter(node.expiresInMs, 1) || node.expiresInMs > FACTORY_LIMITS.maximumApprovalWaitMs || node.choices.length === 0 || new Set(node.choices).size !== node.choices.length || Object.keys(node.outputPorts ?? {}).length !== 1 || !node.outputPorts?.choice) return issue("COMPILED_APPROVAL", "Approval bounds, choices, or choice output are invalid.", ["indexes", "nodeById", node.id]);
+  return { ok: true };
+}
+
+function validateAcceptanceNode(node: Extract<FactoryNode, { kind: "acceptance" }>): ValidationResult {
+  if (node.maxRepairs !== undefined && (!safeCounter(node.maxRepairs) || node.maxRepairs > FACTORY_LIMITS.maxCandidateGenerations - 1)) return issue("COMPILED_REPAIR", "Acceptance repair bound is invalid.", ["indexes", "nodeById", node.id, "maxRepairs"]);
+  return { ok: true };
+}
+
+/** Dispatch to the one validator that owns this node kind; other kinds add no rule. */
+function validateNodeKindSemantics(factory: CompiledFactory, node: FactoryNode): ValidationResult {
+  if (node.kind === "branch") return validateBranchNode(node);
+  if (node.kind === "map") return validateMapNode(factory, node);
+  if (node.kind === "loop") return validateLoopNode(factory, node);
+  if (node.kind === "join") return validateJoinNode(node);
+  if (node.kind === "approval") return validateApprovalNode(node);
+  if (node.kind === "acceptance") return validateAcceptanceNode(node);
+  return { ok: true };
+}
+
+function validateNodeSemantics(factory: CompiledFactory, node: FactoryNode, depth: number): ValidationResult {
+  if (depth > factory.definition.bounds.maxScopeDepth || depth > FACTORY_LIMITS.maxScopeDepth) return issue("COMPILED_SCOPE_DEPTH", "Compiled graph exceeds its scope-depth bound.", ["definition", "graph"]);
+  const ports = validateNodePorts(node);
+  if (!ports.ok) return ports;
+  const repairable = validateNodeRepairableInputs(node);
+  if (!repairable.ok) return repairable;
+  const bounds = validateNodeBounds(factory, node);
+  if (!bounds.ok) return bounds;
+  return validateNodeKindSemantics(factory, node);
+}
+
+/** Every node in a graph, including the nodes inside branch, map, and loop bodies. */
+export function factoryGraphNodes(graph: FactoryGraph): readonly FactoryNode[] {
+  return graphNodes(graph).map(entry => entry.node);
+}
+
+export function validateCompiledExecutionManifest(value: unknown, expectedFactoryDigest?: string, descriptor?: CompiledArtifactDescriptor): ValidationResult {
+  if (!isCompiledExecutionManifest(value)) return issue("EXECUTION_MANIFEST_SCHEMA", "Value does not match the generated execution manifest schema.", []);
+  const manifest = value as CompiledExecutionManifest;
+  const bytes = encodedBytes(manifest as unknown as JsonValue);
+  if (bytes > FACTORY_LIMITS.maxRecordedPageBytes || (descriptor !== undefined && descriptor.encodedBytes !== bytes)) return issue("EXECUTION_MANIFEST_BYTES", "Execution manifest bytes exceed or differ from its descriptor.", []);
+  if (!validDigest(manifest.factoryDigest, true) || (expectedFactoryDigest !== undefined && manifest.factoryDigest !== expectedFactoryDigest) || (descriptor !== undefined && !validDigest(descriptor.digest, true))) return issue("EXECUTION_MANIFEST_DIGEST", "Execution manifest digests are invalid or refer to another factory.", ["factoryDigest"]);
+  const inputs = validateSchemaRecord(manifest.inputPorts, ["inputPorts"]);
+  if (!inputs.ok) return inputs;
+  const outputs = validateSchemaRecord(manifest.outputPorts, ["outputPorts"]);
+  if (!outputs.ok) return outputs;
+  if (!safeCounter(manifest.bounds.runDeadlineMs, 1) || manifest.bounds.runDeadlineMs > FACTORY_LIMITS.maximumRunDeadlineMs || !safeCounter(manifest.bounds.maxExpandedNodes, 1) || manifest.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(manifest.bounds.maxScopeDepth, 1) || manifest.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth || !sameKeys(manifest.outputPorts, manifest.outputs)) return issue("EXECUTION_MANIFEST_BOUND", "Execution manifest bounds and output bindings must match launch limits.", ["bounds"]);
+  return { ok: true };
+}
+
+export function validateCompiledPartitionArtifact(value: unknown, expectedFactoryDigest?: string, partition?: CompiledPartition): ValidationResult {
+  if (!isCompiledPartitionArtifact(value)) return issue("PARTITION_ARTIFACT_SCHEMA", "Value does not match the generated partition artifact schema.", []);
+  const artifact = value as CompiledPartitionArtifact;
+  const bytes = encodedBytes(artifact as unknown as JsonValue);
+  if (bytes > FACTORY_LIMITS.maxRecordedPageBytes || (partition !== undefined && partition.encodedBytes !== bytes)) return issue("PARTITION_ARTIFACT_BYTES", "Partition artifact bytes exceed or differ from its manifest.", []);
+  if (!validDigest(artifact.factoryDigest, true) || (expectedFactoryDigest !== undefined && artifact.factoryDigest !== expectedFactoryDigest) || (partition !== undefined && !validDigest(partition.digest, true))) return issue("PARTITION_ARTIFACT_DIGEST", "Partition digests are invalid or refer to another factory.", ["factoryDigest"]);
+  if (!boundedText(artifact.id) || artifact.nodeIds.length === 0 || artifact.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes || artifact.nodes.length !== artifact.nodeIds.length || !isSortedUnique(artifact.dependsOn)) return issue("PARTITION_ARTIFACT_MANIFEST", "Partition identity, node count, or dependencies are invalid.", []);
+  const nodeIds = new Set<string>();
+  for (let index = 0; index < artifact.nodes.length; index += 1) {
+    const id = artifact.nodeIds[index]!;
+    if (!boundedText(id) || id.includes("/") || nodeIds.has(id) || artifact.nodes[index]!.id !== id) return issue("PARTITION_ARTIFACT_NODE", "Partition nodes must exactly match unique bounded node IDs.", ["nodes", index]);
+    nodeIds.add(id);
+  }
+  const sortedInbound = [...artifact.inbound].sort(compareInbound);
+  const sortedOutbound = [...artifact.outbound].sort(compareOutbound);
+  const invalidInbound = artifact.inbound.some((edge, index) => !nodeIds.has(edge.nodeId) || nodeIds.has(edge.fromNodeId) || !artifact.dependsOn.includes(edge.fromPartitionId) || !boundedText(edge.fromNodeId) || !boundedText(edge.fromPartitionId) || (index > 0 && compareInbound(artifact.inbound[index - 1]!, edge) >= 0));
+  const invalidOutbound = artifact.outbound.some((edge, index) => !nodeIds.has(edge.nodeId) || nodeIds.has(edge.toNodeId) || edge.toPartitionId === artifact.id || !boundedText(edge.toNodeId) || !boundedText(edge.toPartitionId) || (index > 0 && compareOutbound(artifact.outbound[index - 1]!, edge) >= 0));
+  if (!jsonEqual(artifact.inbound as unknown as JsonValue, sortedInbound as unknown as JsonValue) || !jsonEqual(artifact.outbound as unknown as JsonValue, sortedOutbound as unknown as JsonValue) || invalidInbound || invalidOutbound) return issue("PARTITION_ARTIFACT_EDGES", "Partition boundary edges must be canonical and anchored to local nodes.", ["inbound"]);
+  if (partition !== undefined) {
+    const { encodedBytes: _encodedBytes, digest: _digest, ...expected } = partition;
+    const { schemaVersion: _schemaVersion, factoryDigest: _factoryDigest, nodes: _nodes, ...actual } = artifact;
+    if (!jsonEqual(actual as unknown as JsonValue, expected as unknown as JsonValue)) return issue("PARTITION_ARTIFACT_MANIFEST", "Partition artifact differs from its compiled manifest.", []);
+  }
+  return { ok: true };
+}
+
+/** Digests, byte bound, launch bounds, presentation pairing, and the dependency lock. */
+function validateCompiledHeader(factory: CompiledFactory): ValidationResult {
+  if (!validDigest(factory.digest, true) || (factory.presentationDigest !== undefined && !validDigest(factory.presentationDigest, true))) return issue("COMPILED_DIGEST", "Compiled digests must be lowercase sha256 values.", ["digest"]);
+  if (encodedBytes(factory as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("COMPILED_BYTES", "Compiled IR exceeds 16 MiB.", []);
+  if (!safeCounter(factory.definition.bounds.maxExpandedNodes, 1) || factory.definition.bounds.maxExpandedNodes > FACTORY_LIMITS.maxExpandedNodes || !safeCounter(factory.definition.bounds.maxScopeDepth, 1) || factory.definition.bounds.maxScopeDepth > FACTORY_LIMITS.maxScopeDepth || !safeCounter(factory.definition.bounds.runDeadlineMs!, 1) || factory.definition.bounds.runDeadlineMs! > FACTORY_LIMITS.maximumRunDeadlineMs) return issue("COMPILED_BOUND", "Compiled definition bounds exceed launch limits.", ["definition", "bounds"]);
+  if ((factory.definition.presentation === undefined) !== (factory.presentationDigest === undefined)) return issue("COMPILED_PRESENTATION", "Presentation content and digest must be present together.", ["presentationDigest"]);
+
+  const expectedLock = {
+    packages: [...factory.definition.packages].sort((left, right) => compareText(left.name, right.name)),
+    factories: [...(factory.definition.factories ?? [])].sort((left, right) => compareText(left.id, right.id)),
+    interpreter: factory.definition.interpreterCompatibility,
+  } as unknown as JsonValue;
+  if (!jsonEqual(factory.lock as unknown as JsonValue, expectedLock)) return issue("COMPILED_LOCK", "Dependency lock does not match the embedded definition.", ["lock"]);
+  return { ok: true };
+}
+
+/** Expansion bounds, port schemas, node identity, index agreement, and node semantics. */
+function validateCompiledGraph(factory: CompiledFactory, nodes: readonly GraphNodeEntry[]): ValidationResult {
+  if (nodes.length > FACTORY_LIMITS.maxExpandedNodes || expandedNodeCount(factory.definition.graph, factory.definition.bounds.maxExpandedNodes) > factory.definition.bounds.maxExpandedNodes) return issue("COMPILED_NODES", "Compiled node expansion exceeds launch limits.", ["indexes", "nodeById"]);
+  const inputSchemas = validateSchemaRecord(factory.definition.inputPorts, ["definition", "inputPorts"]);
+  if (!inputSchemas.ok) return inputSchemas;
+  const outputSchemas = validateSchemaRecord(factory.definition.outputPorts, ["definition", "outputPorts"]);
+  if (!outputSchemas.ok) return outputSchemas;
+  const nodeIds = new Set<string>();
+  for (const node of nodes) {
+    if (!boundedText(node.id) || node.id.includes("/") || nodeIds.has(node.id)) return issue("COMPILED_NODE_ID", "Compiled node IDs must be bounded unique instance-path segments.", ["indexes", "nodeById", node.id]);
+    nodeIds.add(node.id);
+    if (!own(factory.indexes.nodeById, node.id) || !jsonEqual(factory.indexes.nodeById[node.id] as unknown as JsonValue, node.value)) return issue("COMPILED_NODE_INDEX", "Node index differs from the embedded graph.", ["indexes", "nodeById", node.id]);
+    const semantics = validateNodeSemantics(factory, node.node, node.depth);
+    if (!semantics.ok) return semantics;
+  }
+  return { ok: true };
+}
+
+/** The graph edges a node declares: its own `dependsOn` plus a join's predecessors. */
+function declaredDependencies(node: FactoryNode): readonly string[] {
+  return [...(node.dependsOn ?? []), ...(node.kind === "join" ? node.predecessors : [])];
+}
+
+/** Every index holds exactly the graph's node IDs, its edges, and its dependency counts. */
+function validateCompiledIndexes(factory: CompiledFactory, nodes: readonly GraphNodeEntry[], nodeIds: ReadonlySet<string>): ValidationResult {
+  const indexKeys = Object.keys(factory.indexes.nodeById);
+  const successorKeys = Object.keys(factory.indexes.successors);
+  const dependencyKeys = Object.keys(factory.indexes.dependencyCounts);
+  if (indexKeys.length !== nodeIds.size || successorKeys.length !== nodeIds.size || dependencyKeys.length !== nodeIds.size || [...indexKeys, ...successorKeys, ...dependencyKeys].some((id) => !nodeIds.has(id))) return issue("COMPILED_INDEX_KEYS", "Every compiled index must contain exactly the graph node IDs.", ["indexes"]);
+  const expectedSuccessors = new Map<string, string[]>([...nodeIds].map((id) => [id, []]));
+  const dependencies = new Map<string, readonly string[]>();
+  for (const { node } of nodes) {
+    const declared = declaredDependencies(node);
+    if (new Set(declared).size !== declared.length || declared.some((id) => id === node.id || !nodeIds.has(id))) return issue("COMPILED_DEPENDENCIES", "Declared dependencies must be unique existing nodes.", ["indexes", "dependencyCounts", node.id]);
+    dependencies.set(node.id, declared);
+    for (const dependency of declared) expectedSuccessors.get(dependency)!.push(node.id);
+  }
+  for (const id of nodeIds) {
+    const successors = factory.indexes.successors[id] as readonly string[];
+    const expected = expectedSuccessors.get(id)!.sort(compareText);
+    if (!isSortedUnique(successors) || successors.length !== expected.length || successors.some((successor, index) => successor !== expected[index])) return issue("COMPILED_SUCCESSORS", "Successor indexes must exactly match declared graph edges.", ["indexes", "successors", id]);
+  }
+  for (const id of nodeIds) if (!safeCounter(factory.indexes.dependencyCounts[id] as number) || factory.indexes.dependencyCounts[id] !== dependencies.get(id)!.length) return issue("COMPILED_DEPENDENCIES", "Dependency counts do not match declared graph edges.", ["indexes", "dependencyCounts", id]);
+  return { ok: true };
+}
+
+/** Partition identity, ordering, and the one-partition-per-top-level-node rule. */
+function validateCompiledPartitionManifests(factory: CompiledFactory): ValidationResult {
+  const partitionNodeIds = new Set(factory.definition.graph.nodes.map((node) => node.id));
+  const partitionByNode = new Map<string, string>();
+  const partitionIds = new Set<string>();
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    if (partition.id !== `partition-${index}` || partitionIds.has(partition.id) || partition.nodeIds.length === 0 || partition.nodeIds.length > FACTORY_LIMITS.maxPartitionNodes || !safeCounter(partition.encodedBytes, 2) || partition.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes || !validDigest(partition.digest, true)) return issue("COMPILED_PARTITION", "Partitions need canonical IDs, bytes, digests, and bounded nonempty node lists.", ["partitions", index]);
+    partitionIds.add(partition.id);
+    if (!isSortedUnique(partition.dependsOn)) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must be sorted and unique.", ["partitions", index, "dependsOn"]);
+    for (const dependency of partition.dependsOn) {
+      const dependencyIndex = factory.partitions.findIndex((candidate) => candidate.id === dependency);
+      if (dependencyIndex < 0 || dependencyIndex >= index) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must point to an earlier partition.", ["partitions", index, "dependsOn"]);
+    }
+    for (const id of partition.nodeIds) {
+      if (!partitionNodeIds.has(id) || partitionByNode.has(id)) return issue("COMPILED_PARTITION_NODE", "Each top-level compiled node must occur in one partition.", ["partitions", index, "nodeIds"]);
+      partitionByNode.set(id, partition.id);
+    }
+  }
+  if (partitionByNode.size !== partitionNodeIds.size) return issue("COMPILED_PARTITION_COVERAGE", "Partitions must cover every top-level compiled node.", ["partitions"]);
+  return { ok: true };
+}
+
+/** Cross-partition edge manifests, dependency lists, and canonical partition bytes. */
+function validateCompiledPartitionEdges(factory: CompiledFactory, dependencies: ReadonlyMap<string, readonly string[]>, partitionByNode: ReadonlyMap<string, string>): ValidationResult {
+  const inboundByPartition = new Map<string, CompiledPartitionInboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
+  const outboundByPartition = new Map<string, CompiledPartitionOutboundEdge[]>(factory.partitions.map(({ id }) => [id, []]));
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    const expected = new Set<string>();
+    for (const nodeId of partition.nodeIds) for (const dependency of dependencies.get(nodeId) ?? []) {
+      const dependencyPartition = partitionByNode.get(dependency)!;
+      if (dependencyPartition !== partition.id) {
+        expected.add(dependencyPartition);
+        inboundByPartition.get(partition.id)!.push({ nodeId, fromNodeId: dependency, fromPartitionId: dependencyPartition });
+        outboundByPartition.get(dependencyPartition)!.push({ nodeId: dependency, toNodeId: nodeId, toPartitionId: partition.id });
+      }
+    }
+    const expectedIds = [...expected].sort(compareText);
+    if (partition.dependsOn.length !== expectedIds.length || partition.dependsOn.some((id, dependencyIndex) => id !== expectedIds[dependencyIndex])) return issue("COMPILED_PARTITION_DEPENDENCIES", "Partition dependencies must exactly match cross-partition graph edges.", ["partitions", index, "dependsOn"]);
+  }
+  for (let index = 0; index < factory.partitions.length; index += 1) {
+    const partition = factory.partitions[index]!;
+    const inbound = inboundByPartition.get(partition.id)!.sort(compareInbound);
+    const outbound = outboundByPartition.get(partition.id)!.sort(compareOutbound);
+    if (!jsonEqual(partition.inbound as unknown as JsonValue, inbound as unknown as JsonValue) || !jsonEqual(partition.outbound as unknown as JsonValue, outbound as unknown as JsonValue)) return issue("COMPILED_PARTITION_EDGES", "Partition edge manifests must exactly match cross-partition graph edges.", ["partitions", index]);
+    if (partition.encodedBytes !== encodedBytes(partitionPayload(partition, factory) as unknown as JsonValue)) return issue("COMPILED_PARTITION_BYTES", "Partition bytes must exactly match its canonical manifest and node records.", ["partitions", index, "encodedBytes"]);
+  }
+  return { ok: true };
+}
+
+/** Pages name a real partition, carry only its nodes, and cover it in node order. */
+function validateCompiledPages(factory: CompiledFactory, partitionByNode: ReadonlyMap<string, string>, partitionIds: ReadonlySet<string>): ValidationResult {
+  const pagedNodes = new Map<string, string[]>();
+  const pageIds = new Set<string>();
+  for (let index = 0; index < factory.pages.length; index += 1) {
+    const page = factory.pages[index]!;
+    if (page.id !== `page-${index}` || pageIds.has(page.id) || !partitionIds.has(page.partitionId) || page.nodeIds.length === 0 || !safeCounter(page.encodedBytes, 2) || page.encodedBytes > FACTORY_LIMITS.maxRecordedPageBytes || !validDigest(page.digest, true)) return issue("COMPILED_PAGE", "Pages need canonical IDs, bounded bytes, valid digests, and a partition.", ["pages", index]);
+    pageIds.add(page.id);
+    const list = pagedNodes.get(page.partitionId) ?? [];
+    for (const id of page.nodeIds) {
+      if (partitionByNode.get(id) !== page.partitionId) return issue("COMPILED_PAGE_NODE", "Page nodes must belong to the page partition.", ["pages", index, "nodeIds"]);
+      list.push(id);
+    }
+    pagedNodes.set(page.partitionId, list);
+  }
+  for (const partition of factory.partitions) {
+    const actual = pagedNodes.get(partition.id) ?? [];
+    if (actual.length !== partition.nodeIds.length || actual.some((id, index) => id !== partition.nodeIds[index])) return issue("COMPILED_PAGE_COVERAGE", "Pages must cover each partition in node order.", ["pages"]);
+  }
+  return { ok: true };
+}
+
+/** The partition each top-level node belongs to, once the manifests are proven exclusive. */
+function partitionByNodeIndex(factory: CompiledFactory): ReadonlyMap<string, string> {
+  const index = new Map<string, string>();
+  for (const partition of factory.partitions) for (const id of partition.nodeIds) index.set(id, partition.id);
+  return index;
+}
+
+/**
+ * Workflow-safe validation for an already compiled artifact. It checks the
+ * generated schema and every bounded manifest relationship without hashing.
+ *
+ * The phases run in the order the checks depend on each other, and each one
+ * REBUILDS the index the previous phase proved canonical instead of carrying a
+ * half-filled accumulator out of a loop that can still fail: after
+ * `validateCompiledGraph` every node ID is unique, and after
+ * `validateCompiledPartitionManifests` every top-level node sits in exactly one
+ * partition, so the rebuilt sets are the same values the single pass produced.
+ */
+export function validateCompiledFactory(value: unknown): ValidationResult {
+  if (!isCompiledFactory(value)) return issue("COMPILED_SCHEMA", "Value does not match the generated CompiledFactory schema.", []);
+  const factory = value as CompiledFactory;
+  const header = validateCompiledHeader(factory);
+  if (!header.ok) return header;
+
+  const nodes = graphNodes(factory.definition.graph);
+  const graph = validateCompiledGraph(factory, nodes);
+  if (!graph.ok) return graph;
+
+  const nodeIds = new Set(nodes.map((entry) => entry.id));
+  const indexes = validateCompiledIndexes(factory, nodes, nodeIds);
+  if (!indexes.ok) return indexes;
+
+  const checkedManifest = validateCompiledExecutionManifest(executionManifest(factory), factory.digest, factory.executionManifest);
+  if (!checkedManifest.ok) return issue("COMPILED_EXECUTION_MANIFEST", "Compiled execution manifest is invalid.", ["executionManifest"]);
+
+  const manifests = validateCompiledPartitionManifests(factory);
+  if (!manifests.ok) return manifests;
+
+  const dependencies = new Map<string, readonly string[]>(nodes.map(({ node }) => [node.id, declaredDependencies(node)]));
+  const partitionByNode = partitionByNodeIndex(factory);
+  const edges = validateCompiledPartitionEdges(factory, dependencies, partitionByNode);
+  if (!edges.ok) return edges;
+
+  return validateCompiledPages(factory, partitionByNode, new Set(factory.partitions.map((partition) => partition.id)));
+}
+
+function validateArtifactReference(reference: FactoryArtifactReference, path: readonly (string | number)[]): ValidationResult {
+  if (!boundedText(reference.artifactId) || reference.artifactId.includes("/") || reference.artifactId.includes("\\")) return issue("RUNNER_ARTIFACT_ID", "Artifact IDs must be bounded opaque identifiers, not paths.", [...path, "artifactId"]);
+  if (!validDigest(reference.digest, true)) return issue("RUNNER_DIGEST", "Artifact digest must be a lowercase sha256 value.", [...path, "digest"]);
+  return safeCounter(reference.encodedBytes) ? { ok: true } : issue("RUNNER_ARTIFACT_BYTES", "Artifact bytes must be a nonnegative safe integer.", [...path, "encodedBytes"]);
+}
+
+/**
+ * The v4 manifest name grammar, restated here so the execution schema refuses a
+ * reference the extension contract's own `validateManifest` would refuse. It is
+ * the shared contract's rule (`extension-contract/src/validation.ts`), not a
+ * second one: a scoped distribution name belongs in `package`, never here.
+ */
+const MANIFEST_NAME = "abcdefghijklmnopqrstuvwxyz";
+export function isManifestName(value: string): boolean {
+  if (value.length === 0 || value.length > 64 || !MANIFEST_NAME.includes(value[0] as string)) return false;
+  for (const character of value) {
+    if (!MANIFEST_NAME.includes(character) && !(character >= "0" && character <= "9") && character !== "-") return false;
+  }
+  return true;
+}
+
+function validateRunnerReference(reference: FactoryRunnerRequest["runner"], path: readonly (string | number)[]): ValidationResult {
+  if (!boundedText(reference.package) || !boundedText(reference.export) || !boundedText(reference.version) || reference.version === "latest" || reference.version.includes("*") || !validDigest(reference.digest, true)) {
+    return issue("RUNNER_PIN", "Runner package, exact version, export, and digest are required.", path);
+  }
+  if (!boundedText(reference.manifestName) || !isManifestName(reference.manifestName)) return issue("RUNNER_MANIFEST_NAME", "Runner manifest name must be the built v4 manifest's own name, which cannot be a scoped package name.", [...path, "manifestName"]);
+  if (reference.model !== undefined && !boundedText(reference.model)) return issue("RUNNER_MODEL_PIN", "Runner model must be a bounded identity.", [...path, "model"]);
+  if (reference.configurationDigest !== undefined && !validDigest(reference.configurationDigest, true)) return issue("RUNNER_MODEL_PIN", "Runner configuration digest must be a prefixed lowercase sha256 value.", [...path, "configurationDigest"]);
+  return { ok: true };
+}
+
+function validateUsage(usage: FactoryUsage, path: readonly (string | number)[]): ValidationResult {
+  if (usage.kind === "unknown") return boundedText(usage.reason, 1_024) && isUnsignedDecimal(usage.heldCostMicros) ? { ok: true } : issue("RUNNER_USAGE", "Unknown usage needs a reason and unsigned held cost.", path);
+  return safeCounter(usage.inputTokens) && safeCounter(usage.outputTokens) && safeCounter(usage.computeMs) && isUnsignedDecimal(usage.costMicros) ? { ok: true } : issue("RUNNER_USAGE", "Measured usage counters and cost must be nonnegative integers.", path);
+}
+
+function validateOperation(operation: FactoryRunnerOperationResult, path: readonly (string | number)[]): ValidationResult {
+  const resultDigestInvalid = operation.state === "uncertain"
+    ? operation.resultDigest !== undefined && !validDigest(operation.resultDigest, false)
+    : !validDigest(operation.resultDigest, false);
+  if (!boundedText(operation.operationId, 1_024) || !operation.operationId.endsWith(`:${operation.operationIndex}`) || !safeCounter(operation.operationIndex) || !validDigest(operation.requestDigest, false) || resultDigestInvalid || operation.providerReceiptDigest !== undefined && !validDigest(operation.providerReceiptDigest, false)) return issue("RUNNER_OPERATION", "Runner operation identity or digest is invalid.", path);
+  if (operation.usage !== undefined) {
+    const usage = validateUsage(operation.usage, [...path, "usage"]);
+    if (!usage.ok) return usage;
+  }
+  if (operation.workspaceCheckpoint !== undefined) return validateArtifactReference(operation.workspaceCheckpoint, [...path, "workspaceCheckpoint"]);
+  return { ok: true };
+}
+
+function validateRunnerEnvelope(value: unknown, kind: "request" | "result"): ValidationResult {
+  if (encodedBytes(value as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("RUNNER_WIRE_BYTES", `Factory runner ${kind} exceeds 64 KiB.`, []);
+  return { ok: true };
+}
+
+/** Every authority field is a bounded identity or a nonnegative safe counter. */
+function validateRunnerAuthority(request: FactoryRunnerRequest): ValidationResult {
+  const authority = request.authority;
+  for (const [key, field] of Object.entries(authority)) {
+    if (typeof field === "string" ? !boundedText(field, 1_024) : !safeCounter(field)) return issue("RUNNER_AUTHORITY", "Runner authority fields must be bounded identities and nonnegative safe counters.", ["authority", key]);
+  }
+  if (authority.deadlineAtMs < 1) return issue("RUNNER_DEADLINE", "Runner deadline must be a positive epoch millisecond.", ["authority", "deadlineAtMs"]);
+  return { ok: true };
+}
+
+/** A supplied model pin agrees with the runner reference it is executed under. */
+function validateRunnerModelPin(request: FactoryRunnerRequest): ValidationResult {
+  if (request.model !== undefined && (!boundedText(request.model.provider) || !boundedText(request.model.model) || !validDigest(request.model.configurationDigest, true) || !validDigest(request.model.policyDigest, true) || request.runner.model !== undefined && request.runner.model !== request.model.model || request.runner.configurationDigest !== undefined && request.runner.configurationDigest !== request.model.configurationDigest)) return issue("RUNNER_MODEL_PIN", "Model and policy pins must match the runner reference.", ["model"]);
+  return { ok: true };
+}
+
+/** Broker authority, grants, and the resource ceilings the attempt may spend. */
+function validateRunnerLimits(request: FactoryRunnerRequest): ValidationResult {
+  if (!boundedText(request.broker.attemptToken, 4_096) || !boundedText(request.broker.audience) || request.grants.some((grant) => !boundedText(grant)) || new Set(request.grants).size !== request.grants.length) return issue("RUNNER_GRANT", "Broker authority and grants must be bounded and unique.", ["grants"]);
+  if (request.resources.maxCostMicros !== undefined && !isUnsignedDecimal(request.resources.maxCostMicros) || request.resources.resourceClass !== undefined && !boundedText(request.resources.resourceClass) || [request.resources.maxTokens, request.resources.maxComputeMs, request.resources.memoryBytes].some((bound) => bound !== undefined && !safeCounter(bound))) return issue("RUNNER_RESOURCES", "Runner resource bounds must use safe counters and unsigned decimal cost.", ["resources"]);
+  return { ok: true };
+}
+
+/** The input payload, the resumed checkpoint, and the journal cursor they imply. */
+function validateRunnerInput(request: FactoryRunnerRequest): ValidationResult {
+  if (request.input.kind === "artifact") {
+    const artifact = validateArtifactReference(request.input.artifact, ["input", "artifact"]);
+    if (!artifact.ok) return artifact;
+  } else if (encodedBytes(request.input.value) > FACTORY_LIMITS.maxInlineValueBytes) return issue("RUNNER_INLINE_BYTES", "Inline runner input exceeds 64 KiB.", ["input", "value"]);
+  if (request.checkpoint !== undefined) {
+    const checkpoint = validateArtifactReference(request.checkpoint, ["checkpoint"]);
+    if (!checkpoint.ok || !safeCounter(request.checkpoint.journalCursor, -1)) return checkpoint.ok ? issue("RUNNER_CURSOR", "Checkpoint cursor must be a safe integer.", ["checkpoint", "journalCursor"]) : checkpoint;
+  }
+  const expectedOperationIndex = (request.checkpoint?.journalCursor ?? -1) + 1;
+  if (request.authority.nextOperationIndex !== expectedOperationIndex) return issue("RUNNER_CURSOR", "Next operation index must continue the supplied checkpoint.", ["authority", "nextOperationIndex"]);
+  return { ok: true };
+}
+
+/** Tool declarations carry unique bounded names and supported port schemas. */
+function validateRunnerTools(request: FactoryRunnerRequest): ValidationResult {
+  const toolNames = new Set<string>();
+  for (let index = 0; index < request.tools.length; index += 1) {
+    const tool = request.tools[index]!;
+    if (!boundedText(tool.name) || toolNames.has(tool.name) || tool.description !== undefined && !boundedText(tool.description, 4_096)) return issue("RUNNER_TOOL", "Tool declarations must have unique bounded names.", ["tools", index]);
+    toolNames.add(tool.name);
+    const input = validatePortSchema(tool.inputSchema);
+    if (!input.ok) return issue("RUNNER_TOOL_SCHEMA", "Tool input schema is invalid.", ["tools", index, "inputSchema"]);
+    if (tool.outputSchema !== undefined && !validatePortSchema(tool.outputSchema).ok) return issue("RUNNER_TOOL_SCHEMA", "Tool output schema is invalid.", ["tools", index, "outputSchema"]);
+  }
+  return { ok: true };
+}
+
+export function validateFactoryRunnerRequest(value: unknown): ValidationResult {
+  if (!isFactoryRunnerRequest(value)) return issue("RUNNER_REQUEST_SCHEMA", "Value does not match the generated FactoryRunnerRequest schema.", []);
+  const request = value as FactoryRunnerRequest;
+  const envelope = validateRunnerEnvelope(request, "request");
+  if (!envelope.ok) return envelope;
+  const authority = validateRunnerAuthority(request);
+  if (!authority.ok) return authority;
+  const runner = validateRunnerReference(request.runner, ["runner"]);
+  if (!runner.ok) return runner;
+  const model = validateRunnerModelPin(request);
+  if (!model.ok) return model;
+  const limits = validateRunnerLimits(request);
+  if (!limits.ok) return limits;
+  const input = validateRunnerInput(request);
+  if (!input.ok) return input;
+  return validateRunnerTools(request);
+}
+
+/**
+ * The guest's model request, bounded so it always fits one control frame.
+ *
+ * The pin is compared by the host against the runner request, not here; this
+ * step refuses a payload that is not a request at all, so a transport fault can
+ * never be mistaken for a model call.
+ */
+export function validateFactoryGuestModelRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestModelRequest(value)) return issue("GUEST_MODEL_SCHEMA", "Value does not match the generated FactoryGuestModelRequest schema.", []);
+  const request = value as FactoryGuestModelRequest;
+  if (!boundedText(request.operationId, 1_024) || !request.operationId.endsWith(`:${request.operationIndex}`) || !safeCounter(request.operationIndex)) {
+    return issue("GUEST_MODEL_OPERATION", "A guest model request must name its own journalled operation.", ["operationId"]);
+  }
+  if (!safeCounter(request.maxOutputTokens, 1) || request.maxOutputTokens > FACTORY_GUEST_MODEL_LIMITS.maxOutputTokens) {
+    return issue("GUEST_MODEL_OUTPUT", `Requested output must be between 1 and ${FACTORY_GUEST_MODEL_LIMITS.maxOutputTokens} tokens.`, ["maxOutputTokens"]);
+  }
+  if (request.messages.length < 1 || request.messages.length > FACTORY_GUEST_MODEL_LIMITS.maxMessages) {
+    return issue("GUEST_MODEL_MESSAGES", `A guest model request carries 1 to ${FACTORY_GUEST_MODEL_LIMITS.maxMessages} messages.`, ["messages"]);
+  }
+  for (let index = 0; index < request.messages.length; index += 1) {
+    const message = request.messages[index]!;
+    if (encodedBytes(message.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxMessageBytes) {
+      return issue("GUEST_MODEL_MESSAGES", "A guest model message exceeds its byte bound.", ["messages", index, "text"]);
+    }
+  }
+  if (encodedBytes(request.messages as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxInputBytes) {
+    return issue("GUEST_MODEL_INPUT_BYTES", `A guest model request input exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxInputBytes} bytes.`, ["messages"]);
+  }
+  return { ok: true };
+}
+
+/** The refusals that name a provider which answered with an error. */
+const PROVIDER_REFUSALS: ReadonlySet<string> = new Set(["provider_unavailable", "provider_auth_failed", "provider_rate_limited"]);
+
+/** The host's single reply. A completed answer is whole, and a refusal names itself. */
+export function validateFactoryGuestModelResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestModelResponse(value)) return issue("GUEST_MODEL_SCHEMA", "Value does not match the generated FactoryGuestModelResponse schema.", []);
+  const response = value as FactoryGuestModelResponse;
+  if (!boundedText(response.operationId, 1_024)) return issue("GUEST_MODEL_OPERATION", "A guest model response must name its operation.", ["operationId"]);
+  if (response.status === "refused") {
+    if (!boundedText(response.refusal.message, 4_096)) return issue("GUEST_MODEL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+    if (response.operation === undefined) return { ok: true };
+    // A settled operation rides only on a provider refusal, and only for the
+    // model operation this response names: a guest copies it into its result.
+    if (!PROVIDER_REFUSALS.has(response.refusal.code) || response.operation.kind !== "model" || response.operation.operationId !== response.operationId) {
+      return issue("GUEST_MODEL_OPERATION", "Only a provider refusal carries its settled model operation, and only its own.", ["operation"]);
+    }
+    return validateOperation(response.operation, ["operation"]);
+  }
+  if (encodedBytes(response.text as unknown as JsonValue) > FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes) {
+    return issue("GUEST_MODEL_RESPONSE_BYTES", `A guest model response exceeds ${FACTORY_GUEST_MODEL_LIMITS.maxResponseBytes} bytes.`, ["text"]);
+  }
+  // BARE 64-hex, the same form `validateFactoryRunnerResult` requires of an operation's
+  // receipt. A terminal result must mirror the journal row exactly, so a prefixed digest here
+  // would make the row unsettleable or the attempt uncompletable. Coordinator ruling 2026-09-20.
+  if (!validDigest(response.providerReceiptDigest, false)) return issue("GUEST_MODEL_RECEIPT", "A completed model call carries its provider receipt digest as bare 64-character hex.", ["providerReceiptDigest"]);
+  return validateUsage(response.usage, ["usage"]);
+}
+
+/** `type/subtype` in the grammar every factory artifact media type already uses. */
+function mediaTypeToken(value: string): boolean {
+  if (value.length < 1 || value.length > 64) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] as string;
+    const alphanumeric = (character >= "a" && character <= "z") || (character >= "0" && character <= "9");
+    if (index === 0 ? !alphanumeric : !(alphanumeric || "!#$&^_.+-".includes(character))) return false;
+  }
+  return true;
+}
+
+function validMediaType(value: string): boolean {
+  if (value.length > FACTORY_GUEST_MATERIAL_LIMITS.maxMediaTypeLength) return false;
+  const separator = value.indexOf("/");
+  return separator > 0 && value.indexOf("/", separator + 1) === -1
+    && mediaTypeToken(value.slice(0, separator)) && mediaTypeToken(value.slice(separator + 1));
+}
+
+/**
+ * A bounded relative path, the same shape the material service requires of an
+ * object name so a stored tree can never carry an entry outside its root.
+ */
+function validObjectName(value: string): boolean {
+  if (value.length < 1 || value.length > FACTORY_GUEST_MATERIAL_LIMITS.maxNameLength) return false;
+  if (value.startsWith("/") || value.includes("\\") || value.includes(":")) return false;
+  for (const character of value) {
+    const code = character.charCodeAt(0);
+    if (code < 32 || code === 127) return false;
+  }
+  return value.split("/").every((part) => part !== "" && part !== "." && part !== "..");
+}
+
+/** Base64 with padding, and nothing outside its alphabet. Length decides the byte count. */
+function base64Bytes(value: string): number {
+  if (value.length === 0 || value.length % 4 !== 0) return -1;
+  let padding = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    const character = value[index] as string;
+    if (character === "=") {
+      padding += 1;
+      if (padding > 2 || index < value.length - 2) return -1;
+      continue;
+    }
+    if (padding > 0) return -1;
+    const member = (character >= "A" && character <= "Z") || (character >= "a" && character <= "z")
+      || (character >= "0" && character <= "9") || character === "+" || character === "/";
+    if (!member) return -1;
+  }
+  return (value.length / 4) * 3 - padding;
+}
+
+function validMaterialIdentity(value: FactoryGuestMaterialIdentity): ValidationResult {
+  if (!boundedText(value.operationId, 1_024) || !value.operationId.endsWith(`:${value.operationIndex}`) || !safeCounter(value.operationIndex)) {
+    return issue("GUEST_MATERIAL_OPERATION", "A guest material frame must name its own journalled operation.", ["operationId"]);
+  }
+  if (!validObjectName(value.objectName)) return issue("GUEST_MATERIAL_NAME", "A material object name is a bounded relative path.", ["objectName"]);
+  if (!safeCounter(value.version, 1)) return issue("GUEST_MATERIAL_VERSION", "A material version starts at 1 and counts up.", ["version"]);
+  return { ok: true };
+}
+
+const GUEST_MATERIAL_FRAME_VERSIONS: ReadonlySet<string> = new Set([
+  FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_CHUNK_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
+  FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
+]);
+
+/**
+ * True when a reverse payload names one of the four staging frames.
+ *
+ * This routes a payload; it does not accept one. A payload it selects is still
+ * checked by {@link validateFactoryGuestMaterialRequest}. It lives beside that
+ * validator so a runner host can route a frame without loading any product
+ * module.
+ */
+export function isFactoryGuestMaterialFrame(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && GUEST_MATERIAL_FRAME_VERSIONS.has((payload as { schemaVersion?: unknown }).schemaVersion as string);
+}
+
+/**
+ * One staging frame, bounded so the whole material fits the guest's lifetime
+ * output budget.
+ *
+ * Nothing here decides authority. The scope a frame writes into comes from the
+ * verified attempt on the host side; this step only refuses a payload that is
+ * not a staging frame, or one whose own numbers cannot be honoured.
+ */
+export function validateFactoryGuestMaterialRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialRequest(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialRequest schema.", []);
+  const request = value as FactoryGuestMaterialRequest;
+  const identity = validMaterialIdentity(request);
+  if (!identity.ok) return identity;
+  if (request.schemaVersion === "factory.guest-material-begin.v1") {
+    if (!validMediaType(request.mediaType)) return issue("GUEST_MATERIAL_MEDIA_TYPE", "A material media type is `type/subtype` in the shared artifact grammar.", ["mediaType"]);
+    if (!safeCounter(request.totalBytes, 1) || request.totalBytes > FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes) {
+      return issue("GUEST_MATERIAL_BYTES", `A guest may stage at most ${FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes} bytes in one material.`, ["totalBytes"]);
+    }
+    if (!safeCounter(request.chunkCount, 1) || request.chunkCount > FACTORY_GUEST_MATERIAL_LIMITS.maxChunks) {
+      return issue("GUEST_MATERIAL_CHUNK_COUNT", `A material carries 1 to ${FACTORY_GUEST_MATERIAL_LIMITS.maxChunks} chunks.`, ["chunkCount"]);
+    }
+    if (request.chunkCount > request.totalBytes || request.chunkCount * FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes < request.totalBytes) {
+      return issue("GUEST_MATERIAL_CHUNK_COUNT", "The declared chunk count cannot carry the declared byte count.", ["chunkCount"]);
+    }
+    return { ok: true };
+  }
+  if (request.schemaVersion === "factory.guest-material-chunk.v1") {
+    if (!safeCounter(request.index) || request.index >= FACTORY_GUEST_MATERIAL_LIMITS.maxChunks) return issue("GUEST_MATERIAL_CHUNK_INDEX", "A chunk index is 0-based and inside the material's chunk bound.", ["index"]);
+    if (!validDigest(request.digest, true)) return issue("GUEST_MATERIAL_DIGEST", "A chunk digest is `sha256:` and 64 lowercase hex characters.", ["digest"]);
+    if (!safeCounter(request.encodedBytes, 1) || request.encodedBytes > FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes) {
+      return issue("GUEST_MATERIAL_CHUNK_BYTES", `A chunk carries 1 to ${FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes} bytes.`, ["encodedBytes"]);
+    }
+    if (base64Bytes(request.contentBase64) !== request.encodedBytes) return issue("GUEST_MATERIAL_CHUNK_CONTENT", "A chunk's base64 content must decode to exactly its declared byte count.", ["contentBase64"]);
+    return { ok: true };
+  }
+  if (!validDigest(request.digest, true)) return issue("GUEST_MATERIAL_DIGEST", "A material digest is `sha256:` and 64 lowercase hex characters.", ["digest"]);
+  return { ok: true };
+}
+
+/** The host's single answer to one staging frame. A refusal names itself. */
+export function validateFactoryGuestMaterialResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestMaterialResponse(value)) return issue("GUEST_MATERIAL_SCHEMA", "Value does not match the generated FactoryGuestMaterialResponse schema.", []);
+  const response = value as FactoryGuestMaterialResponse;
+  const identity = validMaterialIdentity(response);
+  if (!identity.ok) return identity;
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_MATERIAL_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (response.status === "begun") {
+    return safeCounter(response.totalBytes, 1) && safeCounter(response.chunkCount, 1)
+      ? { ok: true }
+      : issue("GUEST_MATERIAL_BYTES", "An accepted plan reports the byte and chunk counts it admitted.", ["totalBytes"]);
+  }
+  if (response.status === "stored") {
+    if (!safeCounter(response.index)) return issue("GUEST_MATERIAL_CHUNK_INDEX", "A stored chunk reports its index.", ["index"]);
+    return validDigest(response.digest, true) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A stored chunk reports its `sha256:` digest.", ["digest"]);
+  }
+  if (response.status === "sealed") return validateArtifactReference(response.material, ["material"]);
+  const output = validateArtifactReference(response.output, ["output"]);
+  if (!output.ok) return output;
+  // BARE 64-hex: a COMPLETED runner result's `resultDigest` carries this exact
+  // value and `validateFactoryRunnerResult` requires the unprefixed form there.
+  return validDigest(response.resultDigest, false) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A promoted output reports its result digest as bare 64-character hex.", ["resultDigest"]);
+}
+
+export function validateFactoryRunnerResult(value: unknown): ValidationResult {
+  if (!isFactoryRunnerResult(value)) return issue("RUNNER_RESULT_SCHEMA", "Value does not match the generated FactoryRunnerResult schema.", []);
+  const result = value as FactoryRunnerResult;
+  const envelope = validateRunnerEnvelope(result, "result");
+  if (!envelope.ok) return envelope;
+  if (!safeCounter(result.journalCursor, -1)) return issue("RUNNER_CURSOR", "Result cursor must be a safe integer.", ["journalCursor"]);
+  let previousIndex = -1;
+  for (let index = 0; index < result.operations.length; index += 1) {
+    const operation = result.operations[index]!;
+    if (operation.operationIndex <= previousIndex) return issue("RUNNER_OPERATION_ORDER", "Operation results must be strictly ordered by index.", ["operations", index, "operationIndex"]);
+    previousIndex = operation.operationIndex;
+    const operationResult = validateOperation(operation, ["operations", index]);
+    if (!operationResult.ok) return operationResult;
+    if (operation.state === "uncertain" ? operation.operationIndex <= result.journalCursor : operation.operationIndex > result.journalCursor) return issue("RUNNER_OPERATION_CURSOR", "Settled operations cannot exceed the cursor and uncertain operations cannot advance it.", ["operations", index, "operationIndex"]);
+    if (operation.state === "completed" && operation.workspaceCheckpoint.journalCursor !== operation.operationIndex) return issue("RUNNER_OPERATION_CURSOR", "Completed operation checkpoint must equal its operation index.", ["operations", index, "workspaceCheckpoint", "journalCursor"]);
+  }
+  if (result.usage !== undefined) {
+    const usage = validateUsage(result.usage, ["usage"]);
+    if (!usage.ok) return usage;
+  }
+  if (result.workspaceCheckpoint !== undefined) {
+    const checkpoint = validateArtifactReference(result.workspaceCheckpoint, ["workspaceCheckpoint"]);
+    if (!checkpoint.ok || result.workspaceCheckpoint.journalCursor !== result.journalCursor) return checkpoint.ok ? issue("RUNNER_CURSOR", "Workspace checkpoint must match the result cursor.", ["workspaceCheckpoint", "journalCursor"]) : checkpoint;
+  }
+  if (result.status === "completed") {
+    if (!validDigest(result.resultDigest, false)) return issue("RUNNER_DIGEST", "Completed result digest is invalid.", ["resultDigest"]);
+    const output = validateArtifactReference(result.output, ["output"]);
+    if (!output.ok) return output;
+  } else if (result.status === "failed") {
+    if (!validDigest(result.resultDigest, false) || !boundedText(result.error.code) || !boundedText(result.error.message, 4_096)) return issue("RUNNER_FAILURE", "Failed result needs a digest and structured bounded error.", ["error"]);
+  } else if (result.status === "uncertain" && (!validDigest(result.providerReceiptDigest, false) || result.resultDigest !== undefined && !validDigest(result.resultDigest, false))) return issue("RUNNER_UNCERTAIN", "Uncertain result receipt or result digest is invalid.", ["providerReceiptDigest"]);
+  return { ok: true };
+}
+
+/** Shared by the guest envelope and the gateway-sealed report; neither may hold a duplicate claim. */
+function validateValidatorClaims(claims: readonly FactoryValidatorClaimOutcome[], error: FactoryValidatorError | undefined): ValidationResult {
+  const seen = new Set<string>();
+  for (let index = 0; index < claims.length; index += 1) {
+    const claim = claims[index] as FactoryValidatorClaimOutcome;
+    if (seen.has(claim.id)) return issue("VALIDATOR_CLAIM_DUPLICATE", "A report carries each claim identity at most once.", ["claims", index, "id"]);
+    seen.add(claim.id);
+    if (!boundedText(claim.id, 512) || !boundedText(claim.reasonCode, 128)) return issue("VALIDATOR_CLAIM_IDENTITY", "Claim id and reason code must be bounded text without control characters.", ["claims", index]);
+    if (!safeCounter(claim.measuredAtMs)) return issue("VALIDATOR_CLAIM_MEASURED_AT", "Claim measurement time must be a nonnegative safe integer.", ["claims", index, "measuredAtMs"]);
+    for (let evidenceIndex = 0; evidenceIndex < claim.evidence.length; evidenceIndex += 1) {
+      const reference = validateArtifactReference(claim.evidence[evidenceIndex] as FactoryArtifactReference, ["claims", index, "evidence", evidenceIndex]);
+      if (!reference.ok) return reference;
+    }
+    if (claim.verdict === "FAIL" && claim.evidence.length === 0 && claim.summary.length === 0) return issue("VALIDATOR_CLAIM_EVIDENCE", "A FAIL claim must carry evidence or a summary a repair can read.", ["claims", index]);
+  }
+  if (error !== undefined) {
+    if (!boundedText(error.code, 128) || !boundedText(error.message, 4_096)) return issue("VALIDATOR_ERROR_BODY", "A validator error needs a bounded code and message.", ["error"]);
+    if (claims.some((claim) => claim.verdict !== "VALIDATOR_ERROR")) return issue("VALIDATOR_ERROR_SCOPE", "A validator error is reportable only when every claim is VALIDATOR_ERROR.", ["error"]);
+  }
+  return { ok: true };
+}
+
+/** The isolated guest writes claims only. Any provenance key is rejected by the generated schema. */
+export function validateFactoryValidatorClaimReport(value: unknown): ValidationResult {
+  if (!isFactoryValidatorClaimReport(value)) return issue("VALIDATOR_CLAIMS_SCHEMA", "Value does not match the generated FactoryValidatorClaimReport schema.", []);
+  const report = value as FactoryValidatorClaimReport;
+  return validateValidatorClaims(report.claims, report.error);
+}
+
+function validateValidatorProvenance(provenance: FactoryValidatorProvenance): ValidationResult {
+  for (const key of ["attemptId", "tenantId", "projectId", "runId", "candidateNodeInstanceId"] as const) {
+    if (!boundedText(provenance[key], 512)) return issue("VALIDATOR_PROVENANCE_IDENTITY", "Sealed provenance identities must be bounded text without control characters.", ["provenance", key]);
+  }
+  for (const key of ["candidateDigest", "validatorLockDigest", "runnerDigest", "environmentDigest", "configurationDigest"] as const) {
+    if (!validDigest(provenance[key], true)) return issue("VALIDATOR_PROVENANCE_DIGEST", "Sealed provenance digests must be prefixed lowercase sha256 values.", ["provenance", key]);
+  }
+  if (!safeCounter(provenance.candidateGeneration)) return issue("VALIDATOR_PROVENANCE_COUNTER", "Candidate generation must be a nonnegative safe integer.", ["provenance", "candidateGeneration"]);
+  for (const key of ["trustRevision", "issuerGrantRevision", "issuedAtMs"] as const) {
+    if (!safeCounter(provenance[key], 1)) return issue("VALIDATOR_PROVENANCE_COUNTER", "Trust revision, issuer grant revision, and issue time must be positive safe integers.", ["provenance", key]);
+  }
+  if (!safeCounter(provenance.expiresAtMs, provenance.issuedAtMs + 1)) return issue("VALIDATOR_PROVENANCE_FRESHNESS", "Sealed provenance must expire after it was issued.", ["provenance", "expiresAtMs"]);
+  const model = provenance.model;
+  if (model !== undefined && (!boundedText(model.provider) || !boundedText(model.model) || !validDigest(model.configurationDigest, true) || !validDigest(model.policyDigest, true) || model.configurationDigest !== provenance.configurationDigest)) {
+    return issue("VALIDATOR_PROVENANCE_MODEL", "A pinned model must match the sealed configuration digest.", ["provenance", "model"]);
+  }
+  return { ok: true };
+}
+
+/** Only the gateway validator path constructs a sealed report; a runner cannot supply provenance. */
+export function validateFactoryValidatorReport(value: unknown): ValidationResult {
+  if (!isFactoryValidatorReport(value)) return issue("VALIDATOR_REPORT_SCHEMA", "Value does not match the generated FactoryValidatorReport schema.", []);
+  const report = value as FactoryValidatorReport;
+  const provenance = validateValidatorProvenance(report.provenance);
+  if (!provenance.ok) return provenance;
+  return validateValidatorClaims(report.claims, report.error);
+}
+
+/** Mutations whose If-Match may be 0: the creations and pending-state mutations below, plus the upserts. */
+const REVISION_ZERO_ALLOWED: ReadonlySet<string> = new Set([
+  "draft.create",
+  "draft.import",
+  "grant.set",
+  "run.start",
+  "approval.decide",
+  "service-credential.issue",
+  "release.trust.publish",
+  "release.control.set",
+  "release.contract.put",
+  "release.prepare",
+  "release.approval.request",
+  "release.approval.decide",
+  "release.policy.put",
+  "package.install",
+  "package.trust",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
+  "restore.sign",
+]);
+
+/** Resource creations and pending-state mutations: If-Match must be exactly 0. */
+const REVISION_ZERO_REQUIRED: ReadonlySet<string> = new Set([
+  "draft.create",
+  "draft.import",
+  "run.start",
+  "approval.decide",
+  "release.prepare",
+  "release.approval.decide",
+  "release.policy.put",
+  "package.install",
+  "purge.request",
+  "artifact.share",
+  "artifact.unshare",
+  "restore.sign",
+]);
+
+function validateApiPreconditions(request: Extract<FactoryApiRequest, { preconditions: unknown }>): ValidationResult {
+  const { idempotencyKey, expectedRevision } = request.preconditions;
+  if (!boundedText(idempotencyKey, FACTORY_LIMITS.maxApiIdempotencyKeyLength)) return issue("API_IDEMPOTENCY_KEY", "Idempotency-Key must be a nonempty bounded value without control characters.", ["preconditions", "idempotencyKey"]);
+  if (!validDigest(request.preconditions.payloadDigest, false)) return issue("API_PAYLOAD_DIGEST", "Mutation payload digest must be lowercase sha256.", ["preconditions", "payloadDigest"]);
+  return validateExpectedRevision(request.kind, expectedRevision);
+}
+
+/** If-Match: a safe revision, at least 1 unless the kind allows 0, and exactly 0 where the kind requires it. */
+function validateExpectedRevision(kind: string, expectedRevision: number): ValidationResult {
+  const allowsZero = REVISION_ZERO_ALLOWED.has(kind);
+  if (!safeCounter(expectedRevision, allowsZero ? 0 : 1) || (!allowsZero && expectedRevision === 0)) return issue("API_EXPECTED_REVISION", "If-Match must contain a supported safe revision.", ["preconditions", "expectedRevision"]);
+  if (REVISION_ZERO_REQUIRED.has(kind) && expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Resource creation or pending-state mutation requires revision 0.", ["preconditions", "expectedRevision"]);
+  return { ok: true };
+}
+
+function validateApiPath(request: FactoryApiRequest): ValidationResult {
+  for (const [key, value] of Object.entries(request.path)) {
+    if ((key.endsWith("Id") || key === "version") && (!boundedText(value as string, FACTORY_LIMITS.maxApiIdentifierLength) || (value as string).includes("\0"))) return issue("API_PATH_IDENTITY", "Path identity must be nonempty, bounded, and free of control characters.", ["path", key]);
+  }
+  return { ok: true };
+}
+
+/** Validates durable artifact descriptors without materializing artifact bytes into kernel state. */
+export function validateDurableInputPorts(ports: Readonly<Record<string, PortSchema>>, input: JsonValue, durable: FactoryDurableInput): ValidationResult {
+  if (!isRecord(input) || !validateIJson(input).ok || encodedBytes(input) > FACTORY_LIMITS.maxInlineValueBytes) return issue("DURABLE_INPUT", "Durable input placeholders must be bounded I-JSON objects.", ["input"]);
+  if (!isRecord(durable) || durable.schemaVersion !== FACTORY_LAZY_INPUT_SCHEMA_VERSION || !isRecord(durable.parameters)) return issue("DURABLE_DESCRIPTOR", "Durable input descriptor is invalid.", ["durableInput"]);
+  for (const name of Object.keys(input)) if (!own(ports, name)) return issue("DURABLE_INPUT", "Durable input contains an undeclared port.", ["input", name]);
+  for (const [name, transport] of Object.entries(durable.parameters)) {
+    if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength) || !own(ports, name) || !isRecord(transport)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter is invalid.", ["durableInput", "parameters", name]);
+    const schema = ports[name]!;
+    if (transport.kind === "inline") {
+      if (!own(transport, "value") || !validateIJson(transport.value).ok || !own(input, name) || !jsonEqual(input[name]!, transport.value as JsonValue) || !validateValue(schema, transport.value as JsonValue).ok) return issue("DURABLE_INLINE", "Inline durable input must match its port schema and placeholder.", ["durableInput", "parameters", name]);
+      continue;
+    }
+    if (transport.kind !== "artifact" || !own(transport, "artifact") || !isRecord(transport.artifact)) return issue("DURABLE_DESCRIPTOR", "Durable input parameter kind is invalid.", ["durableInput", "parameters", name]);
+    const reference = transport.artifact as FactoryArtifactReference;
+    const artifact = validateArtifactReference(reference, ["durableInput", "parameters", name, "artifact"]);
+    if (!artifact.ok || reference.encodedBytes < 1 || reference.encodedBytes > FACTORY_LIMITS.maxDefinitionBytes) return artifact.ok ? issue("DURABLE_ARTIFACT", "Durable artifact byte count is invalid.", ["durableInput", "parameters", name, "artifact", "encodedBytes"]) : artifact;
+  }
+  for (const name of Object.keys(ports)) if (!own(durable.parameters, name)) return issue("DURABLE_DESCRIPTOR", "Durable input misses a declared port.", ["durableInput", "parameters", name]);
+  return { ok: true };
+}
+
+function validateApiTransportValues(parameters: Readonly<Record<string, FactoryTransportValue>>, path: readonly (string | number)[] = ["body", "parameters"]): ValidationResult {
+  for (const [name, transport] of Object.entries(parameters)) {
+    if (!boundedText(name, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_PARAMETER_NAME", "Parameter names must be nonempty bounded values.", [...path, name]);
+    if (transport.kind === "inline") {
+      if (encodedBytes(transport.value) > FACTORY_LIMITS.maxInlineValueBytes) return issue("API_PARAMETER_BYTES", "Inline parameter exceeds 64 KiB.", [...path, name]);
+    } else {
+      const artifact = validateArtifactReference(transport.artifact, [...path, name, "artifact"]);
+      if (!artifact.ok) return artifact;
+    }
+  }
+  return { ok: true };
+}
+
+/** The envelope every route shares: bounded query values and mutation preconditions. */
+function validateApiEnvelope(request: FactoryApiRequest): ValidationResult {
+  if ("query" in request) {
+    const query = request.query as { cursor?: string; search?: string };
+    if ((query.cursor !== undefined && !boundedText(query.cursor, 2_048)) || (query.search !== undefined && !boundedText(query.search, FACTORY_LIMITS.maxApiIdentifierLength))) return issue("API_QUERY", "Cursor and search values must be bounded and free of control characters.", ["query"]);
+  }
+  if ("preconditions" in request) {
+    const preconditions = validateApiPreconditions(request);
+    if (!preconditions.ok) return preconditions;
+  }
+  return { ok: true };
+}
+
+/** Draft authoring: the definition identity and the 16 MiB source bound. */
+function validateApiDraftRequest(request: FactoryApiRequest): ValidationResult {
+  if ((request.kind === "draft.update" || request.kind === "draft.validate") && request.body.source.id !== request.path.factoryId) return issue("API_FACTORY_ID", "The definition ID must match the trusted factory path.", ["body", "source", "id"]);
+  if ((request.kind === "draft.create" || request.kind === "draft.update" || request.kind === "draft.validate") && encodedBytes(request.body.source as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_DEFINITION_BYTES", "Factory definition exceeds 16 MiB.", ["body", "source"]);
+  if (request.kind === "draft.import" && new TextEncoder().encode(request.body.source).byteLength > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_IMPORT_BYTES", "Imported source exceeds 16 MiB.", ["body", "source"]);
+  return { ok: true };
+}
+
+/** Run lifecycle commands: start, the control actions, and an approval decision. */
+function validateApiRunRequest(request: FactoryApiRequest): ValidationResult {
+  if (request.kind === "run.start") {
+    if (!validDigest(request.body.definitionDigest, true)) return issue("API_DEFINITION_DIGEST", "Run start needs a prefixed lowercase sha256 definition digest.", ["body", "definitionDigest"]);
+    if (!boundedText(request.body.factoryVersion, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_VERSION", "Run start needs a bounded factory version.", ["body", "factoryVersion"]);
+    const parameters = validateApiTransportValues(request.body.parameters);
+    if (!parameters.ok) return parameters;
+    if (encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_RUN_START_BYTES", "Run start exceeds the 64 KiB durable command bound.", []);
+  }
+  if (request.kind === "run.control" && request.body.action !== "cancel") {
+    if (!boundedText(request.body.nodeId, FACTORY_LIMITS.maxApiIdentifierLength)) return issue("API_CONTROL_NODE", "Repair and replan need a bounded node target.", ["body", "nodeId"]);
+    const parameters = validateApiTransportValues(request.body.parameters, ["body", "parameters"]);
+    if (!parameters.ok) return parameters;
+    if (request.body.action === "replan") {
+      if (!boundedText(request.body.replacement.id, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(request.body.replacement.version, FACTORY_LIMITS.maxApiIdentifierLength) || request.body.replacement.version === "latest" || request.body.replacement.version.includes("*") || !validDigest(request.body.replacement.digest, true)) return issue("API_CONTROL_REPLACEMENT", "Replan needs an exact published child revision.", ["body", "replacement"]);
+    }
+  }
+  if (request.kind === "run.control" && encodedBytes(request as unknown as JsonValue) > FACTORY_LIMITS.maxWireBytes) return issue("API_CONTROL_BYTES", "Run control exceeds the 64 KiB durable command bound.", []);
+  if (request.kind === "approval.decide" && (!validDigest(request.body.contextDigest, false) || !boundedText(request.body.choice))) return issue("API_CONTEXT_DIGEST", "Approval decision needs a bounded exact choice and lowercase sha256 context digest.", ["body"]);
+  return { ok: true };
+}
+
+/** Authority grants and the service credentials issued against them. */
+function validateApiGrantRequest(request: FactoryApiRequest): ValidationResult {
+  if (request.kind === "grant.set" && request.path.principalKind === "service" && request.body.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grants require an expiry.", ["body", "expiresAtMs"]);
+  if (request.kind === "service-credential.issue") {
+    const order = ["read", "write", "chat"] as const;
+    const canonical = order.filter(scope => request.body.scopes.includes(scope));
+    if (request.preconditions.expectedRevision !== 0) return issue("API_EXPECTED_REVISION", "Credential issuance requires revision zero.", ["preconditions", "expectedRevision"]);
+    if (request.body.expiresAtMs % 1_000 !== 0) return issue("API_CREDENTIAL_EXPIRY", "Credential expiry must be a whole second.", ["body", "expiresAtMs"]);
+    if (new Set(request.body.scopes).size !== request.body.scopes.length
+      || request.body.scopes.some((scope, index) => canonical[index] !== scope)) {
+      return issue("API_CREDENTIAL_SCOPES", "Credential scopes must be unique and in canonical order.", ["body", "scopes"]);
+    }
+  }
+  return { ok: true };
+}
+
+/** What a release is allowed to trust: the package lock and the claim contract. */
+function validateApiReleaseTrustRequest(request: FactoryApiRequest): ValidationResult {
+  if (request.kind === "release.trust.publish") {
+    const runner = validateRunnerReference(request.body.packageLock, ["body", "packageLock"]);
+    if (!runner.ok) return runner;
+    if (!validDigest(request.body.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust needs a prefixed lowercase sha256 validator digest.", ["body", "validatorTrustDigest"]);
+  }
+  if (request.kind === "release.contract.put") {
+    if (!validDigest(request.body.contractDigest, true) || !validDigest(request.body.validatorLockDigest, true)) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract digests must be prefixed lowercase sha256 values.", ["body"]);
+    const claimIds = new Set(request.body.mandatoryClaims.map(claim => claim.id));
+    if (claimIds.size !== request.body.mandatoryClaims.length || request.body.mandatoryClaims.some(claim => !boundedText(claim.id) || !boundedText(claim.validatorId) || !safeCounter(claim.freshnessMs, 1) || (claim.required !== undefined && typeof claim.required !== "boolean"))) return issue("API_RELEASE_CONTRACT_CLAIM", "Release contract claims must be unique, bounded, fresh for a positive interval, and mark required as a boolean when present.", ["body", "mandatoryClaims"]);
+    const groupIds = new Set(request.body.claimGroups.map(group => group.id));
+    if (groupIds.size !== request.body.claimGroups.length || request.body.claimGroups.some(group => !boundedText(group.id) || group.minimumPasses < 1 || group.minimumPasses > group.claimIds.length || group.claimIds.some(id => !claimIds.has(id)))) return issue("API_RELEASE_CONTRACT_GROUP", "Release contract groups must be unique and reference valid claims.", ["body", "claimGroups"]);
+  }
+  return { ok: true };
+}
+
+/** One release operation's life: prepare, approve, bound by policy, then reconcile. */
+function validateApiReleaseOperationRequest(request: FactoryApiRequest): ValidationResult {
+  if (request.kind === "release.prepare") {
+    if (!validDigest(request.body.candidateDigest, true) || !safeCounter(request.body.candidateGeneration) || !safeCounter(request.body.estimatedSpendMicros) || !safeCounter(request.body.deadlineMs, 1) || encodedBytes(request.body.request) > 1_048_576) return issue("API_RELEASE_PREPARE", "Release preparation needs an exact candidate, bounded counters, and a request no larger than 1 MiB.", ["body"]);
+  }
+  if (request.kind === "release.approval.decide" && !validDigest(request.body.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval needs a lowercase sha256 context digest.", ["body", "contextDigest"]);
+  if (request.kind === "release.policy.put" && (!validDigest(request.body.contractDigest, true) || !safeCounter(request.body.maxOperations, 1) || !safeCounter(request.body.maxSpendMicros) || !safeCounter(request.body.expiresAtMs, 1))) return issue("API_RELEASE_POLICY", "Release policy bounds and contract digest are invalid.", ["body"]);
+  if (request.kind === "release.reconcile") {
+    if (request.preconditions.expectedRevision < 1 || request.body.providerEvidence === null || typeof request.body.providerEvidence !== "object" || Array.isArray(request.body.providerEvidence) || Object.keys(request.body.providerEvidence).length === 0 || encodedBytes(request.body.providerEvidence) > 1_048_576) return issue("API_RELEASE_RECONCILIATION", "Reconciliation needs an executing generation and bounded structured provider evidence.", ["body"]);
+    if ((request.body.action === "attach_receipt") !== (request.body.receipt !== undefined)) return issue("API_RELEASE_RECONCILIATION", "Only receipt attachment accepts an exact provider receipt.", ["body", "receipt"]);
+    if (request.body.receipt !== undefined && !validReleaseReceipt(request.body.receipt)) return issue("API_RELEASE_RECONCILIATION", "The provider receipt is invalid.", ["body", "receipt"]);
+  }
+  return { ok: true };
+}
+
+/** Strict, workflow-safe validation for trusted C09 route inputs. */
+export function validateFactoryApiRequest(value: unknown): ValidationResult {
+  if (!isFactoryApiRequest(value)) return issue("API_REQUEST_SCHEMA", "Value does not match the generated FactoryApiRequest schema.", []);
+  const request = value as FactoryApiRequest;
+  const path = validateApiPath(request);
+  if (!path.ok) return path;
+  const envelope = validateApiEnvelope(request);
+  if (!envelope.ok) return envelope;
+  const draft = validateApiDraftRequest(request);
+  if (!draft.ok) return draft;
+  const run = validateApiRunRequest(request);
+  if (!run.ok) return run;
+  const grant = validateApiGrantRequest(request);
+  if (!grant.ok) return grant;
+  const trust = validateApiReleaseTrustRequest(request);
+  if (!trust.ok) return trust;
+  const operation = validateApiReleaseOperationRequest(request);
+  if (!operation.ok) return operation;
+  const payloadDigest = "preconditions" in request ? validateFactoryApiPayloadDigest(request) : { ok: true } as const;
+  if (!payloadDigest.ok) return payloadDigest;
+  return { ok: true };
+}
+
+function validDraftSummary(resource: { availability: string; availabilityReason?: string; sourceDigest: string }): boolean {
+  return validDigest(resource.sourceDigest, false)
+    && (resource.availability === "unavailable" ? boundedText(resource.availabilityReason ?? "", 2_048) : resource.availabilityReason === undefined);
+}
+
+function validApprovalResource(resource: Extract<FactoryApiResponse, { kind: "approval.resource" }>["resource"]): boolean {
+  const decided = resource.status === "answered";
+  return validDigest(resource.contextDigest, false) && resource.choices.length > 0 && resource.choices.length <= 100 && resource.choices.every(choice => boundedText(choice)) && decided === (resource.decidedBy !== undefined && resource.decidedAtMs !== undefined && resource.choice !== undefined) && (!decided || resource.choices.includes(resource.choice!));
+}
+
+function validReleaseNotification(resource: Extract<FactoryApiResponse, { kind: "release.notification.page" }>["page"]["items"][number]): boolean {
+  if (resource.kind === "approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1);
+  if (resource.kind === "command_approval_requested") return validDigest(resource.contextDigest, false) && safeCounter(resource.expiresAtMs, 1) && resource.choices.length > 0 && resource.choices.length <= 100 && resource.choices.every(choice => boundedText(choice));
+  return safeCounter(resource.dispatchGeneration, 1) && boundedText(resource.outcomeCode);
+}
+
+function validServiceCredentialToken(token: string): boolean {
+  if (!token.startsWith("ezkfsvc_")) return false;
+  const parts = token.slice(8).split(".");
+  return parts.length === 3 && parts.every(part => part.length > 0 && [...part].every(character =>
+    character >= "A" && character <= "Z" || character >= "a" && character <= "z"
+    || character >= "0" && character <= "9" || character === "_" || character === "-"));
+}
+
+function validVersion(resource: Extract<FactoryApiResponse, { kind: "version.summary" }>["resource"]): boolean {
+  return validDigest(resource.definitionDigest, true)
+    && validDigest(resource.compiledBlobDigest, false)
+    && safeCounter(resource.compiledBytes, 1)
+    && resource.compiledBytes <= FACTORY_LIMITS.maxDefinitionBytes;
+}
+
+function validReleaseReceipt(receipt: { requestDigest: string; effectDigest: string; dispatchGeneration: number }): boolean {
+  return validDigest(receipt.requestDigest, true) && validDigest(receipt.effectDigest, true) && safeCounter(receipt.dispatchGeneration, 1);
+}
+
+function validReleaseOperation(resource: Extract<FactoryApiResponse, { kind: "release.operation.resource" }>["resource"]): boolean {
+  return validDigest(resource.candidateDigest, true) && validDigest(resource.contractDigest, true)
+    && validDigest(resource.destinationDigest, true) && validDigest(resource.requestDigest, true)
+    && safeCounter(resource.candidateGeneration) && safeCounter(resource.executionEpoch, 1)
+    && safeCounter(resource.cancellationEpoch) && safeCounter(resource.releaseEnableEpoch, 1)
+    && safeCounter(resource.dispatchGeneration) && (resource.receipt === undefined || validReleaseReceipt(resource.receipt));
+}
+
+function validateApiDraftResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "draft.summary" || response.kind === "draft.details") {
+    if (!validDraftSummary(response.resource)) return issue("API_DRAFT_RESOURCE", "Draft digest or availability detail is invalid.", ["resource"]);
+    if (response.kind === "draft.details" && response.resource.source.id !== response.resource.factoryId) return issue("API_FACTORY_ID", "Draft definition ID must match its resource ID.", ["resource", "source", "id"]);
+  }
+  if (response.kind === "draft.page" && response.page.items.some((item) => !validDraftSummary(item))) return issue("API_DRAFT_RESOURCE", "Draft page contains an invalid digest or availability detail.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiVersionResponse(response: FactoryApiResponse): ValidationResult {
+  if ((response.kind === "version.summary" || response.kind === "version.details") && !validVersion(response.resource)) return issue("API_VERSION_DIGEST", "Published version digests and artifacts must be valid.", ["resource"]);
+  if (response.kind === "version.details" && (response.resource.source.id !== response.resource.factoryId || response.resource.source.version !== response.resource.version)) return issue("API_VERSION_IDENTITY", "Published definition identity must match its version resource.", ["resource", "source"]);
+  if (response.kind === "version.page" && response.page.items.some((item) => !validVersion(item))) return issue("API_VERSION_DIGEST", "Published version page contains an invalid digest or artifact.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiRunResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "run.details" && !validDigest(response.resource.definitionDigest, true)) return issue("API_RUN_DIGEST", "Run definition digest must be prefixed lowercase sha256.", ["resource", "definitionDigest"]);
+  if (response.kind === "run.details") {
+    const parameters = validateApiTransportValues(response.resource.parameters, ["resource", "parameters"]);
+    if (!parameters.ok) return parameters;
+    if (response.resource.output !== undefined) {
+      const output = validateApiTransportValues({ output: response.resource.output }, ["resource"]);
+      if (!output.ok) return output;
+    }
+  }
+  if (response.kind === "run.page" && response.page.items.some((item) => !validDigest(item.definitionDigest, true))) return issue("API_RUN_DIGEST", "Run page contains an invalid definition digest.", ["page", "items"]);
+  return { ok: true };
+}
+
+function validateApiApprovalResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "approval.resource") {
+    if (!validApprovalResource(response.resource)) return issue("API_APPROVAL_RESOURCE", "Approval context and decision evidence are inconsistent.", ["resource"]);
+  }
+  if (response.kind === "approval.page" && response.page.items.some((item) => !validApprovalResource(item))) return issue("API_APPROVAL_RESOURCE", "Approval page contains inconsistent context or decision evidence.", ["page", "items"]);
+  return { ok: true };
+}
+
+/** Grant expiry and the service-credential metadata issued under it. */
+function validateApiGrantResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "grant.resource" && response.resource.principalKind === "service" && response.resource.expiresAtMs === null) return issue("API_GRANT_EXPIRY", "Service grant resources require an expiry.", ["resource", "expiresAtMs"]);
+  if (response.kind === "grant.page" && response.page.items.some((item) => item.principalKind === "service" && item.expiresAtMs === null)) return issue("API_GRANT_EXPIRY", "Service grant page contains a missing expiry.", ["page", "items"]);
+  if (response.kind === "service-credential.issued" || response.kind === "service-credential.resource") {
+    const resource = response.resource;
+    const canonical = ["read", "write", "chat"].filter(scope => resource.scopes.includes(scope as typeof resource.scopes[number]));
+    if (resource.scopes.length !== new Set(resource.scopes).size || resource.scopes.some((scope, index) => scope !== canonical[index])
+      || resource.issuedAtMs % 1_000 !== 0 || resource.expiresAtMs % 1_000 !== 0 || resource.expiresAtMs <= resource.issuedAtMs) {
+      return issue("API_CREDENTIAL_RESOURCE", "Service credential metadata is invalid.", ["resource"]);
+    }
+    if (response.kind === "service-credential.issued" && !validServiceCredentialToken(response.token)) {
+      return issue("API_CREDENTIAL_TOKEN", "Issued service credential token is invalid.", ["token"]);
+    }
+  }
+  return { ok: true };
+}
+
+/** Release trust, contract, operation, approval, notification, and policy resources. */
+function validateApiReleaseResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "release.trust.resource") {
+    const runner = validateRunnerReference(response.resource.packageLock, ["resource", "packageLock"]);
+    if (!runner.ok) return runner;
+    if (!validDigest(response.resource.packageTrustDigest, true) || !validDigest(response.resource.validatorTrustDigest, true)) return issue("API_RELEASE_TRUST_DIGEST", "Release trust resource digests must be prefixed lowercase sha256 values.", ["resource"]);
+  }
+  if (response.kind === "release.contract.resource" && (!validDigest(response.resource.contractDigest, true) || !validDigest(response.resource.validatorLockDigest, true))) return issue("API_RELEASE_CONTRACT_DIGEST", "Release contract response contains an invalid digest.", ["resource"]);
+  if (response.kind === "release.operation.resource" && !validReleaseOperation(response.resource)) return issue("API_RELEASE_OPERATION", "Release operation response contains invalid protected coordinates.", ["resource"]);
+  if (response.kind === "release.approval.resource" && !validDigest(response.resource.contextDigest, false)) return issue("API_CONTEXT_DIGEST", "Release approval response contains an invalid context digest.", ["resource", "contextDigest"]);
+  if (response.kind === "release.notification.page" && response.page.items.some(item => !validReleaseNotification(item))) return issue("API_RELEASE_NOTIFICATION", "Release notification page contains invalid authority or outcome details.", ["page", "items"]);
+  if (response.kind === "release.policy.resource" && !response.resource.revoked && !validDigest(response.resource.contractDigest, true)) return issue("API_RELEASE_POLICY", "Release policy response contains an invalid contract digest.", ["resource", "contractDigest"]);
+  return { ok: true };
+}
+
+/** The two envelopes that carry no resource: a durable receipt and an error. */
+function validateApiEnvelopeResponse(response: FactoryApiResponse): ValidationResult {
+  if (response.kind === "mutation.accepted" && (!boundedText(response.receipt.resourceId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.commandId, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.receipt.statusUrl, 2_048) || !response.receipt.statusUrl.startsWith("/api/factories/"))) return issue("API_RECEIPT", "Durable receipt identities and status URL are invalid.", ["receipt"]);
+  if (response.kind === "error" && (!boundedText(response.error.code, FACTORY_LIMITS.maxApiIdentifierLength) || !boundedText(response.error.message, 4_096))) return issue("API_ERROR", "Factory API error code and message must be bounded.", ["error"]);
+  return { ok: true };
+}
+
+/** Strict, workflow-safe validation for C09 route responses. */
+export function validateFactoryApiResponse(value: unknown): ValidationResult {
+  if (!isFactoryApiResponse(value)) return issue("API_RESPONSE_SCHEMA", "Value does not match the generated FactoryApiResponse schema.", []);
+  const response = value as FactoryApiResponse;
+  const draft = validateApiDraftResponse(response);
+  if (!draft.ok) return draft;
+  const version = validateApiVersionResponse(response);
+  if (!version.ok) return version;
+  const run = validateApiRunResponse(response);
+  if (!run.ok) return run;
+  const approval = validateApiApprovalResponse(response);
+  if (!approval.ok) return approval;
+  const grant = validateApiGrantResponse(response);
+  if (!grant.ok) return grant;
+  const release = validateApiReleaseResponse(response);
+  if (!release.ok) return release;
+  const envelope = validateApiEnvelopeResponse(response);
+  if (!envelope.ok) return envelope;
+  if (encodedBytes(response as unknown as JsonValue) > FACTORY_LIMITS.maxDefinitionBytes) return issue("API_RESPONSE_BYTES", "Factory API response exceeds 16 MiB.", []);
+  return { ok: true };
+}

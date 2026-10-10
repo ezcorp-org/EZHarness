@@ -1,0 +1,24 @@
+CRAP: --changed against origin/main → 485 measured file(s) in diff
+
+CRAP: 6430 functions in 485 files (max 30, warn 15)
+
+Worst 15:
+     30.0  cc= 30 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:376 applyUsage
+     30.0  cc= 30 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:1348 progressMap
+     30.0  cc= 30 cov=100%  src/factory/reference-image/model-lock.ts:71 assertReferenceImageModelLock
+     30.0  cc= 30 cov=100%  src/factory/runner/host-launch-service.ts:123 <anonymous@123>
+     29.0  cc= 29 cov=100%  packages/@ezcorp/factory-sdk/src/parse.ts:93 number
+     29.0  cc= 29 cov=100%  src/factory/command-authority.ts:213 <anonymous@213>
+     29.0  cc= 29 cov=100%  src/factory/validator-materials.ts:422 resolveLocked
+     29.0  cc= 29 cov=100%  src/runtime/workflow-executor.ts:821 runWorkflow
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:256 applyPartitionCompletion
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/validation.ts:1123 validateFactoryRunnerResult
+     28.0  cc= 28 cov=100%  packages/@ezcorp/factory-sdk/src/validation.ts:1276 validateDurableInputPorts
+     28.0  cc= 28 cov=100%  src/factory/artifact-materials.ts:319 parseFactoryMaterialManifest
+     28.0  cc= 28 cov=100%  src/factory/assurance.ts:287 assertAcceptedReleaseInTransaction
+     28.0  cc= 28 cov=100%  src/factory/pool/gpu-host-profiles.ts:91 register
+     27.0  cc= 27 cov=100%  packages/@ezcorp/factory-sdk/src/kernel.ts:232 applyInputPage
+
+168 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30
