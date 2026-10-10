@@ -1,3 +1,5 @@
+import { spawnSync } from "node:child_process";
+import { recoveryRowHash } from "./incus-create-noeffect-recovery";
 import { IncusSandboxAdapter } from "../../extensions/incus-sandbox/adapter";
 import { IncusTransportError } from "../../extensions/incus-sandbox/transport";
 import { sandboxProviderMethodSchemas, SANDBOX_PROVIDER_OPERATIONS, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
@@ -1223,3 +1225,234 @@ test("user settlement inspection preserves expired signed history and rejects un
     expect(await userRecoveryDatabaseRows(f.db)).toEqual(before);
   } finally { clock.mockReturnValue(now); }
 }, 30000);
+
+
+function userAbortReceipt(f: Awaited<ReturnType<typeof userCreateSetup>>) {
+  const originalRequest = { ...f.target, version: 1 as const, action: "recover-user-create" as const,
+    nonce: f.signed.payload.nonce, reviewId: f.signed.payload.reviewId, allClientsFenced: true as const,
+    fenceEvidence: f.signed.payload.fenceEvidence, deadlineMs: now + 175000 };
+  const stoppedBoundary = f.signed.payload.stoppedBoundary;
+  const payload = { version: 2 as const, action: "abort-user-create-before-admission" as const,
+    originalRequest, pins: f.pins, stoppedBoundary,
+    requestFileSha256: recoveryRowHash({ request: originalRequest, stoppedBoundary }),
+    requestSha256: recoveryRowHash(originalRequest),
+    holdSha256: createHash("sha256").update(canonicalRecoveryJson({ nonce: originalRequest.nonce, reviewId: originalRequest.reviewId }) + "\n").digest("hex"),
+    issuedAtMs: now, expiresAtMs: now + 30000 };
+  return { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+}
+
+test("USER recovery abort consumes only its signed request and fences stale settlement", async () => {
+  const { userCreateRecoveryAbort, applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup(), signed = userAbortReceipt(f);
+  const tables = [schema.projects, schema.projectMembers, schema.sandboxBindings, schema.sandboxOperations, schema.sandboxReservations, schema.sandboxAdmissionRequests] as const;
+  const before = await Promise.all(tables.map(table => f.db.select().from(table)));
+  expect(await userCreateRecoveryAbort(f.db, signed, publicKeyPem, false)).toMatchObject({ status: "uncommitted" });
+  const proof = await userCreateRecoveryAbort(f.db, signed, publicKeyPem, true);
+  expect(proof).toHaveProperty("abortId");
+  expect(await Promise.all(tables.map(table => f.db.select().from(table)))).toEqual(before);
+  expect(await userCreateRecoveryAbort(f.db, signed, publicKeyPem, false)).toEqual(proof);
+  expect(await userCreateRecoveryAbort(f.db, signed, publicKeyPem, true)).toEqual(proof);
+  await expect(applyUserCreateRecovery(f.db, f.signed, publicKeyPem)).rejects.toThrow("nonce");
+  expect(await Promise.all(tables.map(table => f.db.select().from(table)))).toEqual(before);
+  expect(await f.db.select().from(schema.incusFencedCleanupAborts)).toHaveLength(1);
+  expect(await f.db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(1);
+});
+
+test("USER recovery abort rejects admission, drift, forgery, expiry and rolls back its nonce", async () => {
+  const { userCreateRecoveryAbort, applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup(), signed = userAbortReceipt(f);
+  await expect(userCreateRecoveryAbort(f.db, { ...signed, signature: "forged" }, publicKeyPem, true)).rejects.toThrow("signature");
+  const altered = { ...signed.payload, holdSha256: "a".repeat(64) };
+  const bad = { payload: altered, signature: sign(null, Buffer.from(canonicalRecoveryJson(altered)), privateKey).toString("base64") };
+  await expect(userCreateRecoveryAbort(f.db, bad, publicKeyPem, true)).rejects.toThrow("hold");
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, true, now + 30001)).rejects.toThrow("expired");
+  await f.db.update(schema.sandboxReservations).set({ diskState: "RELEASED" });
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, true)).rejects.toThrow("allocation");
+  await f.db.update(schema.sandboxReservations).set({ diskState: "RESERVED" });
+  expect(await f.db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+  await f.db.execute(sql`CREATE FUNCTION deny_user_abort() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected abort rollback'; END $$`);
+  await f.db.execute(sql`CREATE TRIGGER deny_user_abort BEFORE INSERT ON incus_fenced_cleanup_aborts FOR EACH ROW EXECUTE FUNCTION deny_user_abort()`);
+  try {
+    await userCreateRecoveryAbort(f.db, signed, publicKeyPem, true);
+    throw new Error("abort trigger must refuse");
+  } catch (error) {
+    expect(String((error as { cause?: unknown }).cause)).toContain("injected abort rollback");
+  }
+  expect(await f.db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+  await f.db.execute(sql`DROP TRIGGER deny_user_abort ON incus_fenced_cleanup_aborts`);
+  await applyUserCreateRecovery(f.db, f.signed, publicKeyPem);
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, true)).rejects.toThrow();
+});
+
+test("USER abort and settlement serialize to one winner on the same locked rows", async () => {
+  const { userCreateRecoveryAbort, applyUserCreateRecovery } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup();
+  const results = await Promise.allSettled([userCreateRecoveryAbort(f.db, userAbortReceipt(f), publicKeyPem, true), applyUserCreateRecovery(f.db, f.signed, publicKeyPem)]);
+  expect(results.filter(r => r.status === "fulfilled")).toHaveLength(1);
+  expect(results.filter(r => r.status === "rejected")).toHaveLength(1);
+  const claims = await f.db.select().from(schema.incusFencedCleanupNonceClaims);
+  expect(claims).toHaveLength(1);
+  expect(await f.db.select().from(schema.sandboxOperations).where(eq(schema.sandboxOperations.id, operationId))).toMatchObject([{ state: "FAILED" }]);
+});
+
+
+test("USER abort offline dispatcher and actual Bun CLI inspect the same durable signed record", async () => {
+  const { handleUserCreateRecoveryPhase } = await import("../../scripts/incus/incus-create-noeffect-recovery");
+  const directory = mkdtempSync(join(tmpdir(), "incus-user-abort-cli-"));
+  const f = await userCreateSetup(join(directory, "db"));
+  const base = userAbortReceipt(f);
+  const payload = base.payload;
+  const signed = { payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") };
+  await f.client.close();
+  const previous = { path: process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH, key: process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64, url: process.env.DATABASE_URL };
+  process.env.EZCORP_INCUS_SUPERVISOR_DB_PATH = join(directory, "db");
+  process.env.EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64 = Buffer.from(publicKeyPem).toString("base64");
+  process.env.DATABASE_URL = "";
+  try {
+    const frame = { phase: "abort", receipt: signed, publicKeyPem };
+    const proof = await handleUserCreateRecoveryPhase(frame);
+    expect(proof).toHaveProperty("abortId");
+    const child = spawnSync(process.execPath, ["./scripts/incus/incus-create-noeffect-recovery.ts"], {
+      input: JSON.stringify({ ...frame, phase: "inspect-abort" }) + "\n", encoding: "utf8", timeout: 15000,
+      env: { PATH: process.env.PATH, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH, DATABASE_URL: "",
+        EZCORP_INCUS_SUPERVISOR_DB_PATH: join(directory, "db"),
+        EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(publicKeyPem).toString("base64") } });
+    expect(child.error).toBeUndefined();expect(child.stderr).toBe("");expect(child.status).toBe(0);
+    expect(JSON.parse(child.stdout)).toEqual(proof);
+    // Bun test executes this explicit script path with import.meta.main true;
+    // retain its real LCOV instead of inventing coverage for the CLI boundary.
+    const coverageDir = process.env.EZCORP_USER_ABORT_CHILD_COVERAGE_DIR ?? join(directory, "child-coverage");
+    const instrumented = spawnSync(process.execPath, ["test", "./scripts/incus/incus-create-noeffect-recovery.ts", "--coverage", "--coverage-reporter=lcov", "--coverage-dir", coverageDir], {
+      input: JSON.stringify({ ...frame, phase: "inspect-abort" }) + "\n", encoding: "utf8", timeout: 15000,
+      env: { PATH: process.env.PATH, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH, DATABASE_URL: "",
+        EZCORP_INCUS_SUPERVISOR_DB_PATH: join(directory, "db"),
+        EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(publicKeyPem).toString("base64") } });
+    expect(instrumented.error).toBeUndefined();expect(instrumented.status).toBe(0);
+    const replies = instrumented.stdout.split("\n").filter(line => line.startsWith("{"));
+    expect(replies).toHaveLength(1);expect(JSON.parse(replies[0]!)).toEqual(proof);
+    expect(instrumented.stderr).toContain("0 fail");
+    expect(await handleUserCreateRecoveryPhase({ ...frame, phase: "inspect-abort" })).toEqual(proof);
+    await expect(handleUserCreateRecoveryPhase({ ...frame, extra: true })).rejects.toThrow("fields");
+    await expect(handleUserCreateRecoveryPhase({ ...frame, publicKeyPem: generateKeyPairSync("ed25519").publicKey.export({ type: "spki", format: "pem" }).toString() })).rejects.toThrow("configured supervisor signer");
+  } finally {
+    for (const [name, value] of [["EZCORP_INCUS_SUPERVISOR_DB_PATH", previous.path], ["EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64", previous.key], ["DATABASE_URL", previous.url]] as const) {
+      if (value === undefined) delete process.env[name]; else process.env[name] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+}, 30000);
+
+
+test("failed USER producer then supported abort CLI composes real signer and typed PGlite without settlement", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "incus-user-abort-chain-"));
+  const f = await userCreateSetup(join(directory, "db"));
+  const base = userAbortReceipt(f);
+  const request = { ...base.payload.originalRequest, deadlineMs: realNow() + 175000 };
+  const before = await f.db.select().from(schema.sandboxReservations);
+  await f.client.close();
+  writeFileSync(join(directory, "key.pem"), privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+  writeFileSync(join(directory, "input.json"), JSON.stringify({ request, pins: f.pins }), { mode: 0o600 });
+  const bridge = `import json,sys,subprocess,os
+value=json.load(sys.stdin)
+with open(sys.argv[1]+'/phases','a') as out:out.write(value['phase']+'\\n')
+if value['phase']=='backend':sys.exit(42)
+child=subprocess.run([os.environ['BUN'],os.environ['CLI']],input=json.dumps(value).encode()+b'\\n',capture_output=True)
+sys.stdout.buffer.write(child.stdout);sys.stderr.buffer.write(child.stderr);sys.exit(child.returncode)
+`;
+  writeFileSync(join(directory, "phase.py"), bridge, { mode: 0o600 });
+  const driver = `import importlib.util,json,sys,os,hashlib,time,subprocess
+from pathlib import Path
+from unittest import mock
+root=Path(sys.argv[1]);source=Path(os.environ['SUPERVISOR'])
+spec=importlib.util.spec_from_file_location('production',source);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+value=json.loads((root/'input.json').read_bytes());r=value['request'];pins=value['pins']
+b={'oldProcess':{'pid':123456789,'startTicks':'456'},'stoppedAtMs':int(time.time()*1000)-85000,'bootId':Path('/proc/sys/kernel/random/boot_id').read_text().strip(),'processGroupId':123456789,'appUid':os.getuid(),'appGid':os.getgid()}
+config={'socket':str(root/'socket'),'appCommand':['true'],'appUid':os.getuid(),'appGid':os.getgid(),'key':str(root/'key.pem'),'authorityCommand':['true'],'receiptAuthorityCommand':['true'],'operatorSocket':str(root/'operator.sock'),'recoveryCommand':[sys.executable,str(root/'phase.py'),str(root)],'recoveryAbortCommand':[sys.executable,str(root/'phase.py'),str(root)],'recoveryRequestPath':str(root/'original.json'),'recoveryAbortStoppedUnits':['fixture-app.service','fixture-runner.service','user@65003.service'],'recoveryAbortRunnerUid':65003}
+(root/'config.json').write_text(json.dumps(config));(root/'config.json').chmod(0o600)
+(root/'original.json').write_bytes(m.canonical({'request':r,'stoppedBoundary':b})+b'\\n');(root/'original.json').chmod(0o600)
+target={k:r[k] for k in ['scope','projectId','bindingId','operationId','generation','connectionRevision']}
+(root/'sealed.json').write_text(json.dumps({'version':2,'action':'recover-user-create','target':target,'pins':pins,'context':{},'observation':{'oldCertificateSha256':'5'*64}}));(root/'sealed.json').chmod(0o600)
+os.environ['EZCORP_INCUS_NOEFFECT_CONFIG']=str(root/'sealed.json')
+sup=m.Supervisor(config['socket'],config['appCommand'],os.getuid(),os.getgid(),root/'key.pem',['true'],['true'],enforce_distinct_uid=False)
+sup.recovery_command=config['recoveryCommand'];sup.recovery_fence_command=['true'];sup.recovery_abort_command=config['recoveryAbortCommand'];sup.recovery_request_path=config['recoveryRequestPath']
+# Controlled host observations and fast quiet clock only. Actual producer,
+# durable DB inspector, signer, abort main and typed DB consumers are unmocked.
+sup.assert_exclusive_app_uid=lambda:None;sup.live_processes=lambda:[];sup.verify_recovery_fence=lambda *args:None
+sup.drop_stopped_user_privileges=lambda parent:None
+signs=[];sign=sup.sign_payload
+sup.sign_payload=lambda payload:(signs.append(payload['action']),sign(payload))[1]
+original_read=sup.private_recovery_bytes;original_preflight=sup.preflight_recovery_config
+uid=os.geteuid()
+def private_read(*args,**kwargs):
+ with mock.patch.object(m.os,'geteuid',return_value=uid):return original_read(*args,**kwargs)
+def preflight(*args,**kwargs):
+ with mock.patch.object(m.os,'geteuid',return_value=uid):return original_preflight(*args,**kwargs)
+sup.private_recovery_bytes=private_read;sup.preflight_recovery_config=preflight
+with mock.patch.object(m.time,'sleep',return_value=None),mock.patch.object(m.os,'geteuid',return_value=0):
+ try:sup.recover_stopped_user_create(r,b)
+ except ValueError as error:
+  assert str(error)=='independent operator recovery verifier failed'
+ else:raise AssertionError('backend must fail')
+assert signs==[] and sup.recovery_held()
+assert (root/'phases').read_text().splitlines()==['durable','backend']
+hold=sup.recovery_hold_path.read_bytes();saved=(root/'original.json').read_bytes()
+a={'version':1,'action':'abort-user-create-before-admission','originalRequest':r,'stoppedBoundary':b,'requestFileSha256':hashlib.sha256(saved).hexdigest(),'requestSha256':hashlib.sha256(m.canonical(r)).hexdigest(),'holdSha256':hashlib.sha256(hold).hexdigest()}
+(root/'abort.json').write_text(json.dumps(a));(root/'abort.json').chmod(0o600)
+with mock.patch.object(m.sys,'argv',['supervisor','--config',str(root/'config.json'),'--abort-request',str(root/'abort.json')]),mock.patch.object(m.os,'geteuid',return_value=0),mock.patch.object(m,'Supervisor',return_value=sup),mock.patch.object(sup,'assert_abort_actors_stopped'):
+ m.main()
+assert signs==['abort-user-create-before-admission'] and not sup.recovery_hold_path.exists()
+assert (root/'original.json').read_bytes()==saved
+assert list(root.glob('*.aborted.*'))[0].read_bytes()==hold
+assert (root/'phases').read_text().splitlines()==['durable','backend','abort','inspect-abort']
+`;
+  writeFileSync(join(directory, "driver.py"), driver, { mode: 0o600 });
+  try {
+    const child = spawnSync("python3", [join(directory, "driver.py"), directory], { encoding: "utf8", timeout: 20000,
+      env: { PATH: process.env.PATH, LD_LIBRARY_PATH: process.env.LD_LIBRARY_PATH, BUN: process.execPath,
+        CLI: join(process.cwd(), "scripts/incus/incus-create-noeffect-recovery.ts"),
+        SUPERVISOR: join(process.cwd(), "scripts/incus/incus-qualification-supervisor.py"),
+        DATABASE_URL: "", EZCORP_INCUS_SUPERVISOR_DB_PATH: join(directory, "db"),
+        EZCORP_INCUS_SUPERVISOR_PUBLIC_KEY_B64: Buffer.from(publicKeyPem).toString("base64") } });
+    expect(child.error).toBeUndefined();
+    // Root ownership is a controlled host seam here. Each of the four real
+    // subprocess stages refuses root-private diagnostic publication in /tmp.
+    expect(child.stderr).toBe("Private recovery stage diagnostic unavailable\n".repeat(4));
+    expect(child.status).toBe(0);
+    const proof = JSON.parse(child.stdout);expect(proof).toHaveProperty("abortId");
+    const dbClient = new PGlite(join(directory, "db"));
+    try {
+      const db = drizzle(dbClient);
+      expect(await db.select().from(schema.sandboxReservations)).toEqual(before);
+      expect(await db.select().from(schema.sandboxOperations)).toMatchObject([{ state: "FAILED", kind: "CREATE" }]);
+      expect(await db.select().from(schema.incusFencedCleanupAborts)).toHaveLength(1);
+    } finally { await dbClient.close(); }
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+}, 30000);
+
+
+test("USER abort rejects signed envelope shape drift and tampered committed nonce or receipt", async () => {
+  const { userCreateRecoveryAbort } = await import("./incus-create-noeffect-recovery");
+  const f = await userCreateSetup(), signed = userAbortReceipt(f);
+  const resign = (payload: typeof signed.payload) => ({ payload, signature: sign(null, Buffer.from(canonicalRecoveryJson(payload)), privateKey).toString("base64") });
+  for (const payload of [
+    { ...signed.payload, action: "abort-fenced-cleanup-before-admission" },
+    { ...signed.payload, requestSha256: "a".repeat(64) },
+    { ...signed.payload, requestFileSha256: "not-a-hash" },
+    { ...signed.payload, stoppedBoundary: { ...signed.payload.stoppedBoundary, processGroupId: 0 } },
+    { ...signed.payload, originalRequest: { ...signed.payload.originalRequest, fixtureOperationId: "not-user" } },
+    { ...signed.payload, pins: { ...signed.payload.pins, fixtureOperationId: "not-user" } },
+    { ...signed.payload, expiresAtMs: now + 30001 },
+  ]) await expect(userCreateRecoveryAbort(f.db, resign(payload as typeof signed.payload), publicKeyPem, true)).rejects.toThrow();
+  expect(await f.db.select().from(schema.incusFencedCleanupNonceClaims)).toHaveLength(0);
+  await f.db.update(schema.projectMembers).set({ role: "member" });
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, true)).rejects.toThrow("binding");
+  await f.db.update(schema.projectMembers).set({ role: "owner" });
+  const proof = await userCreateRecoveryAbort(f.db, signed, publicKeyPem, true);
+  await f.db.update(schema.incusFencedCleanupAborts).set({ receipt: { tampered: true } });
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, false)).rejects.toThrow("committed proof");
+  await f.db.update(schema.incusFencedCleanupAborts).set({ receipt: signed });
+  await f.db.update(schema.incusFencedCleanupNonceClaims).set({ action: "recovery" });
+  await expect(userCreateRecoveryAbort(f.db, signed, publicKeyPem, false)).rejects.toThrow("committed proof");
+  await f.db.update(schema.incusFencedCleanupNonceClaims).set({ action: "abort" });
+  expect(await userCreateRecoveryAbort(f.db, signed, publicKeyPem, false)).toEqual(proof);
+});

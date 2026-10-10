@@ -9,7 +9,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { IncusQualificationFixtureService } from "../../src/infrastructure/incus-qualification";
 import { applyNoEffectRecovery, type NoEffectRecoveryPayload,
   type NoEffectRecoveryReceipt, inspectUserCreateRecovery, applyUserCreateRecovery, inspectUserCreateRecoverySettlement,
-  type UserCreateRecoveryTarget, type UserCreateRecoveryPins, type UserCreateRecoveryReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
+  type UserCreateRecoveryTarget, type UserCreateRecoveryPins, type UserCreateRecoveryReceipt, userCreateRecoveryAbort, type UserCreateAbortReceipt } from "../../src/infrastructure/incus-create-noeffect-recovery";
 import { resourceName } from "../../src/infrastructure/incus-transport/lifecycle";
 import type { LiveReadbackContext } from "../../src/infrastructure/incus-transport/live-readback";
 import { isStableStartCleanup, isRetainedDestroyNoEffect, inspectRetainedDestroyNoEffect, type RetainedDestroyNoEffectPayload, requireRetainedDestroyNoEffectPins, requireRetainedDestroyNoEffectOriginal, requireFencedCleanupPinVersion, requireStableStartCleanupPins, requireStableStartOriginal, applyFencedCleanupRecovery, applyFencedCleanupAbort, inspectFencedCleanupAbort, requireFencedCleanupAuthority, type FencedCleanupProofPins, type FencedCleanupProofPayload, type FencedCleanupAbortReceipt, type FencedCleanupReceipt } from "../../src/infrastructure/incus-fenced-cleanup-recovery";
@@ -223,6 +223,12 @@ export async function handleFencedCleanupPhase(input: Record<string, unknown>): 
 }
 
 export async function handleUserCreateRecoveryPhase(input: Record<string, unknown>): Promise<unknown> {
+  if (input.phase === "abort" || input.phase === "inspect-abort") {
+    requireFact(Object.keys(input).sort().join() === "phase,publicKeyPem,receipt", "user abort phase fields changed");
+    const trustedKey = trustedSupervisorSigner(input.publicKeyPem);
+    return withOfflineDb(db => userCreateRecoveryAbort(db, input.receipt as UserCreateAbortReceipt,
+      trustedKey, input.phase === "abort"));
+  }
   if (input.phase === "inspect-user-create-settlement") {
     requireFact(Object.keys(input).sort().join() === "cleanupOperationId,phase,publicKeyPem,receipt", "user settlement inspection fields changed");
     const key = trustedSupervisorSigner(input.publicKeyPem);
@@ -256,7 +262,7 @@ export async function handleUserCreateRecoveryPhase(input: Record<string, unknow
 
 if (import.meta.main) {
   const input = JSON.parse(await Bun.stdin.text());
-  if (input.target?.action === "recover-user-create" || input.receipt?.payload?.action === "recover-user-create") {
+  if (input.target?.action === "recover-user-create" || ["recover-user-create", "abort-user-create-before-admission"].includes(input.receipt?.payload?.action)) {
     process.stdout.write(JSON.stringify(await handleUserCreateRecoveryPhase(input)) + "\n");
   } else if (input.target?.action === "recover-fenced-cleanup" || ["recover-fenced-cleanup", "abort-fenced-cleanup-before-admission"].includes(input.receipt?.payload?.action)) {
     process.stdout.write(JSON.stringify(await handleFencedCleanupPhase(input)) + "\n");

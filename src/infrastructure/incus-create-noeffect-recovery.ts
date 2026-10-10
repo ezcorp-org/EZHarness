@@ -5,7 +5,7 @@ import { createHash, randomUUID, verify } from "node:crypto";
 import { and, eq, sql } from "drizzle-orm";
 import type { Database, DbTransaction } from "../db/connection";
 import { incusQualificationFixtures, projectWorkspaceBindings, projects, sandboxAdmissionRequests,
-  sandboxBindings, sandboxOperations, sandboxReservations, projectMembers } from "../db/schema";
+  sandboxBindings, sandboxOperations, sandboxReservations, projectMembers, incusFencedCleanupAborts, incusFencedCleanupNonceClaims } from "../db/schema";
 import { operationPayloadHash } from "../sandboxes/controller";
 import { resourceName } from "./incus-transport/lifecycle";
 
@@ -404,6 +404,8 @@ export async function applyUserCreateRecovery(db: Database, receipt: UserCreateR
   const p = verifyUserCreateRecoveryReceipt(receipt, publicKeyPem, now);
   return db.transaction(async (tx: DbTransaction) => {
     const { binding, original, reservation } = await inspectUserCreateRecovery(tx, p, p);
+    const { claimFencedCleanupNonce } = await import("./incus-fenced-cleanup-recovery");
+    await claimFencedCleanupNonce(tx, p.nonce, "recovery", p.bindingId, p.operationId, recoveryRowHash(receipt));
     const cleanupId = randomUUID();
     const requestPayload = { origin: "operator-verified-create-noeffect", receipt,
       originalOperation: recoveryJsonValue(original),
@@ -480,5 +482,84 @@ export async function inspectUserCreateRecoverySettlement(db: Database, receipt:
     const target = { scope: p.scope, projectId: p.projectId, bindingId: p.bindingId, operationId: p.operationId,
       generation: p.generation, connectionRevision: p.connectionRevision };
     return { settled: true as const, cleanupOperationId, target, resourceName: p.resourceName };
+  });
+}
+
+
+export type UserCreateRecoveryRequest = UserCreateRecoveryTarget & {
+  version: 1; action: "recover-user-create"; nonce: string; reviewId: string;
+  allClientsFenced: true; fenceEvidence: string; deadlineMs: number;
+};
+export type UserCreateAbortPayload = {
+  version: 2; action: "abort-user-create-before-admission";
+  originalRequest: UserCreateRecoveryRequest; pins: UserCreateRecoveryPins;
+  stoppedBoundary: UserCreateRecoveryPayload["stoppedBoundary"];
+  requestFileSha256: string; requestSha256: string; holdSha256: string;
+  issuedAtMs: number; expiresAtMs: number;
+};
+export type UserCreateAbortReceipt = { payload: UserCreateAbortPayload; signature: string };
+
+function requireUserAbortRequest(p: UserCreateAbortPayload) {
+  const r = p.originalRequest;
+  requireFact(exactRecoveryKeys(r, "version action nonce reviewId scope projectId bindingId operationId generation connectionRevision allClientsFenced fenceEvidence deadlineMs".split(" "))
+    && r.version === 1 && r.action === "recover-user-create"
+    && exactRecoveryKeys(r.scope, ["installationId", "releaseId", "connectionId", "presetId"])
+    && [r.nonce, r.reviewId, r.projectId, r.bindingId, r.operationId, ...Object.values(r.scope)].every(v => typeof v === "string" && /^[A-Za-z0-9_.:-]{1,256}$/.test(v))
+    && [r.generation, r.connectionRevision, r.deadlineMs].every(v => Number.isSafeInteger(v) && v > 0)
+    && r.allClientsFenced === true && typeof r.fenceEvidence === "string" && r.fenceEvidence.length >= 8 && r.fenceEvidence.length <= 512,
+  "user abort original request changed");
+  const b = p.stoppedBoundary;
+  requireFact(exactRecoveryKeys(b, ["oldProcess", "stoppedAtMs", "bootId", "processGroupId", "appUid", "appGid"])
+    && exactRecoveryKeys(b.oldProcess, ["pid", "startTicks"])
+    && [b.oldProcess.pid, b.stoppedAtMs, b.processGroupId, b.appUid, b.appGid].every(v => Number.isSafeInteger(v) && v > 0)
+    && b.processGroupId === b.oldProcess.pid && /^\d+$/.test(b.oldProcess.startTicks)
+    && /^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/.test(b.bootId), "user abort stopped boundary changed");
+  requireFact(p.requestSha256 === recoveryRowHash(r)
+    && /^[a-f0-9]{64}$/.test(p.requestFileSha256)
+    && p.holdSha256 === createHash("sha256").update(canonicalRecoveryJson({ nonce: r.nonce, reviewId: r.reviewId }) + "\n").digest("hex"),
+  "user abort request or hold hash changed");
+}
+function verifyUserCreateAbortReceipt(receipt: UserCreateAbortReceipt, publicKeyPem: string) {
+  const p = receipt?.payload;
+  requireFact(exactRecoveryKeys(receipt, ["payload", "signature"])
+    && exactRecoveryKeys(p, "version action originalRequest pins stoppedBoundary requestFileSha256 requestSha256 holdSha256 issuedAtMs expiresAtMs".split(" "))
+    && p.version === 2 && p.action === "abort-user-create-before-admission"
+    && exactRecoveryKeys(p.pins, userCreatePinKeys), "user abort fields changed");
+  requireUserAbortRequest(p);
+  requireFact([p.issuedAtMs, p.expiresAtMs].every(Number.isSafeInteger)
+    && p.expiresAtMs - p.issuedAtMs === 30000 && p.stoppedBoundary.stoppedAtMs <= p.issuedAtMs,
+  "user abort authorization interval changed");
+  const signature = Buffer.from(receipt.signature, "base64");
+  requireFact(signature.length === 64 && verify(null, Buffer.from(canonicalRecoveryJson(p)), publicKeyPem, signature), "user abort signature changed");
+  return p;
+}
+function requireUserAbortSaved(saved: typeof incusFencedCleanupAborts.$inferSelect,
+  claim: typeof incusFencedCleanupNonceClaims.$inferSelect | undefined, p: UserCreateAbortPayload, digest: string) {
+  const r = p.originalRequest;
+  requireFact(saved.bindingId === r.bindingId && saved.operationId === r.operationId
+    && saved.requestSha256 === p.requestSha256 && saved.holdSha256 === p.holdSha256
+    && saved.receiptSha256 === digest && recoveryRowHash(saved.receipt) === digest
+    && claim?.action === "abort" && claim.bindingId === r.bindingId && claim.operationId === r.operationId && claim.receiptSha256 === digest,
+  "user abort committed proof changed");
+}
+/** Consume only the failed recovery request. Never settle the failed CREATE. */
+export async function userCreateRecoveryAbort(db: Database, receipt: UserCreateAbortReceipt,
+  publicKeyPem: string, apply: boolean, now = Date.now()) {
+  const p = verifyUserCreateAbortReceipt(receipt, publicKeyPem), r = p.originalRequest;
+  const digest = recoveryRowHash(receipt);
+  return db.transaction(async (tx: DbTransaction) => {
+    await inspectUserCreateRecovery(tx, r, p.pins);
+    const [saved] = await tx.select().from(incusFencedCleanupAborts).where(eq(incusFencedCleanupAborts.nonce, r.nonce)).for("update");
+    const [claim] = await tx.select().from(incusFencedCleanupNonceClaims).where(eq(incusFencedCleanupNonceClaims.nonce, r.nonce)).for("update");
+    const { abortProof, claimFencedCleanupNonce } = await import("./incus-fenced-cleanup-recovery");
+    if (saved) { requireUserAbortSaved(saved, claim, p, digest); return abortProof(saved); }
+    requireFact(!claim, "user recovery already admitted or nonce claimed");
+    if (!apply) return { status: "uncommitted" as const, nonce: r.nonce, requestSha256: p.requestSha256, holdSha256: p.holdSha256, receiptSha256: digest };
+    requireFact(p.issuedAtMs <= now && now < p.expiresAtMs && Date.now() < p.expiresAtMs, "user abort authorization expired or future");
+    await claimFencedCleanupNonce(tx, r.nonce, "abort", r.bindingId, r.operationId, digest);
+    const [committed] = await tx.insert(incusFencedCleanupAborts).values({ id: randomUUID(), nonce: r.nonce,
+      operationId: r.operationId, bindingId: r.bindingId, requestSha256: p.requestSha256,
+      holdSha256: p.holdSha256, receiptSha256: digest, receipt: receipt as unknown as Record<string, unknown> }).returning();
+    return abortProof(committed!);
   });
 }

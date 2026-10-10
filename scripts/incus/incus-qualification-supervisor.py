@@ -514,7 +514,7 @@ class Supervisor:
         app_phase = phase in ("durable", "apply", "abort", "inspect-abort", "inspect-noeffect", "inspect-user-create-settlement")
         action = value.get("target", {}).get("action") or value.get("receipt", {}).get("payload", {}).get("action")
         drop = self.drop_app_privileges
-        if app_phase and action == "recover-user-create":
+        if app_phase and action in ("recover-user-create", "abort-user-create-before-admission"):
             drop = partial(self.drop_stopped_user_privileges, os.getpid())
         try:
             check = subprocess.run(command,
@@ -721,7 +721,9 @@ class Supervisor:
         original = message["originalRequest"]
         validate_recovery(original, historical=True)
         saved = self.private_recovery_bytes(self.recovery_request_path)
-        if original["action"] != "recover-fenced-cleanup" or json.loads(saved) != original \
+        user = message.get("action") == "abort-user-create-before-admission"
+        expected_saved = {"request": original, "stoppedBoundary": message.get("stoppedBoundary")} if user else original
+        if original["action"] != ("recover-user-create" if user else "recover-fenced-cleanup") or json.loads(saved) != expected_saved \
                 or hashlib.sha256(saved).hexdigest() != message["requestFileSha256"] \
                 or hashlib.sha256(canonical(original)).hexdigest() != message["requestSha256"]:
             raise ValueError("operator original recovery request changed")
@@ -837,12 +839,20 @@ class Supervisor:
         # Only the offline root command can reach this action. The stopped
         # app UID owns the database transaction; no guest/provider assertion can
         # clear the hold, and this method never starts the app.
+        user = isinstance(message, dict) and message.get("action") == "abort-user-create-before-admission"
         keys = {"version", "action", "originalRequest", "requestFileSha256", "requestSha256", "holdSha256"}
+        if user:
+            keys.add("stoppedBoundary")
         if not isinstance(message, dict) or set(message) not in (keys, keys | {"reauthorizeAbort"}) or message.get("reauthorizeAbort", True) is not True or message["version"] != 1 \
-                or message["action"] != "abort-fenced-cleanup-before-admission" \
+                or message["action"] not in ("abort-fenced-cleanup-before-admission", "abort-user-create-before-admission") \
                 or not self.recovery_abort_command or not self.recovery_request_path:
             raise ValueError("operator abort unavailable or invalid")
         original = self.trusted_recovery_original(message)
+        if user:
+            boundary = message["stoppedBoundary"]
+            if not isinstance(boundary, dict) or set(boundary) != {"oldProcess", "stoppedAtMs", "bootId", "processGroupId", "appUid", "appGid"}:
+                raise ValueError("user abort stopped boundary changed")
+            self.verify_stopped_user_boundary(boundary)
         hold_bytes = canonical({"nonce": original["nonce"], "reviewId": original["reviewId"]}) + b"\n"
         if hashlib.sha256(hold_bytes).hexdigest() != message["holdSha256"]:
             raise ValueError("operator abort hold hash changed")
@@ -863,18 +873,23 @@ class Supervisor:
         if self.child is not None and not self.child_exited():
             raise ValueError("operator abort requires stopped app")
         self.assert_exclusive_app_uid()
-        sealed = self.preflight_recovery_config("recover-fenced-cleanup")
-        target = {key: original[key] for key in ("scope", "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
+        sealed = self.preflight_recovery_config(original["action"])
+        target = {key: original[key] for key in ("scope", "projectId" if user else "fixtureOperationId", "bindingId", "operationId", "generation", "connectionRevision")}
         if sealed.get("target") != target or not isinstance(sealed.get("pins"), dict):
             raise ValueError("operator abort sealed target changed")
         return original, sealed, hold_bytes, archive, receipt_path, proof_path
+
+    def abort_payload_bindings(self, message):
+        if message["action"] == "abort-user-create-before-admission":
+            return {"requestFileSha256": message["requestFileSha256"], "stoppedBoundary": message["stoppedBoundary"]}
+        return {}
 
     def validate_abort_receipt(self, stored, message, original, sealed):
         if not isinstance(stored, dict) or set(stored) != {"payload", "signature"} or not isinstance(stored["signature"], str) or not re.fullmatch(r"[A-Za-z0-9+/]{86}==", stored["signature"]):
             raise ValueError("operator abort receipt changed")
         payload = stored["payload"]
         expected = {"version": sealed["version"], "action": message["action"], "originalRequest": original,
-            "pins": sealed["pins"], "requestSha256": message["requestSha256"], "holdSha256": message["holdSha256"]}
+            "pins": sealed["pins"], "requestSha256": message["requestSha256"], "holdSha256": message["holdSha256"], **self.abort_payload_bindings(message)}
         if not isinstance(payload, dict) or set(payload) != set(expected) | {"issuedAtMs", "expiresAtMs"} \
                 or any(payload[key] != value for key, value in expected.items()) \
                 or type(payload["issuedAtMs"]) is not int or type(payload["expiresAtMs"]) is not int \
@@ -908,7 +923,7 @@ class Supervisor:
             now = int(time.time()*1000)
             payload = {"version": sealed["version"], "action": message["action"], "originalRequest": original,
                 "pins": sealed["pins"], "requestSha256": message["requestSha256"],
-                "holdSha256": message["holdSha256"], "issuedAtMs": now, "expiresAtMs": now+30000}
+                "holdSha256": message["holdSha256"], "issuedAtMs": now, "expiresAtMs": now+30000, **self.abort_payload_bindings(message)}
             stored = self.sign_payload(payload)
             self.persist_abort_file(receipt_path, {"requestFileSha256": message["requestFileSha256"], "receipt": stored})
             phase = "abort"
@@ -1005,6 +1020,8 @@ class Supervisor:
         # Re-read the database's exact signed record before consuming any hold.
         if phase == "abort" and self.recovery_stage("inspect-abort", arguments, deadline_ms) != proof:
             raise ValueError("operator abort committed proof changed")
+        if message["action"] == "abort-user-create-before-admission":
+            self.verify_stopped_user_boundary(message["stoppedBoundary"])
         return self.archive_abort_hold(original, hold_bytes, archive, proof_path, proof)
 
     def verify_recovery_fence(self, request, old_process):

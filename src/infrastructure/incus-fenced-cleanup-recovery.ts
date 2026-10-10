@@ -308,7 +308,7 @@ function recoveryDigest(value: unknown): string {
 }
 
 /** A portable unique row protects the nonce even when bindings differ. */
-async function claimFencedCleanupNonce(tx: DbTransaction, nonce: string, action: "abort" | "recovery",
+export async function claimFencedCleanupNonce(tx: DbTransaction, nonce: string, action: "abort" | "recovery",
   bindingId: string, operationId: string, receiptSha256: string): Promise<void> {
   const [legacy] = await tx.select().from(incusFencedCleanupRecoveries).where(eq(incusFencedCleanupRecoveries.nonce, nonce));
   requireFact(!legacy || (action === "recovery" && legacy.bindingId === bindingId
@@ -362,7 +362,7 @@ export function verifyFencedCleanupAbortReceipt(receipt: FencedCleanupAbortRecei
   return p;
 }
 
-function abortProof(row: typeof incusFencedCleanupAborts.$inferSelect): FencedCleanupAbortProof {
+export function abortProof(row: typeof incusFencedCleanupAborts.$inferSelect): FencedCleanupAbortProof {
   return { abortId: row.id, nonce: row.nonce, requestSha256: row.requestSha256,
     holdSha256: row.holdSha256, receiptSha256: row.receiptSha256 };
 }

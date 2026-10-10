@@ -3746,3 +3746,15 @@ coverage:23/23 executable lines;14 touched functions; maximum CRAP24. The full
 focused coverage run and the separately instrumented real PGlite worker are both
 preserved. Original RED and all failed fixture receipts remain unchanged in
 .cache/continuation-db-*.
+
+## USER recovery hold abort (isolated 2026-10-10)
+
+- [x] Reproduce first backend failure after durable inspection; hold persists and legacy abort refuses USER.
+- [x] Extend explicit offline USER abort with signed envelope/boundary and exact typed row authority.
+- [x] Share atomic nonce fencing between USER settlement and abort.
+- [x] Complete real signer → actual typed CLI/DB composition, drift/replay/rollback tests.
+- [ ] Run focused source coverage/types/lint; independent freeze review and normal commit.
+
+Abort consumes only the failed recovery request. It does not assert backend absence, release charges, start the app, or change the original failed CREATE. Live execution remains root-owned.
+
+USER abort validation: Python110 passes; focused TypeScript106/450 passes, plus final CLI13 and negative12 assertions. Actual Python main uses a real signer, Bun CLI and disposable PGlite. Host UID, actor, backend and quiet-time callbacks are controlled in this test. Canonical changed production coverage70/70;14 touched functions; maximum CRAP17. Real PostgreSQL4/30 passes on the exact supplied-URL CI command. Final independent review remains pending. Abort preserves the failed CREATE and all allocation rows; it consumes only the recovery nonce.

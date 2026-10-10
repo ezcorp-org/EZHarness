@@ -2339,6 +2339,8 @@ class StoppedUserCreateSignerTests(unittest.TestCase):
             self.events.append(phase)
             if phase == "durable": return {"verified": True, "pins": self.pins}
             if phase == "backend":
+                if isinstance(observation, Exception):
+                    raise observation
                 if drift and self.events.count("backend") == 2:
                     self.supervisor.live_processes = lambda: [(999, 1, self.boundary["processGroupId"])]
                 return observation
@@ -2419,6 +2421,93 @@ class StoppedUserCreateSignerTests(unittest.TestCase):
                     self.assertEqual(setup.args, (os.getpid(),))
                 elif expected == "legacy": self.assertEqual(setup, self.supervisor.drop_app_privileges)
                 else: self.assertIsNone(setup)
+
+
+class UserCreateAbortTests(unittest.TestCase):
+    write_config = FencedCleanupSignerTest.write_config
+    execute = StoppedUserCreateSignerTests.execute
+
+    def setUp(self):
+        StoppedUserCreateSignerTests.setUp(self)
+        self.root = self.config.parent
+        with self.assertRaisesRegex(ValueError, "first backend rejected"):
+            self.execute(ValueError("first backend rejected"))
+        self.assertEqual(self.events, ["fence", "durable", "backend"])
+        self.assertTrue(self.supervisor.recovery_held())
+        self.saved = self.root / "original-user.json"
+        self.saved.write_bytes(MODULE.canonical({"request": self.request, "stoppedBoundary": self.boundary}) + b"\n")
+        self.saved.chmod(0o600)
+        self.supervisor.recovery_request_path = self.saved
+        self.supervisor.abort_offline = True
+        self.supervisor.abort_stopped_guard = lambda: None
+        self.supervisor.recovery_abort_command = [sys.executable, "-c", ABORT_CLI, str(self.root)]
+        key = self.supervisor.key_path
+        subprocess.run(["openssl", "genpkey", "-algorithm", "Ed25519", "-out", str(key)], check=True, capture_output=True)
+        key.chmod(0o600)
+        public = subprocess.run(["openssl", "pkey", "-in", str(key), "-pubout"], check=True, capture_output=True).stdout
+        (self.root / "public.pem").write_bytes(public)
+        self.supervisor.sign_payload = MODULE.Supervisor.sign_payload.__get__(self.supervisor)
+        self.supervisor.recovery_stage = MODULE.Supervisor.recovery_stage.__get__(self.supervisor)
+        self.message = {"version": 1, "action": "abort-user-create-before-admission",
+            "originalRequest": self.request, "stoppedBoundary": self.boundary,
+            "requestFileSha256": hashlib.sha256(self.saved.read_bytes()).hexdigest(),
+            "requestSha256": hashlib.sha256(MODULE.canonical(self.request)).hexdigest(),
+            "holdSha256": hashlib.sha256(self.supervisor.recovery_hold_path.read_bytes()).hexdigest()}
+        environment = mock.patch.dict(os.environ, {"EZCORP_INCUS_NOEFFECT_CONFIG": str(self.config)})
+        environment.start(); self.addCleanup(environment.stop)
+        # Real signer/subprocess/archive; host stopped attribution and DB stage
+        # callbacks are controlled here. Typed actual PGlite cases are separate.
+        self.supervisor.drop_stopped_user_privileges = lambda parent: None
+
+    def test_failed_first_backend_then_user_abort_real_signer_process_and_archive(self):
+        original = self.saved.read_bytes()
+        hold = self.supervisor.recovery_hold_path.read_bytes()
+        proof = self.supervisor.abort_recovery(self.message)
+        self.assertIn("abortId", proof)
+        self.assertEqual(self.events, ["fence", "durable", "backend"])
+        self.assertFalse(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(list(self.root.glob("*.aborted.*"))[0].read_bytes(), hold)
+        self.assertEqual(self.saved.read_bytes(), original)
+        self.assertEqual((self.root / "phases").read_text().splitlines(), ["abort", "inspect-abort"])
+        receipt = json.loads(list(self.root.glob("*.abort-receipt.*"))[0].read_bytes())["receipt"]
+        self.assertEqual(receipt["payload"]["stoppedBoundary"], self.boundary)
+        self.assertEqual(receipt["payload"]["requestFileSha256"], self.message["requestFileSha256"])
+        self.assertEqual(self.supervisor.abort_recovery(self.message), proof)
+        self.assertEqual((self.root / "phases").read_text().splitlines(), ["abort", "inspect-abort", "inspect-abort"])
+
+    def test_changed_envelope_boundary_hold_or_pins_never_archives(self):
+        before = self.saved.read_bytes()
+        for changed in ({**self.message, "requestFileSha256": "a" * 64},
+                        {**self.message, "stoppedBoundary": {**self.boundary, "bootId": "wrong"}},
+                        {**self.message, "holdSha256": "b" * 64}):
+            with self.subTest(changed=changed), self.assertRaises(ValueError):
+                self.supervisor.abort_recovery(changed)
+            self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.saved.write_bytes(before + b" ")
+        with self.assertRaisesRegex(ValueError, "original recovery request changed"):
+            self.supervisor.abort_recovery(self.message)
+        self.saved.write_bytes(before)
+        with mock.patch.object(self.supervisor, "recovery_stage", side_effect=ValueError("typed row drift")):
+            with self.assertRaisesRegex(ValueError, "typed row drift"):
+                self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        self.assertEqual(list(self.root.glob("*.aborted.*")), [])
+
+    def test_unknown_commit_keeps_hold_then_exact_readback_reuses_receipt(self):
+        stage = self.supervisor.recovery_stage
+        def unknown(phase, *args):
+            result = stage(phase, *args)
+            if phase == "abort":
+                raise TimeoutError("abort reply lost")
+            return result
+        with mock.patch.object(self.supervisor, "recovery_stage", side_effect=unknown):
+            with self.assertRaisesRegex(TimeoutError, "reply lost"):
+                self.supervisor.abort_recovery(self.message)
+        self.assertTrue(self.supervisor.recovery_hold_path.exists())
+        receipt = list(self.root.glob("*.abort-receipt.*"))[0].read_bytes()
+        with mock.patch.object(self.supervisor, "sign_payload", side_effect=AssertionError("no second signature")):
+            self.assertIn("abortId", self.supervisor.abort_recovery(self.message))
+        self.assertEqual(list(self.root.glob("*.abort-receipt.*"))[0].read_bytes(), receipt)
 
 
 if __name__ == "__main__":

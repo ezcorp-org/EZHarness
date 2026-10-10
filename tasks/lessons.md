@@ -771,3 +771,8 @@
 - Prove credential changes at the actual consumer. Bun 1.3.14 ignores child_process uid/gid options. Test effective UID/GID and supplementary groups. Keep protected config reads in the root parent, and run SSH through fixed setpriv as the configured service user. Preserve the key's ownership, mode, and bytes. Run the complete read-only receipt before source freeze, and retain legacy protocol tests when changing the internal request schema.
 
 - Keep wall-clock positive controls well inside production deadlines. Preserve the measured slow refusal arm, but use actual fixture work for the happy path; test tight deadline boundaries with a fixed clock. A passing positive control with only a few hundred milliseconds of scheduling margin can fail in a loaded CI pool.
+
+### 2026-10-10 — independent test isolation and real CLI coverage
+
+- Use a separate worktree for each parallel writer, even when files do not overlap. Pin the production dependency diff before independent tests.
+- Do not infer CLI coverage from imported functions. Run the actual CLI consumer and keep its real LCOV. Check canonical report field names and require a nonempty touched-function set before reporting quality.
