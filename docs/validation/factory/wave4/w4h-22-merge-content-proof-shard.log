@@ -1,0 +1,14 @@
+hold acquired 2026-10-10T04:37:10Z out=/tmp/factory-platform-evidence/integrator-5/harness/w4h22/hold-20261010T043710Z setup=full rev=c329cb4f7f0b752d1ca94a006f34ccd53c51bab9 label=w4h22 shards=content cpus=4 mem=16g load=3.29 1.63 1.36
+snapshot /tmp/i5-home-snap-w4h22 source=c329cb4f7f0b752d1ca94a006f34ccd53c51bab9 snapshot_tree=ad6216506606f348a3267865fffd0d6d4fde3ede source_tree=ad6216506606f348a3267865fffd0d6d4fde3ede
+image localhost/i5-runner:24.04 id=018851857b666c16bf44cabbc2153ea481e6b3ad5bc83987f31a03c19ebd8fa1
+leg=setup rc=0 start=2026-10-10T04:37:16Z end=2026-10-10T04:47:08Z host_oom=0 load=2.53 1.64 1.36
+node=v24.14.1 nproc=4 taskset=0-3 mem=30GiB
+candidate build exit=0 start=2026-10-10T04:40:57Z end=2026-10-10T04:47:08Z
+candidate id=05a1a306aa8d0ae05fe37af7c28d3cafc2f546d67a89cb3b194db9b3401fe4f9
+SETUP-OK
+leg=proof-content-c4 rc=0 start=2026-10-10T04:47:08Z end=2026-10-10T05:03:15Z host_oom=0 load=2.79 2.07 1.72
+Legacy adoption receipts: .cache/production-lifecycle/legacy-adoption/legacy
+legacy-adoption	0	2026-10-10T04:55:41.688Z	2026-10-10T05:03:15.873Z	454185	legacy-adoption
+shard=content exit=0 end=2026-10-10T05:03:15Z
+removed i5-w4h22 i5-storage-w4h22 /tmp/i5-home-snap-w4h22; kept image localhost/i5-runner:24.04 for the next leg
+heavy exit=0 2026-10-10T05:03:29Z

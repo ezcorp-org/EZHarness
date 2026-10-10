@@ -1,0 +1,58 @@
+shard=content head=03abad991692c359eda554f0261cccc5e5c6ecc1 tree=ad6216506606f348a3267865fffd0d6d4fde3ede candidate=05a1a306aa8d0ae05fe37af7c28d3cafc2f546d67a89cb3b194db9b3401fe4f9 nproc=4 start=2026-10-10T04:47:09Z
+[4m>>>> Executing external compose provider "/usr/libexec/docker/cli-plugins/docker-compose". Please refer to the documentation for details. <<<<
+
+[0m Network extension-v4-runtime-replay_default  Creating
+ Network extension-v4-runtime-replay_default  Created
+ Container extension-v4-runtime-replay-app  Creating
+ Container extension-v4-runtime-replay-app  Created
+ Container extension-v4-runtime-replay-app  Starting
+ Container extension-v4-runtime-replay-app  Started
+
+Running 13 tests using 1 worker
+
+cat: /app/.ezcorp/extension-data/file-organizer/config.json: No such file or directory
+
+  ✓   1 [chromium] › e2e/file-organizer-real.spec.ts:286:5 › file-organizer real-backend › add-folder: a TYPED ABSOLUTE path is accepted by the REAL validator and persisted (204ms)
+  ✓   2 [chromium] › e2e/file-organizer-real.spec.ts:315:5 › file-organizer real-backend › add-folder: a RELATIVE path is refused by the REAL validator with the exact message (60ms)
+  ✓   3 [chromium] › e2e/file-organizer-real.spec.ts:323:5 › file-organizer real-backend › add-folder: an UNREACHABLE absolute path is refused with the container-visibility message (178ms)
+  ✓   4 [chromium] › e2e/file-organizer-real.spec.ts:336:5 › file-organizer real-backend › add-folder: a DESCENDANT of an already-watched folder is refused as already-covered (61ms)
+  ✓   5 [chromium] › e2e/file-organizer-real.spec.ts:352:5 › file-organizer real-backend › add-rule: a malformed DSL rule is refused by the REAL parser with the exact parse error (57ms)
+  ✓   6 [chromium] › e2e/file-organizer-real.spec.ts:368:5 › file-organizer real-backend › config mutations (set-mode/toggle-preset/add-ignore/set-backlog-policy/add-rule/remove-folder) persist to the REAL config (1.0m)
+cat: /app/data/file-organizer-test/fo-test-watched/daemon-proof.tmp: No such file or directory
+
+  ✓   7 [chromium] › e2e/file-organizer-real.spec.ts:425:5 › file-organizer real-backend › proposal lifecycle: daemon proposes and accepts a REAL move on disk (1.9m)
+  ✓   8 [chromium] › e2e/file-organizer-real.spec.ts:506:5 › file-organizer real-backend › picker: Browse → real GET /api/fs/list?dir=/ is 403 (sandbox-jailed, documents the limitation) (58ms)
+  ✓   9 [chromium] › e2e/file-organizer-real.spec.ts:516:5 › file-organizer real-backend › UI: a refused add surfaces a real error toast in the browser (3.5s)
+  ✓  10 [chromium] › e2e/file-organizer-real.spec.ts:578:5 › file-organizer real-backend › add-folder: the added folder APPEARS in the Hub render (data dirs aligned) (447ms)
+  ✓  11 [chromium] › e2e/file-organizer-real.spec.ts:594:5 › file-organizer real-backend › config mutation REFLECTS in the Folders Hub render (data dirs aligned) (3.9s)
+  ✓  12 [chromium] › e2e/file-organizer-real.spec.ts:619:5 › file-organizer real-backend › Review Hub render loads against the live backend (data dirs aligned) (3.6s)
+
+  ✓  13 [chromium] › e2e/file-organizer-real.spec.ts:624:5 › file-organizer real-backend › lifecycle: disable denies effects; fresh human approval reactivates; uninstall retains history and refuses source re-import (21.2s)
+
+  13 passed (7.7m)
+file-organizer	0	2026-10-10T04:47:09.202Z	2026-10-10T04:55:41.685Z	512483	file-organizer
+archived_image=localhost/ezcorp-extension-v4:legacy-main-537f074e
+archived_source=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3
+archived_build_log=.cache/production-lifecycle/legacy-adoption/legacy/build/legacy-base-archive-build.log
+[4m>>>> Executing external compose provider "/usr/libexec/docker/cli-plugins/docker-compose". Please refer to the documentation for details. <<<<
+
+[0m Network ezcorp-legacy-adoption-old-6a42bd281ffb_default  Creating
+ Network ezcorp-legacy-adoption-old-6a42bd281ffb_default  Created
+ Container ezcorp-legacy-adoption-old-6a42bd281ffb-app  Creating
+ Container ezcorp-legacy-adoption-old-6a42bd281ffb-app  Created
+ Container ezcorp-legacy-adoption-old-6a42bd281ffb-app  Starting
+ Container ezcorp-legacy-adoption-old-6a42bd281ffb-app  Started
+LEGACY_ADOPTION_SEEDED
+[4m>>>> Executing external compose provider "/usr/libexec/docker/cli-plugins/docker-compose". Please refer to the documentation for details. <<<<
+
+[0m Network ezcorp-legacy-adoption-v4-6a42bd281ffb_default  Creating
+ Network ezcorp-legacy-adoption-v4-6a42bd281ffb_default  Created
+ Container ezcorp-legacy-adoption-v4-6a42bd281ffb-app  Creating
+ Container ezcorp-legacy-adoption-v4-6a42bd281ffb-app  Created
+ Container ezcorp-legacy-adoption-v4-6a42bd281ffb-app  Starting
+ Container ezcorp-legacy-adoption-v4-6a42bd281ffb-app  Started
+LEGACY_ADOPTION_ASSERTED
+LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED
+Legacy adoption receipts: .cache/production-lifecycle/legacy-adoption/legacy
+legacy-adoption	0	2026-10-10T04:55:41.688Z	2026-10-10T05:03:15.873Z	454185	legacy-adoption
+shard=content exit=0 end=2026-10-10T05:03:15Z
