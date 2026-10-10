@@ -517,15 +517,37 @@ test.describe(
       // Drive the real Folders page + prompt with a relative path and assert
       // the host shell renders the REAL refusal as an error toast (the
       // dispatchAction ok:false → addToast path), against the live backend.
+      //
+      // Await each OUTCOME, never a fixed clock. Both the Hub render and the
+      // refusal are real round-trips; on a slow hosted runner the render
+      // alone passed 5 s (run 38001537073). Each round-trip gets the same
+      // 20 s bound as this file's other Hub title wait (beforeAll).
+      const refusal = "Path must be an absolute, valid filesystem path.";
+      const liveRoundTripMs = 20_000;
+      const pagePath = `/api/hub/pages/${encodeURIComponent(FOLDERS_PAGE)}`;
+      const rendered = page.waitForResponse(
+        response => response.request().method() === "GET" && new URL(response.url()).pathname === pagePath,
+        { timeout: liveRoundTripMs },
+      );
       await page.goto(`/hub/${encodeURIComponent(FOLDERS_PAGE)}`);
-      await expect(page.getByTestId("hub-page-title")).toBeVisible();
+      expect((await rendered).status()).toBe(200);
+      await expect(page.getByTestId("hub-page-title")).toBeVisible({ timeout: liveRoundTripMs });
       await page.getByTestId("hub-node-button").filter({ hasText: "Add watched folder" }).click();
-      await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible();
+      await expect(page.getByTestId("hub-prompt-dialog")).toBeVisible({ timeout: liveRoundTripMs });
       await page.getByTestId("hub-prompt-format").locator("input").fill("relative/Downloads");
+      const dispatched = page.waitForResponse(
+        response => response.request().method() === "POST"
+          && new URL(response.url()).pathname === evtUrl("add-folder"),
+        { timeout: liveRoundTripMs },
+      );
       await page.getByTestId("hub-prompt-submit").click();
-      await expect(
-        page.getByRole("alert").filter({ hasText: "Path must be an absolute, valid filesystem path." }),
-      ).toBeVisible({ timeout: 5000 });
+      const dispatch = await dispatched;
+      expect(dispatch.status()).toBe(200);
+      expect(await dispatch.json()).toEqual({ ok: false, message: refusal });
+      // The shell adds the toast as soon as it reads this response, and the
+      // toast store removes it 5 s later (toast.svelte.ts default). Assert it
+      // now, inside that life, with a bound shorter than the life itself.
+      await expect(page.getByRole("alert").filter({ hasText: refusal })).toBeVisible({ timeout: 4_000 });
     });
 
     // ── DATA-DIR ALIGNMENT (the split is FIXED) ──────────────────────────
