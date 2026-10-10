@@ -23,10 +23,11 @@ describe("coverage producers print their totals to their own stdout", () => {
     const dir = mkdtempSync(join(tmpdir(), "test-totals-"));
     try {
       const report = join(dir, "test-progress.log");
-      writeFileSync(report, "✔ a (1ms)\nℹ tests 91\nℹ suites 10\nℹ pass 90\nℹ fail 1\nℹ cancelled 0\n");
+      writeFileSync(report, "✔ a (1ms)\nℹ tests 91\nℹ suites 10\nℹ pass 90\nℹ fail 0\nℹ cancelled 1\n");
       const printed = summary("print_node_totals", [report]);
       expect(printed.code).toBe(0);
-      expect(printed.out).toBe("ℹ tests 91\nℹ pass 90\nℹ fail 1\n");
+      // A test that hit --test-timeout, or a run the inner timeout ended, counts as cancelled, not failed (W4H-21).
+      expect(printed.out).toBe("ℹ tests 91\nℹ pass 90\nℹ fail 0\nℹ cancelled 1\n");
       const missing = summary("print_node_totals", [join(dir, "absent.log")]);
       expect(missing.out).toBe("");
       expect(missing.err).toContain("is missing or empty");
