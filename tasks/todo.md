@@ -6036,3 +6036,13 @@ Review: the success case ended right after it saw the /import request, and the c
 - [x] Legs: lint, boundaries, gate-integrity (integ PASS, main = the 8), typecheck under the tc rule, guard set, prune scan, CRAP. New-file and patch are vacuous for scripts/.
 
 Review: the hosted red was a late close that the one-read check could not tell from a leak. The fix waits for equality and never allows a difference in either direction. A real leak still fails, now with its descriptor kinds in the receipt. The script's failure branch did not run live, and its logic is unit-covered in the lib.
+
+## W4H-21 — the Factory Temporal coverage producer fails loudly, never hangs in silence (branch `wp/w4h-21-orchestrator-fail-loud` from integ/w00 fe445d241; gates `tasks/factory/w4h-21-GATES.md`)
+
+- [x] R1 red first: the registration test is red at base on the three causes: the inner timeout is not below the job timeout, there is no per-test timeout, and there is no spec reporter to stdout. The two R2 items are red too. The silence is reproduced locally with an injected hanging test: stdout stays empty until the kill.
+- [x] R2 fix: a 200 s per-test timeout and --test-force-exit; the spec reporter to stdout with tee to the progress log; an inner timeout of 450 s + 30 s grace, 120 s below the job timeout; the tail and the totals on failure; the cancelled count in the totals; the progress log uploaded on every outcome.
+- [x] R2 proof: the injected hang fails by name at 200 s (exit 1 at 203 s); a load-time hang ends at the inner timeout (exit 124 at 453 s); both end before the simulated 566 s cancel. The three mutants go RED.
+- [x] R3: the real producer at the head is green under the lock: 92 of 92 in 120 s. The slowest test is 60.03 s (3.33x margin), and the coverage is equal to base.
+- [x] Legs: lint 0/0, boundaries, lanes, prune, CRAP, new-file and patch (vacuous for scripts/), gate-integrity (integ PASS, main = the 8), actionlint (the 3 label findings), typecheck under the tc rule, the guard set, and the 16 workflow-reading tests.
+
+Review: the producer could hang without a word, because its only test names went to a file and its own timeout could never fire before the job's. It now names each test on stdout, ends a hanging test at 200 s, and ends any other hang at 450 s with the log tail and the totals. The progress log is uploaded even on a cancel. The hosted hang did not reproduce locally. The next hosted red will name it.
