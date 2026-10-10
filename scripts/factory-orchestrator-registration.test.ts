@@ -23,7 +23,7 @@ describe("factory Temporal gate registration", () => {
     const producer = await readFile("scripts/factory-orchestrator-coverage.sh", "utf8");
     expect(producer).toContain("factory_orchestrator_test_files");
     expect(producer).toContain("FACTORY_ORCHESTRATOR_TESTS[@]");
-    expect(producer).toContain('timeout --signal=TERM --kill-after=30s "${INNER_TIMEOUT_S}s"');
+    expect(producer).toContain('timeout --signal=TERM --kill-after=30s "$INNER_TIMEOUT_S"');
     expect(producer).toContain("--test-concurrency=1");
     expect(producer).toContain("--test-reporter=spec");
     expect(producer).toContain("test-progress.log");
@@ -54,7 +54,7 @@ async function temporalLane() {
   };
   const producer = await readFile("scripts/factory-orchestrator-coverage.sh", "utf8");
   const setting = (name: string) => Number(new RegExp(`^${name}=(\\d+)$`, "m").exec(producer)?.[1] ?? Number.NaN);
-  const killAfter = /timeout --signal=TERM --kill-after=(\d+)s "\$\{INNER_TIMEOUT_S\}s"/.exec(producer);
+  const killAfter = /timeout --signal=TERM --kill-after=(\d+)s "\$INNER_TIMEOUT_S"/.exec(producer);
   return {
     job: workflow.jobs["factory-temporal"],
     producer,
@@ -82,7 +82,7 @@ describe("factory Temporal producer fails loudly before the job timeout", () => 
   test("(c) the spec reporter writes to stdout as well as to the progress log", async () => {
     const lane = await temporalLane();
     expect(lane.reporters).toContainEqual(["spec", "stdout"]);
-    expect(lane.producer).toContain('"${FACTORY_ORCHESTRATOR_TESTS[@]}" | tee "$COV_OUT/test-progress.log"\nnode_status=${PIPESTATUS[0]}\n');
+    expect(lane.producer).toMatch(/"\$\{FACTORY_ORCHESTRATOR_TESTS\[@\]\}" \| tee "\$COV_OUT\/test-progress\.log"\nnode_status=\$\{PIPESTATUS\[0\]\}\n/);
   });
 
   test("(d) a failed or timed-out run prints the progress-log tail and the totals, then exits with the run's status", async () => {

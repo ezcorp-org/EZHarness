@@ -38,7 +38,7 @@ set +e
 NODE_V8_COVERAGE="$TEMP_ROOT/v8" \
 FACTORY_BUNDLE_CODE_PATH="$TEMP_ROOT/workflow-bundle.js" \
 FACTORY_BUNDLE_MAP_PATH="$TEMP_ROOT/workflow-bundle.map.json" \
-timeout --signal=TERM --kill-after=30s "${INNER_TIMEOUT_S}s" \
+timeout --signal=TERM --kill-after=30s "$INNER_TIMEOUT_S" \
   node --test --test-concurrency=1 --test-timeout="$PER_TEST_TIMEOUT_MS" --test-force-exit \
   --experimental-strip-types --experimental-test-coverage \
   --test-coverage-include='packages/@ezcorp/factory-orchestrator/src/**/*.ts' \
