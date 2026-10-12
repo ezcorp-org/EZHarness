@@ -22,7 +22,7 @@ mock.module("../db/queries/runs", () => ({ updateRun: async (run: { id: string; 
 
 // ── Mocked DB sinks (must precede SUT import) ──────────────────────────
 
-const createdMessages: Array<{ conversationId: string; content: string }> = [];
+const createdMessages: Array<{ id: string; conversationId: string; content: string }> = [];
 
 mock.module("../db/queries/conversations", () => ({
   createMessage: async (conversationId: string, data: { content: string }) => {
