@@ -132,7 +132,7 @@ export async function handleNetworkInternalRpc(
     if (location === null) break;
     await resp.body?.cancel();
     if (hop === MAX_REDIRECTS) return jsonRpcError(req.id, -32000, "Upstream error: too many redirects");
-    const next = URL.canParse(location, url) ? new URL(location, url) : null;
+    const next = URL.canParse(location, url.href) ? new URL(location, url) : null;
     if (!next || (next.protocol !== "http:" && next.protocol !== "https:")) {
       return jsonRpcError(req.id, -32000, "Upstream error: invalid redirect location");
     }
