@@ -4,7 +4,7 @@ import { canonicalJson, compileValueSchema, validateManifest, type CandidateVeri
 import { buildLimits, DEFAULT_IMAGE, executionLimits, resolveDependencies, trustedLocalImage } from "@ezcorp/extension-runner";
 import { createLazyExtensionRunner } from "./runner-connection";
 import { getExtensionRunnerMode, ISOLATED_PROFILE, TRUSTED_LOCAL_PROFILE, trustedLocalBunDigest } from "./runner-mode";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { DatabaseLifecycleRepository, releaseRows } from "../db/queries/extension-releases";
 import { extensionLogger } from "../logger";
 import { ExtensionControl } from "./extension-control";
@@ -256,7 +256,10 @@ export async function publishExtensionGeneration(installation: InstallationRecor
       if (projection) {
         if (projection.name === "ez-factory") factoryAgents = [];
         await transaction.update(extensionWebhooks).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionWebhooks.extensionId, projection.name));
-        await transaction.update(extensionSchedules).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionSchedules.extensionId, installation.id));
+        // Manifest rows only: reconcileSchedules re-enables those, but never
+        // touches user-created (dynamic) rows, so disabling them here would
+        // be permanent. The schedule daemon skips a disabled extension's rows.
+        await transaction.update(extensionSchedules).set({ enabled: false, updatedAt: new Date() }).where(and(eq(extensionSchedules.extensionId, installation.id), eq(extensionSchedules.dynamic, false)));
       }
       return;
     }

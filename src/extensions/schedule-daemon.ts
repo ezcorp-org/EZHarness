@@ -40,7 +40,7 @@ import { getDb } from "../db/connection";
 import {
   extensionSchedules, extensionScheduleFires, extensions,
 } from "../db/schema";
-import { eq, and, lte, gte } from "drizzle-orm";
+import { eq, and, lte, gte, inArray } from "drizzle-orm";
 import { parseCron } from "./cron";
 import type { ExtensionRegistry } from "./registry";
 import { insertAuditEntry } from "../db/queries/audit-log";
@@ -86,6 +86,18 @@ const DEFAULT_WAKE_MS = 30_000;
 const DEFAULT_MAX_PER_EXT = 5;
 const DEFAULT_MAX_HOST = 30;
 const AUTO_DISABLE_AFTER = 5; // consecutive errors
+
+/**
+ * Only an enabled extension's rows fire. Disabling an extension disables
+ * its manifest rows but leaves user-created (dynamic) rows as they are, so
+ * re-enabling restores them; this filter keeps them quiet meanwhile.
+ */
+function ofEnabledExtension() {
+  return inArray(
+    extensionSchedules.extensionId,
+    getDb().select({ id: extensions.id }).from(extensions).where(eq(extensions.enabled, true)),
+  );
+}
 const DEFAULT_CATCH_UP_JITTER_MS = 60_000;
 const DEFAULT_LOCKFILE_PATH = ".ezcorp/schedule-daemon.pid";
 const DEFAULT_MAX_RUN_DURATION_MS = 300_000; // 5 min
@@ -296,6 +308,7 @@ export class ScheduleDaemon {
     const due = await db.select().from(extensionSchedules).where(and(
       eq(extensionSchedules.enabled, true),
       lte(extensionSchedules.nextFireAt, now),
+      ofEnabledExtension(),
     )).limit(100);
 
     let claimed = 0;
@@ -886,6 +899,7 @@ export class ScheduleDaemon {
     const overdue = await db.select().from(extensionSchedules).where(and(
       eq(extensionSchedules.enabled, true),
       lte(extensionSchedules.nextFireAt, now),
+      ofEnabledExtension(),
     ));
     for (const row of overdue) {
       const grant = await this.readGrant(row.extensionId);

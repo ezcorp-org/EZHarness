@@ -164,6 +164,30 @@ describe("ScheduleDaemon — claim-before-dispatch", () => {
     daemon.stop();
   });
 
+  test("a disabled extension's enabled rows neither fire nor catch up", async () => {
+    // Disabling an extension leaves its user-created (dynamic) rows enabled
+    // so re-enabling it restores them; the daemon must skip them meanwhile.
+    const offExt = await ensureExtension(`sched-ext-off-${crypto.randomUUID()}`);
+    await getTestDb().update(extensions).set({ enabled: false }).where(eq(extensions.id, offExt));
+    await getTestDb().insert(extensionSchedules).values({
+      extensionId: offExt, cron: "0 * * * *", nextFireAt: new Date(Date.now() - 10 * 60_000),
+      enabled: true, dynamic: true, key: "user-job",
+    });
+    const daemon = new ScheduleDaemon({
+      skipLockfile: true,
+      registry: {
+        getProcessIfRunning() { return null; },
+        getGrantedPermissions() {
+          return { schedule: { maxRetries: 0, maxRunsPerDay: 24, maxRunDurationMs: 1000, missedRunPolicy: "fire-once" } };
+        },
+      } as any,
+    });
+    await daemon.start();
+    expect((await daemon.tick()).claimed).toBe(0);
+    daemon.stop();
+    expect(await getTestDb().select().from(extensionScheduleFires)).toHaveLength(0);
+  });
+
   // ── Phase 1 repro: registry-less dispatch must NOT masquerade as success ──
   //
   // Production constructed `new ScheduleDaemon()` with NO registry
