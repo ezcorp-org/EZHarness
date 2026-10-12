@@ -11,7 +11,7 @@ EZCorp extensions frequently need to run work in the background: distill a lesso
 ### Cron parsing (`src/extensions/cron.ts`)
 
 - `parseCron(expr, tz="UTC")` returns a `CronInstance` whose `.next(from)` walks wall-clock minutes in the named TZ and converts each candidate back to a UTC `Date`. This naturally rolls forward over a DST spring-forward gap, and picks the **earlier** UTC instant in the fall-back ambiguous window (conservative for at-most-once).
-- `validateCron(expr)` enforces the rules: **5-field only** (`min hour dom month dow`) — `@`-shorthands and seconds are rejected; lists/ranges/steps allowed; **minimum 5-minute interval** (`* * * * *` and `*/1..*/4 * * * *` are refused via `SUB_5_MIN_PATTERNS`). Day-of-month vs day-of-week follow the Vixie cron OR-rule when both are restricted.
+- `validateCron(expr)` enforces the rules: **5-field only** (`min hour dom month dow`) — `@`-shorthands and seconds are rejected; lists/ranges/steps allowed; **minimum 5-minute interval** (checked by walking 48 consecutive fire times in UTC, so every dense form is refused: `* * * * *`, `*/1..*/4`, `0-59 * * * *`, `1,2,3 * * * *`, `* * * * 1`). Day-of-month vs day-of-week follow the Vixie cron OR-rule when both are restricted.
 - `findNextWallClock` caps its search at ~4 years to avoid spinning on an impossible expression (e.g. Feb 30).
 
 ### Manifest → DB mirror (`src/extensions/schedule-reconcile.ts`)
@@ -161,7 +161,7 @@ getChannel().start();
 ## Notes & gotchas
 
 - **Manifest is the source of truth for crons.** The SDK `Schedule.on()` for a cron not in the manifest is silently dropped, and the reverse-RPC `fire-now` hard-rejects an undeclared cron. You cannot register a cron from extension code at runtime; edit the manifest and re-activate to reconcile.
-- **Cron rules are strict.** 5-field only (no `@hourly`, no seconds), and the **5-minute minimum** rejects `* * * * *` and `*/1..*/4 * * * *`. The validator returns a `reason` you can surface.
+- **Cron rules are strict.** 5-field only (no `@hourly`, no seconds), and the **5-minute minimum** rejects any expression with two fires less than 5 minutes apart (`* * * * *`, `*/1..*/4`, `0-59 * * * *`, `* 9 * * *`, ...). The validator returns a `reason` you can surface.
 - **At-most-once is the default; retries are opt-in.** With `maxRetries: 0`, a crash-mid-fire `running` row is left `running` forever (audited, not retried) to preserve at-most-once. Set `maxRetries > 0` only if your handler is idempotent.
 - **Cron fires are ownerless.** No conversation/user/run context — capability reverse-RPCs from a fire handler clean-soft-fail (`-32106`). Don't write a fire handler that assumes an active user or conversation.
 - **The claim relies on a single writer, not row locks.** `tick()` does a plain `SELECT … LIMIT 100` on both Postgres and PGlite — `FOR UPDATE SKIP LOCKED` is documented in the source as the intended multi-writer path but is **not** implemented. The PID lockfile is what guarantees the single writer the at-most-once invariant depends on.
