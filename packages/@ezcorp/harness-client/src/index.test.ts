@@ -516,6 +516,31 @@ describe("HarnessClient", () => {
     }
     expect(events).toEqual(["run:start", "run:complete"]);
   });
+
+  test("streamEvents cancels the open stream when the consumer stops early", async () => {
+    // The server never closes an SSE stream, so a consumer that breaks out
+    // must close the connection itself; releasing the reader lock alone
+    // leaves the socket open for the life of the process.
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"type":"run:start","data":{"runId":"r1"}}\n\n'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const c = new HarnessClient({
+      baseUrl: "http://harness.test",
+      apiKey: "ezk_test",
+      fetch: (async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })) as unknown as typeof fetch,
+    });
+    for await (const evt of c.streamEvents()) {
+      expect(evt.type).toBe("run:start");
+      break;
+    }
+    expect(cancelled).toBe(true);
+  });
 });
 
 describe("HarnessClient — extension control", () => {

@@ -22,6 +22,7 @@ const { deactivateUserAndTransferAgents } = await import(
 );
 const { createUser, getUserById } = await import("../db/queries/users");
 const { listAuditLog } = await import("../db/queries/audit-log");
+const { createSession, listSessionsByUser } = await import("../db/queries/sessions");
 const { agentConfigs } = await import("../db/schema");
 const { eq } = await import("drizzle-orm");
 
@@ -89,6 +90,18 @@ describe("deactivateUserAndTransferAgents", () => {
       adminId,
     );
     expect(existed).toBe(false);
+  });
+
+  test("revokes every session of the target, so an open browser loses access", async () => {
+    const expiresAt = new Date(Date.now() + 3_600_000);
+    await createSession({ userId: memberId, tokenHash: `deact-a-${memberId}`, expiresAt });
+    await createSession({ userId: memberId, tokenHash: `deact-b-${memberId}`, expiresAt });
+    const adminSession = await createSession({ userId: adminId, tokenHash: `deact-admin-${memberId}`, expiresAt });
+
+    await deactivateUserAndTransferAgents(memberId, adminId);
+
+    expect(await listSessionsByUser(memberId)).toEqual([]);
+    expect((await listSessionsByUser(adminId)).map((s) => s.id)).toContain(adminSession.id);
   });
 
   test("with no agents owned by the target, still deactivates the user", async () => {

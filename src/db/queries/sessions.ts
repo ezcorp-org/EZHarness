@@ -1,5 +1,5 @@
-import { eq, and, or, sql, lt, gt, desc } from "drizzle-orm";
-import { getDb } from "../connection";
+import { eq, and, or, sql, lt, gt, desc, ne } from "drizzle-orm";
+import { getDb, type DbTransaction } from "../connection";
 import { sessions, users } from "../schema";
 import type { Session } from "../schema";
 
@@ -82,10 +82,21 @@ export async function revokeSession(id: string): Promise<boolean> {
   return rows.length > 0;
 }
 
-export async function revokeAllUserSessions(userId: string): Promise<number> {
-  const rows = await getDb()
+/**
+ * Revoke every session of a user. `keepSessionId` spares the caller's own
+ * session (self-service password change); `tx` lets the revocation commit
+ * with the account change that requires it.
+ */
+export async function revokeAllUserSessions(
+  userId: string,
+  opts: { keepSessionId?: string; tx?: DbTransaction } = {},
+): Promise<number> {
+  const rows = await (opts.tx ?? getDb())
     .delete(sessions)
-    .where(eq(sessions.userId, userId))
+    .where(and(
+      eq(sessions.userId, userId),
+      opts.keepSessionId ? ne(sessions.id, opts.keepSessionId) : undefined,
+    ))
     .returning({ id: sessions.id });
   return rows.length;
 }
