@@ -4,6 +4,9 @@
  *
  * Covers GET/DELETE auth gate (401), missing-agent 404 via
  * getAgentConfigByName, and the happy paths with mocked DB queries.
+ *
+ * Agent configs are shared, but each test conversation belongs to the user
+ * who ran it. GET lists, and DELETE removes, only the caller's own.
  */
 
 import { test, expect, describe, vi, beforeEach } from "vitest";
@@ -15,13 +18,13 @@ vi.mock("$server/db/queries/agent-configs", () => ({
 
 vi.mock("$server/db/queries/conversations", () => ({
   getTestConversations: vi.fn(),
-  deleteTestConversations: vi.fn(),
+  deleteConversation: vi.fn(async () => true),
 }));
 
 const { getAgentConfigByName } = await import(
   "$server/db/queries/agent-configs"
 );
-const { getTestConversations, deleteTestConversations } = await import(
+const { getTestConversations, deleteConversation } = await import(
   "$server/db/queries/conversations"
 );
 const { GET, DELETE } = await import(
@@ -41,6 +44,11 @@ function makeEvent(opts: {
 }
 
 const user = { id: "u1", email: "u@x", name: "u", role: "user" };
+const mixedRows = [
+  { id: "c-1", title: "mine", userId: "u1" },
+  { id: "c-2", title: "theirs", userId: "u2" },
+  { id: "c-3", title: "mine too", userId: "u1" },
+];
 
 describe("GET /api/agents/[name]/test-conversations", () => {
   beforeEach(() => {
@@ -60,19 +68,16 @@ describe("GET /api/agents/[name]/test-conversations", () => {
     expect(body.error).toBe("Agent not found");
   });
 
-  test("returns list of test conversations on happy path", async () => {
+  test("lists only the caller's own test conversations", async () => {
     vi.mocked(getAgentConfigByName).mockResolvedValue({
       id: "cfg-1",
       name: "test-agent",
     } as any);
-    vi.mocked(getTestConversations).mockResolvedValue([
-      { id: "c-1", title: "t1" },
-      { id: "c-2", title: "t2" },
-    ] as any);
+    vi.mocked(getTestConversations).mockResolvedValue(mixedRows as any);
     const res = await GET(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as Array<{ id: string }>;
-    expect(body).toHaveLength(2);
+    expect(body.map((c) => c.id)).toEqual(["c-1", "c-3"]);
     expect(getTestConversations).toHaveBeenCalledWith("cfg-1");
   });
 });
@@ -80,7 +85,8 @@ describe("GET /api/agents/[name]/test-conversations", () => {
 describe("DELETE /api/agents/[name]/test-conversations", () => {
   beforeEach(() => {
     vi.mocked(getAgentConfigByName).mockReset();
-    vi.mocked(deleteTestConversations).mockReset();
+    vi.mocked(getTestConversations).mockReset();
+    vi.mocked(deleteConversation).mockClear();
   });
 
   test("rejects 401 when unauthenticated", async () => {
@@ -95,16 +101,16 @@ describe("DELETE /api/agents/[name]/test-conversations", () => {
     expect(body.error).toBe("Agent not found");
   });
 
-  test("returns deleted count on happy path", async () => {
+  test("deletes only the caller's own test conversations", async () => {
     vi.mocked(getAgentConfigByName).mockResolvedValue({
       id: "cfg-1",
       name: "test-agent",
     } as any);
-    vi.mocked(deleteTestConversations).mockResolvedValue(3 as any);
+    vi.mocked(getTestConversations).mockResolvedValue(mixedRows as any);
     const res = await DELETE(makeEvent({ locals: { user } }));
     expect(res.status).toBe(200);
     const body = (await res.json()) as { deleted: number };
-    expect(body.deleted).toBe(3);
-    expect(deleteTestConversations).toHaveBeenCalledWith("cfg-1");
+    expect(body.deleted).toBe(2);
+    expect(vi.mocked(deleteConversation).mock.calls.map(([id]) => id)).toEqual(["c-1", "c-3"]);
   });
 });
