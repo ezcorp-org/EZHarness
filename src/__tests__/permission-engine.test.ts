@@ -885,3 +885,63 @@ describe("authorize — ezcorp:extension:install carve-out", () => {
     expect(decision.decision).toBe("prompt");
   });
 });
+
+// ── always-allow lifetime: revocation, expiry, session scope ────────
+//
+// docs/permissions/four-scope-modal.md: a session grant "lives in memory,
+// never on disk", and a revoked or expired grant re-prompts on the next
+// call. The engine must read the live row, not a stale positive cache.
+
+describe("always-allow lifetime — a revoked or expired grant really prompts again", () => {
+  const SHELL_GRANT: ExtensionPermissions = { grantedAt: {}, shell: true };
+  const ctx = { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV };
+  const foreverKey = alwaysAllowSettingKey({
+    extensionId: HELLO_EXT,
+    userId: HELLO_USER,
+    scope: "forever",
+    scopeId: "*",
+    capability: "shell",
+  });
+
+  async function approve(engine: PermissionEngine, scope: "session" | "forever", scopeId: string) {
+    const first = await engine.authorize(ctx, [{ kind: "shell" }]);
+    if (first.decision !== "prompt") throw new Error("expected prompt");
+    await engine.resolvePrompt(first.promptId, true, scope, scopeId);
+    expect((await engine.authorize(ctx, [{ kind: "shell" }])).decision).toBe("allow");
+  }
+
+  test("a forever row revoked in the DB (expiry sweep) prompts on the same engine", async () => {
+    const { upsertSetting } = await import("../db/queries/settings");
+    const { buildAlwaysAllowValue } = await import("../extensions/permissions");
+    const engine = makeEngine({ granted: SHELL_GRANT });
+    await approve(engine, "forever", "*");
+
+    // The sweep's revoke shape: the row stays, `allowed` flips to false.
+    await upsertSetting(foreverKey, buildAlwaysAllowValue(false));
+
+    expect((await engine.authorize(ctx, [{ kind: "shell" }])).decision).toBe("prompt");
+  });
+
+  test("a row past its expiresAt prompts before the sweep runs", async () => {
+    const { upsertSetting } = await import("../db/queries/settings");
+    const { buildAlwaysAllowValue } = await import("../extensions/permissions");
+    const now = Date.now();
+    await upsertSetting(
+      foreverKey,
+      buildAlwaysAllowValue(true, now - 2_000, { ttlOverrideMs: 1_000, expiresAt: now - 1_000 }),
+    );
+    const engine = makeEngine({ granted: SHELL_GRANT });
+    expect((await engine.authorize(ctx, [{ kind: "shell" }])).decision).toBe("prompt");
+  });
+
+  test("a session approval is never written to disk and does not survive a restart", async () => {
+    const engine = makeEngine({ granted: SHELL_GRANT });
+    await approve(engine, "session", `session:${HELLO_USER}`);
+
+    const rows = (await getTestDb().select().from(settings)).filter((r) => r.key.includes(":always_allow:"));
+    expect(rows).toEqual([]);
+
+    const restarted = makeEngine({ granted: SHELL_GRANT });
+    expect((await restarted.authorize(ctx, [{ kind: "shell" }])).decision).toBe("prompt");
+  });
+});

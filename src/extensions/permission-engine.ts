@@ -214,12 +214,12 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
     throw new Error("PermissionEngine requires db (pass an opaque token in tests)");
   }
 
-  // In-memory always-allow cache. Key shape:
-  // `${extensionId}:${userId}:${scope}:${scopeId}:${capKind}:${capValue ?? ""}`.
-  // Populated lazily on first miss; updated by `resolvePrompt`. Bounded
-  // by extension count × user count × scope count × cap count — fine
-  // for any plausible workload.
-  const allowCache = new Map<string, boolean>();
+  // Session-scope always-allow grants. "Allow until restart" lives in
+  // memory only, never on disk (docs/permissions/four-scope-modal.md).
+  // The other scopes are read live from `settings` on every sensitive
+  // call, so a revoke or an expiry sweep takes effect on the next call.
+  // Key shape: `${extensionId}:${userId}:session:${scopeId}:${capKind}`.
+  const sessionAllows = new Set<string>();
 
   // Pending-prompt registry. Populated when the engine returns a
   // `prompt` decision; consumed when the UI calls `resolvePrompt`.
@@ -473,7 +473,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         sensitive.kind === "ezcorp:extension:install" ||
         sensitive.kind === "ezcorp:extension:modify"
           ? false
-          : await isAlwaysAllowed(allowCache, ctx, sensitive);
+          : await isAlwaysAllowed(sessionAllows, ctx, sensitive);
       if (!allowed) {
         // Bundled-ceiling auto-allow. Bundled extensions are first-party
         // code shipped in `src/extensions/bundled.ts`; their declared
@@ -587,6 +587,11 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       return;
     }
 
+    if (scope === "session") {
+      sessionAllows.add(sessionKeyOf(pending.extensionId, pending.userId, scopeId, pending.capability));
+      return;
+    }
+
     const settingKey = alwaysAllowSettingKey({
       extensionId: pending.extensionId,
       userId: pending.userId,
@@ -614,21 +619,10 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       settingKey,
       buildAlwaysAllowValue(true, now, { ttlOverrideMs, expiresAt }),
     );
-
-    // Update cache for this exact tuple so the next authorize call
-    // sees the new value without a DB round-trip.
-    const cacheKey = cacheKeyOf(
-      pending.extensionId,
-      pending.userId,
-      scope,
-      scopeId,
-      pending.capability,
-    );
-    allowCache.set(cacheKey, true);
   }
 
   function _resetCacheForTests(): void {
-    allowCache.clear();
+    sessionAllows.clear();
     pendingPrompts.clear();
     // Drop any open coalescing window WITHOUT emitting its summary — a
     // leftover window would otherwise make the next test's first decision
@@ -811,27 +805,24 @@ function alwaysAllowCapKey(c: Capability): string {
   return c.kind;
 }
 
-function cacheKeyOf(
+function sessionKeyOf(
   extensionId: string,
-  userId: string | null,
-  scope: AlwaysAllowScope,
+  userId: string,
   scopeId: string,
   c: Capability,
 ): string {
-  // Phase 6: null userId is encoded as empty in the cache key. Keys are
-  // local to one process; collision-safety is the same as before.
-  return `${extensionId}:${userId ?? ""}:${scope}:${scopeId}:${alwaysAllowCapKey(c)}`;
+  return `${extensionId}:${userId}:session:${scopeId}:${alwaysAllowCapKey(c)}`;
 }
 
 /**
  * Look up always-allow for the (user, scope, scopeId, cap) tuple.
- * Tries each scope in order: conversation > forever. The caller's
- * `ctx.conversationId` is used as the conversation scopeId. Session
- * and project scopes are not yet emitted by the UI (Phase 6 will);
- * declared in `AlwaysAllowScope` for the future.
+ * Tries each scope in order: conversation, session, project, forever.
+ * Session grants come from the engine's memory; every other scope is
+ * read from `settings` on each call so a revoked or expired row denies
+ * at once.
  */
 async function isAlwaysAllowed(
-  cache: Map<string, boolean>,
+  sessionAllows: ReadonlySet<string>,
   ctx: AuthorizeContext,
   cap: Capability,
 ): Promise<boolean> {
@@ -851,12 +842,12 @@ async function isAlwaysAllowed(
   }
   candidates.push({ scope: "forever", scopeId: "*" });
 
+  const now = Date.now();
   for (const c of candidates) {
-    const key = cacheKeyOf(ctx.extensionId, ctx.userId, c.scope, c.scopeId, cap);
-    const cached = cache.get(key);
-    if (cached === true) return true;
-    if (cached === false) continue;
-
+    if (c.scope === "session") {
+      if (sessionAllows.has(sessionKeyOf(ctx.extensionId, ctx.userId, c.scopeId, cap))) return true;
+      continue;
+    }
     const settingKey = alwaysAllowSettingKey({
       extensionId: ctx.extensionId,
       userId: ctx.userId,
@@ -868,9 +859,7 @@ async function isAlwaysAllowed(
     // Cap-expiry Phase 1: read accepts BOTH legacy `boolean` and the
     // new `{allowed, grantedAt}` shape. Legacy `true` is treated as
     // "allowed, never expires" (Phase 2 sweep skips it).
-    const allowed = parseAlwaysAllowValue(value) === "allowed";
-    cache.set(key, allowed);
-    if (allowed) return true;
+    if (parseAlwaysAllowValue(value, now) === "allowed") return true;
   }
 
   return false;
