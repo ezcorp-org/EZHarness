@@ -49,12 +49,14 @@ const SENTINEL = "DISPATCH_REACHED_SENTINEL";
 
 let promptSeq = 0;
 
-/** Engine that always returns a fresh `prompt` decision for a sensitive
- *  fs.write cap — the exact PDP shape `create_extension` produces. */
+/** Engine that returns a fresh `prompt` decision for a sensitive fs.write
+ *  cap — the exact PDP shape `create_extension` produces — until the
+ *  executor re-authorizes with that cap approved, like the real PDP. */
 function makePromptEngine(): { engine: PermissionEngine; lastPromptId: () => string } {
   let last = "";
   const engine = {
-    async authorize() {
+    async authorize(ctx: { promptApproved?: readonly unknown[] }) {
+      if (ctx.promptApproved?.length) return { decision: "allow" as const, auditId: "audit-x" };
       last = `prompt-${++promptSeq}`;
       return {
         decision: "prompt" as const,

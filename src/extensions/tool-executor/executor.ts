@@ -472,220 +472,228 @@ export class ToolExecutor {
     // `engine.authorize` returns `Promise<Decision>`, so this is
     // semantically identical and graph-independent.
     let decision: Decision;
-    try {
-      decision = await this.engine.authorize(
-        {
-          extensionId,
-          // Phase 6: null is the canonical "no user" signal — the
-          // PDP serializes it as JSON null in the audit row instead
-          // of the literal string "unknown".
-          userId: this.currentUserId ?? null,
-          serviceInvocation,
-          conversationId: conversationId ?? null,
-          toolName: originalName,
-          callerExtensionId: _opts?.callerExtensionId,
-          capContext: _opts?.capContext,
-          ...(inheritedParentAuditId !== undefined ? { parentAuditId: inheritedParentAuditId } : {}),
-        },
-        needed,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new PermissionDeniedError(
-        extensionId,
-        toolName,
-        `engine error: ${msg}`,
-      );
-    }
-
-    if (decision.decision === "deny") {
-      throw new PermissionDeniedError(extensionId, toolName, decision.reason);
-    }
-    if (decision.decision === "prompt") {
-      // Phase 6 — sensitive-cap UI gate. The PDP returned a `prompt`
-      // decision (every needed cap is granted, but a sensitive cap
-      // — `shell` or `fs.write` — lacks an always-allow row for the
-      // (user, scope, scopeId, capability) tuple). We open an
-      // extension-scoped permission gate, emit `tool:permission_request`
-      // for the originating user's UI, and AWAIT the user's
-      // `{allowed, scope}` decision. The user's chosen scope is
-      // persisted via `setSensitiveAlwaysAllow` so the next call to
-      // the same sensitive cap inside the same scope auto-allows.
-      //
-      // The PDP path also wrote a `PERM_PROMPTED` audit row before
-      // returning; we don't write a second row here. On user decline
-      // we throw `PermissionDeniedError` to mirror the deny path.
-      const sensitive = decision.sensitive;
-      const capabilityKind: "shell" | "fs.write" =
-        sensitive.kind === "shell" ? "shell" : "fs.write";
-
-      const promptStartedAt = Date.now();
-      // Terminalize the (now visible) tool card on any prompt-branch
-      // failure — deny, gate transport error, or resolvePrompt error.
-      // Without this the card we just rendered would hang forever even
-      // though the call rejects. Uses the same namespaced `toolName` as
-      // tool:start so the store correlates it to the same card.
-      const terminalizePromptCard = async (message: string): Promise<void> => {
-        const errorResult: ToolCallResult = {
-          content: [{ type: "text", text: message }],
-          isError: true,
-        };
-        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
-          conversationId,
+    // Re-authorize after each approved prompt: one call can need several
+    // sensitive caps, and approving one must never carry the others.
+    const promptApproved: Capability[] = [];
+    for (;;) {
+      try {
+        decision = await this.engine.authorize(
+          {
+            extensionId,
+            // Phase 6: null is the canonical "no user" signal — the
+            // PDP serializes it as JSON null in the audit row instead
+            // of the literal string "unknown".
+            userId: this.currentUserId ?? null,
+            serviceInvocation,
+            conversationId: conversationId ?? null,
+            toolName: originalName,
+            callerExtensionId: _opts?.callerExtensionId,
+            capContext: _opts?.capContext,
+            ...(inheritedParentAuditId !== undefined ? { parentAuditId: inheritedParentAuditId } : {}),
+            ...(promptApproved.length > 0 ? { promptApproved } : {}),
+          },
+          needed,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PermissionDeniedError(
           extensionId,
           toolName,
-          error: message,
-          duration: Date.now() - promptStartedAt,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        } };
-        await this.recordToolCall(
+          `engine error: ${msg}`,
+        );
+      }
+
+      if (decision.decision === "deny") {
+        throw new PermissionDeniedError(extensionId, toolName, decision.reason);
+      }
+      if (decision.decision === "prompt") {
+        // Phase 6 — sensitive-cap UI gate. The PDP returned a `prompt`
+        // decision (every needed cap is granted, but a sensitive cap
+        // — `shell` or `fs.write` — lacks an always-allow row for the
+        // (user, scope, scopeId, capability) tuple). We open an
+        // extension-scoped permission gate, emit `tool:permission_request`
+        // for the originating user's UI, and AWAIT the user's
+        // `{allowed, scope}` decision. The user's chosen scope is
+        // persisted via `setSensitiveAlwaysAllow` so the next call to
+        // the same sensitive cap inside the same scope auto-allows.
+        //
+        // The PDP path also wrote a `PERM_PROMPTED` audit row before
+        // returning; we don't write a second row here. On user decline
+        // we throw `PermissionDeniedError` to mirror the deny path.
+        const sensitive = decision.sensitive;
+        const capabilityKind: "shell" | "fs.write" =
+          sensitive.kind === "shell" ? "shell" : "fs.write";
+
+        const promptStartedAt = Date.now();
+        // Terminalize the (now visible) tool card on any prompt-branch
+        // failure — deny, gate transport error, or resolvePrompt error.
+        // Without this the card we just rendered would hang forever even
+        // though the call rejects. Uses the same namespaced `toolName` as
+        // tool:start so the store correlates it to the same card.
+        const terminalizePromptCard = async (message: string): Promise<void> => {
+          const errorResult: ToolCallResult = {
+            content: [{ type: "text", text: message }],
+            isError: true,
+          };
+          const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+            conversationId,
+            extensionId,
+            toolName,
+            error: message,
+            duration: Date.now() - promptStartedAt,
+            ...(registered.cardType && { cardType: registered.cardType }),
+            ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+            ...(meta?.source && { source: meta.source }),
+            ...(meta?.invocationId && { invocationId: meta.invocationId }),
+          } };
+          await this.recordToolCall(
+            conversationId,
+            messageId,
+            extensionId,
+            toolName,
+            input,
+            errorResult,
+            promptStartedAt,
+            registered.cardType,
+            registered.cardLayout,
+            toolEvent,
+          );
+          emitPersistedDomainEvent(this.bus, toolEvent);
+        };
+
+        // Emit tool:start FIRST so the card + tool_ref block exist before
+        // the prompt arrives. Same (namespaced) `toolName` the
+        // start/complete/error events use — previously this emitted
+        // `originalName`, which never matched the namespaced tool:start
+        // entry in the store, so even a rendered card wouldn't correlate.
+        emitToolStart(promptStartedAt);
+
+        // Surface the prompt to the originating user's UI session only.
+        // `userId` is the H7-scoped delivery key — the SSE filter at
+        // `sse-conversation-filter.ts:shouldDeliverEvent` enforces that
+        // only the matching subscriber sees the event.
+        this.bus?.emit("tool:permission_request", {
           conversationId,
-          messageId,
-          extensionId,
+          toolCallId: decision.promptId,
           toolName,
           input,
-          errorResult,
-          promptStartedAt,
-          registered.cardType,
-          registered.cardLayout,
-          toolEvent,
-        );
-        emitPersistedDomainEvent(this.bus, toolEvent);
-      };
-
-      // Emit tool:start FIRST so the card + tool_ref block exist before
-      // the prompt arrives. Same (namespaced) `toolName` the
-      // start/complete/error events use — previously this emitted
-      // `originalName`, which never matched the namespaced tool:start
-      // entry in the store, so even a rendered card wouldn't correlate.
-      emitToolStart(promptStartedAt);
-
-      // Surface the prompt to the originating user's UI session only.
-      // `userId` is the H7-scoped delivery key — the SSE filter at
-      // `sse-conversation-filter.ts:shouldDeliverEvent` enforces that
-      // only the matching subscriber sees the event.
-      this.bus?.emit("tool:permission_request", {
-        conversationId,
-        toolCallId: decision.promptId,
-        toolName,
-        input,
-        userId: this.currentUserId,
-        extensionId,
-        capabilityKind,
-        ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
-        promptId: decision.promptId,
-      });
-
-      // Make this gate visible to the watchdog as a legitimate
-      // user-wait, exactly like the built-in tool path
-      // (setup-tools.ts). Keyed by `decision.promptId` — the same key
-      // `createExtensionPermissionGate` and the resolve route use, so
-      // register/deregister stay aligned with no toolCallId↔promptId
-      // skew. Without this the watchdog treats the wait as a hung
-      // in-flight tool and kills the run at the callTimeoutMs ceiling,
-      // tearing down the prompt before the user can answer it.
-      this.registerPendingPermission(decision.promptId, {
-        conversationId,
-        toolCallId: decision.promptId,
-        toolName: originalName,
-        input,
-        category: "extension-sensitive",
-      });
-
-      let resolution: ApprovalResolution;
-      try {
-        resolution = await createExtensionPermissionGate({
-          ...(_opts?.signal ? { signal: _opts.signal } : {}),
-          promptId: decision.promptId,
-          conversationId,
-          userId: this.currentUserId ?? "",
+          userId: this.currentUserId,
           extensionId,
-          toolName: originalName,
           capabilityKind,
           ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+          promptId: decision.promptId,
         });
-      } catch (err) {
-        // The gate's promise resolves with `{allowed: false}` on
-        // decline; reaching the catch arm means a transport-level
-        // failure (e.g. server restart). Treat as deny.
-        const msg = err instanceof Error ? err.message : String(err);
-        await terminalizePromptCard(`permission gate error: ${msg}`);
-        throw new PermissionDeniedError(
-          extensionId,
-          toolName,
-          `permission gate error: ${msg}`,
-        );
-      } finally {
-        // Runs on every exit — gate resolved (allow/deny), gate threw
-        // (catch above), or any unexpected throw. Race-safe: the key is
-        // the immutable `decision.promptId`. Symmetric with the
-        // built-in path's `finally` deregister (setup-tools.ts).
-        this.deregisterPendingPermission(decision.promptId);
-      }
 
-      if (!resolution.allowed) {
-        await terminalizePromptCard("User declined permission prompt");
-        throw new PermissionDeniedError(
-          extensionId,
-          toolName,
-          "User declined permission prompt",
-        );
-      }
+        // Make this gate visible to the watchdog as a legitimate
+        // user-wait, exactly like the built-in tool path
+        // (setup-tools.ts). Keyed by `decision.promptId` — the same key
+        // `createExtensionPermissionGate` and the resolve route use, so
+        // register/deregister stay aligned with no toolCallId↔promptId
+        // skew. Without this the watchdog treats the wait as a hung
+        // in-flight tool and kills the run at the callTimeoutMs ceiling,
+        // tearing down the prompt before the user can answer it.
+        this.registerPendingPermission(decision.promptId, {
+          conversationId,
+          toolCallId: decision.promptId,
+          toolName: originalName,
+          input,
+          category: "extension-sensitive",
+        });
 
-      // Persist always-allow at the user-chosen scope (default session
-      // — least surprise; the gate falls back to "session" when no
-      // scope is supplied, matching the spec's locked default).
-      //
-      // `engine.resolvePrompt` is the single source of truth: it writes
-      // the always-allow settings row AND updates the engine's in-memory
-      // allow cache so the next call to the same sensitive cap in the
-      // same scope auto-allows. A previous version of this code ALSO
-      // called `setSensitiveAlwaysAllow` directly here, which wrote a
-      // second row under a different key shape (kind-only vs kind+value)
-      // — the reader's lookup never found the legacy row, so users
-      // hitting Allow Forever still re-prompted on every subsequent
-      // call. Collapsed to one writer to make the asymmetry impossible.
-      const scope = resolution.scope ?? "session";
-      // Project scopeId resolution is deferred — for a `project` scope we use
-      // the conversationId as a stable key for now; a future commit can map
-      // conversation→project when the PDP gains project-aware lookups (the
-      // cache key already accommodates it). Comment lifted out of the ternary
-      // branch below so bun doesn't emit a phantom, never-hit DA record on an
-      // in-ternary comment line (which the per-file gate can't clear).
-      const scopeId =
-        scope === "conversation"
-          ? conversationId
-          : scope === "session"
-            ? `session:${this.currentUserId ?? ""}`
-            : scope === "project"
-              ? conversationId
-              : "*";
-      // Phase 56: forward the picker's `ttlOverrideMs` (when supplied)
-      // so the engine persists the per-row override alongside the
-      // always-allow row. `undefined` here means the user hit Allow
-      // via a legacy path (pre-Phase-56 client) — engine falls back
-      // to the existing TTL_CONFIG[kind] / foreverTtlMs lookup.
-      const resolvePromptOptions =
-        resolution.ttlOverrideMs !== undefined
-          ? { ttlOverrideMs: resolution.ttlOverrideMs }
-          : undefined;
-      try {
-        await this.engine.resolvePrompt(
-          decision.promptId,
-          true,
-          scope,
-          scopeId,
-          resolvePromptOptions,
-        );
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        await terminalizePromptCard(`permission persist error: ${msg}`);
-        throw err;
+        let resolution: ApprovalResolution;
+        try {
+          resolution = await createExtensionPermissionGate({
+            ...(_opts?.signal ? { signal: _opts.signal } : {}),
+            promptId: decision.promptId,
+            conversationId,
+            userId: this.currentUserId ?? "",
+            extensionId,
+            toolName: originalName,
+            capabilityKind,
+            ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+          });
+        } catch (err) {
+          // The gate's promise resolves with `{allowed: false}` on
+          // decline; reaching the catch arm means a transport-level
+          // failure (e.g. server restart). Treat as deny.
+          const msg = err instanceof Error ? err.message : String(err);
+          await terminalizePromptCard(`permission gate error: ${msg}`);
+          throw new PermissionDeniedError(
+            extensionId,
+            toolName,
+            `permission gate error: ${msg}`,
+          );
+        } finally {
+          // Runs on every exit — gate resolved (allow/deny), gate threw
+          // (catch above), or any unexpected throw. Race-safe: the key is
+          // the immutable `decision.promptId`. Symmetric with the
+          // built-in path's `finally` deregister (setup-tools.ts).
+          this.deregisterPendingPermission(decision.promptId);
+        }
+
+        if (!resolution.allowed) {
+          await terminalizePromptCard("User declined permission prompt");
+          throw new PermissionDeniedError(
+            extensionId,
+            toolName,
+            "User declined permission prompt",
+          );
+        }
+
+        // Persist always-allow at the user-chosen scope (default session
+        // — least surprise; the gate falls back to "session" when no
+        // scope is supplied, matching the spec's locked default).
+        //
+        // `engine.resolvePrompt` is the single source of truth: it writes
+        // the always-allow settings row AND updates the engine's in-memory
+        // allow cache so the next call to the same sensitive cap in the
+        // same scope auto-allows. A previous version of this code ALSO
+        // called `setSensitiveAlwaysAllow` directly here, which wrote a
+        // second row under a different key shape (kind-only vs kind+value)
+        // — the reader's lookup never found the legacy row, so users
+        // hitting Allow Forever still re-prompted on every subsequent
+        // call. Collapsed to one writer to make the asymmetry impossible.
+        const scope = resolution.scope ?? "session";
+        // Project scopeId resolution is deferred — for a `project` scope we use
+        // the conversationId as a stable key for now; a future commit can map
+        // conversation→project when the PDP gains project-aware lookups (the
+        // cache key already accommodates it). Comment lifted out of the ternary
+        // branch below so bun doesn't emit a phantom, never-hit DA record on an
+        // in-ternary comment line (which the per-file gate can't clear).
+        const scopeId =
+          scope === "conversation"
+            ? conversationId
+            : scope === "session"
+              ? `session:${this.currentUserId ?? ""}`
+              : scope === "project"
+                ? conversationId
+                : "*";
+        // Phase 56: forward the picker's `ttlOverrideMs` (when supplied)
+        // so the engine persists the per-row override alongside the
+        // always-allow row. `undefined` here means the user hit Allow
+        // via a legacy path (pre-Phase-56 client) — engine falls back
+        // to the existing TTL_CONFIG[kind] / foreverTtlMs lookup.
+        const resolvePromptOptions =
+          resolution.ttlOverrideMs !== undefined
+            ? { ttlOverrideMs: resolution.ttlOverrideMs }
+            : undefined;
+        try {
+          await this.engine.resolvePrompt(
+            decision.promptId,
+            true,
+            scope,
+            scopeId,
+            resolvePromptOptions,
+          );
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          await terminalizePromptCard(`permission persist error: ${msg}`);
+          throw err;
+        }
+        promptApproved.push(sensitive);
+        continue;
       }
-      // Fall through to dispatch — the user authorized this call.
+      break;
     }
 
     // Track current call context for reverse RPC handlers (e.g. ezcorp/storage)

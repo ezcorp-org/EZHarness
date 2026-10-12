@@ -978,6 +978,24 @@ describe("sensitive gate — every sensitive capability in the request is checke
     expect(decision).toMatchObject({ decision: "prompt", sensitive: { kind: "ezcorp:extension:install" } });
   });
 
+  test("a cap the user approved earlier in this call skips its prompt; the next unapproved cap still prompts", async () => {
+    const engine = makeEngine({ granted: { grantedAt: {}, shell: true, custom: { drafts: { kinds: ["extension"] } } } });
+    const needed = [{ kind: "ezcorp:extension:install" }, { kind: "shell" }] as const;
+    const first = await engine.authorize(ctx, [...needed]);
+    expect(first).toMatchObject({ decision: "prompt", sensitive: { kind: "ezcorp:extension:install" } });
+
+    const second = await engine.authorize({ ...ctx, promptApproved: [{ kind: "ezcorp:extension:install" }] }, [...needed]);
+    expect(second).toMatchObject({ decision: "prompt", sensitive: { kind: "shell" } });
+
+    const third = await engine.authorize(
+      { ...ctx, promptApproved: [{ kind: "ezcorp:extension:install" }, { kind: "shell" }] },
+      [...needed],
+    );
+    expect(third.decision).toBe("allow");
+    // One-shot: the approval lives in that call only, never in the engine.
+    expect(await engine.authorize(ctx, [...needed])).toMatchObject({ decision: "prompt", sensitive: { kind: "ezcorp:extension:install" } });
+  });
+
   test("a bundled request whose sensitive caps are all auto-allowed still allows", async () => {
     const engine = makeBundledEngine({ grantedAt: {}, shell: true, filesystem: ["/tmp"] });
     const decision = await engine.authorize(ctx, [{ kind: "shell" }, { kind: "fs.write", value: "/tmp/a" }]);

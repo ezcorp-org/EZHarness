@@ -141,6 +141,13 @@ export interface AuthorizeContext {
   /** Host-only sealed File Organizer action. Worker RPC cannot construct it. */
   fileOrganizerActionAuthority?: unknown;
   fileOrganizerEffect?: { action: string; subject: string; paths: readonly string[]; privatePath?: string };
+  /**
+   * Host-only: sensitive caps the user already approved at a prompt
+   * earlier in THIS call. The executor re-authorizes after each approval
+   * so every other sensitive cap still prompts; this list stops a
+   * one-shot cap (install / modify, never persisted) from re-prompting.
+   */
+  promptApproved?: readonly Capability[];
 }
 
 export type Decision =
@@ -477,6 +484,7 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         // can never suppress the prompt — defence-in-depth alongside the
         // non-persist carve-out in `resolvePrompt`.
         const oneShot = sensitive.kind === "ezcorp:extension:install" || sensitive.kind === "ezcorp:extension:modify";
+        if (ctx.promptApproved?.some((c) => c.kind === sensitive.kind && c.value === sensitive.value)) continue;
         if (!oneShot && await isAlwaysAllowed(sessionAllows, ctx, sensitive)) continue;
         // Bundled-ceiling auto-allow. Bundled extensions are first-party
         // code shipped in `src/extensions/bundled.ts`; their declared
