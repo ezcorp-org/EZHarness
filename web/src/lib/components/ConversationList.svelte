@@ -71,7 +71,7 @@
 
 	// Reactive unread tracking — bump revision on store changes
 	let unreadRev = $state(0);
-	unreadStore.subscribe(() => { unreadRev++; });
+	$effect(() => unreadStore.subscribe(() => { unreadRev++; }));
 
 	// Search state
 	let searchOpen = $state(false);

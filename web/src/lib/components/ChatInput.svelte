@@ -52,8 +52,8 @@
 		type ModelSelection,
 	} from "$lib/model-selector-logic.js";
 
-	let connState = $state<"connected" | "disconnected" | "reconnecting" | "failed">("connected");
-	connectionState.subscribe((info) => { connState = info.state; });
+	// `$store` subscribes for the component's lifetime and unsubscribes on destroy.
+	let connState = $derived($connectionState.state);
 
 	interface StagedToolCall {
 		extensionName: string;
@@ -402,7 +402,6 @@
 		onLoading: (loading) => { mentionLoading = loading; },
 		onResult: (items) => { mentionItems = items; },
 	});
-	onDestroy(mentionSearch.cancel);
 	// Latest trigger query — drives the popover's "use current folder" entry.
 	let mentionTriggerQuery = $state("");
 
@@ -496,6 +495,11 @@
 	let suggestTimer: ReturnType<typeof setTimeout> | undefined;
 	let suggestAbort: AbortController | null = null;
 	let enhanceBackoffUntil = 0;
+	onDestroy(() => {
+		mentionSearch.cancel();
+		clearTimeout(suggestTimer);
+		suggestAbort?.abort();
+	});
 	let suggestOpen = $derived(
 		!suggestDismissed &&
 			!mentionOpen &&
