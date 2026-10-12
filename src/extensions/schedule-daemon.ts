@@ -877,6 +877,10 @@ export class ScheduleDaemon {
   /** Apply missed-run policies on schedules whose `next_fire_at` is in
    *  the past — the daemon just came up after offline. */
   private async applyMissedRunPolicies(): Promise<void> {
+    // Catch-up fires are an autonomous fire path too. While the kill switch
+    // is engaged, leave the rows due: the first tick after disengage claims
+    // them normally.
+    if (await loopsKillSwitchEngaged()) return;
     const db = getDb();
     const now = this.opts.now();
     const overdue = await db.select().from(extensionSchedules).where(and(
@@ -888,21 +892,33 @@ export class ScheduleDaemon {
       // A dynamic row's own zone; a manifest row's grant zone (unchanged).
       const tz = zoneFor(row, grant);
       try {
-        if (grant.missedRunPolicy === "skip") {
-          // Bump next_fire_at to the next slot from now.
-          const next = parseCron(row.cron, tz).next(now);
-          await db.update(extensionSchedules)
-            .set({ nextFireAt: next, lastFireStatus: "ok", updatedAt: now })
-            .where(eq(extensionSchedules.id, row.id));
-        } else if (grant.missedRunPolicy === "fire-all") {
-          // Enumerate every missed slot back to last_fire_at, capped
-          // at maxRunsPerDay (data-loss invariant — see spec § Open
-          // questions). Each fire is dispatched with `catchUp: true`.
-          // Cap retrieval reduces the count by today's fires already
-          // recorded.
-          const last = row.lastFireAt ?? row.nextFireAt;
+        // Compare-and-swap claim, as in `tick()`: advance next_fire_at only
+        // if it still holds the value read above. Of N instances starting
+        // together on one shared database, exactly one wins the row; the
+        // losers skip it, so a catch-up never fires twice.
+        const next = parseCron(row.cron, tz).next(now);
+        const claimedRows = await db.update(extensionSchedules)
+          .set({
+            nextFireAt: next,
+            updatedAt: now,
+            ...(grant.missedRunPolicy === "skip" ? { lastFireStatus: "ok" } : {}),
+          })
+          .where(and(
+            eq(extensionSchedules.id, row.id),
+            eq(extensionSchedules.nextFireAt, row.nextFireAt),
+          ))
+          .returning({ id: extensionSchedules.id });
+        if (claimedRows.length === 0) continue;
+
+        // "skip" is complete: the claim bumped next_fire_at to the next slot.
+        if (grant.missedRunPolicy === "fire-all") {
+          // Enumerate every missed slot from next_fire_at (the first slot
+          // that never fired), capped at maxRunsPerDay (data-loss
+          // invariant — see spec § Open questions). Each fire is
+          // dispatched with `catchUp: true`. Cap retrieval reduces the
+          // count by today's fires already recorded.
           const dailyUsed = await this.todaysFireCount(row.extensionId);
-          let cursor = parseCron(row.cron, tz).next(last);
+          let cursor = row.nextFireAt;
           let firedAny = false;
           let usedToday = dailyUsed;
           while (cursor.getTime() <= now.getTime() && usedToday < grant.maxRunsPerDay) {
@@ -922,13 +938,14 @@ export class ScheduleDaemon {
             usedToday++;
             cursor = parseCron(row.cron, tz).next(cursor);
           }
-          // Advance schedule.next_fire_at past all enumerated slots.
-          const next = parseCron(row.cron, tz).next(now);
-          await db.update(extensionSchedules)
-            .set({ nextFireAt: next, ...(firedAny ? { lastFireAt: now } : {}), updatedAt: now })
-            .where(eq(extensionSchedules.id, row.id));
-        } else {
-          // "fire-once" (default) — fire ONE catch-up, advance.
+          // next_fire_at already moved past all enumerated slots (claim).
+          if (firedAny) {
+            await db.update(extensionSchedules)
+              .set({ lastFireAt: now })
+              .where(eq(extensionSchedules.id, row.id));
+          }
+        } else if (grant.missedRunPolicy !== "skip") {
+          // "fire-once" (default) — fire ONE catch-up.
           const jitterMs = Math.floor(this.opts.random() * this.opts.catchUpJitterMs);
           const fa = new Date(now.getTime() + jitterMs);
           const [fire] = await db.insert(extensionScheduleFires).values({
@@ -941,9 +958,8 @@ export class ScheduleDaemon {
           this.inFlightHost++;
           this.inFlight.set(row.extensionId, (this.inFlight.get(row.extensionId) ?? 0) + 1);
           await this.dispatchFire(row, fire!.id, fa, true, 0, grant.maxRunDurationMs);
-          const next = parseCron(row.cron, tz).next(now);
           await db.update(extensionSchedules)
-            .set({ nextFireAt: next, lastFireAt: fa, lastFireId: fire!.id, updatedAt: now })
+            .set({ lastFireAt: fa, lastFireId: fire!.id })
             .where(eq(extensionSchedules.id, row.id));
         }
       } catch (err) {
