@@ -10,15 +10,12 @@
  *     implementations, not a copy of them written in this file.
  *  2. The routes' own ordering: scope → project exists → role → body.
  *
- * ## The asymmetry these tests pin, stated once
+ * ## The rule these tests pin, stated once
  *
- * A plain `member` may DELETE THE WHOLE PROJECT (`[id]/+server.ts`) but may
- * NOT add a member. That looks backwards until you name the axis: granting
- * authority is the narrower right, not the more destructive one. A member
- * deleting the project destroys one object they already had full control
- * of; a member who could add members could add a confederate, and that
- * compounds. Both halves are asserted below so the shape cannot be
- * "simplified" into consistency by someone who has not read this.
+ * A plain `member` may rename the project but may NOT add a member, and may
+ * not delete the project either (`[id]/+server.ts` needs `owner`, because a
+ * delete cascades to every member's conversations). A member who could add
+ * members could add a confederate, and that compounds.
  */
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
 import { restoreModuleMocks, webLibModule } from "../helpers/mock-cleanup";

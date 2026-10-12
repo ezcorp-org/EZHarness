@@ -16,7 +16,8 @@
  * they had just created.
  *
  * `project_members` now exists, so the rule is membership: any MEMBER of the
- * project (plus any instance admin) may mutate it; a non-member may not.
+ * project (plus any instance admin) may rename it, only an OWNER (or admin)
+ * may delete it, and a non-member may do neither.
  *
  * ## The second correction: this spec had stopped testing what it claimed
  *
