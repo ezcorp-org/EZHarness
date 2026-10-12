@@ -675,6 +675,14 @@ describe("route table (HARNESS_ROUTES + buildPath)", () => {
     expect(buildPath("/api/extensions")).toBe("/api/extensions");
   });
 
+  test("buildPath refuses a param that is a whole dot segment", () => {
+    // encodeURIComponent leaves `.` alone and the URL parser resolves `..`
+    // even when encoded, so `/api/extensions/../activate` reached another route.
+    for (const id of ["", ".", ".."]) {
+      expect(() => buildPath("/api/extensions/:id/activate", { id })).toThrow(/invalid route param ':id'/);
+    }
+  });
+
   test("buildPath throws loudly on a missing route param", () => {
     expect(() => buildPath("/api/extensions/:id/activate", {})).toThrow(
       /missing route param ':id'/,
