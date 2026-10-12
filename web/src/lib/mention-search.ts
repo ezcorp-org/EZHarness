@@ -1,12 +1,14 @@
-import { searchMentions } from "$lib/api";
-import type { MentionItem } from "$lib/components/MentionPopover.svelte";
+import { searchMentions, type MentionResult } from "$lib/api";
+
+/** The MentionResult fields the popover reads (MentionPopover's MentionItem). */
+export type MentionSearchItem = Pick<MentionResult, "name" | "description" | "kind" | "source" | "fileCount" | "insertText">;
 
 /** Search mentions and shape the results for MentionPopover (both composers). */
 export async function searchMentionItems(
 	query: string,
 	type: Parameters<typeof searchMentions>[1],
 	projectId: string | undefined,
-): Promise<MentionItem[]> {
+): Promise<MentionSearchItem[]> {
 	const results = await searchMentions(query, type, projectId);
 	return results.map((r) => ({
 		name: r.name,
