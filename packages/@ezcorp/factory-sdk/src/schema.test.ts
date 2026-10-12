@@ -35,10 +35,10 @@ describe("generated definition schema", () => {
         path: resolve(import.meta.dir, "types.ts"),
         tsconfig: resolve(import.meta.dir, "../tsconfig.build.json"),
         type,
-        id,
+        schemaId: id,
         skipTypeCheck: true,
       }).createSchema(type);
-      expect(checkedIn).toEqual({ $id: id, ...generated });
+      expect<unknown>(checkedIn).toEqual(generated);
     }
   });
 

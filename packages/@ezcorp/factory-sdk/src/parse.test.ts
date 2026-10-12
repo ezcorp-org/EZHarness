@@ -30,8 +30,8 @@ describe("safe authoring parsers", () => {
     expect(() => parseIYaml("1: value\n")).toThrow("mapping keys must be strings");
     const hostile = parseIYaml("__proto__: safe\nconstructor: owned\ntoString: value\n") as Record<string, unknown>;
     expect(Object.hasOwn(hostile, "__proto__")).toBe(true);
-    expect(hostile.constructor).toBe("owned");
-    expect(hostile.toString).toBe("value");
+    expect<unknown>(hostile.constructor).toBe("owned");
+    expect<unknown>(hostile.toString).toBe("value");
     expect(({} as Record<string, unknown>).safe).toBeUndefined();
   });
 
