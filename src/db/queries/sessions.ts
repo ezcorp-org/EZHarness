@@ -55,18 +55,25 @@ export async function getSessionByTokenHash(tokenHash: string): Promise<Session 
  * Lookup that also reports whether the match came via the rotation-grace
  * `previous_token_hash` column. Hooks use this to suppress a re-rotation
  * when another concurrent request just rotated the row.
+ *
+ * Only a session of an ACTIVE user matches. The hook reads "no match" as a
+ * revoked session, so a deactivated user is refused in this same query
+ * rather than by a second per-request user read.
  */
 export async function lookupSessionByTokenHash(tokenHash: string): Promise<SessionLookup | null> {
   const rows = await getDb()
     .select()
     .from(sessions)
     .where(
-      or(
-        eq(sessions.tokenHash, tokenHash),
-        and(
-          eq(sessions.previousTokenHash, tokenHash),
-          gt(sessions.previousTokenExpiresAt, sql`NOW()`),
+      and(
+        or(
+          eq(sessions.tokenHash, tokenHash),
+          and(
+            eq(sessions.previousTokenHash, tokenHash),
+            gt(sessions.previousTokenExpiresAt, sql`NOW()`),
+          ),
         ),
+        sql`EXISTS (SELECT 1 FROM ${users} WHERE ${users.id} = ${sessions.userId} AND ${users.status} = 'active')`,
       ),
     );
   const row = rows[0];
