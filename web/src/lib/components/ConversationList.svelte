@@ -171,28 +171,37 @@
 		loadConversations();
 	}
 
+	// Loads overlap: a project switch, or several change events in a row.
+	// Only the latest load may write, or a slow answer for the previous
+	// project would replace the list the user is looking at.
+	let loadGeneration = 0;
+
 	async function loadConversations() {
+		const generation = ++loadGeneration;
 		conversationsLoading = true;
 		hasMore = true;
 		try {
 			const page = await fetchConversations(projectId, { limit: PAGE_SIZE, offset: 0 });
+			if (generation !== loadGeneration) return;
 			conversations = page;
 			hasMore = page.length === PAGE_SIZE;
 		} catch {
 			// silent
 		} finally {
-			conversationsLoading = false;
+			if (generation === loadGeneration) conversationsLoading = false;
 		}
 	}
 
 	async function loadMore() {
 		if (loadingMore || !hasMore || conversationsLoading || isSearchActive) return;
+		const generation = loadGeneration;
 		loadingMore = true;
 		try {
 			const page = await fetchConversations(projectId, {
 				limit: PAGE_SIZE,
 				offset: conversations.length,
 			});
+			if (generation !== loadGeneration) return;
 			// De-dupe in case items shifted between pages (e.g., updatedAt changed)
 			const seen = new Set(conversations.map((c) => c.id));
 			const fresh = page.filter((c) => !seen.has(c.id));
