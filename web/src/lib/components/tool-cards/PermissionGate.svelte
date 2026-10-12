@@ -226,7 +226,7 @@
 				<span class="text-sm font-medium text-[var(--color-text-primary)]">{toolCall.toolName}</span>
 			{/if}
 			{#if (isExtensionRequest || isExpiredRequest) && toolCall.extensionId}
-				<span class="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-medium text-blue-300" data-testid="permission-extension-badge">{toolCall.extensionId}</span>
+				<span class="rounded-full bg-blue-500/20 px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-primary)]" data-testid="permission-extension-badge">{toolCall.extensionId}</span>
 			{/if}
 			{#if toolCall.category}
 				<span class="rounded-full bg-[var(--color-warning,#f59e0b)]/20 px-2 py-0.5 text-[10px] font-medium text-[var(--color-text-primary)]">{toolCall.category}</span>
