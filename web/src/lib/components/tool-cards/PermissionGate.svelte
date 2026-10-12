@@ -101,8 +101,21 @@
 				? `Write to filesystem: ${toolCall.capabilityValue}`
 				: 'Write to filesystem';
 		}
+		if (toolCall.capabilityKind === 'ezcorp:extension:install') {
+			return 'Install an extension and let it run with its declared permissions';
+		}
+		if (toolCall.capabilityKind === 'ezcorp:extension:modify') {
+			return 'Edit an installed extension';
+		}
 		return `Use capability ${toolCall.capabilityKind ?? '(unknown)'}`;
 	});
+
+	// Install / modify approvals are never persisted server-side, so the
+	// chooser offers no lasting scope for them — only this one call.
+	let isOneShotRequest = $derived(
+		toolCall.capabilityKind === 'ezcorp:extension:install' ||
+			toolCall.capabilityKind === 'ezcorp:extension:modify',
+	);
 
 	// Phase 4 expired-branch derivations. Pulled from the shared
 	// `expiry-copy.ts` module so chat-side and settings-side surfaces
@@ -311,6 +324,16 @@
 				default to "forever".
 			-->
 			<div class="flex flex-wrap gap-2" data-testid="permission-scope-chooser">
+				{#if isOneShotRequest}
+				<button
+					onclick={() => handleAllow('session')}
+					disabled={loading}
+					data-testid="permission-allow-once"
+					class="rounded px-3 py-1.5 text-xs font-medium bg-green-600 hover:bg-green-500 text-white transition-colors disabled:opacity-50"
+				>
+					{loading ? 'Working...' : 'Allow this time'}
+				</button>
+				{:else}
 				<button
 					onclick={() => handleAllow('session')}
 					disabled={loading}
@@ -343,6 +366,7 @@
 				>
 					Always allow
 				</button>
+				{/if}
 				<button
 					onclick={handleDeny}
 					disabled={loading}

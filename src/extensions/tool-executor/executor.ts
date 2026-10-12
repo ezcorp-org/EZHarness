@@ -22,7 +22,7 @@ import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../domain-e
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
-import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
+import { capabilityDeclarationToSet, type Capability, type CapabilitySet, type SensitiveCapabilityKind } from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
 import { isSealedServiceInvocation, type ServiceInvocation } from "../service-invocation";
 import {
@@ -521,8 +521,9 @@ export class ToolExecutor {
         // returning; we don't write a second row here. On user decline
         // we throw `PermissionDeniedError` to mirror the deny path.
         const sensitive = decision.sensitive;
-        const capabilityKind: "shell" | "fs.write" =
-          sensitive.kind === "shell" ? "shell" : "fs.write";
+        // The PDP prompts only for a SENSITIVE_KINDS cap. Name it as-is:
+        // the user must see an install, not a generic file write.
+        const capabilityKind = sensitive.kind as SensitiveCapabilityKind;
 
         const promptStartedAt = Date.now();
         // Terminalize the (now visible) tool card on any prompt-branch

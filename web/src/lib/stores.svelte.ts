@@ -29,6 +29,7 @@ import {
 } from "./sub-agent-routing.js";
 import { readTeamPanel, writeTeamPanel } from "./panel-persistence.js";
 import type { PendingApprovalNotice } from "./workflow-approvals-logic.js";
+import type { SensitiveCapabilityKind } from "$server/extensions/capability-types";
 import {
 	applyAssignmentUpdate as reduceAssignmentUpdate,
 	applyHydratedSnapshot as reduceHydratedSnapshot,
@@ -76,7 +77,7 @@ export interface ToolCallState {
 	 *  (session/conversation/project/forever) for `shell` and `fs.write`
 	 *  ops on extensions. Built-in tool gates (read/write/execute) leave
 	 *  this undefined and use the legacy two-button modal. */
-	capabilityKind?: 'shell' | 'fs.write';
+	capabilityKind?: SensitiveCapabilityKind;
 	capabilityValue?: string;
 }
 
@@ -1316,7 +1317,7 @@ export function initStores() {
 					cardLayout?: string;
 					category?: string;
 					extensionId?: string;
-					capabilityKind?: 'shell' | 'fs.write';
+					capabilityKind?: SensitiveCapabilityKind;
 					capabilityValue?: string;
 				};
 				const safePermLayout = permCardLayout === 'dock' ? 'dock' as const : permCardLayout === 'inline' ? 'inline' as const : undefined;
