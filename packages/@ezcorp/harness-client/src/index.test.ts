@@ -33,7 +33,7 @@ describe("SseDataBuffer", () => {
 test("factory authoring client sends encoded paths, queries, and mutation preconditions", async () => {
   const requests: Request[] = [];
   const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
-    const request = new Request(input, init);
+    const request = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
     requests.push(request);
     return Response.json({ schemaVersion: "factory.api.response.v1", kind: "draft.validation", valid: true, diagnostics: [] });
   }) as unknown as typeof fetch;
@@ -78,8 +78,9 @@ test("factory authoring client sends encoded paths, queries, and mutation precon
 
 test("extension control exposes the shared lifecycle without a key-based approval method", async () => {
   const input = { action: "create", name: "test" };
-  expect(await client().extensionControl("extensions_workspace", input)).toEqual({ tool: "extensions_workspace", input });
-  expect(await client().extensionControl("extensions_describe")).toEqual({ tool: "extensions_describe", input: {} });
+  type Echo = { tool: string; input: Record<string, unknown> };
+  expect(await client().extensionControl<Echo>("extensions_workspace", input)).toEqual({ tool: "extensions_workspace", input });
+  expect(await client().extensionControl<Echo>("extensions_describe")).toEqual({ tool: "extensions_describe", input: {} });
 });
 
 describe("event-name parity with the app", () => {
