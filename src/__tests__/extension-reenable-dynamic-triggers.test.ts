@@ -54,11 +54,13 @@ async function publishEnabled(installation: InstallationRecord, release: Paramet
   return next;
 }
 
+const TRIGGERS = { maxCron: 3, maxWebhooks: 2, webhookPrefix: "user-", maxRunsPerDay: 90 };
+
 /** Install and publish a fresh fixture extension named `name`. */
-async function installFixture(name: string) {
+async function installFixture(name: string, permissions: Record<string, unknown> = { triggers: TRIGGERS }) {
   const manifest = validateManifest({
     schemaVersion: 4, name, version: "1.0.0", description: "fixture",
-    author: { name: "test" }, entrypoint: "./index.js", tools: [], permissions: {},
+    author: { name: "test" }, entrypoint: "./index.js", tools: [], permissions,
   });
   const fixture = releaseRuntimeFixture(crypto.randomUUID(), manifest, { ownerId: OWNER });
   fixture.snapshot.installation.grants = requestedReleaseGrants(manifest);
@@ -99,5 +101,21 @@ describe("dynamic webhooks across extension disable / re-enable", () => {
 
     installation = await publishEnabled(installation, release, true);
     expect((await getEnabledWebhook("dyn-hook-ext", "user-hook"))?.slug).toBe("user-hook");
+  });
+});
+
+describe("dynamic triggers when the triggers capability is gone (C2 plan §2.2 case 3)", () => {
+  test("publishing a release without permissions.triggers soft-disables every user cron and webhook", async () => {
+    const { release, installation } = await installFixture("dyn-revoke-ext", {});
+    await getTestDb().insert(extensionSchedules).values({
+      extensionId: installation.id, cron: "0 9 * * *", nextFireAt: new Date(Date.now() + 3_600_000), dynamic: true, key: "job", enabled: true,
+    });
+    await getTestDb().insert(extensionWebhooks).values({ extensionId: "dyn-revoke-ext", slug: "user-hook", dynamic: true, key: "hook" });
+
+    await publishEnabled(installation, release, true);
+
+    const [cron] = await getTestDb().select().from(extensionSchedules).where(eq(extensionSchedules.extensionId, installation.id));
+    const [hook] = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.extensionId, "dyn-revoke-ext"));
+    expect({ cron: cron?.enabled, hook: hook?.enabled }).toEqual({ cron: false, hook: false });
   });
 });

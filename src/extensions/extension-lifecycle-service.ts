@@ -234,6 +234,7 @@ export async function getExtensionReleaseArtifacts(installationId: string, relea
 export async function publishExtensionGeneration(installation: InstallationRecord, release: LifecycleRelease | null, sourceFiles?: WorkspaceFiles): Promise<void> {
   const { prepareEzFactoryAgents, publishEzFactoryAgents } = await import("./ez-factory-release-agents");
   let factoryAgents: import("../types").AgentDefinition[] | undefined;
+  let triggersRevokedFor: string | undefined;
   const { getDb } = await import("../db/connection");
   const { extensions, extensionWebhooks, extensionSchedules } = await import("../db/schema");
   const { serializeJsonbFields } = await import("../db/queries/extensions");
@@ -271,6 +272,7 @@ export async function publishExtensionGeneration(installation: InstallationRecor
     await transaction.insert(extensions).values(values).onConflictDoUpdate({ target: extensions.id, set: values });
     await reconcileWebhooks(manifest.name, granted.webhooks ?? [], () => new Date(), (name, slug) => ensureWebhookSecret(name, slug, installation.ownerId, transaction), transaction);
     await reconcileSchedules(installation.id, granted.schedule && typeof granted.schedule === "object" ? granted.schedule.crons ?? [] : [], () => new Date(), transaction);
+    if (!granted.triggers) triggersRevokedFor = manifest.name;
     if (manifest.entities?.length) {
       if (!sourceFiles) throw new LifecycleError("seed_source_missing", "Entity seeds require the verified immutable release files.");
       await runEntitySeed({ extensionId: installation.id, entities: manifest.entities, sourceDir: "", sourceFiles, userId: installation.ownerId, database: transaction });
@@ -278,6 +280,12 @@ export async function publishExtensionGeneration(installation: InstallationRecor
   });
   const { getPageCache } = await import("./page-cache");
   getPageCache().invalidateExtension(installation.id);
+  // The triggers capability is gone, so the user-created rows it authorized
+  // are soft-disabled (a no-op when there are none).
+  if (triggersRevokedFor !== undefined) {
+    const { revokeDynamicTriggers } = await import("./triggers-sweep");
+    await revokeDynamicTriggers(installation.id, triggersRevokedFor);
+  }
   await ExtensionRegistry.getInstance().reload();
   // A bundled extension that subscribes to conversation events is dead on
   // every conversation created while it was disabled — the dispatcher gates
