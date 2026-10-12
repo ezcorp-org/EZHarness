@@ -169,7 +169,8 @@ describe("factory product API schema", () => {
   test("hashes the canonical mutation payload and rejects changed key reuse", () => {
     const update = requests()[1] as Extract<FactoryApiRequest, { kind: "draft.update" }>;
     expect(validateFactoryApiPayloadDigest(update)).toEqual({ ok: true });
-    expect(factoryApiMutationPayload(update) as unknown).toEqual({
+    const payload: unknown = factoryApiMutationPayload(update);
+    expect(payload).toEqual({
       schemaVersion: update.schemaVersion,
       kind: update.kind,
       path: update.path,

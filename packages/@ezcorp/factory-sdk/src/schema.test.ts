@@ -38,7 +38,8 @@ describe("generated definition schema", () => {
         schemaId: id,
         skipTypeCheck: true,
       }).createSchema(type);
-      expect(checkedIn as unknown).toEqual(generated);
+      const actual: unknown = checkedIn;
+      expect(actual).toEqual(generated);
     }
   });
 
