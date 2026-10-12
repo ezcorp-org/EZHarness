@@ -152,9 +152,13 @@ export async function dedupAndWriteMemory(
     // and then OVERWRITE — another user's memory row via the update branch
     // below. A conversation with no resolvable owner matches nothing
     // (fail-closed) and falls through to a fresh insert.
+    //
+    // Only ACTIVE rows are dedup targets. Retrieval never returns an
+    // archived row, so a restated fact written into one would be lost.
     const conv = await getConversation(conversationId);
     const similar = await findSimilarMemory(embedding, EXTRACTION_DEDUP_THRESHOLD, {
       ownerUserId: conv?.userId ?? null,
+      status: "active",
     });
     if (similar) {
       const updatedProvenance: MemoryProvenance = {

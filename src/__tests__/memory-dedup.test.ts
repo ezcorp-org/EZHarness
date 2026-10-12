@@ -52,7 +52,7 @@ const {
   withDedupLock,
   dedupLockKey,
 } = await import("../memory/dedup");
-const { searchMemories } = await import("../db/queries/memories");
+const { searchMemories, updateMemoryStatus } = await import("../db/queries/memories");
 // The mocked embedder above — seeding a row the dedup query must MATCH
 // means computing its vector with the same function the helper uses.
 const { generateEmbedding } = await import("../memory/embeddings");
@@ -185,6 +185,30 @@ describe("dedupAndWriteMemory — UPDATE branch (similar existing)", () => {
     // Total rows in projectA still 1 — no duplicates.
     const rows = await searchMemories({ projectId: projectAId });
     expect(rows).toHaveLength(1);
+  });
+
+  test("an archived match is not a dedup target — the restated fact lands as a new active row", async () => {
+    // Retrieval never returns archived rows. Writing the restated fact into
+    // one would make it invisible to injection for good.
+    const fact = { content: "Restated fact after decay", category: "preferences" as const, confidence: "high" as const, messageIds: ["m1"] };
+    const first = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    await updateMemoryStatus(first.memoryId, "archived", "auto-decay");
+
+    const second = await dedupAndWriteMemory({
+      fact,
+      conversationId: conversationAId,
+      projectId: projectAId,
+      provenanceFactory: legacyExtractionProvenance,
+    });
+    expect(second.action).toBe("inserted");
+    expect(second.memoryId).not.toBe(first.memoryId);
+    const active = await searchMemories({ projectId: projectAId, status: "active" });
+    expect(active.map((m) => m.id)).toEqual([second.memoryId]);
   });
 });
 
