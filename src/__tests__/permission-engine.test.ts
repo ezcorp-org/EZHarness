@@ -945,3 +945,42 @@ describe("always-allow lifetime — a revoked or expired grant really prompts ag
     expect((await restarted.authorize(ctx, [{ kind: "shell" }])).decision).toBe("prompt");
   });
 });
+
+// ── every sensitive capability in one request is gated ──────────────
+//
+// The gate used to check only the FIRST sensitive cap in `needed`. An
+// always-allow row (or the bundled auto-allow) for that one cap then
+// let every later sensitive cap through without consent.
+
+describe("sensitive gate — every sensitive capability in the request is checked", () => {
+  const ctx = { extensionId: HELLO_EXT, userId: HELLO_USER, conversationId: HELLO_CONV };
+
+  test("an always-allowed shell cap does not carry an unapproved fs.write", async () => {
+    const engine = makeEngine({ granted: { grantedAt: {}, shell: true, filesystem: ["/tmp"] } });
+    const first = await engine.authorize(ctx, [{ kind: "shell" }]);
+    if (first.decision !== "prompt") throw new Error("expected prompt");
+    await engine.resolvePrompt(first.promptId, true, "conversation", HELLO_CONV);
+
+    const both = await engine.authorize(ctx, [{ kind: "shell" }, { kind: "fs.write", value: "/tmp/a" }]);
+    expect(both).toMatchObject({ decision: "prompt", sensitive: { kind: "fs.write" } });
+  });
+
+  test("a bundled fs.write auto-allow does not skip the mandatory install prompt", async () => {
+    const engine = makeBundledEngine({
+      grantedAt: {},
+      filesystem: ["/tmp"],
+      custom: { drafts: { kinds: ["extension"] } },
+    });
+    const decision = await engine.authorize(ctx, [
+      { kind: "fs.write", value: "/tmp/a" },
+      { kind: "ezcorp:extension:install" },
+    ]);
+    expect(decision).toMatchObject({ decision: "prompt", sensitive: { kind: "ezcorp:extension:install" } });
+  });
+
+  test("a bundled request whose sensitive caps are all auto-allowed still allows", async () => {
+    const engine = makeBundledEngine({ grantedAt: {}, shell: true, filesystem: ["/tmp"] });
+    const decision = await engine.authorize(ctx, [{ kind: "shell" }, { kind: "fs.write", value: "/tmp/a" }]);
+    expect(decision.decision).toBe("allow");
+  });
+});

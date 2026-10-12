@@ -453,9 +453,12 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
       await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, undefined, "service-delegation-consent");
       return { decision: "allow", auditId };
     }
-    const sensitive = needed.find((c) => SENSITIVE_KINDS.has(c.kind));
-    if (sensitive) {
+    // Every sensitive cap is checked, not just the first: consent (or
+    // the bundled auto-allow) for one cap must never carry another.
+    const sensitiveCaps = needed.filter((c) => SENSITIVE_KINDS.has(c.kind));
+    if (sensitiveCaps.length > 0) {
       if (ctx.projectConsent) {
+        const sensitive = sensitiveCaps[0]!;
         const { hasProjectOperationConsent } = await import("./project-consent");
         if (await hasProjectOperationConsent(ctx, needed)) {
           await writeAuditRow(AUDIT_PERM_ALLOWED, auditId, ctxWithChain, sensitive, "project-operation-consent");
@@ -464,17 +467,17 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         await writeAuditRow(AUDIT_PERM_DENIED, auditId, ctxWithChain, sensitive, "invalid-project-operation-consent");
         return { decision: "deny", reason: "invalid-project-operation-consent", auditId };
       }
-      // `ezcorp:extension:install` is NEVER persisted as an
-      // always-allow grant (every install is individually consented).
-      // Force the read to "not allowed" so a stray/legacy row can
-      // never suppress the prompt — defence-in-depth alongside the
-      // non-persist carve-out in `resolvePrompt`.
-      const allowed =
-        sensitive.kind === "ezcorp:extension:install" ||
-        sensitive.kind === "ezcorp:extension:modify"
-          ? false
-          : await isAlwaysAllowed(sessionAllows, ctx, sensitive);
-      if (!allowed) {
+      let bundledAutoAllowed: Capability | undefined;
+      for (const sensitive of sensitiveCaps) {
+        // `ezcorp:extension:install` / `ezcorp:extension:modify` are
+        // NEVER persisted as always-allow grants and are excluded from
+        // the bundled auto-allow below: installing OR re-opening-for-edit
+        // model-authored code is a decision a human must make every
+        // time. Skipping the always-allow read means a stray/legacy row
+        // can never suppress the prompt — defence-in-depth alongside the
+        // non-persist carve-out in `resolvePrompt`.
+        const oneShot = sensitive.kind === "ezcorp:extension:install" || sensitive.kind === "ezcorp:extension:modify";
+        if (!oneShot && await isAlwaysAllowed(sessionAllows, ctx, sensitive)) continue;
         // Bundled-ceiling auto-allow. Bundled extensions are first-party
         // code shipped in `src/extensions/bundled.ts`; their declared
         // sensitive caps were vetted into the bundled ceiling at install
@@ -487,26 +490,9 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
         // reason so a security review can see WHY it wasn't prompted.
         // Fail-closed: a registry without `isBundled` (older/mock) →
         // `undefined === true` → false → fall through to the prompt.
-        // Carve-out: `ezcorp:extension:install` and
-        // `ezcorp:extension:modify` MUST always prompt, even though
-        // extension-author is bundled. The bundled auto-allow exists so
-        // first-party code doesn't hit an unanswerable fs/shell gate —
-        // but installing OR re-opening-for-edit model-authored code is
-        // precisely the decision a human must make every time, so both
-        // kinds are excluded from the bypass.
-        if (
-          sensitive.kind !== "ezcorp:extension:install" &&
-          sensitive.kind !== "ezcorp:extension:modify" &&
-          deps.registry.isBundled?.(ctx.extensionId) === true
-        ) {
-          await writeAuditRow(
-            AUDIT_PERM_ALLOWED,
-            auditId,
-            ctxWithChain,
-            sensitive,
-            "bundled-ceiling-auto-allow",
-          );
-          return { decision: "allow", auditId };
+        if (!oneShot && deps.registry.isBundled?.(ctx.extensionId) === true) {
+          bundledAutoAllowed ??= sensitive;
+          continue;
         }
         const promptId = crypto.randomUUID();
         pendingPrompts.set(promptId, {
@@ -523,6 +509,16 @@ export function createPermissionEngine(deps: PermissionEngineDeps): PermissionEn
           { promptId },
         );
         return { decision: "prompt", promptId, auditId, sensitive };
+      }
+      if (bundledAutoAllowed) {
+        await writeAuditRow(
+          AUDIT_PERM_ALLOWED,
+          auditId,
+          ctxWithChain,
+          bundledAutoAllowed,
+          "bundled-ceiling-auto-allow",
+        );
+        return { decision: "allow", auditId };
       }
     }
 
