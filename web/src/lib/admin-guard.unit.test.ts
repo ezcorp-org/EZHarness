@@ -80,4 +80,13 @@ describe("canDeleteProject", () => {
 		stub(null, []);
 		await expect(canDeleteProject("p/1")).resolves.toBe(false);
 	});
+
+	test("a member list request that throws hides the control", async () => {
+		vi.stubGlobal("fetch", vi.fn(async (input: string) => {
+			if (input === "/api/auth/me") return Response.json({ user: member });
+			throw new Error("network down");
+		}));
+		await expect(canDeleteProject("p/1")).resolves.toBe(false);
+		expect(fetch).toHaveBeenCalledWith("/api/projects/p%2F1/members");
+	});
 });
