@@ -1,5 +1,6 @@
 import { test, expect } from "./fixtures/test-base.js";
 import { captureEvidence } from "./fixtures/evidence.js";
+import { clickInAppLink } from "./fixtures/client-nav.js";
 
 /**
  * The run trace — DAG, timeline, per-step telemetry, loop iterations and
@@ -197,6 +198,24 @@ test.describe("Workflow run trace", () => {
 		await expect(costs.nth(3)).not.toHaveAttribute("title", /could not be measured/i);
 
 		await captureEvidence(page, testInfo, "workflow-run-trace", { fullPage: true });
+	});
+
+	test("@evidence moving from one run's trace to another in-app shows the second run", async ({
+		page,
+		mockApi,
+	}, testInfo) => {
+		await mockApi({});
+		await page.route(`**/api/workflows/runs/${PARKED.run.id}`, (route) => route.fulfill({ json: PARKED }));
+		await openTrace(page, TRACE);
+		await expect(page.getByTestId("trace-status")).toHaveText("Succeeded");
+
+		// Same route, new id: the page is reused and must load the new trace.
+		await clickInAppLink(page, `/workflows/runs/${PARKED.run.id}`);
+		await expect(page).toHaveURL(`/workflows/runs/${PARKED.run.id}`);
+		await expect(page.getByTestId("trace-run-id")).toHaveText("run-trace-2");
+		await expect(page.getByTestId("trace-status")).not.toHaveText("Succeeded");
+		await expect(page.getByTestId("step-row")).toHaveCount(2);
+		await captureEvidence(page, testInfo, "workflow-run-trace-second-run");
 	});
 
 	test("a step that ran no LLM shows dashes, never zeros", async ({ page, mockApi }) => {
