@@ -255,10 +255,11 @@ export async function publishExtensionGeneration(installation: InstallationRecor
       const [projection] = await transaction.select({ name: extensions.name }).from(extensions).where(eq(extensions.id, installation.id));
       if (projection) {
         if (projection.name === "ez-factory") factoryAgents = [];
-        await transaction.update(extensionWebhooks).set({ enabled: false, updatedAt: new Date() }).where(eq(extensionWebhooks.extensionId, projection.name));
-        // Manifest rows only: reconcileSchedules re-enables those, but never
-        // touches user-created (dynamic) rows, so disabling them here would
-        // be permanent. The schedule daemon skips a disabled extension's rows.
+        // Manifest rows only: the reconcilers re-enable those, but never
+        // touch user-created (dynamic) rows, so disabling them here would be
+        // permanent. The schedule daemon and getEnabledWebhook skip a
+        // disabled extension's rows instead.
+        await transaction.update(extensionWebhooks).set({ enabled: false, updatedAt: new Date() }).where(and(eq(extensionWebhooks.extensionId, projection.name), eq(extensionWebhooks.dynamic, false)));
         await transaction.update(extensionSchedules).set({ enabled: false, updatedAt: new Date() }).where(and(eq(extensionSchedules.extensionId, installation.id), eq(extensionSchedules.dynamic, false)));
       }
       return;

@@ -22,7 +22,7 @@ Cron expressions are **manifest-only** — they live in the manifest's `permissi
 - **Removed cron** → **soft-disable** (`enabled: false`) — the row is preserved so its `extension_schedule_fires` history survives.
 - **Existing cron** → no-op (preserves `next_fire_at`/`last_fire_at`); a previously-disabled match is re-enabled.
 - Only the first **8** valid crons are taken; invalid ones are dropped.
-- **Extension disable** sets `enabled: false` on manifest rows only. User-created (`ctx.triggers`) rows keep their own state, and the daemon skips them while the extension is disabled, so re-enabling the extension restores them. A row auto-disabled for errors stays disabled.
+- **Extension disable** sets `enabled: false` on manifest cron and webhook rows only. User-created (`ctx.triggers`) rows keep their own state, the schedule daemon skips them and the inbound hook route answers 404 while the extension is disabled, so re-enabling the extension restores them. A row auto-disabled for errors stays disabled.
 - The `ctx.triggers` `maxCron` / `maxWebhooks` caps count **enabled** rows only. Re-registering an enabled key is an update and always passes; re-registering a disabled key re-enables it and needs a free slot.
 
 ### The daemon (`src/extensions/schedule-daemon.ts`)
