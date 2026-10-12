@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onDestroy } from "svelte";
 	import ModelSelector from "./ModelSelector.svelte";
 	import ThinkingLevelSelector from "./ThinkingLevelSelector.svelte";
 	import ModeSelector from "./ModeSelector.svelte";
@@ -36,6 +37,7 @@
 	import { detectMentionTrigger, insertMentionToken, insertCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
 	import { searchMentions } from "$lib/api";
+	import { createLatestSearch } from "$lib/latest-search";
 	import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
 	import { subConversationStore } from "$lib/sub-conversation-store.svelte.js";
 	import {
@@ -394,7 +396,13 @@
 	let mentionLoading = $state(false);
 	let popoverRef = $state<MentionPopover | undefined>();
 	let isComposing = $state(false);
-	let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+	const mentionSearch = createLatestSearch<MentionItem[]>({
+		delayMs: 200,
+		fallback: [],
+		onLoading: (loading) => { mentionLoading = loading; },
+		onResult: (items) => { mentionItems = items; },
+	});
+	onDestroy(mentionSearch.cancel);
 	// Latest trigger query — drives the popover's "use current folder" entry.
 	let mentionTriggerQuery = $state("");
 
@@ -824,9 +832,7 @@
 
 		if (!trigger) {
 			if (mentionOpen) {
-				mentionOpen = false;
-				mentionItems = [];
-				mentionTriggerQuery = "";
+				closeMention();
 			}
 			return;
 		}
@@ -836,25 +842,17 @@
 
 		// Debounced search. File searches REQUIRE `projectId`; without it the
 		// server returns [] and the popover shows "No matches found".
-		clearTimeout(debounceTimer);
-		debounceTimer = setTimeout(async () => {
-			mentionLoading = true;
-			try {
-				const results = await searchMentions(trigger.query, trigger.type, projectId);
-				mentionItems = results.map((r) => ({
-					name: r.name,
-					description: r.description,
-					kind: r.kind,
-					source: r.source,
-					fileCount: r.fileCount,
-					insertText: r.insertText,
-				}));
-			} catch {
-				mentionItems = [];
-			} finally {
-				mentionLoading = false;
-			}
-		}, 200);
+		mentionSearch.schedule(async () => {
+			const results = await searchMentions(trigger.query, trigger.type, projectId);
+			return results.map((r) => ({
+				name: r.name,
+				description: r.description,
+				kind: r.kind,
+				source: r.source,
+				fileCount: r.fileCount,
+				insertText: r.insertText,
+			}));
+		});
 	}
 
 	// Current caret as a WIRE offset. The textarea reports a display-space
@@ -886,9 +884,7 @@
 				name: item.name,
 			});
 			setWire(result.text, result.cursor);
-			mentionOpen = false;
-			mentionItems = [];
-			mentionTriggerQuery = "";
+			closeMention();
 			adjustHeight();
 			return;
 		}
@@ -909,9 +905,7 @@
 			const literal = item.insertText.trimEnd() + "  ";
 			const result = insertCommandLiteral(value, wireCaret(), literal);
 			setWire(result.text, result.cursor);
-			mentionOpen = false;
-			mentionItems = [];
-			mentionTriggerQuery = "";
+			closeMention();
 			adjustHeight();
 			return;
 		}
@@ -930,9 +924,7 @@
 			name: item.name,
 		});
 		setWire(result.text, result.cursor);
-		mentionOpen = false;
-		mentionItems = [];
-		mentionTriggerQuery = "";
+		closeMention();
 		adjustHeight();
 
 		// Auto-open tool form/picker for extension mentions. File mentions are
@@ -945,10 +937,12 @@
 		}
 	}
 
-	function handleMentionDismiss() {
+	/** Close the mention popover and drop any search still pending for it. */
+	function closeMention() {
 		mentionOpen = false;
 		mentionItems = [];
 		mentionTriggerQuery = "";
+		mentionSearch.cancel();
 	}
 
 	function submit() {
@@ -975,8 +969,7 @@
 		displayValue = "";
 		stagedFiles = [];
 		attachmentError = null;
-		mentionOpen = false;
-		mentionItems = [];
+		closeMention();
 		resetInlineToolState();
 		clearTimeout(suggestTimer);
 		suggestAbort?.abort();
@@ -1110,7 +1103,7 @@
 					loading={mentionLoading}
 					triggerQuery={mentionTriggerQuery}
 					onselect={handleMentionSelect}
-					ondismiss={handleMentionDismiss}
+					ondismiss={closeMention}
 				/>
 
 				{#if showToolPicker && activeExtension}

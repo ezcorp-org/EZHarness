@@ -20,6 +20,8 @@
 		unreadForkCount,
 	} from "$lib/conversation-grouping.js";
 	import { unreadStore } from "$lib/unread.js";
+	import { createLatestSearch } from "$lib/latest-search.js";
+	import { onDestroy } from "svelte";
 	import { CONVERSATIONS_CHANGED, notifyConversationsChanged } from "$lib/stores.svelte.js";
 	import DeleteConfirmDialog from "./DeleteConfirmDialog.svelte";
 	import MentionText from "./MentionText.svelte";
@@ -87,8 +89,17 @@
 	let messageResults = $state<MessageSearchHit[]>([]);
 	let lastResponse = $state<SearchMessagesResponse | null>(null);
 
-	// Debounce for API search
-	let searchTimer: ReturnType<typeof setTimeout> | undefined;
+	// Debounced API search; a slower answer to an older query never lands.
+	const messageSearch = createLatestSearch<SearchMessagesResponse | null>({
+		delayMs: 300,
+		fallback: null,
+		onLoading: (loading) => { searchLoading = loading; },
+		onResult: (resp) => {
+			messageResults = resp?.hits ?? [];
+			lastResponse = resp;
+		},
+	});
+	onDestroy(messageSearch.cancel);
 
 	function openSearch() {
 		searchOpen = true;
@@ -100,32 +111,21 @@
 		searchQuery = "";
 		messageResults = [];
 		lastResponse = null;
-		searchLoading = false;
-		clearTimeout(searchTimer);
+		messageSearch.cancel();
 	}
 
 	function handleSearchInput() {
-		clearTimeout(searchTimer);
 		if (searchQuery.length < 2) {
 			messageResults = [];
 			lastResponse = null;
-			searchLoading = false;
+			messageSearch.cancel();
 			return;
 		}
 		const q = searchQuery;
 		const mode = searchMode;
+		// Show the spinner through the debounce too, not only once it fires.
 		searchLoading = true;
-		searchTimer = setTimeout(async () => {
-			try {
-				const resp = await searchMessages(projectId, q, { mode });
-				messageResults = resp.hits;
-				lastResponse = resp;
-			} catch {
-				messageResults = [];
-				lastResponse = null;
-			}
-			searchLoading = false;
-		}, 300);
+		messageSearch.schedule(() => searchMessages(projectId, q, { mode }));
 	}
 
 	// UI-01/UI-02: explicit mode selection. Persist to the global key, then

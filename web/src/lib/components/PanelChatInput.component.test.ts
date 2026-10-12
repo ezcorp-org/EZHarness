@@ -94,6 +94,41 @@ describe("PanelChatInput", () => {
 		expect(onsubmit).toHaveBeenCalledWith("![agent:Reviewer]");
 	});
 
+	test("a slow, older mention search never replaces the results of the newer query", async () => {
+		vi.useFakeTimers();
+		let resolveOld: (items: unknown[]) => void = () => { throw new Error("Old search was not started"); };
+		searchMentions
+			.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }))
+			.mockResolvedValueOnce([{ name: "Reviewer", kind: "agent" }]);
+		render(PanelChatInput, { onsubmit: vi.fn(async () => {}) });
+		const input = screen.getByRole("combobox");
+		await fireEvent.input(input, { target: { value: "!r" } });
+		await vi.advanceTimersByTimeAsync(200);
+		await fireEvent.input(input, { target: { value: "!rev" } });
+		await vi.advanceTimersByTimeAsync(200);
+		await screen.findByRole("option", { name: /Reviewer/ });
+		resolveOld([{ name: "Researcher", kind: "agent" }]);
+		await vi.advanceTimersByTimeAsync(0);
+		expect(screen.getByRole("option", { name: /Reviewer/ })).toBeVisible();
+		expect(screen.queryByRole("option", { name: /Researcher/ })).toBeNull();
+	});
+
+	test("a search still pending when the picker closes does not reopen stale results later", async () => {
+		vi.useFakeTimers();
+		let resolveOld: (items: unknown[]) => void = () => { throw new Error("Search was not started"); };
+		searchMentions.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+		render(PanelChatInput, { onsubmit: vi.fn(async () => {}) });
+		const input = screen.getByRole("combobox");
+		await fireEvent.input(input, { target: { value: "!r" } });
+		await vi.advanceTimersByTimeAsync(200);
+		await fireEvent.input(input, { target: { value: "plain text" } });
+		resolveOld([{ name: "Researcher", kind: "agent" }]);
+		await vi.advanceTimersByTimeAsync(0);
+		await fireEvent.input(input, { target: { value: "plain text !q" } });
+		expect(input).toHaveAttribute("aria-expanded", "true");
+		expect(screen.queryByRole("option", { name: /Researcher/ })).toBeNull();
+	});
+
 	test("descends into a folder mention, then commits the folder as a structured path token", async () => {
 		vi.useFakeTimers();
 		searchMentions
