@@ -23,7 +23,7 @@ mock.module("../extensions/subprocess", () => ({
 
 import { eq, sql } from "drizzle-orm";
 import { validateManifest } from "@ezcorp/extension-contract";
-import { extensionSchedules, extensionWebhooks, users } from "../db/schema";
+import { extensions, extensionSchedules, extensionWebhooks, users } from "../db/schema";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
 import { getExtensionLifecycle, publishExtensionGeneration } from "../extensions/extension-lifecycle-service";
 import { requestedReleaseGrants } from "../extensions/extension-control";
@@ -107,10 +107,9 @@ describe("dynamic webhooks across extension disable / re-enable", () => {
 describe("dynamic triggers when the triggers capability is gone (C2 plan §2.2 case 3)", () => {
   test("publishing a release without permissions.triggers soft-disables every user cron and webhook", async () => {
     const { release, installation } = await installFixture("dyn-revoke-ext", {});
-    await getTestDb().insert(extensionSchedules).values({
-      extensionId: installation.id, cron: "0 9 * * *", nextFireAt: new Date(Date.now() + 3_600_000), dynamic: true, key: "job", enabled: true,
-    });
-    await getTestDb().insert(extensionWebhooks).values({ extensionId: "dyn-revoke-ext", slug: "user-hook", dynamic: true, key: "hook" });
+    await seedDynamicTriggers(installation.id, "dyn-revoke-ext");
+    // The previously published generation granted triggers; this one does not.
+    await getTestDb().update(extensions).set({ installedPermissions: { triggers: TRIGGERS } as never }).where(eq(extensions.id, installation.id));
 
     await publishEnabled(installation, release, true);
 
@@ -118,4 +117,22 @@ describe("dynamic triggers when the triggers capability is gone (C2 plan §2.2 c
     const [hook] = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.extensionId, "dyn-revoke-ext"));
     expect({ cron: cron?.enabled, hook: hook?.enabled }).toEqual({ cron: false, hook: false });
   });
+
+  test("a publish that never granted triggers leaves user rows alone (no revoke)", async () => {
+    const { release, installation } = await installFixture("dyn-never-ext", {});
+    await seedDynamicTriggers(installation.id, "dyn-never-ext");
+
+    await publishEnabled(installation, release, true);
+
+    const [cron] = await getTestDb().select().from(extensionSchedules).where(eq(extensionSchedules.extensionId, installation.id));
+    const [hook] = await getTestDb().select().from(extensionWebhooks).where(eq(extensionWebhooks.extensionId, "dyn-never-ext"));
+    expect({ cron: cron?.enabled, hook: hook?.enabled }).toEqual({ cron: true, hook: true });
+  });
 });
+
+async function seedDynamicTriggers(installationId: string, name: string): Promise<void> {
+  await getTestDb().insert(extensionSchedules).values({
+    extensionId: installationId, cron: "0 9 * * *", nextFireAt: new Date(Date.now() + 3_600_000), dynamic: true, key: "job", enabled: true,
+  });
+  await getTestDb().insert(extensionWebhooks).values({ extensionId: name, slug: "user-hook", dynamic: true, key: "hook" });
+}
