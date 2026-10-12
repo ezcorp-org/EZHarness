@@ -4,6 +4,7 @@
 	import { fetchRun, type Run } from "$lib/api.js";
 	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
 	import { reloadOn } from "$lib/reload-on.svelte.js";
+	import { formatDuration } from "$lib/format-duration.js";
 	import StatusBadge from "$lib/components/StatusBadge.svelte";
 	import LogStream from "$lib/components/LogStream.svelte";
 
@@ -32,15 +33,12 @@
 		}
 	});
 
+	// Shared formatter: a long run reads "6d 4h", not "8880m 0s".
 	let duration = $derived.by(() => {
 		if (!run?.startedAt) return null;
 		const start = new Date(run.startedAt).getTime();
 		const end = run.finishedAt ? new Date(run.finishedAt).getTime() : Date.now();
-		const seconds = Math.round((end - start) / 1000);
-		if (seconds < 60) return `${seconds}s`;
-		const minutes = Math.floor(seconds / 60);
-		const remaining = seconds % 60;
-		return `${minutes}m ${remaining}s`;
+		return formatDuration(end - start);
 	});
 
 	let resultJson = $derived(run?.result ? JSON.stringify(run.result, null, 2) : null);
