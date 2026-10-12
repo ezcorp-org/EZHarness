@@ -134,12 +134,14 @@ test.describe("projects — mutating routes are membership-gated", () => {
     expect(acceptRes.status, await acceptRes.clone().text()).toBe(201);
     const second = ((await acceptRes.json()) as { user: { id: string } }).user;
 
+    // The second user joins as an owner: a project must keep at least one
+    // owner, so the admin (the only owner so far) can leave only after that.
     const addRes = await request.post(`/api/projects/${project.id}/members`, {
-      data: { userId: second.id },
+      data: { userId: second.id, role: "owner" },
     });
     expect(addRes.status(), await addRes.text()).toBe(201);
 
-    // Now removable — the last-member rule only bites at one.
+    // Now removable — the last-member and last-owner rules only bite at one.
     const dropAdmin = await request.delete(`/api/projects/${project.id}/members/${admin.id}`);
     expect(dropAdmin.status(), await dropAdmin.text()).toBe(200);
 
