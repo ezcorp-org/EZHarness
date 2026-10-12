@@ -3,7 +3,7 @@
 	import { store } from "$lib/stores.svelte.js";
 	import { fetchRun, type Run } from "$lib/api.js";
 	import { setBreadcrumbTail } from "$lib/breadcrumb-tail.svelte.js";
-	import { onMount } from "svelte";
+	import { reloadOn } from "$lib/reload-on.svelte.js";
 	import StatusBadge from "$lib/components/StatusBadge.svelte";
 	import LogStream from "$lib/components/LogStream.svelte";
 
@@ -20,13 +20,15 @@
 		}
 	});
 
-	onMount(async () => {
-		if (!runId) return;
+	reloadOn(() => runId, async (id, isStale) => {
+		run = null;
+		errorMessage = "";
+		if (!id) return;
 		try {
-			const data = await fetchRun(runId);
-			run = data;
+			const data = await fetchRun(id);
+			if (!isStale()) run = data;
 		} catch (error) {
-			errorMessage = error instanceof Error ? error.message : "Could not load this run";
+			if (!isStale()) errorMessage = error instanceof Error ? error.message : "Could not load this run";
 		}
 	});
 
