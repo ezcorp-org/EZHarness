@@ -34,9 +34,9 @@
 	import { connectionState } from "$lib/stores/connection";
 	import { isChatDisabled, chatPlaceholder, setComposerDisplay } from "$lib/chat-input-logic";
 	import { isNavBlockedByOverlay } from "$lib/chat-prompt-nav.js";
-	import { detectMentionTrigger, insertMentionToken, insertCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
+	import { detectMentionTrigger, insertMentionToken, commitCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
-	import { searchMentions } from "$lib/api";
+	import { searchMentionItems } from "$lib/mention-search";
 	import { createLatestSearch } from "$lib/latest-search";
 	import { inlineToolStore } from "$lib/inline-tool-store.svelte.js";
 	import { subConversationStore } from "$lib/sub-conversation-store.svelte.js";
@@ -846,17 +846,7 @@
 
 		// Debounced search. File searches REQUIRE `projectId`; without it the
 		// server returns [] and the popover shows "No matches found".
-		mentionSearch.schedule(async () => {
-			const results = await searchMentions(trigger.query, trigger.type, projectId);
-			return results.map((r) => ({
-				name: r.name,
-				description: r.description,
-				kind: r.kind,
-				source: r.source,
-				fileCount: r.fileCount,
-				insertText: r.insertText,
-			}));
-		});
+		mentionSearch.schedule(() => searchMentionItems(trigger.query, trigger.type, projectId));
 	}
 
 	// Current caret as a WIRE offset. The textarea reports a display-space
@@ -897,17 +887,8 @@
 		// verbatim instead of a `/[cmd:name]` token, so it reaches the
 		// server-side interceptor as plain text (`isGoalCommand` matches on
 		// `body.content`). Mirrors the `dir-target` commit epilogue above.
-		//
-		// Literal commands render as a compact pill whose width slightly
-		// exceeds its short raw text (e.g. `/goal`), so in the overlay the
-		// pill overflows and visually swallows a single trailing space. We
-		// commit TWO trailing spaces (normalising whatever the entry carried)
-		// so the pill clears the cursor and the user gets a visible gap to
-		// start typing the command's argument. The `/goal` interceptor trims
-		// everything after the token, so the extra space has no wire effect.
 		if (item.insertText) {
-			const literal = item.insertText.trimEnd() + "  ";
-			const result = insertCommandLiteral(value, wireCaret(), literal);
+			const result = commitCommandLiteral(value, wireCaret(), item.insertText);
 			setWire(result.text, result.cursor);
 			closeMention();
 			adjustHeight();

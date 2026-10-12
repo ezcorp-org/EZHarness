@@ -3,9 +3,9 @@
 	import MentionPopover from "./MentionPopover.svelte";
 	import MentionChip from "./MentionChip.svelte";
 	import type { MentionItem } from "./MentionPopover.svelte";
-	import { detectMentionTrigger, insertMentionToken, getSegments, descendIntoFolder } from "$lib/mention-logic";
+	import { detectMentionTrigger, insertMentionToken, commitCommandLiteral, getSegments, descendIntoFolder } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
-	import { searchMentions } from "$lib/api";
+	import { searchMentionItems } from "$lib/mention-search";
 	import { createLatestSearch } from "$lib/latest-search";
 	import { store } from "$lib/stores.svelte";
 	import { setComposerDisplay } from "$lib/chat-input-logic";
@@ -199,20 +199,11 @@
 		// Debounced search. File searches need the active project so the API
 		// can scope the listing to that project's path; the "global" sentinel
 		// value is passed through as undefined so the API short-circuits to [].
-		mentionSearch.schedule(async () => {
-			const projectId =
-				store.activeProjectId && store.activeProjectId !== "global"
-					? store.activeProjectId
-					: undefined;
-			const results = await searchMentions(trigger.query, trigger.type, projectId);
-			return results.map((r) => ({
-				name: r.name,
-				description: r.description,
-				kind: r.kind,
-				source: r.source,
-				fileCount: r.fileCount,
-			}));
-		});
+		const projectId =
+			store.activeProjectId && store.activeProjectId !== "global"
+				? store.activeProjectId
+				: undefined;
+		mentionSearch.schedule(() => searchMentionItems(trigger.query, trigger.type, projectId));
 	}
 
 	function handleMentionSelect(item: MentionItem) {
@@ -236,6 +227,15 @@
 				kind: 'dir',
 				name: item.name,
 			});
+			setWire(result.text, result.cursor);
+			closeMention();
+			return;
+		}
+
+		// Built-in literal command (e.g. `/goal`): raw text, not a
+		// `/[cmd:name]` token, exactly as the main composer commits it.
+		if (item.insertText) {
+			const result = commitCommandLiteral(value, wireCaret(), item.insertText);
 			setWire(result.text, result.cursor);
 			closeMention();
 			return;

@@ -129,6 +129,23 @@ describe("PanelChatInput", () => {
 		expect(screen.queryByRole("option", { name: /Researcher/ })).toBeNull();
 	});
 
+	test("a built-in literal command such as /goal is inserted as plain text, as in the main composer", async () => {
+		vi.useFakeTimers();
+		searchMentions.mockResolvedValueOnce([
+			{ name: "goal", description: "Set a goal", kind: "command", insertText: "/goal " },
+		]);
+		const onsubmit = vi.fn(async () => {});
+		render(PanelChatInput, { onsubmit });
+		const input = screen.getByRole<HTMLTextAreaElement>("combobox");
+		await fireEvent.input(input, { target: { value: "/go" } });
+		await vi.advanceTimersByTimeAsync(200);
+		await screen.findByRole("option", { name: /goal/ });
+		await fireEvent.keyDown(input, { key: "Enter" });
+		// The wire text is the literal command, never a `/[cmd:goal]` token.
+		await fireEvent.keyDown(input, { key: "Enter" });
+		expect(onsubmit).toHaveBeenCalledWith("/goal");
+	});
+
 	test("descends into a folder mention, then commits the folder as a structured path token", async () => {
 		vi.useFakeTimers();
 		searchMentions
