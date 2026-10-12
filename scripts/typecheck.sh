@@ -43,9 +43,8 @@ echo ""
 # Package legs: each packages/@ezcorp/<pkg>/tsconfig.json covers that
 # package's src AND its tests. The legs above exclude packages/**/*.test.ts,
 # so before this loop package tests were typechecked by NOTHING. A package
-# without a tsconfig.json has no leg: factory-orchestrator (338 errors) and
-# factory-sdk (173 errors, measured 2026-10-12) must be made clean and given
-# one, never skipped by an exclusion here.
+# without a tsconfig.json has no leg: a new package must be made clean and
+# given one, never skipped by an exclusion here.
 echo "→ Typechecking packages (src + tests)..."
 for config in "$ROOT"/packages/@ezcorp/*/tsconfig.json; do
   echo "  ${config#"$ROOT"/}"
