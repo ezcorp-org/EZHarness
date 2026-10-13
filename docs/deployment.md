@@ -12,10 +12,9 @@ mapping or hostname rewriting.
 
 **Production deployments must use isolated container networking** —
 either default Docker bridge mode, a custom Docker network, or a
-Kubernetes NetworkPolicy. Phase 7's MCP isolation stack works **with**
-isolated networking, not against it. The container's outbound network
-goes through whatever firewall / egress proxy your platform uses; the
-per-MCP forward proxy operates entirely inside the container.
+Kubernetes NetworkPolicy. Extension and MCP workers run in the extension
+runner with no network of their own; the app's outbound network goes
+through whatever firewall / egress proxy your platform uses.
 
 ## Running under Podman
 
@@ -635,12 +634,11 @@ Phase 7 + Phase 55 add these debian packages to `oven/bun:1-slim`:
 - `libseccomp2` (~0.05 MB) — runtime shared lib bwrap dlopens for
   the `--seccomp <fd>` path (Phase 55 / MCP-03)
 
-Total growth: ~23 MB (+3 MB over Phase 7). The image also contains
-a precompiled cBPF blob at `/app/src/extensions/mcp-seccomp.bpf`
-(~7 KB) generated at build time from the committed JSON profile via
-`build/compile-seccomp.c`. The build-stage deps (`gcc`,
-`libseccomp-dev`, `libc6-dev`) are apt-installed and purged in the
-same RUN so they don't bloat the runtime layer.
+Total growth: ~23 MB (+3 MB over Phase 7). These were installed for the
+host MCP launcher, which is deleted (MCP servers run in the extension
+runner since #246). `bubblewrap` still backs the agent-shell sandbox's
+bwrap tier; the rest are candidates for removal. The image no longer
+compiles a host MCP seccomp BPF.
 
 ## Resources
 

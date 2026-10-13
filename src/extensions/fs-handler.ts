@@ -557,8 +557,7 @@ async function refuseFs(
  * Reuses `ext:perm:denied` with a structured `metadata.reason` rather
  * than minting a new action code — the same taxonomy-preserving pattern
  * as the per-conversation call-depth cap
- * (`tool-executor/invoke.ts:71-88`) and the MCP DNS-rebind block
- * (`mcp-proxy.ts:325-331`). SIEM/audit consumers filter on
+ * (`tool-executor/invoke.ts:71-88`). SIEM/audit consumers filter on
  * `metadata.reason`.
  *
  * Best-effort: an audit-write failure must never convert a denial into

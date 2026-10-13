@@ -44,11 +44,12 @@ FROM docker.io/oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f
 ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
-# Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp
-# log-mode) + Phase 58 Stage 2 (netns veth-pair + nftables egress filter)
-# runtime dependencies. `oven/bun:1-slim` is debian-bookworm and ships
-# without these; the namespace launcher (`src/extensions/mcp-launcher.sh`)
-# needs all of them:
+# Runtime dependencies. Most were added for the host MCP launcher
+# (Phase 7 / 55 / 58), which is deleted: since #246 MCP servers run in the
+# extension runner's isolated worker, not in this image's process tree.
+# `bubblewrap` still backs the bwrap tier of the agent-shell sandbox; the
+# others are candidates for removal once nothing else is found to need them.
+# Original rationale per package:
 #   - util-linux  →  `unshare`, `prlimit`, `capsh`
 #   - iproute2    →  `ip` (bring up loopback inside the netns; Phase 58
 #                    `ip link set <ns> netns <pid>` + per-veth setup)
@@ -121,33 +122,6 @@ RUN set -eux; \
     rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}"; \
     gh --version
 
-# Phase 55 / MCP-03 — Compile the seccomp BPF blob from the committed JSON
-# profile. Build deps (gcc + libseccomp-dev) are apt-installed for the
-# duration of this RUN and purged immediately, so they never bloat the
-# runtime image. The resulting `/app/src/extensions/mcp-seccomp.bpf`
-# survives in the final image; the launcher opens it at MCP-spawn time
-# and passes the FD to `bwrap --seccomp <fd>`.
-#
-# The source-of-truth profile (`src/extensions/mcp-seccomp.json`) is
-# committed to the repo; `scripts/check-seccomp-bpf-fresh.sh` is the CI
-# guard against artifact drift if the BPF blob is also committed.
-#
-# Build-stage tokens this block contains (asserted by W2 Dockerfile-shape
-# tests in `src/__tests__/mcp-seccomp-profile.test.ts`):
-#   - literal "gcc" + "-lseccomp"
-#   - the compile invocation referencing both mcp-seccomp.json and
-#     mcp-seccomp.bpf so the JSON→BPF transformation is grep-discoverable.
-COPY --from=builder /app/src/extensions/mcp-seccomp.json /tmp/mcp-seccomp.json
-COPY --from=builder /app/build/compile-seccomp.c /tmp/compile-seccomp.c
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-       gcc libseccomp-dev libc6-dev \
-  && gcc -O2 -o /tmp/compile-seccomp /tmp/compile-seccomp.c -lseccomp \
-  && mkdir -p /app/src/extensions \
-  && /tmp/compile-seccomp /tmp/mcp-seccomp.json /app/src/extensions/mcp-seccomp.bpf \
-  && apt-get purge -y --auto-remove gcc libseccomp-dev libc6-dev \
-  && rm -rf /var/lib/apt/lists/* /tmp/compile-seccomp /tmp/compile-seccomp.c /tmp/mcp-seccomp.json
-
 # Build-time metadata injected by CI (`docker/metadata-action` → build-args).
 # Surfaced as OCI labels for image introspection and as env vars the app
 # reads at runtime (`EZCORP_IMAGE_SHA` is the circuit-breaker key; see
@@ -210,12 +184,6 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && 
 # Copy backend source
 COPY --from=builder /app/src ./src
 
-# Phase 7 — make sure the netns launcher script is executable in the
-# runtime image. `git` preserves the +x bit, but `COPY` from a build
-# stage that may have applied tooling (linters etc.) needs an explicit
-# chmod for the final image to spawn it via `unshare ... -- launcher.sh`.
-RUN chmod +x /app/src/extensions/mcp-launcher.sh
-
 # Secure Preview / Phase 3a (uid-based portable isolation) — compile the
 # setuid-root `preview-spawn` helper and install it root:root mode 4755.
 #
@@ -237,8 +205,8 @@ RUN chmod +x /app/src/extensions/mcp-launcher.sh
 # (no .ts siblings) and previewSpawnHelperPath() defaults to that path.
 #
 # Build deps (gcc + libc6-dev) are installed for the duration of this RUN
-# and purged immediately so they never bloat the runtime image — same
-# pattern as the seccomp compile above. The source-of-truth C lives at
+# and purged immediately so they never bloat the runtime image. The
+# source-of-truth C lives at
 # build/preview-spawn.c (committed, auditable, < 200 lines).
 #
 # mode 4755 = rwsr-xr-x: setuid bit + world-exec so uid 1000 can invoke it;

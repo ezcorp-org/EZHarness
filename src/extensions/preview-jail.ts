@@ -5,7 +5,7 @@
  * server reads .ezcorp/data off disk").
  *
  * ── Why this exists ──
- * The original MCP jail (`mcp-launcher.sh`) exec'd `bwrap --bind / /`:
+ * The original host MCP jail (since deleted) exec'd `bwrap --bind / /`:
  * the child saw the WHOLE host filesystem, including
  * `<projectRoot>/.ezcorp/data` (the PGlite DB + the encrypted JWT
  * secret). A DYNAMIC preview is an arbitrary dev server — raw, untrusted

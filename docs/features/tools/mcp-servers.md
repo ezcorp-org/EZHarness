@@ -4,7 +4,7 @@
 
 ## Intent
 
-EZCorp lets an admin plug any external [Model Context Protocol](https://modelcontextprotocol.io) server into the platform so its tools become callable by the chat LLM exactly like a first-party extension tool. An MCP server is stored as an extension row with `kind: "mcp"`; the install flow verifies connectivity, pulls the live `tools/list`, and caches it so the registry can hydrate the tool catalog at boot without re-connecting. Because an external MCP `stdio` server is an arbitrary binary (Python/Go/Rust — the SDK's process-poisoning sandbox does **not** apply to it), the hardest part of this feature is not the wire protocol but the sandbox envelope that confines it: a forward proxy for outbound HTTP, kernel namespaces, seccomp, resource limits, and a filesystem jail.
+EZCorp lets an admin plug any external [Model Context Protocol](https://modelcontextprotocol.io) server into the platform so its tools become callable by the chat LLM exactly like a first-party extension tool. An MCP server is stored as an extension row with `kind: "mcp"`; the install flow verifies connectivity, pulls the live `tools/list`, and caches it so the registry can hydrate the tool catalog at boot without re-connecting. Because an external MCP `stdio` server is an arbitrary binary (Python/Go/Rust — the SDK's process-poisoning sandbox does **not** apply to it), the hardest part of this feature is not the wire protocol but confining it: since #246 a stdio server runs inside the extension runner's isolated worker (no network of its own, deny-by-default seccomp, read-only root, cgroup limits); see Isolation below.
 
 ## How it works
 
@@ -16,7 +16,7 @@ EZCorp lets an admin plug any external [Model Context Protocol](https://modelcon
 - `http` → `StreamableHTTPClientTransport`.
 - `sse` → `SSEClientTransport`.
 
-It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` response into `ToolDefinition[]`, and `callTool(name, args)` maps the SDK's content blocks into a `ToolCallResult` (`text` blocks pass through; anything else is `JSON.stringify`'d). `getChildProcess()` is an SDK escape-hatch (`transport._process` via cast) used by the seccomp soak reader and the Stage-2 veth teardown; it degrades-soft to `null` if the SDK shape changes.
+It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` response into `ToolDefinition[]`, and `callTool(name, args)` maps the SDK's content blocks into a `ToolCallResult` (`text` blocks pass through; anything else is `JSON.stringify`'d).
 
 ### Install / verify / cache (`POST /api/mcp-servers`)
 
@@ -32,7 +32,7 @@ It exposes only the app's own shapes: `listTools()` maps the SDK's `tools/list` 
 An MCP row is synthesized straight into the DB, so it never passes through the disk loader's `migrateManifestV2ToV3` — the one place a v2 manifest normally acquires its per-tool `capabilities`. `mcp-capabilities.ts` is the derivation that replaces it, and it reads the hosts off the operator's own server definition:
 
 - **`http` / `sse`** — the target `url`'s hostname. Every tool call opens an HTTPS connection from the HOST process to exactly that host, so `network:<host>` literally describes the call. These transports are never sandboxed, so the per-dispatch PDP gate is their only governance.
-- **`stdio`** — every `://` URL on the server's `command` / `args` (e.g. `npx -y mcp-remote https://mcp.example.com/mcp` → `mcp.example.com`). A command line that names no host derives nothing and is **deny-by-default**: the forward proxy refuses every CONNECT because there is no granted host to match.
+- **`stdio`** — every `://` URL on the server's `command` / `args` (e.g. `npx -y mcp-remote https://mcp.example.com/mcp` → `mcp.example.com`). A command line that names no host derives nothing and is **deny-by-default**: every egress attempt is refused because there is no granted host to match.
 
 Every MCP row additionally declares **`mcpInvoke`** → the valueless `ezcorp:mcp:invoke` capability, and that one is not optional. `deriveCapsFromExtensionPerms` SKIPS an empty host array, so a hostless stdio server would otherwise declare `capabilities: {}`, which flattens to an empty needed set — and `firstMissingCapability([], granted)` is `null` for *any* grant. Without the sentinel the PDP was still inert for the most common stdio shape, and an admin's revocation was a silent no-op. It is deliberately **not** in `SENSITIVE_KINDS`: MCP tools are dispatched from cron fires, webhook deliveries and workflow steps, where a `prompt` decision is unanswerable and would park the run at `awaiting_approval` forever.
 
@@ -46,7 +46,7 @@ Three things are written from that one derivation:
 
 `updateMcpExtension` re-issues the grant only when the derived ceiling actually changed — a description-only edit preserves a deliberate admin revocation. Rows installed before this landed are healed once by `backfillMcpManifestCapabilities` (`migrate.ts`).
 
-**What that backfill changes, precisely.** The declared config is untouched (every host comes from the row's own stored definition), but *enforced* behaviour moves in both directions: stdio **egress widens** — `mcp-proxy.ts` authorizes each CONNECT against `grantedPermissions`, which was empty for a legacy row, so all egress was denied and no admin action could allow it (the manifest declared no ceiling, so the clamp dropped every submitted host); and **dispatch tightens** — legacy MCP tools authorized against an empty needed set and are now gated. Net: a capability the operator had already configured becomes reachable, and one that was ungoverned becomes revocable. A row the backfill *misses* (migrate circuit breaker open, or an UPDATE that threw) fails **closed** and is reported once per boot by `registry.loadFromDb`; deriving the grant at read time was rejected because a revocation writes only `grantedPermissions`, so a read-time grant could not tell "never consented" from "consented then revoked" and would silently re-grant a revoked row.
+**What that backfill changes, precisely.** The declared config is untouched (every host comes from the row's own stored definition), but *enforced* behaviour moves in both directions: stdio **egress widens** — egress is authorized against `grantedPermissions`, which was empty for a legacy row, so all egress was denied and no admin action could allow it (the manifest declared no ceiling, so the clamp dropped every submitted host); and **dispatch tightens** — legacy MCP tools authorized against an empty needed set and are now gated. Net: a capability the operator had already configured becomes reachable, and one that was ungoverned becomes revocable. A row the backfill *misses* (migrate circuit breaker open, or an UPDATE that threw) fails **closed** and is reported once per boot by `registry.loadFromDb`; deriving the grant at read time was rejected because a revocation writes only `grantedPermissions`, so a read-time grant could not tell "never consented" from "consented then revoked" and would silently re-grant a revoked row.
 
 ### Edit-after-install (`PUT /api/mcp-servers/[id]`)
 
@@ -230,7 +230,7 @@ There is **no** `GET` or `DELETE` on `/api/mcp-servers/[id]`. MCP extensions are
 
 ## Key files
 
-- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`/`getChildProcess`, `HookedStdioClientTransport`. `connect()` fail-fasts the guard; `buildTransport()` injects the guarded fetch.
+- `src/mcp/client.ts` — `McpClient`: SDK wrapper, 3-transport selection, `listTools`/`callTool`. `connect()` fail-fasts the guard; `buildTransport()` injects the guarded fetch.
 - `src/mcp/guarded-fetch.ts` — `createMcpGuardedFetch`: `redirect: "manual"`, per-hop revalidation, hop cap, cross-origin credential stripping, streaming preserved.
 - `src/mcp/target-guard.ts` — `assertMcpTargetAllowed` / `parseMcpTargetAllowlist`: the outbound target policy + `EZCORP_MCP_TARGET_ALLOW` parsing.
 - `src/mcp/connect-failure.ts` — `MCP_CONNECT_FAILED_MESSAGE` / `reportMcpConnectFailure`: the uniform 502 body and the server-side diagnosis it replaces.

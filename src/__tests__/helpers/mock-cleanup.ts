@@ -319,9 +319,7 @@ const MODULE_PATHS = [
   // re-register them and stop their stubs from leaking into subsequent
   // test files (a pollution that surfaces as full-suite failures on
   // agent-configs-handler, agent-input-form, api-tool-invoke.server).
-  "../../extensions/runtime/dns",
   "../../extensions/runtime/internal-host",
-  "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
   // tool-executor-rpc-delegates.unit.test.ts mock.module's the schedule
   // reverse-RPC handler to capture the ctx the executor threads into it.
@@ -388,9 +386,6 @@ const MODULE_PATHS = [
   // Restore both real modules before another suite checks isolation.
   "../../factory/boot",
   "../../extensions/sandbox/capability-probe",
-  // Restore the real forward proxy after any suite that substitutes it, so a
-  // later MCP test cannot inherit a fake listener or token state.
-  "../../extensions/mcp-proxy",
   "../../extensions/permission-engine",
   "../../db/queries/sdk-capability-calls",
   "../../providers/llm",

@@ -18,7 +18,6 @@ import { findProjectRoot } from "@ezcorp/sdk/runtime";
 import { getProjectRoot } from "./bundled";
 import { resolveInstallPath } from "./install-roots";
 import type { McpClient } from "../mcp/client";
-import type { McpProxyHandle } from "./mcp-proxy";
 import {
   buildEntityToolDefinitions,
   entityToolNames,
@@ -160,7 +159,7 @@ export function buildAllowedEnv(
   // already v3 AND every tool already has an authored `capabilities`
   // declaration: in that case the migration produces identical output.
   // The registry's hot path (live spawns) hits this short-circuit;
-  // `mcp-sandbox.ts` / `test-helpers.ts` callers with raw v2 inputs
+  // `test-helpers.ts` callers with raw v2 inputs
   // still pay the migration cost.
   const isFullyV3 =
     manifest.schemaVersion === 3 &&
@@ -309,12 +308,6 @@ export class ExtensionRegistry {
   private processes = new Map<string, ExtensionProcess>();
   /** extension id -> McpClient (for kind:"mcp" extensions) */
   private mcpClients = new Map<string, McpClient>();
-  /** Phase 7: extension id -> per-MCP forward-proxy handle. Populated
-   *  in `getMcpClient` after `buildSandboxedMcpSpec` starts the proxy;
-   *  torn down in `killAll` and on `getMcpClient`'s connect-failure
-   *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
-   *  loopback port (fallback) and gates outbound HTTPS via PDP. */
-  private mcpProxies = new Map<string, McpProxyHandle>();
   /** extension id -> the extension's ONE in-flight `tools/list_changed`
    *  refresh, plus its single coalesced re-run. See
    *  {@link onMcpToolListChanged}; entries clear themselves when the drain
@@ -852,8 +845,7 @@ export class ExtensionRegistry {
    */
   private retireProcess(extId: string, proc: ExtensionProcess): void {
     // `typeof` guard: test fixtures stub ExtensionProcess with bare
-    // `{ isRunning, kill }` objects. Same tolerance as `getMcpClient`'s
-    // `getChildProcess` probe.
+    // `{ isRunning, kill }` objects.
     const busy = typeof proc.inFlightCallCount === "number" && proc.inFlightCallCount > 0;
     if (!busy) {
       proc.kill();
@@ -875,13 +867,8 @@ export class ExtensionRegistry {
    *  against its pre-reload {@link runtimeSignature} and dropped when the
    *  extension was removed OR its runtime inputs moved. Without this an
    *  upgraded extension keeps serving the pre-upgrade code (the
-   *  time-now-ui incident) and an upgraded MCP extension keeps a forward
-   *  proxy + connected client built from the pre-upgrade transport config.
-   *
-   *  Phase 7 fix-pass C3: a previous version leaked the per-MCP forward
-   *  proxy on uninstall — `mcpProxies.clear()` only ran in `killAll()`,
-   *  so an uninstalled MCP extension kept a listener (and its bearer
-   *  token in memory) until process exit.
+   *  time-now-ui incident) and an upgraded MCP extension keeps a connected
+   *  client built from the pre-upgrade transport config.
    */
   async reload(): Promise<void> {
     const priorRuntimeSignatures = new Map<string, string>();
@@ -891,7 +878,6 @@ export class ExtensionRegistry {
       }
     };
     for (const extId of this.processes.keys()) trackSignature(extId);
-    for (const extId of this.mcpProxies.keys()) trackSignature(extId);
     for (const extId of this.mcpClients.keys()) trackSignature(extId);
 
     await this.loadFromDb();
@@ -907,11 +893,6 @@ export class ExtensionRegistry {
       if (!isStale(extId)) continue;
       this.processes.delete(extId);
       this.retireProcess(extId, proc);
-    }
-    for (const [extId, proxy] of this.mcpProxies) {
-      if (!isStale(extId)) continue;
-      void proxy.stop().catch(() => {});
-      this.mcpProxies.delete(extId);
     }
     for (const [extId, client] of this.mcpClients) {
       if (!isStale(extId)) continue;
@@ -942,13 +923,6 @@ export class ExtensionRegistry {
     // misses the cache we just cleared, and respawns the stdio child of a
     // server we deliberately closed.
     this.mcpToolRefreshes.clear();
-    // Phase 7: tear down every per-MCP forward proxy. Stopping the
-    // proxy unlinks its UDS (when applicable) so a subsequent boot or
-    // re-load doesn't trip EADDRINUSE.
-    for (const proxy of this.mcpProxies.values()) {
-      void proxy.stop().catch(() => {});
-    }
-    this.mcpProxies.clear();
   }
 
   /**
