@@ -18,22 +18,14 @@ import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   probeVethCapability,
   _setVethProbeOverridesForTests,
-  _resetInitStage2ForTests,
 } from "../extensions/mcp-netns";
 
 describe("probeVethCapability", () => {
   beforeEach(() => {
     _setVethProbeOverridesForTests(null);
-    // Plan 58-03: probeVethCapability short-circuits when initStage2 has set
-    // the stage2-degraded-at-boot flag. Other tests in this suite (e.g.
-    // any that construct ExtensionRegistry) trigger initStage2 which on a
-    // non-Linux dev host sets the flag. Reset between tests so the probe
-    // exercises its own gates, not the boot cascade.
-    _resetInitStage2ForTests();
   });
   afterEach(() => {
     _setVethProbeOverridesForTests(null);
-    _resetInitStage2ForTests();
   });
 
   test("non-Linux returns available: false with reason 'not linux'", () => {

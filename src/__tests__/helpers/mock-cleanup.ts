@@ -384,18 +384,15 @@ const MODULE_PATHS = [
   // and the stub never leaks into subsequent test files (e.g. embed-worker.test.ts,
   // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
-  "../../extensions/mcp-sandbox",
   // Factory shell tests replace boot policy and host capability discovery.
   // Restore both real modules before another suite checks isolation.
   "../../factory/boot",
   "../../extensions/sandbox/capability-probe",
-  // mcp-sandbox-require-sandbox.test.ts substitutes the Stage 2 proxy with a
-  // host-safe fake. Restore the real proxy after the suite so a later MCP
-  // test cannot inherit its fake listener or token state.
+  // Restore the real forward proxy after any suite that substitutes it, so a
+  // later MCP test cannot inherit a fake listener or token state.
   "../../extensions/mcp-proxy",
-  // mcp-sandbox-require-sandbox.test.ts (EZCORP_MCP_REQUIRE_SANDBOX
-  // fail-closed gate) and preview-netns.test.ts mock the kernel-probe
-  // module to drive capability branches deterministically. Snapshot so
+  // preview-netns.test.ts mocks the kernel-probe module to drive
+  // capability branches deterministically. Snapshot so
   // restoreModuleMocks() re-registers the real probes in afterAll.
   "../../extensions/mcp-netns",
   "../../extensions/permission-engine",

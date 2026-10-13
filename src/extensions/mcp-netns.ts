@@ -30,8 +30,10 @@
  *                             redirects MCP traffic to
  *   - `mcp-launcher.sh`     — the in-namespace setup script (cap-drop
  *                             via capsh + exec). No iptables.
- *   - `mcp-sandbox.ts`      — the caller; appends `unshare ... --` in
- *                             front of the existing `prlimit ...` chain
+ *   - `runtime/preview/preview-netns.ts` — the remaining caller (netns
+ *                             probe + veth slot allocator). Since #246
+ *                             MCP servers run in the extension runner's
+ *                             isolated worker, not this host wrapper.
  *   - `audit-actions.ts`    — `MCP_NETNS_FALLBACK` action code (kept
  *                             for back-compat: "fallback" now means
  *                             "no namespace at all", but the audit
@@ -42,14 +44,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { openSeccompBpfFd } from "./runtime/seccomp-loader";
-import {
-  ensureBridge,
-  ensureConntrackCeiling,
-  sweepOrphanVeths,
-  BRIDGE_CIDR_DEFAULT,
-} from "./mcp-bridge";
-import { insertAuditEntry } from "../db/queries/audit-log";
-import { EXT_AUDIT_ACTIONS } from "./audit-actions";
 
 export interface NetnsCapabilities {
   /** True iff `buildNetnsSpawnArgs` will produce an `unshare`-prefixed
@@ -336,13 +330,6 @@ let vethProbeOverrides: VethProbeOverrides | null = null;
  * via `_setVethProbeOverridesForTests(null)`.
  */
 export function probeVethCapability(): NetnsCapabilities {
-  // Phase 58 / MCP-05 — Plan 03 — short-circuit when initStage2 detected a
-  // boot-time degradation (bridge create failed, CAP_NET_ADMIN missing,
-  // sweep failed). Operators reading /audit see the boot row; subsequent
-  // spawns degrade to Stage 1 without re-probing.
-  if (stage2DegradedAtBoot) {
-    return { available: false, reason: "stage2 degraded at boot" };
-  }
   if (vethProbeCache !== null) return vethProbeCache;
   vethProbeCache = computeVethProbe();
   return vethProbeCache;
@@ -467,150 +454,6 @@ export function computeVethMcpIp(slot: number): string {
 
 export function _resetVethSlotAllocatorForTests(): void {
   vethSlotsInUse.clear();
-}
-
-// ─────────────────────────────────────────────────────────────────────
-// Phase 58 / MCP-05 — Plan 58-03 — Boot-time Stage 2 init.
-//
-// `initStage2` runs ONCE per host process at boot (called from
-// `registry.ts`'s constructor as fire-and-forget). It runs three
-// idempotent steps in order:
-//
-//   1. `sweepOrphanVeths` — delete any `mcp-<8hex>` host-side veths
-//      left over from a crashed prior process (RTNETLINK collision-
-//      prevention). Emits MCP_VETH_ORPHAN_SWEPT (count=0 still fires
-//      so operators see the sweep ran).
-//   2. `ensureConntrackCeiling` — floor-guarantee
-//      `net.netfilter.nf_conntrack_max >= 262144` (Pitfall 3 / Debian
-//      bookworm default). Idempotent only-write-if-lower.
-//   3. `ensureBridge` — idempotent `br-ezcorp-mcp` create. Respects
-//      `EZCORP_MCP_STAGE2_BRIDGE_SUBNET` override (CIDR-validated;
-//      invalid value falls back to default + emits boot row).
-//
-// On any failure: sets `stage2DegradedAtBoot` flag + emits one-time
-// MCP_NETNS_FALLBACK boot row + returns `{ ok: false, reason }`. The
-// flag is consumed by `probeVethCapability` above — subsequent spawns
-// degrade to Stage 1 without re-probing.
-// ─────────────────────────────────────────────────────────────────────
-
-let stage2InitCompleted = false;
-let stage2DegradedAtBoot = false;
-let stage2BootRowEmitted = false;
-
-/**
- * Test-only: reset all init-stage2 state. Used by unit tests that need
- * to exercise the boot path multiple times in one process.
- */
-export function _resetInitStage2ForTests(): void {
-  stage2InitCompleted = false;
-  stage2DegradedAtBoot = false;
-  stage2BootRowEmitted = false;
-  vethProbeCache = null;
-}
-
-/**
- * Production accessor for the degraded-at-boot flag. Used by audit
- * dashboards or external diagnostics that want to surface boot status
- * outside the per-spawn audit row stream.
- */
-export function isStage2DegradedAtBoot(): boolean {
-  return stage2DegradedAtBoot;
-}
-
-async function emitStage2BootRow(
-  userId: string | null,
-  reason: string,
-): Promise<void> {
-  if (stage2BootRowEmitted) return;
-  stage2BootRowEmitted = true;
-  try {
-    await insertAuditEntry(
-      userId,
-      EXT_AUDIT_ACTIONS.MCP_NETNS_FALLBACK,
-      undefined,
-      {
-        permission: "network",
-        oldValue: null,
-        newValue: null,
-        actor: "system",
-        reason,
-        platform: process.platform,
-      },
-    );
-  } catch {
-    // Fire-and-forget — boot must not fail on audit write hiccup.
-  }
-}
-
-/**
- * CIDR validator for the `EZCORP_MCP_STAGE2_BRIDGE_SUBNET` override.
- * Accepts /8 .. /30 (the operator subnets the bridge could reasonably
- * carve; /31 + /32 don't make sense for a multi-veth bridge).
- */
-function isValidCidr(s: string): boolean {
-  return /^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\/(8|9|[12][0-9]|30)$/.test(s);
-}
-
-/**
- * Boot-time Stage 2 init. Idempotent — repeated calls short-circuit
- * after the first completes. Safe to call from any boot site that
- * needs Stage 2 capability before the first MCP spawn.
- *
- * Returns `{ ok, reason? }` for callers that want to observe the
- * outcome. Production callers in `registry.ts` fire-and-forget; the
- * `stage2DegradedAtBoot` flag (consumed by `probeVethCapability`) is
- * the load-bearing signal.
- */
-export async function initStage2(
-  userId: string | null = null,
-): Promise<{ ok: boolean; reason?: string }> {
-  if (stage2InitCompleted) {
-    return { ok: !stage2DegradedAtBoot };
-  }
-  stage2InitCompleted = true;
-
-  if (process.platform !== "linux") {
-    stage2DegradedAtBoot = true;
-    return { ok: false, reason: "not linux" };
-  }
-
-  // Validate the optional subnet override.
-  const subnetOverride = process.env.EZCORP_MCP_STAGE2_BRIDGE_SUBNET;
-  let effectiveSubnet = BRIDGE_CIDR_DEFAULT;
-  if (subnetOverride && !isValidCidr(subnetOverride)) {
-    // Invalid CIDR — fall back to default + emit boot row. Stage 2 still
-    // attempts to come up on the default subnet (degraded-with-warning).
-    await emitStage2BootRow(userId, "stage2 invalid bridge subnet");
-  } else if (subnetOverride) {
-    effectiveSubnet = subnetOverride;
-  }
-
-  // Step 1: sweep orphans BEFORE the bridge create. The sweep walks
-  // `ip link show` for old `mcp-<8hex>` host-side veths and deletes
-  // each; the kernel auto-cleans the namespace-side peers.
-  const sweep = await sweepOrphanVeths(userId);
-  if (sweep.error) {
-    stage2DegradedAtBoot = true;
-    await emitStage2BootRow(userId, `stage2 unavailable: ${sweep.error}`);
-    return { ok: false, reason: sweep.error };
-  }
-
-  // Step 2: floor-guarantee nf_conntrack_max. Best-effort — a failure
-  // here doesn't degrade Stage 2 (the per-spawn pressure guard catches
-  // table saturation regardless of the floor).
-  ensureConntrackCeiling();
-
-  // Step 3: idempotent bridge create. The load-bearing step — if the
-  // bridge fails, host-side veth attach has nowhere to go and every
-  // Stage 2 spawn would degrade to Stage 1 anyway.
-  const bridge = ensureBridge({ subnetOverride: effectiveSubnet });
-  if (!bridge.ok) {
-    stage2DegradedAtBoot = true;
-    await emitStage2BootRow(userId, `stage2 unavailable: ${bridge.reason}`);
-    return { ok: false, reason: bridge.reason };
-  }
-
-  return { ok: true };
 }
 
 export interface BuildNetnsSpawnArgsInput {
