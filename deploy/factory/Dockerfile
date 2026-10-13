@@ -40,7 +40,7 @@ RUN bun run build:packages
 # read-only, noexec production container (W4H-27). Checked by
 # scripts/check-factory-image-shipped-config.ts under the shipped isolation.
 COPY --from=node /usr/local/bin/node /usr/local/bin/node
-RUN bun run --cwd packages/@ezcorp/factory-orchestrator build:workflow-bundle
+RUN node --experimental-strip-types packages/@ezcorp/factory-orchestrator/src/workflow-bundle-build.ts
 RUN cd web && bun run build
 # Nothing in the runtime needs the test trees or the coverage tooling.
 RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git
