@@ -64,6 +64,7 @@ import {
   type LaunchRow,
 } from "./attempt-wire";
 import { FACTORY_SANDBOX_ABORT_GRACE_MS, FACTORY_SANDBOX_POLL_INTERVAL_MS, FactorySandboxStopError, factoryRunnerSandboxControl, stopFactorySandbox, type FactorySandboxControl } from "./sandbox-stop";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 /**
  * Defence in depth over the pool's whole-GPU-host allocation: no second live
@@ -348,7 +349,7 @@ export class IsolatedFactoryAttemptRuntime implements FactoryAttemptRuntime {
     // implements, so it is refused rather than launched with no device at all.
     if (intent.devices.cdiDevices.length > 0) throw new FactoryAttemptRuntimeError("invalid_launch", "The Container Device Interface profile is not supported by this runtime; a CDI device grant cannot start an attempt.");
     const deadline = Math.min(intent.request.authority.deadlineAtMs, this.now() + executionLimits.timeoutMs);
-    return { workerId: intent.workerId, artifactDigest: intent.preparedPackage.artifactDigest, context: { invocationId: intent.invocationId, workerId: intent.workerId, releaseId: intent.preparedPackage.artifactDigest, principalId: intent.request.authority.tenantId, scopeId: intent.request.authority.projectId, token: request.broker.attemptToken, deadline }, limits: executionLimits, devices: intent.devices.devices };
+    return { workerId: intent.workerId, artifactDigest: intent.preparedPackage.artifactDigest, context: { invocationId: intent.invocationId, workerId: intent.workerId, releaseId: intent.preparedPackage.artifactDigest, principalId: intent.request.authority.tenantId, scopeId: intent.request.authority.projectId, token: request.broker.attemptToken, deadline }, limits: executionLimits, devices: intent.devices.devices, processSpawn: FACTORY_GUEST_PROCESS_SPAWN };
   }
 
   private fence(lease: FactoryAttemptLease) { return { reservationId: lease.reservationId, grantRevision: lease.grantRevision, allocationGeneration: lease.allocationGeneration, allocationToken: lease.allocationToken }; }

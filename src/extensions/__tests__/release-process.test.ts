@@ -1,3 +1,4 @@
+import { enforcingRunnerCapabilities } from "../../__tests__/helpers/runner-capabilities";
 import { describe, expect, test } from "bun:test";
 import { ReleaseProcess, configureReleaseRuntime, getReleaseRuntime, releaseBinding } from "../release-process";
 import { sha256 } from "@ezcorp/extension-contract";
@@ -84,7 +85,7 @@ for (const invalidation of ["token", "deadline", "kill"] as const) {
     const now = Date.now();
     let restoreClock: (() => void) | undefined;
     const runner: Runner = {
-      build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+      build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => ({}),
       start: async (input, rpc) => ({ workerId: input.workerId, close: async () => stopped.promise, onNotification: () => () => {}, request: async method => {
         if (method === "extension/discover") return fixture.snapshot().release.manifest;
         suspend = true;
@@ -128,7 +129,7 @@ test("abort during a reverse RPC binding read prevents host effect admission", a
   let effects = 0;
   let closed = 0;
   const runner: Runner = {
-    build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+    build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => ({}),
     start: async (input, rpc) => ({
       workerId: input.workerId,
       close: async () => { closed++; await stopped.promise; },
@@ -175,7 +176,7 @@ function harness() {
   let onDiscover: (() => unknown) | undefined;
   let onStart: (() => Promise<void>) | undefined;
   const runner: Runner = {
-    build: async () => { throw new Error("not used"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+    build: async () => { throw new Error("not used"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => ({}),
     start: async (input, rpc) => {
       starts.push(input); reverse.push(rpc);
       await onStart?.();

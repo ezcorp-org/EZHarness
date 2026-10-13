@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { PodmanRunner, provisionToolchain, buildLimits, filesDigest } from "@ezcorp/extension-runner";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { mcpReleaseFixture } from "./mcp-release-fixture";
+import { SHELL_GRANT } from "../../extensions/process-spawn-policy";
 
 export async function isolatedMcpRelease(files: WorkspaceFiles, id?: string) {
   const root = await mkdtemp(join(tmpdir(), "mcp-isolated-release-"));
@@ -18,6 +19,9 @@ export async function isolatedMcpRelease(files: WorkspaceFiles, id?: string) {
     fixture = mcpReleaseFixture({ id, name: build.manifest.name, tools: build.manifest.tools, runner });
     fixture.snapshot.release.manifest = build.manifest;
     fixture.snapshot.release.artifactDigest = build.artifactDigest;
+    // These sources are the author's own code beside a stdio server, not the
+    // sealed bridge, so the worker may start the server only with the shell grant.
+    fixture.snapshot.installation.grants.push(SHELL_GRANT);
     fixture.registry.setManifestForTest(fixture.id, build.manifest);
     return { fixture, build, close };
   } catch (error) { await close(); throw error; }

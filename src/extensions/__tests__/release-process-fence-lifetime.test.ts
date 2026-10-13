@@ -1,3 +1,4 @@
+import { enforcingRunnerCapabilities } from "../../__tests__/helpers/runner-capabilities";
 import { afterAll, beforeEach, expect, spyOn, test } from "bun:test";
 import { validateManifest, type Runner } from "@ezcorp/extension-contract";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../../__tests__/helpers/test-pglite";
@@ -33,7 +34,7 @@ for (const invalidation of ["token", "deadline", "kill", "grants"] as const) {
     }, config);
     const transactionSpy = spyOn(data.database, "transaction").mockImplementation(pausedTransaction);
     const runner: Runner = {
-      build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+      build: async () => { throw new Error("unused"); }, cancel: async () => {}, inspect: async id => ({ id, state: "running", diagnostics: [] }), capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => ({}),
       start: async (input, rpc) => ({ workerId: input.workerId, close: async () => stopped.promise, onNotification: () => () => {}, request: async method => {
         if (method === "extension/discover") return snapshot.release.manifest;
         const acquired = await rpc("ezcorp/lock.acquire", { context: input.context, input: { key: "guarded" } });

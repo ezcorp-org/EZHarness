@@ -13,6 +13,7 @@
  * the trusted-local Playwright lane. This file is what gives the service's
  * trusted-local branch coverage: `*integration*` suites produce none.
  */
+import { enforcingRunnerCapabilities } from "./helpers/runner-capabilities";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
@@ -132,7 +133,7 @@ describe("extension lifecycle service in trusted-local mode", () => {
     const imageDigest = trustedLocalImage(await trustedLocalBunDigest());
     fakeRunner = {
       build: async (request: { operationId: string; sourceDigest: string }) => ({ operationId: request.operationId, state: "succeeded", sourceDigest: request.sourceDigest, artifactDigest, imageDigest, manifest, evidence: { protocolVersion: 4, validatorVersion: "runner-v4.1", discoveryDigest: digestObject(manifest), tests: [{ name: "host-protocol", passed: true }] }, diagnostics: [] }),
-      collectArtifacts: async () => artifacts,
+      capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => artifacts,
       cancel: async () => {},
       inspect: async (id: string) => ({ id, state: "unknown", diagnostics: [] }),
       start: async ({ workerId }: { workerId: string }) => ({ workerId, request: async (method: string) => (method === "extension/discover" ? manifest : null), close: async () => {}, onNotification: () => () => {} }),

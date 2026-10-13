@@ -7,6 +7,7 @@ import { InvocationLocks, type InvocationGuard } from "./runtime-locks";
 import { getRuntimeToolContext, withRuntimeToolContext } from "./runtime-tool-context";
 import type { MigrationDb } from "../db/migrations/types";
 import { isServiceInvocation } from "./service-invocation";
+import { releaseProcessSpawn, SHELL_GRANT } from "./process-spawn-policy";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -164,7 +165,9 @@ export class ReleaseProcess extends ExtensionProcess {
     try {
       if (invocationGuard) await invocationGuard();
       checkCancellation();
-      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, async (rpcMethod, raw) => {
+      const processSpawn = await releaseProcessSpawn(runner, snapshot.release, snapshot.installation.grants.includes(SHELL_GRANT));
+      checkCancellation();
+      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits, processSpawn }, async (rpcMethod, raw) => {
         checkCancellation();
         if (!accepting || this.releaseClosed || Date.now() >= context.deadline || !this.releaseCalls.has(invocationId)) throw new ContractError("EXPIRED_CONTEXT", "Extension invocation is no longer active");
         assertJson(raw);

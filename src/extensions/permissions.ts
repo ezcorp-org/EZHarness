@@ -3,6 +3,7 @@
  */
 
 import type { ExtensionPermissions, ExtensionManifest } from "./types";
+import { declaresStdioMcpServer } from "@ezcorp/extension-contract";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { getProjectRoot } from "./bundled";
 import { getDbMaskDirs } from "../db/connection";
@@ -444,9 +445,10 @@ export interface PermissionItem {
 const PERMISSION_DESCRIPTIONS: Record<string, (v: string | boolean) => string> = {
   network: (v) => `Network access to ${v}`,
   filesystem: (v) => `Filesystem access to ${v}`,
-  shell: () => "Execute shell commands",
+  shell: () => "Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)",
   env: (v) => `Read environment variable ${v}`,
   storage: () => "Persistent key-value storage",
+  mcpProcess: () => "Starts its MCP server process (process spawning allowed)",
 };
 
 export function getRequiredPermissions(manifest: ExtensionManifest): PermissionItem[] {
@@ -465,6 +467,11 @@ export function getRequiredPermissions(manifest: ExtensionManifest): PermissionI
   }
   if (perms.shell) {
     items.push({ type: "shell", value: true, description: PERMISSION_DESCRIPTIONS.shell!(true) });
+  }
+  // A stdio MCP server is a process the worker starts. Only the sealed SDK
+  // bridge may start it without the shell grant (see process-spawn-policy.ts).
+  if (declaresStdioMcpServer(manifest)) {
+    items.push({ type: "mcpProcess", value: true, description: PERMISSION_DESCRIPTIONS.mcpProcess!(true) });
   }
   if (perms.env) {
     for (const varName of perms.env) {

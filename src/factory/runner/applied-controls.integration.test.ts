@@ -7,6 +7,7 @@ import { buildLimits, executionLimits, filesDigest, PodmanRunner, PythonPodmanRu
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { manifest as bunManifest, provision, source } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 /**
  * Applied-control verification from the host.
@@ -85,7 +86,7 @@ async function measure(language: "bun" | "python"): Promise<{ applied: Inspectio
   const artifactDigest = language === "bun" ? bunArtifact : pythonArtifact;
   const workerId = randomUUID();
   const context = { workerId, invocationId: randomUUID(), releaseId: artifactDigest, principalId: "tenant-controls", scopeId: "project-controls", token: "controls-token", deadline: Date.now() + executionLimits.timeoutMs - 5_000 };
-  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [] }, async () => { throw new Error("an applied-control probe never reaches the broker"); });
+  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [], processSpawn: FACTORY_GUEST_PROCESS_SPAWN }, async () => { throw new Error("an applied-control probe never reaches the broker"); });
   try {
     const reported = await worker.request("extension/invoke", { name: language === "bun" ? "echo" : "controls", input: {}, context }) as GuestControls;
     const applied = await inspect(containerName(root, workerId));

@@ -14,6 +14,25 @@ A fresh runtime worker receives one host-owned invocation context. It cannot cho
 
 Rootless containers share the host kernel. They are not a defense against a compromised host administrator or every kernel defect. Keep the host and runner patched; do not expose the runner socket or token to extensions.
 
+## Process creation
+
+An extension worker may start other programs or processes only when the host sends `processSpawn: "allow"` for its start. The host sends it in two cases:
+
+- The installation holds the `shell` grant. Before approval (candidate verification) and for a storage migration, the release's own `shell` declaration is used. Approval grants exactly what the release declares.
+- The release is only the sealed SDK MCP bridge for one stdio MCP server: the exact bridge `extension.ts`, its `mcp.manifest.json`, an optional unchanged `metadata.test.ts`, and no other source file. The host reads this from the digest-checked artifact and the entrypoint in its build recipe. A release with its own code and a stdio MCP server needs the `shell` grant.
+
+Every other start is `"deny"`, and a start without the field is `"deny"`. Factory guests always send `"allow"`: they are factory-prepared packages that start processes by design.
+
+For a `"deny"` worker the runner loads a guard before any extension code. The guard installs a seccomp filter on every thread of the worker (`SECCOMP_FILTER_FLAG_TSYNC`). The filter refuses `execve`, `execveat`, `fork`, `vfork` and `clone` without `CLONE_THREAD`, so threads still work. It returns ENOSYS for `clone3`, so the C library falls back to `clone`. It also refuses `ptrace`, `process_vm_readv`, `process_vm_writev` and `pidfd_getfd`. The guard then tries to start a process; if that works, or the filter does not install, the worker exits with code 70 before the extension runs. Bun workers load the guard with `--preload` and `--config=/dev/null`, so a workspace `bunfig.toml` cannot run code first. Python workers run it under `python -I`.
+
+The worker's parent, the in-container shim, keeps the right to start processes. It makes itself non-dumpable (`PR_SET_DUMPABLE` 0) before it starts the worker, so the worker cannot attach to it or write its memory through `/proc`.
+
+Build-time discovery is `"allow"`. It is a build-phase guest like the typecheck, compile and feature-test guests, which already run the author's code with process creation allowed. It has no host capability and runs before approval. A stdio MCP extension must start its server there to read the tool catalog. The policy applies to runtime workers: candidate verification, storage migrations and invocations.
+
+The runner measures the guard at startup and reports it at `/v4/capabilities` (`processSpawnEnforcement`). The host asks before every `"deny"` start and refuses the start with `PROCESS_SPAWN_UNENFORCED` when the runner does not report enforcement. A runner from before this endpoint answers `unknown_method`, which the host reads as not enforced. A runner that cannot install the guard refuses `"deny"` starts itself with `process_spawn_unenforced` and still serves `"allow"` starts.
+
+In `trusted-local` mode the same guard applies. Workers there are plain processes of the runner's own account, so the runner also requires Yama `ptrace_scope` 1 or higher. Without Yama, or when the guard does not install, the runner reports no enforcement and refuses every non-shell start.
+
 ## Approval
 
 Only an authenticated human administrator can approve the exact tested release. Agent/API-key and CLI requests cannot provide this approval. The review binds the release, requested grants, runner profile, policy, owner, and scope. Activation checks the binding again.

@@ -51,6 +51,8 @@ Every tier delegates the deny-by-default invariant to a shared assertion — fai
 
 Since #246 the host never spawns extension code. `ExtensionProcess` (`src/extensions/subprocess.ts`) is a contract with no spawn surface; its only production implementation is `ReleaseProcess`, which runs each call in an extension-runner worker (rootless Podman, `--network=none`, read-only root, deny-by-default seccomp, cgroup limits; see [[mcp-servers]] and `src/__tests__/runner-worker-isolation.proof.test.ts`). The old host path — `bun run --preload <sandbox-preload>` inside this layer's jail, with the in-process module poisoning and fetch wrapper — survives only as a TEST harness (`src/__tests__/helpers/host-extension-process.ts` + `host-sandbox/`) so example and behavior tests can drive a real extension process quickly. It proves nothing about production isolation, and the dependency-boundary gate stops production code from importing it.
 
+A worker without the `shell` grant also cannot start a process: the runner loads a seccomp guard before the extension runs, and the host refuses such a start on a runner that does not report the guard working. See [Process creation](../../extensions/security.md#process-creation).
+
 ### 5. Host spawn seams
 
 - **Seam A — extension subprocess: retired.** Extension code no longer spawns on the host (§4).

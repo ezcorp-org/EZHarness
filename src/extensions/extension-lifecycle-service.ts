@@ -14,6 +14,7 @@ import { ExtensionDeliveryQueue } from "./v4/deliveries";
 import { createCandidateVerificationBroker, type CandidateFixtures } from "./candidate-verification-broker";
 import { auditReleaseBlobStorage, boundedReleaseBlobAuditSample, getFiles, type ReleaseBlobDigests } from "./v4/blobs";
 import { hasExactReleaseGrants } from "./bundled-drift-reapprove";
+import { releaseProcessSpawn } from "./process-spawn-policy";
 import { createLifecycleRecoveryScheduler } from "./lifecycle-recovery-scheduler";
 
 const log = extensionLogger("author", "lifecycle");
@@ -74,7 +75,9 @@ export async function verifyExtensionCandidate(runner: Runner, release: ReleaseR
   const broker = await createCandidateVerificationBroker(release, context, fixtures);
   let worker: RunnerExecution | undefined;
   try {
-    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits }, reverseRpc ?? broker.reverseRpc);
+    // Verification runs before approval, so the release's own declaration stands in for its grant.
+    const processSpawn = await releaseProcessSpawn(runner, release, release.manifest.permissions.shell === true);
+    worker = await runner.start({ workerId, artifactDigest: release.artifactDigest, context, limits: executionLimits, processSpawn }, reverseRpc ?? broker.reverseRpc);
     const discovered = validateManifest(await worker.request("extension/discover", {}));
     if (canonicalJson(discovered) !== canonicalJson(release.manifest)) throw new LifecycleError("runtime_catalog_mismatch", "Runtime metadata changed after verification.");
     if (discovered.smokeTest) {
@@ -105,7 +108,9 @@ export async function runStorageMigration(runner: Runner, input: StorageMigratio
   if (!method) throw new LifecycleError("migration_method_missing", "Storage migration method is not declared.");
   const workerId = randomUUID();
   const context = { invocationId: randomUUID(), workerId, releaseId: input.release.id, principalId: input.principalId, scopeId: `data-migration:${input.scope}`, token: randomUUID(), deadline: Date.now() + executionLimits.timeoutMs };
-  const worker = await runner.start({ workerId, artifactDigest: input.release.artifactDigest, context, limits: executionLimits }, async () => { throw new LifecycleError("migration_effect_denied", "Storage migrations cannot access host capabilities."); });
+  // Activation migrates only an approved release, and approval grants exactly what the release declares.
+  const processSpawn = await releaseProcessSpawn(runner, input.release, input.release.manifest.permissions.shell === true);
+  const worker = await runner.start({ workerId, artifactDigest: input.release.artifactDigest, context, limits: executionLimits, processSpawn }, async () => { throw new LifecycleError("migration_effect_denied", "Storage migrations cannot access host capabilities."); });
   try {
     const payload = { fromVersion: input.fromVersion, toVersion: input.toVersion, values: input.values };
     compileValueSchema(method.inputSchema)(payload);

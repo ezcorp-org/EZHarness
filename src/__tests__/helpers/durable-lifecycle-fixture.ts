@@ -1,3 +1,4 @@
+import { enforcingRunnerCapabilities } from "./runner-capabilities";
 import { afterAll, beforeAll, expect, } from "bun:test";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -57,7 +58,7 @@ export function harness(overrides: Partial<LifecycleDependencies> = {}) {
         const manifest = { schemaVersion: 4 as const, name: extensionName, version: "1.0.0", description: "fixture", author: { name: "Test" }, entrypoint: "extension.js", permissions: {} };
         return { operationId: request.operationId, state: "succeeded", sourceDigest: request.sourceDigest, artifactDigest, imageDigest: `sha256:${"a".repeat(64)}`, manifest, evidence: { protocolVersion: 4, validatorVersion: "host-v1", discoveryDigest: digestObject(manifest), tests: [{ name: "host-protocol", passed: true }] }, diagnostics: [] } satisfies BuildResult;
       },
-      async collectArtifacts(digest) { const files = collected.get(digest); if (!files) throw new Error("missing artifact"); return files; },
+      capabilities: enforcingRunnerCapabilities, async collectArtifacts(digest) { const files = collected.get(digest); if (!files) throw new Error("missing artifact"); return files; },
       async cancel() {},
     },
     async authorize() {},

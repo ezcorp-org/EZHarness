@@ -1,4 +1,6 @@
-import { canonicalJson, normalizeMcpCatalog, validateManifest } from "@ezcorp/extension-contract";
+import { enforcingRunnerCapabilities } from "./runner-capabilities";
+import { canonicalJson, MCP_BRIDGE_SOURCE, normalizeMcpCatalog, validateManifest } from "@ezcorp/extension-contract";
+import { filesDigest } from "@ezcorp/extension-runner";
 import type { Runner, ToolDefinitionV4 } from "@ezcorp/extension-contract";
 import { configureReleaseRuntime } from "../../extensions/release-process";
 import type { ActiveExtensionRelease } from "../../extensions/release-process";
@@ -10,9 +12,11 @@ import { createStubPermissionEngine } from "./permission-engine-stub";
 export function mcpReleaseFixture(options: { id?: string; name?: string; tools?: ToolDefinitionV4[]; runner?: Runner } = {}) {
   const id = options.id ?? "mcp-release";
   const manifest = validateManifest({ schemaVersion: 4, name: options.name ?? "mcp-release", version: "1.0.0", description: "MCP release fixture", author: { name: "Tests" }, kind: "mcp", mcpServers: [{ name: "packaged", transport: "stdio", command: "/packaged/mcp" }], permissions: {}, tools: options.tools ?? normalizeMcpCatalog([{ name: "echo", description: "Echo", inputSchema: { type: "object" } }]) });
+  // The release is the sealed SDK MCP bridge, so its worker may start the stdio server.
+  const artifact = { "extension.ts": MCP_BRIDGE_SOURCE, "mcp.manifest.json": JSON.stringify(manifest), ".runner/recipe.json": JSON.stringify({ entrypoint: "extension.ts" }) };
   const snapshot: ActiveExtensionRelease = {
     installation: { id, ownerId: "owner", scope: "global", activeReleaseId: "release", generation: 1, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 },
-    release: { id: "release", installationId: id, workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: "artifact", imageDigest: "image", runnerProfile: "secure", releaseDigest: "digest", policyDigest: "policy", createdAt: "2026-09-05", evidence: { protocolVersion: 4, validatorVersion: "v4", tests: [{ name: "fixture", passed: true }], discoveryDigest: "discovery" }, manifest },
+    release: { id: "release", installationId: id, workspaceId: "workspace", workspaceRevision: 1, sourceDigest: "source", artifactDigest: filesDigest(artifact), imageDigest: "image", runnerProfile: "secure", releaseDigest: "digest", policyDigest: "policy", createdAt: "2026-09-05", evidence: { protocolVersion: 4, validatorVersion: "v4", tests: [{ name: "fixture", passed: true }], discoveryDigest: "discovery" }, manifest },
     limits: { memoryBytes: 512 * 1024 * 1024, cpuMillis: 1000, pids: 64, tmpBytes: 64 * 1024 * 1024, outputBytes: 1024 * 1024, timeoutMs: 60_000 },
   };
   snapshot.installation.grants.push(canonicalJson(["mcpInvoke", true]));
@@ -23,7 +27,7 @@ export function mcpReleaseFixture(options: { id?: string; name?: string; tools?:
   let invoke: (input: Record<string, unknown>) => Promise<unknown> = async input => ({ content: [{ type: "text", text: canonicalJson(input) }], isError: false });
   let discover = () => structuredClone(snapshot.release.manifest);
   const runner: Runner = {
-    build: async () => { throw new Error("Unexpected build"); }, cancel: async () => {}, inspect: async workerId => ({ id: workerId, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
+    build: async () => { throw new Error("Unexpected build"); }, cancel: async () => {}, inspect: async workerId => ({ id: workerId, state: "running", diagnostics: [] }), capabilities: enforcingRunnerCapabilities, collectArtifacts: async () => artifact,
     start: async input => {
       starts++;
       return { workerId: input.workerId, request: async (method, params) => method === "extension/discover" ? discover() : invoke(params as Record<string, unknown>), close: async () => { closed++; }, onNotification: () => () => {} };

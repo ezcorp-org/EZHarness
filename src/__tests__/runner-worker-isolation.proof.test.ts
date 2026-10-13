@@ -12,6 +12,8 @@
  *   - fs:       the image root is read-only (a world-writable dir gets EROFS)
  *   - privilege: uid 65534, no capabilities, no-new-privileges
  *   - cgroups:  memory and PID limits are the requested ones
+ *   - processes: a worker without the shell grant ("deny") cannot start a
+ *               process but can start a thread; an "allow" worker can start one
  *
  * Each live control has a FAULT ARM: the same probe through a podman wrapper
  * that drops one flag must show the weakness (the proof can go red), and the
@@ -28,7 +30,9 @@ import { chmodSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { PodmanRunner, executionLimits, provisionToolchain, type PodmanRunnerOptions } from "@ezcorp/extension-runner";
+import { PodmanRunner, buildLimits, executionLimits, filesDigest, provisionToolchain, type PodmanRunnerOptions } from "@ezcorp/extension-runner";
+import type { ProcessSpawnPolicy } from "@ezcorp/extension-contract";
+import { source } from "../../packages/@ezcorp/extension-runner/tests/helpers";
 
 const liveEnabled = process.env.EZCORP_RUNNER_ISOLATION_PROOF === "1";
 if (!liveEnabled) console.warn("[runner-isolation-proof] live arms SKIPPED: set EZCORP_RUNNER_ISOLATION_PROOF=1 on a host with rootless Podman");
@@ -78,6 +82,25 @@ class ProofRunner extends PodmanRunner {
   }
 }
 
+/** A tool that tries to start a process and a thread, and reports both. */
+const SPAWN_PROBE = `async () => { let spawn: string | number; try { spawn = Bun.spawnSync(["/bin/true"]).exitCode ?? "none"; } catch (error) { spawn = (error as { code?: string }).code ?? "error"; } const thread = await new Promise(resolve => { const worker = new Worker(URL.createObjectURL(new Blob(["postMessage(7)"]))); worker.onmessage = event => { resolve(event.data); worker.terminate(); }; }); return { spawn, thread }; }`;
+
+/** Builds the spawn probe once per runner, then invokes it in one worker per start. */
+async function spawnObservation(target: PodmanRunner, processSpawn?: ProcessSpawnPolicy): Promise<unknown> {
+  const files = source(SPAWN_PROBE);
+  const build = await target.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
+  expect(build.diagnostics).toEqual([]);
+  const workerId = randomUUID();
+  const context = { workerId, invocationId: randomUUID(), releaseId: build.artifactDigest!, principalId: "proof", scopeId: "proof", token: "proof", deadline: Date.now() + 60_000 };
+  const worker = await target.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits, ...(processSpawn ? { processSpawn } : {}) }, async () => null);
+  try { return await worker.request("extension/invoke", { name: "echo", input: {}, context }); } finally { await worker.close(); }
+}
+
+/** FAULT ARM: a runner whose "deny" worker is launched without the guard. */
+class UnguardedRunner extends ProofRunner {
+  protected override workerArgs(_policy: ProcessSpawnPolicy): string[] { return super.workerArgs("allow"); }
+}
+
 /** A `podman` wrapper that rewrites one exact argument (drop it, or swap it). */
 function weakenedPodman(dir: string, from: string, to: string | null): string {
   const path = join(dir, `podman-${randomUUID()}`);
@@ -118,8 +141,8 @@ describe.skipIf(!liveEnabled)("runner worker isolation (live)", () => {
   let dir: string;
   let toolchain: Partial<PodmanRunnerOptions>;
   const runners: PodmanRunner[] = [];
-  const runner = (podman?: string): ProofRunner => {
-    const value = new ProofRunner({ root: storeDir("runner-proof-store-"), ...toolchain, ...(podman ? { podman } : {}) });
+  const runner = (podman?: string, Kind: typeof ProofRunner = ProofRunner): ProofRunner => {
+    const value = new Kind({ root: storeDir("runner-proof-store-"), ...toolchain, ...(podman ? { podman } : {}) });
     runners.push(value);
     return value;
   };
@@ -138,6 +161,17 @@ describe.skipIf(!liveEnabled)("runner worker isolation (live)", () => {
     await secure.initialize();
     expectIsolated(await secure.observe());
   }, 120_000);
+
+  test("a worker without the shell grant cannot start a process but can start a thread; an allow worker can", async () => {
+    const secure = runner();
+    expect(await secure.capabilities()).toEqual({ processSpawnEnforcement: true });
+    expect(await spawnObservation(secure)).toEqual({ spawn: "EPERM", thread: 7 });
+    expect(await spawnObservation(secure, "allow")).toEqual({ spawn: 0, thread: 7 });
+  }, 300_000);
+
+  test("without the guard a deny worker starts a process", async () => {
+    expect(await spawnObservation(runner(undefined, UnguardedRunner), "deny")).toEqual({ spawn: 0, thread: 7 });
+  }, 300_000);
 
   test("without --network=none the worker has a network, and startup refuses it", async () => {
     const weak = runner(weakenedPodman(dir, "--network=none", null));
