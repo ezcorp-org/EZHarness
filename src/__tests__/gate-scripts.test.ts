@@ -1063,6 +1063,29 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     ].join("\n");
     expect(unassertedAddedBlocks(soft, new Set([2, 3]))).toEqual([]);
   });
+  test("counts a generic expect<T>(...) call as a real assertion", () => {
+    const typed = (call: string) => ["it('typed', () => {", `  ${call}`, "});"].join("\n");
+    for (const call of [
+      "expect<Foo>(x).toEqual(y);",
+      "expect<Record<string, number>>(counts).toEqual({});",
+      "expect<Map<string, Array<Foo>>>(m).toBeDefined();",
+      "expect <Foo> (x).toBe(1);",
+    ]) {
+      expect(unassertedAddedBlocks(typed(call), new Set([2]))).toEqual([]);
+    }
+  });
+  test("does not count expect-like text that is not an assertion call", () => {
+    const vacuous = (line: string) => ["it('no assert', () => {", `  ${line}`, "});"].join("\n");
+    for (const line of [
+      "type T = expect<Foo>;",
+      "const ok = expect < limit;",
+      "myexpect<Foo>(x);",
+      "expectLike<Foo>(x);",
+      "const s = 'expect<Foo>(x)';",
+    ]) {
+      expect(unassertedAddedBlocks(vacuous(line), new Set([2]))).toHaveLength(1);
+    }
+  });
   test("does not count braces inside strings as block boundaries", () => {
     const tricky = [
       "it('s', () => {",

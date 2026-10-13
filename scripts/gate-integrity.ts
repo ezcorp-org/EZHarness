@@ -381,8 +381,12 @@ export function forbiddenTestAdditions(fileContent: string, addedLines: Set<numb
 // `expect(` plus Playwright's chained assertion forms `expect.poll(...)` /
 // `expect.soft(...)` (both produce real assertions; the bare `expect(` branch
 // alone misses them and flags a genuinely-asserting test as vacuous).
+// `expect(` may carry a type argument (`expect<Foo>(`, up to three levels of
+// nesting such as `expect<Map<string, Array<Foo>>>(`); TypeScript parses that
+// as the same assertion call. The argument may not contain `(`, `)` or `;`,
+// so it cannot span into another call or statement.
 const ASSERTION =
-	/\bexpect\s*\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
+	/\bexpect\s*(?:<(?:[^<>();]|<(?:[^<>();]|<[^<>();]*>)*>)*>\s*)?\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
 const TEST_OPENER = /(?:^|[^.\w])(?:test|it)\s*\(/;
 
 /**
