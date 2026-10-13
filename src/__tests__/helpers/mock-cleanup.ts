@@ -268,6 +268,15 @@ const MODULE_PATHS = [
   // (triggers below IS mocked and stays).
   "../../runtime/lessons/triggers",
   "../../memory/compaction",
+  // runtime-invoke-handler.test.ts stubs dedupAndWriteMemory. Cheap to
+  // preload: it imports only db/queries/{memories,conversations} and the
+  // logger, all snapshotted here.
+  "../../memory/dedup",
+  // background-timers.test.ts stubs runScheduledAudit. Its imports are
+  // db/queries/{features,projects,feature-classifications} and the leaf
+  // audit modules (precheck, llm-classify, cache, report): no daemon and
+  // no preview graph.
+  "../../runtime/audit/run",
   "../../chat/attachments/content-builder",
   "../../chat/attachments/storage",
   "../../chat/attachments/validator",

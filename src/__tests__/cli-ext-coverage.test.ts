@@ -49,8 +49,10 @@ mock.module("../extensions/cli-control", () => ({
   initCliExtension: init, verifyCliExtension: async () => ({ state: "succeeded" }),
 }));
 
-const publish = mock(async (_opts: { token?: string }) => {});
-mock.module("../extensions/sdk/publish", () => ({ publishExtension: publish }));
+// `ext publish` runs the real publisher. No publish token is stored, so
+// any token the CLI passes is rejected before a build starts.
+const realSettings = await import("../db/queries/settings");
+mock.module("../db/queries/settings", () => ({ ...realSettings, getAllSettings: async () => ({}) }));
 
 // Import after mocks
 const { parseArgs, cli } = await import("../cli");
@@ -427,21 +429,14 @@ describe("cli - workflow and publish", () => {
     expect(parseArgs(["pipeline", "list"])).toEqual({ command: "workflow:list" });
   });
 
-  test("ext publish without a token publishes and returns normally", async () => {
-    await cli(["ext", "publish"]);
-    expect(publish).toHaveBeenLastCalledWith({ token: undefined });
-  });
-
-  test("ext publish passes the token and exits 1 with the error when publishing fails", async () => {
-    publish.mockImplementationOnce(async () => { throw new Error("registry rejected the package"); });
+  test("ext publish with an unknown token prints the error and exits 1", async () => {
     const errors: string[] = [];
     const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
     const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
 
     await expect(cli(["ext", "publish", "--token", "tok-1"])).rejects.toThrow("exit");
 
-    expect(publish).toHaveBeenLastCalledWith({ token: "tok-1" });
-    expect(errors).toContain("Error: registry rejected the package");
+    expect(errors).toContain("Error: Invalid publish token");
     expect(exitSpy).toHaveBeenCalledWith(1);
     errSpy.mockRestore();
     exitSpy.mockRestore();

@@ -51,7 +51,9 @@ const EXEMPT_PATTERNS: RegExp[] = [
   // residual leak — benign at the current suite order: the baseline
   // full-suite run has zero preview-test failures. Revisit if
   // preview-*.test.ts start failing in full-directory runs only.
-  /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|netns|uid-pool|detection-bridge|bus-registry)$/,
+  // preview-reaper joins them for the same reason: it imports
+  // preview-spawn-orchestration, preview-netns and preview-uid-pool.
+  /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|netns|uid-pool|detection-bridge|bus-registry|reaper)$/,
   // assert-bundled-not-stranded.test.ts stubs the bundled-extension
   // registry. It cannot be snapshotted: the eager preload import pulled
   // in the whole bundled-extension graph per spawn, so it was trimmed
