@@ -1,5 +1,5 @@
 /**
- * Coverage for the two fire-and-forget rejection nets on `ExtensionProcess`
+ * Coverage for the two fire-and-forget rejection nets on `HostExtensionProcess`
  * (`onDrainError` + `onExitHandlerError`).
  *
  * Both are the `.catch` arms of promise chains that are intentionally NOT
@@ -11,12 +11,12 @@
  * asserts the failure is LOGGED and NEVER rethrown (the chain resolves).
  *
  * A separate small file (not folded into `subprocess.test.ts`) because that
- * suite overrides `ExtensionProcess.prototype.ensureRunning` (a Bun JIT-SIGILL
+ * suite overrides `HostExtensionProcess.prototype.ensureRunning` (a Bun JIT-SIGILL
  * workaround) and cannot attribute coverage to the real class members.
  */
 import { describe, expect, spyOn, test } from "bun:test";
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 
 const echoPath = `${import.meta.dir}/helpers/echo-extension.ts`;
 const baseEnv: Record<string, string> = {
@@ -30,13 +30,13 @@ type Nets = {
   onDrainError: (err: unknown) => void;
   onExitHandlerError: (err: unknown) => void;
 };
-function nets(ep: ExtensionProcess): Nets {
+function nets(ep: HostExtensionProcess): Nets {
   return ep as unknown as Nets;
 }
 
-describe("ExtensionProcess fire-and-forget rejection nets", () => {
+describe("HostExtensionProcess fire-and-forget rejection nets", () => {
   test("onDrainError logs the drain failure at debug and never rethrows", async () => {
-    const ep = new ExtensionProcess("drain-ext", echoPath, baseEnv);
+    const ep = new HostExtensionProcess("drain-ext", echoPath, baseEnv);
     const { onDrainError } = nets(ep);
 
     // `debug` is suppressed at the default LOG_LEVEL=info, so raise this one
@@ -68,7 +68,7 @@ describe("ExtensionProcess fire-and-forget rejection nets", () => {
   });
 
   test("onExitHandlerError logs the exit-handler failure at error and never rethrows", async () => {
-    const ep = new ExtensionProcess("exit-ext", echoPath, baseEnv);
+    const ep = new HostExtensionProcess("exit-ext", echoPath, baseEnv);
     const { onExitHandlerError } = nets(ep);
 
     const writes: string[] = [];

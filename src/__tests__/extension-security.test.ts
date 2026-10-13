@@ -36,7 +36,7 @@ afterAll(() => restoreModuleMocks());
 
 import { denyAndDisable, hasSecurityViolation, getSecurityViolations, clearSecurityViolations } from "../extensions/security";
 import { checkFilesystemPermission } from "../extensions/permissions";
-import { buildAllowedEnv, cleanupExtTmpDir } from "../extensions/registry";
+import { cleanupExtTmpDir } from "../extensions/registry";
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -348,142 +348,7 @@ describe("filesystem permission - explicit mode parameter", () => {
 
 // ── Environment Isolation ────────────────────────────────────────
 
-describe("env isolation - buildAllowedEnv", () => {
-  const baseManifest = {
-    schemaVersion: 2 as const,
-    name: "test-ext",
-    version: "1.0.0",
-    description: "Test",
-    author: { name: "Test" },
-    entrypoint: "index.ts",
-    tools: [],
-    permissions: {} as { network?: string[]; filesystem?: string[]; shell?: boolean; env?: string[] },
-  };
 
-  test("includes only PATH, HOME, TMPDIR, NODE_ENV, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT by default", () => {
-    const manifest = { ...baseManifest, permissions: {} };
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const env = buildAllowedEnv(manifest, granted, "test-ext-id");
-
-    expect(env.PATH).toBeDefined();
-    expect(env.HOME).toBeDefined();
-    expect(env.TMPDIR).toBeDefined();
-    expect(env.NODE_ENV).toBeDefined();
-    // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT is unconditionally
-    // injected so sandboxed extensions can locate the project root without
-    // their own (poisoned) `.git` walk (registry.ts:108); the file-organizer
-    // change (registry.ts:135) ALSO injects EZCORP_EXTENSION_DATA_ROOT
-    // unconditionally for the bundled-extension data-dir path.
-    expect(env.EZCORP_PROJECT_ROOT).toBeDefined();
-    expect(env.EZCORP_EXTENSION_DATA_ROOT).toBeDefined();
-    // Should NOT contain other process env vars
-    const keys = Object.keys(env);
-    expect(keys).toEqual([
-      "PATH",
-      "HOME",
-      "NODE_ENV",
-      "TMPDIR",
-      "EZCORP_PROJECT_ROOT",
-      "EZCORP_EXTENSION_DATA_ROOT",
-    ]);
-  });
-
-  test("creates per-extension TMPDIR under platform temp base", () => {
-    const manifest = { ...baseManifest, permissions: {} };
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const env = buildAllowedEnv(manifest, granted, "my-ext-123");
-
-    expect(env.TMPDIR).toContain("ezcorp-ext");
-    expect(env.TMPDIR).toContain("my-ext-123");
-    // Directory should exist on disk
-    expect(existsSync(env.TMPDIR!)).toBe(true);
-  });
-
-  test("per-extension TMPDIR directory is created on disk", () => {
-    const manifest = { ...baseManifest, permissions: {} };
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const env = buildAllowedEnv(manifest, granted, `tmpdir-test-${randomUUID()}`);
-
-    expect(existsSync(env.TMPDIR!)).toBe(true);
-    // Clean up
-    rmSync(env.TMPDIR!, { recursive: true, force: true });
-  });
-
-  test("only adds env vars that appear in BOTH manifest.permissions.env AND grantedPermissions.env", () => {
-    const original = process.env.TEST_GRANTED_VAR;
-    process.env.TEST_GRANTED_VAR = "secret-value";
-    process.env.TEST_UNGRANT_VAR = "other-value";
-
-    try {
-      const manifest = {
-        ...baseManifest,
-        permissions: { env: ["TEST_GRANTED_VAR", "TEST_UNGRANT_VAR"] },
-      };
-      const granted: ExtensionPermissions = {
-        env: ["TEST_GRANTED_VAR"], // Only grant one of the two
-        grantedAt: {},
-      };
-      const env = buildAllowedEnv(manifest, granted, "test-ext-env");
-
-      expect(env.TEST_GRANTED_VAR).toBe("secret-value");
-      expect(env.TEST_UNGRANT_VAR).toBeUndefined();
-    } finally {
-      if (original === undefined) delete process.env.TEST_GRANTED_VAR;
-      else process.env.TEST_GRANTED_VAR = original;
-      delete process.env.TEST_UNGRANT_VAR;
-    }
-  });
-
-  test("env vars in manifest.permissions.env but NOT in grantedPermissions.env are excluded", () => {
-    process.env.MANIFEST_ONLY_VAR = "should-not-appear";
-
-    try {
-      const manifest = {
-        ...baseManifest,
-        permissions: { env: ["MANIFEST_ONLY_VAR"] },
-      };
-      const granted: ExtensionPermissions = {
-        // No env granted
-        grantedAt: {},
-      };
-      const env = buildAllowedEnv(manifest, granted, "test-ext-no-grant");
-
-      expect(env.MANIFEST_ONLY_VAR).toBeUndefined();
-    } finally {
-      delete process.env.MANIFEST_ONLY_VAR;
-    }
-  });
-});
-
-describe("env isolation - buildAllowedEnv TMPDIR idempotency", () => {
-  const baseManifest2 = {
-    schemaVersion: 2 as const,
-    name: "test-ext",
-    version: "1.0.0",
-    description: "Test",
-    author: { name: "Test" },
-    entrypoint: "index.ts",
-    tools: [],
-    permissions: {} as { network?: string[]; filesystem?: string[]; shell?: boolean; env?: string[] },
-  };
-
-  test("calling buildAllowedEnv twice with same extensionId does not throw (mkdirSync recursive)", () => {
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const extId = `idempotent-test-${randomUUID()}`;
-
-    // First call creates the directory
-    const env1 = buildAllowedEnv(baseManifest2, granted, extId);
-    expect(existsSync(env1.TMPDIR!)).toBe(true);
-
-    // Second call with same extensionId should not throw
-    const env2 = buildAllowedEnv(baseManifest2, granted, extId);
-    expect(env2.TMPDIR).toBe(env1.TMPDIR);
-    expect(existsSync(env2.TMPDIR!)).toBe(true);
-
-    // Clean up
-    rmSync(env1.TMPDIR!, { recursive: true, force: true });
-  });
-});
 
 describe("env isolation - cleanupExtTmpDir", () => {
   test("removes per-extension TMPDIR", () => {

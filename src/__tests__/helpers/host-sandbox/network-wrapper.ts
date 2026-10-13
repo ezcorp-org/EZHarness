@@ -41,7 +41,7 @@
 // for back-compat with existing test imports
 // (network-wrapper.test.ts uses `INTERNAL_HOST_RE` / `normalizeHostname`
 // against this module's surface).
-import { INTERNAL_HOST_RE, normalizeHostname } from "./internal-host";
+import { INTERNAL_HOST_RE, normalizeHostname } from "../../../extensions/runtime/internal-host";
 export { INTERNAL_HOST_RE, normalizeHostname };
 
 /**

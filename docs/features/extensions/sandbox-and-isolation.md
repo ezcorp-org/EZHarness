@@ -1,14 +1,14 @@
 # Sandbox & Isolation
 
-> _The OS-level confinement layer that wraps every untrusted spawn — extension subprocesses and per-run agent shells (MCP servers run in the extension runner instead) — behind a capability-probed tier (bwrap › landlock › advisory) whose one non-negotiable invariant is that `.ezcorp/data` (the PGlite DB + JWT secret) is never reachable._
+> _The OS-level confinement layer that wraps every untrusted HOST spawn — the per-run agent shell (extensions and MCP servers run in the extension runner instead) — behind a capability-probed tier (bwrap › landlock › advisory) whose one non-negotiable invariant is that `.ezcorp/data` (the PGlite DB + JWT secret) is never reachable._
 
 ## Intent
 
-EZCorp runs arbitrary third-party code: extension entrypoints, the per-run agent shell, and external MCP server binaries (the last run in the extension runner; see §7). None of it can be trusted with the host filesystem — most critically the encrypted SQLite/PGlite database and the JWT signing secret that both live under `<projectRoot>/.ezcorp/data`. This feature is the defense-in-depth wrapper that, at every spawn site, applies the strongest OS-isolation primitive the host actually supports (an `unshare`+Landlock `bwrap` jail, a per-process Landlock fs-jail, or — last resort — only the in-process SDK module-poisoning) plus a memory bound, while guaranteeing by construction that no granted path is, contains, or is contained by the data dir. It is the OS-level companion to the permission/grant system (which gates *what an extension may ask for*); this layer enforces *what its process can physically touch*.
+EZCorp runs arbitrary third-party code: extension entrypoints, the per-run agent shell, and external MCP server binaries. Extension and MCP code runs in the extension runner's isolated worker (§4, §7); the host-side layer below confines what still spawns on the host. None of it can be trusted with the host filesystem — most critically the encrypted SQLite/PGlite database and the JWT signing secret that both live under `<projectRoot>/.ezcorp/data`. This feature is the defense-in-depth wrapper that, at every spawn site, applies the strongest OS-isolation primitive the host actually supports (an `unshare`+Landlock `bwrap` jail, a per-process Landlock fs-jail, or — last resort — only the in-process SDK module-poisoning) plus a memory bound, while guaranteeing by construction that no granted path is, contains, or is contained by the data dir. It is the OS-level companion to the permission/grant system (which gates *what an extension may ask for*); this layer enforces *what its process can physically touch*.
 
 ## How it works
 
-The design is one capability probe + one DRY argv builder + three spawn seams, layered over an always-on in-process preload for the Bun extension subprocess.
+The design is one capability probe + one DRY argv builder applied at the host spawn seams.
 
 ### 1. Capability probe — pick the strongest tier (`sandbox/capability-probe.ts`)
 
@@ -23,7 +23,7 @@ The design is one capability probe + one DRY argv builder + three spawn seams, l
 
 - **`bwrap`** — a verified x64 or arm64 syscall table, `landlockAbi >= 1`, working `userns`, and a non-setuid `bwrap`. Adds `/proc` + PID hiding on top of the Landlock-equivalent fs jail.
 - **`landlock`** — usable Landlock (verified x64 or arm64 table and ABI ≥ 1) but no usable userns (or a setuid `bwrap`). fs-jail only, no PID/proc hiding. **This is the Docker app-container case** — Landlock needs zero namespaces/caps/setuid and its syscalls pass Docker's default seccomp, where the earlier bwrap/netns spike failed on unprivileged-userns restrictions.
-- **`advisory`** — no usable Landlock. No OS isolation prefix; the inner command runs as-is and only the SDK module-poisoning (preload) applies.
+- **`advisory`** — no usable Landlock. No OS isolation prefix; the inner command runs as-is.
 
 A setuid-root `bwrap` is deliberately *refused* (it rejects `--size` on its private `/tmp`, and on such hosts the runtime lives behind `/run/...` symlinks the minimal bind-set misses), so the tier drops to `landlock`.
 
@@ -47,28 +47,13 @@ Every tier delegates the deny-by-default invariant to a shared assertion — fai
 
 `landlock-shim.ts` is a separate `bun` entrypoint (never imported, only spawned). It parses the spec from `EZCORP_LANDLOCK_SPEC`, `chdir`s into `rw[0]` (the workspace) so the inner `bun` can read its cwd, calls `applyLandlockJailSpec()` (which throws if the kernel can't enforce), then spawns the inner command — fail-closed: a missing/invalid spec, unsupported kernel, or failed `restrict_self` aborts WITHOUT running the inner command.
 
-### 4. Extension subprocess preload (`runtime/sandbox-preload.ts`) — the in-process layer
+### 4. Extension code runs in the extension runner, not on the host
 
-Loaded via `bun run --preload <preload>` before the extension entrypoint (resolved by `subprocess.ts:resolveSandboxPreloadPath`, with a bundled-server fallback under `EZCORP_PROJECT_ROOT`). It poisons the JS surface regardless of OS tier:
+Since #246 the host never spawns extension code. `ExtensionProcess` (`src/extensions/subprocess.ts`) is a contract with no spawn surface; its only production implementation is `ReleaseProcess`, which runs each call in an extension-runner worker (rootless Podman, `--network=none`, read-only root, deny-by-default seccomp, cgroup limits; see [[mcp-servers]] and `src/__tests__/runner-worker-isolation.proof.test.ts`). The old host path — `bun run --preload <sandbox-preload>` inside this layer's jail, with the in-process module poisoning and fetch wrapper — survives only as a TEST harness (`src/__tests__/helpers/host-extension-process.ts` + `host-sandbox/`) so example and behavior tests can drive a real extension process quickly. It proves nothing about production isolation, and the dependency-boundary gate stops production code from importing it.
 
-- **Filesystem is ALWAYS poisoned** — `fs` / `fs/promises` modules, `Bun.file` / `Bun.write` / `Bun.glob`. Granted fs access does NOT unblock the raw primitive; it flows through the host-mediated `ezcorp/fs.*` reverse-RPC (`fs-handler.ts`) so the host does the realpath check + IO + audit. `EZCORP_FS_ALLOWED` is informational only (SDK fast-fail).
-- **Network** — `http`/`https`/`net`/`tls`/`dns`/`dgram` modules, `fetch`, `Bun.connect`/`listen`/`serve`/`udpSocket` are denied unless `EZCORP_NETWORK_ALLOWED=1`. When granted, `fetch` is wrapped (below), not freed.
-- **Shell** — `child_process`, `Bun.spawn`/`spawnSync`/`$` denied unless `EZCORP_SHELL_ALLOWED=1`.
-- **Always denied** — `Bun.dlopen` (FFI = unrestricted native code), `Worker` / `WebSocket` / `EventSource` (no manifest surface / would spawn an un-preloaded module graph). A `process.binding` denylist (`fs`, `natives`, `util`, `config`) closes the C++ binding escape while leaving Bun's legitimate internal `require` calls intact.
-- Poisoning is belt-and-suspenders: every own property of a builtin module becomes a throwing getter, AND `Module.prototype.require` + `Module.createRequire` are patched so even `require("http")` throws with the permission-label message before returning the cached object.
+### 5. Host spawn seams
 
-### 5. In-sandbox fetch classification (`runtime/network-wrapper.ts`)
-
-When network IS granted, `installFetchWrapper()` wraps `globalThis.fetch`; `classifyFetch(url, …)` decides the lane (pure, tested):
-
-- **invalid** → throw.
-- **internal** (localhost / 127.0.0.1 / ::1 / RFC-1918 / link-local, per `internal-host.ts`) → forwarded to the host via `ezcorp/network.internal` reverse-RPC. The host PDP enforces and performs the fetch host-side, and follows redirects itself so the PDP checks every hop — the **SSRF carve-out**: the wrapper can't trust its own env for internal hosts, so the manifest gate lives host-side.
-- **deny** → host not in the spawn-time `EZCORP_PERMITTED_HOSTS` ceiling, or not in the active tool's `EZCORP_TOOL_NETWORK_CAPS` per-tool override (ALS-bound). Per-tool overrides can only narrow, never widen.
-- **external** → forward to the real `fetch` (the host already vetted the allowlist; the PDP is deliberately not consulted per-call for perf).
-
-### 6. Three spawn seams
-
-- **Seam A — extension subprocess** (`src/extensions/subprocess.ts`): inner command is `prlimit --rss=<bytes> bun run --preload <preload> <entrypoint>`. `resolveSandboxWrap()` calls `buildSandboxArgv` (workspace = `.ezcorp/extension-data/<id>`; rw also includes the per-ext `TMPDIR`; the extension *code* dir + preload dir are added read-only or `bun` couldn't read its own entrypoint). Fail-SAFE: a jail-build error logs and runs un-jailed (the preload still applies).
+- **Seam A — extension subprocess: retired.** Extension code no longer spawns on the host (§4).
 - **Seam B — per-run agent shell** (`src/runtime/tools/shell.ts`): jails every `/bin/sh -c` spawn to the per-run `workspaceDir` (rw) on the same tier; `spawnCwd` is the workspace when jailed.
 - **MCP servers are not a host spawn seam.** Since #246 they run in the extension runner's isolated worker; see §7.
 
@@ -92,17 +77,11 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 
 ### Env vars (host→sandbox, set by the spawn sites — not operator-facing)
 
-- `EZCORP_NETWORK_ALLOWED` / `EZCORP_SHELL_ALLOWED` — `=1` unblocks the corresponding preload deniers.
-- `EZCORP_PERMITTED_HOSTS` (comma-joined) + `EZCORP_TOOL_NETWORK_CAPS` (JSON) — the fetch wrapper's per-extension ceiling + per-tool override.
-- `EZCORP_FS_ALLOWED` — informational only (SDK fast-fail; does NOT unblock fs primitives).
 - `EZCORP_LANDLOCK_SPEC` — the serialized `LandlockJailSpec` consumed by the landlock shim.
-
-`buildAllowedEnv()` (`src/extensions/registry.ts`) is the env whitelist: only **PATH, HOME, NODE_ENV, and a per-extension TMPDIR** pass by default; granted `manifest.permissions.env` keys + the conditional flags above are added on top. The child never sees the host `process.env`.
 
 ### Manifest
 
-- `resources.memory` (e.g. `"256MB"`) sizes the `prlimit --rss` bound (`MIN_MEMORY_LIMIT_MB` / `DEFAULT_MEMORY_LIMIT_MB` = 512MB floor).
-- `permissions.network` / `shell` / `filesystem` / `env` drive the preload flags + allowlist.
+- Extension resource limits and permissions are enforced by the extension runner and the host brokers, not by this layer.
 
 ## Key files
 
@@ -111,26 +90,25 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - `src/extensions/sandbox/landlock.ts` — `buildLandlockJailSpec` / `applyLandlockJailSpec`; `canonicalizeForJail` (realpath, closes the symlink leak); rw/ro/list distinction.
 - `src/extensions/sandbox/landlock-shim.ts` — pre-exec `bun` shim: parse spec → chdir → apply jail → exec inner (fail-closed).
 - `src/extensions/sandbox/landlock-ffi.ts` — raw Landlock + prctl syscalls via FFI (`landlockAbiVersion`, `applyReadWriteJail`, ABI access masks; verified x64 and arm64 tables).
-- `src/extensions/runtime/sandbox-preload.ts` — `bun --preload` for extension subprocesses: poison fs always; net/shell unless granted; FFI/Worker/process.binding always denied; fetch wrapper.
-- `src/extensions/runtime/network-wrapper.ts` — `classifyFetch` (invalid/internal/deny/external) + allowlist parsers; the SSRF carve-out routing.
-- `src/extensions/runtime/internal-host.ts` — shared internal-host regex (`INTERNAL_HOST_RE`) so wrapper + host agree on "internal".
+- `src/extensions/runtime/internal-host.ts` — shared internal-host regex (`INTERNAL_HOST_RE`) and `normalizeHostname`.
 - `src/extensions/preview-jail.ts` — minimal bwrap bind-set builder (`buildMcpJailBwrapArgs`, `buildPreviewJailBwrapArgs`) + the shared `forbiddenDataDir` / `assertOutsideDataDir` / `canonicalizeJailPath` (realpath) data-dir invariant; `assertJailArgsSafe`.
 - `src/extensions/release-mcp-client.ts` — MCP calls: release, grant and permission checks; stdio via the release worker, `http`/`sse` via the guarded fetch.
-- `src/extensions/subprocess.ts` — Seam A: `ExtensionProcess.getSpawnArgs` / `resolveSandboxWrap` (extension subprocess wrap; prlimit + preload).
+- `src/extensions/subprocess.ts` — the `ExtensionProcess` contract (no spawn surface); `ReleaseProcess` is its only production implementation.
+- `src/__tests__/helpers/host-extension-process.ts` — TEST-ONLY host spawn harness (preload + jail) for fast example/behavior tests.
 - `src/runtime/tools/shell.ts` — Seam B: per-run agent shell jailed to the run workspace.
-- `src/extensions/registry.ts` — `buildAllowedEnv` (env whitelist) + `getMcpClient`, which returns a `ReleaseMcpClient`.
+- `src/extensions/registry.ts` — `getProcess` (returns a `ReleaseProcess`) and `getMcpClient` (returns a `ReleaseMcpClient`).
 - `docs/extensions/security.md` — the bundled-extension trust model (ceiling + manifest lockfile), complementary to this OS layer.
 
 ## Features it touches
 
 - [[mcp-servers]] — MCP servers run in the extension runner's isolated worker (stdio) or through the guarded host fetch (`http`/`sse`), not in a host tier.
-- [[permissions-and-grants]] — grants decide *what may be asked for*; this layer enforces *what the process can physically reach*. The preload flags are derived from granted permissions.
-- [[runtime-and-rpc]] — poisoned fs/network primitives route through the host-mediated `ezcorp/fs.*` + `ezcorp/network.internal` reverse-RPC over the JSON-RPC transport.
+- [[permissions-and-grants]] — grants decide *what may be asked for*; this layer (host spawns) and the extension runner (extension code) enforce *what a process can physically reach*.
+- [[runtime-and-rpc]] — extension fs/network access routes through host-mediated reverse-RPC (`ezcorp/fs.*`, the network brokers).
 - [[builtin-file-tools]] — note the asymmetry: those tools' `validatePath` containment is **lexical** (no realpath), whereas this layer's jail invariant resolves real paths; the `@`-mention FS scanner uses realpath too.
 - [[preview-port-exposure]] — the bwrap minimal-bind builder is shared with the untrusted preview-process jail (same `.ezcorp/data` threat class).
-- [[web-search]] — extension outbound network rides the fetch wrapper; MCP egress goes through the runner's brokered network.
+- [[web-search]] — extension and MCP egress goes through the runner's brokered network.
 - [[audit-and-observability]] — sandbox decisions emit audit rows.
-- [[bundled-catalog]] — bundled extensions still run through the same OS sandbox; their *grant* ceiling is the separate concern in `docs/extensions/security.md`.
+- [[bundled-catalog]] — bundled extensions run in the extension runner like any other; their *grant* ceiling is the separate concern in `docs/extensions/security.md`.
 - [[rbac-and-permission-modes]] — the permission mode (default `yolo`) governs tool-call approval; orthogonal to OS confinement, which is always on where a tier exists.
 
 ## Related docs
@@ -145,9 +123,9 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - **`landlock` is the production-container tier.** In the Docker app container userns is typically blocked, so the resolved tier is `landlock` (no PID/proc hiding) — not `bwrap`. `advisory` (SDK poisoning only) is the fallback on hosts with no usable Landlock or without a verified x64/arm64 syscall table; the probe does not guess numbers for other architectures.
 - **Lexical vs realpath asymmetry across the codebase.** This layer's jail invariant (both `landlock.ts:canonicalizeForJail` and `preview-jail.ts:canonicalizeJailPath`) resolves REAL paths to close the symlink-into-`.ezcorp/data` leak. By contrast the built-in file-tool path containment (`src/runtime/tools/validate.ts:validatePath`) is **lexical** (no realpath); only the FS scanner / `@`-autocomplete (`src/runtime/fs/scan-fs.ts:realpathInsideRoot`) realpaths. Don't assume one containment model everywhere.
 - **MCP fails CLOSED.** Without rootless Podman, seccomp and cgroup v2 the runner refuses to start an MCP worker. The only way to run without those controls is the explicit trusted-local mode.
-- **The fs primitive denial is unconditional and flag-independent.** `EZCORP_FS_ALLOWED` does NOT unblock `Bun.file` / `node:fs` — granted fs access only means the host-mediated `ezcorp/fs.*` reverse-RPC is meaningful. This closed both the TOCTOU window in the old path-check-then-read pattern and the bypass where an extension ignored the SDK helper.
-- **`advisory` tier means the extension subprocess is contained by the preload only** — an extension that manages to escape the JS poisoning has the host fs unless a real OS tier is present. The OS jail is the load-bearing containment; the preload is the JS-level backstop.
+- **The preload is test-only.** The in-process module poisoning (`host-sandbox/sandbox-preload.ts`) runs only under the test harness. Do not cite it as production isolation; the runner worker is the boundary for extension code.
+- **`advisory` tier means a host spawn (the agent shell) runs without OS confinement** — the OS jail is the only containment on the host side.
 - **Memory bound is `prlimit --rss`, not the tmpfs `--size`.** The private `/tmp` size cap is defense-in-depth and is dropped on setuid-bwrap hosts; the real RAM bound is always the `--rss` on the inner command.
-- **The data-dir exclusion uses the HOST-resolved project root only.** `EZCORP_PROJECT_ROOT` (from `buildAllowedEnv`) computes `.ezcorp/data`; a manifest's `spec.env` can never steer it (the jail env additions are merged AFTER `spec.env`).
-- **A HOST-side applier is outside this layer entirely — it must carry its own containment.** The `file-organizer` daemon and Hub events route touch watched host folders (Desktop/Downloads/…) with raw `node:fs` from the HOST process, by design: those folders are outside the subprocess `$CWD` jail, so no sandbox tier is in the path. The subprocess still cannot reach them, but the invariant above then rests entirely on `src/extensions/file-organizer-applier.ts`. It reproduces the jail's rules in software: every path canonicalized (parents realpath'd, leaves preserved) and contained on BOTH ends against a realpath'd anchor; symlink decisions from a live `lstat`, never from caller-supplied metadata; a fail-closed refusal when an anchor won't resolve; and a hard deny on `isReservedSensitivePath()` — the same reserved set this layer masks, which is what covers the container's `EZCORP_DB_PATH=/app/data/ezcorp` (no `.ezcorp/data` segment, so a path-shaped check alone misses it). A host-side executor that skips any of that re-opens the `.ezcorp/data` invariant with no sandbox behind it.
+- **The data-dir exclusion uses the HOST-resolved project root only.** `EZCORP_PROJECT_ROOT` computes `.ezcorp/data`; an untrusted caller can never steer it.
+- **A HOST-side applier is outside this layer entirely — it must carry its own containment.** The `file-organizer` daemon and Hub events route touch watched host folders (Desktop/Downloads/…) with raw `node:fs` from the HOST process, by design: those folders are outside the subprocess `$CWD` jail, so no sandbox tier is in the path. Extension workers still cannot reach them, but the invariant above then rests entirely on `src/extensions/file-organizer-applier.ts`. It reproduces the jail's rules in software: every path canonicalized (parents realpath'd, leaves preserved) and contained on BOTH ends against a realpath'd anchor; symlink decisions from a live `lstat`, never from caller-supplied metadata; a fail-closed refusal when an anchor won't resolve; and a hard deny on `isReservedSensitivePath()` — the same reserved set this layer masks, which is what covers the container's `EZCORP_DB_PATH=/app/data/ezcorp` (no `.ezcorp/data` segment, so a path-shaped check alone misses it). A host-side executor that skips any of that re-opens the `.ezcorp/data` invariant with no sandbox behind it.
 - **bwrap-tier integration tests are skipped where userns is unavailable** — the live FFI/jail behavior is proven by the `scripts/spikes/` evidence scripts and by tier-pinned unit tests (`_setSandboxTierOverrideForTests`), not by spawning a real jail in CI.

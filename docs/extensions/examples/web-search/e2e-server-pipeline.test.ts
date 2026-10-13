@@ -1,7 +1,7 @@
 // @ezcorp-host-integration
 const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url: import.meta.url };
 /**
- * E2E: the web-search SHIM through a real ExtensionProcess subprocess.
+ * E2E: the web-search SHIM through a real HostExtensionProcess subprocess.
  *
  * Shared-search Phase 1 turned web-search into a thin forwarder over the
  * host `ctx.search` capability — the provider chain, SSRF guard, and
@@ -29,7 +29,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:tes
 import { tmpdir } from "os";
 import { join } from "path";
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { HostExtensionProcess } from "../../../../src/__tests__/helpers/host-extension-process";
 import type { JsonRpcResponse } from "@ezcorp/sdk";
 
 const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
@@ -51,7 +51,7 @@ let nextSearchResult: () => JsonRpcResponse["result"] | { error: { code: number;
   cached: false,
 });
 
-function wireHostRpc(proc: ExtensionProcess): void {
+function wireHostRpc(proc: HostExtensionProcess): void {
   proc.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
     if (req.method === "ezcorp/search") {
       const params = (req.params ?? {}) as unknown as SearchCall;
@@ -76,11 +76,11 @@ function makeEnv(extensionId: string): Record<string, string> {
   };
 }
 
-const procs: ExtensionProcess[] = [];
+const procs: HostExtensionProcess[] = [];
 
-function makeProc(): ExtensionProcess {
+function makeProc(): HostExtensionProcess {
   const extId = "web-search-shim-" + Math.random().toString(36).slice(2, 8);
-  const proc = new ExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
+  const proc = new HostExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
     persistent: false,
     networkAllowed: false, // the shim never fetches directly anymore
     callTimeoutMs: 15_000,

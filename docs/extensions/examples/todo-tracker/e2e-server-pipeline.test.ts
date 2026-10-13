@@ -4,7 +4,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
  * E2E test: exercises the REAL server pipeline for todo-tracker.
  *
  * Mirrors the canonical `docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts`
- * pattern. Spawns todo-tracker through `ExtensionProcess` (from
+ * pattern. Spawns todo-tracker through `HostExtensionProcess` (from
  * `src/extensions/subprocess.ts`) — the same class the server uses in
  * `ExtensionRegistry.getProcess` — so bugs that only surface in the full
  * server-pipeline path (sandbox preload, JSON-RPC framing, host-mediated
@@ -48,7 +48,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 }));
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { HostExtensionProcess } from "../../../../src/__tests__/helpers/host-extension-process";
 import { buildHarnessEnv, makeFsRpcHandler, wireFsHandler } from "@ezcorp/sdk/test";
 
 const TODO_TRACKER_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
@@ -57,10 +57,10 @@ const TEST_TMP_ROOT = join(tmpdir(), `todo-tracker-e2e-pipeline-${Date.now()}`);
 // Filesystem grant + host-mediated `ezcorp/fs.*` wiring (scoped to tmpdir,
 // which contains the per-test cwd the scanner walks). Mirrors registry.ts +
 // ToolExecutor; see the shared `_harness` helper.
-function makeProc(): ExtensionProcess {
+function makeProc(): HostExtensionProcess {
   const extId = "todo-tracker-test-" + Math.random().toString(36).slice(2, 8);
   const env = buildHarnessEnv(extId, { filesystem: true });
-  const proc = new ExtensionProcess(extId, TODO_TRACKER_ENTRYPOINT, env, {
+  const proc = new HostExtensionProcess(extId, TODO_TRACKER_ENTRYPOINT, env, {
     persistent: true,
     callTimeoutMs: 15_000,
   });
@@ -68,10 +68,10 @@ function makeProc(): ExtensionProcess {
   return proc;
 }
 
-describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
+describe("E2E: todo-tracker real HostExtensionProcess (server pipeline)", () => {
   let cwd: string;
   let originalCwd: string;
-  const procs: ExtensionProcess[] = [];
+  const procs: HostExtensionProcess[] = [];
 
   beforeEach(() => {
     cwd = join(TEST_TMP_ROOT, `root-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`);
@@ -154,7 +154,7 @@ describe("E2E: todo-tracker real ExtensionProcess (server pipeline)", () => {
   test("root filesystem denial returns an error without project data, then the same process recovers", async () => {
     writeFileSync(join(cwd, "secret.ts"), "// TODO: must-not-cross-denied-boundary\n");
     const extId = "todo-tracker-denial-" + Math.random().toString(36).slice(2, 8);
-    const proc = new ExtensionProcess(
+    const proc = new HostExtensionProcess(
       extId,
       TODO_TRACKER_ENTRYPOINT,
       buildHarnessEnv(extId, { filesystem: true }),

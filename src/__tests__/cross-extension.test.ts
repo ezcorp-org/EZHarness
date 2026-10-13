@@ -1,6 +1,6 @@
 import { test, expect, describe, beforeEach } from "bun:test";
 import { JsonRpcTransport } from "../extensions/json-rpc";
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import { ExtensionRegistry, } from "../extensions/registry";
 import { ToolExecutor } from "../extensions/tool-executor";
 import { parseArgs } from "../cli";
@@ -134,11 +134,11 @@ describe("JsonRpcTransport request detection", () => {
   });
 });
 
-// ── ExtensionProcess: setRequestHandler ─────────────────────────────
+// ── HostExtensionProcess: setRequestHandler ─────────────────────────────
 
-describe("ExtensionProcess.setRequestHandler", () => {
-  test("setRequestHandler exists on ExtensionProcess", () => {
-    const proc = new ExtensionProcess("test-ext", "/tmp/ext/index.ts", {}, { callTimeoutMs: 1000 });
+describe("HostExtensionProcess.setRequestHandler", () => {
+  test("setRequestHandler exists on HostExtensionProcess", () => {
+    const proc = new HostExtensionProcess("test-ext", "/tmp/ext/index.ts", {}, { callTimeoutMs: 1000 });
     expect(typeof proc.setRequestHandler).toBe("function");
     proc.kill();
   });

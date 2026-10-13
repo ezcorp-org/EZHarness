@@ -1,9 +1,9 @@
-import type { ExtensionProcess, ExtensionProcessOptions } from "./subprocess";
+import type { ExtensionProcess } from "./subprocess";
 import { ReleaseProcess } from "./release-process";
 import { ReleaseMcpClient } from "./release-mcp-client";
 import { validateManifest as validateReleaseManifest } from "@ezcorp/extension-contract";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
-import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
+import { satisfiesRange } from "./manifest";
 import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
@@ -12,10 +12,8 @@ import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
-import { mkdirSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { findProjectRoot } from "@ezcorp/sdk/runtime";
-import { getProjectRoot } from "./bundled";
 import { resolveInstallPath } from "./install-roots";
 import type { McpClient } from "../mcp/client";
 import {
@@ -30,154 +28,6 @@ const log = logger.child("extensions/registry");
  *  so callers can type their resolver fns consistently without pulling in
  *  the registry class shape. */
 export type InjectedEnvResolver = () => Promise<Readonly<Record<string, string>>>;
-
-// ── Env Building (exported for testability) ─────────────────────
-
-/**
- * Build the environment variables passed to an extension subprocess.
- * Only PATH, HOME, NODE_ENV, and a per-extension TMPDIR are included by default.
- * Manifest env vars are only added if they also appear in grantedPermissions.env.
- *
- * `injectedEnv` lets the caller (typically the web layer at startup) pass
- * bundled-extension credentials that were provisioned in-process — e.g. an
- * auto-minted loopback-only internal API key for ai-kit. Injected keys are
- * STILL gated by the manifest + granted-permissions check: an extension
- * that did not declare `EZCORP_API_KEY` in its manifest.permissions.env or
- * was not granted that env cannot receive it, even if the caller attempts
- * to inject. This preserves the manifest-declared trust boundary.
- */
-export function buildAllowedEnv(
-  manifest: ExtensionManifestV2,
-  grantedPerms: ExtensionPermissions,
-  extensionId: string,
-  injectedEnv?: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
-  mkdirSync(extTmpDir, { recursive: true });
-
-  const allowedEnv: Record<string, string> = {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "production",
-    TMPDIR: extTmpDir,
-  };
-
-  // Only add env vars present in BOTH manifest.permissions.env AND
-  // grantedPermissions.env. Injected values (internal creds) take precedence
-  // over process.env — otherwise an operator accidentally setting
-  // EZCORP_API_KEY on the host process could override a freshly minted,
-  // properly scoped internal key with a long-lived admin key. Still subject
-  // to the manifest+granted gate; we never add an env var that the manifest
-  // didn't declare.
-  if (manifest.permissions.env && grantedPerms.env) {
-    for (const key of manifest.permissions.env) {
-      if (!grantedPerms.env.includes(key)) continue;
-      const injected = injectedEnv?.[key];
-      if (injected !== undefined && injected !== "") {
-        allowedEnv[key] = injected;
-      } else if (process.env[key]) {
-        allowedEnv[key] = process.env[key]!;
-      }
-    }
-  }
-
-  // EZCORP_PERMITTED_HOSTS — comma-joined granted network hostnames.
-  // Consumed by `@ezcorp/sdk/runtime` fetchPermitted as the pre-network
-  // allowlist. Only emitted when the manifest declared network permission
-  // AND the user granted at least one hostname at install time.
-  if (grantedPerms.network && grantedPerms.network.length > 0) {
-    allowedEnv.EZCORP_PERMITTED_HOSTS = grantedPerms.network.join(",");
-  }
-
-  // Phase 3: EZCORP_FS_ALLOWED is informational ONLY — the SDK's
-  // fs helpers (`@ezcorp/sdk/runtime/fs.fsRead/...`) read it to
-  // fast-fail with a clean "no filesystem grant" error before
-  // round-tripping to the host's `ezcorp/fs.*` reverse-RPC. The
-  // sandbox-preload deniers fire regardless of this flag — granted
-  // access does NOT unblock raw `Bun.file` / `node:fs` (see
-  // sandbox-preload.ts FS_MODULES block + plan pillar 6). Mirrors
-  // the existing `EZCORP_NETWORK_ALLOWED` / `EZCORP_SHELL_ALLOWED`
-  // pattern at `subprocess.ts:168-169`, but emitted here so the
-  // grant test (`grantedPerms.filesystem.length > 0`) lives next to
-  // the granted-network test for symmetry.
-  if (grantedPerms.filesystem && grantedPerms.filesystem.length > 0) {
-    allowedEnv.EZCORP_FS_ALLOWED = "1";
-  }
-
-  // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT — the project root
-  // the host resolved at spawn time. Bundled extensions like
-  // `task-stack` need to compute their `.ezcorp/extension-data/<name>/`
-  // store path at module-load, but they run inside the Phase 3 sandbox
-  // where `node:fs` is poisoned — they cannot do their own `.git` walk.
-  // The host walks once and injects the answer. `findProjectRoot()`
-  // throws if no `.git` ancestor is found; we swallow that so test
-  // harnesses running outside a git tree don't crash on every spawn.
-  // Subprocesses missing this var fall back to a lazy
-  // `require("node:fs")` walk (only relevant outside the sandbox).
-  try {
-    allowedEnv.EZCORP_PROJECT_ROOT = findProjectRoot();
-  } catch {
-    // no .git ancestor — leave EZCORP_PROJECT_ROOT unset; the extension's
-    // fallback path (or test harness) handles it. (Single-line comment: a
-    // multi-line block comment here makes bun emit a phantom, never-hit DA
-    // record on the continuation line, which the per-file gate can't clear.)
-  }
-
-  // EZCORP_EXTENSION_DATA_ROOT — dedicated data-dir root for bundled
-  // extensions to compute their `.ezcorp/extension-data/<name>/` store
-  // path. DELIBERATELY separate from EZCORP_PROJECT_ROOT: the latter is
-  // consumed by `subprocess.ts`'s landlock-jail builder, and setting it
-  // when it's currently unset would mismatch the jail root against the
-  // subprocess cwd and crash every spawn with CouldntReadCurrentDirectory.
-  // `getProjectRoot()` never throws (env → import-meta → git-walk →
-  // cwd-fallback) and resolves the container root (`/app`) in dev and
-  // prod alike — unlike `process.cwd()`, which is `/app/web` under the
-  // vite-SSR dev server. This aligns the extension's data-dir reader with
-  // where the host events route writes config; the `$CWD` fs grant now
-  // also resolves to the project root (see `permissions.ts:grantCwdBase`)
-  // so the read of that dir is covered by the grant. Extensions that
-  // don't read this var ignore it; the sandbox never consults it.
-  allowedEnv.EZCORP_EXTENSION_DATA_ROOT = getProjectRoot();
-
-  // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
-  // `{toolName: string[]}` mapping, parsed by the in-sandbox fetch
-  // wrapper to enforce per-tool host allowlists narrower than the
-  // extension-wide ceiling. The active tool name is read via the SDK's
-  // `getToolContext()` (ALS).
-  //
-  // The wrapper uses this to intersect the request hostname against
-  // BOTH the extension-wide grant (PERMITTED_HOSTS) AND the per-tool
-  // declaration. A tool with no entry inherits the extension-wide
-  // ceiling without further narrowing.
-  //
-  // Migration: `buildAllowedEnv` is called on every spawn. v3 manifests
-  // pass through with their authored per-tool caps verbatim; v2 inputs
-  // need `migrateManifestV2ToV3` to synthesize per-tool caps from the
-  // extension-wide `permissions`. The migrator is idempotent on v3, but
-  // re-running it allocates a new `tools[]` array on each spawn — N1
-  // perf nit (validator nice-to-have). Short-circuit when the input is
-  // already v3 AND every tool already has an authored `capabilities`
-  // declaration: in that case the migration produces identical output.
-  // The registry's hot path (live spawns) hits this short-circuit;
-  // `test-helpers.ts` callers with raw v2 inputs
-  // still pay the migration cost.
-  const isFullyV3 =
-    manifest.schemaVersion === 3 &&
-    (manifest.tools ?? []).every((t) => t.capabilities !== undefined);
-  const migrated = isFullyV3 ? manifest : migrateManifestV2ToV3(manifest);
-  const toolCaps: Record<string, string[]> = {};
-  for (const tool of migrated.tools ?? []) {
-    const hosts = tool.capabilities?.network?.hosts;
-    if (hosts && hosts.length > 0) {
-      toolCaps[tool.name] = hosts.map((h) => h.toLowerCase());
-    }
-  }
-  if (Object.keys(toolCaps).length > 0) {
-    allowedEnv.EZCORP_TOOL_NETWORK_CAPS = JSON.stringify(toolCaps);
-  }
-
-  return allowedEnv;
-}
 
 /**
  * Remove the per-extension TMPDIR. Call during extension removal.
@@ -678,7 +528,7 @@ export class ExtensionRegistry {
   }
 
   /** Get or create an ExtensionProcess for the given extension ID. */
-  async getProcess(extensionId: string, _options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
+  async getProcess(extensionId: string): Promise<ExtensionProcess> {
     const manifest = this.manifests.get(extensionId);
     if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
     if ((manifest?.schemaVersion as number | undefined) !== 4) {

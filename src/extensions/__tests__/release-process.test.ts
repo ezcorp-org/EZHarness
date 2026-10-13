@@ -350,8 +350,8 @@ describe("release runtime", () => {
       fixture.mutate(value => { value.installation.acknowledgedGeneration = 0; });
       await expect(fixture.process.callTool("read", {}, { ezCallId: fixture.token })).rejects.toThrow("acknowledged");
       expect(fixture.starts).toHaveLength(0);
-      expect(() => fixture.process.getSpawnArgs()).toThrow("only through");
-      expect(fixture.process.getSpawnCwd()).toBeUndefined();
+      expect("getSpawnArgs" in fixture.process).toBe(false);
+      expect("getSpawnCwd" in fixture.process).toBe(false);
       fixture.process.kill();
       expect(fixture.process.isRunning).toBe(false);
       await expect(fixture.process.sendNotification("page/render", {})).rejects.toThrow("retired");

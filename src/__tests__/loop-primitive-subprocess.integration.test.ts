@@ -2,7 +2,7 @@
  * Loop primitive — REAL subprocess integration test.
  *
  * Spawns the `loop-fixture` extension (which uses the actual
- * `@ezcorp/sdk/runtime` `defineLoop`) through the real `ExtensionProcess`
+ * `@ezcorp/sdk/runtime` `defineLoop`) through the real `HostExtensionProcess`
  * transport the server uses — so the trigger
  * wiring, the Storage-backed run store, the deferred state machine, and
  * idempotency are exercised end-to-end under the production sandbox-preload
@@ -42,7 +42,7 @@ mock.module("../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import type { JsonRpcRequest, JsonRpcResponse } from "../extensions/types";
 
 const ENTRYPOINT = join(import.meta.dir, "fixtures", "loop-extension", "entrypoint.ts");
@@ -68,9 +68,9 @@ function makeEnv(extensionId: string): Record<string, string> {
   };
 }
 
-function spawnFixture(): ExtensionProcess {
+function spawnFixture(): HostExtensionProcess {
   const extId = "loop-fixture-" + Math.random().toString(36).slice(2, 8);
-  return new ExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
+  return new HostExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
     persistent: true,
     callTimeoutMs: 15_000,
   });
@@ -118,7 +118,7 @@ function handleStorage(
 /** Spawn the subprocess + wire host RPC + let the subprocess channel begin
  *  reading stdin before any `sendNotification` (which silently drops frames
  *  until `this.proc` exists — it's lazily spawned on first use). */
-async function startWired(state: HostState): Promise<ExtensionProcess> {
+async function startWired(state: HostState): Promise<HostExtensionProcess> {
   const proc = spawnFixture();
   wireHost(proc, state);
   proc.ensureRunning();
@@ -128,7 +128,7 @@ async function startWired(state: HostState): Promise<ExtensionProcess> {
   return proc;
 }
 
-function wireHost(proc: ExtensionProcess, state: HostState): void {
+function wireHost(proc: HostExtensionProcess, state: HostState): void {
   proc.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
     const params = (req.params ?? {}) as Record<string, unknown>;
     if (req.method === "ezcorp/storage") {
@@ -158,7 +158,7 @@ function wireHost(proc: ExtensionProcess, state: HostState): void {
 /** Poll the `list_runs` tool until the loop has persisted `n` runs (the
  *  event handlers are fire-and-forget; a manual tool read drains them). */
 async function waitForRuns(
-  proc: ExtensionProcess,
+  proc: HostExtensionProcess,
   loopId: string,
   n: number,
 ): Promise<Array<Record<string, unknown>>> {
@@ -177,7 +177,7 @@ async function waitForRuns(
 }
 
 describe("Loop primitive — real subprocess", () => {
-  let proc: ExtensionProcess | undefined;
+  let proc: HostExtensionProcess | undefined;
   let state: HostState;
 
   beforeEach(() => {

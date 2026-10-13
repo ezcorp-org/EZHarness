@@ -39,8 +39,9 @@ describe("registry immutable release boundary", () => {
     registry.setManifestForTest("release", manifest(4));
     const process = await registry.getProcess("release");
     expect(process).toBeInstanceOf(ReleaseProcess);
-    expect(process.getSpawnCwd()).toBeUndefined();
-    expect(() => process.getSpawnArgs()).toThrow("release runner");
+    // No host spawn surface exists at all: the contract has none.
+    expect("getSpawnArgs" in process).toBe(false);
+    expect("getSpawnCwd" in process).toBe(false);
     expect(await registry.getProcess("release")).toBe(process);
   });
 
@@ -49,7 +50,9 @@ describe("registry immutable release boundary", () => {
     registry.setManifestForTest("release", manifest(4));
     const previous = await registry.getProcess("release");
     previous.kill();
-    const next = await registry.getProcess("release", { shellAllowed: true, networkAllowed: true });
+    // getProcess takes no host spawn options any more (shell/network grants
+    // cannot be handed to a host process that does not exist).
+    const next = await registry.getProcess("release");
     expect(next).not.toBe(previous);
     expect(next).toBeInstanceOf(ReleaseProcess);
     await expect(next.call("tools/call", { name: "read", arguments: {} })).rejects.toThrow("active acknowledged release");

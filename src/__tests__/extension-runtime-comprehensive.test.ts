@@ -11,7 +11,7 @@ import {
   deleteExtension,
   listExtensions,
 } from "../db/queries/extensions";
-import { ExtensionProcess, type ExtensionProcessOptions } from "../extensions/subprocess";
+import { HostExtensionProcess, type ExtensionProcessOptions } from "./helpers/host-extension-process";
 import { ExtensionRegistry } from "../extensions/registry";
 import { ReleaseProcess, configureReleaseRuntime } from "../extensions/release-process";
 import { computeChecksum, verifyChecksum } from "../extensions/checksum";
@@ -246,14 +246,14 @@ describe("JsonRpcTransport", () => {
 });
 
 // ═══════════════════════════════════════════════════════════════════════
-// 2. ExtensionProcess
+// 2. HostExtensionProcess
 // ═══════════════════════════════════════════════════════════════════════
 
-describe("ExtensionProcess", () => {
-  const processes: ExtensionProcess[] = [];
+describe("HostExtensionProcess", () => {
+  const processes: HostExtensionProcess[] = [];
 
   function createProc(id: string, opts?: ExtensionProcessOptions) {
-    const ep = new ExtensionProcess(
+    const ep = new HostExtensionProcess(
       id,
       MOCK_ENTRYPOINT,
       { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
@@ -372,7 +372,7 @@ describe("ExtensionProcess", () => {
     const hangScript = resolve(__dirname, "helpers/mock-extension/hang.ts");
     expect(await Bun.file(hangScript).text()).toContain("hang forever");
 
-    const ep = new ExtensionProcess(
+    const ep = new HostExtensionProcess(
       "timeout-test",
       hangScript,
       { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },

@@ -3098,6 +3098,20 @@ describe("check-boundaries: only a test may import test code", () => {
     expect(checkSource("src/factory/boot.ts", `import { setupTestDb } from "../__tests__/helpers/test-pglite";`)).toHaveLength(1);
   });
 
+  test("production cannot import the host extension spawn harness or its preload", () => {
+    // Production never spawns extension code on the host (#246); the spawn
+    // path and sandbox preload live only in the test tree.
+    const cases: [string, string, string][] = [
+      ["src/extensions/registry.ts", "../__tests__/helpers/host-extension-process", "src/__tests__/helpers/host-extension-process"],
+      ["src/extensions/release-process.ts", "../__tests__/helpers/host-sandbox/sandbox-preload", "src/__tests__/helpers/host-sandbox/sandbox-preload"],
+      ["web/src/lib/server/context.ts", "$server/__tests__/helpers/host-extension-process", "src/__tests__/helpers/host-extension-process"],
+    ];
+    for (const [from, spec, target] of cases) {
+      expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
+    }
+    expect(checkEdge("docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts", "../../../../src/__tests__/helpers/host-extension-process")).toBeNull();
+  });
+
   test("tests may import test code, and anyone may read test data", () => {
     expect(checkEdge("src/__tests__/factory-boot.test.ts", "./helpers/test-pglite")).toBeNull();
     expect(checkEdge("tests/postgres/factory-boot.test.ts", "./helpers/factory-test-database")).toBeNull();
