@@ -732,7 +732,8 @@ cmd_uninstall() {
     say "  $DATA_ROOT"
     say "Conversations, projects and encryption keys. This cannot be undone."
     printf 'Type DELETE to confirm: '
-    local answer; read -r answer
+    local answer=""
+    read -r answer || true
     [ "$answer" = "DELETE" ] || die "not confirmed — nothing was deleted."
     rm -rf "$DATA_ROOT" "$CONFIG_DIR"
     say "EZCorp and all its data were removed."

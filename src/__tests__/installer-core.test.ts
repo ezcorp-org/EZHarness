@@ -366,6 +366,14 @@ describe("ezcorp uninstall — what it may and may not destroy", () => {
     expect(existsSync(dataRoot)).toBe(false);
   });
 
+  test("--purge with no answer says nothing was deleted", () => {
+    run(["install"]);
+    const refused = run(["uninstall", "--purge"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain("nothing was deleted");
+    expect(existsSync(join(dataRoot, "data"))).toBe(true);
+  });
+
   test("reinstall keeps the suggestion opt-in together with its URL", () => {
     expect(run(["install"]).exitCode).toBe(0);
     expect(run(["suggestions", "on"]).exitCode).toBe(0);
