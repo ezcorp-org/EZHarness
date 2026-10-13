@@ -139,19 +139,10 @@ class WorkerExecutor {
     return runs.get(id);
   }
 
-  async runAgent(name: string, input: Record<string, unknown>, env: Env): Promise<AgentRun> {
-    if (name !== "summarizer") throw new Error(`Agent not found: ${name}`);
+  /** Callers validate first (see startRun): the agent exists and `source` is non-empty text. */
+  async runAgent(name: string, source: string, input: Record<string, unknown>, env: Env): Promise<AgentRun> {
     const run: AgentRun = { id: crypto.randomUUID(), agentName: name, status: "running", startedAt: Date.now(), logs: [] };
     runs.set(run.id, run);
-    const source = text(input.text);
-    if (!source) {
-      run.status = "success";
-      run.finishedAt = Date.now();
-      run.result = { success: false, output: null, error: "Missing input.text" };
-      trimRuns();
-      return run;
-    }
-
     try {
       const providerName = provider(input.provider ?? env.DEFAULT_PROVIDER ?? "anthropic");
       const model = text(input.model) ?? text(env.DEFAULT_MODEL);
@@ -220,6 +211,21 @@ export default {
   },
 };
 
+/** Rejects bad requests before a run is recorded or a provider is called. */
+async function startRun(name: string, request: Request, env: Env): Promise<Response> {
+  if (!agents.some((agent) => agent.name === name)) return json({ error: `Agent not found: ${name}` }, 404);
+  let input: unknown;
+  try {
+    input = await request.json();
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  const body = input !== null && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const source = text(body.text);
+  if (!source) return json({ error: "input.text must be a non-empty string" }, 400);
+  return json(await executor.runAgent(name, source, body, env));
+}
+
 async function route(request: Request, env: Env): Promise<Response> {
   const pathname = new URL(request.url).pathname;
   if (pathname === "/api/agents" && request.method === "GET") return json(agents);
@@ -232,13 +238,6 @@ async function route(request: Request, env: Env): Promise<Response> {
   }
 
   const agentRunMatch = pathname.match(/^\/api\/agents\/([^/]+)\/run$/);
-  if (agentRunMatch && request.method === "POST") {
-    try {
-      const input = await request.json() as Record<string, unknown>;
-      return json(await executor.runAgent(agentRunMatch[1]!, input, env));
-    } catch (error) {
-      return json({ error: error instanceof Error ? error.message : String(error) }, 400);
-    }
-  }
+  if (agentRunMatch && request.method === "POST") return startRun(agentRunMatch[1]!, request, env);
   return json({ error: "Not found" }, 404);
 }

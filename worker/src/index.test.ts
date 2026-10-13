@@ -94,12 +94,12 @@ afterAll(() => {
 
 test("run routes return stored executor records and reject a missing run", async () => {
   const created = await request("/api/agents/summarizer/run", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Stored run", provider: "openai", model: "fixture-openai" }),
   });
-  const run = await created.json() as { id: string; status: string; result: { success: boolean; error: string } };
+  const run = await created.json() as { id: string; status: string; result: { success: boolean; output: unknown } };
   expect(created.status).toBe(200);
   expect(run.status).toBe("success");
-  expect(run.result).toEqual({ success: false, output: null, error: "Missing input.text" });
+  expect(run.result).toEqual({ success: true, output: { summary: "openai summary" } });
 
   const listed = await request("/api/runs");
   expect(await listed.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: run.id, result: run.result })]));
@@ -108,6 +108,24 @@ test("run routes return stored executor records and reject a missing run", async
   const missing = await request("/api/runs/no-such-run");
   expect(missing.status).toBe(404);
   expect(await missing.json()).toEqual({ error: "Not found" });
+  expect(providerRequests).toHaveLength(1);
+});
+
+test.each([
+  ["missing", {}],
+  ["empty", { text: "" }],
+  ["blank", { text: "   " }],
+  ["non-string", { text: 42 }],
+  ["null body", null],
+  ["array body", ["text"]],
+])("a %s input.text is a 400 before any provider call, and records no run", async (_case, body) => {
+  const before = await (await request("/api/runs")).json() as unknown[];
+  const response = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "input.text must be a non-empty string" });
+  expect(await (await request("/api/runs")).json()).toEqual(before);
   expect(providerRequests).toEqual([]);
 });
 
@@ -154,7 +172,7 @@ test("rejects unknown agents and missing or unsupported provider input before tr
   const unknown = await request("/api/agents/unknown/run", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not reach a provider" }),
   });
-  expect(unknown.status).toBe(400);
+  expect(unknown.status).toBe(404);
   expect(await unknown.json()).toEqual({ error: "Agent not found: unknown" });
 
   const missingModel = await request("/api/agents/summarizer/run", {
@@ -229,7 +247,7 @@ test("retains only the newest 100 completed runs", async () => {
   const created: string[] = [];
   for (let index = 0; index < 101; index += 1) {
     const response = await request("/api/agents/summarizer/run", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `run ${index}`, provider: "openai", model: "fixture-openai" }),
     });
     created.push((await response.json() as { id: string }).id);
   }

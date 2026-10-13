@@ -24,6 +24,22 @@ Worker cannot tell callers apart: every caller can list every run with
 `GET /api/runs`. A run stores the summary (the model's output), the provider,
 model, token counts and error messages. It does not store the input text.
 
+## API
+
+All routes need the bearer token (see above).
+
+| Route | Result |
+|---|---|
+| `GET /api/agents` | The agent list (only `summarizer`). |
+| `POST /api/agents/summarizer/run` | Body `{"text", "provider"?, "model"?}`. Returns the finished run (200). A provider or configuration failure is a run with `status: "error"`. |
+| `POST /api/agents/<other>/run` | 404, `Agent not found: <other>`. |
+| `GET /api/runs` | Every stored run, newest first. |
+| `GET /api/runs/<id>` | One run, or 404. |
+
+A body that is not JSON is a 400. A missing, empty or non-string `text` is a
+400 (`input.text must be a non-empty string`). These requests record no run
+and call no provider.
+
 A run defaults to `anthropic` when `provider` is omitted. It must specify
 `model`, or set `DEFAULT_MODEL` as a non-secret Worker variable. Set
 `DEFAULT_PROVIDER` to change the provider default. Optional `*_BASE_URL` variables
