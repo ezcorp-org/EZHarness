@@ -1276,7 +1276,6 @@
     "src/__tests__/tool-executor-ns.test.ts": 1944,
     "src/__tests__/tool-executor-on-behalf-of.test.ts": 2315,
     "src/__tests__/tool-executor-per-conversation-depth.test.ts": 10233,
-    "src/__tests__/tool-executor-schedule-daemon.test.ts": 3021,
     "src/__tests__/tool-executor-settings-injection.test.ts": 2277,
     "src/__tests__/tool-executor-shared-vars.test.ts": 2853,
     "src/__tests__/tool-output-extraction.test.ts": 1616,

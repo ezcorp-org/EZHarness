@@ -1,9 +1,8 @@
 /**
  * `ezcorp/schedule` host handler — `ctx.schedule.fireNow(cron)`.
  *
- * Production never passes a daemon in the handler ctx (no caller wires
- * `ToolExecutor.setScheduleDaemon`), so the handler must find the daemon
- * that background-timers started in this process.
+ * Production never passes a daemon in the handler ctx, so the handler
+ * must find the daemon that background-timers started in this process.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
