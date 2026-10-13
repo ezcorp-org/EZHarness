@@ -160,6 +160,27 @@ test("a build that is not the binding's is refused by name and writes no receipt
   expect(await bind.pendingPreparations()).toEqual([{ projectId, reference }]);
 });
 
+test("a package whose preparation failed waits before its next try, doubling to a minute, and a success clears the wait", async () => {
+  let clock = 0;
+  let fail = true;
+  let calls = 0;
+  const reported: string[] = [];
+  const driver = factoryPackagePreparationDriver({ pendingPreparations: async () => [{ projectId, reference }], prepare: async () => { calls++; if (fail) throw new Error("supervisor unavailable"); return {} as never; } }, (role) => { reported.push(role); }, () => clock);
+  const signal = new AbortController().signal;
+  const tries: number[] = [];
+  for (clock = 0; clock <= 200_000; clock += 500) { const before = calls; await driver.step(signal); if (calls > before) tries.push(clock); }
+  expect(tries.slice(0, 7)).toEqual([0, 1_000, 3_000, 7_000, 15_000, 31_000, 63_000]);
+  expect(tries[7]! - tries[6]!).toBe(60_000);
+  expect(reported).toHaveLength(tries.length);
+  fail = false;
+  clock = tries.at(-1)! + 60_000;
+  expect(await driver.step(signal)).toBe(true);
+  fail = true;
+  const before = calls;
+  await driver.step(signal);
+  expect(calls).toBe(before + 1);
+});
+
 test("the package-preparation role reports a refusal the package earned as a fault, and a builder failure as backpressure", async () => {
   const item = { projectId, reference };
   for (const [error, disposition] of [[new FactoryPackagePreparationError("factory_package_release_stale"), "fault"], [new Error("supervisor unavailable"), "transient"]] as const) {

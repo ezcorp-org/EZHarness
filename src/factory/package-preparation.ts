@@ -267,15 +267,31 @@ export class FactoryPackagePreparations implements FactoryRunnerDispatchReadines
   private verifyArtifacts(binding: FactoryV4PackageBinding, artifacts: WorkspaceFiles): void { try { validateArtifactFiles(artifacts); } catch { throw new FactoryPackagePreparationError("factory_package_artifact_corrupt"); } if (digestObject(artifacts) !== binding.artifactDigest) throw new FactoryPackagePreparationError("factory_package_artifact_corrupt"); }
 }
 
+/** The first retry delay of a package whose preparation failed; it doubles per failure up to the cap. */
+export const FACTORY_PACKAGE_PREPARATION_RETRY_MS = 1_000;
+export const FACTORY_PACKAGE_PREPARATION_MAX_RETRY_MS = 60_000;
+
 /**
  * The `package-preparation` role: one bounded page of pending preparations per step. A refusal the
  * package itself earned (unavailable release, corrupt artifact, digest mismatch) is a fault for a
- * person; anything else (the builder not answering yet) is retried as backpressure.
+ * person; anything else (the builder not answering yet) is retried as backpressure. Either way the
+ * package waits before its next try, doubling to a minute, so a package that cannot be prepared is
+ * neither rebuilt nor reported several times a second.
  */
-export function factoryPackagePreparationDriver(preparations: Pick<FactoryPackagePreparations, "pendingPreparations" | "prepare">, report: (role: string, error: unknown) => void) {
+export function factoryPackagePreparationDriver(preparations: Pick<FactoryPackagePreparations, "pendingPreparations" | "prepare">, report: (role: string, error: unknown) => void, now: () => number = Date.now) {
+  const waiting = new Map<string, { readonly failures: number; readonly untilMs: number }>();
+  const key = (item: { readonly projectId: string; readonly reference: RunnerReference }) => `${item.projectId}:${referenceDigest(item.reference)}`;
   return factoryPageDriver({
-    page: () => preparations.pendingPreparations(),
-    settle: async item => { await preparations.prepare(item.projectId, item.reference); },
+    page: async () => (await preparations.pendingPreparations()).filter(item => (waiting.get(key(item))?.untilMs ?? 0) <= now()),
+    settle: async item => {
+      try { await preparations.prepare(item.projectId, item.reference); }
+      catch (error) {
+        const failures = (waiting.get(key(item))?.failures ?? 0) + 1;
+        waiting.set(key(item), { failures, untilMs: now() + Math.min(FACTORY_PACKAGE_PREPARATION_MAX_RETRY_MS, FACTORY_PACKAGE_PREPARATION_RETRY_MS * 2 ** (failures - 1)) });
+        throw error;
+      }
+      waiting.delete(key(item));
+    },
     classify: error => factoryPackageDispatchDisposition(error) === "deny" ? "fault" : "transient",
     report: (item, error, disposition) => { report(`package-preparation:${disposition}:${item.projectId}:${item.reference.package}#${item.reference.export}`, error); },
   });
