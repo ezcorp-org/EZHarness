@@ -86,7 +86,10 @@ resolve_compose() {
   if [ "$ENGINE" = podman ] && [ -z "${DOCKER_HOST:-}" ]; then
     local sock="/run/user/$(id -u)/podman/podman.sock"
     if [ ! -S "$sock" ]; then
-      sock="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)"
+      # Native Linux Podman has no machine and exits non-zero here. Under a
+      # caller's errexit/pipefail that would end the script before the error
+      # below could name the fix.
+      sock="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1 || true)"
     fi
     if [ -z "$sock" ] || [ ! -S "$sock" ]; then
       echo "error: ENGINE is podman but no Podman socket was found for Compose to use." >&2
