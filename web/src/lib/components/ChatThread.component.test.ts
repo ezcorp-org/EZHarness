@@ -864,6 +864,8 @@ describe("ChatThread ?m= deep-link wiring", () => {
 				container.querySelector('[data-message-id="q0"]')?.classList.contains("message-pulse"),
 			).toBe(true),
 		);
+		// The window grew past its 15-message tail to reach the first prompt.
+		expect(container.querySelectorAll("[data-message-id]").length).toBeGreaterThan(15);
 	});
 
 	test("?m=<unknownId> is a silent no-op: param stripped, no pulse, no throw", async () => {
