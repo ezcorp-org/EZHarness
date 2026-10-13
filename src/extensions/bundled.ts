@@ -963,8 +963,12 @@ export async function bootSpawnFlaggedBundledExtensions(
 }
 
 export async function ensureBundledExtensions(): Promise<void> {
-  const { stageBundledExtensionSources } = await import("./bundled-bootstrap");
+  const { stageBundledExtensionSources, stageBuiltinRunnerSources } = await import("./bundled-bootstrap");
   await stageBundledExtensionSources(resolveBundledExtensions());
+  // C05 "Install built-in runner packages" (W4H-26): only when factories are enabled.
+  const { factoryBootConfig } = await import("../factory/boot");
+  const { stageReferenceCodeRunnerPackages } = await import("../factory/reference-code/runner-install");
+  await stageReferenceCodeRunnerPackages(factoryBootConfig.enabled, stageBuiltinRunnerSources);
   // Conversations created while an auto-wire bundled extension was
   // disabled carry no `conversation_extensions` row, so the dispatcher
   // drops every `run:complete` for them — permanently, because the
