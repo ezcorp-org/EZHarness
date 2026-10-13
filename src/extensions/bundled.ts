@@ -241,18 +241,13 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
   {
     name: "ai-kit",
     path: "packages/@ezcorp/ai-kit",
-    // v1.4 envEscapeHatch — `EZCORP_API_KEY` is a host-internal cred
-    // injected by `bootstrapBundledCredentials` (NOT a user-supplied
-    // third-party API key). Different category from web-search /
-    // openai-image-gen-2 — this one will likely never migrate to
-    // ctx.secrets because the cred is host-self-issued. Grep for
-    // `envEscapeHatch` when the v1.5+ ctx.secrets migration lands.
-    envEscapeHatch: true,
+    // No env grant and no `envEscapeHatch`: ai-kit reaches the EZCorp
+    // API only through the host API broker (`ezcorp/api.request`), which
+    // mints a per-request key host-side. No credential enters the worker.
     permissions: {
       network: ["localhost", "127.0.0.1"],
       filesystem: ["$CWD"],
-      env: ["EZCORP_BASE_URL", "EZCORP_API_KEY", "EZCORP_SESSION_COOKIE"],
-      grantedAt: { network: Date.now(), filesystem: Date.now(), env: Date.now() },
+      grantedAt: { network: Date.now(), filesystem: Date.now() },
     },
   },
   {

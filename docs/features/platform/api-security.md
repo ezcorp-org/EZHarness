@@ -81,7 +81,7 @@ MCP install / edit / refresh are guarded at `McpClient.connect()` — see [MCP s
 
 - `CORS_ALLOWED_ORIGINS` — comma allowlist (unset → deny-all; `*` stripped).
 - `TRUSTED_PROXY_COUNT` — XFF hops to peel (default `0` → key on socket peer).
-- `EZCORP_BASE_URL` — loopback callback URL **injected** into bundled extensions (alongside `EZCORP_API_KEY`). `EZCORP_PORT` is **not** injected — it's read server-side by `resolveInternalBaseUrl` only to *derive* `EZCORP_BASE_URL` (`http://127.0.0.1:<port>`) when `EZCORP_BASE_URL` is unset (default port `3000`).
+- `EZCORP_PORT` (falls back to `PORT`) — read server-side by `host-api-transport.ts` to build the host API broker's loopback origin (`http://127.0.0.1:<port>`, default `3000`). Nothing is injected into extension workers.
 - `EZCORP_DISABLE_<EXT>=1` — opt a bundled extension out of internal-cred minting.
 - `CORS_ALLOWED_ORIGINS`, `PI_SKIP_INIT` (E2E DB-absent fail-open), `EZCORP_DEV_INDICATOR`.
 - Settings KV: `limits:rateLimit` (per-category overrides), `limits:dailyTokens`, `limits:maxConversations` / `…Memories` / `…KnowledgeBase`, `usage:tokens:<userId>:<date>`.

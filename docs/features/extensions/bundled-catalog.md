@@ -21,7 +21,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 
 - **`critical`** — loop-safety floor. The entry is an agent loop-escape primitive; a version bump that stays within ceiling **auto-reapproves** (stays enabled) instead of disabling pending re-approval. Set on **`task-tracking`**, **`ask-user`**, **`extension-author`**. (The harness-smoke-test incident trapped an agent precisely because `ask-user` was auto-disabled at boot.)
 - **`bootSpawn`** — host spawns the subprocess at boot. Set on **`lessons-distiller`**, **`memory-extractor`** (event-only, no tools / no manual triggers) and on **`ping-loop`**, **`github-projects`** (Hub page-action events must reach a resident subprocess — `dispatch` drops them otherwise). Most bundled extensions spawn **lazily** on first tool invocation / event dispatch and must NOT set this.
-- **`envEscapeHatch`** — v1.4 transitional opt-in allowing credential-shaped env grants (`*_API_KEY|TOKEN|SECRET`) past the hard install gate. Set on **`ai-kit`** (host-internal `EZCORP_API_KEY`) and **`openai-image-gen-2`** (BYOK `OPENAI_API_KEY` / `OPENAI_ACCESS_TOKEN`). Grep `envEscapeHatch` when the v1.5+ `ctx.secrets` migration lands. (`web-search` previously had it; it is now a thin shim with no env grant.)
+- **`envEscapeHatch`** — v1.4 transitional opt-in allowing credential-shaped env grants (`*_API_KEY|TOKEN|SECRET`) past the hard install gate. Set only on **`openai-image-gen-2`** (BYOK `OPENAI_API_KEY` / `OPENAI_ACCESS_TOKEN`). (`ai-kit` previously had it for an injected `EZCORP_API_KEY`; it now uses the host API broker and has no env grant.) Grep `envEscapeHatch` when the v1.5+ `ctx.secrets` migration lands. (`web-search` previously had it; it is now a thin shim with no env grant.)
 
 ### The capability ceiling (`src/extensions/bundled-ceiling.ts`)
 
@@ -44,7 +44,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 | `file-refactor` | `docs/extensions/examples/file-refactor` | File-rename previews with convention selection | `filesystem:$CWD`, **no shell** |
 | `log-analyzer` | `docs/extensions/examples/log-analyzer` | Log search with level + date filters | `filesystem:$CWD`, **no shell** |
 | `todo-tracker` | `docs/extensions/examples/todo-tracker` | Scan source for TODO/FIXME/HACK comments | `filesystem:$CWD`, `shell` |
-| `ai-kit` | `packages/@ezcorp/ai-kit` | Bundled deputy that calls the EZCorp HTTP API (loopback) | `envEscapeHatch`; `network:localhost/127.0.0.1`, `env:EZCORP_*` |
+| `ai-kit` | `packages/@ezcorp/ai-kit` | Bundled deputy that calls the EZCorp HTTP API through the host API broker | `network:localhost/127.0.0.1`; no env grant |
 | `web-search` | `docs/extensions/examples/web-search` | Thin shim over the host `ctx.search` capability | `search:"inherit"` only (provider chain is host-side) |
 | `openai-image-gen-2` | `docs/extensions/examples/openai-image-gen-2` | OpenAI-only image generation (`gpt-image-*`) | `envEscapeHatch`; `network:api.openai.com`+`chatgpt.com`, `env:OPENAI_*`, `filesystem:$CWD` |
 | `claude-design` | `docs/extensions/examples/claude-design` | Extracts a design system + generates HTML drafts; canvas knob round-trip | `filesystem:$CWD`, `storage`, knob-change subs, `cdn.jsdelivr.net` |
@@ -60,7 +60,7 @@ EZCorp's extension ecosystem is the primary way the platform grows new tools, ag
 | `github-projects` | `docs/extensions/examples/github-projects` | Connect a GitHub Projects v2 board and plan/execute its tickets from a Hub dashboard | `bootSpawn`; **no network/shell/env** — all GitHub I/O is host-side via `BUNDLED_GITHUB_PROJECTS_ALLOWLIST` |
 | `ez-factory` | `extensions/ez-factory` | The workflow **job console**: named, saved job definitions over the three `*.workflow.yaml` files it ships, run by hand or from chat, with real approval gates | `storage`, `filesystem:$CWD`, `triggers` (25 cron / 25 webhook, prefix `factory-`, 500 runs/day), `workflows` `["docs-factory","etl-factory","draft-and-verify"]` 60/h, `ez-factory:job-save` sub |
 
-> `critical`: task-tracking, ask-user, extension-author. `bootSpawn`: lessons-distiller, memory-extractor, ping-loop, github-projects. `envEscapeHatch`: ai-kit, openai-image-gen-2.
+> `critical`: task-tracking, ask-user, extension-author. `bootSpawn`: lessons-distiller, memory-extractor, ping-loop, github-projects. `envEscapeHatch`: openai-image-gen-2.
 
 ### Examples on disk but NOT bundled (example-only)
 
