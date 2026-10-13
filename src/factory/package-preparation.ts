@@ -6,6 +6,7 @@ import type { MigrationDb, TransactionalDb } from "../db/migrations/types";
 import { type DatabaseLifecycleRepository, releaseRows as rows } from "../db/queries/extension-releases";
 import { insertTransactionalAuditEntry } from "../db/queries/audit-log";
 import { digestObject, type BlobStore } from "../extensions/v4";
+import type { InstallationRecord } from "../extensions/v4/types";
 import { getFiles } from "../extensions/v4/blobs";
 import { lockFactoryScope } from "./locks";
 import { FactoryMutations } from "./mutations";
@@ -214,9 +215,24 @@ export class FactoryPackageTrusts {
 }
 
 /** Concrete scoped reader over immutable v4 release records and blobs. */
+/**
+ * Whether an installation may serve this project (C05, W4H-26). A project-scoped installation serves
+ * its own project. A global one serves a project only while the v4 project binding its owner's human
+ * session wrote names this project, the installation's active release, and its current generation; a
+ * new release, a new generation, or a revoked binding stops it at the next bind, prepare, or dispatch.
+ */
+async function projectScoped(transaction: MigrationDb, installation: InstallationRecord, projectId: string): Promise<boolean> {
+  if (installation.scope === `project:${projectId}`) return true;
+  if (installation.scope !== "global") return false;
+  const row = rows<{ payload: string }>(await transaction.execute(sql`SELECT payload FROM extension_project_bindings WHERE installation_id=${installation.id}`))[0];
+  if (!row) return false;
+  const binding = JSON.parse(row.payload) as { projectId?: unknown; releaseId?: unknown; generation?: unknown; ownerId?: unknown };
+  return binding.projectId === projectId && binding.releaseId === installation.activeReleaseId && binding.generation === installation.generation && binding.ownerId === installation.ownerId;
+}
+
 export class FactoryV4PackageCatalog {
   constructor(private readonly repository: DatabaseLifecycleRepository, private readonly blobs: BlobStore) {}
-  async loadForBindingInTransaction(transaction: MigrationDb, projectId: string, installationId: string, releaseId: string): Promise<ReleaseRecord> { const state = await this.repository.read(installationId, transaction), release = state?.releases[releaseId]; if (!state || !release || state.installation.scope !== `project:${projectId}` || !state.installation.enabled || state.installation.uninstalled || state.installation.activeReleaseId !== releaseId || release.id !== releaseId || release.installationId !== installationId) throw new FactoryPackagePreparationError("factory_package_release_unavailable"); return snapshot(release); }
+  async loadForBindingInTransaction(transaction: MigrationDb, projectId: string, installationId: string, releaseId: string): Promise<ReleaseRecord> { const state = await this.repository.read(installationId, transaction), release = state?.releases[releaseId]; if (!state || !release || !await projectScoped(transaction, state.installation, projectId) || !state.installation.enabled || state.installation.uninstalled || state.installation.activeReleaseId !== releaseId || release.id !== releaseId || release.installationId !== installationId) throw new FactoryPackagePreparationError("factory_package_release_unavailable"); return snapshot(release); }
   async loadInTransaction(transaction: MigrationDb, binding: FactoryV4PackageBinding): Promise<ReleaseRecord> { const release = await this.loadForBindingInTransaction(transaction, binding.projectId, binding.installationId, binding.releaseId); releaseFacts(binding, release); return release; }
   async loadSource(binding: FactoryV4PackageBinding): Promise<WorkspaceFiles> { return getFiles(this.blobs, binding.sourceDigest, "workspace"); }
 }

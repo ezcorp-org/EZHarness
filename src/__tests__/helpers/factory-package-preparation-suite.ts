@@ -38,7 +38,7 @@ export function factoryPackagePreparationConformance(create: () => Promise<Facto
 let fixture: FactoryPackagePreparationFixture;
 beforeEach(async () => { fixture = await create(); });
 afterEach(async () => { await fixture?.close(); });
-async function packageContext(installationProject = projectId) {
+async function packageContext(installationProject = projectId, scope = `project:${installationProject}`) {
   const database = fixture.db;
   const records = new FactoryRecords(database, tenantId);
   await records.bindInstallation();
@@ -55,7 +55,7 @@ async function packageContext(installationProject = projectId) {
   const artifactDigest = digestObject(artifacts);
   const repo = new DatabaseLifecycleRepository(database);
   const current = release(sourceDigest, artifactDigest);
-  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${installationProject}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
+  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const fenced: Array<{ state: string; trustRevision: number; reference: RunnerReference }> = [];
   // A case can make the stop path fail to prove the state change is atomic with it.
   const fence = { fail: false };
@@ -84,6 +84,34 @@ async function trustedPackage() {
   await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-package");
   return { ...context, runner, prepared: preparations };
 }
+
+test("a global installation binds only while the v4 project binding names this project, its active release and its generation (W4H-26 D4)", async () => {
+  const context = await packageContext(projectId, "global");
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { throw new Error("cached package must not rebuild"); },
+    async collectArtifacts() { return structuredClone(context.artifacts); },
+  };
+  const preparations = context.preparations(runner);
+  const bind = (key: string) => preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, key);
+  const binding = async (payload: Record<string, unknown> | null) => {
+    await context.database.execute(sql`DELETE FROM extension_project_bindings WHERE installation_id=${context.current.installationId}`);
+    if (payload) await context.database.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${context.current.installationId}, ${JSON.stringify(payload)})`);
+  };
+  const exact = { id: "binding", projectId, ownerId: admin.id, releaseId: context.current.id, generation: 1, approvedAt: "2030-01-01T00:00:00.000Z", writePaths: [] };
+  // No project binding, or one that names another project, release, generation or owner: refused.
+  for (const [index, payload] of [null, { ...exact, projectId: "other-project" }, { ...exact, releaseId: "other-release" }, { ...exact, generation: 2 }, { ...exact, ownerId: "someone-else" }].entries()) {
+    await binding(payload);
+    await expect(bind(`bind-refused-${index}`)).rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+  }
+  // The exact binding admits it; trust and preparation then follow as for a project installation.
+  await binding(exact);
+  await bind("bind-global");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-global");
+  expect((await preparations.prepare(projectId, reference)).trustRevision).toBe(1);
+  // Revoking the v4 project binding stops the package at the next dispatch check.
+  await binding(null);
+  await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId } as never, runner: reference } as never)).rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+});
 
 test("a scoped package name is refused as a manifest name, and the bound manifest name must match the prepared release", async () => {
   const context = await packageContext();
