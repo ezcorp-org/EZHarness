@@ -238,6 +238,7 @@ describe("startFactoryRuntime opens admission only after the probes pass", () =>
         tenantId: "tenant-01",
         running: ["compute-admission-dispatch", "compute-admission-poll", "attempt-dispatch", "run-projection", "checkpoint-barrier"],
         held: [
+          { role: "package-preparation", workPackage: "W4H-26", reason: expect.stringContaining("hostLaunch endpoint") },
           { role: "notification-inbox-delivery", workPackage: "W07/W08", reason: expect.any(String) },
           { role: "child-settlement", workPackage: "W06", reason: expect.any(String) },
           { role: "release-outcome", workPackage: "W07/W08", reason: expect.any(String) },

@@ -9,7 +9,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { isManifestName } from "@ezcorp/factory-sdk";
-import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition } from "../../factory/package-preparation";
+import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition, factoryPackagePreparationDriver } from "../../factory/package-preparation";
 import { FactoryRecords } from "../../factory/records";
 
 export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void>; }
@@ -111,6 +111,45 @@ test("a global installation binds only while the v4 project binding names this p
   // Revoking the v4 project binding stops the package at the next dispatch check.
   await binding(null);
   await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId } as never, runner: reference } as never)).rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+});
+
+test("the package-preparation role prepares each bound package once its trust is active, and never an untrusted or quarantined one (W4H-26 D5)", async () => {
+  const context = await packageContext();
+  let builds = 0;
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { builds++; throw new Error("cached package must not rebuild"); },
+    async collectArtifacts() { return structuredClone(context.artifacts); },
+  };
+  const preparations = context.preparations(runner);
+  const reported: string[] = [];
+  const driver = factoryPackagePreparationDriver(preparations, (role) => { reported.push(role); });
+  const signal = new AbortController().signal;
+  await preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-role");
+  // Bound but not trusted: nothing to prepare.
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect(await driver.step(signal)).toBe(false);
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-role");
+  expect(await preparations.pendingPreparations()).toEqual([{ projectId, reference }]);
+  expect(await driver.step(signal)).toBe(true);
+  expect(driver.progress).toEqual({ scanned: 1, settled: 1, deferred: 0, failed: 0 });
+  // The receipt exists, so the next pass finds nothing and dispatch is ready.
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect((await preparations.assertDispatchReady({ authority: { tenantId, projectId } as never, runner: reference } as never)).trustRevision).toBe(1);
+  // A quarantined package is never prepared again.
+  await context.trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-role");
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect(reported).toEqual([]);
+  expect(builds).toBe(0);
+});
+
+test("the package-preparation role reports a refusal the package earned as a fault, and a builder failure as backpressure", async () => {
+  const item = { projectId, reference };
+  for (const [error, disposition] of [[new FactoryPackagePreparationError("factory_package_release_stale"), "fault"], [new Error("supervisor unavailable"), "transient"]] as const) {
+    const reported: string[] = [];
+    const driver = factoryPackagePreparationDriver({ pendingPreparations: async () => [item], prepare: async () => { throw error; } }, (role) => { reported.push(role); });
+    expect(await driver.step(new AbortController().signal)).toBe(false);
+    expect(reported).toEqual([`package-preparation:${disposition}:${projectId}:${reference.package}#${reference.export}`]);
+  }
 });
 
 test("a scoped package name is refused as a manifest name, and the bound manifest name must match the prepared release", async () => {

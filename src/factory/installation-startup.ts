@@ -55,6 +55,7 @@ import { FactoryTransitionArtifacts } from "./transition-artifacts";
 import { loadFactoryStartupConfig, type FactoryStartupConfig } from "./startup-config";
 import { factoryInstallationStores, type FactoryInstallationStores } from "./installation-stores";
 import { composeFactoryAttemptDispatch, factoryPackageReadiness, type FactoryHostPhysicalStopper } from "./attempt-composition";
+import { factoryPackagePreparationDriver } from "./package-preparation";
 import { composeFactorySettlement, factoryReleaseOutcomeDriver } from "./dispatch-composition";
 import { FactoryProtectedCommandEffects } from "./protected-command-effects";
 import { FactoryReleaseOutcomeDelivery } from "./release-outcome-delivery";
@@ -859,6 +860,9 @@ async function installationCollaborators(
   const validation = await installationValidatorRoles(config, host, stores, application, release, gateway, signal);
 
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
+  // C05 "Prepare a bound package for dispatch" (W4H-26): only where a supervisor can be reached.
+  const packagePreparation = config.hostLaunch === undefined ? undefined
+    : factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs), host.report);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -899,6 +903,7 @@ async function installationCollaborators(
       projections: stores.projections,
       ...(stores.compute === undefined ? {} : { compute: stores.compute }),
       ...(attempts === undefined ? {} : { attempts }),
+      ...(packagePreparation === undefined ? {} : { packagePreparation }),
       ...(notificationInbox === undefined ? {} : { notificationInbox }),
       ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
       ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
