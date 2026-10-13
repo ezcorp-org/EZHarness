@@ -14,7 +14,6 @@ import { getUserById } from "../../db/queries/users";
 import { getDb, type DbTransaction } from "../../db/connection";
 import type { StorageDatabase } from "../../db/queries/extension-storage";
 import { hasExtensionScope } from "../../auth/extension-rbac";
-import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
@@ -264,7 +263,6 @@ export class ToolExecutor {
   private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
-  private scheduleDaemon?: ScheduleDaemon;
   private argsResolver?: ArgsResolver;
   // Watchdog visibility for the extension sensitive-cap PDP-prompt gate.
   // Built-in tool gates register in the executor's `pendingPermissions`
@@ -343,14 +341,6 @@ export class ToolExecutor {
    *  so hourly/concurrent caps apply across all of a user's turns. */
   setSpawnQuota(quota: SpawnQuota): void {
     this.spawnQuota = quota;
-  }
-
-  /** Wire the shared ScheduleDaemon so `ctx.schedule.fireNow()` can
-   *  share its quota counters + dispatch path. The daemon is owned by
-   *  `src/startup/background-timers.ts`; this setter lets the same
-   *  instance be threaded into every ToolExecutor in the process. */
-  setScheduleDaemon(daemon: ScheduleDaemon): void {
-    this.scheduleDaemon = daemon;
   }
 
   /** Register a pre-call transformer for tool args. Used to substitute
@@ -1270,7 +1260,6 @@ export class ToolExecutor {
       bus: this.bus,
       executor: this.executor,
       spawnQuota: this.spawnQuota,
-      scheduleDaemon: this.scheduleDaemon,
       currentModel: this.currentModel,
       currentProvider: this.currentProvider,
       currentUserId: this.currentUserId,

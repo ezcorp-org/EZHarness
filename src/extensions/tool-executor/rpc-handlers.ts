@@ -8,7 +8,6 @@ import type { PermissionEngine } from "../permission-engine";
 import type { EventBus } from "../../runtime/events";
 import type { AgentEvents } from "../../types";
 import type { AgentExecutor } from "../../runtime/executor";
-import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import type { FsRpcResponse } from "../fs-handler";
 import { handleStorageRpc, type StorageContext } from "../storage-handler";
@@ -72,7 +71,6 @@ export interface RpcHandlerDeps {
   bus?: EventBus<AgentEvents>;
   executor?: AgentExecutor;
   spawnQuota?: SpawnQuota;
-  scheduleDaemon?: ScheduleDaemon;
   currentModel?: string;
   currentProvider?: string;
   currentUserId?: string;
@@ -498,7 +496,6 @@ export async function handlePiSchedule(
   return handleScheduleRpc(req, {
     granted: base.granted,
     registeredTool: { extensionId },
-    ...(deps.scheduleDaemon ? { daemon: deps.scheduleDaemon } : {}),
   }, resolved.rpcMeta);
 }
 
