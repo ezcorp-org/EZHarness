@@ -84,7 +84,8 @@ resolve_compose() {
     return 2
   fi
   if [ "$ENGINE" = podman ] && [ -z "${DOCKER_HOST:-}" ]; then
-    local sock="/run/user/$(id -u)/podman/podman.sock"
+    local sock
+    sock="/run/user/$(id -u)/podman/podman.sock"
     if [ ! -S "$sock" ]; then
       # Native Linux Podman has no machine and exits non-zero here. Under a
       # caller's errexit/pipefail that would end the script before the error
