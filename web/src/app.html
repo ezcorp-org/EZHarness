@@ -39,11 +39,15 @@
 		%sveltekit.head%
 	</head>
 	<body data-sveltekit-preload-data="hover">
-		<div id="splash" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--splash-bg,#111827);z-index:9999;transition:opacity 0.3s ease-out">
+		<div id="splash" aria-hidden="true" style="position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:var(--splash-bg,#111827);z-index:9999;transition:opacity 0.3s ease-out">
 			<img src="/logo.svg" alt="EZCorp" width="64" height="64" style="animation:splash-pulse 1.5s ease-in-out infinite" />
 		</div>
 		<style>
 			@keyframes splash-pulse { 0%,100% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1); } }
+			/* The app is live once it hydrates: fade the splash out and let clicks
+			   through at once, so one made during the fade reaches the app. The
+			   root +layout.svelte removes the element after the fade. */
+			html[data-hydrated="true"] #splash { opacity: 0; pointer-events: none; }
 		</style>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>

@@ -168,3 +168,33 @@ test("collapsing the section is remembered across a reload", async ({ page, mock
 	await page.reload();
 	await expect(section(page).getByTestId("chat-nav-toggle")).toHaveAttribute("aria-expanded", "false");
 });
+
+test("a click while the splash fades out reaches the sidebar on the first try @evidence", async ({ page, mockApi }, testInfo) => {
+	// Hold the fading splash in place, as a slow device would: its removal
+	// is a 300 ms timer, so without this the race decides the outcome.
+	await page.addInitScript(() => {
+		const remove = Element.prototype.remove;
+		Element.prototype.remove = function (this: Element) {
+			if (this.id !== "splash") remove.call(this);
+		};
+	});
+	await mockApi(setup());
+	await page.goto("/project/proj-1/chat/conv-2");
+	const splash = page.locator("#splash");
+	await expect(splash).toHaveCount(1);
+	await expect(splash).toHaveCSS("opacity", "0");
+	// Decorative and fading: hidden from assistive tech, holds no focus.
+	await expect(splash).toHaveAttribute("aria-hidden", "true");
+	expect(await splash.evaluate((el) => el.contains(document.activeElement))).toBe(false);
+
+	const nav = page.getByRole("navigation", { name: "Main navigation" });
+	const scrollTop = () => nav.evaluate((el) => el.scrollTop);
+	const before = await scrollTop();
+	// A short timeout: if the splash catches the click, Playwright retries
+	// (scrolling the nav each time) until this runs out.
+	await threadRow(page, "conv-1").click({ timeout: 2000 });
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\/conv-1$/);
+	await expect(threadRow(page, "conv-1")).toHaveAttribute("aria-current", "page");
+	expect(await scrollTop()).toBe(before);
+	await captureEvidence(page, testInfo, "click-through-fading-splash");
+});

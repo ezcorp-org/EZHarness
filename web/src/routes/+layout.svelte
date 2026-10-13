@@ -16,11 +16,9 @@
 		// silently discarded when hydration re-creates the component.
 		document.documentElement.setAttribute('data-hydrated', 'true');
 
+		// The hydration marker also starts the splash fade (app.html CSS).
 		const splash = document.getElementById('splash');
-		if (splash) {
-			splash.style.opacity = '0';
-			setTimeout(() => splash.remove(), 300);
-		}
+		if (splash) setTimeout(() => splash.remove(), 300);
 
 		// Keeps the unread-count favicon/title badge applied, and re-applies
 		// the SSR "DEV " title prefix that SvelteKit strips on client
