@@ -779,3 +779,74 @@ describe("DesignCanvasCard — apply banner + dirty + diff + revisions", () => {
 		expect(banner?.textContent ?? "").toContain("--color-primary");
 	});
 });
+
+// ── Payload shapes + revision unit round-trip ─────────────────────
+
+describe("DesignCanvasCard — payload shapes", () => {
+	const PREVIEW = "/api/extensions/claude-design/data/preview.html";
+	const CANNOT = "Cannot render canvas";
+
+	test.each([
+		["an MCP text envelope", { content: [{ type: "image" }, { type: "text", text: JSON.stringify({ draftId: "d-1", iframeSrc: PREVIEW }) }] }, true],
+		["an already-parsed payload object", { draftId: "d-1", iframeSrc: PREVIEW }, true],
+		["an envelope whose text is not JSON", { content: [{ type: "text", text: "oops" }] }, false],
+		["an object without draft fields", { other: 1 }, false],
+		["a string that is not JSON", "not json", false],
+	])("reads the canvas from %s", (_label, output, renders) => {
+		const { container } = render(DesignCanvasCard, {
+			toolCall: makeCall({ output: output as unknown as string }),
+			conversationId: "conv-1",
+		});
+		expect(container.textContent?.includes(CANNOT)).toBe(!renders);
+	});
+});
+
+describe("DesignCanvasCard — apply outcomes and revisions", () => {
+	beforeEach(() => {
+		vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 200 })));
+	});
+	afterEach(() => vi.unstubAllGlobals());
+
+	const knobs = [
+		{ key: "spacing", kind: "range", label: "Spacing", behavior: "scale-spacing", unit: "%", min: -50, max: 50, step: 5 },
+		{ key: "radius", kind: "range", label: "Radius", var: "--radius", unit: "px", min: 0, max: 24, step: 1 },
+		{ key: "accent", kind: "color", label: "Accent", var: "--accent" },
+	];
+
+	function canvas(extra: Record<string, unknown> = {}) {
+		return makeCall({
+			output: JSON.stringify({ draftId: "d-9", iframeSrc: "/api/extensions/claude-design/data/preview.html", knobs, ...extra }),
+		});
+	}
+
+	test("a completed apply whose output is not JSON shows the error banner", async () => {
+		const { getByTestId, findByTestId } = render(DesignCanvasCard, { toolCall: canvas(), conversationId: "conv-1" });
+		await fireEvent.input(getByTestId("knob-accent"), { target: { value: "#123456" } });
+		await fireEvent.click(getByTestId("design-canvas-apply"));
+		const id = inlineToolStore.calls.at(-1)!.id;
+		inlineToolStore.updateFromEvent(id, "tool:complete", { output: "<html>gateway error</html>", duration: 5 });
+
+		const banner = await findByTestId("apply-banner-error");
+		expect(banner.textContent ?? "").toMatch(/JSON|Unexpected token/);
+	});
+
+	test("picking a revision restores unit-suffixed values and re-applies them unchanged", async () => {
+		const revisions = [
+			{ revisionId: "r-2", parentDraftId: "d-9", knobValues: { spacing: "+10%", radius: "12px", accent: "#abcdef" }, createdAt: "2026-04-27T12:43:08.000Z", isOriginal: false },
+			{ revisionId: "r-0", parentDraftId: "d-9", knobValues: {}, createdAt: "2026-04-27T12:00:00.000Z", isOriginal: true },
+		];
+		const { getByTestId } = render(DesignCanvasCard, { toolCall: canvas({ revisions }), conversationId: "conv-1" });
+
+		await fireEvent.change(getByTestId("design-canvas-revision-select"), {
+			target: { value: JSON.stringify(revisions[0]!.knobValues) },
+		});
+
+		expect((getByTestId("knob-spacing") as HTMLInputElement).value).toBe("10");
+		expect((getByTestId("knob-radius") as HTMLInputElement).value).toBe("12");
+		expect((inlineToolStore.calls.at(-1)!.input as { knobs: Record<string, string> }).knobs).toEqual({
+			spacing: "+10%",
+			radius: "12px",
+			accent: "#abcdef",
+		});
+	});
+});
