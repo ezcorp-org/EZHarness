@@ -22,7 +22,7 @@
  */
 import { clampExtensionPermissions, isGrantableEventSubscription } from "./clamp-permissions";
 import { capabilityToolsDisabled } from "./capability-flags";
-import { getRequiredPermissions } from "./permissions";
+import { getRequiredPermissions, type PermissionItem } from "./permissions";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { askLine } from "../ui/prompt";
 
@@ -226,7 +226,7 @@ export async function promptForPermissions(
     return { grantedAt: {} }; // no permissions requested
   }
 
-  printRequestedPermissions(manifest);
+  printRequestedPermissions(manifest, items);
 
   const answer = await askLine("Approve all permissions? [y/N/select] ");
   const choice = answer.trim().toLowerCase();
@@ -244,8 +244,10 @@ export async function promptForPermissions(
 }
 
 /** Human-readable summary of every capability an install would grant. */
-function printRequestedPermissions(manifest: ExtensionManifestV2): void {
+function printRequestedPermissions(manifest: ExtensionManifestV2, items: PermissionItem[]): void {
   const perms = manifest.permissions ?? {};
+  // Shell and the stdio MCP line use the shared text (permission-text.ts).
+  const shared = new Map(items.map((item) => [item.type, item.description]));
   console.log(`\nExtension "${manifest.name}" requests the following permissions:\n`);
 
   if (perms.network?.length) {
@@ -258,7 +260,8 @@ function printRequestedPermissions(manifest: ExtensionManifestV2): void {
     for (const path of perms.filesystem) console.log(`    - ${path}`);
     console.log();
   }
-  if (perms.shell) console.log("  Shell command execution\n");
+  if (perms.shell) console.log(`  ${shared.get("shell")}\n`);
+  if (shared.has("mcpProcess")) console.log(`  ${shared.get("mcpProcess")}\n`);
   if (perms.env?.length) {
     console.log("  Environment variables:");
     for (const v of perms.env) console.log(`    - ${v}`);

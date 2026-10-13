@@ -1,4 +1,4 @@
-import { test, expect, describe, mock, afterEach } from "bun:test";
+import { test, expect, describe, mock, afterEach, spyOn } from "bun:test";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 
 // ── Mock the interactive prompt so the TTY paths are deterministic ────
@@ -332,6 +332,26 @@ describe("promptForPermissions", () => {
 });
 
 // ── promptPerCategory (partial approvals) ─────────────────────────────
+
+describe("promptForPermissions — the printed list", () => {
+  test("uses the shared permission text, and a stdio MCP server never claims it can start", async () => {
+    const restore = setTTY(true);
+    askAnswers = ["n"];
+    const logged: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => { logged.push(args.join(" ")); });
+    try {
+      const manifest = fullManifest({ kind: "mcp", mcpServers: [{ name: "files", transport: "stdio", command: "files-server" }] } as never, { shell: true });
+      await promptForPermissions(manifest, false);
+    } finally {
+      log.mockRestore();
+      restore();
+    }
+    const output = logged.join("\n");
+    expect(output).toContain("Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)");
+    expect(output).toContain("Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission");
+    expect(output).not.toContain("Starts its MCP server process");
+  });
+});
 
 describe("promptPerCategory", () => {
   test("grants only the approved categories; declines drop events", async () => {

@@ -203,6 +203,30 @@ describe("cli - ext:info display variations", () => {
     logSpy.mockRestore();
   });
 
+  test("a stdio MCP server's permission line never claims it can start without a verdict", async () => {
+    mockExtensions.set("stdio-id", makeExtEntry("stdio-id", {
+      name: "stdio-ext",
+      manifest: makeManifest({
+        name: "stdio-ext",
+        kind: "mcp",
+        permissions: {},
+        mcpServers: [{ transport: "stdio", name: "my-server", description: "A server", command: "node", args: ["srv.ts"] }],
+      } as never),
+    }));
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
+    try {
+      await cli(["ext", "info", "stdio-ext"]);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const output = logs.join("\n");
+    expect(output).toContain("  - Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission");
+    expect(output).not.toContain("Starts its MCP server process");
+  });
+
   test("extension with agent and category prints Agent section", async () => {
     mockExtensions.set("agent-id", makeExtEntry("agent-id", {
       name: "agent-ext",

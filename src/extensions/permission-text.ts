@@ -18,7 +18,10 @@ const PERMISSION_DESCRIPTIONS: Record<string, (v: string | boolean) => string> =
   shell: () => "Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)",
   env: (v) => `Read environment variable ${v}`,
   storage: () => "Persistent key-value storage",
-  mcpProcess: () => "Starts its MCP server process (process spawning allowed)",
+  // The manifest alone cannot say whether the server may start: that is the
+  // host's spawn policy (process-spawn-policy.ts), so the default is neutral.
+  mcpProcess: () => "Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission",
+  mcpProcessAllowed: () => "Starts its MCP server process (process spawning allowed)",
   mcpProcessBlocked: () => "Cannot start its MCP server process: starting processes needs the shell permission",
 };
 
@@ -65,8 +68,8 @@ type GrantManifest = Pick<ExtensionManifest, "kind" | "mcpServers">;
  * line, `name: value`, so nothing an approval covers is hidden.
  *
  * The stdio MCP line follows `processSpawn`, the host's verdict for this
- * release and these grants (process-spawn-policy.ts), not the manifest alone:
- * "deny" says the server cannot start, and no verdict drops the line.
+ * release and these grants (process-spawn-policy.ts), not the manifest alone;
+ * without a verdict it keeps the neutral line and never claims a start.
  */
 export function describeGrants(grants: readonly string[], manifest: GrantManifest, processSpawn?: ProcessSpawnPolicy): string[] {
   const pairs = grants.map((grant) => JSON.parse(grant) as [string, unknown]);
@@ -74,9 +77,9 @@ export function describeGrants(grants: readonly string[], manifest: GrantManifes
   const described = getRequiredPermissions({ ...manifest, permissions } as ExtensionManifest);
   const covered = new Set(described.map((item) => item.type));
   const other = pairs.filter(([name]) => !covered.has(name)).map(([name, value]) => `${name}: ${JSON.stringify(value)}`);
-  const lines = described.flatMap((item) => {
-    if (item.type !== "mcpProcess" || processSpawn === "allow") return [item.description];
-    return processSpawn === "deny" ? [PERMISSION_DESCRIPTIONS.mcpProcessBlocked!(true)] : [];
+  const lines = described.map((item) => {
+    if (item.type !== "mcpProcess" || !processSpawn) return item.description;
+    return PERMISSION_DESCRIPTIONS[processSpawn === "allow" ? "mcpProcessAllowed" : "mcpProcessBlocked"]!(true);
   });
   return [...lines, ...other];
 }
