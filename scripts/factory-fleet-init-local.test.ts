@@ -1,15 +1,24 @@
 import { expect, test } from "bun:test";
 import { pathToFileURL } from "node:url";
-import { LOCAL_RUNNER_PROFILES, factoryFleetInitOptions, startFactoryFleetInit } from "./factory-fleet-init-local";
+import { referenceImageV1 } from "@ezcorp/factory-sdk";
+import { FACTORY_INSTALLATION_S3_RELEASE_DESTINATION } from "../src/factory/provisioning/deployment";
+import { LOCAL_RELEASE, LOCAL_RUNNER_PROFILES, factoryFleetInitOptions, startFactoryFleetInit } from "./factory-fleet-init-local";
 
 const env = { FACTORY_TEST_POSTGRES_URL: "postgres://u:p@127.0.0.1:5432/db", EZCORP_FACTORY_STORAGE_SECRETS_DIR: "/run/user/1/storage" };
 
 test("options come from flags and the environment, with the pinned local runner", () => {
   const options = factoryFleetInitOptions(["bun", "x", "--fleet", "w16", "--root", "/home/u/fleet", "--image", "img@sha256:x", "--revision", "r"], env, "/bin/bun");
-  expect(options).toMatchObject({ fleetId: "w16", root: "/home/u/fleet", image: "img@sha256:x", revision: "r", portBase: 31000, adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR, bun: "/bin/bun", runnerProfiles: LOCAL_RUNNER_PROFILES });
+  expect(options).toMatchObject({ fleetId: "w16", root: "/home/u/fleet", image: "img@sha256:x", revision: "r", portBase: 31000, adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR, bun: "/bin/bun", runnerProfiles: LOCAL_RUNNER_PROFILES, release: LOCAL_RELEASE });
   expect(factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r", "--port-base", "40000"], env, "/bin/bun").portBase).toBe(40000);
   expect(() => factoryFleetInitOptions(["--root", "/r"], env, "/bin/bun")).toThrow("--fleet is required");
   expect(() => factoryFleetInitOptions(["--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r"], {}, "/bin/bun")).toThrow("FACTORY_TEST_POSTGRES_URL");
+});
+
+test("a local fleet declares one default S3 release profile: the reference definitions' S3 publication adapter, to each installation's own store", () => {
+  const s3Publication = referenceImageV1.graph.nodes.find((node) => node.kind === "release");
+  expect(LOCAL_RELEASE).toEqual({ profiles: [{ adapter: (s3Publication as { adapter: unknown }).adapter as never, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }] });
+  expect(LOCAL_RELEASE.profiles[0]!.adapter).toMatchObject({ package: "@ezcorp/s3-immutable-publish", export: "publish" });
+  expect(LOCAL_RELEASE.github).toBeUndefined();
 });
 
 test("the entry runs only as the process entry and returns the written settings path", async () => {

@@ -853,6 +853,14 @@ describe("fleet composition", () => {
       const counted: string[] = [];
       await fleet.upgrades.retire({ count: async (installation) => { counted.push(`${installation.tenantId}:${installation.fleetId}`); return { active: 0, uncertain: 0 }; } });
       expect(counted).toContain(`tenant-97:${fleetId}`);
+      // `stop` and `up`: tenant-97 is recorded, not deployed, so it is stoppable (nothing runs: no env file) and not startable;
+      // the host serves nobody and the platform never started, so both stop with nothing to do.
+      expect(await fleet.services.stoppable()).toContain("tenant-97");
+      expect(await fleet.services.startable()).not.toContain("tenant-97");
+      await fleet.services.stopInstallation("tenant-97");
+      await fleet.services.stopPlatform();
+      await fleet.services.startHost();
+      expect((await factoryRejection(fleet.services.startInstallation("tenant-97")) as Error).message.length).toBeGreaterThan(0);
       // A tenant with no record has no context: the fleet's lookup is the provisioner's own, with its named refusal.
       expect((await factoryRejection(fleet.provisioner.installation("tenant-96")) as FactoryProvisioningError).code).toBe("provisioning_unknown_tenant");
     } finally { await fleet.close(); }
@@ -920,6 +928,7 @@ describe("the fleet host: one shared pool and supervisor, and no residue on the 
     readonly bundles: FactoryFleetHostBundle[] = [];
     async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}`); this.bundles.push(bundle); }
     async ready(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`ready:${bundle.admitted.length}`); }
+    async stop(): Promise<void> { this.calls.push("stop"); }
     async remove(): Promise<void> { this.calls.push("remove"); }
     async purge(): Promise<void> { this.calls.push("purge"); }
   }

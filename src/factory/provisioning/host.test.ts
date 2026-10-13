@@ -37,6 +37,7 @@ class RecordingRuntime implements FactoryFleetHostRuntime {
   readonly bundles: FactoryFleetHostBundle[] = [];
   async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}:${bundle.build.image.slice(-4)}`); this.bundles.push(bundle); }
   async ready(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`ready:${bundle.admitted.length}`); }
+  async stop(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`stop:${paths.context.tenantId}`); }
   async remove(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`remove:${paths.context.tenantId}`); }
   async purge(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`purge:${paths.context.tenantId}`); }
 }
@@ -311,6 +312,20 @@ describe("admission", () => {
     runtime.calls.length = 0;
     await host.release(one);
     expect(runtime.calls).toEqual([]);
+  }, SLOW);
+
+  test("stop stops both services and keeps every admission; start re-publishes the recorded state; a host serving nobody stays down", async () => {
+    await host.start();
+    expect(runtime.calls).toEqual([]);
+    await host.admit(await installation("tenant-01"));
+    runtime.calls.length = 0;
+    await host.stop();
+    await host.stop();
+    expect(runtime.calls).toEqual(["stop:host", "stop:host"]);
+    expect((await host.admitted()).map((entry) => entry.tenantId)).toEqual(["tenant-01"]);
+    runtime.calls.length = 0;
+    await host.start();
+    expect(runtime.calls).toEqual([`apply:tenant-01:${BUILD.image.slice(-4)}`, "ready:1"]);
   }, SLOW);
 
   test("render with nothing admitted is refused by name", async () => {

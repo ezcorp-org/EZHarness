@@ -149,6 +149,8 @@ export interface FactoryFleetHostRuntime {
   apply(bundle: FactoryFleetHostBundle): Promise<void>;
   /** Resolves once both services publish a fresh ready record. */
   ready(bundle: FactoryFleetHostBundle): Promise<void>;
+  /** Stop both services and keep the pool's containers. Idempotent. */
+  stop(paths: FactoryFleetHostPaths): Promise<void>;
   /** Stop both services. Idempotent. */
   remove(paths: FactoryFleetHostPaths): Promise<void>;
   /** Stop both services and remove the host's runtime directory. */
@@ -327,6 +329,19 @@ export class FactoryFleetHost {
       await this.saveState(next);
       if (Object.keys(rest).length === 0) await this.options.runtime.remove(this.paths);
       else await this.publish(next);
+    });
+  }
+
+  /** Stop both shared services, keeping every admission: the operator's `stop`. Idempotent. */
+  async stop(): Promise<void> {
+    await this.options.locked(() => this.options.runtime.stop(this.paths));
+  }
+
+  /** Start both shared services onto the recorded state and wait for them: the operator's `up`. A host serving nobody stays down. */
+  async start(): Promise<void> {
+    await this.options.locked(async () => {
+      const state = await this.state();
+      if (Object.keys(state.admitted).length > 0) await this.publish(state);
     });
   }
 

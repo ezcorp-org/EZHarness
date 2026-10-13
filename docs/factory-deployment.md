@@ -112,6 +112,38 @@ mutating command is recorded on the ledger with who asked for it:
 control plane. The control plane runs at most three tenant operations at once
 and answers 429 beyond that.
 
+A command whose tenant fails exits 1. It prints its result on stdout and, on
+stderr, every failed tenant with the step that failed, the code, and the
+reason. A failed provision never exits 0.
+
+Stop and start the whole fleet with `stop` and `up`. `stop` stops the
+installations (newest tenant first), then the fleet host's pool and supervisor,
+then the platform. It keeps every container and volume. `up` starts them in the
+reverse order and waits until each part is ready. Both commands are safe to run
+again.
+
+```sh
+bun scripts/factory-fleet.ts $HOME/.ezcorp-factory-w16/fleet.json stop
+bun scripts/factory-fleet.ts $HOME/.ezcorp-factory-w16/fleet.json up
+```
+
+The fleet settings may declare `installations.release`: release profiles, and
+optionally a GitHub destination (`repository`, and `tokenPath`, a private token
+file on the host). When profiles exist, step 5 writes the startup document's
+release block. It always contains the installation's own S3 destination
+(`installation-s3`: its ordinary store, prefix `ordinary/releases`). It contains
+a GitHub destination only when the fleet declares one. The token file is
+delivered to the harness, and the document names it only by path. A local fleet
+(`factory-fleet-init-local.ts`) declares one default S3 profile.
+
+The orchestrator runs the workflow bundle that the image build made
+(`packages/@ezcorp/factory-orchestrator/dist/factory-workflow.bundle.js`, with
+its SHA-256 record beside it). It refuses a bundle whose bytes do not match the
+record (`factory_workflow_bundle_digest_mismatch`). No compiler runs in the
+read-only, noexec container. `scripts/check-factory-image-shipped-config.ts
+<image>` runs that path under the isolation `installation.yml` ships. CI runs it
+on every change.
+
 A seeded object store names its buckets for the tenant alone. Step 2 therefore
 claims each store bucket for its fleet, as a NOLOGIN role in the database
 cluster, and refuses a bucket that another fleet holds. Purge releases the

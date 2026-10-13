@@ -33,6 +33,14 @@ COPY . .
 RUN bun install --frozen-lockfile --ignore-scripts \
   && (cd web && bun install --frozen-lockfile --ignore-scripts)
 RUN bun run build:packages
+# The orchestrator's workflow bundle is made HERE, at image build time
+# (Temporal's webpack bundler under the pinned Node, the runtime's own
+# interpreter). The bundle and its digest record ship in the image; the worker
+# refuses any other bytes, and no compiler or native-addon cache runs in the
+# read-only, noexec production container (W4H-27). Checked by
+# scripts/check-factory-image-shipped-config.ts under the shipped isolation.
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+RUN bun run --cwd packages/@ezcorp/factory-orchestrator build:workflow-bundle
 RUN cd web && bun run build
 # Nothing in the runtime needs the test trees or the coverage tooling.
 RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git

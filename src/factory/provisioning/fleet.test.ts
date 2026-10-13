@@ -114,6 +114,24 @@ describe("parseFactoryFleetSettings", () => {
     expect(refusal(value).message).toBe("Fleet settings are invalid: fleetId, temporal, image.");
   });
 
+  test("a release declaration is accepted exactly when the block the deployer writes from it passes the startup parser", () => {
+    const profile = { adapter: { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"e".repeat(64)}`, export: "publish" }, action: "factory.release.publish", destination: "installation-s3", estimatedSpendMicros: 1_000 };
+    const github = { repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: "/srv/operator/github-release-token" };
+    for (const release of [{ profiles: [profile] }, { github, profiles: [profile, { ...profile, adapter: { ...profile.adapter, package: "@ezcorp/github-release", export: "releasePullRequest" }, destination: "github" }] }]) {
+      expect(parseFactoryFleetSettings(withField("installations.release", release)).installations.release).toEqual(release as never);
+    }
+    for (const release of [
+      { profiles: [] }, { profiles: [{ ...profile, destination: "github" }] }, { profiles: [profile, profile] }, { profiles: [{ ...profile, estimatedSpendMicros: -1 }] },
+      { github: { ...github, tokenPath: "token" }, profiles: [profile] }, { github: { repository: "not a repository", tokenPath: github.tokenPath }, profiles: [profile] },
+      { github: { ...github, extra: 1 }, profiles: [profile] }, { profiles: [profile], extra: 1 }, { profiles: "all" }, null,
+    ]) {
+      const error = refusal(withField("installations.release", release));
+      expect(error.code).toBe("fleet_settings_invalid");
+      expect(error.message).toBe("Fleet settings are invalid: installations.release.");
+    }
+    expect(refusal(withField("installations.extra", 1)).message).toBe("Fleet settings are invalid: installations.");
+  });
+
   test("runner profiles are judged by the startup document's parser", () => {
     const profile = FACTORY_TEST_RUNNER_PROFILES.profiles[0]!;
     for (const runnerProfiles of [

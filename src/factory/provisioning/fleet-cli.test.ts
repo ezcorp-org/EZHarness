@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { runFactoryFleetCommand, runFactoryFleetMain, type FactoryFleetCommandContext } from "./fleet-cli";
+import { factoryFleetCommandFailures, reportFactoryFleetOutcome, runFactoryFleetCommand, runFactoryFleetMain, type FactoryFleetCommandContext } from "./fleet-cli";
 import type { FactoryComposedFleet, FactoryFleetSettings } from "./fleet";
 import { FactoryProvisioningError } from "./steps";
 
@@ -19,6 +19,12 @@ function context(overrides: Partial<Record<string, unknown>> = {}) {
       ledger: { events: record("events"), directory: record("directory") },
     },
     upgrades: { adopt: record("adopt"), register: record("register"), wave: record("wave"), abandon: record("abandon"), retire: record("retire"), builds: async () => undefined },
+    services: {
+      stoppable: async () => ["tenant-01", "tenant-02", "tenant-03"],
+      startable: async () => ["tenant-01", "tenant-02"],
+      stopInstallation: record("stop-installation"), startInstallation: record("start-installation"),
+      stopHost: record("stop-host"), startHost: record("start-host"), stopPlatform: record("stop-platform"),
+    },
     host: {
       identity: { poolId: "pool.w16", hostId: "host.w16" },
       admitted: async () => [{ tenantId: "tenant-01" }, { tenantId: "tenant-02" }],
@@ -67,6 +73,31 @@ describe("fleet commands", () => {
     expect(observed.observe[0]!.error.message).toBe("unreachable");
   });
 
+  test("a failed tenant names its failed step: the error's own, else the one its installation records, else none", async () => {
+    const named = await runFactoryFleetCommand("provision", ["tenant-01"], context({ provision: new FactoryProvisioningError("storage_unreachable", "no answer", "storage") }).value);
+    expect(named).toEqual({ provision: [{ tenantId: "tenant-01", error: { name: "FactoryProvisioningError", code: "storage_unreachable", message: "no answer", step: "storage" } }] });
+    const recorded = context({
+      provision: new FactoryProvisioningError("deployment_not_ready", "still waiting on harness"),
+      status: { steps: [{ step: "database", state: "complete" }, { step: "deployment", state: "failed" }, { step: "ingress", state: "pending" }] },
+    });
+    expect(await runFactoryFleetCommand("provision", ["tenant-02"], recorded.value)).toEqual({ provision: [{ tenantId: "tenant-02", error: { name: "FactoryProvisioningError", code: "deployment_not_ready", message: "still waiting on harness", step: "deployment" } }] });
+    expect(recorded.calls.find((call) => call[0] === "status")).toEqual(["status", "tenant-02"]);
+    const unrecorded = context({ observe: new Error("unreachable"), status: new FactoryProvisioningError("provisioning_unknown_tenant", "none") });
+    expect(await runFactoryFleetCommand("observe", ["tenant-09"], unrecorded.value)).toEqual({ observe: [{ tenantId: "tenant-09", error: { name: "Error", code: undefined, message: "unreachable" } }] });
+  });
+
+  test("a command with any failed tenant fails through the channel, naming the tenant, step, and reason; a clean one only prints", () => {
+    const failure = { tenantId: "tenant-02", error: { code: "deployment_not_ready", message: "still waiting on harness", step: "deployment" } };
+    const result = { provision: [{ tenantId: "tenant-01", phase: "invitation_issued" }, failure] };
+    expect(factoryFleetCommandFailures(result)).toEqual([failure]);
+    for (const clean of [undefined, null, "text", { platform: "started" }, { provision: [{ tenantId: "tenant-01", phase: "x" }, null] }]) expect(factoryFleetCommandFailures(clean)).toEqual([]);
+    const outcomes: unknown[] = [];
+    const io = { print: (value: unknown) => outcomes.push(["print", value]), fail: (value: unknown) => outcomes.push(["fail", value]) };
+    reportFactoryFleetOutcome(io, result);
+    reportFactoryFleetOutcome(io, { observe: [{ tenantId: "tenant-01", phase: "invitation_issued" }] });
+    expect(outcomes).toEqual([["print", result], ["fail", { failed: [failure] }], ["print", { observe: [{ tenantId: "tenant-01", phase: "invitation_issued" }] }]]);
+  });
+
   test("platform, observe, rotate, teardown, purge, status, and upgrades dispatch with their arguments", async () => {
     const { value, calls } = context();
     expect(await runFactoryFleetCommand("platform", [], value)).toEqual({ platform: "started", project: "ezcorp-factory-w16-platform" });
@@ -90,6 +121,21 @@ describe("fleet commands", () => {
     expect(calls.find((call) => call[0] === "retire")).toEqual(["retire", checks.census]);
     expect(calls.find((call) => call[0] === "wave")).toEqual(["wave", { buildId: "b2", canary: "tenant-01", tenants: ["tenant-01", "tenant-02"] }]);
     expect(calls.find((call) => call[0] === "purge")!.slice(2)).toEqual([{ approvalId: APPROVAL, reason: "done", ...WHO }, checks]);
+  });
+
+  test("stop stops the installations newest first, then the host, then the platform; up is its reverse; both are idempotent", async () => {
+    const { value, calls } = context();
+    const stopped = { stopped: { installations: ["tenant-03", "tenant-02", "tenant-01"], host: true, platform: "ezcorp-factory-w16-platform" } };
+    expect(await runFactoryFleetCommand("stop", [], value)).toEqual(stopped);
+    expect(await runFactoryFleetCommand("stop", [], value)).toEqual(stopped);
+    const stops = [["stop-installation", "tenant-03"], ["stop-installation", "tenant-02"], ["stop-installation", "tenant-01"], ["stop-host"], ["stop-platform"]];
+    expect(calls).toEqual([...stops, ...stops]);
+    calls.length = 0;
+    const up = { up: { platform: "ezcorp-factory-w16-platform", host: true, installations: ["tenant-01", "tenant-02"] } };
+    expect(await runFactoryFleetCommand("up", [], value)).toEqual(up);
+    expect(await runFactoryFleetCommand("up", [], value)).toEqual(up);
+    const ups = [["platform"], ["start-host"], ["start-installation", "tenant-01"], ["start-installation", "tenant-02"]];
+    expect(calls).toEqual([...ups, ...ups]);
   });
 
   test("host status names the shared pool, the host, and the admitted installations; decommission reaches the host", async () => {

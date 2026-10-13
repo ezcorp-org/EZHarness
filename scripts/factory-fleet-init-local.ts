@@ -12,6 +12,8 @@
  */
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { referenceImageV1 } from "@ezcorp/factory-sdk";
+import { FACTORY_INSTALLATION_S3_RELEASE_DESTINATION } from "../src/factory/provisioning/deployment";
 import { writeFactoryLocalFleet, type FactoryLocalFleetOptions } from "../src/factory/provisioning/fleet-cli";
 
 /** The runner this local fleet declares: the W09b guest the full-stack proof built and pinned. */
@@ -25,6 +27,17 @@ export const LOCAL_RUNNER_PROFILES: FactoryLocalFleetOptions["runnerProfiles"] =
   }],
 });
 
+/**
+ * The release profile this local fleet declares: the S3 publication adapter the
+ * reference definitions name (reference.image.v1's release node), publishing to
+ * each installation's own store. Taken from the definition, never restated.
+ */
+export const LOCAL_RELEASE: NonNullable<FactoryLocalFleetOptions["release"]> = Object.freeze({
+  profiles: referenceImageV1.graph.nodes.flatMap((node) => node.kind === "release"
+    ? [{ adapter: node.adapter, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }]
+    : []),
+});
+
 export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<Record<string, string | undefined>>, bun: string): FactoryLocalFleetOptions {
   const flag = (name: string, fallback?: string): string => {
     const index = argv.indexOf(name);
@@ -36,7 +49,7 @@ export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<R
   return {
     fleetId: flag("--fleet"), root: resolve(flag("--root")), image: flag("--image"), revision: flag("--revision"), portBase: Number(flag("--port-base", "31000")),
     adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR,
-    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES,
+    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, release: LOCAL_RELEASE,
   };
 }
 
