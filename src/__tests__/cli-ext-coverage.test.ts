@@ -394,9 +394,9 @@ describe("cli - ext:info dependencies", () => {
       manifest: makeManifest({
         name: "app",
         dependencies: {
-          "base-ok": { version: "^1.0.0" },
-          "base-old": { version: "^2.0.0" },
-          "base-gone": { version: "^1.0.0" },
+          "base-ok": { source: "github:t/base-ok", version: "^1.0.0" },
+          "base-old": { source: "github:t/base-old", version: "^2.0.0" },
+          "base-gone": { source: "github:t/base-gone", version: "^1.0.0" },
         },
       }),
     }));
@@ -404,7 +404,7 @@ describe("cli - ext:info dependencies", () => {
     mockExtensions.set("old-id", makeExtEntry("old-id", { name: "base-old", version: "1.0.0", manifest: makeManifest({ name: "base-old" }) }));
     mockExtensions.set("user-id", makeExtEntry("user-id", {
       name: "consumer",
-      manifest: makeManifest({ name: "consumer", dependencies: { app: { version: "^1.0.0" } } }),
+      manifest: makeManifest({ name: "consumer", dependencies: { app: { source: "github:t/app", version: "^1.0.0" } } }),
     }));
 
     const logs: string[] = [];
