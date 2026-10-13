@@ -63,7 +63,7 @@ type _HostRetainsSdkVersions = Assert<
 type _HostAddsOnlyV4 = Assert<Equal<HostManifest["schemaVersion"], SdkManifest["schemaVersion"] | 4>>;
 type _SdkDoesNotClaimV4 = Assert<Equal<Extract<SdkManifest["schemaVersion"], 4>, never>>;
 type _AuthorMcpDoesNotExposeHostFd = Assert<Equal<Extract<keyof SdkMcpStdio, "seccompFd">, never>>;
-type _HostMcpRetainsFd = Assert<"seccompFd" extends keyof HostMcpStdio ? true : false>;
+type _HostMcpIsAuthorMcp = Assert<Equal<SdkMcpStdio, HostMcpStdio>>;
 type _TypoIsNotAnAuthorField = Assert<Equal<Extract<keyof SdkManifest, "permssions">, never>>;
 
 const REPO_ROOT = join(import.meta.dir, "..", "..", "..", "..");
@@ -87,13 +87,6 @@ describe("SDK/host author declaration parity", () => {
 
   test.each(AUTHOR_TYPE_REEXPORT_CASES)("re-exports %s", (name) => {
     expect(reexportBlock).toMatch(new RegExp(`\\b${name}\\b`));
-  });
-
-  test("host-only MCP launch fields stay outside the SDK type", () => {
-    expect(HOST_TYPES).toContain("Host-only MCP launch metadata");
-    expect(HOST_TYPES).toContain("seccompFd?: number | null");
-    expect(HOST_TYPES).toContain("onChildSpawned?:");
-    expect(HOST_TYPES).toContain("_internal_vethSetup?:");
   });
 
   test("the host manifest composes author permissions with internal metadata", () => {
