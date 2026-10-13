@@ -23,7 +23,6 @@ import {
   type KillConversationResult,
 } from "./preview-spawn-orchestration";
 import { reapPreviewUid, quarantinePreviewUid } from "./preview-uid-pool";
-import { reapPreviewNetns } from "./preview-netns";
 import { getPreviewQuota } from "./preview-rate-limit";
 
 const log = logger.child("preview.reaper");
@@ -43,9 +42,6 @@ export interface ReapPreviewDeps {
   /** Quarantine the conversation's preview uid (withhold from the pool) when
    *  the kill could NOT be confirmed. Defaults to the live uid pool. */
   quarantineUid?: (conversationId: string) => boolean;
-  /** Release the conversation's netns allocation (hardened mode). Defaults to
-   *  the live netns registry — a no-op in uid mode (nothing allocated). */
-  reapNetns?: (conversationId: string) => boolean;
   /** Drop the watcher's watch so it stops polling for this conversation. */
   unwatch?: (conversationId: string) => void;
   /** Forget a revoked preview's quota accounting (so a freed id doesn't leak
@@ -142,11 +138,6 @@ export async function reapPreviewConversation(
     }
   } catch (err) {
     log.warn("reap: releasing/quarantining uid failed", { conversationId, error: String(err) });
-  }
-  try {
-    (deps.reapNetns ?? reapPreviewNetns)(conversationId);
-  } catch (err) {
-    log.warn("reap: releasing netns failed", { conversationId, error: String(err) });
   }
 
   // 4. Drop the watcher's watch so the daemon stops polling for it.

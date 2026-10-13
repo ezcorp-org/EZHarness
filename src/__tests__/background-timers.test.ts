@@ -164,9 +164,9 @@ let githubDaemonStubSingleton: object | null = null;
 // true and registers NO interval, so the `intervalCalls` length assertions
 // stay at 5. Per-test swaps to `previewWatcherStartMock` cover the
 // failure-isolation paths (start() returns false; start() throws). The
-// source (NetnsPortSource) and consent router (decideOnDetection) the
+// source (ProcPortSource) and consent router (decideOnDetection) the
 // bootstrap also imports are stubbed to inert no-ops so neither pulls in
-// the DB / netns graph.
+// the DB / /proc graph.
 let previewWatcherCtorMock = mock((_opts?: unknown) => {});
 let previewWatcherStartMock = mock(() => Promise.resolve<boolean>(true));
 let previewWatcherStopMock = mock(() => {});
@@ -181,22 +181,13 @@ let lastPreviewWatcherConfig: {
   source?: unknown;
 } | undefined;
 
-// Phase 3a — capability MODE drives the enumeration-source selection in the
-// bootstrap: `caps.mode === "uid" ? new ProcPortSource() : new
-// NetnsPortSource()`. The default stub pins mode "static" (the host's
-// fail-closed posture), so without overriding it the `uid → ProcPortSource`
-// arm is never exercised (audit gap #1). `previewCapabilitiesMock` is
-// re-pointable per-test so a variant can return mode "uid". The two source
-// classes carry ctor spies so a test can assert WHICH source the bootstrap
-// constructed.
-let previewCapabilitiesMock = mock(() => ({
-  static: true,
-  dynamic: false,
-  mode: "static" as "static" | "uid" | "netns",
-  reason: "stub",
-}));
+// Capability MODE decides whether the watcher starts: uid → watch through
+// ProcPortSource; static → no watcher. The default stub is uid so the
+// watcher-lifecycle suites below construct it; a test re-points
+// `previewCapabilitiesMock` to static.
+const UID_CAPS = { static: true, dynamic: true, mode: "uid" as "uid" | "static", reason: null as string | null };
+let previewCapabilitiesMock = mock(() => UID_CAPS);
 let procPortSourceCtorMock = mock(() => {});
-let netnsPortSourceCtorMock = mock(() => {});
 
 // Logger spies. The structured logger writes JSON via process.stdout/stderr.write,
 // bypassing console.* shims, so we mock the logger module itself and assert on
@@ -462,9 +453,9 @@ function installModuleMocks(): void {
   // deps. The watcher's own lifecycle/detection coverage lives in
   // src/__tests__/preview-port-watcher.test.ts; standing the real daemon
   // up here would grab a lockfile and arm a 5th setInterval (breaking the
-  // intervalCalls length assertions). NetnsPortSource + decideOnDetection
-  // are stubbed inert so the bootstrap's `new NetnsPortSource()` and the
-  // onDetected closure don't reach the DB / netns probes.
+  // intervalCalls length assertions). ProcPortSource + decideOnDetection
+  // are stubbed inert so the bootstrap's `new ProcPortSource()` and the
+  // onDetected closure don't reach the DB or /proc.
   mock.module("../runtime/preview/preview-port-watcher", () => ({
     PreviewPortWatcher: class {
       constructor(opts?: typeof lastPreviewWatcherConfig) {
@@ -478,11 +469,6 @@ function installModuleMocks(): void {
     },
   }));
   mock.module("../runtime/preview/preview-port-source", () => ({
-    NetnsPortSource: class {
-      constructor() {
-        netnsPortSourceCtorMock();
-      }
-    },
     ProcPortSource: class {
       constructor() {
         procPortSourceCtorMock();
@@ -497,7 +483,7 @@ function installModuleMocks(): void {
   // /proc, chmod the real .ezcorp/data, or the live bus. Keeping these inert
   // preserves the intervalCalls length assertions (the watcher stub above
   // registers NO setInterval) — see the prior background-timers incident.
-  mock.module("../runtime/preview/preview-netns", () => ({
+  mock.module("../runtime/preview/preview-capabilities", () => ({
     previewCapabilities: () => previewCapabilitiesMock(),
   }));
   mock.module("../runtime/preview/preview-uid-pool", () => ({
@@ -597,16 +583,9 @@ beforeEach(async () => {
   previewWatcherStopMock = mock(() => {});
   lastPreviewWatcherInstance = undefined;
   lastPreviewWatcherConfig = undefined;
-  // Default capability mode is "static" (the host's fail-closed posture);
-  // the ProcPortSource-selection test re-points this to "uid".
-  previewCapabilitiesMock = mock(() => ({
-    static: true,
-    dynamic: false,
-    mode: "static" as "static" | "uid" | "netns",
-    reason: "stub",
-  }));
+  // Default capability mode is uid; the static-mode test re-points this.
+  previewCapabilitiesMock = mock(() => UID_CAPS);
   procPortSourceCtorMock = mock(() => {});
-  netnsPortSourceCtorMock = mock(() => {});
 
   installModuleMocks();
 
@@ -1646,51 +1625,43 @@ describe("startBackgroundTimers — PreviewPortWatcher bootstrap", () => {
     expect(mod._getPreviewPortWatcherForTests()).toBeUndefined();
   });
 
-  // Audit gap #1: the enumeration SOURCE is picked by capability mode —
-  // `caps.mode === "uid" ? new ProcPortSource() : new NetnsPortSource()`.
-  // The default stub pins mode "static", so only the NetnsPortSource arm was
-  // ever exercised. These two variants drive BOTH arms and assert (a) the
-  // right source class was constructed and (b) the selection log names it —
-  // while keeping the load-bearing intervalCalls length at 5 (the watcher
-  // registers NO setInterval; prior daemon-wiring incident).
-  test("capability mode 'uid' selects ProcPortSource (not Netns)", async () => {
+  // The capability MODE decides whether the watcher runs at all. Both arms
+  // keep the load-bearing intervalCalls length at 5 (the watcher registers
+  // NO setInterval; prior daemon-wiring incident).
+  test("uid mode watches through ProcPortSource", async () => {
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(procPortSourceCtorMock).toHaveBeenCalledTimes(1);
+    expect(previewWatcherCtorMock).toHaveBeenCalledTimes(1);
+    expect(loggerInfoMock).toHaveBeenCalledWith(
+      "PreviewPortWatcher source selected by capability mode",
+      expect.objectContaining({ mode: "uid", source: "ProcPortSource" }) as never,
+    );
+    expect(intervalCalls).toHaveLength(5);
+  });
+
+  test("static mode starts no watcher and logs why", async () => {
     previewCapabilitiesMock = mock(() => ({
       static: true,
-      dynamic: true,
-      mode: "uid" as "static" | "uid" | "netns",
-      reason: "portable uid mode",
+      dynamic: false,
+      mode: "static" as "uid" | "static",
+      reason: "dynamic previews disabled: setuid spawn helper not present/functional" as string | null,
     }));
     installModuleMocks();
 
     const mod = await import("../startup/background-timers");
     await mod.startBackgroundTimers();
 
-    // ProcPortSource was constructed; NetnsPortSource was NOT.
-    expect(procPortSourceCtorMock).toHaveBeenCalledTimes(1);
-    expect(netnsPortSourceCtorMock).not.toHaveBeenCalled();
-    // The selection log names the chosen source + mode.
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      "PreviewPortWatcher source selected by capability mode",
-      expect.objectContaining({ mode: "uid", source: "ProcPortSource" }) as never,
-    );
-    // The watcher still registers no interval — count unchanged.
-    expect(intervalCalls).toHaveLength(5);
-  });
-
-  test("capability mode 'static' selects NetnsPortSource (default fail-closed arm)", async () => {
-    // Default stub already pins mode "static"; assert the OTHER arm so the
-    // ternary's branch coverage is complete and the two cases are symmetric.
-    installModuleMocks();
-
-    const mod = await import("../startup/background-timers");
-    await mod.startBackgroundTimers();
-
-    expect(netnsPortSourceCtorMock).toHaveBeenCalledTimes(1);
+    expect(previewWatcherCtorMock).not.toHaveBeenCalled();
     expect(procPortSourceCtorMock).not.toHaveBeenCalled();
-    expect(loggerInfoMock).toHaveBeenCalledWith(
-      "PreviewPortWatcher source selected by capability mode",
-      expect.objectContaining({ mode: "static", source: "NetnsPortSource" }) as never,
-    );
+    expect(mod.getPreviewPortWatcher()).toBeUndefined();
+    expect(loggerInfoMock).toHaveBeenCalledWith("PreviewPortWatcher not started: dynamic previews unavailable", {
+      mode: "static",
+      reason: "dynamic previews disabled: setuid spawn helper not present/functional",
+    });
     expect(intervalCalls).toHaveLength(5);
   });
 

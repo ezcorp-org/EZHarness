@@ -994,7 +994,7 @@
     "src/__tests__/preview-consent.test.ts": 4119,
     "src/__tests__/preview-dynamic-e2e.docker.test.ts": 2212,
     "src/__tests__/preview-jail.test.ts": 2272,
-    "src/__tests__/preview-netns.test.ts": 1677,
+    "src/__tests__/preview-capabilities.test.ts": 1677,
     "src/__tests__/preview-port-source.test.ts": 1977,
     "src/__tests__/preview-port-watcher.test.ts": 3291,
     "src/__tests__/preview-proxy.test.ts": 2030,

@@ -770,7 +770,7 @@
   "src/runtime/preview/preview-bus-registry.ts": 100,
   "src/runtime/preview/preview-consent.ts": 100,
   "src/runtime/preview/preview-detection-bridge.ts": 100,
-  "src/runtime/preview/preview-netns.ts": 100,
+  "src/runtime/preview/preview-capabilities.ts": 100,
   "src/runtime/preview/preview-port-source.ts": 100,
   "src/runtime/preview/preview-port-watcher.ts": 100,
   "src/runtime/preview/preview-proxy.ts": 100,

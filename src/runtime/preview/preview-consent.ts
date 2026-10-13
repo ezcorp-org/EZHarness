@@ -32,7 +32,6 @@ import { logger } from "../../logger";
 import { getSetting, upsertSetting, deleteSetting } from "../../db/queries/settings";
 import { createPreviewSession } from "../../db/queries/preview-sessions";
 import { mintOneTimeCode } from "./preview-token";
-import { getPreviewNetns } from "./preview-netns";
 import type { PreviewDetectedEvent } from "./preview-port-watcher";
 
 const log = logger.child("preview.consent");
@@ -129,7 +128,7 @@ export function buildConsentCardPayload(conversationId: string, port: number): C
 
 /**
  * Expose a detected port: create a `dynamic` preview_sessions row owned by
- * `userId` + scoped to the conversation's netns, then mint a one-time code
+ * `userId` + scoped to the conversation, then mint a one-time code
  * for the browser handoff. Returns the preview id, code, and subdomain
  * label; the host completes `<label>.preview.<host>` into the final URL
  * (the app host isn't known here).
@@ -149,16 +148,11 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
   if (!Number.isInteger(port) || port <= 0) {
     throw new Error(`exposeDetectedPort: invalid port ${port}`);
   }
-  // The conversation's netns id (if allocated) pins the dynamic preview to
-  // the right namespace. Null is acceptable — Phase 3 wires the live
-  // passthrough; the registry row + access gate are valid today.
-  const netns = getPreviewNetns(conversationId);
   const row = await createPreviewSession({
     userId,
     conversationId,
     kind: "dynamic",
     targetPort: port,
-    netnsId: netns?.netnsId ?? null,
   });
   const code = mintOneTimeCode({ previewId: row.id, userId });
   return { previewId: row.id, code, subdomainLabel: row.id };

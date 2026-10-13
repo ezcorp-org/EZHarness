@@ -119,7 +119,6 @@ This is infrastructure — there is no API route or UI page. It is exercised by 
 - `src/extensions/subprocess.ts` — Seam A: `ExtensionProcess.getSpawnArgs` / `resolveSandboxWrap` (extension subprocess wrap; prlimit + preload).
 - `src/runtime/tools/shell.ts` — Seam B: per-run agent shell jailed to the run workspace.
 - `src/extensions/registry.ts` — `buildAllowedEnv` (env whitelist) + `getMcpClient`, which returns a `ReleaseMcpClient`.
-- `src/extensions/mcp-netns.ts` — netns/veth probes and the veth slot allocator (used by preview).
 - `docs/extensions/security.md` — the bundled-extension trust model (ceiling + manifest lockfile), complementary to this OS layer.
 
 ## Features it touches
