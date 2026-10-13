@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { getProjectRoot } from "../../extensions/project-root";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { filesDigest } from "@ezcorp/extension-runner";
 import { FactoryGuestPackageStagingError, stageFactoryGuestPackage, stageFactoryGuestSource } from "../guest-package-build";
@@ -77,7 +77,7 @@ const FEATURE_TEST = [
 
 /** The committed source the guest runs, staged flat, plus the test file the build step requires. */
 export async function referenceCodeGuestFiles(): Promise<WorkspaceFiles> {
-  return stageFactoryGuestPackage(join(import.meta.dir, "../../.."), { sources: REFERENCE_CODE_GUEST_SOURCES, specifiers: REFERENCE_CODE_GUEST_SPECIFIERS, provided: REFERENCE_CODE_GUEST_PROVIDED, generated: { "feature.test.ts": FEATURE_TEST } }, fail);
+  return stageFactoryGuestPackage(getProjectRoot(), { sources: REFERENCE_CODE_GUEST_SOURCES, specifiers: REFERENCE_CODE_GUEST_SPECIFIERS, provided: REFERENCE_CODE_GUEST_PROVIDED, generated: { "feature.test.ts": FEATURE_TEST } }, fail);
 }
 
 /** The digest the build seals; a caller that stages other bytes gets a different one. */

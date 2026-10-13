@@ -5,14 +5,19 @@ type Stage = (entries: readonly { manifestName: string; files: WorkspaceFiles; e
 /**
  * Stages the built-in reference-code runner packages at boot (C05 "Install built-in runner
  * packages", W4H-26), only when factories are enabled. With factories off this returns before it
- * loads anything, so a factory-off boot is unchanged.
+ * loads anything, so a factory-off boot is unchanged. It never throws: a staging failure is reported
+ * and the rest of the boot's staging and wiring continue.
  */
-export async function stageReferenceCodeRunnerPackages(enabled: boolean, stage: Stage): Promise<void> {
+export async function stageReferenceCodeRunnerPackages(enabled: boolean, stage: Stage, report: (error: unknown) => void): Promise<void> {
   if (!enabled) return;
-  const { REFERENCE_CODE_RUNNER_PACKAGES, referenceCodeRunnerPackageFiles } = await import("./runner-packages");
-  const { REFERENCE_CODE_GUEST_ENTRYPOINT } = await import("./guest");
-  const entries = await Promise.all(REFERENCE_CODE_RUNNER_PACKAGES.map(async entry => ({
-    manifestName: entry.manifestName, files: await referenceCodeRunnerPackageFiles(entry.manifestName), entrypoint: REFERENCE_CODE_GUEST_ENTRYPOINT,
-  })));
-  await stage(entries);
+  try {
+    const { REFERENCE_CODE_RUNNER_PACKAGES, referenceCodeRunnerPackageFiles } = await import("./runner-packages");
+    const { REFERENCE_CODE_GUEST_ENTRYPOINT } = await import("./guest");
+    const entries = await Promise.all(REFERENCE_CODE_RUNNER_PACKAGES.map(async entry => ({
+      manifestName: entry.manifestName, files: await referenceCodeRunnerPackageFiles(entry.manifestName), entrypoint: REFERENCE_CODE_GUEST_ENTRYPOINT,
+    })));
+    await stage(entries);
+  } catch (error) {
+    report(error);
+  }
 }

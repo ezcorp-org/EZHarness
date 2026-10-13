@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { getProjectRoot } from "../../extensions/project-root";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { factoryGuestEntrySource, factoryGuestManifest, stageFactoryGuestPackage } from "../guest-package-build";
 import { REFERENCE_CODE_GUEST_ENTRYPOINT, REFERENCE_CODE_GUEST_PROVIDED, REFERENCE_CODE_GUEST_SPECIFIERS } from "./guest";
@@ -72,7 +72,7 @@ export async function referenceCodeRunnerPackageFiles(manifestName: string): Pro
     name: entry.manifestName, version: entry.version, author: "EZCorp", description: `The built-in ${REFERENCE_CODE_EXPORT_PACKAGES[entry.exports[0]!]} runner package (reference.code.v1)`,
     tools: Object.fromEntries(entry.exports.map(name => [name, `reference.code.v1 ${name}`])),
   });
-  return stageFactoryGuestPackage(join(import.meta.dir, "../../.."), {
+  return stageFactoryGuestPackage(getProjectRoot(), {
     sources: RUNNER_SOURCES, specifiers: RUNNER_SPECIFIERS, provided: REFERENCE_CODE_GUEST_PROVIDED,
     generated: { [REFERENCE_CODE_GUEST_ENTRYPOINT]: factoryGuestEntrySource({ manifest, module: "runner-entry.ts", tools: entry.exports }), "feature.test.ts": FEATURE_TEST },
   });
