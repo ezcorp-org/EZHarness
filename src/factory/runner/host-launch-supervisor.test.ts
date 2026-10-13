@@ -12,6 +12,7 @@ import type { Runner, RunnerExecution, RunnerInspection, StartRequest } from "@e
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
+import { buildLimits } from "@ezcorp/extension-runner";
 import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent } from "./host-launch-supervisor";
 
 const hostId = factoryLaunchLease.hostId;
@@ -269,5 +270,38 @@ describe("the host refuses a device it does not have before any container exists
     expect(await factoryHostDevicePresent("/dev/null")).toBe(true);
     expect(await factoryHostDevicePresent("/dev/dri/renderD200")).toBe(false);
     expect(await factoryHostDevicePresent("/etc/hostname")).toBe(false);
+  });
+});
+
+describe("preparing a package in this host's own store (C05, W4H-26)", () => {
+  const files = { "extension.ts": "export {};" };
+  const artifacts = { "extension.ts": "export {};", ".runner/recipe.json": "{}" };
+  class BuildingRunner extends GatedRunner {
+    asked: Array<Parameters<Runner["build"]>[0]> = [];
+    collected: string[] = [];
+    outcome: "succeeded" | "failed" = "succeeded";
+    override async build(input: Parameters<Runner["build"]>[0]): Promise<never> {
+      this.asked.push(input);
+      return { operationId: input.operationId, state: this.outcome, sourceDigest: input.sourceDigest, ...(this.outcome === "succeeded" ? { artifactDigest: "f".repeat(64) } : {}), imageDigest: "image@sha256:x", diagnostics: [], evidence: {} } as never;
+    }
+    override async collectArtifacts(digest: string): Promise<never> { this.collected.push(digest); return structuredClone(artifacts) as never; }
+  }
+  const preparation = { tenantId: "tenant", operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts" };
+
+  test("builds under the host's own build limits and answers the build with the artifacts its store holds", async () => {
+    const runner = new BuildingRunner();
+    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const prepared = await host.prepare!(preparation, new AbortController().signal);
+    expect(runner.asked).toEqual([{ operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts", limits: buildLimits }]);
+    expect(runner.collected).toEqual(["f".repeat(64)]);
+    expect(prepared).toMatchObject({ result: { state: "succeeded", artifactDigest: "f".repeat(64) }, artifacts });
+  });
+
+  test("a failed build is answered as it is, with no artifacts", async () => {
+    const runner = new BuildingRunner();
+    runner.outcome = "failed";
+    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    expect(await host.prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
+    expect(runner.collected).toEqual([]);
   });
 });

@@ -861,8 +861,7 @@ async function installationCollaborators(
 
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
   // C05 "Prepare a bound package for dispatch" (W4H-26): only where a supervisor can be reached.
-  const packagePreparation = config.hostLaunch === undefined ? undefined
-    : factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs), host.report);
+  const packagePreparation = await composePackagePreparation(config, host, blobs, application);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -1043,6 +1042,32 @@ async function composeAttemptDispatch(
     });
   } catch (error) {
     host.report("attempt-dispatch-composition", error);
+    return undefined;
+  }
+}
+
+/**
+ * The package-preparation role (C05 "Prepare a bound package for dispatch", W4H-26): it prepares
+ * through the host supervisor's preparation client, over the same mutual-TLS endpoint and identity
+ * as a launch, so a prepared artifact is in the store the launch reads. Without a host launch
+ * endpoint, or when the client cannot be built, the role holds and the cause is reported.
+ */
+async function composePackagePreparation(
+  config: FactoryStartupConfig,
+  host: FactoryInstallationHost,
+  blobs: BlobStore,
+  application: Pick<FactoryApplication, "grants">,
+): Promise<FactoryRoleDriver | undefined> {
+  const hostLaunch = config.hostLaunch;
+  if (hostLaunch === undefined) return undefined;
+  try {
+    const { createFactoryHostPreparationClient } = await import("./host-preparation-client");
+    const builder = await createFactoryHostPreparationClient({ tenantId: config.tenantId, baseUrl: hostLaunch.baseUrl, serverName: hostLaunch.serverName,
+      tls: { caPath: hostLaunch.tls.caPath, certificatePath: hostLaunch.tls.certificatePath, privateKeyPath: hostLaunch.tls.privateKeyPath, serviceTokenPath: hostLaunch.tls.serviceTokenPath },
+    });
+    return factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs, builder), host.report);
+  } catch (error) {
+    host.report("package-preparation-composition", error);
     return undefined;
   }
 }

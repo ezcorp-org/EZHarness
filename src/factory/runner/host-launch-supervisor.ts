@@ -1,11 +1,11 @@
 import { stat } from "node:fs/promises";
-import { executionLimits } from "@ezcorp/extension-runner";
+import { buildLimits, executionLimits } from "@ezcorp/extension-runner";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { FactoryAttemptRuntimeError, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
 import type { FactoryGuestBroker } from "./guest-model-broker";
-import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor } from "./host-launch-service";
+import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor, FactoryHostPrepared, FactoryHostPreparation } from "./host-launch-service";
 
 export interface FactoryHostLaunchSupervisorOptions {
   readonly runner: Runner;
@@ -280,6 +280,16 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
       await release?.();
       if ("error" in outcome) throw outcome.error;
       return outcome.result;
+    },
+    /**
+     * Builds a package in this host's own store (C05 "Prepare a bound package for dispatch",
+     * W4H-26) under the host's own build limits, never the caller's, and answers the build with
+     * the artifact files that store now holds. A failed build is answered as it is, with none.
+     */
+    async prepare(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared> {
+      const result = await untilAborted(options.runner.build({ operationId: preparation.operationId, sourceDigest: preparation.sourceDigest, files: preparation.files, entrypoint: preparation.entrypoint, limits: buildLimits }), signal);
+      if (result.state !== "succeeded" || !result.artifactDigest) return { result, artifacts: {} };
+      return { result, artifacts: await options.runner.collectArtifacts(result.artifactDigest) };
     },
   });
 }

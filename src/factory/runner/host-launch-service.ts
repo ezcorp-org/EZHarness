@@ -1,3 +1,5 @@
+import type { BuildResult, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { filesDigest } from "@ezcorp/extension-runner";
 import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import type { FactoryPrivateRequest, FactoryPrivateResponse } from "../private-https";
@@ -34,6 +36,29 @@ export interface FactoryHostLaunchSupervisor {
    * there will never be one, and otherwise returns when `signal` ends the wait.
    */
   result(intent: FactoryAttemptLaunchIntent, signal: AbortSignal): Promise<FactoryRunnerResult>;
+  /**
+   * Builds a package in this host's own leased store, the only place a launch can find it. The route
+   * has already checked the source against its digest; absent, the host refuses every preparation.
+   */
+  prepare?(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared>;
+}
+
+/**
+ * One package to prepare on this host (C05 "Prepare a bound package for dispatch", W4H-26): the
+ * release source, the digest the product's binding expects of it, and the build identity.
+ */
+export interface FactoryHostPreparation {
+  readonly tenantId: string;
+  readonly operationId: string;
+  readonly sourceDigest: string;
+  readonly files: WorkspaceFiles;
+  readonly entrypoint: string;
+}
+
+/** The host's build of a prepared package, with the artifact files its own store now holds. */
+export interface FactoryHostPrepared {
+  readonly result: BuildResult;
+  readonly artifacts: WorkspaceFiles;
 }
 
 /** One line in the host's own log for a request it could not answer with a result. */
@@ -55,6 +80,7 @@ export interface FactoryHostLaunchServiceOptions {
   readonly guestTenants?: FactoryHostGuestTenants;
   readonly launchTimeoutMs?: number;
   readonly resultTimeoutMs?: number;
+  readonly prepareTimeoutMs?: number;
   /** Where every refusal is written. Absent, it is the process's standard error, which is the supervisor log. */
   readonly report?: (entry: FactoryHostLaunchReport) => void;
 }
@@ -76,6 +102,13 @@ function standardErrorReport(entry: FactoryHostLaunchReport): void {
   console.error(`[factory-host-launch] ${JSON.stringify(entry)}`);
 }
 
+/**
+ * How long one preparation call waits for the host's build. It stays inside the transport's 300 s
+ * request cap with the client's margin; a build past it answers `host_timeout` and the role retries.
+ */
+export const FACTORY_HOST_PREPARATION_TIMEOUT_MS = 240_000;
+
+export const FACTORY_HOST_PREPARATION_PATH = "/v1/host/preparations";
 export const FACTORY_HOST_LAUNCH_PATH = "/v1/host/launches";
 export const FACTORY_HOST_ATTACH_PATH = "/v1/host/attachments";
 export const FACTORY_HOST_RESULT_PATH = "/v1/host/results";
@@ -116,6 +149,7 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
     guestTenants: options.guestTenants,
     launchTimeoutMs: options.launchTimeoutMs ?? FACTORY_HOST_LAUNCH_TIMEOUT_MS,
     resultTimeoutMs: options.resultTimeoutMs ?? FACTORY_HOST_RESULT_WINDOW_MS,
+    prepareTimeoutMs: options.prepareTimeoutMs ?? FACTORY_HOST_PREPARATION_TIMEOUT_MS,
     report: options.report ?? standardErrorReport,
   });
   if (!snapshot.hostId) throw new Error("Factory host launch service needs its own host and at least one authorized peer.");
@@ -143,6 +177,17 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       catch { refuse(400, "invalid_request"); }
       if (!body || typeof body !== "object" || Array.isArray(body)) refuse(400, "invalid_request");
       const fields = body as Record<string, unknown>;
+      if (request.path === FACTORY_HOST_PREPARATION_PATH) {
+        const preparation = factoryHostPreparationFromWire(fields);
+        // The same identity binding as a launch: only for the tenant the calling peer acts for.
+        if (preparation.tenantId !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
+        // The host builds only the bytes the product's binding names.
+        if (filesDigest(preparation.files) !== preparation.sourceDigest) refuse(409, "source_digest_mismatch");
+        const prepare = snapshot.supervisor.prepare;
+        if (prepare === undefined) refuse(501, "preparation_unavailable");
+        timer = setTimeout(() => controller.abort(), snapshot.prepareTimeoutMs);
+        return json(200, await prepare.call(snapshot.supervisor, preparation, controller.signal));
+      }
       if (request.path !== FACTORY_HOST_LAUNCH_PATH && request.path !== FACTORY_HOST_ATTACH_PATH && request.path !== FACTORY_HOST_RESULT_PATH) refuse(404, "not_found");
       try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
       catch { refuse(400, "invalid_intent"); }
@@ -180,4 +225,15 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       return refused(500, "host_failed", message);
     } finally { if (timer) clearTimeout(timer); }
   };
+}
+
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+
+/** A preparation body, exactly: a tenant, a build identity, a source digest, string files, an entry. */
+export function factoryHostPreparationFromWire(value: Record<string, unknown>): FactoryHostPreparation {
+  const { tenantId, operationId, sourceDigest, files, entrypoint } = value;
+  const text = (field: unknown) => typeof field === "string" && field.length > 0 && field.length <= 512;
+  if (Object.keys(value).sort().join(",") !== "entrypoint,files,operationId,sourceDigest,tenantId" || !text(tenantId) || !text(operationId) || !text(entrypoint)
+    || typeof sourceDigest !== "string" || !SHA256_HEX.test(sourceDigest) || !files || typeof files !== "object" || Array.isArray(files)) refuse(400, "invalid_preparation");
+  return Object.freeze({ tenantId: tenantId as string, operationId: operationId as string, sourceDigest, files: files as WorkspaceFiles, entrypoint: entrypoint as string });
 }
