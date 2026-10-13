@@ -46,8 +46,10 @@
 			@keyframes splash-pulse { 0%,100% { opacity: 0.6; transform: scale(0.95); } 50% { opacity: 1; transform: scale(1); } }
 			/* The app is live once it hydrates: fade the splash out and let clicks
 			   through at once, so one made during the fade reaches the app. The
-			   root +layout.svelte removes the element after the fade. */
-			html[data-hydrated="true"] #splash { opacity: 0; pointer-events: none; }
+			   root +layout.svelte removes the element after the fade. Keyed on
+			   "no longer false", so this file never holds the hydrated value
+			   (src/__tests__/e2e-hydration-gate.test.ts). */
+			html:not([data-hydrated="false"]) #splash { opacity: 0; pointer-events: none; }
 		</style>
 		<div style="display: contents">%sveltekit.body%</div>
 	</body>
