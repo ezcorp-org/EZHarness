@@ -225,7 +225,8 @@ function validateToolCapabilities(
       errors.push(`${path}.custom must be a plain object`);
     } else {
       for (const [k, v] of Object.entries(c.custom)) {
-        if (typeof v !== "boolean" && !Array.isArray(v)) {
+        const isStringArray = Array.isArray(v) && v.every((s) => typeof s === "string");
+        if (typeof v !== "boolean" && !isStringArray) {
           errors.push(`${path}.custom.${k} must be a boolean or string array`);
         }
       }
