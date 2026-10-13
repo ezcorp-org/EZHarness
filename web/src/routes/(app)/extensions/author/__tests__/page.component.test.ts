@@ -179,3 +179,26 @@ test("the approval's OWN profile decides, not the host's mode — a podman-built
   expect(view.queryByTestId("unsandboxed-approval-note")).not.toBeInTheDocument();
   expect(view.queryByLabelText("I understand this extension will run without a sandbox.")).not.toBeInTheDocument();
 });
+
+test("the approval card lists each grant as a readable line and keeps the raw grants collapsed", () => {
+  const input = data();
+  input.state.releases.release.manifest = {
+    name: "weather",
+    version: "1.0.0",
+    kind: "mcp",
+    mcpServers: [{ name: "weather", transport: "stdio" }],
+    permissions: { shell: true, network: ["api.example.com"], hostApi: { routes: ["GET /x"] } },
+  };
+  input.state.approvals = { approval: { ...pendingApproval("podman"), grants: ['["hostApi",{"routes":["GET /x"]}]', '["network",["api.example.com"]]', '["shell",true]'] } };
+  const view = render(AuthorPage, { data: input });
+  const lines = view.getAllByTestId("approval-grant-line").map((line) => line.textContent);
+  expect(lines).toEqual([
+    "Network access to api.example.com",
+    "Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)",
+    "Starts its MCP server process (process spawning allowed)",
+    'hostApi: {"routes":["GET /x"]}',
+  ]);
+  const raw = view.getByTestId("approval-raw-grants");
+  expect(raw.tagName).toBe("DETAILS");
+  expect(raw).not.toHaveAttribute("open");
+});
