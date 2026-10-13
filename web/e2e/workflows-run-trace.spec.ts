@@ -302,8 +302,14 @@ test.describe("Workflow run trace", () => {
 
 	test("a network failure loading the trace is reported, not left spinning", async ({ page, mockApi }) => {
 		await mockApi({});
-		await page.route(`**/api/workflows/runs/${TRACE.run.id}`, (route) => route.abort("connectionrefused"));
-		await page.goto(`/workflows/runs/${TRACE.run.id}`);
+		await page.route(`**/api/workflows/runs/${PARKED.run.id}`, (route) => route.abort("connectionrefused"));
+		await openTrace(page, TRACE);
+		await expect(page.getByTestId("step-row").first()).toBeVisible();
+
+		// In-app, the reused page must report the failure, not keep showing
+		// the previous run's steps as if they were this run's.
+		await clickInAppLink(page, `/workflows/runs/${PARKED.run.id}`);
+		await expect(page).toHaveURL(`/workflows/runs/${PARKED.run.id}`);
 		await expect(page.getByTestId("trace-error")).toBeVisible();
 		await expect(page.getByTestId("step-row")).toHaveCount(0);
 	});

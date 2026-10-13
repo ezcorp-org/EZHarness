@@ -122,12 +122,13 @@ test.describe("Run Detail", () => {
 	});
 
 	test("moving from run A to run B in-app shows run B @evidence", async ({ page, mockApi }, testInfo) => {
+		const runA = makeRun({ id: "run-a", agentName: "summarizer", status: "success" });
 		await mockApi({
-			runs: [
-				makeRun({ id: "run-a", agentName: "summarizer", status: "success" }),
-				makeRun({ id: "run-b", agentName: "translator", status: "error" }),
-			],
+			runs: [runA, makeRun({ id: "run-b", agentName: "translator", status: "error" })],
 		});
+		// Run B is not in the store's recent-runs list (an older run, reached
+		// from a link), so only the page's own load can show it.
+		await page.route((url) => url.pathname === "/api/runs", (route) => route.fulfill({ json: [runA] }));
 		await page.goto("/runs/run-a");
 		await expect(page.getByRole("heading", { name: "summarizer" })).toBeVisible();
 
