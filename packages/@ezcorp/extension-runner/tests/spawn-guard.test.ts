@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bunWorkerArgs, processSpawnFilter, pythonWorkerArgs, SECCOMP_RET_ALLOW, SECCOMP_RET_ERRNO, SECCOMP_RET_KILL_PROCESS, SPAWN_FILTER_ARCHES } from "../src/spawn-guard";
+import { BUN_SHIM_UNDUMPABLE, bunWorkerArgs, processSpawnFilter, pythonWorkerArgs, SECCOMP_RET_ALLOW, SECCOMP_RET_ERRNO, SECCOMP_RET_KILL_PROCESS, SPAWN_FILTER_ARCHES } from "../src/spawn-guard";
 
 /** Runs the classic BPF program on one `struct seccomp_data`, with only the opcodes the filter uses. */
 function evaluate(program: Uint8Array, data: { arch: number; nr: number; arg0?: number }): number {
@@ -47,5 +47,24 @@ describe("worker argv", () => {
     expect(bunWorkerArgs("deny")).toEqual(["--config=/dev/null", "--preload=./.runner/spawn-guard.js", "./.runner/extension.js"]);
     expect(pythonWorkerArgs("allow")).toEqual(["-u", "./.runner/extension.py"]);
     expect(pythonWorkerArgs("deny")).toEqual(["-I", "-u", "./.runner/spawn-guard.py"]);
+  });
+});
+
+describe("the shim's non-dumpable step", () => {
+  // A permission check only: the child opens its parent's memory file
+  // read-only and closes it at once. Both arms open the parent to any tracer,
+  // as Yama scope 0 would, so only the non-dumpable step can refuse the open.
+  const libc = `require("bun:ffi").dlopen("libc.so.6",{prctl:{args:["i32","u64","u64","u64","u64"],returns:"i32"}}).symbols`;
+  const child = `let r;try{const fs=require("node:fs");fs.closeSync(fs.openSync("/proc/"+process.ppid+"/mem","r"));r="opened"}catch(e){r=e.code}console.log(r)`;
+  const parent = (undumpable: boolean) => `${undumpable ? BUN_SHIM_UNDUMPABLE : ""}${libc}.prctl(0x59616d61,0xffffffffffffffffn,0,0,0);const child=require("node:child_process").spawnSync(process.execPath,["-e",${JSON.stringify(child)}]).stdout.toString().trim();console.log(JSON.stringify({child,dumpable:${libc}.prctl(3,0,0,0,0)}))`;
+  const run = (undumpable: boolean) => JSON.parse(Bun.spawnSync([process.execPath, "-e", parent(undumpable)]).stdout.toString());
+
+  test("after it spawns, the shim is non-dumpable and its child cannot open the shim's memory file", () => {
+    const result = run(true);
+    expect(result.dumpable).toBe(0);
+    expect(["EACCES", "EPERM"]).toContain(result.child);
+  });
+  test("FAULT ARM: without the step the same read-only open succeeds", () => {
+    expect(run(false)).toEqual({ child: "opened", dumpable: 1 });
   });
 });

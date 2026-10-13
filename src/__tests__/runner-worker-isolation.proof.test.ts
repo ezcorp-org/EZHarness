@@ -14,6 +14,12 @@
  *   - cgroups:  memory and PID limits are the requested ones
  *   - processes: a worker without the shell grant ("deny") cannot start a
  *               process but can start a thread; an "allow" worker can start one
+ *   - parent:   the shim that spawned the worker is non-dumpable after the spawn
+ *               (PR_GET_DUMPABLE is 0), so the worker is refused a read-only
+ *               open of /proc/<ppid>/mem. This is a permission check only: the
+ *               proof opens read-only, closes at once, and never reads or writes.
+ *               Both arms make the shim PR_SET_PTRACER_ANY, as Yama scope 0
+ *               would, so the refusal comes from the non-dumpable shim alone.
  *
  * Each live control has a FAULT ARM: the same probe through a podman wrapper
  * that drops one flag must show the weakness (the proof can go red), and the
@@ -33,6 +39,7 @@ import { join, resolve } from "node:path";
 import { PodmanRunner, buildLimits, executionLimits, filesDigest, provisionToolchain, type PodmanRunnerOptions } from "@ezcorp/extension-runner";
 import type { ProcessSpawnPolicy } from "@ezcorp/extension-contract";
 import { source } from "../../packages/@ezcorp/extension-runner/tests/helpers";
+import { BUN_SHIM_UNDUMPABLE } from "../../packages/@ezcorp/extension-runner/src/spawn-guard";
 
 const liveEnabled = process.env.EZCORP_RUNNER_ISOLATION_PROOF === "1";
 if (!liveEnabled) console.warn("[runner-isolation-proof] live arms SKIPPED: set EZCORP_RUNNER_ISOLATION_PROOF=1 on a host with rootless Podman");
@@ -70,24 +77,27 @@ interface Observation {
 
 /** The production runner, plus one worker launch through its real argv. */
 class ProofRunner extends PodmanRunner {
-  async observe(): Promise<Observation> {
+  /** Runs one program in a worker container through the production argv. */
+  async program(code: string): Promise<string> {
     const staged = await this.stage({});
     const id = `proof-${randomUUID()}`;
-    try {
-      return JSON.parse(await this.run(id, LIMITS, staged, ["-e", PROBE])) as Observation;
-    } finally {
-      await this.remove(id);
-      await rm(staged, { recursive: true, force: true });
-    }
+    try { return await this.run(id, LIMITS, staged, ["-e", code]); }
+    finally { await this.remove(id); await rm(staged, { recursive: true, force: true }); }
+  }
+  async observe(): Promise<Observation> {
+    return JSON.parse(await this.program(PROBE)) as Observation;
   }
 }
 
 /** A tool that tries to start a process and a thread, and reports both. */
 const SPAWN_PROBE = `async () => { let spawn: string | number; try { spawn = Bun.spawnSync(["/bin/true"]).exitCode ?? "none"; } catch (error) { spawn = (error as { code?: string }).code ?? "error"; } const thread = await new Promise(resolve => { const worker = new Worker(URL.createObjectURL(new Blob(["postMessage(7)"]))); worker.onmessage = event => { resolve(event.data); worker.terminate(); }; }); return { spawn, thread }; }`;
 
-/** Builds the spawn probe once per runner, then invokes it in one worker per start. */
-async function spawnObservation(target: PodmanRunner, processSpawn?: ProcessSpawnPolicy): Promise<unknown> {
-  const files = source(SPAWN_PROBE);
+/** A tool that opens its parent's memory file read-only, closes it at once, and reports the outcome. */
+const PARENT_PROBE = `async () => { try { const fs = require("node:fs"); fs.closeSync(fs.openSync(\`/proc/\${process.ppid}/mem\`, "r")); return { parentMem: "opened" }; } catch (error) { return { parentMem: (error as { code?: string }).code ?? "error" }; } }`;
+
+/** Builds one tool, then invokes it in one worker per start. */
+async function spawnObservation(target: PodmanRunner, processSpawn?: ProcessSpawnPolicy, handler = SPAWN_PROBE): Promise<unknown> {
+  const files = source(handler);
   const build = await target.build({ operationId: randomUUID(), files, sourceDigest: filesDigest(files), entrypoint: "extension.ts", limits: buildLimits });
   expect(build.diagnostics).toEqual([]);
   const workerId = randomUUID();
@@ -100,6 +110,23 @@ async function spawnObservation(target: PodmanRunner, processSpawn?: ProcessSpaw
 class UnguardedRunner extends ProofRunner {
   protected override workerArgs(_policy: ProcessSpawnPolicy): string[] { return super.workerArgs("allow"); }
 }
+
+/** PR_SET_PTRACER with PR_SET_PTRACER_ANY: what Yama scope 0 allows for every process. */
+const SHIM_PTRACER_ANY = `require("bun:ffi").dlopen("libc.so.6",{prctl:{args:["i32","u64","u64","u64","u64"],returns:"i32"}}).symbols.prctl(0x59616d61,0xffffffffffffffffn,0,0,0);`;
+
+/** The production shim, opened to any tracer the way Yama scope 0 would; `dumpable` is the FAULT ARM. */
+function yamaZeroRunner(dumpable: boolean): typeof ProofRunner {
+  return class extends ProofRunner {
+    protected override guestEntrypointArgs(policy: ProcessSpawnPolicy): string[] {
+      const [flag, shim] = super.guestEntrypointArgs(policy) as [string, string];
+      if (!shim.startsWith(BUN_SHIM_UNDUMPABLE)) throw new Error("the shim no longer starts with its non-dumpable step");
+      return [flag, `${dumpable ? "" : BUN_SHIM_UNDUMPABLE}${SHIM_PTRACER_ANY}${shim.slice(BUN_SHIM_UNDUMPABLE.length)}`];
+    }
+  };
+}
+
+/** Runs the shim's non-dumpable step in a worker container, spawns once, then reads PR_GET_DUMPABLE. */
+const SHIM_DUMPABLE_PROBE = `${BUN_SHIM_UNDUMPABLE}const spawned=require("node:child_process").spawnSync(process.execPath,["--version"]).status;const dumpable=require("bun:ffi").dlopen("libc.so.6",{prctl:{args:["i32","u64","u64","u64","u64"],returns:"i32"}}).symbols.prctl(3,0,0,0,0);console.log(JSON.stringify({spawned,dumpable}));`;
 
 /** A `podman` wrapper that rewrites one exact argument (drop it, or swap it). */
 function weakenedPodman(dir: string, from: string, to: string | null): string {
@@ -171,6 +198,16 @@ describe.skipIf(!liveEnabled)("runner worker isolation (live)", () => {
 
   test("without the guard a deny worker starts a process", async () => {
     expect(await spawnObservation(runner(undefined, UnguardedRunner), "deny")).toEqual({ spawn: 0, thread: 7 });
+  }, 300_000);
+
+  test("the shim is non-dumpable after it spawns, so a non-shell worker cannot open its memory file", async () => {
+    expect(JSON.parse(await runner().program(SHIM_DUMPABLE_PROBE))).toEqual({ spawned: 0, dumpable: 0 });
+    const result = await spawnObservation(runner(undefined, yamaZeroRunner(false)), "deny", PARENT_PROBE) as { parentMem: string };
+    expect(["EACCES", "EPERM"]).toContain(result.parentMem);
+  }, 300_000);
+
+  test("FAULT ARM: with a dumpable shim the same read-only open succeeds", async () => {
+    expect(await spawnObservation(runner(undefined, yamaZeroRunner(true)), "deny", PARENT_PROBE)).toEqual({ parentMem: "opened" });
   }, 300_000);
 
   test("without --network=none the worker has a network, and startup refuses it", async () => {
