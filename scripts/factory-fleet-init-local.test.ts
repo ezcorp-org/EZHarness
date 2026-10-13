@@ -17,9 +17,9 @@ test("options come from flags and the environment, with the pinned local runner"
 });
 
 test("a local fleet declares one default S3 release profile: the reference definitions' S3 publication adapter, to each installation's own store", () => {
-  const s3Publication = referenceImageV1.graph.nodes.find((node) => node.kind === "release");
-  const { package: name, manifestName, version, digest, export: exportName } = (s3Publication as { adapter: Record<string, string> }).adapter;
-  expect(LOCAL_RELEASE).toEqual({ profiles: [{ adapter: { package: name!, manifestName: manifestName!, version: version!, digest: digest!, export: exportName! }, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }] });
+  const [s3Publication] = referenceImageV1.graph.nodes.flatMap((node) => node.kind === "release" ? [node.adapter] : []);
+  const { package: name, manifestName, version, digest, export: exportName } = s3Publication!;
+  expect(LOCAL_RELEASE).toEqual({ profiles: [{ adapter: { package: name, manifestName, version, digest, export: exportName }, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }] });
   expect(LOCAL_RELEASE.profiles[0]!.adapter).toMatchObject({ package: "@ezcorp/s3-immutable-publish", export: "publish" });
   expect(LOCAL_RELEASE.github).toBeUndefined();
   // The settings the local fleet writes carry it, and the startup parser behind the fleet parser accepts it.
