@@ -240,14 +240,9 @@ describe("validateManifestV2 — entities[] shape errors", () => {
 describe("validateManifestV2 — reserved-key + collision checks", () => {
   test("rejects settings key starting with __entity:", () => {
     const m = baseManifest();
-    m.settings = {
-      // The settings key regex would actually reject `__entity:foo`
-      // because it requires a leading lowercase letter — but the
-      // entity clamp runs BEFORE that check completes; settings field
-      // validation will also push its own error. We assert the entity
-      // clamp added the reserved-namespace error specifically.
-      "__entity_thing": { type: "text", label: "X" },
-    };
+    // The settings validator also rejects this key (keys must start with a
+    // lowercase letter); the entity clamp names the reserved namespace.
+    m.settings = { "__entity:thing": { type: "text", label: "X" } };
     m.entities = [
       {
         type: "x",
@@ -258,9 +253,9 @@ describe("validateManifestV2 — reserved-key + collision checks", () => {
     ];
     const res = validateManifestV2(m);
     expect(res.valid).toBe(false);
-    // Either the settings-key clamp OR the entity reserved-namespace
-    // clamp may surface the issue; we accept either since the goal is
-    // "manifest is rejected".
+    expect(res.errors).toContain(
+      'settings key "__entity:thing" uses reserved entity namespace (__entity:* / __entity-index:*)',
+    );
   });
 
   test("rejects tools[].name in reserved namespace", () => {
@@ -354,5 +349,65 @@ describe("validateManifestV2 — entity-less manifest still validates", () => {
     const res = validateManifestV2(m);
     expect(res.valid).toBe(true);
     expect(res.errors).toEqual([]);
+  });
+});
+
+describe("validateManifestV2 — entity schema subset and optional fields", () => {
+  /** Errors for one entity whose declaration is merged over a valid one. */
+  function entityErrors(overrides: Record<string, unknown>): string[] {
+    const m = baseManifest();
+    m.entities = [{
+      type: "note",
+      label: "Note",
+      pluralLabel: "Notes",
+      schema: { type: "object", properties: { title: { type: "string" } } },
+      ...overrides,
+    }];
+    return validateManifestV2(m).errors;
+  }
+
+  /** Wrap `inner` as the schema of property `p` of an object schema. */
+  const withProp = (inner: unknown) => ({ schema: { type: "object", properties: { p: inner } } });
+
+  let deep: Record<string, unknown> = { type: "string" };
+  for (let i = 0; i < 9; i++) deep = { type: "array", items: deep };
+
+  test.each([
+    ["a non-object entry", null, "entities[0] must be an object"],
+    ["a non-object root schema type", { schema: { type: "string" } }, 'entities[0].schema.type must be "object"'],
+    ["properties as an array", { schema: { type: "object", properties: [] } }, "entities[0].schema.properties must be an object map"],
+    ["required as a string", { schema: { type: "object", required: "title" } }, "entities[0].schema.required must be an array of strings"],
+    ["a non-string required entry", { schema: { type: "object", required: ["title", 3] } }, "entities[0].schema.required[1] must be a string"],
+    ["a non-boolean additionalProperties", { schema: { type: "object", additionalProperties: {} } }, "entities[0].schema.additionalProperties must be a boolean"],
+    ["a sub-schema that is not an object", withProp("string"), "entities[0].schema.properties.p: must be a JSON Schema object"],
+    ["a bad array item type", withProp({ type: "array", items: { type: "date" } }), 'entities[0].schema.properties.p.items.type must be one of "object"|"string"|"number"|"boolean"|"array"'],
+    ["a non-string enum entry", withProp({ type: "string", enum: ["a", 1] }), "entities[0].schema.properties.p.enum[1] must be a string"],
+    ["a non-string pattern", withProp({ type: "string", pattern: 5 }), "entities[0].schema.properties.p.pattern must be a string"],
+    ["a schema nested past 8 levels", withProp(deep), "entities[0].schema.properties.p.items.items.items.items.items.items.items.items: schema nests too deeply (max 8 levels)"],
+    ["a non-boolean cascadeOnUninstall", { cascadeOnUninstall: "yes" }, "entities[0].cascadeOnUninstall must be a boolean"],
+    ["a non-string preview", { preview: 1 }, "entities[0].preview must be a string when provided"],
+    ["seed as an object", { seed: {} }, "entities[0].seed must be an array"],
+  ])("rejects %s", (_label, overrides, message) => {
+    const errors = overrides === null
+      ? (() => { const m = baseManifest(); m.entities = [null]; return validateManifestV2(m).errors; })()
+      : entityErrors(overrides as Record<string, unknown>);
+    expect(errors).toContain(message);
+  });
+
+  test("accepts nested objects, arrays, numbers, booleans and a valid pattern", () => {
+    expect(entityErrors({
+      cascadeOnUninstall: true,
+      preview: "{{title}}",
+      schema: {
+        type: "object",
+        properties: {
+          title: { type: "string", pattern: "^[a-z]+$", enum: ["a", "b"] },
+          tags: { type: "array", items: { type: "string" } },
+          meta: { type: "object", properties: { rank: { type: "number" }, done: { type: "boolean" } } },
+        },
+        required: ["title"],
+        additionalProperties: false,
+      },
+    })).toEqual([]);
   });
 });
