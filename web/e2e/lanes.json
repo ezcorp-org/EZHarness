@@ -111,6 +111,7 @@
       "web/e2e/chat-graph-evidence.spec.ts",
       "web/e2e/city-conditions-card.spec.ts",
       "web/e2e/code-review-panel-evidence.spec.ts",
+      "web/e2e/composer-ime-enter.spec.ts",
       "web/e2e/composer-suggestions.spec.ts",
       "web/e2e/conversation-list-sidebar-nav.spec.ts",
       "web/e2e/default-model-selection.spec.ts",
