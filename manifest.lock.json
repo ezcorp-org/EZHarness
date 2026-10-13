@@ -159,8 +159,8 @@
       "directory": "docs/extensions/examples/openai-image-gen-2",
       "entrypoint": "extension.ts",
       "files": 18,
-      "bytes": 150796,
-      "sourceDigest": "8b2a39e3365395232554942ee39e837adfac222e63fd4ec39bfd75ef1764205b"
+      "bytes": 150912,
+      "sourceDigest": "f876942f0429c6f7d9faa544fae70540627547f060ddc3c35c565cab5c0e2ad8"
     },
     "orchestration": {
       "directory": "docs/extensions/examples/orchestration",

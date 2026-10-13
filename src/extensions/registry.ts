@@ -24,11 +24,6 @@ import {
 
 const log = logger.child("extensions/registry");
 
-/** Async resolver that produces a fresh env map on each spawn — exported
- *  so callers can type their resolver fns consistently without pulling in
- *  the registry class shape. */
-export type InjectedEnvResolver = () => Promise<Readonly<Record<string, string>>>;
-
 /**
  * Remove the per-extension TMPDIR. Call during extension removal.
  *
@@ -177,54 +172,7 @@ export class ExtensionRegistry {
   private bundledFlags = new Map<string, boolean>();
   /** callerExtId -> depPackageName -> resolvedExtId */
   private depRoutes = new Map<string, Map<string, string>>();
-  /** Extensions verified this session (cleared on reload) */
-  /** extension-NAME (not id) -> env map to inject at spawn time. Populated
-   *  by the web layer for bundled extensions that need loopback-only
-   *  internal credentials (e.g. ai-kit's ezkint_ API key + EZCORP_BASE_URL).
-   *  Keyed by name because the id is DB-generated but the provisioning
-   *  layer only knows the well-known name. */
-  private injectedEnvByName = new Map<string, Readonly<Record<string, string>>>();
-  /** extension-NAME -> async resolver, invoked on each spawn to produce a
-   *  fresh env map. Used for credentials that can expire (OAuth tokens) —
-   *  the resolver is responsible for refreshing upstream and returning
-   *  the current token. Overrides the static map for the same name. */
-  private envResolversByName: Map<string, InjectedEnvResolver> = new Map();
-
   private constructor() {}
-
-  /** Register a set of env vars to inject into the named extension's
-   *  subprocess at spawn time. Intended for bundled-extension credentials
-   *  that are provisioned in the parent process and should never land in
-   *  the top-level process.env (which would leak them to every spawned
-   *  subprocess rather than just the target). Each key is still gated by
-   *  the manifest's declared env permissions — see buildAllowedEnv. */
-  setInjectedEnv(extensionName: string, env: Readonly<Record<string, string>>): void {
-    this.injectedEnvByName.set(extensionName, { ...env });
-  }
-
-  /** Register an async resolver that produces the env map on each spawn.
-   *  Use for credentials with short lifetimes (OAuth access tokens): the
-   *  resolver can hit the credentials layer to refresh before returning.
-   *  A resolver takes precedence over any static entry for the same name.
-   *  Resolver errors are swallowed — the extension is spawned with no
-   *  injected env and reports its own clean error. */
-  setInjectedEnvResolver(extensionName: string, resolver: InjectedEnvResolver): void {
-    this.envResolversByName.set(extensionName, resolver);
-  }
-
-  /** Clear any injected env for the named extension. Use on uninstall so a
-   *  stale credential isn't available to a re-registered extension. */
-  clearInjectedEnv(extensionName: string): boolean {
-    const a = this.injectedEnvByName.delete(extensionName);
-    const b = this.envResolversByName.delete(extensionName);
-    return a || b;
-  }
-
-  /** Test-only: wipe the injected-env registry. */
-  resetInjectedEnvForTests(): void {
-    this.injectedEnvByName.clear();
-    this.envResolversByName.clear();
-  }
 
   static getInstance(): ExtensionRegistry {
     if (!ExtensionRegistry.instance) {

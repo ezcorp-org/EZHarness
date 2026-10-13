@@ -3,11 +3,12 @@
  *
  * Security posture
  * ----------------
- * Bundled extensions like `@ezcorp/ai-kit` need to call back into the same
- * EZCorp server they're running inside. Rather than force the operator to
- * manually generate a long-lived API key, the server auto-provisions a
- * key for each allowlisted bundled extension on startup and injects it
- * into that extension's subprocess env.
+ * Extensions like `@ezcorp/ai-kit` call back into the same EZCorp server
+ * through the host API broker. The broker transport
+ * (`$lib/server/extensions/host-api-transport.ts`) mints a key per
+ * request, bound to the acting user, calls the loopback origin with it,
+ * and revokes it when the response ends. No key reaches an extension
+ * worker.
  *
  * Because these keys bypass the normal user-facing key-management flow,
  * we apply extra controls on top of `verifyApiKey`:
@@ -58,10 +59,9 @@ interface StoredKey {
   hash: Buffer; // raw SHA-256 bytes, used with timingSafeEqual
   scopes: readonly ApiKeyScope[];
   extensionName: string;
-  /** The DB users.id the principal resolves to. Provisioned separately
-   *  via ensureSystemUser() so conversations + other FK-bearing rows can
-   *  legally reference it. Stored here so verify() can return it without
-   *  hitting the DB on every request. */
+  /** The DB users.id the principal resolves to (the acting user, so
+   *  FK-bearing rows can legally reference it). Stored here so verify()
+   *  can return it without hitting the DB on every request. */
   userId: string;
   createdAt: number;
 }
@@ -129,15 +129,11 @@ export interface ProvisionResult {
   keyId: string;
 }
 
-/** Mint a fresh internal key for the named extension. Overwrites any
- *  prior key for the same name (callers opting in at startup always get a
- *  clean slate). Returns the raw key ONCE — the caller is responsible for
- *  handing it to the subprocess env and then discarding the reference.
+/** Mint a fresh internal key under the given name. Overwrites any prior
+ *  key for the same name. Returns the raw key ONCE — the caller uses it
+ *  for its loopback request and then revokes it.
  *
- *  `userId` must be the DB users.id of a previously-seeded system-user
- *  row. `bootstrapBundledCredentials` calls `ensureSystemUser` first,
- *  then passes the resulting id here; see `system-user.ts` for why the
- *  mapping exists (conversations FK → users). */
+ *  `userId` must be an existing DB users.id (conversations FK → users). */
 export function provisionInternalKey(
   extensionName: string,
   scopes: readonly ApiKeyScope[],
@@ -147,7 +143,7 @@ export function provisionInternalKey(
     throw new Error("provisionInternalKey: extensionName required");
   }
   if (!userId || typeof userId !== "string") {
-    throw new Error("provisionInternalKey: userId required (seed via ensureSystemUser)");
+    throw new Error("provisionInternalKey: userId required");
   }
   if (scopes.length === 0) {
     throw new Error("provisionInternalKey: at least one scope required");
@@ -224,9 +220,7 @@ export function verifyInternalKey(
   }
   if (!match) return null;
   return {
-    // Resolves to the DB users.id of the seeded system-user row. Prefix
-    // `sys-` (enforced by systemUserIdFor) keeps the machine-origin
-    // signal obvious in logs while satisfying the users.id FK.
+    // Resolves to the DB users.id the key was minted for.
     userId: match.userId,
     scopes: match.scopes,
     name: `internal:${match.extensionName}`,
@@ -236,7 +230,7 @@ export function verifyInternalKey(
 }
 
 /** Inspection helper for diagnostics + tests. Returns metadata only —
- *  never the hash, raw key, or the resolved system-user id. Explicit
+ *  never the hash, raw key, or the resolved user id. Explicit
  *  field selection prevents future StoredKey fields from leaking through
  *  a spread-based implementation. */
 export function listInternalKeyMetadata(): Array<{

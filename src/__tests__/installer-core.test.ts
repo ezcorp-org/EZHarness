@@ -20,7 +20,7 @@ import { join } from "node:path";
  *    tests exist for; the non-purge path was doing exactly this when the
  *    lifecycle was first run by hand.
  *  - **Port coupling.** The image pins EZCORP_PORT=3000 and in-container
- *    loopback callers (web/src/lib/server/security/bundled-creds.ts) depend on
+ *    loopback callers (web/src/lib/server/extensions/host-api-transport.ts) depend on
  *    it, while ORIGIN must track the HOST port or svelte-adapter-bun defaults
  *    the scheme to https and login breaks. Setting the wrong one of those two
  *    is invisible until a user tries to log in.

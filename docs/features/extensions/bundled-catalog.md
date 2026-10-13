@@ -90,7 +90,7 @@ The catalog is a host concern, not a user-facing API surface — there is no "in
 - **Per-extension settings:** event-only ports map to a per-extension `enabled` setting (e.g. `global:lessonDistillerEnabled` and `global:memoryEnabled` are migrated into the bundled rows' settings on boot).
 - **Admin drift heal:** `getBundledExtensionPath(name)` feeds the admin drift-reapproval flow so it loads the same on-disk manifest the boot path uses.
 - **Manual local install** (for examples / dev): `ezcorp ext install ./docs/extensions/examples/<name>`.
-- **Bundled credential injection:** `bootstrapBundledCredentials` (host-internal creds) and `wireOpenAIExtensionCredentials` (BYOK OpenAI) populate the subprocess env for the `envEscapeHatch` extensions.
+- **Bundled credentials:** no env is injected into a worker. `openai-image-gen-2` asks the credential broker (`ezcorp/env.get` → `src/extensions/credential-broker.ts`) for a short-lived handle that the network broker swaps for the real key on approved hosts only. `ai-kit` calls the EZCorp API through the host API broker (`ezcorp/api.request`), which mints a per-request internal key for the acting user.
 
 Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)` (registry skips the integrity check for bundled names), `getCriticalBundledExtensions()`, `getBundledExtensionPath(name)`, `resolveBundledExtensions(env)`. `getProjectRoot()` is also re-exported from here for back-compat, but it **lives in `src/extensions/project-root.ts`** — import it from there in new code.
 
@@ -108,8 +108,8 @@ Exported helpers from `src/extensions/bundled.ts`: `isBundledExtensionName(name)
 - `scripts/seed-marketplace.ts` — seed/admin path that also calls `assertCriticalExtensions()`.
 - `src/extensions/ez-code-coder-agent.ts` — `ensureEzCodeCoderAgent()` seeds the system `ez-code` coder agent row.
 - `src/extensions/file-organizer-daemon.ts` — host-side watcher daemon backing the `file-organizer` extension.
-- `web/src/lib/server/security/bundled-creds.ts` — `bootstrapBundledCredentials` (host-internal loopback creds for `ai-kit`); called in `context.ts` before `ensureBundledExtensions`.
-- `web/src/lib/server/security/openai-extension-creds.ts` — `wireOpenAIExtensionCredentials`, the per-spawn BYOK cred resolver for `openai-image-gen-2`.
+- `web/src/lib/server/security/openai-extension-creds.ts` — `resolveOpenAIApiKey` / `resolveOpenAIAccessToken`, the BYOK and OAuth resolvers the credential broker uses for `openai-image-gen-2` (wired by `web/src/lib/server/extensions/credential-resolver.ts`).
+- `web/src/lib/server/extensions/host-api-transport.ts` — the host API broker transport `ai-kit` uses; mints and revokes a per-request internal key.
 - `docs/extensions/examples/` — on-disk source for most bundled + example extensions; `packages/@ezcorp/ai-kit`, `extensions/lessons-distiller`, `extensions/memory-extractor` hold the off-`examples` bundled entries.
 
 ## Features it touches

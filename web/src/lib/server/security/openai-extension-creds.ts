@@ -1,47 +1,29 @@
 /**
- * Wires the user's configured OpenAI credential into the
- * `openai-image-gen-2` extension's subprocess at spawn time.
+ * Resolves the user's configured OpenAI credential for the
+ * `openai-image-gen-2` extension.
  *
- * Rationale. The extension is OpenAI-only (per its manifest) and needs
- * either an `sk-…` API key or an OAuth access token to authenticate.
- * Rather than making the user duplicate that into the container's
- * process.env, we read whatever is already configured in the platform
- * (BYOK key via admin settings OR OAuth via the OpenAI sign-in flow)
- * and inject it only into THIS extension's subprocess.
+ * The extension is OpenAI-only (per its manifest) and needs either an
+ * `sk-…` API key or an OAuth access token. Rather than making the user
+ * duplicate that into an env var, we read whatever is already configured
+ * in the platform (BYOK key via admin settings OR OAuth via the OpenAI
+ * sign-in flow). The credential broker
+ * (`src/extensions/credential-broker.ts`, wired by
+ * `$lib/server/extensions/credential-resolver.ts`) calls these resolvers
+ * on each `ezcorp/env.get`, so an OAuth token that expires mid-session is
+ * refreshed before use. The worker only ever sees a short-lived handle.
  *
- * We register an *async resolver* with the ExtensionRegistry so the
- * credential is fetched fresh on every spawn. That way an OAuth token
- * that expires mid-session is refreshed transparently by the
- * credential layer before it reaches the extension.
- *
- * If no credential is configured, the resolver returns an empty env
- * map; the extension produces its own clean "set OPENAI_API_KEY or
- * OPENAI_ACCESS_TOKEN" error for the caller.
+ * If no credential is configured, a resolver returns null; the extension
+ * produces its own clean "set OPENAI_API_KEY or OPENAI_ACCESS_TOKEN"
+ * error for the caller.
  */
 
-import { ExtensionRegistry } from "$server/extensions/registry";
 import { getSetting } from "$server/db/queries/settings";
 import { decrypt } from "$server/providers/encryption";
 import { getEnvApiKey } from "@earendil-works/pi-ai/compat";
 import type { OAuthCredentials } from "@earendil-works/pi-ai";
 import { resolveOAuthAuth } from "$server/providers/credential-store";
 
-export const OPENAI_IMAGE_GEN_EXT_NAME = "openai-image-gen-2";
 const OAUTH_PROVIDER_ID = "openai-codex";
-
-/** Build the env map from whichever credentials are available. Both are
- *  injected when both exist — the extension picks the right path
- *  (OAuth → Codex Responses; API key → public Images API). Exported
- *  for tests. */
-export function buildOpenAIInjectedEnv(
-  apiKey: string | null | undefined,
-  accessToken: string | null | undefined,
-): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (typeof apiKey === "string" && apiKey.length > 0) out.OPENAI_API_KEY = apiKey;
-  if (typeof accessToken === "string" && accessToken.length > 0) out.OPENAI_ACCESS_TOKEN = accessToken;
-  return out;
-}
 
 /**
  * Resolve the OpenAI BYOK API key (`sk-…`) from admin settings, falling
@@ -120,27 +102,7 @@ export async function resolveOpenAIAccessToken(): Promise<string | null> {
   } catch {
     // Unchanged contract: this resolver is best-effort. A failed refresh
     // yields no token and the extension emits its own "set OPENAI_API_KEY or
-    // OPENAI_ACCESS_TOKEN" error, rather than failing the spawn.
+    // OPENAI_ACCESS_TOKEN" error, rather than failing the call.
     return null;
   }
-}
-
-/** Register a per-spawn resolver for the openai-image-gen-2 extension. */
-export function wireOpenAIExtensionCredentials(
-  registry: ExtensionRegistry = ExtensionRegistry.getInstance(),
-  resolvers: {
-    apiKey?: () => Promise<string | null>;
-    accessToken?: () => Promise<string | null>;
-  } = {},
-): void {
-  const apiKeyFn = resolvers.apiKey ?? resolveOpenAIApiKey;
-  const accessTokenFn = resolvers.accessToken ?? resolveOpenAIAccessToken;
-  registry.setInjectedEnvResolver(OPENAI_IMAGE_GEN_EXT_NAME, async () => {
-    try {
-      const [apiKey, accessToken] = await Promise.all([apiKeyFn(), accessTokenFn()]);
-      return buildOpenAIInjectedEnv(apiKey, accessToken);
-    } catch {
-      return {};
-    }
-  });
 }
