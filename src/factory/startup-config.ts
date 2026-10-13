@@ -16,6 +16,7 @@
  * credential value, matching `parseFactoryOrchestratorProcessConfig`.
  */
 import { resolve } from "node:path";
+import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryModelPin } from "@ezcorp/factory-sdk";
 import { factoryModelSamplingOptions } from "./model-configuration";
 import { factoryModelPinMatchesRunner } from "./native-runner-policy";
@@ -497,8 +498,12 @@ function wellFormedProfileModel(runner: Record<string, string>, model: unknown):
 function wellFormedRunnerProfile(value: unknown): boolean {
   const pinned = isPlainRecord(value) && Object.hasOwn(value, "model");
   if (!isPlainRecord(value) || !exactKeys(value, pinned ? ["runner", "resourceClass", "allocation", "allowedCapabilities", "model"] : ["runner", "resourceClass", "allocation", "allowedCapabilities"])) return false;
-  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : RUNNER_KEYS)) return false;
-  if (pinned && (!SHA256_DIGEST.test(value.runner.configurationDigest!) || !wellFormedProfileModel(value.runner, value.model))) return false;
+  // An unpinned runner may still name a configuration digest (reference.code.v1's snapshot and freeze
+  // runners do); the policy matches the node's runner field for field, so the profile must carry it too.
+  const configured = isPlainRecord(value.runner) && Object.hasOwn(value.runner, "configurationDigest");
+  if (!wellFormedRunner(value.runner, pinned ? [...RUNNER_KEYS, "configurationDigest", "model"] : configured ? [...RUNNER_KEYS, "configurationDigest"] : RUNNER_KEYS)) return false;
+  if ((pinned || configured) && !SHA256_DIGEST.test(value.runner.configurationDigest!)) return false;
+  if (pinned && !wellFormedProfileModel(value.runner, value.model)) return false;
   if (!wellFormed("identity", value.resourceClass)) return false;
   if (!Array.isArray(value.allowedCapabilities) || value.allowedCapabilities.length > 64
     || value.allowedCapabilities.some((capability) => !wellFormed("identity", capability))
@@ -795,10 +800,20 @@ const checkRunnerProfiles: StartupCheck = (value, { invalid }) => {
     const pin = (profile as { model?: FactoryModelPin }).model;
     if (pin !== undefined && (installationPin?.provider !== pin.provider || installationPin?.model !== pin.model)) invalid.push(`runnerProfiles.profiles[${index}].model`);
   }
-  // A resource class named twice would make the admission profile map
-  // depend on declaration order, which is not a fact an operator states.
-  const classes = section.profiles.map((profile) => (profile as { resourceClass?: unknown }).resourceClass);
-  if (new Set(classes).size !== classes.length) invalid.push("runnerProfiles.profiles");
+  // A resource class named twice with different allocations would make the
+  // admission profile map depend on declaration order, which is not a fact an
+  // operator states. Runners that share a class with an equal allocation give
+  // the same map in any order (W4H-26: reference.code.v1's tasks name no class).
+  const allocations = new Map<unknown, string>();
+  const conflicting = (section.profiles as Array<{ resourceClass?: unknown; allocation?: unknown }>).some((profile) => {
+    const allocation = canonicalJson(profile.allocation ?? null);
+    const first = allocations.get(profile.resourceClass) ?? allocation;
+    allocations.set(profile.resourceClass, first);
+    return first !== allocation;
+  });
+  // A runner declared twice is refused here as FactoryNativeRunnerPolicy refuses it at composition.
+  const declared = section.profiles.map((profile) => canonicalJson((profile as { runner?: unknown }).runner ?? null));
+  if (conflicting || new Set(declared).size !== declared.length) invalid.push("runnerProfiles.profiles");
 };
 
 /** The declared release destinations; returns their names when the list itself is well formed. */

@@ -102,10 +102,14 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
   if (!keys(value, "control,database,fleetId,image,ingress,installations,profile,release,roots,schemaVersion,storage,temporal") || settings.schemaVersion !== FACTORY_FLEET_SCHEMA) throw fleetSettingsInvalid(["document"]);
   const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
   if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
-  // The runner profiles must be exactly what the startup document admits.
-  try { parseFactoryStartupConfig(runnerProbeDocument(settings.installations.runnerProfiles)); }
-  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
+  parseFactoryFleetRunnerProfiles(settings.installations.runnerProfiles);
   return Object.freeze(JSON.parse(JSON.stringify(settings)) as FactoryFleetSettings);
+}
+
+/** The runner profiles must be exactly what the startup document admits; refused by the one name otherwise. */
+export function parseFactoryFleetRunnerProfiles(runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"]): void {
+  try { parseFactoryStartupConfig(runnerProbeDocument(runnerProfiles)); }
+  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
 }
 
 /** A minimal startup document carrying only the runner profiles, so the startup parser judges them. */

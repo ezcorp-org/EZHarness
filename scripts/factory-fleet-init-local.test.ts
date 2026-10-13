@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { pathToFileURL } from "node:url";
+import { referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { parseFactoryFleetRunnerProfiles } from "../src/factory/provisioning/fleet";
 import { LOCAL_RUNNER_PROFILES, factoryFleetInitOptions, startFactoryFleetInit } from "./factory-fleet-init-local";
 
 const env = { FACTORY_TEST_POSTGRES_URL: "postgres://u:p@127.0.0.1:5432/db", EZCORP_FACTORY_STORAGE_SECRETS_DIR: "/run/user/1/storage" };
@@ -22,4 +24,15 @@ test("the entry runs only as the process entry and returns the written settings 
   try { expect(await startFactoryFleetInit(["bun", script, "--fleet", "w", "--root", "/r", "--image", "i", "--revision", "r"], pathToFileURL(script).href, write)).toBe("/r/fleet.json"); }
   finally { for (const key of Object.keys(env)) if (!(key in original)) delete process.env[key]; }
   expect(written).toHaveLength(1);
+});
+
+test("the local fleet declares reference.code.v1's guest task runners with a slugify-sized budget, and the startup parser admits them (W4H-26)", () => {
+  const declared = LOCAL_RUNNER_PROFILES.profiles.map(profile => profile.runner);
+  for (const exported of ["snapshotRepository", "freezeGitTree"]) {
+    const node = referenceCodeV1.graph.nodes.find(candidate => candidate.kind === "task" && candidate.runner.export === exported);
+    expect(node?.kind === "task" ? node.runner : undefined).toBeDefined();
+    expect(declared).toContainEqual(node?.kind === "task" ? node.runner : undefined);
+  }
+  for (const profile of LOCAL_RUNNER_PROFILES.profiles) expect(profile.allocation.budget.tokens).toBe(50_000);
+  expect(() => parseFactoryFleetRunnerProfiles(LOCAL_RUNNER_PROFILES)).not.toThrow();
 });
