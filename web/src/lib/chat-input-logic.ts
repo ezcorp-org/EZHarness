@@ -25,3 +25,18 @@ export function shouldAutofocusComposer(args: {
 }): boolean {
 	return args.loaded && args.messageCount === 0 && !args.disabled;
 }
+
+/**
+ * True when a keydown belongs to an IME composition: Enter confirms a
+ * Japanese, Chinese or Korean candidate there, it does not mean "send".
+ * Safari ends the composition before that keydown, so it is marked only
+ * by keyCode 229.
+ */
+export function isImeKeydown(e: KeyboardEvent): boolean {
+	return e.isComposing || e.keyCode === 229;
+}
+
+/** Enter without Shift, outside an IME composition: the "send" key. */
+export function isSubmitEnter(e: KeyboardEvent): boolean {
+	return e.key === "Enter" && !e.shiftKey && !isImeKeydown(e);
+}

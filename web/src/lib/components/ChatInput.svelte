@@ -32,7 +32,7 @@
 	} from "$lib/composer-suggest-logic";
 	import type { ToolDefinition } from '../../../../src/extensions/types';
 	import { connectionState } from "$lib/stores/connection";
-	import { isChatDisabled, chatPlaceholder, setComposerDisplay } from "$lib/chat-input-logic";
+	import { isChatDisabled, chatPlaceholder, isImeKeydown, setComposerDisplay } from "$lib/chat-input-logic";
 	import { isNavBlockedByOverlay } from "$lib/chat-prompt-nav.js";
 	import { detectMentionTrigger, insertMentionToken, commitCommandLiteral, getSegments, parseMentions, descendIntoFolder, MENTION_REGEX } from "$lib/mention-logic";
 	import { toDisplay, displayTokenText, applyDisplayEdit, displayPosToWire, wirePosToDisplay } from "$lib/mention-display";
@@ -722,9 +722,8 @@
 
 	function handleKeydown(e: KeyboardEvent) {
 		// Keys that drive an IME (Enter confirms a candidate, arrows pick one)
-		// belong to the IME. Safari ends the composition before this keydown,
-		// so it is marked only by keyCode 229.
-		if (isComposing || e.isComposing || e.keyCode === 229) return;
+		// belong to the IME.
+		if (isComposing || isImeKeydown(e)) return;
 
 		// Delegate navigation keys to whichever menu is open
 		const activeMenu = mentionOpen ? popoverRef : showToolPicker ? toolPickerRef : null;

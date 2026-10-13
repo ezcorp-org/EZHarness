@@ -171,7 +171,7 @@
 	import { useSelectMode } from "$lib/chat/page-handlers/useSelectMode.svelte.js";
 	import { makeSendMessage } from "$lib/chat/page-handlers/send-message.js";
 	import { attachStreamResume } from "$lib/chat/page-handlers/stream-resume.svelte.js";
-	import { shouldAutofocusComposer } from "$lib/chat-input-logic.js";
+	import { isSubmitEnter, shouldAutofocusComposer } from "$lib/chat-input-logic.js";
 	import {
 		backgroundFetch,
 		userFetch,
@@ -2608,7 +2608,7 @@
 								class="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface-tertiary)] p-2 text-sm text-[var(--color-text-primary)] focus:border-[var(--color-accent)] focus:outline-none resize-y"
 								rows="3"
 								onkeydown={(e) => {
-									if (e.key === "Enter" && !e.shiftKey) {
+									if (isSubmitEnter(e)) {
 										e.preventDefault();
 										submitEdit(msg);
 									}

@@ -74,6 +74,19 @@ describe("PanelChatInput", () => {
 		expect(onsubmit).toHaveBeenCalledTimes(1);
 	});
 
+	// Regression: Enter that confirms an IME candidate sent the message.
+	test("Enter that confirms an IME candidate does not send", async () => {
+		const onsubmit = vi.fn(async () => {});
+		render(PanelChatInput, { onsubmit });
+		const input = screen.getByRole("combobox");
+		await fireEvent.input(input, { target: { value: "こんにちは" } });
+		await fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+		await fireEvent.keyDown(input, { key: "Enter", keyCode: 229 });
+		expect(onsubmit).not.toHaveBeenCalled();
+		await fireEvent.keyDown(input, { key: "Enter" });
+		await waitFor(() => expect(onsubmit).toHaveBeenCalledWith("こんにちは"));
+	});
+
 	test("searches mentions after its debounce and inserts the chosen token through keyboard navigation", async () => {
 		vi.useFakeTimers();
 		searchMentions.mockResolvedValueOnce([
