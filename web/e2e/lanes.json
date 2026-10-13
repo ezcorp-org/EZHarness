@@ -94,6 +94,7 @@
       "web/e2e/file-organizer-real.spec.ts"
     ],
     "evidence": [
+      "web/e2e/admin-dashboard-edges.spec.ts",
       "web/e2e/admin-routing-cost.spec.ts",
       "web/e2e/agent-detail-actions.spec.ts",
       "web/e2e/agent-detail-breadcrumb.spec.ts",

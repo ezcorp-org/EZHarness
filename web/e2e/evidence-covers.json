@@ -607,5 +607,8 @@
   "web/e2e/extension-detail-edges.spec.ts": [
     "web/src/routes/(app)/extensions/[id]/+page.svelte",
     "web/src/lib/components/extensions/UninstallDialog.svelte"
+  ],
+  "web/e2e/admin-dashboard-edges.spec.ts": [
+    "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ]
 }
