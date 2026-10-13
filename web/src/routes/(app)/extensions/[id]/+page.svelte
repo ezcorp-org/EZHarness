@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parseMcpHeaders } from "$lib/extensions/mcp-headers.js";
 	import { page } from "$app/stores";
 	import { onMount } from "svelte";
 	import { store } from "$lib/stores.svelte.js";
@@ -619,17 +620,6 @@
 		mcpEditOpen = true;
 	}
 
-	function parseHeaders(raw: string): Record<string, string> {
-		const out: Record<string, string> = {};
-		for (const line of raw.split(/\r?\n/)) {
-			const idx = line.indexOf(":");
-			if (idx === -1) continue;
-			const k = line.slice(0, idx).trim();
-			const v = line.slice(idx + 1).trim();
-			if (k) out[k] = v;
-		}
-		return out;
-	}
 
 	async function saveMcpEdit() {
 		if (!ext) return;
@@ -649,7 +639,7 @@
 					errorMsg = "URL is required for http/sse transport";
 					return;
 				}
-				server = { transport: mcpTransport, name: mcpName.trim(), url: mcpUrl.trim(), headers: parseHeaders(mcpHeaders) };
+				server = { transport: mcpTransport, name: mcpName.trim(), url: mcpUrl.trim(), headers: parseMcpHeaders(mcpHeaders) };
 			}
 
 			const staged = await updateMcpServer(ext.id, {

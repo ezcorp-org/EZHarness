@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { parseMcpHeaders } from "$lib/extensions/mcp-headers.js";
 	import { onMount, onDestroy, untrack } from "svelte";
   import { goto } from "$app/navigation";
   import { extensionReviewLocation } from "$lib/api";
@@ -228,17 +229,6 @@
 		return res.statusText || fallback;
 	}
 
-	function parseHeaders(raw: string): Record<string, string> {
-		const out: Record<string, string> = {};
-		for (const line of raw.split(/\r?\n/)) {
-			const idx = line.indexOf(":");
-			if (idx === -1) continue;
-			const k = line.slice(0, idx).trim();
-			const v = line.slice(idx + 1).trim();
-			if (k) out[k] = v;
-		}
-		return out;
-	}
 
 	async function startMcpInstall() {
 		errorMsg = "";
@@ -259,7 +249,7 @@
 				errorMsg = "URL is required for http/sse transport";
 				return;
 			}
-			const headers = parseHeaders(mcpHeaders);
+			const headers = parseMcpHeaders(mcpHeaders);
 			server = { transport: mcpTransport, name: mcpName.trim(), url: mcpUrl.trim(), headers };
 		}
 

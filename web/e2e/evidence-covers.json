@@ -603,5 +603,9 @@
   ],
   "web/e2e/extensions-library-edges.spec.ts": [
     "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/extension-detail-edges.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/lib/components/extensions/UninstallDialog.svelte"
   ]
 }
