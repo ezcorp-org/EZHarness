@@ -18,6 +18,7 @@ import {
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
   parseFactorySupervisorProcessConfig,
   factoryHostRunnerProbe,
+  factoryProvisionedRunnerLoader,
   runConfiguredFactorySupervisor,
   startFactoryConfiguredHostServices,
   runFactorySupervisorMain,
@@ -426,6 +427,22 @@ describe("factoryHostRunnerProbe", () => {
 
     await probe.probe(config);
     expect(constructed).toHaveLength(2);
+  });
+
+  test("the host's runner is constructed with the pinned toolchain, provisioned once per load (W4H-26)", async () => {
+    const constructed: unknown[] = [];
+    let provisioned = 0;
+    const toolchain = { sdkFiles: { "node_modules/@ezcorp/sdk/package.json": "{}" }, toolchainFiles: { "node_modules/typescript/package.json": "{}" } };
+    class PodmanRunner {
+      constructor(options: unknown) { constructed.push(options); }
+      async initialize(): Promise<void> {}
+      async close(): Promise<void> {}
+    }
+    const load = factoryProvisionedRunnerLoader(async () => ({ PodmanRunner: PodmanRunner as never, provisionToolchain: async () => { provisioned += 1; return toolchain; } }));
+    const Runner = await load();
+    new Runner({ root: "/tmp/w4h26-runner-root" });
+    expect(constructed).toEqual([{ root: "/tmp/w4h26-runner-root", ...toolchain }]);
+    expect(provisioned).toBe(1);
   });
 
   test("closing before any probe is safe", async () => {

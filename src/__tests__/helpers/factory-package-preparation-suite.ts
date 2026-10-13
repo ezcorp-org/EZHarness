@@ -142,6 +142,24 @@ test("the package-preparation role prepares each bound package once its trust is
   expect(builds).toBe(0);
 });
 
+test("a build that is not the binding's is refused by name and writes no receipt; a failed build names the builder's diagnostics (W4H-26)", async () => {
+  const context = await packageContext();
+  const build = (answer: Partial<Awaited<ReturnType<Runner["build"]>>>): Pick<Runner, "build" | "collectArtifacts"> => ({
+    async build(input) { return { operationId: input.operationId, state: "succeeded", sourceDigest: input.sourceDigest, artifactDigest: context.artifactDigest, imageDigest: context.current.imageDigest, manifest: context.current.manifest, evidence: context.current.evidence, diagnostics: [], ...answer }; },
+    async collectArtifacts() { throw new Error("nothing is built yet"); },
+  });
+  const bind = context.preparations(build({}));
+  await bind.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-mismatch");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-mismatch");
+  // The builder answers another artifact than the one the binding names.
+  await expect(context.preparations(build({ artifactDigest: "f".repeat(64) })).prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_build_mismatch" });
+  // A failed build says why, in the builder's own words.
+  const failed = await context.preparations(build({ state: "failed", artifactDigest: undefined, diagnostics: [{ code: "toolchain_unavailable", message: "Pinned TypeScript toolchain must be provisioned" }, { code: "bare" }] as never })).prepare(projectId, reference).catch((error: unknown) => error);
+  expect(failed).toMatchObject({ code: "factory_package_build_mismatch", detail: "toolchain_unavailable: Pinned TypeScript toolchain must be provisioned; bare" });
+  await expect(context.preparations(build({ state: "failed", artifactDigest: undefined })).prepare(projectId, reference)).rejects.toMatchObject({ detail: "failed" });
+  expect(await bind.pendingPreparations()).toEqual([{ projectId, reference }]);
+});
+
 test("the package-preparation role reports a refusal the package earned as a fault, and a builder failure as backpressure", async () => {
   const item = { projectId, reference };
   for (const [error, disposition] of [[new FactoryPackagePreparationError("factory_package_release_stale"), "fault"], [new Error("supervisor unavailable"), "transient"]] as const) {

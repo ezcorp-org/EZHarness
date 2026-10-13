@@ -63,6 +63,9 @@ export async function factoryHostDevicePresent(path: string): Promise<boolean> {
  */
 export const FACTORY_HOST_RESULT_RETENTION_MS = 15 * 60 * 1_000;
 
+/** How many preparations' outcomes this host keeps for a retry; one per bound package version is plenty. */
+export const FACTORY_HOST_PREPARATION_RETENTION = 64;
+
 const DIAGNOSTIC_LIMIT = 1_024;
 /** How long a dead guest's exit code may take to arrive before its account goes without it. */
 const EXIT_CODE_WAIT_MS = 3_000;
@@ -238,6 +241,8 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
     return reconnect(intent);
   };
 
+  const preparations = new Map<string, { readonly sourceDigest: string; readonly entrypoint: string; readonly outcome: Promise<FactoryHostPrepared> }>();
+
   return Object.freeze({
     async launch(intent: FactoryAttemptLaunchIntent): Promise<FactoryHostAttemptHandle> {
       assertHost(intent);
@@ -287,9 +292,22 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
      * the artifact files that store now holds. A failed build is answered as it is, with none.
      */
     async prepare(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared> {
-      const result = await untilAborted(options.runner.build({ operationId: preparation.operationId, sourceDigest: preparation.sourceDigest, files: preparation.files, entrypoint: preparation.entrypoint, limits: buildLimits }), signal);
-      if (result.state !== "succeeded" || !result.artifactDigest) return { result, artifacts: {} };
-      return { result, artifacts: await options.runner.collectArtifacts(result.artifactDigest) };
+      // The runner refuses a build identity it has already used, for its whole life, so a retry of a
+      // preparation whose answer was lost joins or reads the first build instead of failing forever.
+      const known = preparations.get(preparation.operationId);
+      if (known && (known.sourceDigest !== preparation.sourceDigest || known.entrypoint !== preparation.entrypoint)) {
+        throw new FactoryAttemptRuntimeError("invalid_request", "This host already prepared that build identity from other source.");
+      }
+      const outcome = known?.outcome ?? (async (): Promise<FactoryHostPrepared> => {
+        const result = await options.runner.build({ operationId: preparation.operationId, sourceDigest: preparation.sourceDigest, files: preparation.files, entrypoint: preparation.entrypoint, limits: buildLimits });
+        if (result.state !== "succeeded" || !result.artifactDigest) return { result, artifacts: {} };
+        return { result, artifacts: await options.runner.collectArtifacts(result.artifactDigest) };
+      })();
+      if (!known) {
+        preparations.set(preparation.operationId, { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, outcome });
+        for (const id of preparations.keys()) { if (preparations.size <= FACTORY_HOST_PREPARATION_RETENTION) break; preparations.delete(id); }
+      }
+      return untilAborted(outcome, signal);
     },
   });
 }

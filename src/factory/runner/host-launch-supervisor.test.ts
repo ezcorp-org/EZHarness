@@ -13,7 +13,7 @@ import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { buildLimits } from "@ezcorp/extension-runner";
-import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent } from "./host-launch-supervisor";
+import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent, FACTORY_HOST_PREPARATION_RETENTION } from "./host-launch-supervisor";
 
 const hostId = factoryLaunchLease.hostId;
 const completed = factoryLaunchCompletedResult("host-supervisor");
@@ -295,6 +295,29 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
     expect(runner.asked).toEqual([{ operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts", limits: buildLimits }]);
     expect(runner.collected).toEqual(["f".repeat(64)]);
     expect(prepared).toMatchObject({ result: { state: "succeeded", artifactDigest: "f".repeat(64) }, artifacts });
+  });
+
+  test("a repeated build identity joins or reads the first build, and other source under it is refused", async () => {
+    const runner = new BuildingRunner();
+    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const signal = new AbortController().signal;
+    const [first, joined] = await Promise.all([host.prepare!(preparation, signal), host.prepare!(preparation, signal)]);
+    expect(await host.prepare!(preparation, signal)).toEqual(first);
+    expect(joined).toEqual(first);
+    expect(runner.asked).toHaveLength(1);
+    await expect(host.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, signal)).rejects.toThrow("already prepared that build identity from other source");
+    await expect(host.prepare!({ ...preparation, entrypoint: "other.ts" }, signal)).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
+  test("keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out", async () => {
+    const runner = new BuildingRunner();
+    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const signal = new AbortController().signal;
+    for (let index = 0; index <= FACTORY_HOST_PREPARATION_RETENTION; index++) await host.prepare!({ ...preparation, operationId: `build-${index}` }, signal);
+    await host.prepare!({ ...preparation, operationId: `build-${FACTORY_HOST_PREPARATION_RETENTION}` }, signal);
+    expect(runner.asked).toHaveLength(FACTORY_HOST_PREPARATION_RETENTION + 1);
+    await host.prepare!({ ...preparation, operationId: "build-0" }, signal);
+    expect(runner.asked).toHaveLength(FACTORY_HOST_PREPARATION_RETENTION + 2);
   });
 
   test("a failed build is answered as it is, with no artifacts", async () => {
