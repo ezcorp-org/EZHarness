@@ -55,3 +55,16 @@ describe("validateManifestV2: per-tool capabilities", () => {
     expect(errorsFor(caps)).toContain(message);
   });
 });
+
+describe("validateManifestV2: nested block keys", () => {
+  test.each([
+    ["panel", { position: "right", width: 3 }, "panel.width is not a recognized field"],
+    ["resources", { memory: 128, cpu: 2 }, "resources.cpu is not a recognized field"],
+  ])("rejects an unknown key in %s", (field, value, message) => {
+    const { errors } = validateManifestV2({
+      schemaVersion: 2, name: "keys-test", version: "1.0.0", description: "d",
+      author: { name: "t" }, tools: [], [field]: value,
+    });
+    expect(errors).toContain(message);
+  });
+});
