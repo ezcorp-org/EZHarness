@@ -22,6 +22,7 @@ import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./ty
 import type { MemoryProvenance } from "../memory/types";
 import { insertMemoryWithDailyExtensionQuota, memoryOwnedByUser } from "../db/queries/memories";
 import { getProject } from "../db/queries/projects";
+import { toVectorLiteral } from "../memory/vector-utils";
 
 interface MemoryWriteInput {
   content: string;
@@ -215,7 +216,13 @@ export async function handlePiMemory(
       }
       const newContent = params.patch?.content;
       if (newContent !== undefined) {
-        await db.update(memories).set({ content: newContent, updatedAt: new Date() }).where(eq(memories.id, params.id));
+        // Re-embed with the content so recall searches the new text, not the old.
+        const embedding = await (ctx.embedFn ?? defaultEmbed)(newContent);
+        await db.update(memories).set({
+          content: newContent,
+          embedding: sql.raw(toVectorLiteral(embedding)),
+          updatedAt: new Date(),
+        }).where(eq(memories.id, params.id));
       }
       await recordCapabilityCall({
         ctx: handlerCtx, capability: "memory", action: "update",
