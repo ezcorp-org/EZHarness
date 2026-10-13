@@ -387,17 +387,12 @@ export class PodmanRunner implements Runner {
     await this.prepare(false);
     return { processSpawnEnforcement: this.spawnGuardWorks };
   }
-  /**
-   * Reads one start's process policy, refusing "deny" where it cannot be kept,
-   * and stages the guard that keeps it. A start without a policy is "deny".
-   */
-  private async applySpawnPolicy(input: StartRequest, staged: string): Promise<ProcessSpawnPolicy> {
-    const policy = processSpawnPolicy(input.processSpawn);
-    if (policy === "allow") return policy;
+  /** Refuses "deny" where it cannot be kept, and otherwise stages the guard that keeps it. */
+  private async stageSpawnGuard(policy: ProcessSpawnPolicy, staged: string): Promise<void> {
+    if (policy === "allow") return;
     if (!this.spawnGuardWorks) throw new RunnerError("process_spawn_unenforced", "This runner cannot block process creation, so it refuses a worker without the shell grant");
     const [path, source] = this.spawnGuardFile();
     await this.writeStaged(staged, path, source);
-    return policy;
   }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
   /** Build and typecheck guests. They never receive a device, whatever the host configures. */
@@ -738,7 +733,9 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
-      const policy = await this.applySpawnPolicy(input, stage);
+      // A start without a policy is "deny".
+      const policy = processSpawnPolicy(input.processSpawn);
+      await this.stageSpawnGuard(policy, stage);
       // Discovery is a build-phase guest, so it is denied a device even when the
       // host configures one. Every other start uses exactly what it was given.
       const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
