@@ -145,92 +145,72 @@ function validateToolRbacScopes(
  * filesystem?, shell?, env?, storage?, custom?}` — see
  * `CapabilityDeclaration` in `./types.ts`.
  */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((s) => typeof s === "string");
+}
+
+type CapabilityValidator = (path: string, value: unknown, errors: string[]) => void;
+
+/** One validator per `CapabilityDeclaration` key; `path` ends in that key. */
+const TOOL_CAPABILITY_VALIDATORS: Record<string, CapabilityValidator> = {
+  network(path, value, errors) {
+    if (!isPlainObject(value) || !Array.isArray(value.hosts)) {
+      errors.push(`${path} must be { hosts: string[] }`);
+      return;
+    }
+    rejectUnknownKeys(value, path, ["hosts"], errors);
+    if (!isStringArray(value.hosts)) errors.push(`${path}.hosts entries must be strings`);
+  },
+  filesystem(path, value, errors) {
+    if (!isPlainObject(value) || !Array.isArray(value.paths) || !Array.isArray(value.mode)) {
+      errors.push(`${path} must be { paths: string[], mode: ("read"|"write")[] }`);
+      return;
+    }
+    rejectUnknownKeys(value, path, ["paths", "mode"], errors);
+    if (!isStringArray(value.paths)) errors.push(`${path}.paths entries must be strings`);
+    if (!value.mode.every((m) => m === "read" || m === "write")) {
+      errors.push(`${path}.mode entries must be "read" or "write"`);
+    }
+  },
+  shell(path, value, errors) {
+    if (typeof value !== "boolean") errors.push(`${path} must be a boolean`);
+  },
+  env(path, value, errors) {
+    if (!Array.isArray(value)) errors.push(`${path} must be a string array`);
+    else if (!isStringArray(value)) errors.push(`${path} entries must be strings`);
+  },
+  storage(path, value, errors) {
+    if (typeof value !== "boolean") errors.push(`${path} must be a boolean`);
+  },
+  custom(path, value, errors) {
+    if (!isPlainObject(value)) {
+      errors.push(`${path} must be a plain object`);
+      return;
+    }
+    for (const [k, v] of Object.entries(value)) {
+      if (typeof v !== "boolean" && !isStringArray(v)) {
+        errors.push(`${path}.${k} must be a boolean or string array`);
+      }
+    }
+  },
+};
+
 function validateToolCapabilities(
   path: string,
   caps: unknown,
   errors: string[],
 ): void {
-  if (!caps || typeof caps !== "object" || Array.isArray(caps)) {
+  if (!isPlainObject(caps)) {
     errors.push(`${path} must be an object`);
     return;
   }
-  const c = caps as Record<string, unknown>;
-  rejectUnknownKeys(c, path, ["network", "filesystem", "shell", "env", "storage", "custom"], errors);
-  if (c.network !== undefined) {
-    if (
-      !c.network ||
-      typeof c.network !== "object" ||
-      Array.isArray(c.network) ||
-      !Array.isArray((c.network as Record<string, unknown>).hosts)
-    ) {
-      errors.push(`${path}.network must be { hosts: string[] }`);
-    } else {
-      rejectUnknownKeys(c.network as Record<string, unknown>, `${path}.network`, ["hosts"], errors);
-      for (const h of (c.network as { hosts: unknown[] }).hosts) {
-        if (typeof h !== "string") {
-          errors.push(`${path}.network.hosts entries must be strings`);
-          break;
-        }
-      }
-    }
-  }
-  if (c.filesystem !== undefined) {
-    if (
-      !c.filesystem ||
-      typeof c.filesystem !== "object" ||
-      Array.isArray(c.filesystem) ||
-      !Array.isArray((c.filesystem as Record<string, unknown>).paths) ||
-      !Array.isArray((c.filesystem as Record<string, unknown>).mode)
-    ) {
-      errors.push(
-        `${path}.filesystem must be { paths: string[], mode: ("read"|"write")[] }`,
-      );
-    } else {
-      const fs = c.filesystem as { paths: unknown[]; mode: unknown[] };
-      rejectUnknownKeys(c.filesystem as Record<string, unknown>, `${path}.filesystem`, ["paths", "mode"], errors);
-      for (const p of fs.paths) {
-        if (typeof p !== "string") {
-          errors.push(`${path}.filesystem.paths entries must be strings`);
-          break;
-        }
-      }
-      for (const m of fs.mode) {
-        if (m !== "read" && m !== "write") {
-          errors.push(`${path}.filesystem.mode entries must be "read" or "write"`);
-          break;
-        }
-      }
-    }
-  }
-  if (c.shell !== undefined && typeof c.shell !== "boolean") {
-    errors.push(`${path}.shell must be a boolean`);
-  }
-  if (c.env !== undefined) {
-    if (!Array.isArray(c.env)) {
-      errors.push(`${path}.env must be a string array`);
-    } else {
-      for (const e of c.env as unknown[]) {
-        if (typeof e !== "string") {
-          errors.push(`${path}.env entries must be strings`);
-          break;
-        }
-      }
-    }
-  }
-  if (c.storage !== undefined && typeof c.storage !== "boolean") {
-    errors.push(`${path}.storage must be a boolean`);
-  }
-  if (c.custom !== undefined) {
-    if (!c.custom || typeof c.custom !== "object" || Array.isArray(c.custom)) {
-      errors.push(`${path}.custom must be a plain object`);
-    } else {
-      for (const [k, v] of Object.entries(c.custom)) {
-        const isStringArray = Array.isArray(v) && v.every((s) => typeof s === "string");
-        if (typeof v !== "boolean" && !isStringArray) {
-          errors.push(`${path}.custom.${k} must be a boolean or string array`);
-        }
-      }
-    }
+  rejectUnknownKeys(caps, path, Object.keys(TOOL_CAPABILITY_VALIDATORS), errors);
+  for (const [key, validate] of Object.entries(TOOL_CAPABILITY_VALIDATORS)) {
+    if (caps[key] !== undefined) validate(`${path}.${key}`, caps[key], errors);
   }
 }
 
