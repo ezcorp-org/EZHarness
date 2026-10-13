@@ -49,9 +49,9 @@ import { users } from "../db/schema";
 import { listAuditLog } from "../db/queries/audit-log";
 import { findTrustedLocalApproval } from "../db/queries/extension-trusted-local-approvals";
 import { ExtensionRegistry } from "../extensions/registry";
-import { getExtensionLifecycle, resetExtensionServices } from "../extensions/extension-lifecycle-service";
+import { getExtensionLifecycle, getExtensionReleaseBlobs, resetExtensionServices } from "../extensions/extension-lifecycle-service";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
-import { digestObject } from "../extensions/v4/blobs";
+import { digestObject, FileBlobStore, getFiles, putFiles } from "../extensions/v4/blobs";
 
 const ENV = ["EZCORP_EXTENSION_RUNNER", "EZCORP_EXTENSIONS_UNSANDBOXED_ACK", "EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE", "EZCORP_EXTENSION_BLOB_ROOT"] as const;
 const previous = new Map<string, string | undefined>();
@@ -85,6 +85,12 @@ afterAll(async () => {
 });
 
 describe("extension lifecycle service in trusted-local mode", () => {
+  test("the release store a factory preparation reads is the one the lifecycle writes (W4H-26)", async () => {
+    const files = { "extension.ts": "export {};" };
+    const digest = await putFiles(await getExtensionReleaseBlobs(), files, "workspace");
+    expect(await getFiles(new FileBlobStore(blobRoot), digest, "workspace")).toEqual(files);
+  });
+
   test("initialisation installs the runner's approval store and audit sink exactly once", async () => {
     await getExtensionLifecycle();
     await getExtensionLifecycle();

@@ -220,6 +220,8 @@ export async function getExtensionLifecycle(): Promise<ExtensionLifecycle> { ret
 export async function getExtensionControl(): Promise<ExtensionControl> { return (await getServices()).control; }
 export async function getExtensionRunner(): Promise<Runner> { return (await getServices()).runner; }
 export async function getExtensionDeliveryQueue(): Promise<ExtensionDeliveryQueue> { return (await getServices()).deliveries; }
+/** The store the lifecycle writes release sources and artifacts to; a factory package preparation reads its source here (W4H-26). */
+export async function getExtensionReleaseBlobs(): Promise<FileBlobStore> { return (await getServices()).blobs; }
 export async function getExtensionInstallationState(installationId: string) { return (await getServices()).repository.read(installationId); }
 
 export async function getExtensionReleaseArtifacts(installationId: string, releaseId: string): Promise<WorkspaceFiles> {

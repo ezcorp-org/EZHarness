@@ -861,7 +861,7 @@ async function installationCollaborators(
 
   const attempts = await composeAttemptDispatch(config, host, blobs, stores, application, pool, stopper, validation.composed?.settlement);
   // C05 "Prepare a bound package for dispatch" (W4H-26): only where a supervisor can be reached.
-  const packagePreparation = await composePackagePreparation(config, host, blobs, application);
+  const packagePreparation = await composePackagePreparation(config, host, application);
   const settlement = await composeSettlement(config, host, stores, service, pool, stopper);
   const notificationInbox = release === undefined ? undefined
     : factoryNotificationInboxDriver(host.database, new FactoryNotificationDelivery(release.releases), config.tenantId);
@@ -1055,7 +1055,6 @@ async function composeAttemptDispatch(
 async function composePackagePreparation(
   config: FactoryStartupConfig,
   host: FactoryInstallationHost,
-  blobs: BlobStore,
   application: Pick<FactoryApplication, "grants">,
 ): Promise<FactoryRoleDriver | undefined> {
   const hostLaunch = config.hostLaunch;
@@ -1065,7 +1064,9 @@ async function composePackagePreparation(
     const builder = await createFactoryHostPreparationClient({ tenantId: config.tenantId, baseUrl: hostLaunch.baseUrl, serverName: hostLaunch.serverName,
       tls: { caPath: hostLaunch.tls.caPath, certificatePath: hostLaunch.tls.certificatePath, privateKeyPath: hostLaunch.tls.privateKeyPath, serviceTokenPath: hostLaunch.tls.serviceTokenPath },
     });
-    return factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, blobs, builder), host.report);
+    // The release source lives where the v4 lifecycle wrote it, not in the factory's object store.
+    const { getExtensionReleaseBlobs } = await import("../extensions/extension-lifecycle-service");
+    return factoryPackagePreparationDriver(factoryPackageReadiness(host.database, config.tenantId, application.grants, await getExtensionReleaseBlobs(), builder), host.report);
   } catch (error) {
     host.report("package-preparation-composition", error);
     return undefined;
