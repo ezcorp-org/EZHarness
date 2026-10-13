@@ -158,6 +158,7 @@
 	async function loadExtensions() {
 		try {
 			const res = await fetch("/api/extensions", { cache: "no-store" });
+			if (!res.ok) throw new Error(await extractError(res, "Failed to load extensions"));
 			extensions = await res.json();
 		} catch (e) {
 			addToast({ type: "error", message: e instanceof Error ? e.message : "Failed to load extensions" });
@@ -297,10 +298,7 @@
 	async function refreshMcp(id: string) {
 		try {
 			const res = await fetch(`/api/mcp-servers/${id}/refresh`, { method: "POST" });
-			if (!res.ok) {
-				const data = await res.json();
-				throw new Error(data.error || "Refresh failed");
-			}
+			if (!res.ok) throw new Error(await extractError(res, "Refresh failed"));
 			const openUrl = extensionReviewLocation(await res.json());
       addToast({ type: "info", message: "Refresh staged. The active release is unchanged." });
       await goto(openUrl);
