@@ -145,6 +145,7 @@
       "web/e2e/project-context-non-project-routes.spec.ts",
       "web/e2e/project-form-default-path.spec.ts",
       "web/e2e/project-hub.spec.ts",
+      "web/e2e/provider-oauth-paste.spec.ts",
       "web/e2e/rbac-permissions.spec.ts",
       "web/e2e/resume-last-path.spec.ts",
       "web/e2e/routing-experiments-settings.spec.ts",

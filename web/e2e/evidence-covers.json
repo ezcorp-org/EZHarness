@@ -587,5 +587,8 @@
     "web/src/lib/components/ChatInput.svelte",
     "web/src/lib/components/ChatThread.svelte",
     "web/src/lib/components/ez/EzPanel.svelte"
+  ],
+  "web/e2e/provider-oauth-paste.spec.ts": [
+    "web/src/lib/components/ProviderSettings.svelte"
   ]
 }
