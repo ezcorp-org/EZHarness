@@ -23,12 +23,13 @@ except OSError:
     sys.exit(1)
 sys.exit(child.wait())`;
 
-/** The same applied-control facts the Bun probe reports, stated in Python. */
+/** The same applied-control facts the Bun probe reports, stated in Python.
+ *  The root-write check uses world-writable /var/tmp, as the Bun probe does. */
 const pythonProbeProgram = `import json,os
 read=lambda p:open(p).read().strip()
 writable=False
 try:
-    open("/root-write-probe","w").write("x"); writable=True
+    open("/var/tmp/root-write-probe","w").write("x"); writable=True
 except OSError:
     pass
 print(json.dumps({"uid":os.getuid(),"status":read("/proc/self/status"),"memory":read("/sys/fs/cgroup/memory.max"),"swap":read("/sys/fs/cgroup/memory.swap.max"),"cpu":read("/sys/fs/cgroup/cpu.max"),"pids":read("/sys/fs/cgroup/pids.max"),"routes":read("/proc/net/route"),"ipv6":read("/proc/net/ipv6_route"),"writable":writable}))`;

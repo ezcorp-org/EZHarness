@@ -56,7 +56,10 @@ const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
  * the existing exit relay ends the sandbox as soon as it goes.
  */
 const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
-const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
+// The root-write check targets /var/tmp: it is world-writable on the image
+// root, so only `--read-only` stops uid 65534 writing there. A path that an
+// unprivileged user can never write (such as `/`) cannot detect a writable root.
+const probeProgramSource = `const fs=require("node:fs");const read=p=>fs.readFileSync(p,"utf8").trim(); const status=read("/proc/self/status");let writable=false;try{fs.writeFileSync("/var/tmp/root-write-probe","x");writable=true}catch{} console.log(JSON.stringify({uid:process.getuid(),status,memory:read("/sys/fs/cgroup/memory.max"),swap:read("/sys/fs/cgroup/memory.swap.max"),cpu:read("/sys/fs/cgroup/cpu.max"),pids:read("/sys/fs/cgroup/pids.max"),routes:read("/proc/net/route"),ipv6:read("/proc/net/ipv6_route"),writable}));`;
 /**
  * The guest's environment is exactly `HOME`, `TMPDIR`, `BUN_INSTALL_CACHE_DIR`
  * and `PATH`. `--unsetenv-all` drops the image's own `ENV`, which otherwise

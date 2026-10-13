@@ -153,9 +153,10 @@ describe.skipIf(!liveEnabled)("runner worker isolation (live)", () => {
     await expect(weak.initialize()).rejects.toMatchObject({ code: "isolation_probe_failed" });
   }, 120_000);
 
-  test("without --read-only the image root is writable", async () => {
+  test("without --read-only the image root is writable, and startup refuses it", async () => {
     const weak = runner(weakenedPodman(dir, "--read-only", null));
     expect((await weak.observe()).rootWrite).toBe("ok");
+    await expect(weak.initialize()).rejects.toMatchObject({ code: "isolation_probe_failed" });
   }, 120_000);
 });
 
