@@ -3,13 +3,26 @@
 This Worker provides the LLM-only `summarizer` agent. It does not load the host
 executor, database, or native sandbox modules, so it can run in workerd.
 
-Set provider keys as Worker secrets. Do not add them to `wrangler.jsonc`:
+Every API route needs `Authorization: Bearer <AGENTS_API_TOKEN>`. Without
+the `AGENTS_API_TOKEN` secret, the Worker answers every request with 503. A
+missing or wrong token gets 401. Only the CORS preflight (`OPTIONS`) is open,
+because it returns no data.
+
+Set the token and the provider keys as Worker secrets BEFORE you deploy. Do not
+add them to `wrangler.jsonc`:
 
 ```sh
+openssl rand -base64 32 | wrangler secret put AGENTS_API_TOKEN --config worker/wrangler.jsonc
 wrangler secret put OPENAI_API_KEY --config worker/wrangler.jsonc
 wrangler secret put ANTHROPIC_API_KEY --config worker/wrangler.jsonc
 wrangler secret put GOOGLE_API_KEY --config worker/wrangler.jsonc
+wrangler deploy --config worker/wrangler.jsonc
 ```
+
+Give the token only to clients you trust. They all share one token, so the
+Worker cannot tell callers apart: every caller can list every run with
+`GET /api/runs`. A run stores the summary (the model's output), the provider,
+model, token counts and error messages. It does not store the input text.
 
 A run defaults to `anthropic` when `provider` is omitted. It must specify
 `model`, or set `DEFAULT_MODEL` as a non-secret Worker variable. Set
