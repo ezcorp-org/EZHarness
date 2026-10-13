@@ -77,24 +77,14 @@
 	import { filterEmptyAssistantTurns } from "$lib/chat/filter-empty-turns.js";
 
 	let {
-		/** Bypass `getOrCreateEzConversation` — used by tests. */
-		conversationIdOverride,
 		/** Inject the goto used for client-side navigate_to. */
 		goto = appGoto,
 	}: {
-		conversationIdOverride?: string;
 		goto?: (path: string) => Promise<unknown> | unknown;
 	} = $props();
 
-	// Initial value is captured on mount; subsequent `conversationIdOverride`
-	// changes are intentionally ignored — the panel reuses the resolved
-	// id for the rest of the session.
+	// Resolved once on first open; reused for the rest of the session.
 	let conversationId = $state<string | null>(null);
-	$effect(() => {
-		if (!conversationId && conversationIdOverride) {
-			conversationId = conversationIdOverride;
-		}
-	});
 	let messages = $state<Message[]>([]);
 	let activeRunId = $state<string | null>(null);
 	let pendingPrefill = $state<string>("");
@@ -433,9 +423,9 @@
 			});
 		} catch (e) {
 			// Roll back the optimistic user message and surface the error.
+			// Do not rethrow: every caller fires send() with `void`.
 			messages = messages.filter((m) => m.id !== optimisticUserMsg.id);
 			error = (e as Error).message;
-			throw e;
 		}
 	}
 
