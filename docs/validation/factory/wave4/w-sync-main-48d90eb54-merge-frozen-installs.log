@@ -1,0 +1,4 @@
+$ tsc -b tsconfig.build.json
+$ bunx tsc -b tsconfig.build.json
+frozen_installs done
+drift: none

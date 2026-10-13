@@ -1,0 +1,5 @@
+merge: origin/main 48d90eb54 into integ/w00 (W-SYNC: the validation sweep #336)
+
+main #336 (216 files: packages, web, src, docs, manifest.lock.json) merged without a conflict; integ differs from main
+only by receipts and the W4H-24 files, which #336 does not touch. The hook maps 96 files (95 + the orchestrator package test) and runs all of them (EZ_PRECOMMIT_TEST_MAX=96).
+The origin/main gate leg must read 0 findings.
