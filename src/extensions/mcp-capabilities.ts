@@ -19,9 +19,9 @@
  *     was silently dropped, so a stdio MCP server could NEVER be granted a
  *     host — and `mcp-proxy.ts` re-authorizes EVERY CONNECT against exactly
  *     that grant. The proxy denied all egress with no way to allow any.
- *   • A remote (`http`/`sse`) MCP server is never sandboxed at all
- *     (`buildSandboxedMcpSpec` returns those specs untouched), so the
- *     per-dispatch PDP gate is its ONLY governance — and it was inert.
+ *   • A remote (`http`/`sse`) MCP server is a network peer, not a process
+ *     we sandbox, so the per-dispatch PDP gate is its ONLY governance —
+ *     and it was inert.
  *
  * ── The derivation rule ─────────────────────────────────────────────
  *

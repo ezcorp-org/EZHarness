@@ -5,7 +5,7 @@
  * entries (kernel seccomp log-mode hits), filters for the spawned MCP
  * child's PID, and emits one MCP_SECCOMP_VIOLATION audit row per match.
  *
- * Why a separate module from mcp-sandbox.ts:
+ * Why a separate module:
  *   - Unit-testable in isolation: the parser takes string[] in, calls
  *     `insertAuditEntry()` out; no spawn, no FS, no time. Tests in
  *     `src/__tests__/mcp-stage1-soak-reader.test.ts` exercise every
@@ -16,14 +16,16 @@
  *     regex.
  *
  * Audit-write contract: fire-and-forget. Mirrors the established pattern
- * in `mcp-sandbox.ts` and `mcp-proxy.ts` (`.catch(() => {})`). A DB
+ * used by other audit writers (`.catch(() => {})`). A DB
  * blip must not throw from the post-shutdown hook — the MCP has already
  * exited; there is nothing to fail-close on.
  *
  * Tied to:
  *   - `src/extensions/audit-actions.ts`   — MCP_SECCOMP_VIOLATION constant.
- *   - `src/extensions/mcp-sandbox.ts`     — sole production caller (invokes
- *                                           after `proc.exited` resolves).
+ *   - `scripts/shipping-audit-ingest.ts`  — the remaining caller (shipping
+ *                                           audit evidence). The host MCP
+ *                                           sandbox that called it after
+ *                                           each MCP exit is deleted.
  *   - `src/__tests__/mcp-stage1-soak-reader.test.ts` — unit tests.
  */
 
@@ -53,8 +55,7 @@ const CODE_RE = /\bcode=(0x[0-9a-f]+)\b/i;
 const ARCH_RE = /\barch=([0-9a-f]+)\b/i;
 
 /**
- * Per-spawn context for soak-reader audit rows. Same shape mcp-sandbox.ts
- * already threads through `insertAuditEntry` for MCP_NETNS_CREATED.
+ * Per-spawn context for soak-reader audit rows.
  */
 export interface SoakReaderContext {
   userId: string | null;
@@ -68,8 +69,7 @@ export interface SoakReaderContext {
  *
  * Resolves after all `.catch()` chains are attached to the audit-write
  * promises — NOT after the writes complete. This matches the existing
- * fire-and-forget pattern in `mcp-sandbox.ts`: the post-shutdown hook
- * doesn't block the host process on DB roundtrips.
+ * fire-and-forget audit pattern: a caller doesn't block on DB roundtrips.
  *
  * Throwing from this function is contractually forbidden. Any unexpected
  * exception is swallowed locally (the line is skipped). The audit-write

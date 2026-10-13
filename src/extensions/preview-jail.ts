@@ -14,9 +14,8 @@
  * the SAME threat class (arbitrary external binaries — the SDK
  * module-poisoning does NOT apply to them), so the CRITICAL MCP
  * filesystem-confinement fix reuses this builder: see
- * `buildMcpJailBwrapArgs` below + `mcp-sandbox.ts`'s strict
- * (EZCORP_MCP_REQUIRE_SANDBOX=1) leg, and the always-on
- * `EZCORP_MCP_DATA_DIR` tmpfs mask in the launcher's default branch.
+ * `buildMcpJailBwrapArgs` below, which `sandbox/build-sandbox-argv.ts`
+ * uses for its bwrap tier.
  *
  * This module builds an EXPLICIT MINIMAL bind set instead:
  *   - the conversation's work dir (rw) — the only writable host path,
@@ -276,9 +275,7 @@ export interface McpJailInput extends PreviewJailInput {
  *     from the launcher's outer `unshare -U -m --map-root-user`.
  *   - optional `tmpDirs` re-created inside the fresh /tmp tmpfs.
  *
- * Consumed by `mcp-sandbox.ts` under EZCORP_MCP_REQUIRE_SANDBOX=1; the
- * launcher execs the result verbatim via its EZCORP_MCP_FS_JAIL=1
- * branch (same exec-verbatim contract as EZCORP_PREVIEW_JAIL).
+ * Consumed by `sandbox/build-sandbox-argv.ts` (bwrap tier).
  */
 export function buildMcpJailBwrapArgs(input: McpJailInput): string[] {
   const { tmpDirs, ...rest } = input;
