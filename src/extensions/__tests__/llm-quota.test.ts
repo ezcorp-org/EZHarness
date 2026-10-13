@@ -12,7 +12,8 @@ import {
 
 mockDbConnection();
 
-import { createLlmQuota, type LlmQuota, type LlmQuotaConfig } from "../llm-quota";
+import { createLlmQuota, getLlmQuota, _resetLlmQuotaForTests, type LlmQuota, type LlmQuotaConfig } from "../llm-quota";
+import { stopBackgroundTimers } from "../../startup/background-timers";
 import { extensions, extensionLlmUsage } from "../../db/schema";
 
 const CFG: LlmQuotaConfig = { maxCallsPerHour: 100, maxCallsPerDay: 1000 };
@@ -123,5 +124,25 @@ describe("llm quota persistence", () => {
     await q.hydrate(extensionId);
 
     expect(q.budget(extensionId, CFG).callsRemaining.day).toBe(CFG.maxCallsPerDay - 1);
+  });
+});
+
+describe("llm quota at shutdown", () => {
+  afterEach(() => _resetLlmQuotaForTests());
+
+  test("stopping background services saves the counters, so a restart keeps today's usage", async () => {
+    getLlmQuota().consume(extensionId, CFG, { tokens: 120 });
+    getLlmQuota().consume(extensionId, CFG, { tokens: 80 });
+
+    await stopBackgroundTimers();
+
+    const [row] = await getTestDb().select().from(extensionLlmUsage);
+    expect(row).toMatchObject({ extensionId, calls: 2, totalTokens: 200 });
+  });
+
+  test("shutdown with no LLM use writes nothing", async () => {
+    _resetLlmQuotaForTests();
+    await stopBackgroundTimers();
+    expect(await getTestDb().select().from(extensionLlmUsage)).toHaveLength(0);
   });
 });

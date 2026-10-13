@@ -22,6 +22,7 @@ import type { GithubProjectsDaemon } from "../integrations/github-projects/daemo
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
 import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
 import { previewCapabilities } from "../runtime/preview/preview-netns";
+import { flushLlmQuota } from "../extensions/llm-quota";
 import { enforceDataDirLockdown } from "../runtime/preview/preview-uid-pool";
 import { onPreviewDetected } from "../runtime/preview/preview-detection-bridge";
 import { getRegisteredPreviewBus } from "../runtime/preview/preview-bus-registry";
@@ -808,6 +809,10 @@ export async function stopBackgroundTimers(): Promise<void> {
   }
   disposers.length = 0;
 
+  // Save extension LLM usage before the DB closes. The quota flushes every
+  // 60 s; without this a restart forgets up to a minute of calls. flush()
+  // logs and skips a failed row itself, so it never throws.
+  await flushLlmQuota();
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */
