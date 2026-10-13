@@ -4,13 +4,22 @@ import { Readable, Writable } from "node:stream";
 import { dirname, join, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
-import type { BuildResult, InvocationContext, ResourceLimits, Runner, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
-import { canonicalJson, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
+import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
+import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
+import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
 
+/**
+ * Discovery is a build-phase guest, like the typecheck, compile and feature-test
+ * guests, which already run the author's code with process creation allowed.
+ * It has no host capability (every reverse call is refused) and runs before any
+ * approval exists, so it may start processes: a stdio MCP extension must start
+ * its server to read the tool catalog. The policy applies to runtime workers.
+ */
+const DISCOVERY_PROCESS_SPAWN: ProcessSpawnPolicy = "allow";
 /** How long a closed worker's container may take to be marked exited before its removal reads it: 10 x 200 ms. */
 const EXIT_SETTLE_POLLS = 10;
 const EXIT_SETTLE_INTERVAL_MS = 200;
@@ -47,7 +56,10 @@ export const DEFAULT_IMAGE = "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5
 const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
 /**
  * The sandbox's init process. It holds the three control FIFOs open for the
- * guest's whole life and spawns the extension as its child.
+ * guest's whole life and spawns the extension as its child, with the worker
+ * argv its start's process policy chose (see `bunWorkerArgs`). Before that it
+ * makes itself non-dumpable (`BUN_SHIM_UNDUMPABLE`): it keeps the right to start
+ * processes, so a worker denied that right must not be able to take it over.
  *
  * It must install a SIGTERM handler: the kernel applies no default signal
  * action to PID 1, so without one a graceful stop is silently ignored and every
@@ -55,7 +67,7 @@ const seccompDefault = new URL("../seccomp.json", import.meta.url).pathname;
  * the extension, which is not PID 1 and so does take the default action, and
  * the existing exit relay ends the sandbox as soon as it goes.
  */
-const guestShim = `const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("/channel/in","r+"),o=fs.openSync("/channel/out","r+"),e=fs.openSync("/channel/err","r+");const c=cp.spawn(process.execPath,["./.runner/extension.js"],{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
+export const bunGuestShim = (workerArgs: readonly string[], channel = "/channel"): string => `${BUN_SHIM_UNDUMPABLE}const fs=require("node:fs");const cp=require("node:child_process");const i=fs.openSync("${channel}/in","r+"),o=fs.openSync("${channel}/out","r+"),e=fs.openSync("${channel}/err","r+");const c=cp.spawn(process.execPath,${JSON.stringify(workerArgs)},{stdio:[i,o,e]});c.on("exit",code=>process.exit(code===null?1:code));c.on("error",()=>process.exit(1));for(const s of["SIGTERM","SIGINT"])process.on(s,()=>{try{c.kill(s)}catch{process.exit(143)}});`;
 // The root-write check targets /var/tmp: it is world-writable on the image
 // root, so only `--read-only` stops uid 65534 writing there. A path that an
 // unprivileged user can never write (such as `/`) cannot detect a writable root.
@@ -263,6 +275,8 @@ export class PodmanRunner implements Runner {
   private activeExecutions = 0;
   private ready: Promise<void> | undefined;
   private lease: ChildProcessWithoutNullStreams | undefined;
+  /** Set by the startup probe: a "deny" worker here really cannot start a process. */
+  protected spawnGuardWorks = false;
   constructor(protected readonly options: PodmanRunnerOptions) {
     this.root = resolve(options.root);
     this.image = options.image ?? DEFAULT_IMAGE;
@@ -329,6 +343,7 @@ export class PodmanRunner implements Runner {
       const probe = JSON.parse(await command(this.podman, [...this.args(probeId, limits), this.image, ...this.probeProgram()]));
       if (probe.uid !== 65534 || probe.writable || probe.memory !== String(limits.memoryBytes) || probe.swap !== "0" || probe.cpu !== "50000 100000" || probe.pids !== "32" || !/^CapEff:\s+0+$/m.test(probe.status) || !/^NoNewPrivs:\s+1$/m.test(probe.status) || !/^Seccomp:\s+2$/m.test(probe.status) || probe.routes.split("\n").length !== 1 || probe.ipv6.split("\n").some((line: string) => line && !line.endsWith("lo"))) throw new RunnerError("isolation_probe_failed", "Kernel controls did not match the secure runner profile");
     } finally { await this.remove(probeId); }
+    this.spawnGuardWorks = await this.probeSpawnGuard(limits);
     if (!cleanupOrphans) return;
     const orphans = await command(this.podman, ["ps", "-a", "--filter", `label=io.ezcorp.runner=${sha256(this.root)}`, "--format={{.Names}}"]);
     for (const name of orphans.trim().split("\n").filter(Boolean)) {
@@ -350,13 +365,47 @@ export class PodmanRunner implements Runner {
   }
   /** The in-guest program that reports the applied kernel controls, in the guest's own language. */
   protected probeProgram(): string[] { return ["-e", probeProgramSource]; }
+  /**
+   * Runs the spawn guard alone in a probe guest. It exits 0 only when the filter
+   * installed and a process then failed to start. Any failure leaves the runner
+   * unable to enforce "deny": it still serves "allow" starts and refuses the rest.
+   */
+  private async probeSpawnGuard(limits: ResourceLimits): Promise<boolean> {
+    const probeId = `probe-${randomUUID()}`;
+    try { await command(this.podman, [...this.args(probeId, limits), this.image, ...this.spawnGuardProbe()]); return true; }
+    catch { return false; }
+    finally { await this.remove(probeId); }
+  }
+  /** The guard as a standalone program, in the guest's own language. */
+  protected spawnGuardProbe(): string[] { return ["--config=/dev/null", "-e", BUN_SPAWN_GUARD]; }
+  /** The guard file a "deny" worker loads before its extension, in the guest's own language. */
+  protected spawnGuardFile(): [path: string, source: string] { return [BUN_SPAWN_GUARD_PATH, BUN_SPAWN_GUARD]; }
+  /** The worker's argv after the interpreter, for one process policy. */
+  protected workerArgs(policy: ProcessSpawnPolicy): string[] { return bunWorkerArgs(policy); }
+  /** What this runner enforces, after the startup probe has measured it. */
+  async capabilities(): Promise<RunnerCapabilities> {
+    await this.prepare(false);
+    return { processSpawnEnforcement: this.spawnGuardWorks };
+  }
+  /**
+   * Reads one start's process policy, refusing "deny" where it cannot be kept,
+   * and stages the guard that keeps it. A start without a policy is "deny".
+   */
+  private async applySpawnPolicy(input: StartRequest, staged: string): Promise<ProcessSpawnPolicy> {
+    const policy = processSpawnPolicy(input.processSpawn);
+    if (policy === "allow") return policy;
+    if (!this.spawnGuardWorks) throw new RunnerError("process_spawn_unenforced", "This runner cannot block process creation, so it refuses a worker without the shell grant");
+    const [path, source] = this.spawnGuardFile();
+    await this.writeStaged(staged, path, source);
+    return policy;
+  }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
   /** Build and typecheck guests. They never receive a device, whatever the host configures. */
   protected launch(id: string, limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
     return processSpawn(this.podman, [...this.args(id, limits, staged, []), this.image, ...args]);
   }
-  /** The argv that starts the in-guest channel shim. A pinned guest language overrides it. */
-  protected guestEntrypointArgs(): string[] { return ["-e", guestShim]; }
+  /** The argv that starts the in-guest channel shim for one process policy. A pinned guest language overrides it. */
+  protected guestEntrypointArgs(policy: ProcessSpawnPolicy): string[] { return ["-e", bunGuestShim(this.workerArgs(policy))]; }
   private channelDirectory(id: string): string { return join(this.root, "channels", this.containerName(id)); }
   /**
    * Execution containers outlive every control client. The guest's stdin is a
@@ -369,7 +418,7 @@ export class PodmanRunner implements Runner {
    * and typecheck guests, which are ordinary foreground subprocesses; a runner
    * whose execution guest is not a podman container overrides this one too.
    */
-  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], materials?: string): Promise<FramedTransport> {
+  protected async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], policy: ProcessSpawnPolicy, materials?: string): Promise<FramedTransport> {
     const directory = this.channelDirectory(id);
     await mkdir(directory, { recursive: true, mode: CHANNEL_DIRECTORY_MODE });
     await chmod(directory, CHANNEL_DIRECTORY_MODE);
@@ -387,7 +436,7 @@ export class PodmanRunner implements Runner {
     // the identities the host checks against.
     await writeFile(this.channelFactsPath(id), canonicalJson(facts), { mode: 0o600 });
     if (materials) await this.handOverMaterials(materials);
-    await command(this.podman, [...this.args(id, limits, staged, devices, directory, materials), "--detach", this.image, ...this.guestEntrypointArgs()]);
+    await command(this.podman, [...this.args(id, limits, staged, devices, directory, materials), "--detach", this.image, ...this.guestEntrypointArgs(policy)]);
     return this.channelTransport(id);
   }
   /**
@@ -494,7 +543,7 @@ export class PodmanRunner implements Runner {
     return ["run", "--pull=never", "--name", name, "--label", `io.ezcorp.runner=${sha256(this.root)}`, "--network=none", "--read-only", "--read-only-tmpfs=false", "--cap-drop=ALL", "--security-opt=no-new-privileges", `--security-opt=seccomp=${this.seccompPath}`, "--user=65534:65534", "--pid=private", "--ipc=private", "--cgroupns=private", "--no-hosts", "--log-driver=none", "--unsetenv-all", `--hostname=${GUEST_HOSTNAME}`, `--memory=${limits.memoryBytes}`, `--memory-swap=${limits.memoryBytes}`, `--cpus=${limits.cpuMillis / 1000}`, `--pids-limit=${limits.pids}`, "--ulimit=nofile=256:256", `--tmpfs=/tmp:rw,nosuid,nodev,noexec,size=${limits.tmpBytes},mode=1777`, "--env=HOME=/tmp", "--env=TMPDIR=/tmp", "--env=BUN_INSTALL_CACHE_DIR=/tmp/bun-cache", `--env=PATH=${this.guestPath}`, ...devices.flatMap(device => ["--device", device]), mount ? "--workdir=/workspace" : "--workdir=/tmp", ...(mount ? ["--mount", `type=bind,src=${mount},dst=/workspace,ro=true,relabel=private`] : []), ...(channel ? runnerChannelMount(channel) : []), ...(materials ? runnerMaterialMount(materials) : []), `--entrypoint=${this.guestInterpreter}`, "-i"];
   }
   private containerName(id: string): string { return `ez-v4-${sha256(`${this.root}:${id}`).slice(0, 32)}`; }
-  private async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
+  protected async writeStaged(directory: string, path: string, content: string | Uint8Array, executable = false): Promise<void> {
     const target = join(directory, relativePath(path));
     await mkdir(dirname(target), { recursive: true, mode: 0o755 });
     for (let parent = dirname(target); parent !== directory; parent = dirname(parent)) await chmod(parent, 0o755);
@@ -601,7 +650,7 @@ export class PodmanRunner implements Runner {
       const workerId = `discovery-${randomUUID()}`;
       this.requireBuilding(input.operationId);
       this.buildWorkers.set(input.operationId, workerId);
-      const worker = await this.startExecution({ workerId, artifactDigest, context: { invocationId: workerId, workerId, releaseId: artifactDigest, principalId: "verification", scopeId: "verification", token: "", deadline: Date.now() + Math.min(limits.timeoutMs, 60_000) }, limits: executionLimits }, async () => { throw new RunnerError("startup_effect_denied", "Discovery cannot access host capabilities"); }, true);
+      const worker = await this.startExecution({ workerId, artifactDigest, context: { invocationId: workerId, workerId, releaseId: artifactDigest, principalId: "verification", scopeId: "verification", token: "", deadline: Date.now() + Math.min(limits.timeoutMs, 60_000) }, limits: executionLimits, processSpawn: DISCOVERY_PROCESS_SPAWN }, async () => { throw new RunnerError("startup_effect_denied", "Discovery cannot access host capabilities"); }, true);
       try {
         const manifest = validateManifest(await worker.request("extension/discover", {}));
         if (browser?.tools.some(name => !manifest.tools?.some(tool => tool.name === name))) throw new RunnerError("browser_tool_undeclared", "Browser tools must be declared in the verified extension manifest");
@@ -689,12 +738,13 @@ export class PodmanRunner implements Runner {
         await this.writeStaged(staged, path, Buffer.from(content, "base64"), executable.includes(path));
       }
       const stage = staged;
+      const policy = await this.applySpawnPolicy(input, stage);
       // Discovery is a build-phase guest, so it is denied a device even when the
       // host configures one. Every other start uses exactly what it was given.
       const devices = discovery ? [] : startExecutionDevices(input.devices, this.configuredDevices);
       // A discovery guest never receives one: the build phase has no attempt
       // and therefore no material scope to write into.
-      const child = await this.launchDetached(input.workerId, limits, stage, devices, discovery ? undefined : input.materials);
+      const child = await this.launchDetached(input.workerId, limits, stage, devices, policy, discovery ? undefined : input.materials);
       const contexts = new Map<string, InvocationContext>();
       const execution = new FramedExecution(input.workerId, child, async (method, params) => {
         const context = validateInvocationContext((params as { context?: unknown })?.context);

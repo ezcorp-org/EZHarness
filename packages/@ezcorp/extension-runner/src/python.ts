@@ -1,7 +1,8 @@
 import { readFile, rm } from "node:fs/promises";
-import type { BuildResult, ResourceLimits, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { BuildResult, ProcessSpawnPolicy, ResourceLimits, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, validateManifest } from "@ezcorp/extension-contract";
 import { PodmanRunner, type PodmanRunnerOptions } from "./podman";
+import { PYTHON_SHIM_UNDUMPABLE, PYTHON_SPAWN_GUARD, PYTHON_SPAWN_GUARD_FILE, PYTHON_SPAWN_GUARD_PATH, pythonWorkerArgs } from "./spawn-guard";
 import { buildLimits, digest, executionLimits, filesDigest, identifier, limitsWithin, relativePath, RunnerError, sha256, validateFiles } from "./core";
 
 /** Pinned CPython 3.13.12 on Debian bookworm, by immutable registry digest. */
@@ -11,14 +12,15 @@ export const DEFAULT_PYTHON_IMAGE = "docker.io/library/python@sha256:3121f8b0804
  * The in-guest shim. It is the Python counterpart of the Bun shim: it opens the
  * three channel FIFOs `O_RDWR` and holds them for the guest's whole life, so a
  * FIFO reader sees end-of-file only when this process itself exits and no host
- * process's death can reach the guest as end-of-input.
+ * process's death can reach the guest as end-of-input. Like the Bun shim, it
+ * makes itself non-dumpable first and starts the worker argv its policy chose.
  */
-const pythonGuestShim = `import os,subprocess,sys
-i=os.open("/channel/in",os.O_RDWR)
-o=os.open("/channel/out",os.O_RDWR)
-e=os.open("/channel/err",os.O_RDWR)
+export const pythonGuestShim = (workerArgs: readonly string[], channel = "/channel"): string => `import os,subprocess,sys
+${PYTHON_SHIM_UNDUMPABLE}i=os.open("${channel}/in",os.O_RDWR)
+o=os.open("${channel}/out",os.O_RDWR)
+e=os.open("${channel}/err",os.O_RDWR)
 try:
-    child=subprocess.Popen([sys.executable,"-u","./.runner/extension.py"],stdin=i,stdout=o,stderr=e)
+    child=subprocess.Popen([sys.executable,*${JSON.stringify(workerArgs)}],stdin=i,stdout=o,stderr=e)
 except OSError:
     sys.exit(1)
 sys.exit(child.wait())`;
@@ -122,7 +124,11 @@ export class PythonPodmanRunner extends PodmanRunner {
   }
 
   protected override probeProgram(): string[] { return ["-c", pythonProbeProgram]; }
-  protected override guestEntrypointArgs(): string[] { return ["-c", pythonGuestShim]; }
+  protected override guestEntrypointArgs(policy: ProcessSpawnPolicy): string[] { return ["-c", pythonGuestShim(this.workerArgs(policy))]; }
+  protected override workerArgs(policy: ProcessSpawnPolicy): string[] { return pythonWorkerArgs(policy); }
+  protected override spawnGuardProbe(): string[] { return ["-I", "-c", PYTHON_SPAWN_GUARD]; }
+  protected override spawnGuardFile(): [path: string, source: string] { return [PYTHON_SPAWN_GUARD_PATH, PYTHON_SPAWN_GUARD_FILE]; }
+
 
   /**
    * Seals one Python guest into an immutable artifact through the shared recipe
@@ -174,7 +180,7 @@ export class PythonPodmanRunner extends PodmanRunner {
       await this.storeArtifact(artifactDigest, artifacts);
 
       const workerId = `discovery-${sha256(`${input.operationId}:${artifactDigest}`).slice(0, 32)}`;
-      const worker = await this.startExecution({ workerId, artifactDigest, context: { invocationId: workerId, workerId, releaseId: artifactDigest, principalId: "verification", scopeId: "verification", token: "", deadline: Date.now() + Math.min(limits.timeoutMs, 60_000) }, limits: executionLimits, devices: [] }, async () => { throw new RunnerError("startup_effect_denied", "Discovery cannot access host capabilities"); }, true);
+      const worker = await this.startExecution({ workerId, artifactDigest, context: { invocationId: workerId, workerId, releaseId: artifactDigest, principalId: "verification", scopeId: "verification", token: "", deadline: Date.now() + Math.min(limits.timeoutMs, 60_000) }, limits: executionLimits, devices: [], processSpawn: "allow" }, async () => { throw new RunnerError("startup_effect_denied", "Discovery cannot access host capabilities"); }, true);
       try {
         const manifest = validateManifest(await worker.request("extension/discover", {}));
         result.manifest = manifest;

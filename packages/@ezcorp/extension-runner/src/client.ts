@@ -1,5 +1,5 @@
 import { request } from "node:http";
-import type { BuildRequest, BuildResult, Runner, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { BuildRequest, BuildResult, Runner, RunnerCapabilities, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { RunnerError, safeHostError } from "./core";
 import type { ReverseRpc } from "./protocol";
 
@@ -38,6 +38,15 @@ export class RunnerClient implements Runner {
   inspect(id: string): Promise<RunnerInspection> { return this.call("inspect", { id }); }
   cancel(id: string): Promise<void> { return this.call("cancel", { id }); }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> { return (await this.call<{ files: WorkspaceFiles }>("artifacts", { artifactDigest })).files; }
+  /**
+   * What the runner service enforces. A service from before `/v4/capabilities`
+   * answers unknown_method: it enforces nothing optional, so that is reported
+   * as such rather than as an error.
+   */
+  async capabilities(): Promise<RunnerCapabilities> {
+    try { return { processSpawnEnforcement: (await this.call<Partial<RunnerCapabilities>>("capabilities", {})).processSpawnEnforcement === true }; }
+    catch (error) { if (error instanceof RunnerError && error.code === "unknown_method") return { processSpawnEnforcement: false }; throw error; }
+  }
   async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
     await this.call("start", input);
     return this.attach(input, reverseRpc);
