@@ -596,5 +596,9 @@
   ],
   "web/e2e/provider-oauth-paste.spec.ts": [
     "web/src/lib/components/ProviderSettings.svelte"
+  ],
+  "web/e2e/agent-detail-actions.spec.ts": [
+    "web/src/routes/(app)/agents/[name]/+page.svelte",
+    "web/src/lib/components/TeamBuilderForm.svelte"
   ]
 }
