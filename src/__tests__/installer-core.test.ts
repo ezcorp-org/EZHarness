@@ -568,6 +568,33 @@ describe("installer lifecycle failures", () => {
     expect(envFile()).toBe(before);
   });
 
+  test.each(["0", "1"])("a failed download removes its unused snapshot (restart failure %s)", (failUp) => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_PULL: "1", EZCORP_TEST_FAIL_UP: failUp });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not download");
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("original");
+    expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+  });
+
+  test("a failed backup removes the partial copy and restarts the unchanged app", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const unreadable = join(dataRoot, "data", "unreadable");
+    writeFileSync(unreadable, "original");
+    chmodSync(unreadable, 0o000);
+    try {
+      const result = run(["update", "next"]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("could not back up");
+      expect(result.log).not.toContain("pull ");
+      expect(result.log.split("\n").filter((line) => line.startsWith("compose ") && line.includes("up -d"))).toHaveLength(1);
+      expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+    } finally {
+      chmodSync(unreadable, 0o600);
+    }
+  });
+
   test("a successful update retains data and removes its temporary snapshot", () => {
     expect(run(["install"]).exitCode).toBe(0);
     writeFileSync(join(dataRoot, "data", "sentinel"), "original");

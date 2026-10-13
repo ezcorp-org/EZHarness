@@ -651,14 +651,10 @@ cmd_update() {
   step "Backing up your data..."
   quiet compose stop || die "could not stop EZCorp. Update cancelled before copying or changing data."
   snapshot="$(mktemp -d "$DATA_ROOT/pre-update-XXXXXX")" || die "could not create a backup directory. EZCorp remains stopped."
-  cp -a "$DATA_ROOT/data/." "$snapshot/" || die "could not back up your data — update stopped, nothing changed."
+  cp -a "$DATA_ROOT/data/." "$snapshot/" || abandon_update "$snapshot" "could not back up your data"
 
   step "Downloading $target..."
-  if ! quiet $ENGINE pull "$target"; then
-    quiet compose up -d && wait_ready \
-      || die "could not download the update, and EZCorp could not restart. The old image and data are unchanged. Run 'ezcorp status'."
-    die "could not download the update. EZCorp was restarted unchanged."
-  fi
+  quiet $ENGINE pull "$target" || abandon_update "$snapshot" "could not download the update"
 
   edit_env "s|^EZCORP_IMAGE=.*|EZCORP_IMAGE=$target|" \
     || die "could not save the update image. EZCorp remains stopped. Your pre-update backup is at $snapshot."
@@ -677,6 +673,16 @@ cmd_update() {
       || die "restored the data and image $current, but EZCorp could not restart. Run 'ezcorp status'."
     die "rolled back to $current. Your data was restored from the backup taken before the update."
   fi
+}
+
+# Before the image changes, the live data is untouched, so the snapshot is
+# only a copy that would otherwise stay behind on every failed attempt.
+abandon_update() {
+  local snapshot="$1" reason="$2"
+  rm -rf "$snapshot"
+  quiet compose up -d && wait_ready \
+    || die "$reason, and EZCorp could not restart. The old image and data are unchanged. Run 'ezcorp status'."
+  die "$reason. EZCorp was restarted unchanged."
 }
 
 cmd_suggestions() {
