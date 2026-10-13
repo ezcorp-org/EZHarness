@@ -388,11 +388,10 @@ export class PodmanRunner implements Runner {
     return { processSpawnEnforcement: this.spawnGuardWorks };
   }
   /** Refuses "deny" where it cannot be kept, and otherwise stages the guard that keeps it. */
-  private async stageSpawnGuard(policy: ProcessSpawnPolicy, staged: string): Promise<void> {
-    if (policy === "allow") return;
-    if (!this.spawnGuardWorks) throw new RunnerError("process_spawn_unenforced", "This runner cannot block process creation, so it refuses a worker without the shell grant");
-    const [path, source] = this.spawnGuardFile();
-    await this.writeStaged(staged, path, source);
+  private stageSpawnGuard(policy: ProcessSpawnPolicy, staged: string): Promise<void> {
+    if (policy === "allow") return Promise.resolve();
+    if (!this.spawnGuardWorks) return Promise.reject(new RunnerError("process_spawn_unenforced", "This runner cannot block process creation, so it refuses a worker without the shell grant"));
+    return this.writeStaged(staged, ...this.spawnGuardFile());
   }
   protected async authorize(_phase: "build" | "execute", _digest: string): Promise<void> {}
   /** Build and typecheck guests. They never receive a device, whatever the host configures. */
