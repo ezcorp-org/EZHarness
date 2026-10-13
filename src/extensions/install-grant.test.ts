@@ -353,6 +353,33 @@ describe("promptForPermissions — the printed list", () => {
   });
 });
 
+describe("promptForPermissions — every permission type is asked for", () => {
+  const only = (permissions: Record<string, unknown>) =>
+    ({ schemaVersion: 2, name: "solo-ext", version: "1.0.0", description: "x", entrypoint: "./index.ts", permissions }) as unknown as ExtensionManifestV2;
+
+  for (const [name, permissions, line] of [
+    ["spawnAgents", { spawnAgents: { maxPerHour: 5 } }, "Start sub-agent runs (at most 5 per hour)"],
+    ["schedule", { schedule: { crons: ["0 9 * * *"], maxRunsPerDay: 2 } }, "Run on a schedule: 0 9 * * *"],
+  ] as const) {
+    test(`a manifest that asks only for ${name} is prompted, listed, and granted on yes`, async () => {
+      const restore = setTTY(true);
+      askAnswers = ["y"];
+      const logged: string[] = [];
+      const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => { logged.push(args.join(" ")); });
+      let grant: ExtensionPermissions;
+      try {
+        grant = await promptForPermissions(only(permissions), false);
+      } finally {
+        log.mockRestore();
+        restore();
+      }
+      expect(askedPrompts).toEqual(["Approve all permissions? [y/N/select] "]);
+      expect(logged.join("\n")).toContain(line);
+      expect(grant[name]).toBeDefined();
+    });
+  }
+});
+
 describe("promptPerCategory", () => {
   test("grants only the approved categories; declines drop events", async () => {
     // order: network, filesystem, shell, env, storage, spawnAgents, events, schedule

@@ -187,9 +187,9 @@ test("the approval card lists each grant as a readable line and keeps the raw gr
     version: "1.0.0",
     kind: "mcp",
     mcpServers: [{ name: "weather", transport: "stdio" }],
-    permissions: { shell: true, network: ["api.example.com"], hostApi: { routes: ["GET /x"] } },
+    permissions: { shell: true, network: ["api.example.com"], rbacScopes: [{ name: "ops", description: "Ops" }] },
   };
-  input.state.approvals = { approval: { ...pendingApproval("podman"), grants: ['["hostApi",{"routes":["GET /x"]}]', '["network",["api.example.com"]]', '["shell",true]'] } };
+  input.state.approvals = { approval: { ...pendingApproval("podman"), grants: ['["network",["api.example.com"]]', '["rbacScopes",[{"name":"ops","description":"Ops"}]]', '["shell",true]'] } };
   input.state.approvalProcessSpawn = { approval: "allow" };
   const view = render(AuthorPage, { data: input });
   const lines = view.getAllByTestId("approval-grant-line").map((line) => line.textContent);
@@ -197,7 +197,7 @@ test("the approval card lists each grant as a readable line and keeps the raw gr
     "Network access to api.example.com",
     "Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)",
     "Starts its MCP server process (process spawning allowed)",
-    'hostApi: {"routes":["GET /x"]}',
+    'rbacScopes: [{"name":"ops","description":"Ops"}]',
   ]);
   const raw = view.getByTestId("approval-raw-grants");
   expect(raw.tagName).toBe("DETAILS");
