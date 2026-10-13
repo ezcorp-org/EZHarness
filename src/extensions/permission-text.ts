@@ -4,7 +4,7 @@
  * builtins, no database), so the browser can import it too.
  */
 import type { ExtensionManifest } from "./types";
-import { declaresStdioMcpServer } from "@ezcorp/extension-contract";
+import { declaresStdioMcpServer, type ProcessSpawnPolicy } from "@ezcorp/extension-contract";
 
 export interface PermissionItem {
   type: string;
@@ -19,6 +19,7 @@ const PERMISSION_DESCRIPTIONS: Record<string, (v: string | boolean) => string> =
   env: (v) => `Read environment variable ${v}`,
   storage: () => "Persistent key-value storage",
   mcpProcess: () => "Starts its MCP server process (process spawning allowed)",
+  mcpProcessBlocked: () => "Cannot start its MCP server process: starting processes needs the shell permission",
 };
 
 export function getRequiredPermissions(manifest: ExtensionManifest): PermissionItem[] {
@@ -62,12 +63,20 @@ type GrantManifest = Pick<ExtensionManifest, "kind" | "mcpServers">;
  * Readable lines for an approval's grants. Each grant is the canonical JSON
  * pair `[name, value]`. A grant this text does not describe still gets a
  * line, `name: value`, so nothing an approval covers is hidden.
+ *
+ * The stdio MCP line follows `processSpawn`, the host's verdict for this
+ * release and these grants (process-spawn-policy.ts), not the manifest alone:
+ * "deny" says the server cannot start, and no verdict drops the line.
  */
-export function describeGrants(grants: readonly string[], manifest: GrantManifest): string[] {
+export function describeGrants(grants: readonly string[], manifest: GrantManifest, processSpawn?: ProcessSpawnPolicy): string[] {
   const pairs = grants.map((grant) => JSON.parse(grant) as [string, unknown]);
   const permissions = Object.fromEntries(pairs) as ExtensionManifest["permissions"];
   const described = getRequiredPermissions({ ...manifest, permissions } as ExtensionManifest);
   const covered = new Set(described.map((item) => item.type));
   const other = pairs.filter(([name]) => !covered.has(name)).map(([name, value]) => `${name}: ${JSON.stringify(value)}`);
-  return [...described.map((item) => item.description), ...other];
+  const lines = described.flatMap((item) => {
+    if (item.type !== "mcpProcess" || processSpawn === "allow") return [item.description];
+    return processSpawn === "deny" ? [PERMISSION_DESCRIPTIONS.mcpProcessBlocked!(true)] : [];
+  });
+  return [...lines, ...other];
 }

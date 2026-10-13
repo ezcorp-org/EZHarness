@@ -190,6 +190,7 @@ test("the approval card lists each grant as a readable line and keeps the raw gr
     permissions: { shell: true, network: ["api.example.com"], hostApi: { routes: ["GET /x"] } },
   };
   input.state.approvals = { approval: { ...pendingApproval("podman"), grants: ['["hostApi",{"routes":["GET /x"]}]', '["network",["api.example.com"]]', '["shell",true]'] } };
+  input.state.approvalProcessSpawn = { approval: "allow" };
   const view = render(AuthorPage, { data: input });
   const lines = view.getAllByTestId("approval-grant-line").map((line) => line.textContent);
   expect(lines).toEqual([
@@ -201,4 +202,19 @@ test("the approval card lists each grant as a readable line and keeps the raw gr
   const raw = view.getByTestId("approval-raw-grants");
   expect(raw.tagName).toBe("DETAILS");
   expect(raw).not.toHaveAttribute("open");
+});
+
+test("an MCP release with its own code and no shell grant says it cannot start its server", () => {
+  const input = data();
+  input.state.releases.release.manifest = { name: "weather", version: "1.0.0", kind: "mcp", mcpServers: [{ name: "weather", transport: "stdio" }], permissions: { network: ["api.example.com"] } };
+  input.state.approvals = { approval: { ...pendingApproval("podman"), grants: ['["network",["api.example.com"]]'] } };
+  // The host's verdict (process-spawn-policy): custom code without the shell grant is denied.
+  input.state.approvalProcessSpawn = { approval: "deny" };
+  const view = render(AuthorPage, { data: input });
+  const lines = view.getAllByTestId("approval-grant-line").map((line) => line.textContent);
+  expect(lines).toEqual([
+    "Network access to api.example.com",
+    "Cannot start its MCP server process: starting processes needs the shell permission",
+  ]);
+  expect(view.queryByText("Starts its MCP server process (process spawning allowed)")).not.toBeInTheDocument();
 });

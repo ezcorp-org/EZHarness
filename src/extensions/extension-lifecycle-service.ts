@@ -196,7 +196,7 @@ async function initialize(): Promise<LifecycleServices> {
     publish: async (installation, release) => { await migrations.finalize(installation.id); await publishExtensionGeneration(installation, release, release ? await getFiles(blobs, release.artifactDigest, "artifact") : undefined); },
     onBuildSettled: deferredByRunner => { recoveryCapacityAvailable ||= !deferredByRunner; lifecycleRecovery.request({ followUp: !deferredByRunner }); },
   });
-  return { lifecycle, control: new ExtensionControl(lifecycle), runner, repository, deliveries, migrations, blobs };
+  return { lifecycle, control: new ExtensionControl(lifecycle, runner), runner, repository, deliveries, migrations, blobs };
 }
 
 /**

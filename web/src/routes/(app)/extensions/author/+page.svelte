@@ -6,10 +6,12 @@
   import type { InstallationState, LifecycleOperation, WorkspaceRecord } from "$server/extensions/v4/types";
   import type { ExtensionProjectBinding } from "$server/extensions/project-binding";
   import { describeGrants } from "$server/extensions/permission-text";
+  import type { ProcessSpawnPolicy } from "@ezcorp/extension-contract";
   import { encodeWorkspaceFile, validateWorkspaceFiles, workspaceFileByteLength, workspaceFileBytes, type WorkspaceFiles } from "@ezcorp/extension-contract/files";
 
   let { data }: { data: PageData } = $props();
-  let installationState = $state<InstallationState | null>(untrack(() => data.state));
+  // `approvalProcessSpawn`: the host's process verdict per approval (page load and extensions_inspect add it).
+  let installationState = $state<(InstallationState & { approvalProcessSpawn?: Record<string, ProcessSpawnPolicy> }) | null>(untrack(() => data.state));
   let workspace = $state<WorkspaceRecord | null>(untrack(() => data.workspace));
   let files = $state<WorkspaceFiles>(untrack(() => ({ ...data.files })));
   let saved = $state(untrack(() => JSON.stringify(data.files)));
@@ -83,7 +85,7 @@
 
   async function refresh(operationId?: string): Promise<void> {
     const previousGeneration = installationState?.installation.generation;
-    installationState = await control<InstallationState>("extensions_inspect", { ...(operationId ? { operationId, waitMs: 1000 } : {}) });
+    installationState = await control<NonNullable<typeof installationState>>("extensions_inspect", { ...(operationId ? { operationId, waitMs: 1000 } : {}) });
     if (installationState.installation.generation !== previousGeneration) { reviewedProject = false; projectBinding = null; }
   }
 
@@ -233,7 +235,7 @@
     </section>
     <section class="panel"><h2>03 / Release review</h2><p class="muted">Approval applies to one tested release, permission set, runner policy, and installation generation. New code needs new approval.</p>
       {#each releases as release (release.id)}<article class="release"><div class="section-heading"><h3>{release.manifest.name} <span class="muted">{release.manifest.version}</span></h3><strong>{installationState.installation.activeReleaseId === release.id ? (installationState.installation.uninstalled ? "Previously active" : "Active") : "Verified"}</strong></div><dl><dt>Release</dt><dd><code>{release.releaseDigest}</code></dd><dt>Source</dt><dd><code>{release.sourceDigest}</code></dd><dt>Artifact</dt><dd><code>{release.artifactDigest}</code></dd><dt>Runner</dt><dd>{release.runnerProfile}<code>{release.imageDigest}</code></dd></dl><details><summary>Permissions and test evidence</summary><pre>{JSON.stringify({ permissions: release.manifest.permissions, tests: release.evidence.tests }, null, 2)}</pre></details><button disabled={!!busy || installationState.installation.uninstalled || !!sourceUnavailable} onclick={() => releaseAction("requestApproval", { releaseId: release.id, expectedActiveReleaseId: installationState!.installation.activeReleaseId })}>Request approval</button></article>{:else}<p class="muted">No verified releases yet. Failed builds cannot be approved.</p>{/each}
-      {#each approvals as approval (approval.id)}<article class="approval"><h3>{approval.status === "approved" ? "Approved release" : "Human approval required"}</h3><p class="muted">Installation owner: {approval.principalId} · Scope: {approval.scope}</p><code>{approval.releaseDigest}</code><ul class="grant-lines">{#each describeGrants(approval.grants, installationState.releases[approval.releaseId]?.manifest ?? {}) as line}<li data-testid="approval-grant-line">{line}</li>{/each}</ul><details data-testid="approval-raw-grants"><summary>Raw grants</summary><pre>{JSON.stringify(approval.grants.map((grant) => JSON.parse(grant)), null, 2)}</pre></details>
+      {#each approvals as approval (approval.id)}<article class="approval"><h3>{approval.status === "approved" ? "Approved release" : "Human approval required"}</h3><p class="muted">Installation owner: {approval.principalId} · Scope: {approval.scope}</p><code>{approval.releaseDigest}</code><ul class="grant-lines">{#each describeGrants(approval.grants, installationState.releases[approval.releaseId]?.manifest ?? {}, installationState.approvalProcessSpawn?.[approval.id]) as line}<li data-testid="approval-grant-line">{line}</li>{/each}</ul><details data-testid="approval-raw-grants"><summary>Raw grants</summary><pre>{JSON.stringify(approval.grants.map((grant) => JSON.parse(grant)), null, 2)}</pre></details>
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.networkTcp?.length}<p role="note"><strong>Opaque TCP access:</strong> Native code can send traffic to the listed exact host and port. The host does not inspect this traffic or TLS content. A private IP exception can reach an internal service; approve only a destination you trust.</p>{/if}
         {#if installationState.releases[approval.releaseId]?.manifest.permissions.secretRead?.length}<p role="note"><strong>Raw credential extraction:</strong> Native code can read these provider secrets, return them in tool output, or send them to an approved network destination. Only active administrators can use this grant. Prefer opaque credential handles. Approval does not grant access to another user's or project's credentials.</p>{/if}
         {#if approval.runnerProfile === data.trustedLocalProfile}<p role="note" data-testid="unsandboxed-approval-note"><strong>Not isolated:</strong> this release was built without a sandbox and will run as a plain process with the app's full powers — database, provider keys, every user's data, unbounded CPU and memory. Not applied: {data.unsandboxedOmittedControls.join(", ")}.</p>{/if}

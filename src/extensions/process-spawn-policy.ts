@@ -11,6 +11,9 @@
 import { canonicalJson, ContractError, declaresStdioMcpServer, isPureStdioMcpSource, workspaceText } from "@ezcorp/extension-contract";
 import type { ProcessSpawnPolicy, ReleaseRecord, Runner } from "@ezcorp/extension-contract";
 import { filesDigest } from "@ezcorp/extension-runner";
+import { extensionLogger } from "../logger";
+
+const log = extensionLogger("author", "process-spawn");
 
 /** The installation grant that lets a worker start other processes. */
 export const SHELL_GRANT = canonicalJson(["shell", true]);
@@ -43,7 +46,34 @@ export async function requireProcessSpawnEnforcement(runner: Runner, policy: Pro
  * release's own declaration where the worker runs before or for its approval.
  */
 export async function releaseProcessSpawn(runner: Runner, release: Pick<ReleaseRecord, "artifactDigest" | "manifest">, shellGranted: boolean): Promise<ProcessSpawnPolicy> {
-  const policy: ProcessSpawnPolicy = shellGranted || await isPureMcpBridgeRelease(runner, release) ? "allow" : "deny";
+  const policy = await spawnPolicy(runner, release, shellGranted);
   await requireProcessSpawnEnforcement(runner, policy);
   return policy;
+}
+
+async function spawnPolicy(runner: Runner, release: Pick<ReleaseRecord, "artifactDigest" | "manifest">, shellGranted: boolean): Promise<ProcessSpawnPolicy> {
+  return shellGranted || await isPureMcpBridgeRelease(runner, release) ? "allow" : "deny";
+}
+
+/**
+ * The policy each approval's release would start under, keyed by approval id,
+ * for the approval card's MCP line. Only a release that declares a stdio MCP
+ * server gets a verdict; one whose artifact the runner cannot read gets none,
+ * so the card never claims a start the host would refuse.
+ */
+export async function approvalProcessSpawn(
+  runner: Runner,
+  state: { releases: Record<string, Pick<ReleaseRecord, "artifactDigest" | "manifest">>; approvals: Record<string, { id: string; releaseId: string; grants: readonly string[] }> },
+): Promise<Record<string, ProcessSpawnPolicy>> {
+  const verdicts: Record<string, ProcessSpawnPolicy> = {};
+  for (const approval of Object.values(state.approvals)) {
+    const release = state.releases[approval.releaseId];
+    if (!release || !declaresStdioMcpServer(release.manifest)) continue;
+    try {
+      verdicts[approval.id] = await spawnPolicy(runner, release, approval.grants.includes(SHELL_GRANT));
+    } catch (cause) {
+      log.warn("approval card: could not judge the release's process policy", { approvalId: approval.id, error: String(cause) });
+    }
+  }
+  return verdicts;
 }

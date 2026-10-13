@@ -13,11 +13,17 @@ import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeProject } from "./fixtures/data.js";
 import { setupAuthorReviewMock } from "./fixtures/extension-source-import.js";
 import { clickInAppLink } from "./fixtures/client-nav.js";
+import type { Page } from "@playwright/test";
 
 const INSTALLATION = "0b6f2f8e-5f1e-4d0c-9a51-6b1c2d3e4f50";
 const proj = makeProject({ id: "proj-author-grants", name: "Authoring Project" });
 
-function reviewData(): Record<string, unknown> {
+/**
+ * A stdio MCP release with an approval for `grants`. `processSpawn` stands in
+ * for the host's verdict (process-spawn-policy.ts), which the page load and
+ * extensions_inspect attach per approval.
+ */
+function reviewData(grants: string[], processSpawn: "allow" | "deny"): Record<string, unknown> {
 	const installation = {
 		id: INSTALLATION,
 		ownerId: "mock-owner",
@@ -30,7 +36,6 @@ function reviewData(): Record<string, unknown> {
 		grants: [],
 		acknowledgedGeneration: 0,
 	};
-	// A stdio MCP release that also asks for the shell grant.
 	const release = {
 		id: "release-1",
 		manifest: {
@@ -38,7 +43,7 @@ function reviewData(): Record<string, unknown> {
 			version: "1.0.0",
 			kind: "mcp",
 			mcpServers: [{ name: "weather", transport: "stdio", command: "bun", args: ["server.ts"] }],
-			permissions: { shell: true, network: ["api.weather.example"] },
+			permissions: Object.fromEntries(grants.map((grant) => JSON.parse(grant) as [string, unknown])),
 		},
 		releaseDigest: "sha256:release",
 		sourceDigest: "sha256:source",
@@ -54,7 +59,7 @@ function reviewData(): Record<string, unknown> {
 		releaseDigest: release.releaseDigest,
 		principalId: "mock-owner",
 		scope: "global",
-		grants: ['["network",["api.weather.example"]]', '["shell",true]'],
+		grants,
 		runnerProfile: "podman",
 		expectedActiveReleaseId: null,
 		expectedGeneration: 0,
@@ -63,7 +68,7 @@ function reviewData(): Record<string, unknown> {
 	};
 	return {
 		installations: [installation],
-		state: { installation, workspaces: {}, revisions: {}, releases: { [release.id]: release }, approvals: { [approval.id]: approval }, operations: {} },
+		state: { installation, workspaces: {}, revisions: {}, releases: { [release.id]: release }, approvals: { [approval.id]: approval }, operations: {}, approvalProcessSpawn: { [approval.id]: processSpawn } },
 		extensionName: "weather-mcp",
 		breadcrumbTail: "weather-mcp",
 		workspace: null,
@@ -76,13 +81,18 @@ function reviewData(): Record<string, unknown> {
 	};
 }
 
+async function openApprovalCard(page: Page) {
+	await page.goto("/extensions");
+	await clickInAppLink(page, `/extensions/author?installation=${INSTALLATION}`);
+	return page.locator("article.approval");
+}
+
 test("the approval card reads each grant in words and keeps the raw grants collapsed @evidence", async ({ page, mockApi }, testInfo) => {
 	await mockApi({ projects: [proj] });
-	const review = await setupAuthorReviewMock(page, { installationId: INSTALLATION, reviewData });
+	const grants = ['["network",["api.weather.example"]]', '["shell",true]'];
+	const review = await setupAuthorReviewMock(page, { installationId: INSTALLATION, reviewData: () => reviewData(grants, "allow") });
 	try {
-		await page.goto("/extensions");
-		await clickInAppLink(page, `/extensions/author?installation=${INSTALLATION}`);
-		const card = page.locator("article.approval");
+		const card = await openApprovalCard(page);
 		await expect(card.getByRole("heading", { name: "Human approval required" })).toBeVisible();
 		await expect(card.getByTestId("approval-grant-line")).toHaveText([
 			"Network access to api.weather.example",
@@ -97,6 +107,23 @@ test("the approval card reads each grant in words and keeps the raw grants colla
 
 		await raw.getByText("Raw grants").click();
 		await expect(raw.locator("pre")).toContainText('"shell"');
+	} finally {
+		await review.close();
+	}
+});
+
+test("an MCP release with its own code and no shell grant says it cannot start its server @evidence", async ({ page, mockApi }, testInfo) => {
+	await mockApi({ projects: [proj] });
+	const review = await setupAuthorReviewMock(page, { installationId: INSTALLATION, reviewData: () => reviewData(['["network",["api.weather.example"]]'], "deny") });
+	try {
+		const card = await openApprovalCard(page);
+		await expect(card.getByTestId("approval-grant-line")).toHaveText([
+			"Network access to api.weather.example",
+			"Cannot start its MCP server process: starting processes needs the shell permission",
+		]);
+		await expect(card.getByText("Starts its MCP server process (process spawning allowed)")).toHaveCount(0);
+		await card.scrollIntoViewIfNeeded();
+		await captureEvidence(page, testInfo, "extension-author-approval-mcp-blocked");
 	} finally {
 		await review.close();
 	}

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { MCP_BRIDGE_SOURCE, MCP_BRIDGE_TEST_SOURCE, type ExtensionManifestV4, type Runner, type RunnerCapabilities, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import { filesDigest } from "@ezcorp/extension-runner";
-import { releaseProcessSpawn, requireProcessSpawnEnforcement, SHELL_GRANT } from "./process-spawn-policy";
+import { approvalProcessSpawn, releaseProcessSpawn, requireProcessSpawnEnforcement, SHELL_GRANT } from "./process-spawn-policy";
 
 const stdioManifest = { schemaVersion: 4, name: "files-mcp", version: "1.0.0", description: "MCP", author: { name: "admin" }, kind: "mcp", permissions: {}, mcpServers: [{ name: "files", transport: "stdio", command: "files-server" }], tools: [] } as unknown as ExtensionManifestV4;
 const toolManifest = { schemaVersion: 4, name: "tool", version: "1.0.0", description: "Tool", author: { name: "admin" }, permissions: {}, tools: [] } as unknown as ExtensionManifestV4;
@@ -72,4 +72,36 @@ test("requireProcessSpawnEnforcement never asks for an allow start", async () =>
   const target = runner(enforcing);
   await requireProcessSpawnEnforcement(target, "allow");
   expect(target.asked).toBe(0);
+});
+
+describe("approvalProcessSpawn", () => {
+  const approval = (id: string, releaseId: string, grants: string[] = []) => ({ id, releaseId, grants });
+
+  test("judges each stdio MCP approval by the same rule a worker start uses", async () => {
+    const releases = {
+      bridge: { artifactDigest: filesDigest(bridgeArtifact), manifest: stdioManifest },
+      custom: { artifactDigest: filesDigest(customArtifact), manifest: stdioManifest },
+      tool: { artifactDigest: "e".repeat(64), manifest: toolManifest },
+    };
+    const files: Record<string, WorkspaceFiles> = { [releases.bridge.artifactDigest]: bridgeArtifact, [releases.custom.artifactDigest]: customArtifact };
+    const target = { ...runner(undefined), collectArtifacts: async (digest: string) => files[digest]! };
+    const verdicts = await approvalProcessSpawn(target, {
+      releases,
+      approvals: {
+        a: approval("a", "bridge"),
+        b: approval("b", "custom"),
+        c: approval("c", "custom", [SHELL_GRANT]),
+        d: approval("d", "tool"),
+        e: approval("e", "missing"),
+      },
+    });
+    // No verdict where no MCP line depends on it: a tool extension, or a release not in the state.
+    expect(verdicts).toEqual({ a: "allow", b: "deny", c: "allow" });
+  });
+
+  test("an artifact the runner cannot read gives no verdict, never an allow", async () => {
+    const target = { ...runner(undefined), collectArtifacts: async () => { throw new Error("runner down"); } };
+    const releases = { custom: { artifactDigest: "f".repeat(64), manifest: stdioManifest } };
+    expect(await approvalProcessSpawn(target, { releases, approvals: { a: approval("a", "custom") } })).toEqual({});
+  });
 });
