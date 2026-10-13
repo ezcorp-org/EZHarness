@@ -19,6 +19,7 @@ import {
   _resetPreviewProcessesForTests,
 } from "../runtime/preview/preview-spawn-orchestration";
 import { _resetPreviewUidPoolForTests } from "../runtime/preview/preview-uid-pool";
+import { computePreviewCapabilities } from "../runtime/preview/preview-netns";
 import { PREVIEW_CONSENT_CARD_TYPE } from "../runtime/preview/preview-consent";
 import type { PreviewDetectedEvent } from "../runtime/preview/preview-port-watcher";
 
@@ -268,5 +269,37 @@ describe("launchPreviewDevServer (spawn orchestration)", () => {
       killPreview: async () => { throw new Error("helper spawn boom"); },
     });
     expect(r).toEqual({ killed: 0, unconfirmed: 1 });
+  });
+});
+
+describe("capability selection → dev-server launch", () => {
+  test("a host with netns + CAP_NET_ADMIN and the setuid helper still launches dev servers", () => {
+    // The netns tier has no live implementation (no veth, no bridge, no
+    // netns port reader), so a host that passes its probes must still get
+    // the working uid tier rather than a mode nothing can launch in.
+    const caps = computePreviewCapabilities({
+      probeNetns: () => ({ available: true }),
+      probeVeth: () => ({ available: true }),
+      helperPresent: () => true,
+    });
+    const res = launchPreviewDevServer(
+      { conversationId: "conv-cap", userId: "u1", workDir: "/work", command: "bun", args: ["dev"] },
+      {
+        capabilities: () => caps,
+        spawn: () => ({ pid: 4242, kill: () => {}, exited: Promise.resolve(0) }),
+      },
+    );
+    expect(res.ok).toBe(true);
+    expect(caps.dynamic).toBe(true);
+  });
+
+  test("without the setuid helper, netns + CAP_NET_ADMIN alone does not claim dynamic previews", () => {
+    const caps = computePreviewCapabilities({
+      probeNetns: () => ({ available: true }),
+      probeVeth: () => ({ available: true }),
+      helperPresent: () => false,
+    });
+    expect(caps).toMatchObject({ dynamic: false, mode: "static" });
+    expect(caps.reason).toContain("setuid spawn helper not present");
   });
 });

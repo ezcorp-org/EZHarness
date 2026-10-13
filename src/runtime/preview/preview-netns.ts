@@ -28,8 +28,6 @@
  */
 
 import {
-  probeNetnsAvailability,
-  probeVethCapability,
   allocVethSlot,
   releaseVethSlot,
   computeVethMcpIp,
@@ -75,12 +73,12 @@ export interface PreviewCapabilities {
 let capabilitiesCache: PreviewCapabilities | null = null;
 
 /**
- * Detect preview capabilities. Static is unconditional. Dynamic requires
- * BOTH the user+mount namespace probe (`probeNetnsAvailability`) AND the
- * veth/CAP_NET_ADMIN probe (`probeVethCapability`) to be available — if
- * either fails, dynamic is DISABLED (fail-closed, D2) with the first
- * failing probe's reason. Result is cached for the process lifetime
- * (the underlying probes are themselves cached + shell out at most once).
+ * Detect preview capabilities. Static is unconditional. Dynamic previews
+ * need the setuid spawn helper (uid mode); without it they are disabled
+ * (fail-closed, D2). The netns tier is never selected: it has no live
+ * implementation (no veth pairs, no netns port reader), and selecting it
+ * refused every dev-server launch on hosts that passed its probes.
+ * Result is cached for the process lifetime.
  */
 export function previewCapabilities(): PreviewCapabilities {
   if (capabilitiesCache !== null) return capabilitiesCache;
@@ -89,9 +87,8 @@ export function previewCapabilities(): PreviewCapabilities {
 }
 
 /**
- * Probes injected for tests. Production uses the live netns/veth probes
- * and the setuid-helper presence check. Keeping them as parameters lets
- * each precedence branch (netns→uid→static) be exercised deterministically.
+ * The helper check is injectable for tests. `probeNetns` / `probeVeth`
+ * are still accepted but ignored; they go away with the netns tier.
  */
 export function computePreviewCapabilities(
   deps: {
@@ -100,39 +97,15 @@ export function computePreviewCapabilities(
     helperPresent?: () => boolean;
   } = {},
 ): PreviewCapabilities {
-  const probeNetns = deps.probeNetns ?? probeNetnsAvailability;
-  const probeVeth = deps.probeVeth ?? probeVethCapability;
   const helperPresent = deps.helperPresent ?? (() => isPreviewSpawnHelperPresent());
-
-  // ── Tier 1: hardened netns mode (strongest). ──
-  const netns = probeNetns();
-  if (netns.available) {
-    const veth = probeVeth();
-    if (veth.available) {
-      return { static: true, dynamic: true, mode: "netns", reason: null };
-    }
-    // netns present but veth/CAP_NET_ADMIN missing — fall through to uid.
-  }
-  const netnsReason = !netns.available
-    ? netns.reason ?? "user+mount namespace unavailable"
-    : "veth / CAP_NET_ADMIN unavailable";
-
-  // ── Tier 2: portable uid mode. ──
   if (helperPresent()) {
-    return {
-      static: true,
-      dynamic: true,
-      mode: "uid",
-      reason: `netns hardened mode unavailable (${netnsReason}); using portable uid mode`,
-    };
+    return { static: true, dynamic: true, mode: "uid", reason: null };
   }
-
-  // ── Tier 3: static-only (fail-closed). ──
   return {
     static: true,
     dynamic: false,
     mode: "static",
-    reason: `dynamic previews disabled: ${netnsReason}; setuid spawn helper not present/functional`,
+    reason: "dynamic previews disabled: setuid spawn helper not present/functional",
   };
 }
 

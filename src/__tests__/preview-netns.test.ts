@@ -69,155 +69,44 @@ beforeEach(() => {
   netns._resetPreviewNetnsForTests();
 });
 
-describe("previewCapabilities — capability MODE (netns > uid > static)", () => {
-  test("netns mode when both netns + veth probes pass (hardened)", () => {
+describe("previewCapabilities — capability MODE (uid > static)", () => {
+  test("static (fail-closed) without the setuid helper, even when netns + veth probes pass", () => {
+    // The probes in this file report netns + veth available; the host has
+    // no installed /app setuid helper, so the real check returns false.
     const caps = netns.previewCapabilities();
-    expect(caps.static).toBe(true);
-    expect(caps.dynamic).toBe(true);
-    expect(caps.mode).toBe("netns");
-    expect(caps.reason).toBeNull();
-  });
-
-  test("static (fail-closed) when netns unavailable + no setuid helper", () => {
-    netnsAvailable = { available: false, reason: "not linux" };
-    netns._resetPreviewCapabilitiesForTests();
-    const caps = netns.previewCapabilities();
-    expect(caps.static).toBe(true);
-    expect(caps.dynamic).toBe(false);
-    expect(caps.mode).toBe("static");
-    expect(caps.reason).toContain("not linux");
-  });
-
-  test("caches the result (probe not re-evaluated until reset)", () => {
-    expect(netns.previewCapabilities().mode).toBe("netns");
-    netnsAvailable = { available: false, reason: "changed" };
-    expect(netns.previewCapabilities().mode).toBe("netns"); // cached
-  });
-
-  // Precedence branches via the injectable computePreviewCapabilities so
-  // each tier is deterministic regardless of the host.
-  test("precedence: netns wins when netns+veth available", () => {
-    const caps = netns.computePreviewCapabilities({
-      probeNetns: () => ({ available: true }),
-      probeVeth: () => ({ available: true }),
-      helperPresent: () => true,
+    expect(caps).toEqual({
+      static: true,
+      dynamic: false,
+      mode: "static",
+      reason: "dynamic previews disabled: setuid spawn helper not present/functional",
     });
-    expect(caps.mode).toBe("netns");
-    expect(caps.dynamic).toBe(true);
   });
 
-  test("precedence: uid mode when netns missing but helper present", () => {
-    const caps = netns.computePreviewCapabilities({
-      probeNetns: () => ({ available: false, reason: "EPERM unshare" }),
-      probeVeth: () => ({ available: false }),
-      helperPresent: () => true,
-    });
-    expect(caps.mode).toBe("uid");
-    expect(caps.dynamic).toBe(true);
-    expect(caps.reason).toContain("portable uid mode");
+  test("uid mode whenever the helper is present, whatever the netns probes say", () => {
+    for (const available of [true, false]) {
+      const caps = netns.computePreviewCapabilities({
+        probeNetns: () => ({ available }),
+        probeVeth: () => ({ available }),
+        helperPresent: () => true,
+      });
+      expect(caps).toEqual({ static: true, dynamic: true, mode: "uid", reason: null });
+    }
   });
 
-  test("precedence: uid mode when netns present but veth/CAP_NET_ADMIN missing", () => {
-    const caps = netns.computePreviewCapabilities({
-      probeNetns: () => ({ available: true }),
-      probeVeth: () => ({ available: false, reason: "no CAP_NET_ADMIN" }),
-      helperPresent: () => true,
-    });
-    expect(caps.mode).toBe("uid");
-    expect(caps.dynamic).toBe(true);
-  });
-
-  test("precedence: static fail-closed when neither netns nor helper", () => {
-    const caps = netns.computePreviewCapabilities({
-      probeNetns: () => ({ available: false, reason: "not linux" }),
-      probeVeth: () => ({ available: false }),
-      helperPresent: () => false,
-    });
-    expect(caps.mode).toBe("static");
-    expect(caps.dynamic).toBe(false);
-    expect(caps.static).toBe(true);
-    expect(caps.reason).toContain("setuid spawn helper not present");
+  test("caches the result until reset", () => {
+    const first = netns.previewCapabilities();
+    expect(netns.previewCapabilities()).toBe(first);
   });
 });
 
 describe("per-conversation netns allocation", () => {
-  test("allocates a netns + veth slot for a conversation", () => {
-    const a = netns.allocatePreviewNetns("conv-1");
-    expect(a).not.toBeNull();
-    expect(a!.conversationId).toBe("conv-1");
-    expect(a!.slot).toBe(1);
-    expect(a!.netnsId).toBe("preview-conv-conv-1");
-    expect(a!.vethIpv4).toBe("10.42.0.6/30");
-    expect(netns.activePreviewNetnsCount()).toBe(1);
-  });
-
-  test("is idempotent — same conversation reuses its allocation (no double-spend)", () => {
-    const a = netns.allocatePreviewNetns("conv-1");
-    const b = netns.allocatePreviewNetns("conv-1");
-    expect(b).toEqual(a!);
-    expect(slotPool.length).toBe(1);
-    expect(netns.activePreviewNetnsCount()).toBe(1);
-  });
-
-  test("returns null when dynamic previews are unavailable (D2)", () => {
-    netnsAvailable = { available: false, reason: "not linux" };
-    netns._resetPreviewCapabilitiesForTests();
-    expect(netns.allocatePreviewNetns("conv-x")).toBeNull();
-    expect(netns.activePreviewNetnsCount()).toBe(0);
-  });
-
-  test("mode-gate: returns null when mode is NOT 'netns' WITHOUT consuming a veth slot", () => {
-    // Phase 3a added the explicit `previewCapabilities().mode !== "netns"`
-    // gate: netns allocation is reserved for the hardened netns mode — uid
-    // mode uses the uid pool, static mode allocates nothing. Here the netns
-    // probe is up but the veth/CAP_NET_ADMIN probe is DOWN, so the resolved
-    // mode is non-netns (static on this host — no setuid helper). The gate
-    // must short-circuit to null BEFORE touching the slot allocator, so the
-    // pool is left untouched (this distinguishes the mode-gate from
-    // slot-exhaustion: a wrongly-gated impl would burn a slot first).
-    netnsAvailable = { available: true, reason: undefined };
-    vethAvailable = { available: false, reason: "no CAP_NET_ADMIN" };
-    netns._resetPreviewCapabilitiesForTests();
-
-    expect(netns.previewCapabilities().mode).not.toBe("netns");
-    expect(netns.allocatePreviewNetns("conv-gated")).toBeNull();
-    expect(netns.activePreviewNetnsCount()).toBe(0);
-    // No slot was consumed — the gate ran before allocVethSlot().
-    expect(slotPool.length).toBe(0);
-  });
-
-  test("returns null when the slot pool is exhausted", () => {
-    for (let i = 0; i < 60; i++) expect(netns.allocatePreviewNetns(`c-${i}`)).not.toBeNull();
-    expect(netns.allocatePreviewNetns("c-overflow")).toBeNull();
-  });
-
-  test("returns null for an empty conversation id", () => {
+  test("never allocates: the netns tier is not selected, so no veth slot is spent", () => {
+    expect(netns.allocatePreviewNetns("conv-1")).toBeNull();
     expect(netns.allocatePreviewNetns("")).toBeNull();
-  });
-
-  test("getPreviewNetns returns the current allocation", () => {
     expect(netns.getPreviewNetns("conv-1")).toBeUndefined();
-    const a = netns.allocatePreviewNetns("conv-1");
-    expect(netns.getPreviewNetns("conv-1")).toEqual(a!);
-  });
-});
-
-describe("reapPreviewNetns", () => {
-  test("releases the slot + bookkeeping and is idempotent", () => {
-    netns.allocatePreviewNetns("conv-1");
-    expect(slotPool.length).toBe(1);
-    expect(netns.reapPreviewNetns("conv-1")).toBe(true);
-    expect(slotPool.length).toBe(0);
-    expect(netns.activePreviewNetnsCount()).toBe(0);
-    // second reap is a no-op
     expect(netns.reapPreviewNetns("conv-1")).toBe(false);
-  });
-
-  test("frees a slot so a new conversation can reuse the pool", () => {
-    for (let i = 0; i < 60; i++) netns.allocatePreviewNetns(`c-${i}`);
-    expect(netns.allocatePreviewNetns("c-new")).toBeNull();
-    netns.reapPreviewNetns("c-0");
-    expect(netns.allocatePreviewNetns("c-new")).not.toBeNull();
+    expect(netns.activePreviewNetnsCount()).toBe(0);
+    expect(slotPool.length).toBe(0);
   });
 });
 
