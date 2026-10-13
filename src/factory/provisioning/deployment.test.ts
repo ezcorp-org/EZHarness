@@ -416,7 +416,7 @@ describe("the startup release block (W4H-27 D3): what the deployer writes, the r
     expect(composed?.destinations).toEqual([FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, FACTORY_GITHUB_RELEASE_DESTINATION]);
     expect(await composed!.providers.resolve(operation("s3", "tenant-01"))).toBeInstanceOf(S3FactoryManifestReleaseProvider);
     expect(await composed!.providers.resolve(operation("github", "ezcorp-org/factory-platform-publication-tests"))).toBeInstanceOf(FactoryGitHubReleaseProvider);
-    expect((await factoryRejection(composed!.providers.resolve(operation("s3", "tenant-02")))).code).toBe("factory_release_destination_unknown");
+    expect((await factoryRejection(Promise.resolve(composed!.providers.resolve(operation("s3", "tenant-02"))))).code).toBe("factory_release_destination_unknown");
   });
 
   test("S3 always, GitHub only when declared; no profile, no release block", async () => {
