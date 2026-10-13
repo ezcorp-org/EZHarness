@@ -300,6 +300,32 @@ test.describe("Workflow run trace", () => {
 		expect(resumed).toBe(true);
 	});
 
+	test("a network failure loading the trace is reported, not left spinning", async ({ page, mockApi }) => {
+		await mockApi({});
+		await page.route(`**/api/workflows/runs/${TRACE.run.id}`, (route) => route.abort("connectionrefused"));
+		await page.goto(`/workflows/runs/${TRACE.run.id}`);
+		await expect(page.getByTestId("trace-error")).toBeVisible();
+		await expect(page.getByTestId("step-row")).toHaveCount(0);
+	});
+
+	test("Refresh on a live run loads its current state", async ({ page, mockApi }) => {
+		await mockApi({});
+		let current: unknown = PARKED;
+		let loads = 0;
+		await page.route(`**/api/workflows/runs/${PARKED.run.id}`, (route) => {
+			loads++;
+			return route.fulfill({ json: current });
+		});
+		await page.goto(`/workflows/runs/${PARKED.run.id}`);
+		await expect(page.getByTestId("run-trace")).toBeVisible();
+		const before = loads;
+
+		current = { ...PARKED, run: { ...PARKED.run, status: "running", suspendedReason: null } };
+		await page.getByTestId("trace-refresh").click();
+		await expect.poll(() => loads).toBe(before + 1);
+		await expect(page.getByTestId("trace-status")).toHaveText("Running");
+	});
+
 	test("an unreadable run reports 404 without saying whether it exists", async ({
 		page,
 		mockApi,

@@ -213,6 +213,13 @@ test.describe("/commands authoring UI", () => {
 		await captureEvidence(page, testInfo, "command-editor-second-command");
 	});
 
+	test("opening a command that does not exist shows the load error", async ({ page, mockApi }) => {
+		await mockApi({ userCommands: [{ name: "review", body: "Review: $ARGUMENTS" }] });
+		await page.goto("/commands/missing");
+		await expect(page.getByTestId("commands-edit-load-error")).toBeVisible();
+		await expect(page.getByTestId("command-form-body")).toHaveCount(0);
+	});
+
 	test("delete-with-confirm removes the row from /commands list page", async ({
 		page,
 		mockApi,
