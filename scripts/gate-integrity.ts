@@ -656,20 +656,37 @@ function testAssertionPaths(source: string): Map<number, boolean> {
   const parser = typeScriptParser();
   const file = parser.createSourceFile("gate-integrity-input.ts", source, parser.ScriptTarget.Latest, true, parser.ScriptKind.TS);
   const helpers = new Map<string, ts.FunctionDeclaration>();
+  // Local names of the known waitFor sources: Testing Library's `waitFor`
+  // and vitest's `vi` (called as `vi.waitFor`). Only these named imports
+  // count; a same-named function from any other module does not.
   const importedWaitFor = new Set<string>();
+  const importedVi = new Set<string>();
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) helpers.set(statement.name.text, statement);
-    if (!ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !statement.moduleSpecifier.text.startsWith("@testing-library/")) continue;
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const source = statement.moduleSpecifier.text;
+    const wanted = source.startsWith("@testing-library/") ? { name: "waitFor", into: importedWaitFor }
+      : source === "vitest" ? { name: "vi", into: importedVi }
+      : undefined;
     const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    if (!wanted || !bindings || !ts.isNamedImports(bindings)) continue;
     for (const specifier of bindings.elements) {
-      if ((specifier.propertyName?.text ?? specifier.name.text) === "waitFor") {
-        importedWaitFor.add(specifier.name.text);
+      if ((specifier.propertyName?.text ?? specifier.name.text) === wanted.name) {
+        wanted.into.add(specifier.name.text);
       }
     }
   }
+  /** The local binding a known waitFor call depends on, or undefined:
+   *  `waitFor(` from Testing Library, or `vi.waitFor(` from vitest. */
+  const waitForBinding = (call: ts.CallExpression): string | undefined => {
+    const callee = call.expression;
+    if (ts.isIdentifier(callee)) return importedWaitFor.has(callee.text) ? callee.text : undefined;
+    if (ts.isPropertyAccessExpression(callee)
+      && callee.name.text === "waitFor"
+      && ts.isIdentifier(callee.expression)
+      && importedVi.has(callee.expression.text)) return callee.expression.text;
+    return undefined;
+  };
 
   const bindingNames = (name: ts.BindingName | undefined): string[] => {
     // A syntactically incomplete diff can produce a recovery declaration with
@@ -737,19 +754,20 @@ function testAssertionPaths(source: string): Map<number, boolean> {
     if (node !== root && ts.isFunctionLike(node)) return false;
     if (ts.isCallExpression(node)) {
       if (callIsAssertion(node)) return true;
+      // An imported waitFor (Testing Library or vitest's `vi`) is a known
+      // callback invoker, but only an awaited call proves the test waits for
+      // its assertion. Do not credit a same-named local binding or arbitrary
+      // callback helper.
+      const waitFor = waitForBinding(node);
+      const waitCallback = node.arguments[0];
+      if (waitFor
+        && ts.isAwaitExpression(node.parent)
+        && !shadowsFileHelper(root, waitFor)
+        && waitCallback
+        && ts.isFunctionLike(waitCallback)
+        && nodeHasAssertion(waitCallback, waitCallback)) return true;
       if (ts.isIdentifier(node.expression)) {
         const name = node.expression.text;
-        // Testing Library's imported waitFor is a known callback invoker, but
-        // only an awaited call proves the test waits for its assertion. Do not
-        // credit a same-named local binding or arbitrary callback helper.
-        const callback = node.arguments[0];
-        if (importedWaitFor.has(name)
-          && ts.isAwaitExpression(node.parent)
-          && !shadowsFileHelper(root, name)
-          && callback
-          && ts.isFunctionLike(callback)
-          && nodeHasAssertion(callback, callback)) return true;
-
         const helper = helpers.get(name);
         if (helper && !shadowsFileHelper(root, name)) {
           if (functionHasAssertion(name)) return true;

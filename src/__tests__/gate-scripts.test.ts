@@ -990,6 +990,39 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     expect(unassertedAddedBlocks(unawaited, new Set([2, 3, 4]))).toHaveLength(1);
     expect(unassertedAddedBlocks(shadowed, new Set([2, 3, 4, 5]))).toHaveLength(1);
   });
+  test("credits an awaited vitest vi.waitFor callback assertion", () => {
+    const waited = (viImport: string) => [
+      viImport,
+      "test('waits for the visible state', async () => {",
+      "  await vi.waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(waited('import { describe, test, expect, vi } from "vitest";'), new Set([2, 3, 4]))).toEqual([]);
+    const aliased = [
+      'import { vi as mocks } from "vitest";',
+      "test('waits for the visible state', async () => {",
+      "  await mocks.waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(aliased, new Set([2, 3, 4]))).toEqual([]);
+  });
+  test("does not trust a vi.waitFor without an assertion, unawaited, or not from vitest", () => {
+    const vacuous = (viImport: string, call: string, local = "") => [
+      viImport,
+      "test('does not assert', async () => {",
+      ...(local ? [`  ${local}`] : []),
+      `  ${call}`,
+      "});",
+    ].join("\n");
+    const fromVitest = 'import { vi } from "vitest";';
+    const lines = new Set([2, 3, 4, 5]);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await vi.waitFor(() => renderedState());"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous('import { vi } from "./fake-vi";', "await vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous("", "await vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await vi.waitFor(() => expect(renderedState()).toBe('ready'));", "const vi = { waitFor: (_callback: () => void) => {} };"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await helpers.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+  });
   test("does not borrow a nested helper with the same name from another test", () => {
     const duplicate = [
       "function saveAndReload() {}",
