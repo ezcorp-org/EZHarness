@@ -391,10 +391,6 @@ const MODULE_PATHS = [
   // Restore the real forward proxy after any suite that substitutes it, so a
   // later MCP test cannot inherit a fake listener or token state.
   "../../extensions/mcp-proxy",
-  // preview-netns.test.ts mocks the kernel-probe module to drive
-  // capability branches deterministically. Snapshot so
-  // restoreModuleMocks() re-registers the real probes in afterAll.
-  "../../extensions/mcp-netns",
   "../../extensions/permission-engine",
   "../../db/queries/sdk-capability-calls",
   "../../providers/llm",
