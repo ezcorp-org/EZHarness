@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
 import { canonicalizeJson, sha256Hex } from "./canonical";
-import { createFactoryGuestStaging, factoryGuestCheckpointName, FactoryGuestMaterialError } from "./guest-materials";
+import { createFactoryGuestStaging, factoryGuestCheckpointName, factoryGuestCompletedWithoutOperations, FactoryGuestMaterialError } from "./guest-materials";
 import { decodeFactoryPageBase64 } from "./page-bytes";
-import { FACTORY_GUEST_MATERIAL_LIMITS, type FactoryGuestMaterialRequest, type FactoryGuestMaterialResponse, type JsonValue } from "./types";
+import { FACTORY_GUEST_MATERIAL_LIMITS, type FactoryGuestMaterialRequest, type FactoryGuestMaterialResponse, type FactoryRunnerRequest, type JsonValue } from "./types";
 
 /**
  * The guest half, driven against a host double that answers exactly what the
@@ -240,4 +240,16 @@ test("a cursor that is not a journal cursor is refused before a frame is built",
     expect(failure, String(cursor)).toBeInstanceOf(FactoryGuestMaterialError);
     expect((failure as FactoryGuestMaterialError).code).toBe("guest_frame_invalid");
   }
+});
+
+test("a task that settled no operation completes at cursor next-1 with no rows, zero usage, its output and its checkpoint", async () => {
+  const log: HostLog = { frames: [] };
+  const request = { authority: { runId: "run", nodeInstanceId: "node", candidateGeneration: 2, nextOperationIndex: 3 } } as unknown as FactoryRunnerRequest;
+  const result = await factoryGuestCompletedWithoutOperations({ request, call: host(log), outputName: "result.json", output: { ok: true }, checkpointSchema: "test.checkpoint.v1" });
+  const bytes = new TextEncoder().encode(canonicalizeJson({ ok: true }));
+  expect(result).toMatchObject({ schemaVersion: "factory.runner.result.v1", status: "completed", journalCursor: 2, operations: [], resultDigest: sha256Hex(bytes),
+    usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" } });
+  expect(log.frames.every(frame => frame.operationId === "run:node:2:3" && frame.operationIndex === 3)).toBe(true);
+  expect(log.frames.map(frame => frame.objectName)).toContain("result.json");
+  expect(log.frames.map(frame => frame.objectName)).toContain(factoryGuestCheckpointName(2));
 });
