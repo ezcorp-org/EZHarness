@@ -721,6 +721,11 @@
 	const MENU_NAV_KEYS = new Set(['ArrowDown', 'ArrowUp', 'Enter', 'Tab', 'Escape']);
 
 	function handleKeydown(e: KeyboardEvent) {
+		// Keys that drive an IME (Enter confirms a candidate, arrows pick one)
+		// belong to the IME. Safari ends the composition before this keydown,
+		// so it is marked only by keyCode 229.
+		if (isComposing || e.isComposing || e.keyCode === 229) return;
+
 		// Delegate navigation keys to whichever menu is open
 		const activeMenu = mentionOpen ? popoverRef : showToolPicker ? toolPickerRef : null;
 		if (activeMenu && MENU_NAV_KEYS.has(e.key)) {
