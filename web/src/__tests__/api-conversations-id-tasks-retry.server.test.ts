@@ -3,10 +3,10 @@ import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port"
  * Server-handler unit tests for
  * /api/conversations/[id]/tasks/[taskId]/retry (+server.ts).
  *
- * Covers auth (401), missing conv (404), ownership 404, missing task
- * (404), 409 when task not in "failed" state, and the zero-assignment
- * reset path that returns snapshot + resetAssignmentIds without
- * auto-spawning.
+ * Covers auth (401), invalid body (400), missing conv (404), ownership
+ * 404, missing task (404), 409 when task not in "failed" state, the
+ * reset paths (top-level + subtask assignments), and the single-assignment
+ * auto-spawn (with and without its agent config).
  *
  * Runtime imports (executor, bus, start-assignment) are mocked so
  * the handler's decision-making is exercised without touching the
@@ -43,12 +43,11 @@ vi.mock("$lib/server/context", () => ({
   getBus: () => ({ emit: busEmit }),
 }));
 
-vi.mock("$server/runtime/start-assignment", () => ({
-  startAssignment: vi.fn(async () => ({
-    subConversationId: "sub-new",
-    agentRunId: "run-new",
-  })),
+const startAssignment = vi.fn(async () => ({
+  subConversationId: "sub-new",
+  agentRunId: "run-new",
 }));
+vi.mock("$server/runtime/start-assignment", () => ({ startAssignment }));
 
 const { POST } = await import(
   "../routes/api/conversations/[id]/tasks/[taskId]/retry/+server.ts"
@@ -77,6 +76,8 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/retry", () => {
     getAgentConfig.mockReset();
     getTaskSnapshotForConversation.mockReset();
     busEmit.mockReset();
+    startAssignment.mockClear();
+    writeTaskSnapshotForConversation.mockClear();
   });
 
   test("rejects 401 when unauthenticated", async () => {
@@ -183,6 +184,101 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/retry", () => {
     };
     expect(body.resetAssignmentIds.sort()).toEqual(["as-1", "as-2"]);
     expect(body.spawned).toBeNull();
+  });
+
+  test("rejects 400 when model/provider are not strings", async () => {
+    const res = await POST(makeEvent({ locals: { user }, body: { model: 42 } }));
+    expect(res.status).toBe(400);
+    expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  const singleFailed = (agentConfigId: string) => ({
+    conversationId: "c1",
+    tasks: [
+      {
+        id: "t1",
+        status: "failed",
+        assignments: [],
+        subtasks: [
+          {
+            id: "st-1",
+            assignments: [
+              {
+                id: "as-sub",
+                status: "failed",
+                agentConfigId,
+                failedAt: "x",
+                completedAt: "y",
+                resultPreview: "boom",
+              },
+              { id: "as-done", status: "completed", agentConfigId },
+            ],
+          },
+          { id: "st-2" },
+        ],
+      },
+    ],
+  });
+
+  test("one failed subtask assignment is reset and auto-started", async () => {
+    getConversation.mockResolvedValue({
+      id: "c1",
+      userId: "u1",
+      projectId: "p1",
+      model: "conv-model",
+      provider: "conv-provider",
+    });
+    getTaskSnapshotForConversation.mockResolvedValue(singleFailed("agent-1"));
+    getAgentConfig.mockResolvedValue({ id: "agent-1", name: "Fixer" });
+
+    const res = await POST(
+      makeEvent({ locals: { user }, body: { model: "body-model" } }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      resetAssignmentIds: string[];
+      spawned: unknown;
+      snapshot: { tasks: { subtasks: { assignments?: Record<string, unknown>[] }[] }[] };
+    };
+    expect(body.resetAssignmentIds).toEqual(["as-sub"]);
+    expect(body.spawned).toEqual({
+      assignmentId: "as-sub",
+      runId: "run-new",
+      subConversationId: "sub-new",
+    });
+    // Failure residue is cleared; the completed sibling is untouched.
+    const [reset, done] = body.snapshot.tasks[0]!.subtasks[0]!.assignments!;
+    expect(reset).toEqual({ id: "as-sub", status: "assigned", agentConfigId: "agent-1" });
+    expect(done!.status).toBe("completed");
+    // The body model wins over the conversation's; provider falls back.
+    expect(startAssignment).toHaveBeenCalledWith(
+      expect.objectContaining({
+        projectId: "p1",
+        parentModel: "body-model",
+        parentProvider: "conv-provider",
+      }),
+    );
+    expect(writeTaskSnapshotForConversation).toHaveBeenLastCalledWith("c1", {
+      tasks: body.snapshot.tasks,
+    });
+  });
+
+  test("a missing agent config resets the assignment but does not start it", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getTaskSnapshotForConversation.mockResolvedValue(singleFailed("gone"));
+    getAgentConfig.mockResolvedValue(null);
+
+    const res = await POST(makeEvent({ locals: { user }, body: {} }));
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      resetAssignmentIds: string[];
+      spawned: unknown;
+      error?: string;
+    };
+    expect(body.resetAssignmentIds).toEqual(["as-sub"]);
+    expect(body.spawned).toBeNull();
+    expect(body.error).toBe("Agent config not found — assignment reset but not started.");
+    expect(startAssignment).not.toHaveBeenCalled();
   });
 
   // ── Boundary 2: per-API-key mode lock + autopilot refusal ─────────────
