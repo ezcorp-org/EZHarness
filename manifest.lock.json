@@ -82,8 +82,8 @@
       "directory": "docs/extensions/examples/ez-code",
       "entrypoint": "extension.ts",
       "files": 7,
-      "bytes": 106310,
-      "sourceDigest": "cdd5904d9260bf32947c9f76447dee1eb6eb81d3aead4c4ffa6502c059cc11d0"
+      "bytes": 106106,
+      "sourceDigest": "3e5e6fa5aaac092601361e86d589a9ef3d311f021c7caa9c0630fd38a5123e5e"
     },
     "file-organizer": {
       "directory": "docs/extensions/examples/file-organizer",
@@ -327,8 +327,8 @@
       "directory": "extensions/ez-factory",
       "entrypoint": "extension.ts",
       "files": 32,
-      "bytes": 621490,
-      "sourceDigest": "7af4223b71fed712e7f4315f26f3f59f2454c0fbfd1acc8973d49cc918fce9e3"
+      "bytes": 621834,
+      "sourceDigest": "4f6a89ad003f2c95d985570c8d38bd91e860e46c683ab4c94e63d53b5c7d767c"
     },
     "lessons-distiller": {
       "directory": "extensions/lessons-distiller",

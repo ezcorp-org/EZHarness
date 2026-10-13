@@ -29,16 +29,15 @@ carries exactly the intended diff including newly-created files; the throwaway
 worktree (created via `mktemp -d`) is removed via shell `rm -rf` on every exit
 path.
 
-> Why no `node:fs`? The extension loads inside the sandboxed subprocess, where
-> `src/extensions/runtime/sandbox-preload.ts` ALWAYS poisons `node:fs` /
-> `node:child_process` / `Bun.spawn`. A static `import … from "node:fs"` (or a
-> transitive one via the host sandbox layer) crashes module load on the FIRST
-> spawn — the dashboard render — surfacing "Transport closed" on the Hub tab
-> and every tool. open_pr therefore uses the shell for all file manipulation,
-> and lazily (dynamic-import) loads the host jail builder only when it actually
-> runs. A real-subprocess regression test
-> (`src/__tests__/sandbox-ez-code-render.test.ts`) renders the dashboard under
-> the preload to lock this down.
+> Why no `node:fs`? In production the extension runs in an extension-runner
+> worker (read-only root, no host filesystem), so file access goes through the
+> host. The test harness preload
+> (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`) poisons `node:fs` /
+> `node:child_process` / `Bun.spawn`, so a static `import … from "node:fs"` (or
+> a transitive one via the host sandbox layer) also crashes module load in the
+> harness. open_pr therefore uses the shell for all file manipulation, and
+> lazily (dynamic-import) loads the host jail builder only when it actually
+> runs.
 
 ## Tools
 

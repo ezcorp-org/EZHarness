@@ -6,8 +6,10 @@
 // `als.run(...)` calls — see commit message.
 //
 // Phase 2 use case: the in-sandbox `globalThis.fetch` wrapper installed
-// by `src/extensions/runtime/sandbox-preload.ts` reads the running tool's
-// name to enforce per-tool host allowlists (`EZCORP_TOOL_NETWORK_CAPS`).
+// by the test harness preload
+// (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`) reads the
+// running tool's name to enforce per-tool host allowlists
+// (`EZCORP_TOOL_NETWORK_CAPS`).
 // The SDK's `tools/call` dispatcher (channel.ts) wraps every tool
 // handler with `withToolContext` so the wrapper always sees the active
 // tool when an extension makes a network call from inside a handler.
