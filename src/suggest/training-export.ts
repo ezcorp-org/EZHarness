@@ -153,7 +153,8 @@ export async function collectPromptToolRows(days = 365): Promise<PromptToolRow[]
       WHERE tc.conversation_id IS NOT NULL
         AND tc.success = TRUE
         AND tc.created_at > NOW() - make_interval(days => $1::int)`,
-    [String(days)],
+    // make_interval takes whole days; `--days 1.5` must not be a SQL error.
+    [String(Math.ceil(days))],
   );
   return (rows as Array<{ message_id: string; prompt: string; tool_name: string }>).map((r) => ({
     messageId: r.message_id,
