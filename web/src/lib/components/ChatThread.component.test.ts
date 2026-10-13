@@ -805,6 +805,67 @@ describe("ChatThread ?m= deep-link wiring", () => {
 		}
 	});
 
+	type ThreadApi = {
+		getThreadState: () => { messages: Message[]; activeLeafId: string | null };
+	};
+
+	test("?m=<id> on another branch switches to that branch and pulses the target", async () => {
+		// u2b/a2b fork off a1 BEFORE u2/a2, so the latest leaf (a2) opens.
+		const tree = [
+			...linearTree(),
+			msg("u2b", {
+				role: "user",
+				parentMessageId: "a1",
+				createdAt: "2026-01-01T00:00:02.500Z",
+			}),
+			msg("a2b", {
+				role: "assistant",
+				parentMessageId: "u2b",
+				content: "answer-2b",
+				createdAt: "2026-01-01T00:00:02.600Z",
+			}),
+		];
+		(page as { url: URL }).url = new URL("http://x/?m=a2b");
+		const { container, component } = mountThread(tree);
+		const api = component as unknown as ThreadApi;
+
+		await vi.waitFor(() => expect(api.getThreadState().activeLeafId).toBe("a2b"));
+		expect(api.getThreadState().messages.map((m) => m.id)).toEqual(["u1", "a1", "u2b", "a2b"]);
+		await vi.waitFor(() =>
+			expect(
+				container.querySelector('[data-message-id="a2b"]')?.classList.contains("message-pulse"),
+			).toBe(true),
+		);
+	});
+
+	test("?m=<id> older than the render window grows the window to show it", async () => {
+		const tree: Message[] = [];
+		for (let i = 0; i < 20; i++) {
+			const t = (n: number) => `2026-01-01T00:${String(i).padStart(2, "0")}:0${n}.000Z`;
+			tree.push(
+				msg(`q${i}`, {
+					role: "user",
+					parentMessageId: i === 0 ? null : `r${i - 1}`,
+					createdAt: t(1),
+				}),
+				msg(`r${i}`, {
+					role: "assistant",
+					parentMessageId: `q${i}`,
+					content: `reply-${i}`,
+					createdAt: t(2),
+				}),
+			);
+		}
+		(page as { url: URL }).url = new URL("http://x/?m=q0");
+		const { container } = mountThread(tree);
+
+		await vi.waitFor(() =>
+			expect(
+				container.querySelector('[data-message-id="q0"]')?.classList.contains("message-pulse"),
+			).toBe(true),
+		);
+	});
+
 	test("?m=<unknownId> is a silent no-op: param stripped, no pulse, no throw", async () => {
 		(page as { url: URL }).url = new URL("http://x/?m=does-not-exist");
 		const { container, component } = mountThread(linearTree());

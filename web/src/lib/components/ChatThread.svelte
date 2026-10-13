@@ -2390,25 +2390,14 @@
 		submitEditText,
 		handleToggleExclude,
 		handleBulkRerun,
-		handleRerun: (m: Message) => sendApi.handleRerun(m),
-		handleFallback: (m: Message, p: string, mo: string) =>
-			sendApi.handleFallback(m, p, mo),
-		handleSaveMemory: (m: Message) => sendApi.handleSaveMemory(m),
+		handleRerun,
+		handleFallback,
+		handleSaveMemory,
 		handleSubConvoSend,
 		handleSubConvoReturn,
-		setEditing: (id: string | null) => {
-			editingMessageId = id;
-		},
 		setEditText: (id: string | null, draft = "") => {
 			editTextMessageId = id;
 			editTextDraft = draft;
-		},
-		setEditRetry: (
-			call: InlineToolCall | null,
-			tool: ToolDefinition | null,
-		) => {
-			editRetryCall = call;
-			editRetryTool = tool;
 		},
 		pushSystem: (t: string) => addSystemMessage(t),
 		// Topic Contexts (WS4) handlers — no jsdom-reachable trigger in this
