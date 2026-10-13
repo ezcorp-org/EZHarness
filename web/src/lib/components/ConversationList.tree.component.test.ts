@@ -306,4 +306,37 @@ describe("ConversationList — overlapping loads", () => {
 		expect(view.queryByText("Project one chat")).toBeNull();
 		expect(view.getByText("Project two chat")).toBeInTheDocument();
 	});
+
+	test("a next page still loading when the list reloads is dropped, not appended", async () => {
+		let reportIntersecting: () => void = () => { throw new Error("Observer was not created"); };
+		vi.stubGlobal("IntersectionObserver", class {
+			constructor(callback: IntersectionObserverCallback) {
+				reportIntersecting = () => callback([{ isIntersecting: true } as IntersectionObserverEntry], this as unknown as IntersectionObserver);
+			}
+			observe() {}
+			disconnect() {}
+		});
+		try {
+			const firstPage = Array.from({ length: 30 }, (_, i) => conv({ id: `c${i}`, title: `Chat ${i}` }));
+			let resolveNextPage: (rows: Conversation[]) => void = () => { throw new Error("Next page was not requested"); };
+			fetchConversations.mockImplementation((_projectId: string, opts?: { offset?: number }) =>
+				opts?.offset ? new Promise<Conversation[]>((resolve) => { resolveNextPage = resolve; }) : Promise.resolve(firstPage),
+			);
+			const view = render(ConversationList, { projectId: "p1", oncreate: () => {}, onselect: () => {} });
+			await view.findByText("Chat 0");
+
+			reportIntersecting();
+			await waitFor(() => expect(fetchConversations).toHaveBeenCalledWith("p1", { limit: 30, offset: 30 }));
+			notifyConversationsChanged("p1");
+			await tick();
+
+			resolveNextPage([conv({ id: "stale", title: "Stale next page" })]);
+			await tick();
+			await tick();
+			expect(view.queryByText("Stale next page")).toBeNull();
+			expect(view.getByText("Chat 0")).toBeInTheDocument();
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
 });

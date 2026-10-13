@@ -31,4 +31,22 @@ describe("ModelSelector model-list retry", () => {
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 		expect(addToast).not.toHaveBeenCalled();
 	});
+
+	test("a last attempt that fails after unmount raises no toast", async () => {
+		vi.useFakeTimers();
+		let failLast: () => void = () => { throw new Error("Last attempt was not made"); };
+		const fetchMock = vi.fn(async () => {
+			if (fetchMock.mock.calls.length < 3) throw new TypeError("network down");
+			return new Promise<Response>((_, reject) => { failLast = () => reject(new TypeError("network down")); });
+		});
+		vi.stubGlobal("fetch", fetchMock);
+		const view = render(ModelSelector, { selected: null, onselect: () => {} });
+		await vi.advanceTimersByTimeAsync(1000 + 2000);
+		expect(fetchMock).toHaveBeenCalledTimes(3);
+
+		view.unmount();
+		failLast();
+		await vi.advanceTimersByTimeAsync(0);
+		expect(addToast).not.toHaveBeenCalled();
+	});
 });

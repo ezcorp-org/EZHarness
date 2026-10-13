@@ -189,6 +189,24 @@ describe("ConversationList — overlapping searches", () => {
 	});
 });
 
+describe("ConversationList — closing search", () => {
+	test("a search still in flight when the box closes does not come back on reopen", async () => {
+		vi.useFakeTimers();
+		let resolveOld: (r: SearchMessagesResponse) => void = () => { throw new Error("Search was not started"); };
+		searchMessagesMock.mockImplementationOnce(() => new Promise((resolve) => { resolveOld = resolve; }));
+		const { getByTitle, container, queryByText, getByPlaceholderText } = render(ConversationList, { props: PROPS });
+		const input = await openAndType(getByTitle, container, "deploy");
+		await vi.advanceTimersByTimeAsync(300);
+		await fireEvent.keyDown(input, { key: "Escape" });
+
+		resolveOld(resp({ hits: [makeHit({ messageId: "old", snippet: "late answer" })] }));
+		await vi.advanceTimersByTimeAsync(0);
+		await fireEvent.click(getByTitle("Search conversations"));
+		expect(queryByText("late answer")).toBeNull();
+		expect(getByPlaceholderText(/search/i)).toHaveValue("");
+	});
+});
+
 describe("ConversationList — two-section results", () => {
 	test("hits render a grouped Messages section; lexical <mark> survives, semantic renders plain", async () => {
 		searchMessagesMock.mockResolvedValue(
