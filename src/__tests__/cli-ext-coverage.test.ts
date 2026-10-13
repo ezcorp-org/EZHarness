@@ -49,6 +49,9 @@ mock.module("../extensions/cli-control", () => ({
   initCliExtension: init, verifyCliExtension: async () => ({ state: "succeeded" }),
 }));
 
+const publish = mock(async (_opts: { token?: string }) => {});
+mock.module("../extensions/sdk/publish", () => ({ publishExtension: publish }));
+
 // Import after mocks
 const { parseArgs, cli } = await import("../cli");
 
@@ -381,5 +384,66 @@ describe("cli - ext:list formatting", () => {
     expect(output).toContain("Status");
     expect(output).toContain("-".repeat(82));
     logSpy.mockRestore();
+  });
+});
+
+describe("cli - ext:info dependencies", () => {
+  test("prints each dependency's status and the extensions that require it", async () => {
+    mockExtensions.set("app-id", makeExtEntry("app-id", {
+      name: "app",
+      manifest: makeManifest({
+        name: "app",
+        dependencies: {
+          "base-ok": { version: "^1.0.0" },
+          "base-old": { version: "^2.0.0" },
+          "base-gone": { version: "^1.0.0" },
+        },
+      }),
+    }));
+    mockExtensions.set("ok-id", makeExtEntry("ok-id", { name: "base-ok", version: "1.2.0", manifest: makeManifest({ name: "base-ok" }) }));
+    mockExtensions.set("old-id", makeExtEntry("old-id", { name: "base-old", version: "1.0.0", manifest: makeManifest({ name: "base-old" }) }));
+    mockExtensions.set("user-id", makeExtEntry("user-id", {
+      name: "consumer",
+      manifest: makeManifest({ name: "consumer", dependencies: { app: { version: "^1.0.0" } } }),
+    }));
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
+    await cli(["ext", "info", "app"]);
+    logSpy.mockRestore();
+
+    const output = logs.join("\n");
+    expect(output).toContain("Dependencies:");
+    expect(output).toContain("  base-ok ^1.0.0 [ok]");
+    expect(output).toContain("  base-old ^2.0.0 [incompatible]");
+    expect(output).toContain("  base-gone ^1.0.0 [missing]");
+    expect(output).toContain("Required by: consumer");
+  });
+});
+
+describe("cli - workflow and publish", () => {
+  test("an unknown workflow/pipeline subcommand falls back to help", () => {
+    expect(parseArgs(["pipeline", "bogus"])).toEqual({ command: "help" });
+    expect(parseArgs(["pipeline", "list"])).toEqual({ command: "workflow:list" });
+  });
+
+  test("ext publish without a token publishes and returns normally", async () => {
+    await cli(["ext", "publish"]);
+    expect(publish).toHaveBeenLastCalledWith({ token: undefined });
+  });
+
+  test("ext publish passes the token and exits 1 with the error when publishing fails", async () => {
+    publish.mockImplementationOnce(async () => { throw new Error("registry rejected the package"); });
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    await expect(cli(["ext", "publish", "--token", "tok-1"])).rejects.toThrow("exit");
+
+    expect(publish).toHaveBeenLastCalledWith({ token: "tok-1" });
+    expect(errors).toContain("Error: registry rejected the package");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });
