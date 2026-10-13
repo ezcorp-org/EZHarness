@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# publish-if-main.sh <config.sh> <expected origin/main sha> (integrator-5, 2026-10-13; lesson from the 48d90eb54 sync, where a printed but
+# unchecked main head let a publish go ahead after main moved): publish.sh ONLY when the remote main still equals the sha the sync merged.
+# Exit 2 = main moved (nothing published; report and re-sync).
+set -u
+CFG=${1:?config} XM=${2:?expected main}
+I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+R=$(git -C $I ls-remote origin refs/heads/main | cut -c1-40)
+X=$(git -C $I rev-parse "$XM")
+echo "remote main $R; expected $X"
+[ -n "$R" ] && [ "$R" = "$X" ] || { echo "STOP: main moved (or ls-remote failed); not published"; exit 2; }
+exec bash /tmp/factory-platform-evidence/w00/detached-merge/publish.sh "$CFG"
