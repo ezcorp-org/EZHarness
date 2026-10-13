@@ -360,13 +360,14 @@ describe("FactoryComposeTarget.remove and purge", () => {
     } finally { await removeFactoryPrivateRoot(empty); }
   });
 
-  test("stop keeps the containers and start brings them back; stop is idempotent and a never-applied installation has nothing to stop", async () => {
+  test("stop keeps the containers and start brings them back, then waits ready; stop is idempotent and a never-applied installation has nothing to stop", async () => {
     const handle = await applied();
-    const execute = fakeExecutor();
-    await target(execute).stop(handle);
-    await target(execute).stop(handle);
-    await target(execute).start(handle);
-    expect(execute.calls.map(line)).toEqual(["stop --timeout 20", "stop --timeout 20", "start"]);
+    const execute = fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: HEALTHY, stderr: "" } : undefined);
+    const serving = { fetchStatus: async () => 200 };
+    await target(execute, serving).stop(handle);
+    await target(execute, serving).stop(handle);
+    await target(execute, serving).start(bundle);
+    expect(execute.calls.map(line)).toEqual(["stop --timeout 20", "stop --timeout 20", "start", "ps --all --format json"]);
     expect(execute.calls[2]!.command).toContain(join(handle.runtimeDirectory, "compose.env"));
     const empty = await makeFactoryPrivateRoot();
     try {
@@ -375,7 +376,7 @@ describe("FactoryComposeTarget.remove and purge", () => {
       expect(bare.calls).toEqual([]);
     } finally { await removeFactoryPrivateRoot(empty); }
     const refused = fakeExecutor((command) => isCompose(command, "start") ? { code: 1, stdout: "", stderr: "no container" } : undefined);
-    const error = await factoryRejection(target(refused).start(handle));
+    const error = await factoryRejection(target(refused).start(bundle));
     expect([error.code, error.message]).toEqual(["deployment_compose_failed", "compose start failed (1): no container"]);
   });
 

@@ -228,9 +228,10 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
     if (await Bun.file(resolve(handle.runtimeDirectory, "compose.env")).exists()) await this.must(this.compose(handle, ["stop", "--timeout", "20"]), "deployment_compose_failed", "compose stop");
   }
 
-  /** Start the containers `stop` kept, for the operator's `up`; `ready` then says when they serve. */
-  async start(handle: FactoryDeploymentHandle): Promise<void> {
-    await this.must(this.compose(handle, ["start"]), "deployment_compose_failed", "compose start");
+  /** Start the containers `stop` kept and wait until they serve (`ready`), for the operator's `up`. */
+  async start(bundle: FactoryInstallationBundle): Promise<void> {
+    await this.must(this.compose(bundle, ["start"]), "deployment_compose_failed", "compose start");
+    await this.ready(bundle);
   }
 
   /**

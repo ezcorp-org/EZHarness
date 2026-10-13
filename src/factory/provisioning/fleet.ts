@@ -300,11 +300,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
     stoppable: () => tenants((phase) => !FACTORY_GONE_PHASES.includes(phase)),
     startable: () => tenants((phase) => FACTORY_DEPLOYED_PHASES.includes(phase)),
     stopInstallation: async (tenantId: string) => composeTarget.stop(factoryDeploymentHandle(await composed.installation(tenantId), settings.roots.runtime)),
-    startInstallation: async (tenantId: string) => {
-      const bundle = await deployment.bundle(await composed.installation(tenantId));
-      await composeTarget.start(bundle);
-      await composeTarget.ready(bundle);
-    },
+    startInstallation: async (tenantId: string) => composeTarget.start(await deployment.bundle(await composed.installation(tenantId))),
     stopHost: () => fleetHost.stop(),
     startHost: () => fleetHost.start(),
     stopPlatform: () => stopFactoryPlatform({ fleetId: settings.fleetId, repositoryRoot: settings.release.directory }, platform, runtime.compose, execute),
