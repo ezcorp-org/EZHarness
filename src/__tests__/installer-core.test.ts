@@ -67,7 +67,7 @@ stub(
     '  "machine inspect")',
     `    [ "\${EZCORP_TEST_NATIVE_PODMAN:-0}" = 1 ] && exit 1`,
     `    case "$*" in *PodmanSocket*) echo "\${EZCORP_TEST_SOCKET:-/tmp/podman.sock}" ;; *) echo "running" ;; esac; exit 0 ;;`,
-    '  "info --format") echo "/run/user/1000/podman/podman.sock"; exit 0 ;;',
+    `  "info --format") [ "\${EZCORP_TEST_NO_SOCKET:-0}" = 1 ] || echo "/run/user/1000/podman/podman.sock"; exit 0 ;;`,
     '  "image exists") exit 0 ;;',
     `  "pull "*) exit "\${EZCORP_TEST_FAIL_PULL:-0}" ;;`,
     "esac",
@@ -676,6 +676,13 @@ describe("installer lifecycle failures", () => {
     expect(result.exitCode).toBe(0);
     expect(result.log).toContain("compose host=unix:///run/user/1000/podman/podman.sock");
     expect(result.log).not.toContain("host=unix:///wrong/docker.sock");
+  });
+
+  test("a missing Podman socket is named before any config is written", () => {
+    const result = run(["install"], { EZCORP_TEST_NATIVE_PODMAN: "1", EZCORP_TEST_NO_SOCKET: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not find the Podman API socket");
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
   });
 
   test("Podman socket paths can contain spaces", () => {

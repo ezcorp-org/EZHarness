@@ -211,6 +211,8 @@ ensure_runtime() {
   ensure_engine_compatibility
   ensure_runner_config
   ensure_machine
+  # compose() runs under quiet(), which would hide this lookup's error.
+  [ "$ENGINE" != podman ] || podman_socket >/dev/null
 }
 
 # ── Port selection ─────────────────────────────────────────────────────────
