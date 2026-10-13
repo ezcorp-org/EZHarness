@@ -1,4 +1,4 @@
-import { test, expect } from "./fixtures/test-base.js";
+import { test, expect, captureEvidence } from "./fixtures/test-base.js";
 import { makeAgent, makeMessage } from "./fixtures/data.js";
 import { openAgentPanel, openTeamPanel, panelMock, type MockApi } from "./fixtures/panel-chat.js";
 import type { Locator, Page } from "@playwright/test";
@@ -14,13 +14,16 @@ async function openMentionPanel(page: Page, mockApi: MockApi) {
 	return openAgentPanel(page, mockApi, { agents: mentionAgents });
 }
 
-async function installMentionSearch(page: Page) {
-	await page.route("**/api/mentions/search**", (route) =>
-		route.fulfill({ json: [
-			{ name: "Coder", description: "Code assistant", kind: "agent" },
-			{ name: "Reviewer", description: "Code reviewer", kind: "agent" },
-		] }),
-	);
+const agentResults = [
+	{ name: "Coder", description: "Code assistant", kind: "agent" },
+	{ name: "Reviewer", description: "Code reviewer", kind: "agent" },
+];
+
+/** A built-in literal command, as the server returns `/goal`: raw `insertText`, no token. */
+const goalResult = { name: "goal", description: "Set an autonomous goal", kind: "command", source: "builtin", insertText: "/goal " };
+
+async function installMentionSearch(page: Page, results: object[] = agentResults) {
+	await page.route("**/api/mentions/search**", (route) => route.fulfill({ json: results }));
 }
 
 async function selectCoder(scope: Locator, textarea: Locator) {
@@ -117,6 +120,31 @@ test.describe("TeamChatPanel @mention autocomplete", () => {
 		await expect(list.getByRole("option", { name: /Coder/ })).toBeVisible();
 		await textarea.press("Enter");
 		await expect(panel.locator('[data-mention-kind="agent"][data-mention-name="Coder"]')).toBeVisible();
+	});
+
+	test("choosing /goal inserts the literal command, not a /[cmd:goal] token @evidence", async ({ page, mockApi }, testInfo) => {
+		const panel = await openTeamPanel(page, mockApi);
+		await installMentionSearch(page, [goalResult]);
+		const sent: Array<{ content?: string }> = [];
+		await page.route("**/api/conversations/*/agent-chat", (route) => {
+			sent.push(route.request().postDataJSON());
+			return route.fulfill({ json: { ok: true } });
+		});
+		const textarea = panel.getByRole("combobox", { name: "Send a message to the team..." });
+		await textarea.fill("/goa");
+		const list = panel.locator("#mention-listbox");
+		await expect(list.getByRole("option", { name: /goal/ })).toBeVisible();
+		await textarea.press("Enter");
+		await expect(list).toBeHidden();
+		await expect(textarea).toHaveValue(/^\/goal\s+$/);
+		await textarea.press("End");
+		await textarea.pressSequentially("ship the release");
+		await captureEvidence(page, testInfo, "team-panel-goal-literal");
+
+		// The server's /goal interceptor matches plain text only; a token would reach the model.
+		await panel.getByRole("button", { name: "Send message" }).click();
+		await expect.poll(() => sent.length).toBe(1);
+		expect(sent[0].content).toMatch(/^\/goal +ship the release$/);
 	});
 });
 
