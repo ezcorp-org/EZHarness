@@ -26,6 +26,11 @@ import type { Message } from "$lib/api.js";
 // by the toggle-paths under test here, but the imports run at module-load
 // time so they need stubs.
 vi.mock("$app/navigation", () => ({ goto: vi.fn() }));
+const { setMessageExcluded } = vi.hoisted(() => ({ setMessageExcluded: vi.fn() }));
+vi.mock("$lib/api.js", async (importOriginal) => ({
+	...(await importOriginal<typeof import("$lib/api.js")>()),
+	setMessageExcluded,
+}));
 vi.mock("$lib/utils/fetch-policy.js", () => ({
 	userFetch: vi.fn(),
 	backgroundFetch: vi.fn(),
@@ -99,3 +104,41 @@ describe("useSelectMode rune-wrapper reactivity", () => {
 		expect(getByTestId("row-d")).toHaveAttribute("aria-checked", "false");
 	});
 });
+
+describe("useSelectMode bulk exclude", () => {
+	test("excludes the selection, reports it, and clears the selection", async () => {
+		setMessageExcluded.mockReset().mockResolvedValue(undefined);
+		const { getByTestId } = render(Harness, { messages: ["a", "b", "c"].map(makeMessage) });
+		await fireEvent.click(getByTestId("row-a"));
+		await fireEvent.click(getByTestId("row-c"));
+
+		await fireEvent.click(getByTestId("bulk-exclude"));
+
+		await vi.waitFor(() => expect(getByTestId("bulk-status")).toHaveTextContent("Excluded 2 turns"));
+		expect(setMessageExcluded).toHaveBeenCalledWith("conv-1", "a", true);
+		expect(setMessageExcluded).toHaveBeenCalledWith("conv-1", "c", true);
+		expect(getByTestId("excluded-ids")).toHaveTextContent("a,c");
+		expect(getByTestId("selected-count")).toHaveTextContent("0");
+
+		// Selecting only excluded turns flips the action to re-include.
+		await fireEvent.click(getByTestId("row-a"));
+		await fireEvent.click(getByTestId("bulk-exclude"));
+		await vi.waitFor(() => expect(getByTestId("bulk-status")).toHaveTextContent("Included 1 turn"));
+		expect(getByTestId("excluded-ids")).toHaveTextContent("c");
+	});
+
+	test("a failed exclude shows the error and keeps the selection", async () => {
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		setMessageExcluded.mockReset().mockRejectedValue(new Error("Conversation is busy"));
+		const { getByTestId } = render(Harness, { messages: ["a", "b"].map(makeMessage) });
+		await fireEvent.click(getByTestId("row-b"));
+
+		await fireEvent.click(getByTestId("bulk-exclude"));
+
+		await vi.waitFor(() => expect(getByTestId("select-error")).toHaveTextContent("Conversation is busy"));
+		expect(getByTestId("selected-count")).toHaveTextContent("1");
+		expect(getByTestId("excluded-ids")).toHaveTextContent("");
+		err.mockRestore();
+	});
+});
+
