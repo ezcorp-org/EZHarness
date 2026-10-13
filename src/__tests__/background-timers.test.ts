@@ -1,4 +1,7 @@
 import { test, expect, describe, mock, beforeEach, afterEach, afterAll } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 afterAll(() => restoreModuleMocks());
@@ -71,6 +74,7 @@ let workflowRunnerStopResult: (() => Promise<void>) | undefined;
 // WebhookDeliveryDaemon. Without the registry `dispatchFire` drops every fire
 // behind a false `completion("ok")`, so the construction-site arg is the fix.
 let scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
+let scheduleDaemonStartResult = true;
 let lastScheduleDaemonOpts: { registry?: unknown } | undefined;
 
 // HostMaintenanceDaemon stub instrumentation. The bootstrap reads
@@ -220,7 +224,17 @@ const loggerSpy = {
 // reset per test in beforeEach.
 let warmupEmbeddingsMock = mock(() => {});
 
+// Preview watcher callbacks: detection routing and the lazy idle reaper.
+let onPreviewDetectedMock = mock((_event: unknown, _deps: unknown) => Promise.resolve());
+let reapPreviewConversationMock = mock((_conversationId: string) => Promise.resolve({}));
+
+// Surface-audit sweep: the timer lazy-imports ../runtime/audit/run.
+let runScheduledAuditMock = mock((_ctx: unknown) => Promise.resolve());
+
 function installModuleMocks(): void {
+  mock.module("../runtime/audit/run", () => ({
+    runScheduledAudit: (ctx: unknown) => runScheduledAuditMock(ctx),
+  }));
   mock.module("../memory/lifecycle", () => ({
     startDecayTimer: (...args: unknown[]) => startDecayTimerMock(...(args as [])),
   }));
@@ -266,7 +280,7 @@ function installModuleMocks(): void {
         scheduleDaemonCtorMock(opts);
         lastScheduleDaemonOpts = opts;
       }
-      start() { return Promise.resolve(true); }
+      start() { return Promise.resolve(scheduleDaemonStartResult); }
       stop() {}
     },
   }));
@@ -490,7 +504,10 @@ function installModuleMocks(): void {
     enforceDataDirLockdown: () => ({ ok: false, path: "/stub/.ezcorp/data", reason: "stub" }),
   }));
   mock.module("../runtime/preview/preview-detection-bridge", () => ({
-    onPreviewDetected: () => Promise.resolve(),
+    onPreviewDetected: (event: unknown, deps: unknown) => onPreviewDetectedMock(event, deps),
+  }));
+  mock.module("../runtime/preview/preview-reaper", () => ({
+    reapPreviewConversation: (conversationId: string) => reapPreviewConversationMock(conversationId),
   }));
   mock.module("../runtime/preview/preview-bus-registry", () => ({
     getRegisteredPreviewBus: () => null,
@@ -551,6 +568,10 @@ beforeEach(async () => {
   lastWebhookDaemonInstance = undefined;
   scheduleDaemonCtorMock = mock((_opts?: unknown) => {});
   lastScheduleDaemonOpts = undefined;
+  scheduleDaemonStartResult = true;
+  runScheduledAuditMock = mock((_ctx: unknown) => Promise.resolve());
+  onPreviewDetectedMock = mock((_event: unknown, _deps: unknown) => Promise.resolve());
+  reapPreviewConversationMock = mock((_conversationId: string) => Promise.resolve({}));
   permSweepDaemonCtorMock = mock(() => {});
   permSweepDaemonStartMock = mock(() => Promise.resolve<boolean>(true));
   permSweepDaemonStopMock = mock(() => {});
@@ -1965,5 +1986,179 @@ describe("startBackgroundTimers — embedding warm-up", () => {
     expect(startDecayTimerMock).toHaveBeenCalledTimes(1);
     expect(intervalCalls).toHaveLength(5);
     expect(embedWorkerCtorMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("startBackgroundTimers — periodic jobs run when their timer fires", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+  test("session, error-log and compaction ticks call their jobs; a compaction failure is logged", async () => {
+    runCompactionMock = mock(() => Promise.reject(new Error("compaction broke")));
+    installModuleMocks();
+
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    intervalCalls[0]!.fn();
+    intervalCalls[1]!.fn();
+    intervalCalls[4]!.fn();
+    await flush();
+
+    expect(deleteExpiredSessionsMock).toHaveBeenCalledTimes(1);
+    expect(cleanupOldErrorsMock).toHaveBeenCalledWith(30);
+    expect(loggerErrorMock).toHaveBeenCalledWith("Compaction error", { error: String(new Error("compaction broke")) });
+  });
+
+  test("a ScheduleDaemon that finds a sibling lockfile is dropped and the refusal is logged", async () => {
+    scheduleDaemonStartResult = false;
+    installModuleMocks();
+
+    const mod = await import("../startup/background-timers");
+    await mod.startBackgroundTimers();
+
+    expect(scheduleDaemonCtorMock).toHaveBeenCalledTimes(1);
+    expect(mod._getScheduleDaemonForTests()).toBeUndefined();
+    expect(loggerWarnMock).toHaveBeenCalledWith(
+      "ScheduleDaemon refused to start (sibling daemon detected via lockfile)",
+      undefined,
+    );
+  });
+});
+
+describe("startBackgroundTimers — surface audit timer", () => {
+  const hourMs = 60 * 60 * 1000;
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const withAuditHours = (value: unknown) =>
+    mock((key: string) =>
+      key === "global:auditIntervalHours" ? Promise.resolve<unknown>(value) : Promise.resolve<unknown>(undefined));
+
+  test("is off by default: no audit interval is armed", async () => {
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(intervalCalls).toHaveLength(5);
+    expect(loggerInfoMock).not.toHaveBeenCalledWith("Surface audit started", expect.anything());
+  });
+
+  test("auditIntervalHours arms a sweep that audits every project with a working agent context", async () => {
+    getSettingMock = withAuditHours(12);
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    const audit = intervalCalls[5]!;
+    expect(audit.delay).toBe(12 * hourMs);
+    expect(loggerInfoMock).toHaveBeenCalledWith("Surface audit started", { intervalHours: 12 });
+
+    audit.fn();
+    await flush();
+    await flush();
+
+    expect(runScheduledAuditMock).toHaveBeenCalledTimes(1);
+    const ctx = runScheduledAuditMock.mock.calls[0]![0] as {
+      llm: { complete: unknown };
+      signal: AbortSignal;
+      log(message: string): void;
+      shell: { run(): Promise<{ exitCode: number }> };
+      file: {
+        read(p: string): Promise<string>;
+        write(p: string, c: string): Promise<void>;
+        exists(p: string): Promise<boolean>;
+      };
+      run(): Promise<{ success: boolean }>;
+    };
+    expect(typeof ctx.llm.complete).toBe("function");
+    expect(ctx.signal.aborted).toBe(false);
+    ctx.log("audit line");
+    expect(loggerInfoMock).toHaveBeenCalledWith("audit line", undefined);
+    expect((await ctx.shell.run()).exitCode).toBe(0);
+    expect((await ctx.run()).success).toBe(true);
+
+    const dir = mkdtempSync(join(tmpdir(), "bg-audit-ctx-"));
+    try {
+      const path = join(dir, "note.txt");
+      expect(await ctx.file.exists(path)).toBe(false);
+      await ctx.file.write(path, "hello");
+      expect(await ctx.file.read(path)).toBe("hello");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a failed sweep is logged and does not throw out of the timer", async () => {
+    getSettingMock = withAuditHours(1);
+    runScheduledAuditMock = mock((_ctx: unknown) => Promise.reject(new Error("audit broke")));
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(() => intervalCalls[5]!.fn()).not.toThrow();
+    await flush();
+    await flush();
+
+    expect(loggerErrorMock).toHaveBeenCalledWith("Surface audit error", { error: String(new Error("audit broke")) });
+  });
+
+  test("a settings read failure skips the audit timer with a warning", async () => {
+    getSettingMock = mock((key: string) =>
+      key === "global:auditIntervalHours" ? Promise.reject(new Error("settings down")) : Promise.resolve<unknown>(undefined));
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    expect(intervalCalls).toHaveLength(5);
+    expect(loggerWarnMock).toHaveBeenCalledWith("Failed to start surface audit timer", {
+      error: String(new Error("settings down")),
+    });
+  });
+});
+
+describe("startBackgroundTimers — PreviewPortWatcher callbacks", () => {
+  const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+  const PRIOR_SECURE = process.env.FORCE_SECURE_COOKIES;
+  afterEach(() => {
+    if (PRIOR_SECURE === undefined) delete process.env.FORCE_SECURE_COOKIES;
+    else process.env.FORCE_SECURE_COOKIES = PRIOR_SECURE;
+  });
+
+  test("a detected port is routed to the consent bridge with live bus, host and cookie settings", async () => {
+    process.env.FORCE_SECURE_COOKIES = "true";
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    const event = { conversationId: "c1", port: 5173 };
+    lastPreviewWatcherConfig!.onDetected!(event);
+
+    expect(onPreviewDetectedMock).toHaveBeenCalledTimes(1);
+    const [gotEvent, deps] = onPreviewDetectedMock.mock.calls[0]! as [
+      unknown,
+      { getBus(): unknown; appHost(): unknown; secure(): boolean },
+    ];
+    expect(gotEvent).toBe(event);
+    expect(deps.getBus()).toBeNull();
+    expect(deps.secure()).toBe(true);
+    expect(typeof deps.appHost).toBe("function");
+  });
+
+  test("an idle conversation is reaped; a reap failure is logged with the conversation id", async () => {
+    installModuleMocks();
+    const { startBackgroundTimers } = await import("../startup/background-timers");
+    await startBackgroundTimers();
+
+    lastPreviewWatcherConfig!.onIdleReap!("conv-idle");
+    await flush();
+    await flush();
+    expect(reapPreviewConversationMock).toHaveBeenCalledWith("conv-idle");
+
+    reapPreviewConversationMock = mock((_conversationId: string) => Promise.reject(new Error("reap broke")));
+    lastPreviewWatcherConfig!.onIdleReap!("conv-bad");
+    await flush();
+    await flush();
+    expect(loggerWarnMock).toHaveBeenCalledWith("preview idle reap failed", {
+      conversationId: "conv-bad",
+      error: String(new Error("reap broke")),
+    });
   });
 });
