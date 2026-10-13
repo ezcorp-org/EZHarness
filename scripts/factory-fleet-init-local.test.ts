@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { pathToFileURL } from "node:url";
 import { referenceImageV1 } from "@ezcorp/factory-sdk";
 import { FACTORY_INSTALLATION_S3_RELEASE_DESTINATION } from "../src/factory/provisioning/deployment";
+import { parseFactoryFleetSettings } from "../src/factory/provisioning/fleet";
+import { makeFactoryTestFleetSettings } from "../src/__tests__/helpers/factory-private-root";
 import { LOCAL_RELEASE, LOCAL_RUNNER_PROFILES, factoryFleetInitOptions, startFactoryFleetInit } from "./factory-fleet-init-local";
 
 const env = { FACTORY_TEST_POSTGRES_URL: "postgres://u:p@127.0.0.1:5432/db", EZCORP_FACTORY_STORAGE_SECRETS_DIR: "/run/user/1/storage" };
@@ -16,9 +18,13 @@ test("options come from flags and the environment, with the pinned local runner"
 
 test("a local fleet declares one default S3 release profile: the reference definitions' S3 publication adapter, to each installation's own store", () => {
   const s3Publication = referenceImageV1.graph.nodes.find((node) => node.kind === "release");
-  expect(LOCAL_RELEASE).toEqual({ profiles: [{ adapter: (s3Publication as { adapter: unknown }).adapter as never, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }] });
+  const { package: name, manifestName, version, digest, export: exportName } = (s3Publication as { adapter: Record<string, string> }).adapter;
+  expect(LOCAL_RELEASE).toEqual({ profiles: [{ adapter: { package: name!, manifestName: manifestName!, version: version!, digest: digest!, export: exportName! }, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }] });
   expect(LOCAL_RELEASE.profiles[0]!.adapter).toMatchObject({ package: "@ezcorp/s3-immutable-publish", export: "publish" });
   expect(LOCAL_RELEASE.github).toBeUndefined();
+  // The settings the local fleet writes carry it, and the startup parser behind the fleet parser accepts it.
+  const settings = makeFactoryTestFleetSettings();
+  expect(parseFactoryFleetSettings({ ...settings, installations: { ...settings.installations, release: LOCAL_RELEASE } }).installations.release).toEqual(LOCAL_RELEASE as never);
 });
 
 test("the entry runs only as the process entry and returns the written settings path", async () => {

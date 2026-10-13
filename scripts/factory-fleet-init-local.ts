@@ -33,8 +33,9 @@ export const LOCAL_RUNNER_PROFILES: FactoryLocalFleetOptions["runnerProfiles"] =
  * each installation's own store. Taken from the definition, never restated.
  */
 export const LOCAL_RELEASE: NonNullable<FactoryLocalFleetOptions["release"]> = Object.freeze({
+  // The five fields a release profile's adapter reference has; the definition's node also carries its configuration digest.
   profiles: referenceImageV1.graph.nodes.flatMap((node) => node.kind === "release"
-    ? [{ adapter: node.adapter, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }]
+    ? [{ adapter: { package: node.adapter.package, manifestName: node.adapter.manifestName, version: node.adapter.version, digest: node.adapter.digest, export: node.adapter.export }, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }]
     : []),
 });
 

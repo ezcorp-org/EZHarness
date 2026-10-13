@@ -1,15 +1,14 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 import {
-  FACTORY_TEST_IMAGE,
   FACTORY_TEST_RUNNER_PROFILES,
   factoryRejection,
   makeFactoryPrivateRoot,
+  makeFactoryTestFleetSettings,
   removeFactoryPrivateRoot,
   writeModeFile,
 } from "../../__tests__/helpers/factory-private-root";
 import {
-  FACTORY_FLEET_SCHEMA,
   factoryInstallationHostname,
   factoryInstallationPublicOrigin,
   factoryPlatformPaths,
@@ -18,22 +17,7 @@ import {
   type FactoryFleetSettings,
 } from "./fleet";
 
-const storageDomain = (port: number) => ({ endpoint: `http://127.0.0.1:${port}`, prefix: "ordinary", issuer: { kind: "seeded" as const, serverIdentityPath: "/srv/operator/storage-identity.json" } });
-
-const VALID: FactoryFleetSettings = {
-  schemaVersion: FACTORY_FLEET_SCHEMA,
-  fleetId: "fleet-a",
-  profile: "compose",
-  roots: { operator: "/srv/operator", secrets: "/srv/secrets", runtime: "/srv/runtime" },
-  control: { databaseUrlPath: "/srv/operator/control-database-url" },
-  database: { adminUrlPath: "/srv/operator/admin-database-url", serviceHost: "127.0.0.1", servicePort: 55_432 },
-  storage: { ordinary: storageDomain(59_000), archive: { ...storageDomain(59_001), prefix: "archive" }, failureDomain: "host-a" },
-  temporal: { port: 57_233, httpPort: 57_244, serverName: "temporal.test" },
-  ingress: { address: "127.0.0.1", port: 30_443, domain: "factory.example" },
-  installations: { portBase: 40_000, cpuCapacity: 4, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
-  image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
-  release: { directory: "/srv/release", bun: "/srv/bin/bun", path: "/usr/bin:/bin" },
-};
+const VALID: FactoryFleetSettings = makeFactoryTestFleetSettings();
 
 /** A copy of VALID with one dotted path replaced (or removed when `value` is `undefined` and `remove` is set). */
 function withField(path: string, value: unknown, remove = false): unknown {
