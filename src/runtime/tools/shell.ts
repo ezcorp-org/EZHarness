@@ -188,6 +188,9 @@ export function createShellTool(
       // preview uid (fs-isolated + uid-attributed) via the orchestration. A
       // refusal (static mode / pool exhausted / missing helper) falls back to
       // the normal Bun.spawn path below — fail-safe, never a hard failure.
+      // The refusal is reported in the result so the user knows no preview
+      // link will appear.
+      let previewRefusal: string | undefined;
       if (preview) {
         const detected = detectDevServerCommand(params.command);
         if (detected) {
@@ -231,8 +234,11 @@ export function createShellTool(
             conversationId: preview.conversationId,
             reason: launched.reason,
           });
+          previewRefusal = launched.reason;
         }
       }
+
+      const note = previewRefusalNote(previewRefusal);
 
       try {
         // Phase A4 (Seam B) — jail the spawn to the per-run workspace when
@@ -276,29 +282,44 @@ export function createShellTool(
         if (result.type === "timeout") {
           proc.kill();
           return {
-            content: [{ type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}` }],
-            details: { exitCode: -1, stdout: output, stderr, streaming: false, timeout: true },
+            content: [{ type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}${note.text}` }],
+            details: { exitCode: -1, stdout: output, stderr, streaming: false, timeout: true, ...note.details },
           };
         }
 
         if (result.type === "aborted") {
           proc.kill();
           return {
-            content: [{ type: "text" as const, text: `Command aborted\n${output}` }],
-            details: { exitCode: -1, stdout: output, stderr, streaming: false, aborted: true },
+            content: [{ type: "text" as const, text: `Command aborted\n${output}${note.text}` }],
+            details: { exitCode: -1, stdout: output, stderr, streaming: false, aborted: true, ...note.details },
           };
         }
 
         const fullOutput = stderr ? `${output}\n${stderr}` : output;
         return {
-          content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
-          details: { exitCode: result.value.exitCode, stdout: output, stderr, streaming: false, truncated },
+          content: [{ type: "text" as const, text: (fullOutput || "(no output)") + note.text }],
+          details: { exitCode: result.value.exitCode, stdout: output, stderr, streaming: false, truncated, ...note.details },
         };
       } catch (e) {
         const message = errorMessage(e);
         return toolError(message, { exitCode: -1, stdout: "", stderr: message, streaming: false });
       }
     },
+  };
+}
+
+/** Result additions when a dev-server launch was refused: a line for the
+ *  user/LLM and a `preview` detail. Empty when there was no refusal. */
+function previewRefusalNote(reason: string | undefined): {
+  text: string;
+  details: { preview?: { launched: false; reason: string } };
+} {
+  if (reason === undefined) return { text: "", details: {} };
+  return {
+    text:
+      `\n\nNo preview link: secure previews are unavailable here (${reason}). ` +
+      "The command ran as a normal shell command.",
+    details: { preview: { launched: false, reason } },
   };
 }
 
