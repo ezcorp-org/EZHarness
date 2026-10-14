@@ -6,7 +6,8 @@
  * namespace proof in the shipping suite (`namespace` proof). It drives the
  * production `PodmanRunner` container argv and checks, from inside a worker:
  *
- *   - network:  only `lo`; a raw TCP connect and a UDP send to the internet fail
+ *   - network:  only `lo`; a TCP and a UDP connect to the internet get the
+ *               kernel errno ENETUNREACH (no route), read through libc
  *   - seccomp:  a syscall outside the deny-by-default profile (add_key) fails
  *               with ENOSYS, while an allowed one (getpid) works
  *   - fs:       the image root is read-only (a world-writable dir gets EROFS)
@@ -50,17 +51,18 @@ const ENOSYS = 38;
 
 /** Runs inside the worker as `bun -e`; prints one JSON observation. */
 const PROBE = `(async()=>{
-const fs=require("node:fs"),net=require("node:net"),dgram=require("node:dgram"),os=require("node:os");
+const fs=require("node:fs"),os=require("node:os");
 const read=p=>{try{return fs.readFileSync(p,"utf8").trim()}catch(e){return "ERR:"+e.code}};
-const tcp=(host,port)=>new Promise(done=>{const s=net.connect({host,port});const t=setTimeout(()=>{s.destroy();done("timeout")},4000);s.once("connect",()=>{clearTimeout(t);s.destroy();done("connected")});s.once("error",e=>{clearTimeout(t);done(e.code)})});
-const udp=()=>new Promise(done=>{const s=dgram.createSocket("udp4");s.send(Buffer.from("x"),53,"8.8.8.8",e=>{s.close();done(e?e.code:"sent")})});
+const kernelConnect=(type,ip,port)=>{try{const {dlopen,ptr,read:mem}=require("bun:ffi");const c=dlopen("libc.so.6",{socket:{args:["i32","i32","i32"],returns:"i32"},connect:{args:["i32","ptr","u32"],returns:"i32"},close:{args:["i32"],returns:"i32"},__errno_location:{args:[],returns:"ptr"}}).symbols;
+const name=n=>({101:"ENETUNREACH",111:"ECONNREFUSED",113:"EHOSTUNREACH",115:"EINPROGRESS"})[n]??"errno:"+n;const fd=c.socket(2,type|2048,0);if(fd<0)return "socket:"+name(mem.i32(c.__errno_location()));
+const addr=new Uint8Array([2,0,port>>8,port&255,...ip,0,0,0,0,0,0,0,0]);const r=c.connect(fd,ptr(addr),16);const out=r===0?"connected":name(mem.i32(c.__errno_location()));c.close(fd);return out}catch(e){return "error:"+String(e)}};
 let rootWrite="ok";try{fs.writeFileSync("/var/tmp/runner-proof","x")}catch(e){rootWrite=e.code}
 let seccomp;try{const {dlopen,FFIType,read:mem}=require("bun:ffi");const nr={x64:{add_key:248,getpid:39},arm64:{add_key:217,getpid:172}}[process.arch];
 const libc=dlopen("libc.so.6",{syscall:{args:[FFIType.i64,FFIType.i64,FFIType.i64,FFIType.i64,FFIType.i64,FFIType.i64],returns:FFIType.i64},__errno_location:{args:[],returns:FFIType.ptr}});
 const pid=Number(libc.symbols.syscall(nr.getpid,0,0,0,0,0));const ret=Number(libc.symbols.syscall(nr.add_key,0,0,0,0,0));
 seccomp={getpidWorks:pid===process.pid,addKeyRet:ret,addKeyErrno:mem.i32(libc.symbols.__errno_location())}}catch(e){seccomp={error:String(e)}}
 console.log(JSON.stringify({uid:process.getuid(),status:read("/proc/self/status"),interfaces:Object.keys(os.networkInterfaces()).sort(),
-tcp:await tcp("1.1.1.1",443),udp:await udp(),rootWrite,seccomp,memoryMax:read("/sys/fs/cgroup/memory.max"),pidsMax:read("/sys/fs/cgroup/pids.max")}));
+tcp:kernelConnect(1,[1,1,1,1],443),udp:kernelConnect(2,[8,8,8,8],53),rootWrite,seccomp,memoryMax:read("/sys/fs/cgroup/memory.max"),pidsMax:read("/sys/fs/cgroup/pids.max")}));
 })()`;
 
 interface Observation {
@@ -153,8 +155,11 @@ function storeDir(prefix: string): string {
 function expectIsolated(o: Observation): void {
   expect(o.uid).toBe(65534);
   expect(o.interfaces).toEqual(["lo"]);
-  expect(["ENETUNREACH", "EHOSTUNREACH"]).toContain(o.tcp);
-  expect(["ENETUNREACH", "EHOSTUNREACH"]).toContain(o.udp);
+  // The kernel's own connect() errno, read through libc: Bun's node:net and
+  // Bun.connect report every failed connect as ECONNREFUSED, even when the
+  // syscall returned ENETUNREACH (traced with strace in a netns with only lo).
+  expect(o.tcp).toBe("ENETUNREACH");
+  expect(o.udp).toBe("ENETUNREACH");
   expect(o.rootWrite).toBe("EROFS");
   expect(o.seccomp).toMatchObject({ getpidWorks: true, addKeyRet: -1, addKeyErrno: ENOSYS });
   expect(o.status).toMatch(/^CapEff:\s+0+$/m);
