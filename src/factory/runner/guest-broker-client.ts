@@ -1,5 +1,5 @@
 import { createGatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
-import { isFactoryGuestMaterialFrame, isFactoryGuestMaterialRead, validateFactoryGuestMaterialReadResponse, validateFactoryGuestMaterialResponse, validateFactoryGuestModelResponse, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { isFactoryGuestMaterialFrame, isFactoryGuestMaterialRead, isFactoryGuestRepositoryRead, validateFactoryGuestMaterialReadResponse, validateFactoryGuestRepositoryReadResponse, validateFactoryGuestMaterialResponse, validateFactoryGuestModelResponse, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH } from "./guest-broker-contract";
 import { FactoryGuestFrameError } from "./guest-frames";
 import { isFactoryGuestModelPayload, type FactoryGuestBroker } from "./guest-model-broker";
@@ -41,18 +41,20 @@ export interface FactoryGuestBrokerClientOptions extends GatewayTransportOptions
   /** Overrides {@link FACTORY_GUEST_MODEL_REQUEST_TIMEOUT_MS}. */
   readonly modelRequestTimeoutMs?: number;
   /**
-   * Where a reverse payload that is not a staging frame, a material read, or a
-   * model request goes. The product route answers exactly those three, so anything else keeps
+   * Where a reverse payload that is not a staging frame, a material read, a
+   * repository read, or a model request goes. The product route answers exactly those four, so anything else keeps
    * the answer the composition gives it rather than being forwarded to a route
    * that would not know what to do with it.
    */
   readonly delegate?: FactoryGuestBroker;
 }
 
-/** The three payloads the product route answers, each with the response contract it is checked against. */
+/** The four payloads the product route answers, each with the response contract it is checked against. */
 function responseContract(payload: unknown): { readonly name: string; readonly model: boolean; readonly valid: (answer: unknown) => boolean } | undefined {
   if (isFactoryGuestMaterialFrame(payload)) return { name: "staging frame", model: false, valid: (answer) => validateFactoryGuestMaterialResponse(answer).ok };
   if (isFactoryGuestMaterialRead(payload)) return { name: "material read", model: false, valid: (answer) => validateFactoryGuestMaterialReadResponse(answer).ok };
+  // A repository read waits on a git fetch, so it rides the model request's longer timeout.
+  if (isFactoryGuestRepositoryRead(payload)) return { name: "repository read", model: true, valid: (answer) => validateFactoryGuestRepositoryReadResponse(answer).ok };
   if (isFactoryGuestModelPayload(payload)) return { name: "model request", model: true, valid: (answer) => validateFactoryGuestModelResponse(answer).ok };
   return undefined;
 }
@@ -69,7 +71,7 @@ export async function createFactoryGuestBrokerClient(options: FactoryGuestBroker
       const contract = responseContract(payload);
       if (contract === undefined) {
         if (options.delegate) return options.delegate.invoke(request, payload);
-        invalid("Factory guest reverse payload is not a staging frame, a material read, or a model request and this host has no other route.");
+        invalid("Factory guest reverse payload is not a staging frame, a material read, a repository read, or a model request and this host has no other route.");
       }
       // The guest's own attempt token, exactly as the launch intent carries it.
       // The host mints nothing and substitutes nothing.

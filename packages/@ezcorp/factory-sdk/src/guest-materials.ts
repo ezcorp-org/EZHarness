@@ -1,12 +1,15 @@
 import { canonicalizeJson, sha256Hex } from "./canonical.js";
 import { decodeFactoryPageBase64, encodeFactoryPageBase64 } from "./page-bytes.js";
-import { validateFactoryGuestMaterialReadRequest, validateFactoryGuestMaterialReadResponse, validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse } from "./validation.js";
+import { validateFactoryGuestMaterialReadRequest, validateFactoryGuestMaterialReadResponse, validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestRepositoryReadRequest, validateFactoryGuestRepositoryReadResponse } from "./validation.js";
 import {
   FACTORY_GUEST_MATERIAL_LIMITS,
   FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION,
+  FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION,
   type FactoryArtifactReference,
   type FactoryCheckpointReference,
   type FactoryGuestMaterialReadRefusal,
+  type FactoryGuestRepositoryReadRefusal,
+  type FactoryGuestRepositoryReadResponse,
   type FactoryGuestMaterialReadResponse,
   type FactoryGuestMaterialRefusal,
   type FactoryGuestMaterialRequest,
@@ -40,7 +43,7 @@ export const FACTORY_GUEST_MATERIAL_JSON_MEDIA_TYPE = "application/json";
 
 /** What a refused frame raises. The code is the host's own refusal name. */
 export class FactoryGuestMaterialError extends Error {
-  constructor(readonly code: FactoryGuestMaterialRefusal | FactoryGuestMaterialReadRefusal | "guest_frame_invalid" | "guest_response_invalid", message: string) {
+  constructor(readonly code: FactoryGuestMaterialRefusal | FactoryGuestMaterialReadRefusal | FactoryGuestRepositoryReadRefusal | "guest_frame_invalid" | "guest_response_invalid", message: string) {
     super(message);
     this.name = "FactoryGuestMaterialError";
   }
@@ -341,3 +344,20 @@ export async function readFactoryGuestMaterial(call: FactoryGuestBrokerCall, add
   return Object.freeze({ content, mediaType: first!.mediaType });
 }
 
+/**
+ * Asks the host plane for one commit of a declared repository source and reads the sealed tree back
+ * (W4H-28). The guest holds no credential and has no network; the host fetches, seals the tree as a
+ * material of this attempt, and answers its handle, which this reads with the material read frame.
+ */
+export async function readFactoryGuestRepository(call: FactoryGuestBrokerCall, request: { readonly operationId: string; readonly operationIndex: number; readonly source: string; readonly commitSha: string }): Promise<FactoryGuestReadMaterial> {
+  const frame = { schemaVersion: FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION, ...request };
+  const outgoing = validateFactoryGuestRepositoryReadRequest(frame);
+  if (!outgoing.ok) throw new FactoryGuestMaterialError("guest_frame_invalid", outgoing.issues[0]?.message ?? "This guest built a repository read the shared contract refuses.");
+  const answer = await call(frame as unknown as JsonValue);
+  const incoming = validateFactoryGuestRepositoryReadResponse(answer);
+  if (!incoming.ok) throw new FactoryGuestMaterialError("guest_response_invalid", incoming.issues[0]?.message ?? "The host answered with a value that is not a repository read response.");
+  const response = answer as FactoryGuestRepositoryReadResponse;
+  if (response.operationId !== request.operationId) throw new FactoryGuestMaterialError("guest_response_invalid", "The host answered a repository read for another operation.");
+  if (response.status === "refused") throw new FactoryGuestMaterialError(response.refusal.code, response.refusal.message);
+  return readFactoryGuestMaterial(call, response.material);
+}

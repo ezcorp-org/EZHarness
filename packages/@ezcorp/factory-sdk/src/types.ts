@@ -761,6 +761,57 @@ export type FactoryGuestMaterialResponse =
     readonly refusal: { readonly code: FactoryGuestMaterialRefusal; readonly message: string };
   });
 
+export const FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION = "factory.guest-repository-read.v1";
+export const FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION = "factory.guest-repository-read-response.v1";
+/**
+ * The sealed tree a repository read answers with: `{ schemaVersion, commitSha, treeSha,
+ * committedAtSeconds, files: [{ path, mode, contentBase64 }] }`, canonical JSON.
+ */
+export const FACTORY_REPOSITORY_TREE_SCHEMA_VERSION = "factory.repository-tree.v1";
+
+/**
+ * Asks the host plane for one commit of a repository the installation declares (W4H-28).
+ *
+ * A guest never holds a repository credential and has no network. It names a source by the
+ * operator's own handle and one full commit id; the host fetches that commit with its own
+ * credential, reads the complete tree, seals it as a material of this attempt under the named
+ * operation, and answers the handle. The guest reads it with the material read frame.
+ */
+export interface FactoryGuestRepositoryRead {
+  readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION;
+  /** The journalled operation the sealed tree belongs to. */
+  readonly operationId: string;
+  readonly operationIndex: number;
+  /** The `name` of a source the installation declares. */
+  readonly source: string;
+  /** A full 40-hex commit id; a branch, a tag or a prefix is refused. */
+  readonly commitSha: string;
+}
+
+export type FactoryGuestRepositoryReadRefusal =
+  | "invalid_request"
+  | "repository_source_unknown"
+  | "repository_commit_unknown"
+  | "repository_unavailable"
+  | "repository_too_large"
+  | "deadline_expired"
+  | "unavailable";
+
+export type FactoryGuestRepositoryReadResponse =
+  | {
+    readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION;
+    readonly status: "read";
+    readonly operationId: string;
+    /** The sealed tree: its material id and the digest of its content. */
+    readonly material: { readonly artifactId: string; readonly digest: string };
+  }
+  | {
+    readonly schemaVersion: typeof FACTORY_GUEST_REPOSITORY_READ_RESPONSE_SCHEMA_VERSION;
+    readonly status: "refused";
+    readonly operationId: string;
+    readonly refusal: { readonly code: FactoryGuestRepositoryReadRefusal; readonly message: string };
+  };
+
 export const FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION = "factory.guest-material-read.v1";
 export const FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION = "factory.guest-material-read-response.v1";
 

@@ -1,7 +1,7 @@
 import { canonicalizeJson, isUnsignedDecimal, jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
 import { validateFactoryApiPayloadDigest } from "./api.js";
 import { validateExpression } from "./expressions.js";
-import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialReadRequest, isFactoryGuestMaterialReadResponse, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
+import { isCompiledExecutionManifest, isCompiledFactory, isCompiledPartitionArtifact, isFactoryApiRequest, isFactoryApiResponse, isFactoryRunnerRequest, isFactoryGuestMaterialReadRequest, isFactoryGuestMaterialReadResponse, isFactoryGuestRepositoryReadRequest, isFactoryGuestRepositoryReadResponse, isFactoryGuestMaterialRequest, isFactoryGuestMaterialResponse, isFactoryGuestModelRequest, isFactoryGuestModelResponse, isFactoryRunnerResult, isFactoryValidatorClaimReport, isFactoryValidatorReport } from "./schema.js";
 import {
   FACTORY_LAZY_INPUT_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_BEGIN_SCHEMA_VERSION,
@@ -9,11 +9,13 @@ import {
   FACTORY_GUEST_MATERIAL_LIMITS,
   FACTORY_GUEST_MATERIAL_OUTPUT_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION,
+  FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION,
   FACTORY_GUEST_MATERIAL_SEAL_SCHEMA_VERSION,
   FACTORY_GUEST_MODEL_LIMITS,
   FACTORY_LIMITS,
   type FactoryGuestMaterialIdentity,
   type FactoryGuestMaterialReadResponse,
+  type FactoryGuestRepositoryReadResponse,
   type FactoryGuestMaterialRequest,
   type FactoryGuestMaterialResponse,
   type FactoryGuestModelRequest,
@@ -1120,6 +1122,39 @@ export function validateFactoryGuestMaterialResponse(value: unknown): Validation
   // BARE 64-hex: a COMPLETED runner result's `resultDigest` carries this exact
   // value and `validateFactoryRunnerResult` requires the unprefixed form there.
   return validDigest(response.resultDigest, false) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A promoted output reports its result digest as bare 64-character hex.", ["resultDigest"]);
+}
+
+/** True when a reverse payload names the repository read frame. Routing only, as {@link isFactoryGuestMaterialFrame}. */
+export function isFactoryGuestRepositoryRead(payload: unknown): boolean {
+  return typeof payload === "object" && payload !== null && !Array.isArray(payload)
+    && (payload as { schemaVersion?: unknown }).schemaVersion === FACTORY_GUEST_REPOSITORY_READ_SCHEMA_VERSION;
+}
+
+function validRepositoryOperation(operationId: string, operationIndex: number): ValidationResult {
+  return boundedText(operationId, 1_024) && safeCounter(operationIndex) && operationId.endsWith(`:${operationIndex}`)
+    ? { ok: true }
+    : issue("GUEST_REPOSITORY_OPERATION", "A repository read must name its own journalled operation.", ["operationId"]);
+}
+
+/** One repository read (W4H-28): a declared source's handle and one full commit id, nothing else. */
+export function validateFactoryGuestRepositoryReadRequest(value: unknown): ValidationResult {
+  if (!isFactoryGuestRepositoryReadRequest(value)) return issue("GUEST_REPOSITORY_SCHEMA", "Value does not match the generated FactoryGuestRepositoryRead schema.", []);
+  const operation = validRepositoryOperation(value.operationId, value.operationIndex);
+  if (!operation.ok) return operation;
+  if (!boundedText(value.source, 128)) return issue("GUEST_REPOSITORY_SOURCE", "A repository read names a declared source.", ["source"]);
+  return /^[0-9a-f]{40}$/.test(value.commitSha) ? { ok: true } : issue("GUEST_REPOSITORY_COMMIT", "A repository read names one full 40-hex commit id.", ["commitSha"]);
+}
+
+/** The host's answer: the sealed tree's handle, or a named refusal. */
+export function validateFactoryGuestRepositoryReadResponse(value: unknown): ValidationResult {
+  if (!isFactoryGuestRepositoryReadResponse(value)) return issue("GUEST_REPOSITORY_SCHEMA", "Value does not match the generated FactoryGuestRepositoryReadResponse schema.", []);
+  const response = value as FactoryGuestRepositoryReadResponse;
+  if (!boundedText(response.operationId, 1_024)) return issue("GUEST_REPOSITORY_OPERATION", "A repository answer names its operation.", ["operationId"]);
+  if (response.status === "refused") {
+    return boundedText(response.refusal.message, 4_096) ? { ok: true } : issue("GUEST_REPOSITORY_REFUSAL", "A refusal needs a bounded message.", ["refusal", "message"]);
+  }
+  if (!boundedText(response.material.artifactId, 512)) return issue("GUEST_MATERIAL_READ_ARTIFACT", "A repository answer names the sealed tree's artifact.", ["material", "artifactId"]);
+  return validDigest(response.material.digest, true) ? { ok: true } : issue("GUEST_MATERIAL_DIGEST", "A repository answer names its tree's content digest.", ["material", "digest"]);
 }
 
 /** The most pages one readable whole can have: the staging bound, in one-page steps. */

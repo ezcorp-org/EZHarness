@@ -11,7 +11,7 @@ export type FactoryGuestScriptedModel = (request: FactoryGuestModelRequest) => {
  * it received, as the product's material broker does; `stored` holds what each object sealed to.
  * (The SDK's own suite keeps its copy: a package test cannot import a root helper.)
  */
-export function factoryGuestMaterialHost(options: { readonly model?: FactoryGuestScriptedModel; readonly preload?: ReadonlyMap<string, Uint8Array> } = {}): { readonly call: (payload: JsonValue) => Promise<unknown>; readonly frames: FactoryGuestMaterialRequest[]; readonly stored: Map<string, Uint8Array>; readonly byId: Map<string, Uint8Array>; readonly models: FactoryGuestModelRequest[] } {
+export function factoryGuestMaterialHost(options: { readonly model?: FactoryGuestScriptedModel; readonly preload?: ReadonlyMap<string, Uint8Array>; readonly repository?: (frame: { readonly source: string; readonly commitSha: string }) => Uint8Array } = {}): { readonly call: (payload: JsonValue) => Promise<unknown>; readonly frames: FactoryGuestMaterialRequest[]; readonly stored: Map<string, Uint8Array>; readonly byId: Map<string, Uint8Array>; readonly models: FactoryGuestModelRequest[] } {
   const frames: FactoryGuestMaterialRequest[] = [];
   const models: FactoryGuestModelRequest[] = [];
   const parts = new Map<string, Uint8Array[]>();
@@ -43,6 +43,14 @@ export function factoryGuestMaterialHost(options: { readonly model?: FactoryGues
     const schemaVersion = (payload as { schemaVersion?: string }).schemaVersion;
     if (schemaVersion === "factory.guest-model-request.v1" && options.model) return answerModel(payload as unknown as FactoryGuestModelRequest);
     if (schemaVersion === "factory.guest-material-read.v1") return answerRead(payload as unknown as FactoryGuestMaterialRead);
+    if (schemaVersion === "factory.guest-repository-read.v1" && options.repository) {
+      // The host's repository read: the tree is sealed as a material of the attempt and answered by handle.
+      const frame = payload as unknown as { operationId: string; source: string; commitSha: string };
+      const bytes = options.repository(frame);
+      const artifactId = `object-${sha256Hex(bytes).slice(0, 16)}`;
+      byId.set(artifactId, bytes);
+      return { schemaVersion: "factory.guest-repository-read-response.v1", status: "read", operationId: frame.operationId, material: { artifactId, digest: `sha256:${sha256Hex(bytes)}` } };
+    }
     const frame = payload as unknown as FactoryGuestMaterialRequest;
     frames.push(frame);
     const key = `${frame.objectName}:${frame.version}`;

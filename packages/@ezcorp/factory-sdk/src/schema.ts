@@ -15,8 +15,10 @@ import factoryGuestMaterialRequestJsonSchema from "./factory-guest-material-requ
 import factoryGuestMaterialResponseJsonSchema from "./factory-guest-material-response.schema.json" with { type: "json" };
 import factoryGuestMaterialReadJsonSchema from "./factory-guest-material-read.schema.json" with { type: "json" };
 import factoryGuestMaterialReadResponseJsonSchema from "./factory-guest-material-read-response.schema.json" with { type: "json" };
+import factoryGuestRepositoryReadJsonSchema from "./factory-guest-repository-read.schema.json" with { type: "json" };
+import factoryGuestRepositoryReadResponseJsonSchema from "./factory-guest-repository-read-response.schema.json" with { type: "json" };
 import { jsonEqual, unicodeLength, validateIJson } from "./canonical.js";
-import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryDurableInput, FactoryGuestMaterialRead, FactoryGuestMaterialReadResponse, FactoryGuestMaterialRequest, FactoryGuestMaterialResponse, FactoryGuestModelRequest, FactoryGuestModelResponse, FactoryRunnerRequest, FactoryRunnerResult, FactoryValidatorClaimReport, FactoryValidatorReport, JsonValue } from "./types.js";
+import type { CompiledExecutionManifest, CompiledFactory, CompiledPartitionArtifact, FactoryApiRequest, FactoryApiResponse, FactoryDurableInput, FactoryGuestMaterialRead, FactoryGuestMaterialReadResponse, FactoryGuestRepositoryRead, FactoryGuestRepositoryReadResponse, FactoryGuestMaterialRequest, FactoryGuestMaterialResponse, FactoryGuestModelRequest, FactoryGuestModelResponse, FactoryRunnerRequest, FactoryRunnerResult, FactoryValidatorClaimReport, FactoryValidatorReport, JsonValue } from "./types.js";
 
 export {
   compiledFactoryJsonSchema,
@@ -36,6 +38,8 @@ export {
   factoryGuestMaterialResponseJsonSchema,
   factoryGuestMaterialReadJsonSchema,
   factoryGuestMaterialReadResponseJsonSchema,
+  factoryGuestRepositoryReadJsonSchema,
+  factoryGuestRepositoryReadResponseJsonSchema,
 };
 
 type SchemaObject = Readonly<Record<string, unknown>>;
@@ -168,6 +172,14 @@ export function isFactoryGuestMaterialReadRequest(value: unknown): value is Fact
 
 export function isFactoryGuestMaterialReadResponse(value: unknown): value is FactoryGuestMaterialReadResponse {
   return matchesGeneratedSchema(factoryGuestMaterialReadResponseJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryGuestRepositoryReadRequest(value: unknown): value is FactoryGuestRepositoryRead {
+  return matchesGeneratedSchema(factoryGuestRepositoryReadJsonSchema as SchemaObject, value);
+}
+
+export function isFactoryGuestRepositoryReadResponse(value: unknown): value is FactoryGuestRepositoryReadResponse {
+  return matchesGeneratedSchema(factoryGuestRepositoryReadResponseJsonSchema as SchemaObject, value);
 }
 
 export function isFactoryApiRequest(value: unknown): value is FactoryApiRequest {

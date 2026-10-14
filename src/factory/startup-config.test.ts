@@ -372,6 +372,25 @@ describe("the runner profiles this installation dispatches to", () => {
   });
 });
 
+describe("the repository sources a guest may read (W4H-28)", () => {
+  const source = { name: "launch", url: "https://github.com/ezcorp-org/factory-platform-publication-tests.git", tokenPath: "/run/secrets/github.token" };
+  const repositories = { cachePath: "/var/lib/ezcorp/repository-cache", sources: [source, { name: "local", url: "file:///srv/repositories/launch.git" }] };
+
+  test("accepts declared sources, by handle, URL and token reference, and keeps them", () => {
+    expect(parseFactoryStartupConfig(valid({ repositories })).repositories).toEqual(repositories);
+    expect(parseFactoryStartupConfig(valid()).repositories).toBeUndefined();
+  });
+
+  test("refuses a section without its cache, an empty or duplicate list, and each malformed source by index", () => {
+    expect(reject(valid({ repositories: { sources: [source] } })).missing).toContain("repositories.cachePath");
+    expect(reject(valid({ repositories: { ...repositories, sources: [] } })).invalid).toContain("repositories.sources");
+    expect(reject(valid({ repositories: { ...repositories, sources: [source, source] } })).invalid).toContain("repositories.sources");
+    for (const broken of [{ ...source, url: "http://example.com/plain.git" }, { ...source, url: "https://user:secret@example.com/r.git" }, { ...source, url: "file://relative/path" }, { ...source, name: "" }, { ...source, extra: 1 }, { ...source, tokenPath: 7 }, "launch"]) {
+      expect(reject(valid({ repositories: { ...repositories, sources: [broken] } })).invalid).toContain("repositories.sources[0]");
+    }
+  });
+});
+
 describe("a runner profile that pins a model", () => {
   const configuration = { temperature: 0, seed: 42, reasoningEffort: "none" };
   const policy = { tools: false };

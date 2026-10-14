@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { sha256Hex } from "./canonical";
-import { factoryGuestPortAddress, FactoryGuestMaterialError, readFactoryGuestMaterial } from "./guest-materials";
+import { factoryGuestPortAddress, FactoryGuestMaterialError, readFactoryGuestMaterial, readFactoryGuestRepository } from "./guest-materials";
 import { encodeFactoryPageBase64 } from "./page-bytes";
 import { FACTORY_GUEST_MATERIAL_LIMITS, type FactoryGuestMaterialRead, type JsonValue } from "./types";
-import { isFactoryGuestMaterialRead, validateFactoryGuestMaterialReadRequest, validateFactoryGuestMaterialReadResponse } from "./validation";
+import { isFactoryGuestMaterialRead, isFactoryGuestRepositoryRead, validateFactoryGuestMaterialReadRequest, validateFactoryGuestMaterialReadResponse, validateFactoryGuestRepositoryReadRequest, validateFactoryGuestRepositoryReadResponse } from "./validation";
 
 const PAGE = FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes;
 const digestOf = (bytes: Uint8Array) => `sha256:${sha256Hex(bytes)}`;
@@ -107,5 +107,52 @@ describe("readFactoryGuestMaterial", () => {
     expect(factoryGuestPortAddress({ digest: `sha256:${"b".repeat(64)}`, mediaType: "application/json", storage: "material-1" })).toEqual({ artifactId: "material-1", digest: `sha256:${"b".repeat(64)}` });
     expect(() => factoryGuestPortAddress({ digest: 1 })).toThrow(FactoryGuestMaterialError);
     expect(() => factoryGuestPortAddress(null)).toThrow(FactoryGuestMaterialError);
+  });
+});
+
+describe("the repository read frame (W4H-28 P2)", () => {
+  const read = { schemaVersion: "factory.guest-repository-read.v1", operationId: "run:snapshot:0:0", operationIndex: 0, source: "launch", commitSha: "c".repeat(40) };
+  const code = (result: ReturnType<typeof validateFactoryGuestRepositoryReadRequest>) => (result.ok ? undefined : result.issues[0]?.code);
+
+  test("a read names its operation, a declared source and one full commit id", () => {
+    expect(validateFactoryGuestRepositoryReadRequest(read).ok).toBe(true);
+    expect(isFactoryGuestRepositoryRead(read)).toBe(true);
+    expect(isFactoryGuestRepositoryRead({ schemaVersion: "factory.guest-material-read.v1" })).toBe(false);
+    expect(isFactoryGuestRepositoryRead(null)).toBe(false);
+    expect(code(validateFactoryGuestRepositoryReadRequest({ ...read, operationId: "run:snapshot:0:1" }))).toBe("GUEST_REPOSITORY_OPERATION");
+    expect(code(validateFactoryGuestRepositoryReadRequest({ ...read, source: "" }))).toBe("GUEST_REPOSITORY_SOURCE");
+    expect(code(validateFactoryGuestRepositoryReadRequest({ ...read, commitSha: "main" }))).toBe("GUEST_REPOSITORY_COMMIT");
+    expect(code(validateFactoryGuestRepositoryReadRequest({ ...read, token: "x" }))).toBe("GUEST_REPOSITORY_SCHEMA");
+  });
+
+  test("an answer is the sealed tree's handle, or a named refusal", () => {
+    const answer = { schemaVersion: "factory.guest-repository-read-response.v1", status: "read", operationId: read.operationId, material: { artifactId: "object-1", digest: `sha256:${"d".repeat(64)}` } };
+    expect(validateFactoryGuestRepositoryReadResponse(answer).ok).toBe(true);
+    expect(code(validateFactoryGuestRepositoryReadResponse({ ...answer, material: { artifactId: "", digest: answer.material.digest } }))).toBe("GUEST_MATERIAL_READ_ARTIFACT");
+    expect(code(validateFactoryGuestRepositoryReadResponse({ ...answer, material: { artifactId: "a", digest: "d" } }))).toBe("GUEST_MATERIAL_DIGEST");
+    expect(code(validateFactoryGuestRepositoryReadResponse({ ...answer, operationId: "" }))).toBe("GUEST_REPOSITORY_OPERATION");
+    const refusal = { schemaVersion: answer.schemaVersion, status: "refused", operationId: read.operationId, refusal: { code: "repository_source_unknown", message: "no such source" } };
+    expect(validateFactoryGuestRepositoryReadResponse(refusal).ok).toBe(true);
+    expect(code(validateFactoryGuestRepositoryReadResponse({ ...refusal, refusal: { code: "repository_source_unknown", message: "x".repeat(4_097) } }))).toBe("GUEST_REPOSITORY_REFUSAL");
+    expect(code(validateFactoryGuestRepositoryReadResponse({ status: "read" }))).toBe("GUEST_REPOSITORY_SCHEMA");
+  });
+
+  test("the client follows the handle with the material read, and raises refusals by name", async () => {
+    const tree = new TextEncoder().encode('{"files":[]}');
+    const digest = `sha256:${sha256Hex(tree)}`;
+    const host = (repository: (frame: Record<string, unknown>) => unknown) => async (payload: JsonValue): Promise<unknown> => {
+      const frame = payload as Record<string, unknown>;
+      if (frame.schemaVersion === "factory.guest-repository-read.v1") return repository(frame);
+      return { schemaVersion: "factory.guest-material-read-response.v1", status: "page", artifactId: frame.artifactId, digest: frame.digest, page: 0, mediaType: "application/json", totalBytes: tree.byteLength, pageCount: 1, encodedBytes: tree.byteLength, contentBase64: encodeFactoryPageBase64(tree) };
+    };
+    const ok = host(frame => ({ schemaVersion: "factory.guest-repository-read-response.v1", status: "read", operationId: frame.operationId, material: { artifactId: "object-tree", digest } }));
+    const request = { operationId: read.operationId, operationIndex: 0, source: "launch", commitSha: read.commitSha };
+    expect((await readFactoryGuestRepository(ok, request)).content).toEqual(tree);
+    const refusing = host(frame => ({ schemaVersion: "factory.guest-repository-read-response.v1", status: "refused", operationId: frame.operationId, refusal: { code: "repository_commit_unknown", message: "no such commit" } }));
+    await expect(readFactoryGuestRepository(refusing, request)).rejects.toMatchObject({ code: "repository_commit_unknown" });
+    const foreign = host(() => ({ schemaVersion: "factory.guest-repository-read-response.v1", status: "read", operationId: "another:0", material: { artifactId: "object-tree", digest } }));
+    await expect(readFactoryGuestRepository(foreign, request)).rejects.toMatchObject({ code: "guest_response_invalid" });
+    await expect(readFactoryGuestRepository(host(() => ({ status: "read" })), request)).rejects.toMatchObject({ code: "guest_response_invalid" });
+    await expect(readFactoryGuestRepository(ok, { ...request, commitSha: "main" })).rejects.toBeInstanceOf(FactoryGuestMaterialError);
   });
 });

@@ -121,6 +121,34 @@ describe("snapshotRepository in the guest, from a recorded tree", () => {
   });
 });
 
+describe("snapshotRepository over a live source, through the host's repository read (W4H-28 P2)", () => {
+  const files = referenceCodeLaunchRepository();
+  const treeSha = factoryGitTreeId(files.map(file => ({ path: file.path, mode: file.mode, content: file.content })));
+  const tree = (commitSha: string, overrides: Record<string, unknown> = {}) => new TextEncoder().encode(JSON.stringify({ schemaVersion: "factory.repository-tree.v1", commitSha, treeSha, committedAtSeconds: REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS, files: files.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.content).toString("base64") })), ...overrides }));
+  const request = (connection: unknown) => ({ authority: { runId: "run", nodeInstanceId: "snapshot-repository", candidateGeneration: 0, nextOperationIndex: 0 }, input: { kind: "inline", value: { repositoryConnection: connection, baseCommitSha: COMMIT } } }) as unknown as FactoryRunnerRequest;
+
+  test("the guest names the source and the commit; the host's sealed tree becomes the same snapshot a recording gives", async () => {
+    const asked: { source: string; commitSha: string }[] = [];
+    const host = factoryGuestMaterialHost({ repository: frame => { asked.push({ source: frame.source, commitSha: frame.commitSha }); return tree(frame.commitSha); } });
+    const result = await REFERENCE_CODE_RUNNER_TOOLS.snapshotRepository(request({ source: "launch", policy: REFERENCE_CODE_FIXTURE_POLICY }), host.call);
+    expect(result).toMatchObject({ status: "completed", operations: [] });
+    expect(asked).toEqual([{ source: "launch", commitSha: COMMIT }]);
+    const recorded = referenceCodeRecordedTree({ commitSha: COMMIT, treeSha, files, policy: REFERENCE_CODE_FIXTURE_POLICY, committedAtSeconds: REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS });
+    const snapshot = await snapshotReferenceCodeRepository(referenceCodeRecordedTreeReader(recorded), COMMIT);
+    expect(factoryGuestStagedJson(host.stored, REFERENCE_CODE_SNAPSHOT_OUTPUT)).toEqual(referenceCodeSnapshotRunnerOutput(snapshot, { policy: REFERENCE_CODE_FIXTURE_POLICY, committedAtSeconds: REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS }));
+  });
+
+  test("a tree of another commit or shape, or one whose bytes are not its tree id, is refused by name", async () => {
+    const live = { source: "launch", policy: REFERENCE_CODE_FIXTURE_POLICY };
+    for (const bytes of [tree("2".repeat(40)), tree(COMMIT, { schemaVersion: "other" }), tree(COMMIT, { files: "x" })]) {
+      await expect(REFERENCE_CODE_RUNNER_TOOLS.snapshotRepository(request(live), factoryGuestMaterialHost({ repository: () => bytes }).call)).rejects.toThrow("reference_code_repository_reader_unavailable");
+    }
+    await expect(REFERENCE_CODE_RUNNER_TOOLS.snapshotRepository(request(live), factoryGuestMaterialHost({ repository: () => tree(COMMIT, { treeSha: "3".repeat(40) }) }).call)).rejects.toThrow("reference_code_recorded_tree_mismatch");
+    // A live connection still states its policy; the host's tree never supplies one.
+    await expect(REFERENCE_CODE_RUNNER_TOOLS.snapshotRepository(request({ source: "launch" }), factoryGuestMaterialHost({ repository: () => tree(COMMIT) }).call)).rejects.toThrow("reference_code_policy_invalid");
+  });
+});
+
 describe("a connection states its policy and its base commit's time (W4H-28)", () => {
   const facts = { policy: REFERENCE_CODE_FIXTURE_POLICY, committedAtSeconds: REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS };
   test("both facts are required, and the policy is checked field by field", () => {

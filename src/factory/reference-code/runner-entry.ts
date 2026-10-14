@@ -1,7 +1,7 @@
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
-import { factoryGuestCompletedWithoutOperations, factoryGuestOperationId, factoryGuestPortAddress, readFactoryGuestMaterial, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
+import { factoryGuestCompletedWithoutOperations, factoryGuestOperationId, factoryGuestPortAddress, readFactoryGuestMaterial, readFactoryGuestRepository, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
 import { factoryGuestModelTask, FactoryGuestTaskError } from "@ezcorp/factory-sdk/guest-model";
-import { FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk/types";
+import { FACTORY_REPOSITORY_TREE_SCHEMA_VERSION, FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk/types";
 import { factoryGitTreeId } from "../git-objects";
 import { referenceCodeRepositoryPolicy, type ReferenceCodeRepositoryPolicy } from "./candidate-rules";
 import { FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, type FactoryS3AcceptedPublication } from "../release-s3-accepted-publication";
@@ -163,11 +163,37 @@ function boundPorts(request: FactoryRunnerRequest): Record<string, unknown> {
 
 export type ReferenceCodeRunnerTool = (request: FactoryRunnerRequest, call: FactoryGuestBrokerCall) => Promise<Record<string, JsonValue>>;
 
+/** A live connection: a declared source's handle and the policy the operator states for it (W4H-28). */
+interface ReferenceCodeLiveConnection {
+  readonly source: string;
+  readonly policy: unknown;
+}
+
+function isLiveConnection(value: unknown): value is ReferenceCodeLiveConnection {
+  return !!value && typeof value === "object" && typeof (value as { source?: unknown }).source === "string" && (value as { schemaVersion?: unknown }).schemaVersion === undefined;
+}
+
+/**
+ * Reads one commit of a declared repository source through the host's repository-read operation and
+ * returns it as a recorded tree, with the connection's policy (W4H-28 P2). The host holds the
+ * credential; the guest recomputes the tree id from the bytes, as for any recorded tree.
+ */
+async function liveRecordedTree(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall, connection: ReferenceCodeLiveConnection, commitSha: string): Promise<ReferenceCodeRecordedTree> {
+  const index = request.authority.nextOperationIndex;
+  const read = await readFactoryGuestRepository(call, { operationId: factoryGuestOperationId(request, index), operationIndex: index, source: connection.source, commitSha });
+  const tree = jsonOf(read.content, "the repository tree");
+  if (tree.schemaVersion !== FACTORY_REPOSITORY_TREE_SCHEMA_VERSION || tree.commitSha !== commitSha || typeof tree.treeSha !== "string" || !Array.isArray(tree.files)) {
+    throw new ReferenceCodeRunnerError("reference_code_repository_reader_unavailable", "the host answered with a tree of another commit or shape");
+  }
+  return { schemaVersion: REFERENCE_CODE_RECORDED_TREE_SCHEMA_VERSION, commitSha, treeSha: tree.treeSha, committedAtSeconds: tree.committedAtSeconds as number, policy: connection.policy as ReferenceCodeRepositoryPolicy, files: tree.files as ReferenceCodeWireFile[] };
+}
+
 export async function snapshotRepository(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall): Promise<Record<string, JsonValue>> {
   const { repositoryConnection, baseCommitSha } = boundPorts(request);
   if (typeof baseCommitSha !== "string") throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "baseCommitSha must be a string");
-  const facts = referenceCodeConnectionFacts(repositoryConnection);
-  const snapshot = await snapshotReferenceCodeRepository(referenceCodeRecordedTreeReader(repositoryConnection), baseCommitSha);
+  const connection = isLiveConnection(repositoryConnection) ? await liveRecordedTree(request, call, repositoryConnection, baseCommitSha) : repositoryConnection;
+  const facts = referenceCodeConnectionFacts(connection);
+  const snapshot = await snapshotReferenceCodeRepository(referenceCodeRecordedTreeReader(connection), baseCommitSha);
   // The snapshot is a sealed material; the node's `snapshot` port names it by content digest and handle.
   return factoryGuestCompletedWithoutOperations({
     request, call, outputName: REFERENCE_CODE_RESULT_OUTPUT, checkpointSchema: CHECKPOINT_SCHEMA,
