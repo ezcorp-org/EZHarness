@@ -1,0 +1,6 @@
+hold acquired 2026-10-14T13:53:23Z out=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/proof/hold/hold-20261014T135323Z rev=560dbe2a702f98098adec57533bd8ac20d04206a label=hold shards=resources load=9.60 9.53 7.80
+snapshot /tmp/i5-w4h30-home-snap-hold source=560dbe2a702f98098adec57533bd8ac20d04206a snapshot_tree=8fd646af1864928c7ab17ae88053bc714af8fcb5 source_tree=8fd646af1864928c7ab17ae88053bc714af8fcb5
+image localhost/integrator-5-runner:24.04 id=018851857b666c16bf44cabbc2153ea481e6b3ad5bc83987f31a03c19ebd8fa1
+leg=setup rc=126 start=2026-10-14T13:53:29Z end=2026-10-14T13:53:29Z host_oom=0 load=9.31 9.47 7.79
+setup failed
+bash: /usr/local/bin/job-setup.sh: Permission denied

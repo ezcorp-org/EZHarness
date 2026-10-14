@@ -1,0 +1,73 @@
+W4H-30 REPORT: the app keeps no idle connection open between resource samples (FROZEN)
+
+Branch wp/w4h-30-resources-sockets from integ/w00 d2add3048. FROZEN head 5ee55026a (3 commits, 4 files). It merges cleanly
+onto the current integ/w00 6571f8d5f and does not overlap it. Identity: archy 281643943+EZArchy@users.noreply.github.com.
+
+VERDICT: LEGITIMATE TRANSIENT, from the app's own connection lifecycle. It is not a leak. Fixed at the root, with no change to the proof.
+- R1/R1b/R1c at d2add3048 (3+3+3 passes x 10 cycles) recorded the owner of each app socket at each sample. The set was:
+  the port-3000 listener; the proof's own inbound keep-alive; 1 or 2 unix connections to runner.sock (the peer gateway);
+  and a boot-only api.kilo.ai HTTPS connection.
+- R1c logged runner requests: 0 in flight at any sample. The runner sockets were idle keep-alives. node:http's default
+  agent kept each finished call's connection for about 5 s. A sample counted 1 or 2 by timing alone. R1c pass 2 shows
+  unix per sample [2,1,1,1,1,1,1,1,1,1,1]. When cycle 1 saw 1 and a later cycle saw 2, the check at
+  scripts/verify-shipping-runtime-resources.ts:305 went red. This explains the hosted cycle 9 result (4 vs 3).
+- The factory is off in this proof (28 bundled installations), so W4H-26 code does not take part. That agrees with the
+  red before W4H-26.
+
+FIX
+- 6a3202249 RunnerClient sends each call with agent:false. Each call uses its own connection and closes it when the
+  response ends. No runner socket stays open while no call is in flight.
+- ff46f7966 + 5ee55026a: fetchKiloCatalog uses keepalive:false. It is a one-shot read (boot warm-up, admin refresh).
+  5ee55026a only moves the reason comment onto the executed line. Bun's lcov gave the comment line a 0-hit record.
+- The proof, its thresholds and its sampling are unchanged. There is no tolerance and no skip.
+
+RESULT
+- Red first: client-connections "Connection: close" test red with "keep-alive" (logs/client-red-4.log); Kilo keepalive
+  test 34/1 on the pre-fix source (logs/kilo-red-at-6a3202249.log). At head: 2/0 and 35/0.
+- R2 proof at ff46f7966, 3 resources passes x 10 cycles, all green (r2.exit 0). App sockets per sample are
+  [1,2,2,2,2,2,2,2,2,2,2] in each pass. All 33 samples hold only local-port-3000 sockets: the listener, and from
+  cycle 1 the proof's inbound keep-alive. There are 0 runner unix sockets and 0 Kilo connections, while the runner
+  still served requests (850 log lines in pass 1). 5ee55026a differs from ff46f7966 only by a comment.
+- Suites: extension-runner package 115/0; runner-connection 7/0; ext-dev 4/0; kilo-provider 35/0; web
+  context-register-preview-bus (vitest) 1/0. The hook at 5ee55026a mapped no suite.
+- Coverage (focused lcov of the two changed test files): patch gate PASSED (2 files, all changed executable lines);
+  new-file vacuous; CRAP --changed 0 over 30. The origin/main patch and new-file legs fail only on integ/w00 files outside
+  this lcov.
+- Lint 0. Typecheck 0 (tc-gate in the lock, after build:packages). Gate-integrity 0 on both legs (origin/main and default).
+
+DISCLOSED
+- The proof's own inbound keep-alive on port 3000 stays (1 socket from cycle 1). It is the proof's client, not the app.
+  It was constant in all 30 cycle samples.
+- The diagnostics (diag/patch.py) were applied to a snapshot only and are not committed.
+- Three passes cannot prove a 1-in-10 rate gone by count alone. The mechanism is gone: the count no longer depends on timing.
+- My image tag localhost/w4h-30-runner-ss:24.04 (iproute2 added) stays for a validator re-run. I will remove it by name on request.
+
+EVIDENCE (sha256, first 16; under /tmp/factory-platform-evidence/w4h-30/)
+0f8477635d778055 logs/client-red-4.log
+67ee88c050e79bd8 logs/kilo-red-at-6a3202249.log
+7cbce25696375a38 logs/r2-verdict.txt
+3bf5212b1506a467 logs/r2.out
+e48ac894d3fa3d55 logs/final-patch-integ_w00.log
+e28b0023d5751a32 logs/final-new-file-integ_w00.log
+9a44d13599fe3fda logs/final-crap-changed.log
+e4b8a9b60c026056 logs/final-lint.log
+b1a0297506aab4a1 logs/gi-origin_main.log
+b1a0297506aab4a1 logs/gi-default.log
+28589c4961870f70 logs/tc.log
+25428bbbc8cd1ad4 logs/tc-hold.log
+86082f36714bd927 logs/typecheck.out
+7a4a37758717bc2e logs/runner-pkg.log
+9840a09f1533be6e logs/kilo-head.log
+3b2992c48685f737 logs/t-runner-connection.test.ts.log
+ca740b547e8d25bc logs/t-ext-dev.test.ts.log
+427f2b64b311d9c9 logs/t-preview-bus.log
+9ecd707cba23c975 logs/commit-c.log
+bef01f222ca42d56 cov/merged.lcov
+2480092752e0197b diag/patch.py
+f66f71cfb693096b diag/verdict.py
+46f74afe189f0227 heavy.sh
+0ed5659a5dfaa239 journey.md
+b2bd835dbc4de0d7 pending-lesson.md
+f6938f952479ea8e r2/hold-20261014T094233Z/receipts-proof-resources-1/runtime-resources/runtime/w4h30-socket-peers.jsonl
+85d8e7472c983bc2 r2/hold-20261014T094233Z/receipts-proof-resources-2/runtime-resources/runtime/w4h30-socket-peers.jsonl
+58937902d562cd0b r2/hold-20261014T094233Z/receipts-proof-resources-3/runtime-resources/runtime/w4h30-socket-peers.jsonl

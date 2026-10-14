@@ -1,0 +1,4 @@
+resource-gate 2026-10-14T14:09:41Z i5-w4h30 hold start disk=115G memAvailable=18GiB swapFreeKiB=7108304/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+resource-gate 2026-10-14T14:09:46Z i5-w4h30 hold setup disk=114G memAvailable=18GiB swapFreeKiB=7108636/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+resource-gate 2026-10-14T14:17:34Z i5-w4h30 hold proof-resources disk=94G memAvailable=10GiB swapFreeKiB=7297632/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+resource-gate i5-w4h30 hold proof-resources STOP: disk 94G below the 100 GB floor

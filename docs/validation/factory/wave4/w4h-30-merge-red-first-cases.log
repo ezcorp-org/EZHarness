@@ -1,0 +1,8 @@
+packages/@ezcorp/extension-runner/tests/client-connections.test.ts: Ran 2 tests across 1 file. [613.00ms]
+src/__tests__/kilo-provider.test.ts: Ran 35 tests across 1 file. [487.00ms]
+CASE PASS: every call asks the runner to close its connection when the response ends
+CASE PASS: the one-shot catalog fetch keeps no connection open after it (W4H-30)
+packages/@ezcorp/extension-runner/tests/client-connections.test.ts: file 49/49 lines hit; added lines 69, instrumented 49, uncovered 0
+src/__tests__/kilo-provider.test.ts: file 370/371 lines hit; added lines 16, instrumented 12, uncovered 0
+bash line cover: merge 560dbe2a7 vs base 6571f8d5f; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-30-resources-sockets/case-check/bash-trace.txt
+no changed *.sh file
