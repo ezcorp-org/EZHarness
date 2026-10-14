@@ -1,0 +1,34 @@
+W4H-29 REPORT — the SDK-closure invariant names the one guest-package builder (FROZEN)
+
+Branch wp/w4h-29-sdk-closure-list from integ/w00 486e6a558. FROZEN head 6c15783d9 (one commit, one file:
+src/factory/guest-sdk-closure.test.ts). Worktree .worktrees/w4h-29. Identity: archy 281643943+EZArchy@users.noreply.github.com.
+
+Cause: PR 341 hosted Coverage shard 0 red at guest-sdk-closure.test.ts:127. W4H-26 moved SDK staging from three sources
+(scripts/factory-graph-proof/guest-package.ts, src/factory/reference-code/guest.ts, web/e2e/factory-services/guest.ts) into
+src/factory/guest-package-build.ts; the invariant still listed the three. Fix: throughClosure = [src/factory/guest-package-build.ts].
+The builder does stage through the helper (guest-package-build.ts:72 calls factorySdkClosure), so the list was the defect.
+
+RESULT
+- Red first: at 486e6a558 the file is 7 pass, 1 fail with exactly the hosted diff (-3 sources, +1 builder); at the head 8/0.
+- Whole src/factory directory, one process per file (212 files, in the lock): 199 green. 13 red, none from this change (it
+  edits one test list): 11 Podman-guest suites (9 *.podman.integration + attempt-runtime and applied-controls integration,
+  which start a guest; CI runs them after its runner setup step), and compose-profile / kubernetes-profile, red only for
+  '$server/logger' unresolved after a --ignore-scripts web install; after 'svelte-kit sync' 55/0 and 16/0. Hosted shard 0
+  reported only the closure test.
+- Other tests naming the moved files: guest-package-build 5/0, reference-code/guest 12/0, graph-proof guest-package 1/0.
+- Hook at commit: 8/0. Lint 0. Typecheck 0 (tc-gate in the lock, after build:packages). Gate-integrity: 0 findings on both legs
+  (BASE_REF=origin/main: "Gate integrity PASSED: no gate-weakening or test-cheating changes detected."; default: the same).
+
+EVIDENCE (sha256, first 16; under /tmp/factory-platform-evidence/w4h-29/)
+2eaa88a4f851cdb8 logs/red-at-486e6a558.log
+f1f2a466ee435bff logs/green.log
+df898d966d865814 logs/commit.log
+faa75e73457e3c8c logs/factory-dir-results.txt
+73a8a1ad5afc10dd logs/lint.log
+b1a0297506aab4a1 logs/gi-main.log
+b1a0297506aab4a1 logs/gi-default.log
+2ae66b084d7c6c48 logs/tc-hold.log
+2e84318777597dce logs/typecheck.out
+7b9c8c60f4eb969d factory-dir.sh
+dd4dd37af6e1b72f pending-lesson.md
+

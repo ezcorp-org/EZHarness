@@ -1,0 +1,243 @@
+excerpt of job-115725110054.log (705 lines, 56858 bytes, sha256 841a4023df8c10de2247560de4e99a93b1308519a85c3f919fccc37e9ca7ae2f): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {ebd57d22-e7fd-44a4-a1bc-99426c7602da}
+Region: westus3
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Complete job name: Coverage shard 0
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-depth: 1
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/ed26a419-ce39-4f93-8737-77aaa1bf31a3' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Deleting the contents of '/home/runner/work/EZHarness/EZHarness'
+##[group]Determining repository object format
+##[endgroup]
+##[group]Initializing the repository
+[command]/usr/bin/git init /home/runner/work/EZHarness/EZHarness
+hint: Using 'master' as the name for the initial branch. This default branch name
+hint: will change to "main" in Git 3.0. To configure the initial branch name
+hint: to use in all of your new repositories, which will suppress this warning,
+hint: call:
+hint:
+hint: 	git config --global init.defaultBranch <name>
+hint:
+hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+hint: 'development'. The just-created branch can be renamed via this command:
+hint:
+hint: 	git branch -m <name>
+hint:
+hint: Disable this message with "git config set advice.defaultBranchName false"
+----- last 160 -----
+mkdir -p /tmp/uv-pinned
+tar -xzf "/tmp/$archive" -C /tmp/uv-pinned --strip-components=1
+chmod u+x /tmp/uv-pinned/uv /tmp/uv-pinned/uvx
+echo "/tmp/uv-pinned" >> "$GITHUB_PATH"
+shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+100 23.0M  100 23.0M    0     0  94.3M      0 --:--:-- --:--:-- --:--:-- 94.3M
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+
+100   101  100   101    0     0    523      0 --:--:-- --:--:-- --:--:--   523
+uv-x86_64-unknown-linux-gnu.tar.gz: OK
+##[end-action id=__self_4.__run;outcome=success;conclusion=success;duration_ms=857]
+##[start-action display=Cache the uv download cache;id=__self_4.__actions_cache]
+##[group]Run actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9
+with:
+  path: ~/.cache/uv
+  key: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+  restore-keys: uv-Linux-
+
+  enableCrossOsArchive: false
+  fail-on-cache-miss: false
+  lookup-only: false
+  save-always: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+Cache hit for: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+Received 29360128 of 72845691 (40.3%), 28.0 MBs/sec
+Received 72845691 of 72845691 (100.0%), 51.4 MBs/sec
+Cache Size: ~69 MB (72845691 B)
+[command]/usr/bin/tar -xf /home/runner/work/_temp/74202067-03cf-4e92-b6c9-d6fb1ffca4d3/cache.tzst -P -C /home/runner/work/EZHarness/EZHarness --use-compress-program unzstd
+Cache restored successfully
+Cache restored from key: uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539
+##[end-action id=__self_4.__actions_cache;outcome=success;conclusion=success;duration_ms=2287]
+##[start-action display=Report the resolved toolchain;id=__self_4.__run_2]
+##[group]Run set -euo pipefail
+set -euo pipefail
+uv --version
+echo "python pin: $(tr -d '[:space:]' < .python-version)"
+shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+uv 0.11.8 (x86_64-unknown-linux-gnu)
+python pin: 3.13.12
+##[end-action id=__self_4.__run_2;outcome=success;conclusion=success;duration_ms=108]
+##[group]Run bash scripts/test-coverage.sh
+bash scripts/test-coverage.sh
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+  SHARD_INDEX: 0
+  SHARD_TOTAL: 12
+  COV_OUT: coverage-shard
+##[endgroup]
+== host-shard mode: shard 0/12 → 168 files ==
+merged 976 source files → coverage-shard/lcov_shard_0.info
+pre-merged 168 per-file lcov(s) → coverage-shard/lcov_shard_0.info
+emitted per-file timings → coverage-shard/timings-shard-0.json
+
+  2275 pass | 0 fail | 168 files (shard 0/12)
+##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+with:
+  name: lcov-cov-shard-0
+  path: coverage-shard
+  retention-days: 3
+  if-no-files-found: error
+  compression-level: 6
+  overwrite: false
+  include-hidden-files: false
+  archive: true
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  XDG_RUNTIME_DIR: /run/user/1001
+  DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+##[endgroup]
+With the provided path, there will be 2 files uploaded
+Artifact name is valid!
+Root directory input is valid!
+Uploading artifact: lcov-cov-shard-0.zip
+Beginning upload of artifact content to blob storage
+Uploaded bytes 275277
+Finished uploading artifact content to blob storage!
+SHA256 digest of uploaded artifact is c4fea474847d35cd33e46c237fe5ff212e5ff2e01a167bb798700df5635f3358
+Finalizing artifact upload
+Artifact lcov-cov-shard-0 successfully finalized. Artifact ID 11876286109
+Artifact lcov-cov-shard-0 has been successfully uploaded! Final size is 275277 bytes. Artifact ID is 11876286109
+Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38525604869/artifacts/11876286109
+Post job cleanup.
+##[start-action display=Cache the uv download cache;id=__780e51a4-d769-439f-98ef-145bc48fcf0e.__actions_cache]
+Post job cleanup.
+Cache hit occurred on the primary key uv-Linux-d035216d2b5069ee6b952309d4481967c58dcb9c77bc636b208031b307066539, not saving cache.
+##[end-action id=__780e51a4-d769-439f-98ef-145bc48fcf0e.__actions_cache;outcome=success;conclusion=success;duration_ms=150]
+Post job cleanup.
+##[start-action display=Cache bun global install cache;id=__a134f7f7-281e-4668-bdbb-4dd14dd4396e.__actions_cache]
+Post job cleanup.
+Cache hit occurred on the primary key bun-Linux-1cb0b65f53718e04a897d6022305d459ca3163956ac9c65ff703d281bfc19c1c-1dac0a653fe0a5657494557972d43ceb2a90cc64b3a4f001424de9a6fbfafd47, not saving cache.
+##[end-action id=__a134f7f7-281e-4668-bdbb-4dd14dd4396e.__actions_cache;outcome=success;conclusion=success;duration_ms=237]
+##[start-action display=Run oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6;id=__a134f7f7-281e-4668-bdbb-4dd14dd4396e.__oven-sh_setup-bun]
+Post job cleanup.
+##[end-action id=__a134f7f7-281e-4668-bdbb-4dd14dd4396e.__oven-sh_setup-bun;outcome=success;conclusion=success;duration_ms=140]
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/a7e454ee-2903-473c-a0a7-db7f3b4aec43' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-840d4ccb-686f-4306-aca7-626437d155c3.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-840d4ccb\-686f\-4306\-aca7\-626437d155c3\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-840d4ccb-686f-4306-aca7-626437d155c3.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-840d4ccb\-686f\-4306\-aca7\-626437d155c3\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-840d4ccb-686f-4306-aca7-626437d155c3.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-840d4ccb\-686f\-4306\-aca7\-626437d155c3\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-840d4ccb-686f-4306-aca7-626437d155c3.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-840d4ccb\-686f\-4306\-aca7\-626437d155c3\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-840d4ccb-686f-4306-aca7-626437d155c3.config'
+Cleaning up orphan processes
+Terminate orphan process: pid (2854) (catatonit)

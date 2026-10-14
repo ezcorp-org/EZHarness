@@ -1,0 +1,243 @@
+excerpt of job-115734696320.log (722 lines, 70982 bytes, sha256 76f82678fcbfad1bd3dc29cc5ba219cb45ae7217b542e1cfc553a450eed80019): the first 80 and the last 160 lines, ANSI and timestamps stripped; the full log stays in the evidence dir
+----- first 80 -----
+Current runner version: '2.337.0'
+##[group]Runner Image Provisioner
+Hosted Compute Agent
+Version: 20261002.596
+Commit: c3d12f3313a95f25162a1503be624f3b0617f8c0
+Build Date: 2026-10-02T22:28:27Z
+Worker ID: {02215c77-7f3a-421d-b460-ef3bcc9589bd}
+Region: northcentralus
+Cloud: Azure
+##[endgroup]
+##[group]Operating System
+Ubuntu
+24.04.5
+LTS
+##[endgroup]
+##[group]Runner Image
+Image: ubuntu-24.04
+Version: 20261004.327.1
+Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20261004.327/images/ubuntu/Ubuntu2404-Readme.md
+Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20261004.327
+##[endgroup]
+##[group]GITHUB_TOKEN Permissions
+Contents: read
+Metadata: read
+##[endgroup]
+Secret source: Actions
+Cache mode: write
+Prepare workflow directory
+Prepare all required actions
+Getting action download info
+Download action repository 'actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1' (SHA:3d3c42e5aac5ba805825da76410c181273ba90b1)
+Download action repository 'oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6' (SHA:0c5077e51419868618aeaa5fe8019c62421857d6)
+Download action repository 'actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c' (SHA:3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c)
+Download action repository 'actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a' (SHA:043fb46d1a93c77aae656e7c1c64a875d1fc6a0a)
+Complete job name: Per-file coverage gate
+##[group]Run if [ "success" != "success" ] || \
+if [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ] || \
+   [ "success" != "success" ]; then
+  echo "::error::coverage producers failed — coverage data is incomplete"
+  exit 1
+fi
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+##[group]Run actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+with:
+  fetch-depth: 0
+  repository: ezcorp-org/EZHarness
+  token: ***
+  ssh-strict: true
+  ssh-user: git
+  persist-credentials: true
+  clean: true
+  sparse-checkout-cone-mode: true
+  fetch-tags: false
+  show-progress: true
+  lfs: false
+  submodules: false
+  set-safe-directory: true
+  allow-unsafe-pr-checkout: false
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+Syncing repository: ezcorp-org/EZHarness
+##[group]Getting Git version info
+Working directory is '/home/runner/work/EZHarness/EZHarness'
+[command]/usr/bin/git version
+git version 2.55.0
+##[endgroup]
+Temporarily overriding HOME='/home/runner/work/_temp/58bee4d1-d55b-470e-b4be-b91ce8ef5db6' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+----- last 160 -----
+cp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+##[group]Run bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
+bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+web Vitest coverage records every configured executable source (622 candidates)
+##[group]Run mkdir -p coverage
+mkdir -p coverage
+bun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info
+bun scripts/check-coverage.ts
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+merged 2403 source files → coverage/lcov.info
+Coverage gate PASSED: 2249 enforced file(s) at or above threshold.
+##[group]Run bun scripts/check-new-file-coverage.ts
+bun scripts/check-new-file-coverage.ts
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  BASE_REF: origin/main
+##[endgroup]
+New-file coverage gate PASSED: 7 new source file(s) gated.
+##[group]Run bun scripts/check-patch-coverage.ts
+bun scripts/check-patch-coverage.ts
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  BASE_REF: origin/main
+##[endgroup]
+Patch coverage gate PASSED: all changed executable lines covered (35 file(s)).
+##[group]Run bun scripts/check-global-coverage.ts
+bun scripts/check-global-coverage.ts
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+
+Global line coverage: 98.13% (215076/219178 lines across 2386 files), floor 90%
+✓ at or above the 90% floor (margin 8.13 points)
+##[group]Run bun scripts/crap-score.ts --changed
+bun scripts/crap-score.ts --changed
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+  BASE_REF: origin/main
+##[endgroup]
+CRAP: --changed against origin/main → 34 measured file(s) in diff
+
+CRAP: 182 functions in 34 files (max 30, warn 15)
+
+Worst 15:
+     23.0  cc= 23 cov=100%  src/factory/installation-startup.ts:783 installationCollaborators
+     22.0  cc= 22 cov=100%  packages/@ezcorp/factory-orchestrator/src/process.ts:190 runFactoryOrchestratorProcess
+     22.0  cc= 22 cov=100%  src/factory/runner/host-launch-service.ts:157 <anonymous@157>
+     19.0  cc= 19 cov=100%  src/factory/startup-config.ts:498 wellFormedRunnerProfile
+     17.0  cc= 17 cov=100%  src/factory/startup-config.ts:781 checkRunnerProfiles
+     16.0  cc= 16 cov=100%  src/extensions/bundled-bootstrap.ts:116 stageBundledExtensionSources
+     16.0  cc= 16 cov=100%  src/factory/package-preparation.ts:259 hydrate
+     16.0  cc= 16 cov=100%  src/factory/runtime-workers.ts:138 registerFactoryRuntimeWorkers
+     11.0  cc= 11 cov=100%  src/factory/host-preparation-client.ts:35 build
+     11.0  cc= 11 cov=100%  src/factory/provisioning/fleet.ts:102 parseFactoryFleetSettings
+     10.0  cc= 10 cov=100%  src/factory/installation-startup.ts:1012 composeAttemptDispatch
+     10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:215 hostRefusalFor
+     10.0  cc= 10 cov=100%  src/factory/runner/host-launch-service.ts:244 factoryHostPreparationFromWire
+      9.0  cc=  9 cov=100%  packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts:56 validRecord
+      9.0  cc=  9 cov=100%  src/factory/package-preparation.ts:237 loadForBindingInTransaction
+
+8 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30
+##[group]Run bun scripts/quality-report.ts --text --expect coverage,crap
+bun scripts/quality-report.ts --text --expect coverage,crap
+shell: /usr/bin/bash -e {0}
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+
+=== Quality gates: PASS ===
+  expected: coverage, crap
+  coverage: {"passed":true,"linePct":98.1285,"threshold":90}
+  crap: {"passed":true,"mode":"touched-functions","violations":0,"functionsScored":182,"maxScore":30}
+
+No failures.
+Structured summary: /home/runner/work/EZHarness/EZHarness/coverage/quality/summary.json
+##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+with:
+  name: quality-reports
+  path: coverage/quality
+  retention-days: 7
+  if-no-files-found: warn
+  compression-level: 6
+  overwrite: false
+  include-hidden-files: false
+  archive: true
+env:
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+  BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+##[endgroup]
+With the provided path, there will be 3 files uploaded
+Artifact name is valid!
+Root directory input is valid!
+Uploading artifact: quality-reports.zip
+Beginning upload of artifact content to blob storage
+Uploaded bytes 3697
+Finished uploading artifact content to blob storage!
+SHA256 digest of uploaded artifact is 1b68c80b94994476f122e989b2617e2a98740868e17c0dd6185db6d4b24e3fae
+Finalizing artifact upload
+Artifact quality-reports successfully finalized. Artifact ID 11877320870
+Artifact quality-reports has been successfully uploaded! Final size is 3697 bytes. Artifact ID is 11877320870
+Artifact download URL: https://github.com/ezcorp-org/EZHarness/actions/runs/38525604869/artifacts/11877320870
+Post job cleanup.
+Post job cleanup.
+[command]/usr/bin/git version
+git version 2.55.0
+Temporarily overriding HOME='/home/runner/work/_temp/57893a28-7583-4422-bb77-0f8512bcab15' before making global git config changes
+Adding repository directory to the temporary git global config as a safe directory
+[command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Removing SSH command configuration
+[command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Removing HTTP extra header
+[command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+[command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Removing includeIf entries pointing to credentials config files
+[command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+includeif.gitdir:/github/workspace/.git.path
+includeif.gitdir:/github/workspace/.git/worktrees/*.path
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+/home/runner/work/_temp/git-credentials-c02505c5-af07-4bc0-be8f-d8288d8200e9.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path \/home\/runner\/work\/_temp\/git\-credentials\-c02505c5\-af07\-4bc0\-be8f\-d8288d8200e9\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+/home/runner/work/_temp/git-credentials-c02505c5-af07-4bc0-be8f-d8288d8200e9.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path \/home\/runner\/work\/_temp\/git\-credentials\-c02505c5\-af07\-4bc0\-be8f\-d8288d8200e9\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git.path
+/github/runner_temp/git-credentials-c02505c5-af07-4bc0-be8f-d8288d8200e9.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git.path \/github\/runner_temp\/git\-credentials\-c02505c5\-af07\-4bc0\-be8f\-d8288d8200e9\.config
+[command]/usr/bin/git config --local --get-all includeif.gitdir:/github/workspace/.git/worktrees/*.path
+/github/runner_temp/git-credentials-c02505c5-af07-4bc0-be8f-d8288d8200e9.config
+[command]/usr/bin/git config --local --unset includeif.gitdir:/github/workspace/.git/worktrees/*.path \/github\/runner_temp\/git\-credentials\-c02505c5\-af07\-4bc0\-be8f\-d8288d8200e9\.config
+[command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Removing credentials config '/home/runner/work/_temp/git-credentials-c02505c5-af07-4bc0-be8f-d8288d8200e9.config'
+Cleaning up orphan processes
