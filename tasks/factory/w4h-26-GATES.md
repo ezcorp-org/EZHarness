@@ -51,6 +51,10 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   runner loader; the guard stays red for any real subclass (792dcb6b7). H4 after a restart: a finished preparation is
   recorded durably beside the host key, so a repeated build identity after a restart reads it, never a second build, never
   duplicate_operation; red on the frozen logic (4fa87697d).
+- R6 (validator-8's T1; the lead's N6, N7; ruled): the join entry is created before any await (concurrent first requests
+  build once); only a succeeded preparation is recorded durably (a failed build is joined in memory and rebuilt after a
+  restart); other source as the first request after a restart is refused against the record without poisoning the identity.
+  4 of 4 mutants killed (abee88765; mutants/r6-mutants.txt).
 - N5 (validator-8, ruled): /api/ready names a staging failure as `factory_builtin_runner_stage_failed` with a fixed reason
   (source_missing, invalid_source, runner_unconfigured, lifecycle_refused, owner_inactive, unexpected) and its fixed text;
   the raw error stays in the server log. Red first with a planted path (9fd90638f, 264fb7914).
@@ -69,11 +73,11 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   snapshot sha256:e020cd24… equals the digest recomputed from the fixture, and the port output equals the recomputed port;
   the run then fails at generate-private-candidate `factory_native_package_untrusted` (the later package). /api/ready names
   the staging outcome: builtinRunnerPackages staged ["reference-code", "reference-code-validator"], failed []. At the final
-  head 9fd90638f: proof/final-4.json; 4fa87697d: proof/final-3.json (3726e99755022c21); earlier heads: 27412cb92 proof/final-2.json (32d3a144e4ed20d9),
+  head abee88765: proof/final-5.json; 9fd90638f: proof/final-4.json; 4fa87697d: proof/final-3.json (3726e99755022c21); earlier heads: 27412cb92 proof/final-2.json (32d3a144e4ed20d9),
   610ca637d proof/final.json (698c29aa00328084).
 - [x] G5: D6 mutants, each dropping one digest comparison: 4 of 4 killed (host source check; client artifact check; product
   build-vs-binding; product verifyArtifacts). EVIDENCE: mutants/d6-mutants.txt.
-- [x] G6: legs at 9fd90638f (264fb7914 changes one test line; typecheck re-run there): focused coverage of 51 test files, patch coverage PASS (25 files), new-file PASS (5 files, keys
+- [x] G6: legs at abee88765: focused coverage of 51 test files, patch coverage PASS (25 files), new-file PASS (5 files, keys
   added), CRAP no touched function over 30; guard set 42 files, 524 pass, 0 fail; typecheck 0 (tc-gate in the lock, after
   `bun run build:packages`); lint 0; gate-integrity PASS on both legs (default, BASE_REF=origin/main: 0 findings);
   check-boundaries, factory boundaries, lanes clean; prune scan clean. EVIDENCE: legs/.
