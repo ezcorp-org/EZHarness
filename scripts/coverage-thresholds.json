@@ -237,6 +237,8 @@
   "packages/@ezcorp/factory-orchestrator/src/transition-pages.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/validation.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/worker.ts": 100,
+  "packages/@ezcorp/factory-orchestrator/src/workflow-bundle-build.ts": 100,
+  "packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts": 100,
   "packages/@ezcorp/factory-orchestrator/src/workflow.ts": 100,
   "src/runtime/factory-execution.ts": 100,
   "src/factory/command-authority.ts": 100,

@@ -11,6 +11,9 @@ import {
   type TemporalCredentials,
 } from "../src/process.ts";
 import { FACTORY_GATEWAY_REQUEST_TIMEOUT_MAX_MS, FACTORY_GATEWAY_REQUEST_TIMEOUT_MS } from "../src/contracts.ts";
+import { FactoryWorkflowBundleError, type FactoryWorkflowBundle } from "../src/workflow-bundle.ts";
+
+const BUNDLE: FactoryWorkflowBundle = Object.freeze({ code: "workflow bundle", sha256: "sha256:bundle" });
 
 const codec = { encode: async (values) => values, decode: async (values) => values } satisfies PayloadCodec;
 
@@ -61,6 +64,7 @@ function dependencies(values: TemporalCredentials[], observed: { connections: Fa
       observed.connections.push(connection);
       return connection;
     },
+    loadWorkflowBundle: async () => BUNDLE,
     createRuntime: async () => {
       const instance = worker();
       observed.workers.push(instance);
@@ -70,6 +74,23 @@ function dependencies(values: TemporalCredentials[], observed: { connections: Fa
 }
 
 describe("production factory orchestrator process", () => {
+  for (const [label, failure, errorCode] of [
+    ["a bundle the build did not record", new FactoryWorkflowBundleError("factory_workflow_bundle_digest_mismatch", "changed"), "factory_workflow_bundle_digest_mismatch"],
+    ["an unreadable bundle", new Error("disk"), "factory_orchestrator_failed"],
+  ] as const) {
+    it(`refuses ${label} by name before any Temporal connection`, async () => {
+      const observed = { connections: [] as FactoryTemporalConnection[], workers: [] as FactoryWorkerProcessHandle[], apiKeys: [] as string[], now: 0 };
+      const states: Array<{ lifecycle: string; errorCode?: string }> = [];
+      const deps = { ...dependencies([credentials("token")], observed), loadWorkflowBundle: async () => { throw failure; } };
+      await assert.rejects(runFactoryOrchestratorProcess(options(new AbortController().signal, async (state) => {
+        states.push({ lifecycle: state.lifecycle, ...(state.errorCode === undefined ? {} : { errorCode: state.errorCode }) });
+        return { schemaVersion: "factory.orchestrator-readiness.v1", installationId: "installation-1", tenantId: "tenant-1", namespace: "tenant-1", taskQueue: "factory-orchestrator", observedAtMs: 0, ...state };
+      }, async () => credentials("token")), deps), (error: unknown) => (error as Error).message === "factory orchestrator process failed" && (error as Error).cause === failure);
+      assert.deepEqual(states, [{ lifecycle: "starting" }, { lifecycle: "failed", errorCode }]);
+      assert.equal(observed.connections.length, 0);
+    });
+  }
+
   it("fails closed when the concrete Temporal connector cannot authenticate", async () => {
     await assert.rejects(factoryOrchestratorProductionDependencies.connect({
       address: "127.0.0.1:1", namespace: "tenant-1", serverName: "localhost",
@@ -124,9 +145,10 @@ describe("production factory orchestrator process", () => {
     const bounds: Array<number | undefined> = [];
     const deps: FactoryOrchestratorProcessDependencies = {
       ...base,
-      createRuntime: async (runtime, connection, identity) => {
+      createRuntime: async (runtime, connection, identity, workflowBundle) => {
         bounds.push(runtime.gateway.requestTimeoutMs);
-        return base.createRuntime(runtime, connection, identity);
+        assert.equal(workflowBundle, BUNDLE);
+        return base.createRuntime(runtime, connection, identity, workflowBundle);
       },
     };
     const ready = async (state: Parameters<FactoryOrchestratorProcessOptions["readiness"]["write"]>[0]) => {

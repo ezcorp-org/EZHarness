@@ -220,6 +220,21 @@ export class FactoryComposeTarget implements FactoryDeploymentTarget {
   }
 
   /**
+   * Stop every container and keep it, for the operator's `stop`. Idempotent: a
+   * stopped project stops again with nothing to do, and an installation never
+   * applied has no env file and no containers.
+   */
+  async stop(handle: FactoryDeploymentHandle): Promise<void> {
+    if (await Bun.file(resolve(handle.runtimeDirectory, "compose.env")).exists()) await this.must(this.compose(handle, ["stop", "--timeout", "20"]), "deployment_compose_failed", "compose stop");
+  }
+
+  /** Start the containers `stop` kept and wait until they serve (`ready`), for the operator's `up`. */
+  async start(bundle: FactoryInstallationBundle): Promise<void> {
+    await this.must(this.compose(bundle, ["start"]), "deployment_compose_failed", "compose start");
+    await this.ready(bundle);
+  }
+
+  /**
    * Remove the installation's containers and runtime data. The data directory
    * may hold files a container wrote under a mapped subuid, so it is removed
    * inside the rootless user namespace; an ordinary recursive remove fails.
@@ -319,6 +334,21 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
       await this.sleep(this.options.pollMs ?? 2_000);
     }
     throw new FactoryProvisioningError("host_not_ready", `The fleet host did not become ready; still waiting on ${waiting}.`);
+  }
+
+  /** The pool container runs and the supervisor unit is active. A host never applied serves nothing. */
+  async serving(paths: FactoryFleetHostPaths): Promise<boolean> {
+    if (!(await Bun.file(resolve(paths.runtimeDirectory, "compose.env")).exists())) return false;
+    const listed = await this.compose(paths, ["ps", "--all", "--format", "json"]);
+    const pool = listed.code === 0 ? parseComposePs(listed.stdout).find((entry) => entry.service === "pool") : undefined;
+    if (pool?.state !== "running") return false;
+    return (await this.options.execute(["systemctl", "--user", "is-active", factorySupervisorUnit(paths.context.fleetId)])).code === 0;
+  }
+
+  /** Stop both shared services and keep the pool's containers, for the operator's `stop`. Idempotent. */
+  async stop(paths: FactoryFleetHostPaths): Promise<void> {
+    await this.stopUnit(paths);
+    if (await Bun.file(resolve(paths.runtimeDirectory, "compose.env")).exists()) await this.check(this.compose(paths, ["stop", "--timeout", "20"]), [0], "host_compose_failed", "host compose stop");
   }
 
   /** Stop both shared services. Idempotent; a host never applied has no env file. */

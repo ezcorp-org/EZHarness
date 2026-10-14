@@ -26,7 +26,7 @@
  * would refuse.
  */
 import { resolve } from "node:path";
-import { parseFactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
+import { FACTORY_RELEASE_ENTITLED_S3_ROOT, parseFactoryStartupConfig, type FactoryStartupConfig, type FactoryStartupReleaseProfile, type FactoryStartupRunnerProfile } from "../startup-config";
 import { factoryDatabasePairs, type FactoryDatabaseCredential } from "./database";
 import { factoryDeliveryDirectory, type FactoryInstallationContext, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
 import { FACTORY_BOOTSTRAP_INVITATION_FILE } from "./invitation";
@@ -58,6 +58,18 @@ export const FACTORY_CONTAINER_PATHS = Object.freeze({
 
 export const FACTORY_DEFAULT_DATABASE_POOL_MAX = Object.freeze({ harness: 4, gateway: 2 });
 
+/**
+ * Each service's environment before its own settings: where its HOME is. The
+ * root is read-only, so HOME is the noexec /tmp tmpfs, or for the harness its
+ * data volume. Exported so the shipped-isolation guard
+ * (scripts/check-factory-image-shipped-config.ts) runs the image with exactly this.
+ */
+export const FACTORY_SERVICE_BASE_ENVIRONMENT: Readonly<Record<FactoryDeployedService, Readonly<Record<string, string>>>> = Object.freeze({
+  gateway: Object.freeze({ HOME: "/tmp" }),
+  orchestrator: Object.freeze({ HOME: "/tmp" }),
+  harness: Object.freeze({ HOME: `${FACTORY_CONTAINER_PATHS.data}/home` }),
+});
+
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
 export interface FactoryDeploymentNetwork {
   readonly databaseHost: string;
@@ -80,6 +92,45 @@ export interface FactoryDeploymentImage {
   readonly revision: string;
 }
 
+/**
+ * Where every installation of the fleet may release, as the fleet declares it.
+ *
+ * The deployer always adds the installation's own S3 destination when any
+ * profile exists; a GitHub destination only when the fleet declares one. The
+ * GitHub token is a host file delivered to the harness by path, never a value
+ * in any document.
+ */
+export interface FactoryDeploymentRelease {
+  readonly github?: { readonly repository: string; readonly tokenPath: string };
+  readonly profiles: readonly FactoryStartupReleaseProfile[];
+}
+
+/** The destination name of each installation's own S3 release target, for a profile to point at. */
+export const FACTORY_INSTALLATION_S3_RELEASE_DESTINATION = "installation-s3";
+export const FACTORY_GITHUB_RELEASE_DESTINATION = "github";
+/** The GitHub token's file name in the harness's delivery directory. */
+export const FACTORY_GITHUB_RELEASE_TOKEN_FILE = "release-github-token";
+/**
+ * Releases go under the installation's ordinary store, inside the root its seeded
+ * identity is entitled to (the startup parser refuses any other prefix). An
+ * independent archive domain with its own identity is W15's production item.
+ */
+export const FACTORY_RELEASE_S3_PREFIX = `${FACTORY_RELEASE_ENTITLED_S3_ROOT}/releases`;
+
+const secretPath = (name: string) => `${FACTORY_CONTAINER_PATHS.secrets}/${name}`;
+
+/** The startup document's `release` block for one installation, or none when the fleet declares no profile. */
+export function factoryInstallationReleaseBlock(release: FactoryDeploymentRelease | undefined, target: { readonly tenantId: string; readonly ordinaryEndpoint: string }): FactoryStartupConfig["release"] {
+  if (release === undefined || release.profiles.length === 0) return undefined;
+  return {
+    destinations: [
+      { name: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, kind: "s3", endpoint: target.ordinaryEndpoint, bucket: target.tenantId, account: target.tenantId, prefix: FACTORY_RELEASE_S3_PREFIX, credentialsPath: secretPath("ordinary-storage.json") },
+      ...(release.github === undefined ? [] : [{ name: FACTORY_GITHUB_RELEASE_DESTINATION, kind: "github" as const, repository: release.github.repository, tokenPath: secretPath(FACTORY_GITHUB_RELEASE_TOKEN_FILE) }]),
+    ],
+    profiles: release.profiles,
+  };
+}
+
 export interface FactoryDeploymentSettings {
   readonly network: FactoryDeploymentNetwork;
   readonly image: FactoryDeploymentImage;
@@ -87,6 +138,8 @@ export interface FactoryDeploymentSettings {
   readonly runtimeRoot: string;
   /** The runner profiles this installation declares: a deployment fact, not a definition fact. */
   readonly runnerProfiles: { readonly brokerAudience: string; readonly profiles: readonly FactoryStartupRunnerProfile[] };
+  /** Where this installation may release. Absent or without profiles, the startup document declares no release block. */
+  readonly release?: FactoryDeploymentRelease;
   /** The fleet host's shared pool and supervisor, as every installation names them. */
   readonly host: FactoryFleetHostFacts;
   readonly interpreterCompatibility: string;
@@ -167,7 +220,6 @@ function databaseUrl(network: FactoryDeploymentNetwork, database: string, creden
   return url.toString();
 }
 
-const secretPath = (name: string) => `${FACTORY_CONTAINER_PATHS.secrets}/${name}`;
 /** Each readiness writer has its own directory, so no process can overwrite another's record. */
 const readinessPath = (writer: "pool" | "orchestration" | "supervisor") => `${FACTORY_CONTAINER_PATHS.readiness}/${writer}/${writer}.json`;
 
@@ -196,6 +248,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   // The shared pool and supervisor present the host's server certificate; the harness trusts the host authority for them alone.
   const hostTls = { ...harnessTls, caPath: secretPath(FACTORY_HOST_FILES.caCertificate) };
   const masterKeyId = factoryMasterKeyId(installation);
+  const release = factoryInstallationReleaseBlock(settings.release, { tenantId: installation.tenantId, ordinaryEndpoint: settings.network.ordinaryEndpoint });
 
   const startup = parseFactoryStartupConfig({
     schemaVersion: "factory.startup.v1",
@@ -245,6 +298,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     // holds (CN = its namespace); the gateway injects the read token.
     temporalHttp: { endpoint: settings.network.temporalHttpEndpoint, tls: { caPath: secretPath("temporal-ca.crt"), certificatePath: secretPath("temporal-client.crt"), privateKeyPath: secretPath("temporal-client.key") } },
     keyManagement: { kind: "operator-master-key" },
+    ...(release === undefined ? {} : { release }),
   });
 
   const orchestrator = {
@@ -289,6 +343,8 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       [FACTORY_HOST_FILES.caCertificate]: { source: host.caCertificatePath },
       [FACTORY_HOST_FILES.hostPublicKey]: { source: host.hostPublicKeyPath },
       [FACTORY_HOST_FILES.tokenPublicKey]: { source: host.tokenPublicKeyPath },
+      // The GitHub release token, when the fleet declares a GitHub destination: copied from the operator's file, named by path in the startup document.
+      ...(settings.release?.github === undefined ? {} : { [FACTORY_GITHUB_RELEASE_TOKEN_FILE]: { source: settings.release.github.tokenPath } }),
       // Created by steps 6 and 7, which publish them into this delivery themselves.
       [FACTORY_BOOTSTRAP_INVITATION_FILE]: { ...source(FACTORY_BOOTSTRAP_INVITATION_FILE), optional: true },
       [FACTORY_INGRESS_PROOF_FILE]: { ...source(FACTORY_INGRESS_PROOF_FILE), optional: true },
@@ -318,12 +374,12 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   });
   const poolMax = settings.databasePoolMax ?? FACTORY_DEFAULT_DATABASE_POOL_MAX;
   const environment = {
-    gateway: { HOME: "/tmp", DB_POOL_MAX: String(poolMax.gateway) },
-    orchestrator: { HOME: "/tmp" },
+    gateway: { ...FACTORY_SERVICE_BASE_ENVIRONMENT.gateway, DB_POOL_MAX: String(poolMax.gateway) },
+    orchestrator: { ...FACTORY_SERVICE_BASE_ENVIRONMENT.orchestrator },
     harness: {
       PORT: String(ports.harness), HOST: "0.0.0.0", ORIGIN: publicOrigin,
       DB_POOL_MAX: String(poolMax.harness),
-      HOME: `${FACTORY_CONTAINER_PATHS.data}/home`,
+      ...FACTORY_SERVICE_BASE_ENVIRONMENT.harness,
       EZCORP_FACTORY_ENABLED: "1",
       EZCORP_INSTALLATION_ID: installation.installationId,
       EZCORP_INSTALLATION_HOSTNAME: installation.hostname,

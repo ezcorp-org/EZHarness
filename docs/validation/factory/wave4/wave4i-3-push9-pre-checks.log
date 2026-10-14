@@ -1,0 +1,13 @@
+pre-checks 2026-10-13T14:57:01Z (integrator-5, push-checklist step 1, the follow-up 2 branch (W4H-24))
+status --porcelain lines: 0
+branch: integ/w00
+ident: archy <281643943+EZArchy@users.noreply.github.com>
+fetch rc=0
+origin/main: d3e6871e52a1e393b418cd7534d67630b43535e3
+integ/w00:   e120e922f239f2ea80972acdfa7f9af36ef98fc9
+origin/main ancestor of integ/w00: yes
+remote feat/factory-platform-followup-2: 
+local feat/factory-platform-followup-2: none
+config: c405ccfcdad7afa7 = accepted baseline
+commits ahead of origin/main: 11
+resources: disk 197G MemAvailable: 17.8 GiB SwapFree: 8.1 GiB 

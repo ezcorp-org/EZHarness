@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# measure.sh v2 (integrator-5; the coordinator's ruling (b), 2026-10-14): the time of ONE case, measured INSIDE its whole file as the hook
+# runs it (v1 ran the case alone with -t: about 1 s at both revs, not the hook's condition), from a junit report; the wall time of tests/postgres/factory-provisioning.test.ts,
+# "purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key", 2 runs at the base and 2 at
+# the W4H-27 head, on an OWN fresh pg, under the heavy lock (run through gated-flock). The base = integ/w00 bea35538d, whose code equals
+# origin/main 1981febd2 (the syncs since changed no file; only receipts and tasks differ). The head = b26a63460, checked out DETACHED in the
+# integ worktree for its two runs and always returned to integ/w00 (trap). The per-test timeout is raised to 120 s HERE ONLY, to measure the
+# time, never to judge it; the hook's 30 s budget is unchanged. Host disk and MemAvailable are recorded with each run.
+set -u
+E=/tmp/factory-platform-evidence/w00; M=$E/w4h-merge/w4h-27-compose-comes-up/purge-measure; I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+. $E/lock-veto.sh; lock_veto integrator-2
+cd $I || exit 2; [ "$(git branch --show-current)" = integ/w00 ] && [ -z "$(git status --porcelain)" ] || { echo "REFUSED: integ not clean on integ/w00"; exit 3; }
+back() { git checkout -q integ/w00; echo "returned to integ/w00 $(git rev-parse --short=9 HEAD) dirty=$(git status --porcelain | wc -l)"; }
+trap back EXIT
+. $E/own-pg.sh; own_pg_start w4h-27-measure-pg || exit 3
+# own_pg_start sets its own EXIT trap (own_pg_stop); chain both so the worktree ALWAYS returns to integ/w00 (v1 lost that trap).
+trap 'own_pg_stop; back' EXIT
+. "$PG_ENV_FILE"; port=$(podman port "$PG_CONTAINER" 5432 | head -1 | sed 's/.*://')
+export FACTORY_TEST_POSTGRES_URL="postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${port}/${POSTGRES_DB}"; unset POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB port
+EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(ls -d /run/user/1001/ezcorp-factory-storage.* | head -1); export EZCORP_FACTORY_STORAGE_SECRETS_DIR
+. $E/bun-pin.sh; bun_pin "$I"; unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+CASE="purge needs an installation-issued approval and closed work, drops the databases, and keeps the archive key"
+for rev in bea35538d bea35538d b26a63460 b26a63460; do
+  git checkout -q --detach "$rev" || { echo "checkout $rev failed"; exit 4; }
+  n=$((${n:-0}+1)); host="disk $(df -BG / | tail -1 | awk '{print $4}') MemAvailable $(awk '/^MemAvailable:/{printf "%.1f GiB",$2/1048576}' /proc/meminfo)"
+  t0=$(date +%s%N); bun test --timeout 120000 --reporter=junit --reporter-outfile="$M/full$n-$rev.junit.xml" ./tests/postgres/factory-provisioning.test.ts > "$M/full$n-$rev.log" 2>&1; rc=$?; t1=$(date +%s%N)
+  case_s=$(python3 -I -c 'import sys,xml.etree.ElementTree as ET
+for t in ET.parse(sys.argv[1]).iter("testcase"):
+  if sys.argv[2] in (t.get("name") or ""): print(t.get("time")); break' "$M/full$n-$rev.junit.xml" "$CASE" 2>/dev/null)
+  echo "run $n rev $rev: exit $rc; the case ${case_s:-?} s inside the whole file; file wall $(( (t1 - t0) / 1000000 )) ms; $host; $(grep -E '^ *[0-9]+ (pass|fail)$' "$M/full$n-$rev.log" | tr '\n' ' ')"
+done

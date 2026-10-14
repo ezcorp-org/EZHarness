@@ -1,0 +1,19 @@
+# W-SYNC of origin/main 48d90eb54 into integ/w00 71a2f8a86 (integrator-5; the coordinator's order 2026-10-13: the FULL W-SYNC form).
+# main #336 "fix: security, data and UI bugs from a full validation sweep": 216 files (packages/@ezcorp 54, web/src 52, src/__tests__ 32,
+# src/extensions 19, web/e2e 15, docs/features 12, src/db 8, ...; manifest.lock.json; scripts/coverage-thresholds.json adds one 100 entry;
+# scripts/typecheck.sh adds the package legs). No conflict. unit.txt = the hook-mapped root suites (73; one lcov leg each); the 22 hook-mapped
+# web tests run in the whole web vitest pool below. Automatic in the hold: the orchestrator package test + Node producer (15 orchestrator
+# package files), the sdk lcov leg, the web/src/lib changed-test vitest lcov leg.
+N=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-sync-main-48d90eb54
+# RULING 2 (the coordinator, 2026-10-13; the W-SYNC precedent): new-file, patch and CRAP --changed vs the first parent are INFORMATIONAL (main's
+# own code on a partial lcov); gate-integrity binds (base clean, main exactly 0), and main's hosted ci 38454203452 is checked before the publish.
+export MCG_COVERAGE_INFORMATIONAL="W-SYNC of main 48d90eb54 (ruling 2, 2026-10-13): the first-parent diff is main's 216 files on a partial lcov; main's hosted per-file gate binds"
+# Root and web frozen installs at the merge (no lockfile changed, so commit.sh did not install): every install --ignore-scripts; BINDING:
+# no lockfile or manifest drift after the installs.
+NOTEST=1 leg frozen-installs bash -c '. /tmp/factory-platform-evidence/w00/installs-lib.sh; frozen_installs "$PWD" "$0/installs.log"; rc=$?; tail -3 "$0/installs.log"
+  s=$(git status --porcelain -- bun.lock web/bun.lock package.json web/package.json .github/gate-integrity-deps/bun.lock); echo "drift: ${s:-none}"; [ $rc -eq 0 ] && [ -z "$s" ]' "$N"
+NOTEST=1 leg manifest-lock-check bun scripts/regenerate-manifest-lock.ts --check
+tc_leg typecheck-all bun run typecheck
+tc_leg web-check bash -c 'cd web && bun run check'
+# The WHOLE web vitest pool (the 22 hook-mapped web tests and every other web test), its lcov joins the merge.
+leg web-vitest-full bash scripts/web-vitest-coverage.sh --output "$REPO/$C/web-vitest-full"

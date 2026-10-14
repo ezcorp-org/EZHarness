@@ -1,0 +1,25 @@
+{
+  "push": "feat/factory-platform-followup-2 created at e120e922f239f2ea80972acdfa7f9af36ef98fc9 (integ/w00: docs line v8 on the W4H-24 receipts a53f93a49, the W4H-24 merge 8b1aec3f4 and the d3e6871e5 sync 687d511ea; 11 commits ahead of origin/main d3e6871e5) and pushed ONCE from the integ worktree (tc_run lock-free GREEN at 18.0 GiB, lowest 14.3; pre-push hook biome, typecheck, svelte-check 620/0; '[new branch]', exit 0 at 14:58:18Z 2026-10-13; no -u, config unchanged). An earlier attempt to build push.sh with sed left an empty script whose run did nothing (no branch, no push; checked); the script was rebuilt and run once.",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 14:57:01Z by integrator-5/integ-push-prechecks.sh b3f84b281b7ac5f1: integ clean on integ/w00 e120e922f; archy; origin/main d3e6871e5 (the expected sha) an ancestor; branch absent; config c405ccfcdad7afa7; disk 197G, MemAvailable 17.8 GiB, SwapFree 8.1 GiB",
+    "2 ff": "not applicable: a new branch",
+    "3 installs": "frozen_installs in the integ worktree exit 0, no changes",
+    "4 push": "push.sh 37f4105c1c475aa1 via w00/tc-gate.sh 7678da69afb1c809; local = remote = e120e922f",
+    "5 PR": "PR 338 opened as a DRAFT (base main, the coordinator's title, a one-line body, no labels): MERGEABLE, BLOCKED",
+    "6 hosted": "ci 38418009493 (14:58:32Z - 15:30:56Z) and deps-audit 38418008858 (success); no nightly dispatch"
+  },
+  "result": "58 jobs, one attempt: red 1 = Factory runner readiness precheck (A: no online runner has the label 'factory-real'; the token reads the runners). vs 38322209985: same 57; vs 37138524741: 20 -> 1. Gate integrity GREEN with no label (0 findings). Per-file coverage gate PASSED (2234; new-file; patch 1 file; 98.09%).",
+  "w4h24Hosted": "the three web shards under timeout-minutes 30: 263 / 236 / 261 s, success; checkout+install 45 / 44 / 45 s (1.3x the 35 s median), vitest 210 / 185 / 207 s (1.1 / 0.9 / 1.0x the 198 s median); no WARN line on any shard (a normal runner); aggregator 4 s, orphans 56 s.",
+  "tooling": {
+    "push.sh": "37f4105c1c475aa1",
+    "installs.sh": "31134cc8a8d147d3",
+    "integ-push-prechecks.sh": "b3f84b281b7ac5f1",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "integrator-5/log-excerpt.sh": "fd3885337dfd5e35",
+    "integrator-5/poll-ci.sh": "1ecfc487f0b88a0b"
+  },
+  "hostEvents": [
+    "none in the push window (14:57 - 15:32Z 2026-10-13)"
+  ],
+  "receiptsBy": "integrator-5"
+}

@@ -1,0 +1,58 @@
+Web tests shard 3	success
+Svelte check	success
+Dev image provenance	success
+Extension lifecycle (firefox)	success
+Web tests (bun-leg orphans)	success
+Factory Temporal integration	success
+Extension lifecycle (webkit)	success
+Coverage shard 1	success
+Gate integrity	success
+Sandbox (arm64)	success
+Residual integration tests	success
+Coverage shard 4	success
+Lint (biome)	success
+Coverage extras (legs)	success
+Coverage shard 0	success
+Factory schema and kernel	success
+Factory runner readiness precheck	failure
+Visual evidence	success
+Coverage shard 3	success
+Coverage shard 8	success
+Coverage shard 2	success
+Coverage shard 6	success
+Coverage shard 5	success
+Coverage shard 9	success
+Coverage shard 7	success
+Factory isolation	skipped
+external-postgres / External Postgres (Bun.sql)	success
+external-postgres / Factory assurance and release	success
+Factory deployment and operations	skipped
+Production proof (delivery)	success
+Production proof (recovery)	success
+Factory product and domain E2E	skipped
+Production proof (content)	success
+Coverage shard 10	success
+E2E visual evidence	success
+Coverage shard 11	success
+E2E (real auth + real DB)	success
+E2E mock lane	success
+E2E mock product coverage	success
+Production proof (namespace)	success
+Production proof (resources)	success
+Browser route coverage	success
+Backend tests	success
+Production image extension lifecycle	success
+E2E (mock, no Docker)	success
+Mutation (changed files)	success
+Backend critical (strict pass/fail)	success
+Production candidate image	success
+Manifest lockfile drift check	success
+Web tests shard 2	success
+Typecheck	success
+Factory runner contracts	success
+Web tests shard 1	success
+Browser coverage build	success
+Web security coverage	success
+Podman setup (Apple Bash 3.2)	success
+Web tests (vitest)	success
+Per-file coverage gate	success

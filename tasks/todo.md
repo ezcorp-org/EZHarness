@@ -6138,6 +6138,17 @@ Review: the nightly turned red because a new guard told the truth about five mut
 
 Review: the shard did not hang and no test was slow; the runner was. The old cap left a 2.5x margin; the new one leaves 6x, and the log now says when a runner is slow instead of leaving a silent cancel.
 
+## W4H-27 — the Compose installation comes up (branch `wp/w4h-27-compose-comes-up` from origin/main 1981febd2; gates `tasks/factory/w4h-27-GATES.md`)
+
+- [x] R1 reproduce: step 5 `deployment_not_ready` from the kept image (orchestrator 234 restarts, "Failed to load native binding"); W16 G7 answered (swc 1.16.2 then, 1.16.13 since 7247f7e9a).
+- [x] R2 red-first: D1 build-time workflow bundle with digest check; D2 failing tenants exit 1 with step and reason; D3 the startup release block (S3 always, GitHub when declared; local default profile); D5 `stop`/`up`; the shipped-isolation guard and its ci.yml job.
+- [x] R3 proof: tenant-03 through step 7 with the isolation unchanged; 10-minute hold with 0 restarts from readiness; release destinations resolve in the started harness; stop/up twice; forced failure exits 1 naming `storage`; the guard red on 1981febd2, green on HEAD; fleet stopped with `stop`.
+- [x] R4 (validator-8 REJECT F1, F2): commits re-authored with main's noreply address, trees equal; `up` leaves a serving host alone (real up/up: no start-time change); the replay suite asserts the built bundle; the placeholder release adapter is refused by name.
+- [x] R5 (hook refusal): each PostgreSQL provisioning case drops the databases it created; the purge case went from about 31 s to 0.3 to 0.4 s (3 runs), red-first on the database set.
+- [ ] Leftovers: orchestrator boot back-off instead of exit; the self-hosted proof harness restored in-repo with a tenant offset; an independent archive release domain (W15).
+
+Review: the installation never came up because a lock re-resolution swapped SWC's plain addon for one that needs an executable cache, and no proof ran the shipped image again. The bundle is now built with the image and checked by digest, and a CI job runs the image under the shipped flags on every change.
+
 ## W4H-26 — the started application can run a reference-code task: runner packages installed, prepared and dispatched (branch `wp/w4h-26-runner-wiring` from origin/main 1981febd2; gates `tasks/factory/w4h-26-GATES.md`)
 
 - [x] R1: reproduced over public HTTP on the composed application (W19a stack): the startup document refuses reference-code profiles; with a stock profile the bind is 404 `factory_package_release_unavailable` and the run fails `factory_native_package_untrusted`. Rulings 1-4 accepted (no host-side registry; D6 internal host-plane operation; D4 scope rule; split).

@@ -1,0 +1,31 @@
+CRAP: --changed against 71a2f8a86245373f899b86b4d26f4b146d78a43e → 65 measured file(s) in diff
+
+CRAP: 204 functions in 65 files (max 30, warn 15)
+
+Worst 15:
+    173.3  cc= 25 cov= 38%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+    163.2  cc= 13 cov=  4%  src/extensions/permission-engine.ts:467 authorizeFileOrganizerAction
+     95.7  cc= 10 cov=  5%  src/extensions/tool-executor/executor.ts:293 authorizeInvocationScope
+     90.0  cc=  9 cov=  0%  src/runtime/stream-chat/load-history.ts:332 <anonymous@332>
+     30.0  cc=  5 cov=  0%  src/extensions/tool-executor/executor.ts:277 assertCallPreconditions
+     30.0  cc=  5 cov=  0%  src/runtime/stream-chat/load-history.ts:260 loadHistory
+     26.2  cc= 26 cov= 94%  src/extensions/extension-lifecycle-service.ts:247 <anonymous@247>
+     23.0  cc= 23 cov=100%  web/src/lib/stores.svelte.ts:1184 onToolComplete
+     21.0  cc= 21 cov=100%  src/extensions/network-handler.ts:70 handleNetworkInternalRpc
+     21.0  cc= 21 cov=100%  src/search/egress.ts:243 isBlockedIpv6
+     20.0  cc=  4 cov=  0%  src/extensions/permission-engine.ts:481 denyFileOrganizerAction
+     19.0  cc= 19 cov=100%  src/extensions/schedule-daemon.ts:289 tick
+     19.0  cc= 19 cov=100%  src/search/egress.ts:152 isBlockedIpv4
+     18.0  cc= 18 cov=100%  src/extensions/triggers-handler.ts:278 handleRegister
+     17.0  cc= 17 cov=100%  web/src/lib/stores.svelte.ts:1122 onToolStart
+
+12 function(s) above the warn line (not failing).
+
+✗ 4 function(s) you touched are over CRAP 30:
+    173.3  cc= 25 cov= 38%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+    163.2  cc= 13 cov=  4%  src/extensions/permission-engine.ts:467 authorizeFileOrganizerAction
+     95.7  cc= 10 cov=  5%  src/extensions/tool-executor/executor.ts:293 authorizeInvocationScope
+     90.0  cc=  9 cov=  0%  src/runtime/stream-chat/load-history.ts:332 <anonymous@332>
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json

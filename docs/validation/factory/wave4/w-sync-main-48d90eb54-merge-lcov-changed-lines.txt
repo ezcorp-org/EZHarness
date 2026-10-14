@@ -1,0 +1,87 @@
+per-file lcov proof: merge 70b9c8bc9 vs base 71a2f8a86; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-sync-main-48d90eb54/merged.lcov
+packages/@ezcorp/ai-kit/src/client.ts: file 234/252 lines hit; added lines 24, instrumented 13, uncovered 1 -> [324]
+packages/@ezcorp/extension-contract/src/validation.ts: file 345/540 lines hit; added lines 2, instrumented 2, uncovered 0
+packages/@ezcorp/extension-runner/src/client.ts: file 65/65 lines hit; added lines 8, instrumented 4, uncovered 0
+packages/@ezcorp/extension-runner/tests/channel-guest.ts: NO LCOV RECORD in this hold (6 added lines)
+packages/@ezcorp/factory-orchestrator/src/dispatcher.ts: file 163/163 lines hit; added lines 24, instrumented 24, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/inbox.ts: file 34/34 lines hit; added lines 1, instrumented 1, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/transition-pages.ts: file 121/121 lines hit; added lines 2, instrumented 2, uncovered 0
+packages/@ezcorp/factory-orchestrator/src/validation.ts: file 194/194 lines hit; added lines 9, instrumented 9, uncovered 0
+packages/@ezcorp/factory-orchestrator/test/typing.ts: NO LCOV RECORD in this hold (16 added lines)
+packages/@ezcorp/factory-sdk/tests/kernel-commands.ts: file 7/7 lines hit; added lines 15, instrumented 7, uncovered 0
+packages/@ezcorp/factory-sdk/tests/mutable.ts: file 2/2 lines hit; added lines 20, instrumented 2, uncovered 0
+packages/@ezcorp/harness-client/src/index.ts: file 454/454 lines hit; added lines 4, instrumented 1, uncovered 0
+packages/@ezcorp/harness-client/src/routes.ts: file 64/64 lines hit; added lines 5, instrumented 3, uncovered 0
+src/__tests__/helpers/test-server.ts: file 132/321 lines hit; added lines 13, instrumented 8, uncovered 0
+src/api-registry.ts: file 387/387 lines hit; added lines 2, instrumented 2, uncovered 0
+src/chat/attachments/handle-resolver.ts: file 51/52 lines hit; added lines 5, instrumented 1, uncovered 0
+src/chat/attachments/history-rehydrate.ts: file 44/81 lines hit; added lines 9, instrumented 4, uncovered 0
+src/chat/attachments/storage.ts: file 44/44 lines hit; added lines 4, instrumented 2, uncovered 0
+src/contexts/llm.ts: file 80/86 lines hit; added lines 34, instrumented 23, uncovered 0
+src/db/queries/conversations.ts: file 321/572 lines hit; added lines 14, instrumented 10, uncovered 0
+src/db/queries/extension-storage.ts: file 144/159 lines hit; added lines 10, instrumented 6, uncovered 1 -> [183]
+src/db/queries/observability.ts: file 93/93 lines hit; added lines 30, instrumented 11, uncovered 0
+src/db/queries/project-members.ts: file 9/44 lines hit; added lines 4, instrumented 2, uncovered 2 -> [137, 141]
+src/db/queries/sessions.ts: file 116/116 lines hit; added lines 28, instrumented 19, uncovered 0
+src/db/queries/teams.ts: file 73/96 lines hit; added lines 2, instrumented 1, uncovered 0
+src/db/queries/user-deactivation.ts: file 24/24 lines hit; added lines 5, instrumented 2, uncovered 0
+src/db/queries/users.ts: file 66/84 lines hit; added lines 19, instrumented 13, uncovered 0
+src/extensions/append-message-handler.ts: file 156/161 lines hit; added lines 5, instrumented 0, uncovered 0
+src/extensions/capability-types.ts: file 339/461 lines hit; added lines 8, instrumented 1, uncovered 0
+src/extensions/clamp-permissions.ts: file 420/475 lines hit; added lines 6, instrumented 2, uncovered 0
+src/extensions/cron.ts: file 217/222 lines hit; added lines 40, instrumented 24, uncovered 0
+src/extensions/extension-lifecycle-service.ts: file 209/324 lines hit; added lines 21, instrumented 13, uncovered 0
+src/extensions/fs-handler.ts: file 464/525 lines hit; added lines 8, instrumented 5, uncovered 0
+src/extensions/network-handler.ts: file 110/110 lines hit; added lines 75, instrumented 50, uncovered 0
+src/extensions/permission-engine.ts: file 396/475 lines hit; added lines 359, instrumented 201, uncovered 54 -> [209, 210, 304, 305, 333, 378, 384, 385, 386, 387, 388, 389, 390, 391, 392, 421, 427, 428, 456, 467, 473, 474, 475, 476, 477, 479, 480, 481, 482, 486, 488, 490, 491, 492, 493, 494, 495, 496, 497, 501, 503, 505, 506, 507, 508, 513, 568, 574, 575, 576, 577, 578, 580, 746]
+src/extensions/permissions.ts: file 154/226 lines hit; added lines 5, instrumented 3, uncovered 0
+src/extensions/schedule-daemon.ts: file 587/589 lines hit; added lines 54, instrumented 31, uncovered 0
+src/extensions/storage-handler.ts: file 258/263 lines hit; added lines 8, instrumented 7, uncovered 0
+src/extensions/tool-executor/executor.ts: file 583/773 lines hit; added lines 428, instrumented 226, uncovered 32 -> [277, 280, 281, 282, 283, 285, 286, 287, 293, 302, 303, 304, 305, 306, 307, 308, 309, 310, 311, 312, 313, 314, 316, 317, 318, 319, 324, 325, 326, 327, 328, 329]
+src/extensions/triggers-handler.ts: file 326/326 lines hit; added lines 25, instrumented 14, uncovered 0
+src/extensions/triggers-sweep.ts: file 147/147 lines hit; added lines 2, instrumented 0, uncovered 0
+src/extensions/webhook-delivery-daemon.ts: file 202/202 lines hit; added lines 17, instrumented 8, uncovered 0
+src/extensions/webhook-store.ts: file 29/44 lines hit; added lines 7, instrumented 5, uncovered 0
+src/factory/assurance-commands.ts: file 58/148 lines hit; added lines 3, instrumented 1, uncovered 0
+src/factory/release-application.ts: file 56/56 lines hit; added lines 3, instrumented 1, uncovered 0
+src/memory/chunking.ts: file 41/41 lines hit; added lines 3, instrumented 1, uncovered 0
+src/memory/dedup.ts: file 87/87 lines hit; added lines 11, instrumented 2, uncovered 0
+src/providers/llm.ts: file 4/14 lines hit; added lines 4, instrumented 0, uncovered 0
+src/runtime/stream-chat/load-history.ts: file 11/131 lines hit; added lines 12, instrumented 1, uncovered 1 -> [333]
+src/runtime/tools/permissions.ts: file 98/186 lines hit; added lines 7, instrumented 0, uncovered 0
+src/runtime/workflow-condition.ts: file 95/95 lines hit; added lines 13, instrumented 11, uncovered 0
+src/search/cache.ts: file 37/37 lines hit; added lines 6, instrumented 2, uncovered 0
+src/search/egress.ts: file 305/322 lines hit; added lines 13, instrumented 3, uncovered 0
+src/types.ts: file 1/1 lines hit; added lines 4, instrumented 0, uncovered 0
+web/e2e/account-page.spec.ts: NO LCOV RECORD in this hold (30 added lines)
+web/e2e/chat-sidebar-threads.spec.ts: NO LCOV RECORD in this hold (18 added lines)
+web/e2e/default-model-selection.spec.ts: NO LCOV RECORD in this hold (26 added lines)
+web/e2e/fixtures/client-nav.ts: NO LCOV RECORD in this hold (27 added lines)
+web/e2e/pending-permission-tray.spec.ts: NO LCOV RECORD in this hold (56 added lines)
+web/e2e/project.spec.ts: NO LCOV RECORD in this hold (24 added lines)
+web/e2e/real-auth/project-mutation-authz-flow.spec.ts: NO LCOV RECORD in this hold (6 added lines)
+web/e2e/reliability.spec.ts: NO LCOV RECORD in this hold (34 added lines)
+web/e2e/run-detail.spec.ts: NO LCOV RECORD in this hold (23 added lines)
+web/e2e/streaming-toolbar.spec.ts: NO LCOV RECORD in this hold (31 added lines)
+web/e2e/user-commands.spec.ts: NO LCOV RECORD in this hold (31 added lines)
+web/e2e/workflow-mention.spec.ts: NO LCOV RECORD in this hold (47 added lines)
+web/e2e/workflows-editor.spec.ts: NO LCOV RECORD in this hold (46 added lines)
+web/e2e/workflows-run-trace.spec.ts: NO LCOV RECORD in this hold (45 added lines)
+web/src/lib/admin-guard.ts: file 17/17 lines hit; added lines 30, instrumented 12, uncovered 0
+web/src/lib/latest-search.ts: file 15/15 lines hit; added lines 54, instrumented 15, uncovered 0
+web/src/lib/mention-logic.ts: file 125/126 lines hit; added lines 18, instrumented 1, uncovered 0
+web/src/lib/mention-search.ts: file 2/2 lines hit; added lines 21, instrumented 2, uncovered 0
+web/src/lib/reload-on.svelte.ts: file 7/7 lines hit; added lines 31, instrumented 7, uncovered 0
+web/src/lib/server/security/bearer-auth.ts: file 17/49 lines hit; added lines 3, instrumented 0, uncovered 0
+web/src/lib/stores.svelte.ts: file 429/466 lines hit; added lines 616, instrumented 201, uncovered 0
+web/src/routes/api/account/password/+server.ts: file 34/34 lines hit; added lines 4, instrumented 3, uncovered 0
+web/src/routes/api/agents/[name]/test-conversations/+server.ts: file 21/21 lines hit; added lines 5, instrumented 4, uncovered 0
+web/src/routes/api/observability/+server.ts: file 19/19 lines hit; added lines 17, instrumented 14, uncovered 0
+web/src/routes/api/observability/[conversationId]/+server.ts: file 22/22 lines hit; added lines 21, instrumented 17, uncovered 0
+web/src/routes/api/projects/[id]/+server.ts: file 47/48 lines hit; added lines 10, instrumented 1, uncovered 0
+web/src/routes/api/projects/[id]/members/+server.ts: file 44/44 lines hit; added lines 6, instrumented 5, uncovered 0
+web/src/routes/api/projects/[id]/members/[userId]/+server.ts: file 23/23 lines hit; added lines 4, instrumented 3, uncovered 0
+web/src/routes/api/projects/[id]/members/_owner-guard.ts: file 12/12 lines hit; added lines 22, instrumented 12, uncovered 0
+web/src/routes/api/settings/deny-list.ts: NO LCOV RECORD in this hold (4 added lines)
+web/src/routes/api/teams/[id]/members/+server.ts: file 63/70 lines hit; added lines 12, instrumented 9, uncovered 0
+TOTAL instrumented added lines 1090, uncovered 91

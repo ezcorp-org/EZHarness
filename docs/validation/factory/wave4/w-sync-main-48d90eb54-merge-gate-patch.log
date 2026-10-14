@@ -1,0 +1,10 @@
+Patch coverage gate FAILED (7 file(s) with uncovered changes):
+  packages/@ezcorp/ai-kit/src/client.ts: 1 changed line(s) uncovered: 324
+  src/db/queries/extension-storage.ts: 1 changed line(s) uncovered: 183
+  src/db/queries/project-members.ts: 2 changed line(s) uncovered: 137,141
+  src/extensions/permission-engine.ts: 54 changed line(s) uncovered: 209,210,304,305,333,378,384,385,386,387,388,389,390,391,392,421,427,428,456,467,473,474,475,476,477,479,480,481,482,486,488,490,491,492,493,494,495,496,497,501,...
+  src/extensions/tool-executor/executor.ts: 32 changed line(s) uncovered: 277,280,281,282,283,285,286,287,293,302,303,304,305,306,307,308,309,310,311,312,313,314,316,317,318,319,324,325,326,327,328,329
+  src/runtime/stream-chat/load-history.ts: 1 changed line(s) uncovered: 333
+  web/src/routes/api/settings/deny-list.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.

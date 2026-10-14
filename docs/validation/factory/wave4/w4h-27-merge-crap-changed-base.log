@@ -1,0 +1,24 @@
+CRAP: --changed against bea35538df6baffde2759c07c3954d6f47ec2e81 → 11 measured file(s) in diff
+
+CRAP: 60 functions in 11 files (max 30, warn 15)
+
+Worst 15:
+     22.0  cc= 22 cov=100%  packages/@ezcorp/factory-orchestrator/src/process.ts:190 runFactoryOrchestratorProcess
+     12.0  cc= 12 cov=100%  src/factory/provisioning/fleet.ts:102 parseFactoryFleetSettings
+      9.0  cc=  9 cov=100%  packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts:56 validRecord
+      9.0  cc=  9 cov=100%  src/factory/provisioning/fleet-cli.ts:108 fleetProvision
+      8.0  cc=  8 cov=100%  src/factory/provisioning/deployment.ts:232 renderFactoryInstallationBundle
+      6.0  cc=  6 cov=100%  src/factory/provisioning/fleet.ts:88 <anonymous@88>
+      5.0  cc=  5 cov=100%  packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts:70 loadFactoryWorkflowBundle
+      5.0  cc=  5 cov=100%  src/factory/provisioning/fleet.ts:208 composeFactoryProvisioner
+      4.0  cc=  4 cov=100%  src/factory/provisioning/compose-profile.ts:340 serving
+      4.0  cc=  4 cov=100%  src/factory/provisioning/deployment.ts:123 factoryInstallationReleaseBlock
+      4.0  cc=  4 cov=100%  src/factory/provisioning/fleet-cli.ts:53 tenantFailure
+      4.0  cc=  4 cov=100%  src/factory/provisioning/fleet-cli.ts:224 runFactoryFleetMain
+      4.0  cc=  4 cov=100%  src/factory/provisioning/fleet-cli.ts:270 writeFactoryLocalFleet
+      3.0  cc=  3 cov=100%  packages/@ezcorp/factory-orchestrator/src/worker.ts:19 createFactoryWorker
+      3.0  cc=  3 cov=100%  packages/@ezcorp/factory-orchestrator/src/workflow-bundle.ts:64 readText
+
+1 function(s) above the warn line (not failing).
+
+✓ no touched function exceeds CRAP 30

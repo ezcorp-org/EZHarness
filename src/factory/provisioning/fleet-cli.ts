@@ -17,7 +17,7 @@ import { composeFactoryProvisioner, factoryFleetDefaultBuild, factoryInstallatio
 import type { FactoryBuild } from "./fleet-upgrade";
 import { factoryHttpsIngressProbe, factoryIngressBootstrapObserver } from "./ingress";
 import type { FactoryBootstrapObserver, FactoryOperationActor, FactoryPurgeChecks } from "./local";
-import { startFactoryPlatform } from "./platform";
+import { factoryPlatformProject, startFactoryPlatform } from "./platform";
 import { factoryDatabasePurgeApprovals } from "./purge-approval";
 import { factoryScramVerifier } from "./scram";
 import { ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivatePath, readFactoryPrivateText, replaceFactoryPrivateFile } from "./secret-files";
@@ -45,12 +45,64 @@ function errorView(error: unknown): Readonly<Record<string, unknown>> {
   return error instanceof Error ? { name: error.name, code: (error as { code?: string }).code, message: error.message } : { message: String(error) };
 }
 
+/**
+ * A tenant's failure with the step that failed: the error's own step, else the
+ * step its recorded installation marks failed. A tenant the ledger never
+ * recorded (refused before step 1) has no step to name.
+ */
+async function tenantFailure(tenantId: string, error: unknown, fleet: FactoryComposedFleet): Promise<Readonly<Record<string, unknown>>> {
+  const named = error instanceof FactoryProvisioningError ? error.step : undefined;
+  const step = named ?? await fleet.provisioner.status(tenantId).then((installation) => installation.steps.find((entry) => entry.state === "failed")?.step, () => undefined);
+  return { tenantId, error: { ...errorView(error), ...(step === undefined ? {} : { step }) } };
+}
+
+/** Every per-tenant failure in a command's result, so a failed step can never exit 0. */
+export function factoryFleetCommandFailures(result: unknown): readonly Readonly<Record<string, unknown>>[] {
+  if (!result || typeof result !== "object") return [];
+  return Object.values(result).flatMap((entries) => Array.isArray(entries) ? entries.filter((entry) => entry && typeof entry === "object" && "error" in entry) : []);
+}
+
+/** Print a command's result; any per-tenant failure also fails the command, naming the tenant, step, and reason. */
+export function reportFactoryFleetOutcome(io: FactoryFleetMainIo, result: unknown): void {
+  io.print(result);
+  const failed = factoryFleetCommandFailures(result);
+  if (failed.length > 0) io.fail({ failed });
+}
+
 /** One operator command: the arguments after its name (consumed in place by `option`), the context, and the actor. */
 type FactoryFleetCommandHandler = (args: string[], context: FactoryFleetCommandContext, who: FactoryOperationActor) => Promise<unknown>;
 
 async function fleetPlatform(_args: string[], context: FactoryFleetCommandContext): Promise<unknown> {
   await context.startPlatform();
-  return { platform: "started", project: `ezcorp-factory-${context.settings.fleetId}-platform` };
+  return { platform: "started", project: factoryPlatformProject(context.settings.fleetId) };
+}
+
+/**
+ * Stop every running service of the fleet and keep it: the installations
+ * (newest tenant first), then the fleet host's pool and supervisor, then the
+ * platform. The reverse of `up`. Idempotent: a stopped fleet stops again with
+ * nothing to do.
+ */
+async function fleetStop(_args: string[], { fleet, settings }: FactoryFleetCommandContext): Promise<unknown> {
+  const installations = [...await fleet.services.stoppable()].reverse();
+  for (const tenantId of installations) await fleet.services.stopInstallation(tenantId);
+  await fleet.services.stopHost();
+  await fleet.services.stopPlatform();
+  return { stopped: { installations, host: true, platform: factoryPlatformProject(settings.fleetId) } };
+}
+
+/**
+ * Start what `stop` kept, in the reverse order: the platform (until it serves),
+ * the fleet host (until both services are ready), then each deployed
+ * installation (until it is ready). Idempotent: an up fleet starts again with
+ * nothing to do.
+ */
+async function fleetUp(_args: string[], context: FactoryFleetCommandContext): Promise<unknown> {
+  await context.startPlatform();
+  await context.fleet.services.startHost();
+  const installations = await context.fleet.services.startable();
+  for (const tenantId of installations) await context.fleet.services.startInstallation(tenantId);
+  return { up: { platform: factoryPlatformProject(context.settings.fleetId), host: true, installations } };
 }
 
 async function fleetProvision(args: string[], { fleet, settings }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
@@ -65,7 +117,7 @@ async function fleetProvision(args: string[], { fleet, settings }: FactoryFleetC
       const installation = await fleet.provisioner.provision({ tenantId, hostname, administratorEmail: administratorEmail ?? `admin@${hostname}` }, { ...who, ...(through ? { through: through as FactoryProvisioningStepName } : {}) });
       await fleet.upgrades.adopt(tenantId, factoryFleetDefaultBuild(settings).buildId);
       results.push({ tenantId, phase: installation.phase, installationId: installation.installationId, steps: installation.steps.map((step) => ({ step: step.step, state: step.state, attempts: step.attempts })) });
-    } catch (error) { results.push({ tenantId, error: errorView(error) }); }
+    } catch (error) { results.push(await tenantFailure(tenantId, error, fleet)); }
   }
   return { provision: results };
 }
@@ -75,7 +127,7 @@ async function fleetObserve(args: string[], context: FactoryFleetCommandContext,
   const results = [];
   for (const tenantId of args) {
     try { results.push({ tenantId, phase: (await context.fleet.provisioner.observeBootstrap(tenantId, observer, who)).phase }); }
-    catch (error) { results.push({ tenantId, error: errorView(error) }); }
+    catch (error) { results.push(await tenantFailure(tenantId, error, context.fleet)); }
   }
   return { observe: results };
 }
@@ -148,11 +200,11 @@ async function fleetStatus(args: string[], { fleet }: FactoryFleetCommandContext
 
 /** Every operator command by name; a name not here, prototype names included, is an unknown command. */
 const FLEET_COMMANDS: Readonly<Record<string, FactoryFleetCommandHandler>> = {
-  platform: fleetPlatform, provision: fleetProvision, observe: fleetObserve, rotate: fleetRotate, teardown: fleetTeardown,
+  platform: fleetPlatform, stop: fleetStop, up: fleetUp, provision: fleetProvision, observe: fleetObserve, rotate: fleetRotate, teardown: fleetTeardown,
   purge: fleetPurge, upgrade: fleetUpgrade, host: fleetHost, status: fleetStatus,
 };
 
-/** Dispatch one command. Throws on a usage error; per-tenant failures are reported in the result. */
+/** Dispatch one command. Throws on a usage error; per-tenant failures are reported in the result (and fail the main entry). */
 export async function runFactoryFleetCommand(command: string, rest: readonly string[], context: FactoryFleetCommandContext): Promise<unknown> {
   if (!Object.hasOwn(FLEET_COMMANDS, command)) throw new FactoryProvisioningError("cli_usage", `unknown command ${command}`);
   return FLEET_COMMANDS[command]!([...rest], context, { actor: context.actor });
@@ -173,11 +225,11 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
   const [settingsPath, command, ...rest] = argv;
   let fleet: FactoryComposedFleet | undefined;
   try {
-    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|provision|observe|rotate|teardown|purge|upgrade|host|status> ...");
+    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|stop|up|provision|observe|rotate|teardown|purge|upgrade|host|status> ...");
     const settings = await loadFactoryFleetSettings(settingsPath);
     fleet = await composeFactoryProvisioner(settings, { compose, uid: process.getuid!(), gid: process.getgid!() });
     const composed = fleet;
-    io.print(await runFactoryFleetCommand(command, rest, {
+    reportFactoryFleetOutcome(io, await runFactoryFleetCommand(command, rest, {
       settings, fleet: composed,
       actor: `cli:${userInfo().username}`,
       purgeChecks: async () => {
@@ -202,6 +254,8 @@ export interface FactoryLocalFleetOptions {
   readonly releaseDirectory: string;
   readonly bun: string;
   readonly runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"];
+  /** Where every installation may release; absent, the fleet declares no release block. */
+  readonly release?: FactoryFleetSettings["installations"]["release"];
 }
 
 /**
@@ -246,7 +300,7 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
     },
     temporal: { port: options.portBase + 1_001, httpPort: options.portBase + 1_004, serverName: "temporal.local" },
     ingress: { address: "127.0.0.1", port: options.portBase + 1_005, domain: `${options.fleetId}.factory.test` },
-    installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles },
+    installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }) },
     image: { reference: options.image, revision: options.revision },
     release: { directory: options.releaseDirectory, bun: options.bun, path: `${resolve(options.bun, "..")}:/run/current-system/sw/bin:/usr/bin:/bin` },
   });

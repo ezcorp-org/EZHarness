@@ -313,6 +313,26 @@ jobs:
         with:
           command: down
 
+  # W4H-27: the factory image's orchestrator, started under the isolation the
+  # Compose profile SHIPS (read-only root, noexec /tmp, the keep-id user, no
+  # capabilities, the deployer's HOME), must load its build-time workflow bundle
+  # and replay a committed history. The script reads those flags from
+  # deploy/factory/compose/installation.yml and the deployer, never from here.
+  # It is red on an image that bundles at run time: the 1.16.13 SWC addon needs
+  # an executable user cache those flags deny, and no proof had started the
+  # image under them since the W16 G7 pass on 1.16.2.
+  factory-image-shipped-isolation:
+    name: Factory image under shipped isolation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: ./.github/actions/setup
+      - name: Build the factory image
+        run: podman build -f deploy/factory/Dockerfile --build-arg REVISION=${{ github.sha }} -t localhost/ezcorp-factory:shipped-isolation .
+      - name: Run the orchestrator's workflow path under the shipped isolation
+        run: bun scripts/check-factory-image-shipped-config.ts localhost/ezcorp-factory:shipped-isolation
+
   dev-image-provenance:
     name: Dev image provenance
     runs-on: ubuntu-latest

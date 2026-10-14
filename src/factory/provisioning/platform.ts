@@ -16,7 +16,7 @@ import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { generateKeyPairSync, randomBytes } from "node:crypto";
 import { resolve } from "node:path";
 import { createFactoryCertificateAuthority, issueFactoryCertificate, type FactoryCommandRunner } from "./certificates";
-import type { FactoryCommandExecutor, FactoryComposeCommand } from "./compose-profile";
+import { factoryCommandCheck, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
 import { ensureFactoryPrivateCertificatePair, ensureFactoryPrivateFile, factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateText, replaceFactoryPrivateFile } from "./secret-files";
 import { FactoryProvisioningError } from "./steps";
 import { FACTORY_TEMPORAL_CONTROL_SUBJECT, factoryTemporalJwks, type FactoryTemporalAuthorityPaths } from "./temporal";
@@ -102,6 +102,11 @@ export interface FactoryPlatformSettings {
 
 export function factoryPlatformProject(fleetId: string): string { return `ezcorp-factory-${fleetId}-platform`; }
 
+/** One Compose command on the platform project, over the env file `startFactoryPlatform` renders. */
+function platformCompose(settings: Pick<FactoryPlatformSettings, "fleetId" | "repositoryRoot">, paths: FactoryPlatformPaths, compose: FactoryComposeCommand, execute: FactoryCommandExecutor, args: readonly string[]) {
+  return execute([...compose.argv, "--project-name", factoryPlatformProject(settings.fleetId), "--file", resolve(settings.repositoryRoot, "deploy/factory/compose/platform.yml"), "--env-file", factoryPrivatePath(paths.root, "platform.env"), ...args], { env: compose.env });
+}
+
 /** The nginx main config: nothing but the rendered routes, on loopback, as an unprivileged listener. */
 export function factoryIngressMainConfig(): string {
   return [
@@ -151,11 +156,20 @@ export async function startFactoryPlatform(settings: FactoryPlatformSettings, pa
   try { await ensureFactoryPrivateFile(conf, "ezcorp-factory.conf", () => `server {\n  listen ${settings.ingressAddress}:${settings.ingressPort} ssl default_server;\n  ssl_reject_handshake on;\n}\n`); }
   finally { await conf.close(); }
   const env = factoryPlatformEnvironment(settings, paths);
-  const envPath = factoryPrivatePath(paths.root, "platform.env");
-  await replaceFactoryPrivateFile(envPath, `${Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
-  const result = await execute([...compose.argv, "--project-name", factoryPlatformProject(settings.fleetId), "--file", resolve(settings.repositoryRoot, "deploy/factory/compose/platform.yml"), "--env-file", envPath, "up", "--detach", "--remove-orphans"], { env: compose.env });
+  await replaceFactoryPrivateFile(factoryPrivatePath(paths.root, "platform.env"), `${Object.entries(env).map(([key, value]) => `${key}=${value}`).join("\n")}\n`);
+  const result = await platformCompose(settings, paths, compose, execute, ["up", "--detach", "--remove-orphans"]);
   if (result.code !== 0) throw new FactoryProvisioningError("platform_compose_failed", `platform compose up failed: ${result.stderr.trim().split("\n").slice(-3).join(" | ").slice(0, 400)}`);
   if (serves) await waitForFactoryPlatform(serves, wait);
+}
+
+/**
+ * Stop the platform's services and keep them, for the operator's `stop`; `up`
+ * starts them again through `startFactoryPlatform`. Idempotent, and a platform
+ * never started has no env file and nothing to stop.
+ */
+export async function stopFactoryPlatform(settings: Pick<FactoryPlatformSettings, "fleetId" | "repositoryRoot">, paths: FactoryPlatformPaths, compose: FactoryComposeCommand, execute: FactoryCommandExecutor): Promise<void> {
+  if (!(await Bun.file(factoryPrivatePath(paths.root, "platform.env")).exists())) return;
+  await factoryCommandCheck(platformCompose(settings, paths, compose, execute, ["stop", "--timeout", "20"]), [0], "platform_compose_failed", "platform compose stop");
 }
 
 /** The running ingress reloads onto the rendered config; a bad config is refused by `nginx -t` first. */

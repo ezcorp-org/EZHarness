@@ -360,6 +360,26 @@ describe("FactoryComposeTarget.remove and purge", () => {
     } finally { await removeFactoryPrivateRoot(empty); }
   });
 
+  test("stop keeps the containers and start brings them back, then waits ready; stop is idempotent and a never-applied installation has nothing to stop", async () => {
+    const handle = await applied();
+    const execute = fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: HEALTHY, stderr: "" } : undefined);
+    const serving = { fetchStatus: async () => 200 };
+    await target(execute, serving).stop(handle);
+    await target(execute, serving).stop(handle);
+    await target(execute, serving).start(bundle);
+    expect(execute.calls.map(line)).toEqual(["stop --timeout 20", "stop --timeout 20", "start", "ps --all --format json"]);
+    expect(execute.calls[2]!.command).toContain(join(handle.runtimeDirectory, "compose.env"));
+    const empty = await makeFactoryPrivateRoot();
+    try {
+      const bare = fakeExecutor();
+      await target(bare).stop(factoryDeploymentHandle(installation, join(empty, "runtime")));
+      expect(bare.calls).toEqual([]);
+    } finally { await removeFactoryPrivateRoot(empty); }
+    const refused = fakeExecutor((command) => isCompose(command, "start") ? { code: 1, stdout: "", stderr: "no container" } : undefined);
+    const error = await factoryRejection(target(refused).start(bundle));
+    expect([error.code, error.message]).toEqual(["deployment_compose_failed", "compose start failed (1): no container"]);
+  });
+
   test("a failed compose down is reported", async () => {
     const handle = await applied();
     const execute = fakeExecutor((command) => isCompose(command, "down") ? { code: 1, stdout: "", stderr: "cannot connect" } : undefined);
@@ -498,6 +518,34 @@ describe("FactoryComposeHostTarget", () => {
     expect(bare.calls.map(line)).toEqual(["systemctl --user stop", "systemctl --user reset-failed"]);
     const down = fakeExecutor((command) => isCompose(command, "down") ? { code: 1, stdout: "", stderr: "gone" } : undefined);
     expect((await factoryRejection(hostTarget(down).remove(hostBundle.paths))).message).toBe("host compose down failed (1): gone");
+  });
+
+  test("serving: the pool container runs and the supervisor unit is active; anything less is not serving", async () => {
+    const running = JSON.stringify({ Service: "pool", State: "running", Health: "healthy", ExitCode: 0 });
+    const answer = (ps: string, active: number) => fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: ps, stderr: "" } : command[2] === "is-active" ? { code: active, stdout: "", stderr: "" } : undefined);
+    const serving = answer(running, 0);
+    expect(await hostTarget(serving).serving(hostBundle.paths)).toBe(true);
+    expect(serving.calls.map(line)).toEqual(["ps --all --format json", "systemctl --user is-active"]);
+    expect(await hostTarget(answer(running, 3)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(answer(JSON.stringify({ Service: "pool", State: "exited", Health: "", ExitCode: 0 }), 0)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(answer("", 0)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(fakeExecutor((command) => isCompose(command, "ps") ? { code: 1, stdout: "", stderr: "no project" } : undefined)).serving(hostBundle.paths)).toBe(false);
+    const never = factoryFleetHostPaths("fleet-a", { secretsRoot: join(root, "none"), operatorRoot: join(root, "none"), runtimeRoot: join(root, "none-runtime") });
+    const bare = fakeExecutor();
+    expect(await hostTarget(bare).serving(never)).toBe(false);
+    expect(bare.calls).toEqual([]);
+  });
+
+  test("stop stops the unit and the pool's containers, keeping them; a host never applied only checks its unit", async () => {
+    const execute = fakeExecutor();
+    await hostTarget(execute).stop(hostBundle.paths);
+    expect(execute.calls.map(line)).toEqual(["systemctl --user stop", "systemctl --user reset-failed", "stop --timeout 20"]);
+    const never = factoryFleetHostPaths("fleet-a", { secretsRoot: join(root, "none"), operatorRoot: join(root, "none"), runtimeRoot: join(root, "none-runtime") });
+    const bare = fakeExecutor();
+    await hostTarget(bare).stop(never);
+    expect(bare.calls.map(line)).toEqual(["systemctl --user stop", "systemctl --user reset-failed"]);
+    const refused = fakeExecutor((command) => isCompose(command, "stop") ? { code: 1, stdout: "", stderr: "busy" } : undefined);
+    expect((await factoryRejection(hostTarget(refused).stop(hostBundle.paths))).message).toBe("host compose stop failed (1): busy");
   });
 
   test("purge removes the host's runtime directory inside the user namespace, and names a failure", async () => {
