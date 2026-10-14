@@ -44,11 +44,20 @@ const databaseSteps: FactoryDatabaseStep[] = [];
  * the file ends. Pools created at describe level live until afterAll.
  */
 let testPools: { close(): Promise<void> }[] | undefined;
-beforeEach(() => { testPools = []; });
+/**
+ * Each test drops the suite databases and roles it created, so no case pays for
+ * another's: a `DROP DATABASE` checkpoints, and with every earlier case's
+ * databases still present the purge case took over 30 s (W4H-27 R5). What a
+ * describe's `beforeAll` created was present before its tests began, so it stays
+ * until `afterAll`.
+ */
+let presentBefore: Awaited<ReturnType<typeof presentSuiteResources>> | undefined;
+beforeEach(async () => { testPools = []; presentBefore = await presentSuiteResources(); });
 afterEach(async () => {
   const pools = testPools ?? [];
   testPools = undefined;
   for (const pool of pools) await pool.close();
+  await dropSuiteResources(presentBefore);
 });
 
 type Call = { readonly step: string; readonly action: string; readonly tenantId: string };
@@ -136,6 +145,32 @@ async function hostFleet(label: string): Promise<{ readonly fleet: string; reado
   return { fleet, paths: factoryFleetHostPaths(fleet, roots), roots };
 }
 
+/** Every (database, role) pair this suite's fleets may create: its own fleet's tenants and each host fleet's. */
+function suiteResourcePairs(): (readonly [string, string])[] {
+  const pairs = (fleet: string, tenantIds: readonly string[]) => tenantIds.flatMap((tenantId) => [
+    [factoryFleetResourceName("factory_product", fleet, tenantId), factoryFleetResourceName("factory_role", fleet, tenantId)] as const,
+    [factoryFleetResourceName("factory_pool", fleet, tenantId), factoryFleetResourceName("factory_poolrole", fleet, tenantId)] as const,
+  ]);
+  const tenants = Array.from({ length: 99 }, (_, index) => `tenant-${String(index + 1).padStart(2, "0")}`);
+  return [...pairs(fleetId, tenants), ...hostFleets.flatMap((fleet) => pairs(fleet, ["host", "tenant-90", "tenant-91"]))];
+}
+
+/** This suite's databases and roles present on the cluster now. Every name is `<prefix>_<hex>`, so the IN lists need no quoting. */
+async function presentSuiteResources(): Promise<{ readonly databases: readonly string[]; readonly roles: readonly string[] }> {
+  const pairs = suiteResourcePairs();
+  const list = (names: readonly string[]) => names.map((name) => `'${name}'`).join(",");
+  const databases = await admin.unsafe(`SELECT datname AS name FROM pg_database WHERE datname IN (${list(pairs.map(([database]) => database))}) ORDER BY datname`) as { name: string }[];
+  const roles = await admin.unsafe(`SELECT rolname AS name FROM pg_roles WHERE rolname IN (${list(pairs.map(([, role]) => role))}) ORDER BY rolname`) as { name: string }[];
+  return { databases: databases.map((row) => row.name), roles: roles.map((row) => row.name) };
+}
+
+/** Drop this suite's databases and roles, except those `keep` lists. */
+async function dropSuiteResources(keep: { readonly databases: readonly string[]; readonly roles: readonly string[] } = { databases: [], roles: [] }): Promise<void> {
+  const present = await presentSuiteResources();
+  for (const database of present.databases.filter((name) => !keep.databases.includes(name))) await admin.unsafe(`DROP DATABASE "${database}" WITH (FORCE)`);
+  for (const role of present.roles.filter((name) => !keep.roles.includes(name))) await admin.unsafe(`DROP ROLE "${role}"`);
+}
+
 /** The database step a fleet host owns: the one shared pool pair, its progress kept in `progress`. */
 function hostDatabase(progress: Record<string, string>, afterExternalResourceCreated?: (resource: "role" | "database", kind: FactoryDatabaseKind) => Promise<void>): FactoryDatabaseStep {
   const step = new FactoryDatabaseStep({ adminUrl: url!, kinds: ["pool"], progress: async (_host, resources) => { Object.assign(progress, resources); }, ...(afterExternalResourceCreated ? { afterExternalResourceCreated } : {}) });
@@ -154,21 +189,9 @@ beforeAll(async () => {
 afterAll(async () => {
   for (const each of provisioners) await each.close().catch(() => undefined);
   for (const each of databaseSteps) await each.close().catch(() => undefined);
-  // Drop exactly what this suite's fleet created: every name is derived from its own fleet id.
-  const tenants = Array.from({ length: 99 }, (_, index) => `tenant-${String(index + 1).padStart(2, "0")}`);
-  for (const tenantId of tenants) {
-    for (const [database, role] of [[factoryFleetResourceName("factory_product", fleetId, tenantId), factoryFleetResourceName("factory_role", fleetId, tenantId)], [factoryFleetResourceName("factory_pool", fleetId, tenantId), factoryFleetResourceName("factory_poolrole", fleetId, tenantId)]]) {
-      if ((await admin`SELECT 1 FROM pg_database WHERE datname = ${database}`)[0]) await admin.unsafe(`DROP DATABASE "${database}" WITH (FORCE)`);
-      if ((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${role}`)[0]) await admin.unsafe(`DROP ROLE "${role}"`);
-    }
-  }
+  // Drop exactly what this suite's fleets created: every name is derived from their own fleet ids.
+  await dropSuiteResources();
   for (const fleet of hostFleets) {
-    for (const tenantId of ["host", "tenant-90", "tenant-91"]) {
-      for (const [database, role] of [[factoryFleetResourceName("factory_product", fleet, tenantId), factoryFleetResourceName("factory_role", fleet, tenantId)], [factoryFleetResourceName("factory_pool", fleet, tenantId), factoryFleetResourceName("factory_poolrole", fleet, tenantId)]]) {
-        if ((await admin`SELECT 1 FROM pg_database WHERE datname = ${database}`)[0]) await admin.unsafe(`DROP DATABASE "${database}" WITH (FORCE)`);
-        if ((await admin`SELECT 1 FROM pg_roles WHERE rolname = ${role}`)[0]) await admin.unsafe(`DROP ROLE "${role}"`);
-      }
-    }
     for (const row of await admin`SELECT rolname FROM pg_roles WHERE shobj_description(oid, 'pg_authid') LIKE ${`factory-store-claim:${fleet}:%`}` as { rolname: string }[]) await admin.unsafe(`DROP ROLE "${row.rolname}"`);
   }
   await admin.unsafe(`DROP DATABASE "${controlName}" WITH (FORCE)`);
@@ -594,6 +617,8 @@ describe("teardown and purge", () => {
     expect((await factoryRejection(run.purge("tenant-63", { approvalId: "7c1e2d3f-0000-4c6d-8e7f-9a0b1c2d3e4f", reason: "x" }, census({ active: 0, uncertain: 0 })))).code).toBe("purge_approval_invalid");
     expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 1, uncertain: 0 })))).code).toBe("purge_work_open");
     expect((await factoryRejection(run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "x" }, census({ active: 0, uncertain: 2 })))).code).toBe("purge_work_open");
+    // The purge measures its own work: the only suite database on the cluster is this case's (W4H-27 R5).
+    expect((await presentSuiteResources()).databases).toEqual([installation.productDatabase]);
     const purged = await run.purge("tenant-63", { approvalId: APPROVAL_63, reason: "retention elapsed", actor: "operator:operator-alice" }, census({ active: 0, uncertain: 0 }));
     expect(purged.phase).toBe("purged");
     expect((await admin`SELECT 1 FROM pg_database WHERE datname = ${installation.productDatabase}`).length).toBe(0);
