@@ -6137,3 +6137,12 @@ Review: the nightly turned red because a new guard told the truth about five mut
 - [ ] R3: one hosted run after validator-8's ACCEPT and the integrator's merge.
 
 Review: the shard did not hang and no test was slow; the runner was. The old cap left a 2.5x margin; the new one leaves 6x, and the log now says when a runner is slow instead of leaving a silent cancel.
+
+## W4H-27 — the Compose installation comes up (branch `wp/w4h-27-compose-comes-up` from origin/main 1981febd2; gates `tasks/factory/w4h-27-GATES.md`)
+
+- [x] R1 reproduce: step 5 `deployment_not_ready` from the kept image (orchestrator 234 restarts, "Failed to load native binding"); W16 G7 answered (swc 1.16.2 then, 1.16.13 since 7247f7e9a).
+- [x] R2 red-first: D1 build-time workflow bundle with digest check; D2 failing tenants exit 1 with step and reason; D3 the startup release block (S3 always, GitHub when declared; local default profile); D5 `stop`/`up`; the shipped-isolation guard and its ci.yml job.
+- [x] R3 proof: tenant-03 through step 7 with the isolation unchanged; 10-minute hold with 0 restarts from readiness; release destinations resolve in the started harness; stop/up twice; forced failure exits 1 naming `storage`; the guard red on 1981febd2, green on HEAD; fleet stopped with `stop`.
+- [ ] Leftovers: orchestrator boot back-off instead of exit; the self-hosted proof harness restored in-repo with a tenant offset; an independent archive release domain (W15).
+
+Review: the installation never came up because a lock re-resolution swapped SWC's plain addon for one that needs an executable cache, and no proof ran the shipped image again. The bundle is now built with the image and checked by digest, and a CI job runs the image under the shipped flags on every change.
