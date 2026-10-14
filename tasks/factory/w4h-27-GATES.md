@@ -113,3 +113,18 @@ Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-27 (archy via --worktre
 - [x] R4 legs at 3134bbf8c: typecheck in the lock 0; lint 0 (0 warnings); boundaries 0; gate-integrity main 0;
   guard set 530/0; changed executable lines 269/269; CRAP --changed 0 above 30; guard on the new image PASS;
   tenant-04 through step 7 (invitation_issued); fleet stopped with `stop` (13 containers exited, volumes kept).
+
+## R5 (pre-commit refusal: the purge case took about 31 s inside tests/postgres/factory-provisioning.test.ts)
+
+- [x] Cause: the purge's `DROP DATABASE` checkpoints, and the file's other cases had left their databases on the
+  cluster (44 suite databases besides tenant-63's when the purge ran). A pre-existing hygiene defect in a file this
+  package maps.
+- [x] Fix at the root: every case drops the suite databases and roles that appeared during it (beforeEach snapshot,
+  afterEach drop); what a describe's beforeAll created stays until afterAll, which uses the same helper. No timing
+  assertion; the hook budget (30 s per test) is unchanged.
+- [x] Red first: the purge case asserts the only suite database present before it purges is its own; red on the old
+  file (44 others present, r5/red.log), green after.
+- [x] Measured 3 times in the hook's form (`bun test --timeout 30000`, JUnit per case, r5/measure.txt): 63/0 each run;
+  file 29.3 / 28.8 / 28.0 s; purge case 0.31 / 0.43 / 0.31 s (base 30.9 s). The slowest case is "one settings
+  document composes every driver over real stores" at 10.3 s, as at base (10.2 s): not changed here.
+- [x] Legs: lint 0 (0 warnings); typecheck in the lock 0; commit hook green; author noreply.
