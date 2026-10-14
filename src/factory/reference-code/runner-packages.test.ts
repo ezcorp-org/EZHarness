@@ -15,16 +15,18 @@ import {
   REFERENCE_CODE_RUNNER_TOOLS,
   REFERENCE_CODE_RESULT_OUTPUT,
   REFERENCE_CODE_SNAPSHOT_OUTPUT,
-  ReferenceCodeRunnerError,
   referenceCodeCandidateRunnerOutput,
   referenceCodeConnectionFacts,
   referenceCodeRecordedTree,
   referenceCodeRecordedTreeReader,
+  referenceCodeS3Publication,
   referenceCodeSnapshotFromRunnerOutput,
   referenceCodeSnapshotRunnerOutput,
 } from "./runner-entry";
 import { REFERENCE_CODE_GUEST_MAX_OUTPUT_TOKENS } from "./guest-generate";
 import { freezeReferenceCodeCandidate, referenceCodePullRequestTitle } from "./freeze";
+import { assertFactoryGitHubPublicationRequest } from "../release-github-request";
+import { assertFactoryS3AcceptedPublication } from "../release-s3-scope";
 import { referenceCodeFilesFromWire, sealReferenceCodeSnapshot, snapshotReferenceCodeRepository } from "./snapshot";
 import { factoryGitTreeId } from "../git-objects";
 
@@ -224,7 +226,7 @@ describe("freezeGitTree in the guest: the generated tree, frozen against the sea
 
   test("freezes the exact commit a release creates, its policy and time from the snapshot alone", async () => {
     const { host, snapshotPort, candidatePort } = await chain();
-    const result = await REFERENCE_CODE_RUNNER_TOOLS.freezeGitTree(request("freeze-complete-git-tree", { candidate: candidatePort, snapshot: snapshotPort, baseCommitSha: COMMIT, request: REFERENCE_CODE_FIXTURE_REQUEST.issue, baseBranch: "main" }, 1), host.call);
+    const result = await REFERENCE_CODE_RUNNER_TOOLS.freezeGitTree(request("freeze-complete-git-tree", { candidate: candidatePort, snapshot: snapshotPort, baseCommitSha: COMMIT, request: REFERENCE_CODE_FIXTURE_REQUEST.issue, baseBranch: "main", release: "github" }, 1), host.call);
     expect(result).toMatchObject({ status: "completed", operations: [] });
     const snapshot = sealReferenceCodeSnapshot({ baseSha: COMMIT, treeSha, entries: files.map(file => ({ path: file.path, mode: file.mode, content: file.content })) });
     const expected = freezeReferenceCodeCandidate({
@@ -232,19 +234,34 @@ describe("freezeGitTree in the guest: the generated tree, frozen against the sea
       title: referenceCodePullRequestTitle(REFERENCE_CODE_FIXTURE_REQUEST.issue), allowedPaths: REFERENCE_CODE_FIXTURE_POLICY.allowedPaths, protectedPaths: REFERENCE_CODE_FIXTURE_POLICY.protectedPaths,
       authoredAtSeconds: REFERENCE_CODE_FIXTURE_COMMITTED_AT_SECONDS, candidateGeneration: 1,
     });
-    expect(factoryGuestStagedJson(host.stored, REFERENCE_CODE_CANDIDATE_OUTPUT)).toEqual(JSON.parse(JSON.stringify(referenceCodeCandidateRunnerOutput(expected, snapshotPort as never))));
+    expect(factoryGuestStagedJson(host.stored, REFERENCE_CODE_CANDIDATE_OUTPUT)).toEqual(JSON.parse(JSON.stringify(referenceCodeCandidateRunnerOutput(expected, snapshotPort as never, REFERENCE_CODE_FIXTURE_REQUEST.issue))));
     expect(expected.changedPaths).toEqual(["src/slugify.ts"]);
     expect(expected.publication.baseSha).toBe(COMMIT);
-    const port = factoryGuestStagedJson(host.stored, REFERENCE_CODE_RESULT_OUTPUT);
+    const port = factoryGuestStagedJson(host.stored, REFERENCE_CODE_RESULT_OUTPUT) as { candidate: unknown; frozen: { storage: string } };
     const node = referenceCodeV1.graph.nodes.find(candidate => candidate.id === "freeze-complete-git-tree")!;
     expect(validateNodeOutput(node, port as never)).toBe(true);
+    // A GitHub release resolves from W07's own publication request, exactly as frozen.
+    expect(port.candidate).toEqual(JSON.parse(JSON.stringify(expected.publication)));
+    expect(assertFactoryGitHubPublicationRequest(port.candidate).request.commitSha).toBe(expected.commitSha);
+  });
+
+  test("an S3 release resolves from the accepted publication of the frozen record, sealed by the freeze itself", async () => {
+    const { host, snapshotPort, candidatePort } = await chain();
+    const frozen = request("freeze-complete-git-tree", { candidate: candidatePort, snapshot: snapshotPort, baseCommitSha: COMMIT, request: REFERENCE_CODE_FIXTURE_REQUEST.issue, baseBranch: "main", release: "s3" });
+    await REFERENCE_CODE_RUNNER_TOOLS.freezeGitTree(frozen, host.call);
+    const port = factoryGuestStagedJson(host.stored, REFERENCE_CODE_RESULT_OUTPUT) as { candidate: unknown };
+    expect(assertFactoryS3AcceptedPublication(port.candidate)).toEqual(referenceCodeS3Publication(frozen));
+    // The record names the operation this freeze staged its candidate.json under.
+    const staged = host.frames.find(frame => frame.objectName === REFERENCE_CODE_CANDIDATE_OUTPUT && frame.schemaVersion === "factory.guest-material-seal.v1")!;
+    expect(staged.operationId).toBe(referenceCodeS3Publication(frozen).materialOperationId);
   });
 
   test("a snapshot of another base, or a generation that is not this snapshot's, is refused by name", async () => {
     const { host, snapshotPort, candidatePort } = await chain();
-    const freeze = (value: Record<string, unknown>) => REFERENCE_CODE_RUNNER_TOOLS.freezeGitTree(request("freeze-complete-git-tree", { candidate: candidatePort, snapshot: snapshotPort, baseCommitSha: COMMIT, request: "r", baseBranch: "main", ...value }), host.call);
+    const freeze = (value: Record<string, unknown>) => REFERENCE_CODE_RUNNER_TOOLS.freezeGitTree(request("freeze-complete-git-tree", { candidate: candidatePort, snapshot: snapshotPort, baseCommitSha: COMMIT, request: "r", baseBranch: "main", release: "s3", ...value }), host.call);
     await expect(freeze({ baseCommitSha: "2".repeat(40) })).rejects.toThrow("reference_code_runner_input_invalid");
     await expect(freeze({ baseBranch: 3 })).rejects.toThrow("reference_code_runner_input_invalid");
+    await expect(freeze({ release: "ftp" })).rejects.toThrow("reference_code_runner_input_invalid");
     // The snapshot handed in where the generation belongs: valid bytes, wrong kind.
     await expect(freeze({ candidate: snapshotPort })).rejects.toThrow("the candidate is not a generation of this snapshot's base");
     const generation = JSON.parse(new TextDecoder().decode(host.stored.get(REFERENCE_CODE_GENERATION_OUTPUT)!)) as Record<string, unknown>;
@@ -264,15 +281,5 @@ describe("freezeGitTree in the guest: the generated tree, frozen against the sea
     expect(referenceCodePullRequestTitle(REFERENCE_CODE_FIXTURE_REQUEST.issue).length).toBeLessThanOrEqual(72);
     expect(referenceCodePullRequestTitle("Add a greeting. Then more.")).toBe("Add a greeting.");
     expect(referenceCodePullRequestTitle("   ")).toBe("Reference code candidate");
-  });
-});
-
-describe("the exports a guest cannot run yet", () => {
-  test("each refuses by name, naming the capability the later package adds", async () => {
-    for (const exported of ["protectedChecks", "supervisedReview"] as const) {
-      const refused = REFERENCE_CODE_RUNNER_TOOLS[exported]({} as FactoryRunnerRequest, async () => null);
-      await expect(refused).rejects.toBeInstanceOf(ReferenceCodeRunnerError);
-      await expect(REFERENCE_CODE_RUNNER_TOOLS[exported]({} as FactoryRunnerRequest, async () => null)).rejects.toThrow(`reference_code_runner_pending: ${exported}`);
-    }
   });
 });

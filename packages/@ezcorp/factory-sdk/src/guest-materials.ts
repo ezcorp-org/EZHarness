@@ -250,6 +250,12 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
  * one staging client, so every deterministic guest task ends the same way
  * (W19a's graph guest, the reference-code runners).
  */
+/** The operation id the journal keys a guest's operation by: run, node instance, generation, index. */
+export function factoryGuestOperationId(request: FactoryRunnerRequest, index: number): string {
+  const authority = request.authority;
+  return `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${index}`;
+}
+
 export async function factoryGuestCompletedWithoutOperations(input: {
   readonly request: FactoryRunnerRequest;
   readonly call: FactoryGuestBrokerCall;
@@ -260,7 +266,7 @@ export async function factoryGuestCompletedWithoutOperations(input: {
 }): Promise<Record<string, JsonValue>> {
   const { authority } = input.request;
   const index = authority.nextOperationIndex;
-  const staging = createFactoryGuestStaging({ call: input.call, operationId: `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${index}`, operationIndex: index });
+  const staging = createFactoryGuestStaging({ call: input.call, operationId: factoryGuestOperationId(input.request, index), operationIndex: index });
   const output = typeof input.output === "function" ? await input.output(staging) : input.output;
   const promoted = await staging.stageResult(input.outputName, output);
   const cursor = index - 1;
@@ -334,3 +340,4 @@ export async function readFactoryGuestMaterial(call: FactoryGuestBrokerCall, add
   if (`sha256:${sha256Hex(content)}` !== address.digest) throw new FactoryGuestMaterialError("digest_mismatch", "The assembled bytes do not have the digest this guest asked for.");
   return Object.freeze({ content, mediaType: first!.mediaType });
 }
+

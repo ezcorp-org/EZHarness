@@ -205,6 +205,9 @@ const githubRelease = releaseAdapter("@ezcorp/github-release", "releasePullReque
 
 /** Where a reference.code release publishes: a GitHub pull request, or the installation's S3 destination. */
 export type ReferenceCodeRelease = "github" | "s3";
+const releaseKindSchema: PortSchema = { type: "string", enum: ["github", "s3"] };
+/** A release resolves from a value its adapter defines (W07's request, W08's accepted publication). */
+const releaseCandidateSchema: PortSchema = { type: "object", additionalProperties: true };
 
 export interface ReferenceCodeDefinitionOptions {
   /** The model generateCandidate and supervisedReview run on. Default: the C10 pin. */
@@ -225,7 +228,8 @@ export function referenceCodeDefinition(options: ReferenceCodeDefinitionOptions 
   const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", model);
   const codeReview = runner("@ezcorp/reference-code-validator", "supervisedReview", "e", model);
   const release = options.release === "s3" ? referenceS3ReleaseAdapter : githubRelease;
-  const releaseNode = options.release === "s3" ? "s3-publication" : "github-pr-release";
+  const releaseKind: ReferenceCodeRelease = options.release ?? "github";
+  const releaseNode = releaseKind === "s3" ? "s3-publication" : "github-pr-release";
   return baseDefinition(
     "reference.code.v1",
     {
@@ -247,12 +251,14 @@ export function referenceCodeDefinition(options: ReferenceCodeDefinitionOptions 
         {
           // The freeze reads the snapshot, the request and the base branch from the run, never from the
           // generator's output, so a generated candidate cannot restate the policy it is checked against.
-          ...task("freeze-complete-git-tree", codeFreeze, ["snapshot-repository", "generate-private-candidate"], { candidate: artifactSchema }),
-          inputPorts: { candidate: artifactSchema, snapshot: artifactSchema, baseCommitSha: stringSchema, request: stringSchema, baseBranch: stringSchema },
-          bindings: { candidate: ref("generate-private-candidate", "candidate"), snapshot: ref("snapshot-repository", "snapshot"), baseCommitSha: input("baseCommitSha"), request: input("request"), baseBranch: input("baseBranch") },
+          // Its `candidate` is what the declared release resolves from (the W07 publication request, or
+          // the S3 accepted publication); `frozen` is the sealed frozen record the validators read.
+          ...task("freeze-complete-git-tree", codeFreeze, ["snapshot-repository", "generate-private-candidate"], { candidate: releaseCandidateSchema, frozen: artifactSchema }),
+          inputPorts: { candidate: artifactSchema, snapshot: artifactSchema, baseCommitSha: stringSchema, request: stringSchema, baseBranch: stringSchema, release: releaseKindSchema },
+          bindings: { candidate: ref("generate-private-candidate", "candidate"), snapshot: ref("snapshot-repository", "snapshot"), baseCommitSha: input("baseCommitSha"), request: input("request"), baseBranch: input("baseBranch"), release: { kind: "literal", value: releaseKind } },
         },
-        { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "candidate") } },
-        { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: artifactSchema } },
+        { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "frozen") } },
+        { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: releaseCandidateSchema } },
         { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
         { id: releaseNode, kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: release, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destinationRepository"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
       ],

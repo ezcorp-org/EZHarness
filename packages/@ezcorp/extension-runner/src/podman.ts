@@ -8,7 +8,7 @@ import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
-import { fetchLockedDependencies } from "./dependencies";
+import { fetchLockedDependencies, toolchainBesideDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
 
@@ -631,7 +631,7 @@ export class PodmanRunner implements Runner {
       const sdk = this.options.sdkFiles ?? {};
       const toolchain = this.options.toolchainFiles ?? {};
       this.assertProvisionedPaths(input.files, sdk, toolchain);
-      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
+      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchainBesideDependencies(toolchain, Object.keys(dependencies.binary)) });
       for (const [path, bytes] of Object.entries(dependencies.binary)) {
         await this.writeStaged(staged, path, bytes, dependencies.executable.includes(path));
       }

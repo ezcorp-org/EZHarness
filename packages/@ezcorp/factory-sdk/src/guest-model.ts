@@ -1,5 +1,7 @@
 import { canonicalizeJson, sha256Hex } from "./canonical.js";
-import { createFactoryGuestStaging, factoryGuestCheckpointName, type FactoryGuestBrokerCall, type FactoryGuestStaging } from "./guest-materials.js";
+import { createFactoryGuestStaging, factoryGuestCheckpointName, factoryGuestOperationId, type FactoryGuestBrokerCall, type FactoryGuestStaging } from "./guest-materials.js";
+
+export { factoryGuestOperationId };
 import type { FactoryArtifactReference, FactoryCheckpointReference, FactoryGuestModelMessage, FactoryGuestModelResponse, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest, JsonValue } from "./types.js";
 
 /**
@@ -75,11 +77,6 @@ function digest(value: JsonValue): string {
   return sha256Hex(canonicalizeJson(value));
 }
 
-/** The operation id the journal keys a guest's operation by: run, node instance, generation, index. */
-export function factoryGuestOperationId(request: FactoryRunnerRequest, index: number): string {
-  const authority = request.authority;
-  return `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${index}`;
-}
 
 /** Recovers the handle of the checkpoint the product sealed for a completed call. */
 async function sealedCheckpoint(call: FactoryGuestBrokerCall, id: string, index: number, result: JsonValue): Promise<FactoryCheckpointReference> {

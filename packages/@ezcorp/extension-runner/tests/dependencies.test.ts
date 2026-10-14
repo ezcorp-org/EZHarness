@@ -1,7 +1,7 @@
 import { workspaceText } from "@ezcorp/extension-contract";
 import { expect, test } from "bun:test";
 import { gzipSync, gunzipSync } from "node:zlib";
-import { extractPackage, fetchLockedDependencies, resolveDependencies } from "../src/dependencies";
+import { extractPackage, fetchLockedDependencies, resolveDependencies, toolchainBesideDependencies } from "../src/dependencies";
 
 function archive(name: string, type = "0"): Uint8Array {
   const header = Buffer.alloc(512);
@@ -121,3 +121,17 @@ test("locked command packages preserve only declared executable paths", async ()
   expect(closure.executable).toEqual(["node_modules/acorn/bin/acorn"]);
   expect(closure.binary["node_modules/acorn/bin/acorn"]).toBeDefined();
 }, 60_000);
+
+test("a package the source locks itself replaces the provisioned copy of that package, and only that one (W4H-28)", () => {
+  const toolchain = {
+    "node_modules/typescript/bin/tsc": "tsc",
+    "node_modules/typescript/package.json": "{}",
+    "node_modules/@types/bun/index.d.ts": "provisioned",
+    "node_modules/@types/bun/package.json": "{}",
+    "node_modules/@types/node/index.d.ts": "provisioned",
+    "node_modules/bun-types/index.d.ts": "provisioned",
+  };
+  const kept = toolchainBesideDependencies(toolchain, ["node_modules/@types/bun/index.d.ts", "node_modules/@types/bun/package.json", "node_modules/bun-types/package.json"]);
+  expect(Object.keys(kept).sort()).toEqual(["node_modules/@types/node/index.d.ts", "node_modules/typescript/bin/tsc", "node_modules/typescript/package.json"]);
+  expect(toolchainBesideDependencies(toolchain, [])).toEqual(toolchain);
+});

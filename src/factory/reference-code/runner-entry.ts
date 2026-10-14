@@ -1,10 +1,13 @@
 import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
-import { factoryGuestCompletedWithoutOperations, factoryGuestPortAddress, readFactoryGuestMaterial, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
+import { factoryGuestCompletedWithoutOperations, factoryGuestOperationId, factoryGuestPortAddress, readFactoryGuestMaterial, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
 import { factoryGuestModelTask, FactoryGuestTaskError } from "@ezcorp/factory-sdk/guest-model";
-import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk/types";
+import { FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk/types";
 import { factoryGitTreeId } from "../git-objects";
 import { referenceCodeRepositoryPolicy, type ReferenceCodeRepositoryPolicy } from "./candidate-rules";
-import { freezeReferenceCodeCandidate, referenceCodePullRequestTitle, type ReferenceCodeCandidate } from "./freeze";
+import { FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION, type FactoryS3AcceptedPublication } from "../release-s3-accepted-publication";
+import { referenceCodeProtectedChecks } from "./checks";
+import { freezeReferenceCodeCandidate, REFERENCE_CODE_FREEZE_SCHEMA_VERSION, referenceCodePullRequestTitle, type ReferenceCodeCandidate } from "./freeze";
+import { parseReferenceCodeReview, REFERENCE_CODE_REVIEW_SYSTEM_PROMPT, referenceCodeReviewClaim, referenceCodeReviewPrompt } from "./review-rules";
 import { REFERENCE_CODE_GENERATION_SCHEMA_VERSION, REFERENCE_CODE_GUEST_MAX_OUTPUT_TOKENS, ReferenceCodeAnswerError, referenceCodeApplyGuestAnswer, referenceCodeGuestSystemPrompt, referenceCodeGuestUserPrompt, type ReferenceCodeGuestGeneration } from "./guest-generate";
 import {
   ReferenceCodeSnapshotError,
@@ -37,13 +40,18 @@ import {
  *
  * `generateCandidate` reads that snapshot through the guest's material read frame and makes ONE
  * model call through the broker (W4H-28 P1); the host plane holds the credential and accounts the
- * usage. The exports still pending refuse by name until the part of W4H-28 that adds them.
+ * usage. `freezeGitTree`, `protectedChecks` and `supervisedReview` read their inputs the same way.
  */
 
 export const REFERENCE_CODE_RECORDED_TREE_SCHEMA_VERSION = "factory.reference-code-recorded-tree.v1" as const;
 export const REFERENCE_CODE_SNAPSHOT_OUTPUT = "snapshot.json";
 export const REFERENCE_CODE_GENERATION_OUTPUT = "generation.json";
 export const REFERENCE_CODE_CANDIDATE_OUTPUT = "candidate.json";
+export const REFERENCE_CODE_CHECKS_OUTPUT = "checks.json";
+/** The review's output bound: three booleans and one sentence. */
+export const REFERENCE_CODE_REVIEW_MAX_OUTPUT_TOKENS = 1_024;
+/** How much of one command's output the checks evidence keeps. */
+const EVIDENCE_OUTPUT_LIMIT = 4 * 1024;
 export const REFERENCE_CODE_RESULT_OUTPUT = "result.json";
 const CHECKPOINT_SCHEMA = "factory.reference-code-runner.checkpoint.v1";
 
@@ -51,8 +59,7 @@ export type ReferenceCodeRunnerErrorCode =
   | "reference_code_repository_reader_unavailable"
   | "reference_code_snapshot_output_invalid"
   | "reference_code_recorded_tree_mismatch"
-  | "reference_code_runner_input_invalid"
-  | "reference_code_runner_pending";
+  | "reference_code_runner_input_invalid";
 
 export class ReferenceCodeRunnerError extends Error {
   constructor(readonly code: ReferenceCodeRunnerErrorCode, detail: string) {
@@ -227,10 +234,101 @@ async function readGeneration(call: FactoryGuestBrokerCall, port: unknown, baseS
   return files;
 }
 
-/** The frozen candidate as its output carries it: every field but the in-memory plan, and the snapshot it was frozen against. */
-export function referenceCodeCandidateRunnerOutput(candidate: ReferenceCodeCandidate, snapshotPort: JsonValue): JsonValue {
+/**
+ * The frozen candidate as its output carries it: every field but the in-memory plan, the snapshot it
+ * was frozen against, and the request it answers. Both came from the run, never from the generator.
+ */
+export function referenceCodeCandidateRunnerOutput(candidate: ReferenceCodeCandidate, snapshotPort: JsonValue, issue: string): JsonValue {
   const { plan: _plan, ...frozen } = candidate;
-  return { ...frozen, snapshot: snapshotPort } as unknown as JsonValue;
+  return { ...frozen, snapshot: snapshotPort, issue } as unknown as JsonValue;
+}
+
+/** What a protected check judges: the frozen candidate, the request, the sealed snapshot, the complete tree. */
+export interface ReferenceCodeCheckSubject {
+  readonly candidate: Omit<ReferenceCodeCandidate, "plan">;
+  readonly issue: string;
+  readonly sealed: ReferenceCodeSealedSnapshot;
+  readonly files: readonly ReferenceCodeFile[];
+}
+
+function jsonOf(content: Uint8Array, what: string): Record<string, unknown> {
+  let value: unknown;
+  try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(content)); }
+  catch { throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", `${what} is not UTF-8 JSON`); }
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", `${what} is not a JSON object`);
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Reads what a check judges, through the material read frame (W4H-28).
+ *
+ * A protected-checks TASK is handed the freeze node's `frozen` port inline; a VALIDATOR is handed the
+ * freeze node's whole output by reference, `{ candidate, frozen }`, and reads `frozen` from it. Either way the frozen record names
+ * the snapshot it was frozen against, and the tree must be the digest the freeze recorded.
+ */
+export async function referenceCodeCheckSubject(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall): Promise<ReferenceCodeCheckSubject> {
+  let port: unknown;
+  if (request.input?.kind === "artifact") {
+    const output = await readFactoryGuestMaterial(call, { artifactId: request.input.artifact.artifactId, digest: request.input.artifact.digest });
+    port = jsonOf(output.content, "the frozen node's output").frozen;
+  } else port = boundPorts(request).candidate;
+  const frozen = jsonOf((await readFactoryGuestMaterial(call, factoryGuestPortAddress(port))).content, "the frozen candidate");
+  const publication = frozen.publication as { files?: unknown } | undefined;
+  if (frozen.schemaVersion !== REFERENCE_CODE_FREEZE_SCHEMA_VERSION || typeof frozen.issue !== "string" || !Array.isArray(publication?.files)) {
+    throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "the candidate is not a frozen reference-code candidate");
+  }
+  const sealed = await readSnapshot(call, frozen.snapshot);
+  const files = referenceCodeFilesFromWire(publication.files as ReferenceCodeWireFile[]);
+  if (referenceCodeFilesDigest(files) !== frozen.filesDigest || frozen.baseSha !== sealed.snapshot.baseSha) {
+    throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "the frozen tree is not the digest it records, or not of its snapshot's base");
+  }
+  const { snapshot: _snapshot, issue, ...candidate } = frozen;
+  return Object.freeze({ candidate: candidate as unknown as Omit<ReferenceCodeCandidate, "plan">, issue: issue as string, sealed, files });
+}
+
+/**
+ * The nine deterministic protected claims, in the guest, on the pinned toolchain (W4H-28 P3).
+ *
+ * `toolchain` is the package root the guest runtime stages read-only and executable; the validator
+ * package's own locked dependency set lives in its `node_modules`. As a validator the tool answers
+ * the claims report itself; as the protected-checks task it seals the report and the command record
+ * as one evidence material.
+ */
+export function referenceCodeProtectedChecksTool(toolchain: string): ReferenceCodeRunnerTool {
+  return async (request, call) => {
+    const subject = await referenceCodeCheckSubject(request, call);
+    const checked = await referenceCodeProtectedChecks({
+      candidate: subject.candidate as ReferenceCodeCandidate, snapshot: subject.sealed.snapshot, files: subject.files,
+      allowedPaths: subject.sealed.policy.allowedPaths, protectedPaths: subject.sealed.policy.protectedPaths, protectedTestPaths: subject.sealed.policy.protectedTestPaths,
+      toolchain,
+    });
+    const validator = request.input.kind === "artifact";
+    return factoryGuestCompletedWithoutOperations({
+      request, call, outputName: REFERENCE_CODE_RESULT_OUTPUT, checkpointSchema: CHECKPOINT_SCHEMA,
+      output: validator ? checked.report as unknown as JsonValue : async staging => ({
+        evidence: [await stagedJson(staging, REFERENCE_CODE_CHECKS_OUTPUT, {
+          report: checked.report, verifiedWorkspaceDigest: checked.verifiedWorkspaceDigest,
+          commands: checked.commands.map(command => ({ command: command.command, exitCode: command.exitCode, timedOut: command.timedOut, durationMs: command.durationMs, output: command.output.slice(-EVIDENCE_OUTPUT_LIMIT) })),
+        } as unknown as JsonValue)],
+      }),
+    });
+  };
+}
+
+/**
+ * The supervised review, in its own validator guest: one model call, no tool, no filesystem
+ * (W4H-28). The rubric, the prompt and the strict parse are the host review's own (`review-rules.ts`).
+ */
+export async function supervisedReview(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall): Promise<Record<string, JsonValue>> {
+  const subject = await referenceCodeCheckSubject(request, call);
+  return factoryGuestModelTask({
+    request, call, outputName: REFERENCE_CODE_RESULT_OUTPUT, maxOutputTokens: REFERENCE_CODE_REVIEW_MAX_OUTPUT_TOKENS,
+    messages: [
+      { role: "system", text: REFERENCE_CODE_REVIEW_SYSTEM_PROMPT },
+      { role: "user", text: referenceCodeReviewPrompt({ issue: subject.issue, snapshot: subject.sealed.snapshot, files: subject.files, changedPaths: subject.candidate.changedPaths }) },
+    ],
+    output: async answer => ({ schemaVersion: FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION, claims: [referenceCodeReviewClaim(parseReferenceCodeReview(answer.text), Date.now())] }) as unknown as JsonValue,
+  });
 }
 
 /**
@@ -239,10 +337,23 @@ export function referenceCodeCandidateRunnerOutput(candidate: ReferenceCodeCandi
  * The policy, the repository id and the commit time come from the sealed snapshot, and the request
  * and base branch from the run's own inputs; the generator supplies the files and nothing else.
  */
+/**
+ * What an S3 release of the frozen candidate resolves from: the frozen record itself, sealed by this
+ * attempt under its own operation, published as `candidate.json` (W08's accepted publication).
+ */
+export function referenceCodeS3Publication(request: FactoryRunnerRequest): FactoryS3AcceptedPublication {
+  return {
+    schemaVersion: FACTORY_S3_ACCEPTED_PUBLICATION_SCHEMA_VERSION,
+    materialOperationId: factoryGuestOperationId(request, request.authority.nextOperationIndex),
+    candidateObjectName: REFERENCE_CODE_CANDIDATE_OUTPUT, candidateVersion: 1,
+    files: [{ name: REFERENCE_CODE_CANDIDATE_OUTPUT, objectName: REFERENCE_CODE_CANDIDATE_OUTPUT, version: 1 }],
+  };
+}
+
 export async function freezeGitTree(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall): Promise<Record<string, JsonValue>> {
-  const { candidate: port, snapshot: snapshotPort, baseCommitSha, request: issue, baseBranch } = boundPorts(request);
-  if (typeof baseCommitSha !== "string" || typeof issue !== "string" || typeof baseBranch !== "string") {
-    throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "baseCommitSha, request and baseBranch must be strings");
+  const { candidate: port, snapshot: snapshotPort, baseCommitSha, request: issue, baseBranch, release } = boundPorts(request);
+  if (typeof baseCommitSha !== "string" || typeof issue !== "string" || typeof baseBranch !== "string" || (release !== "github" && release !== "s3")) {
+    throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "baseCommitSha, request and baseBranch must be strings, and release github or s3");
   }
   const sealed = await readSnapshot(call, snapshotPort);
   if (sealed.snapshot.baseSha !== baseCommitSha) throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "the snapshot is not of the run's base commit");
@@ -254,16 +365,18 @@ export async function freezeGitTree(request: FactoryRunnerRequest, call: Factory
   });
   return factoryGuestCompletedWithoutOperations({
     request, call, outputName: REFERENCE_CODE_RESULT_OUTPUT, checkpointSchema: CHECKPOINT_SCHEMA,
-    output: async staging => ({ candidate: await stagedJson(staging, REFERENCE_CODE_CANDIDATE_OUTPUT, referenceCodeCandidateRunnerOutput(candidate, snapshotPort as JsonValue)) }),
+    output: async staging => {
+      const frozen = await stagedJson(staging, REFERENCE_CODE_CANDIDATE_OUTPUT, referenceCodeCandidateRunnerOutput(candidate, snapshotPort as JsonValue, issue));
+      // The declared release resolves from `candidate`: W07's publication request, or W08's accepted publication.
+      const released = release === "github" ? candidate.publication as unknown as JsonValue : referenceCodeS3Publication(request) as unknown as JsonValue;
+      return { candidate: released, frozen };
+    },
   });
 }
 
-function pending(exported: string, needs: string): ReferenceCodeRunnerTool {
-  return async () => { throw new ReferenceCodeRunnerError("reference_code_runner_pending", `${exported} needs ${needs}, which the guest does not have yet`); };
-}
 
-export const protectedChecks = pending("protectedChecks", "the pinned validator toolchain lane");
-export const supervisedReview = pending("supervisedReview", "a model call through the guest broker");
+/** In a guest the package root is the working directory: the runtime stages the toolchain there. */
+export const protectedChecks = referenceCodeProtectedChecksTool(process.cwd());
 
 /** One tool per REFERENCE_CODE_IMPLEMENTATIONS export; `runner-packages.test.ts` holds the two lists equal. */
 export const REFERENCE_CODE_RUNNER_TOOLS = Object.freeze({

@@ -216,3 +216,24 @@ export async function fetchLockedDependencies(files: WorkspaceFiles, signal?: Ab
   }
   return { text: {}, binary, executable };
 }
+
+/** The top-level package directory a `node_modules/…` path belongs to: `node_modules/name` or `node_modules/@scope/name`. */
+function packageRoot(path: string): string {
+  const parts = path.split("/");
+  return parts.slice(0, parts[1]?.startsWith("@") ? 3 : 2).join("/");
+}
+
+/**
+ * The provisioned build toolchain, less every package the source locks itself (W4H-28).
+ *
+ * A package may need its own exact copy of a package the runner also provisions for the build's
+ * typecheck (a validator whose locked toolchain is a candidate's). Its own locked, integrity-checked
+ * copy replaces the provisioned one at that package's directory; every other provisioned file stays,
+ * and the recipe still records the provisioned toolchain's digest. Overlaying both would leave two
+ * owners for one path, which the staging refuses.
+ */
+export function toolchainBesideDependencies(toolchain: WorkspaceFiles, dependencyPaths: readonly string[]): WorkspaceFiles {
+  const locked = new Set(dependencyPaths.map(packageRoot));
+  return Object.fromEntries(Object.entries(toolchain).filter(([path]) => !locked.has(packageRoot(path))));
+}
+
