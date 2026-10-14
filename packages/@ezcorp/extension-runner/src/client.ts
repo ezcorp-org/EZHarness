@@ -13,10 +13,15 @@ const MAX_STREAM_RECOVERIES = 3;
 
 export class RunnerClient implements Runner {
   constructor(private readonly options: { socketPath: string; token: string }) {}
+  /**
+   * One request, on its own connection, closed when the response ends (W4H-30). No pool: a host with no call in
+   * flight holds no runner socket, so a resource sample cannot catch an idle keep-alive connection whose number
+   * depends on how many calls overlapped in the last few seconds. A unix connection costs nothing to open.
+   */
   private call<Value>(method: string, data: unknown): Promise<Value> {
     return new Promise((resolve, reject) => {
       const body = JSON.stringify(data);
-      const outgoing = request({ socketPath: this.options.socketPath, path: `/v4/${method}`, method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) }, timeout: 360_000 }, incoming => {
+      const outgoing = request({ socketPath: this.options.socketPath, agent: false, path: `/v4/${method}`, method: "POST", headers: { authorization: `Bearer ${this.options.token}`, "content-type": "application/json", "content-length": Buffer.byteLength(body) }, timeout: 360_000 }, incoming => {
         const chunks: Buffer[] = [];
         let bytes = 0;
         incoming.on("data", (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > 180 * 1024 ** 2) incoming.destroy(new RunnerError("response_limit", "Runner response exceeded policy")); else chunks.push(chunk); });
