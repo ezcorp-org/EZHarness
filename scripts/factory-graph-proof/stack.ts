@@ -86,6 +86,12 @@ export interface Stack {
    * first; it defaults to `keepProduct`, so a failed pass keeps both.
    */
   stop(keepProduct: boolean, keepDiagnostics?: boolean): Promise<void>;
+  /**
+   * Stop the web server and start it again on the same database, secrets and port; resolves with its first
+   * 200 readiness, or null. The boot reads what only the running application can record (a provider an
+   * administrator connected in Settings), so a proof that needs it restarts the web server, never the stack.
+   */
+  restartWeb(): Promise<{ status: number; body: unknown } | null>;
 }
 
 function anyFreePort(): number {
@@ -391,25 +397,26 @@ export async function startStack(options: StackOptions): Promise<Stack> {
 
   // ── The web server ──
   const port = freePort();
-  web = start("web", bun, ["build/index.js"], {
-    cwd: join(repo, "web"),
-    env: {
-      PORT: String(port), HOST: "127.0.0.1", ORIGIN: `http://127.0.0.1:${port}`,
-      EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: INSTALLATION,
-      EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
-      // One class per node; the startup document keys admission by class.
-      EZCORP_FACTORY_RESOURCE_CLASSES: "cpu,cpu-infer,cpu-combine",
-      EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
-      EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
-      DATABASE_URL: productUrl.toString(),
-      EZCORP_JWT_SECRET: webSecrets.jwt,
-      EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
-      // Per start the salt is generated beside the secrets; a persistent deployment must keep its own.
-      ...(webSecrets.salt === undefined ? {} : { EZCORP_ENCRYPTION_SALT: webSecrets.salt }),
-      EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
-      ...options.webEnv,
-    },
-  });
+  const webEnvironment: Record<string, string> = {
+    PORT: String(port), HOST: "127.0.0.1", ORIGIN: `http://127.0.0.1:${port}`,
+    EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: INSTALLATION,
+    EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
+    // One class per node; the startup document keys admission by class.
+    EZCORP_FACTORY_RESOURCE_CLASSES: "cpu,cpu-infer,cpu-combine",
+    EZCORP_PERM_SWEEP_INTERVAL_MS: "30000",
+    EZCORP_SECRETS_DIR: secrets, EZCORP_PROJECT_ROOT: join(root, "project"),
+    DATABASE_URL: productUrl.toString(),
+    EZCORP_JWT_SECRET: webSecrets.jwt,
+    EZCORP_ENCRYPTION_SECRET: webSecrets.encryption,
+    // Per start the salt is generated beside the secrets; a persistent deployment must keep its own.
+    ...(webSecrets.salt === undefined ? {} : { EZCORP_ENCRYPTION_SALT: webSecrets.salt }),
+    EZCORP_FACTORY_STORAGE_SECRETS_DIR: process.env.EZCORP_FACTORY_STORAGE_SECRETS_DIR!,
+    ...options.webEnv,
+  };
+  // A restarted server streams to its own log ("web-restart-1", ...): a process log is opened afresh by name.
+  let webStarts = 0;
+  const startWeb = () => start(webStarts++ === 0 ? "web" : `web-restart-${webStarts - 1}`, bun, ["build/index.js"], { cwd: join(repo, "web"), env: webEnvironment });
+  web = startWeb();
 
   // ── The orchestrator, once the private service accepts ──
   for (let attempt = 0; attempt < 180 && !await reachable(privateServicePort); attempt++) await sleep(1_000);
@@ -422,16 +429,24 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
   record.orchestration = orchestration?.lifecycle ?? null;
 
-  let ready: { status: number; body: unknown } | null = null;
   const api = session(port);
-  for (let attempt = 0; attempt < 180; attempt++) {
-    const probe = await api.call("GET", "/api/ready").catch((error: unknown) => ({ status: 0, body: String(error) }));
-    if (probe.status === 200) { ready = probe; break; }
-    await sleep(1_000);
-  }
-  record.ready = ready;
+  const waitReady = async (): Promise<{ status: number; body: unknown } | null> => {
+    for (let attempt = 0; attempt < 180; attempt++) {
+      const probe = await api.call("GET", "/api/ready").catch((error: unknown) => ({ status: 0, body: String(error) }));
+      if (probe.status === 200) return probe;
+      await sleep(1_000);
+    }
+    return null;
+  };
+  record.ready = await waitReady();
+  const restartWeb = async () => {
+    stopGroup(web!.child.pid, "SIGTERM");
+    await web!.closed;
+    web = startWeb();
+    return waitReady();
+  };
 
-  return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop };
+  return { root, port, productUrl: productUrl.toString(), productDatabase, runnerRoot, session: api, children, stop, restartWeb };
   } catch (error) {
     // Nothing a failed start made may outlive it: not a child, not a
     // database on the shared server, not a private directory.
