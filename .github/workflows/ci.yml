@@ -101,7 +101,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - uses: ./.github/actions/setup-python-toolchain
@@ -114,7 +114,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-factory-python/lcov.info coverage-factory-python/lcov_factory_python.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-python
           path: coverage-factory-python/lcov_factory_python.info
@@ -136,7 +136,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - name: Install pinned Temporal test server
@@ -158,7 +158,7 @@ jobs:
       # On every outcome, a hang or a cancel too, keep the spec reporter's progress log: it names the last test that ran (W4H-21).
       - name: Upload the factory Temporal test progress log
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: factory-temporal-test-progress
           path: coverage-shard/test-progress.log
@@ -167,7 +167,7 @@ jobs:
       # The coverage gate downloads every lcov-cov-* artifact into ONE folder; a unique name keeps this file (W4H-15).
       - name: Name the LCOV for the merged coverage download
         run: mv coverage-shard/lcov.info coverage-shard/lcov_factory_orchestrator.info
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-factory-orchestrator
           path: coverage-shard/lcov_factory_orchestrator.info
@@ -207,7 +207,7 @@ jobs:
       # the device-bound test, which no hosted shard selects.
       - name: Run the real container crash, reconnect, cancel, and device observations
         run: bash scripts/run-factory-lane-tests.sh factory-isolation
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: factory-isolation-results
@@ -231,7 +231,7 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
@@ -247,7 +247,7 @@ jobs:
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/factory-services" \
             bash scripts/collect-browser-route-coverage-lane.sh factory-services
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-v8-factory-services
@@ -431,7 +431,7 @@ jobs:
       # @vitest/coverage-v8 uses Node's inspector Coverage domain. This runs
       # the exact same three shards as the pass/fail job while producing the
       # full shared-library LCOV used by the existing coverage gate.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       # Medians 35 s and 198 s: the 178 successful shard jobs of the last 50 ci
@@ -446,7 +446,7 @@ jobs:
       - name: Wall time of Vitest
         if: always() && steps.vitest.outcome != 'skipped'
         run: bash scripts/ci-wall-time.sh vitest 198
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-web-vitest-${{ matrix.i }}
           path: coverage-shard
@@ -509,7 +509,7 @@ jobs:
           sync: "true"
       - run: bash scripts/browser-coverage-build.sh
       - run: bash scripts/verify-browser-build-transfer.sh --round-trip-preview
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: browser-coverage-build
           path: |
@@ -531,7 +531,7 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
@@ -556,7 +556,7 @@ jobs:
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-gate" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-gate
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-v8-mock-gate
@@ -564,7 +564,7 @@ jobs:
           retention-days: 3
           if-no-files-found: error
       # Post-mortem debuggability: keep traces/screenshots when the gate fails.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: e2e-mock-test-results
@@ -588,7 +588,7 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
@@ -600,14 +600,14 @@ jobs:
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/mock-full" \
             bash scripts/collect-browser-route-coverage-lane.sh mock-full
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-v8-mock-full
           path: tasks/testing-gaps/browser/v8-coverage/mock-full/
           retention-days: 3
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: failure()
         with:
           name: e2e-mock-full-test-results
@@ -630,7 +630,7 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
@@ -644,14 +644,14 @@ jobs:
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/evidence" \
             bash scripts/collect-browser-route-coverage-lane.sh evidence
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-v8-evidence
           path: tasks/testing-gaps/browser/v8-coverage/evidence/
           retention-days: 3
           if-no-files-found: error
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-evidence-results
@@ -684,7 +684,7 @@ jobs:
           image_id="$(bun scripts/production-image-artifact.ts pack ezcorp:ci-production "$GITHUB_SHA" .cache/production-candidate)"
           printf 'image_id=%s\n' "$image_id" >> "$GITHUB_OUTPUT"
           printf 'matrix=%s\n' "$(bun scripts/production-proof-plan.ts matrix)" >> "$GITHUB_OUTPUT"
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: production-candidate-image
           path: .cache/production-candidate/
@@ -711,7 +711,7 @@ jobs:
           web: ${{ matrix.web }}
           playwright: ${{ matrix.web }}
       - run: bash scripts/setup-extension-runner-ci.sh --install
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: production-candidate-image
           path: .cache/production-candidate
@@ -734,7 +734,7 @@ jobs:
             EZ_SHIPPING_RUNNER_APP_UID=1001 \
             VERIFY_UPGRADE_CANDIDATE_SOURCE="$GITHUB_SHA" \
             bash scripts/verify-shipping-production-suite.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: production-proof-${{ matrix.shard }}
@@ -764,7 +764,7 @@ jobs:
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version-file: .bun-version
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: production-proof-*
           path: .cache/production-proof-inputs
@@ -772,7 +772,7 @@ jobs:
         env:
           EXPECTED_IMAGE_ID: ${{ needs.production-candidate-image.outputs.image_id }}
         run: bun scripts/verify-shipping-production-results.ts .cache/production-proof-inputs "$GITHUB_SHA" "$EXPECTED_IMAGE_ID" .cache/production-lifecycle
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: production-image-lifecycle
           path: .cache/production-lifecycle/
@@ -825,7 +825,7 @@ jobs:
       # so this proof adds no second production build or default test project.
       - name: Verify bottom-sheet dismissal and safe-area behavior
         run: cd web && bunx playwright test --config playwright.reuse-mock.config.ts --project=${{ matrix.browser }} --workers=1 --reporter=list e2e/bottom-sheet-pickers.spec.ts
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: extension-lifecycle-${{ matrix.browser }}
@@ -858,7 +858,7 @@ jobs:
           web: "true"
           sync: "true"
           playwright: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
@@ -880,7 +880,7 @@ jobs:
           export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
           EZCORP_BROWSER_COVERAGE_OUTPUT="$PWD/tasks/testing-gaps/browser/v8-coverage/real-auth" \
             bash scripts/collect-browser-route-coverage-lane.sh real-auth
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-v8-real-auth
@@ -892,7 +892,7 @@ jobs:
       # Post-mortem debuggability: keep traces/screenshots when the gate fails
       # (the real config uses trace: retain-on-failure). `always()` so a
       # job-level cancel or timeout still uploads whatever Playwright wrote.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: e2e-real-auth-test-results
@@ -920,18 +920,18 @@ jobs:
         with:
           web: "true"
           sync: "true"
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-coverage-build
           path: web
       - run: bash scripts/verify-browser-build-transfer.sh --check
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: browser-v8-mock-gate, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-gate }
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: browser-v8-mock-full, path: tasks/testing-gaps/browser/v8-coverage/receipts/mock-full }
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: browser-v8-evidence, path: tasks/testing-gaps/browser/v8-coverage/receipts/evidence }
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with: { name: browser-v8-real-auth, path: tasks/testing-gaps/browser/v8-coverage/receipts/real-auth }
       - name: Merge and verify browser source coverage
         shell: bash
@@ -939,7 +939,7 @@ jobs:
           bash scripts/merge-browser-route-coverage.sh \
             tasks/testing-gaps/browser/v8-coverage/receipts \
             tasks/testing-gaps/browser/v8-coverage/merged
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         if: always()
         with:
           name: browser-route-coverage
@@ -1111,7 +1111,7 @@ jobs:
         run: bash scripts/test-coverage.sh
       # 3 days (not 1): keeps "Re-run failed jobs" on the coverage gate
       # working >24h after the shards ran.
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-shard-${{ matrix.shard }}
           path: coverage-shard
@@ -1143,7 +1143,7 @@ jobs:
           COVERAGE_LEGS_ONLY: "1"
           COV_OUT: coverage-shard
         run: bash scripts/test-coverage.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-extras
           path: coverage-shard
@@ -1170,7 +1170,7 @@ jobs:
         env:
           COV_OUT: coverage-shard
         run: bash scripts/security-coverage.sh
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: lcov-cov-security
           path: coverage-shard
@@ -1350,12 +1350,12 @@ jobs:
       # script in this job reaches into `web/`.
       - run: bun install --frozen-lockfile
       - run: git fetch --no-tags origin main
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           pattern: lcov-cov-*
           path: coverage-artifacts
           merge-multiple: true
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: browser-route-coverage
           path: browser-route-coverage-artifact
@@ -1412,7 +1412,7 @@ jobs:
         run: bun scripts/quality-report.ts --text --expect coverage,crap
       - name: Upload quality reports
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: quality-reports
           path: coverage/quality
@@ -1446,7 +1446,7 @@ jobs:
       # "22"`: `src/__tests__/runtime-version-pins.test.ts` fails any literal
       # in this workflow, and a floating 22.x is the drift that pin exists to
       # stop. 24.14.1 satisfies Stryker's `>= 22`.
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version-file: .node-version
       - run: git fetch --no-tags origin main
@@ -1484,7 +1484,7 @@ jobs:
         run: bun scripts/quality-report.ts --text --expect mutation
       - name: Upload mutation report
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: mutation-report-pr
           path: coverage/quality
@@ -1642,7 +1642,7 @@ jobs:
         run: bun scripts/visual-evidence/build-manifest.ts
       - name: Upload visual evidence
         continue-on-error: true
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: visual-evidence
           path: web/blob-report
