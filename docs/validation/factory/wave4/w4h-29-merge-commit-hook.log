@@ -1,0 +1,10 @@
+Checked 1 file in 5ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/guest-sdk-closure.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 29 expect() calls
+Ran 8 tests across 1 file. [407.00ms]
+[detached HEAD 4cd37332c] merge: wp/w4h-29-sdk-closure-list 6c15783d9 into integ/w00 (the SDK-closure invariant names the one guest-package builder)

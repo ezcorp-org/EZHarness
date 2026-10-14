@@ -1,0 +1,6 @@
+== host-shard mode: shard 0/12 → 168 files ==
+merged 976 source files → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-29-sdk-closure-list/cov-shard-0/lcov_shard_0.info
+pre-merged 168 per-file lcov(s) → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-29-sdk-closure-list/cov-shard-0/lcov_shard_0.info
+emitted per-file timings → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-29-sdk-closure-list/cov-shard-0/timings-shard-0.json
+
+  2275 pass | 0 fail | 168 files (shard 0/12)
