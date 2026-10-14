@@ -52,6 +52,8 @@ export interface StackOptions {
   readonly runnerProfiles: (guestBuild: unknown) => Record<string, JsonValue>;
   /** The installation's `modelProvider`. Absent, no guest may call a model. */
   readonly modelProvider?: { readonly provider: string; readonly model: string };
+  /** Startup sections beside the stack's own (`validators`, `release`, `repositories`); see `StackLayout`. */
+  readonly startupExtras?: (secrets: string) => Readonly<Record<string, JsonValue>> | Promise<Readonly<Record<string, JsonValue>>>;
   /** Builds the guest into the supervisor's runner store before the supervisor takes its lease. */
   readonly buildGuest: (runnerRoot: string) => Promise<unknown>;
   /** Extra environment for the web server only (the mock mode opens the test surface). */
@@ -345,6 +347,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
     ports: { pool: freePort(), hostService: freePort(), guestBroker: freePort(), temporalTls: freePort(), temporalHttp: freePort(), gateway: freePort(), privateService: freePort() },
     runnerProfiles: options.runnerProfiles(guestBuild),
     ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }),
+    ...(options.startupExtras === undefined ? {} : { startupExtras: await options.startupExtras(secrets) }),
   };
   const { temporalTls: temporalTlsPort, temporalHttp: temporalHttpPort, gateway: gatewayPort, privateService: privateServicePort, guestBroker: guestBrokerPort } = layout.ports;
 

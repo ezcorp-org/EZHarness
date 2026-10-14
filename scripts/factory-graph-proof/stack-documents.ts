@@ -36,6 +36,11 @@ export interface StackLayout {
   };
   readonly runnerProfiles: Record<string, JsonValue>;
   readonly modelProvider?: { readonly provider: string; readonly model: string };
+  /**
+   * Startup sections a proof declares beside the stack's own (W4H-28): `validators`, `release`,
+   * `repositories`. Each is the operator's document section exactly; the stack adds nothing to it.
+   */
+  readonly startupExtras?: Readonly<Record<string, JsonValue>>;
 }
 
 export const secretsDir = (layout: Pick<StackLayout, "root">) => join(layout.root, "secrets");
@@ -124,6 +129,7 @@ export function startupDocument(layout: StackLayout) {
     },
     runnerProfiles: layout.runnerProfiles,
     ...(layout.modelProvider === undefined ? {} : { modelProvider: layout.modelProvider }),
+    ...(layout.startupExtras ?? {}),
     storage: {
       ordinary: { endpoint: "http://127.0.0.1:18333", bucket: TENANT, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: secretPath(layout, "ordinary-storage.json") },
       archive: { endpoint: "http://127.0.0.1:18334", bucket: TENANT, prefix: "archive", credentialSet: "archive", credentialsPath: secretPath(layout, "archive-storage.json") },
