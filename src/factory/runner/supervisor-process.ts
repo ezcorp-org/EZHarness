@@ -46,7 +46,8 @@
  * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
 import { fileURLToPath } from "node:url";
 import type { Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
@@ -306,9 +307,9 @@ export function factoryProvisionedRunnerLoader(load: () => Promise<{
   provisionToolchain(): Promise<FactoryRunnerToolchain>;
 }>): FactoryHostRunnerLoader {
   return async () => {
-    const { PodmanRunner: HostRunner, provisionToolchain } = await load();
+    const { PodmanRunner, provisionToolchain } = await load();
     const toolchain = await provisionToolchain();
-    return class extends HostRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
+    return class extends PodmanRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
   };
 }
 
@@ -414,6 +415,8 @@ export async function startFactoryConfiguredHostServices(
     runner,
     signingKey,
     tombstones,
+    // Beside the host key, like the tombstones: a preparation survives a restart (W4H-26).
+    preparationRecords: factoryHostPreparationRecords(join(dirname(config.hostKeyPath), FACTORY_HOST_PREPARATIONS_FOLDER)),
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
