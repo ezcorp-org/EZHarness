@@ -10,7 +10,7 @@ import { getProjectRoot } from "./project-root";
 import { isExtensionRunnerConfigured } from "./runner-connection";
 import { digestObject } from "./v4/blobs";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
-import type { ReferenceCodeRunnerStaging } from "../factory/reference-code/runner-install";
+import { REFERENCE_CODE_RUNNER_OWNER_INACTIVE, referenceCodeRunnerStageFailure, type ReferenceCodeRunnerStageFailure, type ReferenceCodeRunnerStaging } from "../factory/reference-code/runner-install";
 import type { InstallationState, LifecycleActor, LifecycleOperation } from "./v4/types";
 
 const log = extensionLogger("bundled", "bootstrap");
@@ -154,16 +154,17 @@ export async function stageBuiltinRunnerSources(entries: readonly { manifestName
   if (!context) return { state: "awaiting-administrator" };
   const ownerId = firstAdministrator(context.users)!.id;
   const staged: string[] = [];
-  const failed: { manifestName: string; error: string }[] = [];
+  const failed: ({ manifestName: string } & ReferenceCodeRunnerStageFailure)[] = [];
   for (const entry of entries) {
     try {
       const state = await stagedInstallation(context, entry.manifestName, builtinRunnerInstallationId(entry.manifestName), ownerId);
-      if (!state) { failed.push({ manifestName: entry.manifestName, error: "the installation is uninstalled or its owner is inactive; manual ownership review required" }); continue; }
+      if (!state) { failed.push({ manifestName: entry.manifestName, ...referenceCodeRunnerStageFailure(REFERENCE_CODE_RUNNER_OWNER_INACTIVE) }); continue; }
       await stageSource(context, entry.manifestName, state, entry.files, entry.entrypoint);
       staged.push(entry.manifestName);
     } catch (error) {
       log.error("Built-in runner package staging requires attention", { name: entry.manifestName, error: String(error) });
-      failed.push({ manifestName: entry.manifestName, error: String(error) });
+      // Published by code and fixed reason; the raw error stays in this log line.
+      failed.push({ manifestName: entry.manifestName, ...referenceCodeRunnerStageFailure(error) });
     }
   }
   return { state: "staged", staged, failed };

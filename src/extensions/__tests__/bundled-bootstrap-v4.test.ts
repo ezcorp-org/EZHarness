@@ -106,7 +106,7 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
   test("an installation whose owner is no longer active is left for a person, and nothing is built", async () => {
     await stageBuiltinRunnerSources(runner("export {}"));
     states.get(builtinRunnerInstallationId("reference-code"))!.installation.ownerId = "departed";
-    expect(await stageBuiltinRunnerSources(runner("export const again = 1;"))).toEqual({ state: "staged", staged: [], failed: [{ manifestName: "reference-code", error: "the installation is uninstalled or its owner is inactive; manual ownership review required" }] });
+    expect(await stageBuiltinRunnerSources(runner("export const again = 1;"))).toEqual({ state: "staged", staged: [], failed: [{ manifestName: "reference-code", code: "factory_builtin_runner_stage_failed", reason: "owner_inactive", message: expect.any(String) }] });
     expect(builds).toHaveLength(1);
   });
 
@@ -120,7 +120,7 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
   test("one package's failure is reported and does not stop the next", async () => {
     const entries = [{ manifestName: "broken", files: { "extension.ts": 1n } as never, entrypoint: "extension.ts" }, ...runner("export {}")];
     const outcome = await stageBuiltinRunnerSources(entries);
-    expect(outcome).toMatchObject({ state: "staged", staged: ["reference-code"], failed: [{ manifestName: "broken", error: expect.stringContaining("Only JSON data is accepted") }] });
+    expect(outcome).toEqual({ state: "staged", staged: ["reference-code"], failed: [{ manifestName: "broken", code: "factory_builtin_runner_stage_failed", reason: "invalid_source", message: expect.any(String) }] });
     expect(builds).toHaveLength(1);
   });
 });
