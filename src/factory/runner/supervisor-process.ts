@@ -306,9 +306,9 @@ export function factoryProvisionedRunnerLoader(load: () => Promise<{
   provisionToolchain(): Promise<FactoryRunnerToolchain>;
 }>): FactoryHostRunnerLoader {
   return async () => {
-    const { PodmanRunner, provisionToolchain } = await load();
+    const { PodmanRunner: HostRunner, provisionToolchain } = await load();
     const toolchain = await provisionToolchain();
-    return class extends PodmanRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
+    return class extends HostRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
   };
 }
 
