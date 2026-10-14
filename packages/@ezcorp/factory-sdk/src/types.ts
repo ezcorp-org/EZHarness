@@ -757,6 +757,66 @@ export type FactoryGuestMaterialResponse =
     readonly refusal: { readonly code: FactoryGuestMaterialRefusal; readonly message: string };
   });
 
+export const FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION = "factory.guest-material-read.v1";
+export const FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION = "factory.guest-material-read-response.v1";
+
+/**
+ * Reads one page of a sealed material or a candidate output of the guest's OWN run (W4H-28).
+ *
+ * A guest on `--network=none` can only learn bytes through its reverse frame, and
+ * an input port carries only a handle: `{ digest, mediaType, storage }` for a
+ * material, or the `{ artifactId, digest, encodedBytes }` reference a validator
+ * is handed. The frame names exactly that: the artifact id and the digest of
+ * the CONTENT the guest expects back. It names no tenant, project or run; the
+ * host reads those from the verified attempt, so a guest cannot address
+ * another run's bytes by asking. Pages are one bounded page each
+ * (`FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes`), and a readable whole is at
+ * most `maxTotalBytes`, the same bound staging has.
+ */
+export interface FactoryGuestMaterialRead {
+  readonly schemaVersion: typeof FACTORY_GUEST_MATERIAL_READ_SCHEMA_VERSION;
+  readonly artifactId: string;
+  /** `sha256:` + 64 hex over the content the guest expects. */
+  readonly digest: string;
+  /** 0-based. */
+  readonly page: number;
+}
+
+/**
+ * Why a read was refused. `unknown_material` covers every artifact that is not
+ * a sealed material or candidate output of this run, so a refusal never says
+ * whether an id exists in another scope.
+ */
+export type FactoryGuestMaterialReadRefusal =
+  | "invalid_request"
+  | "unknown_attempt"
+  | "unknown_material"
+  | "deadline_expired"
+  | "digest_mismatch"
+  | "oversize"
+  | "unavailable";
+
+interface FactoryGuestMaterialReadAnswer {
+  readonly schemaVersion: typeof FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION;
+  readonly artifactId: string;
+  readonly digest: string;
+  readonly page: number;
+}
+
+export type FactoryGuestMaterialReadResponse =
+  | (FactoryGuestMaterialReadAnswer & {
+    readonly status: "page";
+    readonly mediaType: string;
+    readonly totalBytes: number;
+    readonly pageCount: number;
+    readonly encodedBytes: number;
+    readonly contentBase64: string;
+  })
+  | (FactoryGuestMaterialReadAnswer & {
+    readonly status: "refused";
+    readonly refusal: { readonly code: FactoryGuestMaterialReadRefusal; readonly message: string };
+  });
+
 export interface FactoryMeasuredUsage {
   readonly kind: "measured";
   readonly inputTokens: number;

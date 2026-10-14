@@ -4,6 +4,7 @@ import type { FactoryAttemptAuthority } from "../executions";
 import { verifyPoolToken, type PoolTokenVerifierOptions } from "../pool/service-token";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_MAX_BODY_BYTES, FACTORY_GUEST_BROKER_PATH, FACTORY_GUEST_BROKER_SCOPE } from "./guest-broker-contract";
 import type { FactoryGuestMaterialFrameBroker } from "./guest-material-broker";
+import { isFactoryGuestMaterialRead } from "@ezcorp/factory-sdk";
 import { isFactoryGuestModelPayload } from "./guest-model-broker";
 import type { FactoryGuestModelFrameBroker } from "./guest-model-route";
 
@@ -96,6 +97,7 @@ export function createFactoryGuestBrokerRouteHandler(options: FactoryGuestBroker
     if (await options.leaseHost(authority) !== hostId) return json(403, { error: "forbidden_host" });
 
     if (isFactoryGuestModelPayload(body.payload)) return json(200, await options.model.frame(authority, body.attemptToken, body.payload));
+    if (isFactoryGuestMaterialRead(body.payload)) return json(200, await options.broker.read(authority, body.payload));
     return json(200, await options.broker.frame(authority, body.payload));
   };
 }

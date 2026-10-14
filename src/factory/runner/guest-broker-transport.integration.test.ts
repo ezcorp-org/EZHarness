@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { createAssistantMessageEventStream, type Api, type AssistantMessage, type Model } from "@earendil-works/pi-ai";
 import { canonicalizeJson, sha256Hex, type FactoryModelPin, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
-import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
+import { createFactoryGuestStaging, FactoryGuestMaterialError, readFactoryGuestMaterial } from "@ezcorp/factory-sdk/guest-materials";
 import { closeTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { certificates, nodeHttpsRequest, signedServiceToken, type Certificates } from "../../__tests__/helpers/factory-certificates";
 import { digestObject, FileBlobStore } from "../../extensions/v4/blobs";
@@ -203,6 +203,21 @@ test("a guest stages and promotes an output across a real host boundary", async 
     transaction, { tenantId: TENANT, projectId: fixture.projectId, logicalRunId: fixture.runId },
     { objectId: promoted.output.artifactId, digest: promoted.output.digest, encodedBytes: promoted.output.encodedBytes }, ["candidate_output"]));
   expect(new TextDecoder().decode(loaded.content)).toBe(canonicalizeJson(value));
+}, 120_000);
+
+test("a guest reads its run's sealed material across the host boundary, and another run's is refused by name (W4H-28)", async () => {
+  const fixture = await setup();
+  const host = await createFactoryGuestBrokerClient({ baseUrl: fixture.service.url, tls: fixture.paths, serverName: "localhost" });
+  const call = async (payload: JsonValue) => host.invoke(fixture.request, payload);
+  const bytes = new Uint8Array(40_000);
+  for (let index = 0; index < bytes.byteLength; index += 1) bytes[index] = (index * 7) % 251;
+  const staged = await createFactoryGuestStaging({ call, operationId: fixture.operationId, operationIndex: 0 }).stageOutput("snapshot.json", bytes, "application/json");
+  const read = await readFactoryGuestMaterial(call, { artifactId: staged.material.artifactId, digest: staged.digest });
+  expect(sha256Hex(read.content)).toBe(sha256Hex(bytes));
+  expect(read.mediaType).toBe("application/json");
+  const refused = await readFactoryGuestMaterial(call, { artifactId: "another-runs-artifact", digest: staged.digest }).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(FactoryGuestMaterialError);
+  expect((refused as FactoryGuestMaterialError).code).toBe("unknown_material");
 }, 120_000);
 
 test("a refusal crosses the boundary as a refusal, not as a transport failure", async () => {

@@ -1,0 +1,35 @@
+{
+  "$id": "urn:ezcorp:factory:guest-material-read:v1",
+  "$ref": "#/definitions/FactoryGuestMaterialRead",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestMaterialRead": {
+      "additionalProperties": false,
+      "description": "Reads one page of a sealed material or a candidate output of the guest's OWN run (W4H-28).\n\nA guest on `--network=none` can only learn bytes through its reverse frame, and an input port carries only a handle: `{ digest, mediaType, storage }` for a material, or the `{ artifactId, digest, encodedBytes }` reference a validator is handed. The frame names exactly that: the artifact id and the digest of the CONTENT the guest expects back. It names no tenant, project or run; the host reads those from the verified attempt, so a guest cannot address another run's bytes by asking. Pages are one bounded page each (`FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes`), and a readable whole is at most `maxTotalBytes`, the same bound staging has.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "description": "`sha256:` + 64 hex over the content the guest expects.",
+          "type": "string"
+        },
+        "page": {
+          "description": "0-based.",
+          "type": "number"
+        },
+        "schemaVersion": {
+          "const": "factory.guest-material-read.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "artifactId",
+        "digest",
+        "page"
+      ],
+      "type": "object"
+    }
+  }
+}
