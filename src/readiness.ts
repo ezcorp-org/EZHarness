@@ -9,8 +9,23 @@ export interface Readiness {
 
 let current: Readiness = { state: "booting", since: new Date().toISOString() };
 
+/**
+ * Named diagnostics a boot step publishes beside the readiness it does not own (W4H-26: built-in runner
+ * staging runs after the factory sets readiness, and a failure there must be visible, not only logged).
+ * They ride every readiness value under `detail.diagnostics`; with none, readiness is exactly what was set.
+ */
+const diagnostics = new Map<string, unknown>();
+
+export function setReadinessDiagnostic(name: string, value: unknown): void {
+  if (value === undefined) diagnostics.delete(name);
+  else diagnostics.set(name, value);
+}
+
 export function getReadiness(): Readiness {
-  return current;
+  if (diagnostics.size === 0) return current;
+  const detail = current.detail;
+  const base = detail !== null && typeof detail === "object" && !Array.isArray(detail) ? detail : detail === undefined ? {} : { value: detail };
+  return { ...current, detail: { ...base, diagnostics: Object.fromEntries(diagnostics) } };
 }
 
 export function setReadiness(next: Omit<Readiness, "since"> & { since?: string }): void {

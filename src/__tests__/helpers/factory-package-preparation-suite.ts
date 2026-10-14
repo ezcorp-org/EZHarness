@@ -9,7 +9,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { isManifestName } from "@ezcorp/factory-sdk";
-import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition } from "../../factory/package-preparation";
+import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition, factoryPackagePreparationDriver } from "../../factory/package-preparation";
 import { FactoryRecords } from "../../factory/records";
 
 export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void>; }
@@ -38,7 +38,7 @@ export function factoryPackagePreparationConformance(create: () => Promise<Facto
 let fixture: FactoryPackagePreparationFixture;
 beforeEach(async () => { fixture = await create(); });
 afterEach(async () => { await fixture?.close(); });
-async function packageContext(installationProject = projectId) {
+async function packageContext(installationProject = projectId, scope = `project:${installationProject}`) {
   const database = fixture.db;
   const records = new FactoryRecords(database, tenantId);
   await records.bindInstallation();
@@ -55,7 +55,7 @@ async function packageContext(installationProject = projectId) {
   const artifactDigest = digestObject(artifacts);
   const repo = new DatabaseLifecycleRepository(database);
   const current = release(sourceDigest, artifactDigest);
-  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope: `project:${installationProject}`, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
+  await repo.create({ installation: { id: "package-installation", ownerId: admin.id, scope, generation: 1, activeReleaseId: current.id, enabled: true, uninstalled: false, status: "active", grants: [], acknowledgedGeneration: 1 }, workspaces: {}, revisions: {}, operations: {}, releases: { [current.id]: current }, approvals: {} });
   const fenced: Array<{ state: string; trustRevision: number; reference: RunnerReference }> = [];
   // A case can make the stop path fail to prove the state change is atomic with it.
   const fence = { fail: false };
@@ -84,6 +84,115 @@ async function trustedPackage() {
   await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-package");
   return { ...context, runner, prepared: preparations };
 }
+
+test("a global installation binds only while the v4 project binding names this project, its active release and its generation (W4H-26 D4)", async () => {
+  const context = await packageContext(projectId, "global");
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { throw new Error("cached package must not rebuild"); },
+    async collectArtifacts() { return structuredClone(context.artifacts); },
+  };
+  const preparations = context.preparations(runner);
+  const bind = (key: string) => preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, key);
+  const binding = async (payload: Record<string, unknown> | null) => {
+    await context.database.execute(sql`DELETE FROM extension_project_bindings WHERE installation_id=${context.current.installationId}`);
+    if (payload) await context.database.execute(sql`INSERT INTO extension_project_bindings (installation_id, payload) VALUES (${context.current.installationId}, ${JSON.stringify(payload)})`);
+  };
+  const exact = { id: "binding", projectId, ownerId: admin.id, releaseId: context.current.id, generation: 1, approvedAt: "2030-01-01T00:00:00.000Z", writePaths: [] };
+  // No project binding, or one that names another project, release, generation or owner: refused.
+  for (const [index, payload] of [null, { ...exact, projectId: "other-project" }, { ...exact, releaseId: "other-release" }, { ...exact, generation: 2 }, { ...exact, ownerId: "someone-else" }].entries()) {
+    await binding(payload);
+    await expect(bind(`bind-refused-${index}`)).rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+  }
+  // The exact binding admits it; trust and preparation then follow as for a project installation.
+  await binding(exact);
+  await bind("bind-global");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-global");
+  expect((await preparations.prepare(projectId, reference)).trustRevision).toBe(1);
+  // Revoking the v4 project binding stops the package at the next dispatch check.
+  await binding(null);
+  await expect(preparations.assertDispatchReady({ authority: { tenantId, projectId } as never, runner: reference } as never)).rejects.toMatchObject({ code: "factory_package_release_unavailable" });
+});
+
+test("the package-preparation role prepares each bound package once its trust is active, and never an untrusted or quarantined one (W4H-26 D5)", async () => {
+  const context = await packageContext();
+  let builds = 0;
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+    async build() { builds++; throw new Error("cached package must not rebuild"); },
+    async collectArtifacts() { return structuredClone(context.artifacts); },
+  };
+  const preparations = context.preparations(runner);
+  const reported: string[] = [];
+  const driver = factoryPackagePreparationDriver(preparations, (role) => { reported.push(role); });
+  const signal = new AbortController().signal;
+  await preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-role");
+  // Bound but not trusted: nothing to prepare.
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect(await driver.step(signal)).toBe(false);
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-role");
+  expect(await preparations.pendingPreparations()).toEqual([{ projectId, reference }]);
+  expect(await driver.step(signal)).toBe(true);
+  expect(driver.progress).toEqual({ scanned: 1, settled: 1, deferred: 0, failed: 0 });
+  // The receipt exists, so the next pass finds nothing and dispatch is ready.
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect((await preparations.assertDispatchReady({ authority: { tenantId, projectId } as never, runner: reference } as never)).trustRevision).toBe(1);
+  // A quarantined package is never prepared again.
+  await context.trusts.quarantine(admin, { projectId, reference, expectedRevision: 1 }, "quarantine-role");
+  expect(await preparations.pendingPreparations()).toEqual([]);
+  expect(reported).toEqual([]);
+  expect(builds).toBe(0);
+});
+
+test("a build that is not the binding's is refused by name and writes no receipt; a failed build names the builder's diagnostics (W4H-26)", async () => {
+  const context = await packageContext();
+  const build = (answer: Partial<Awaited<ReturnType<Runner["build"]>>>): Pick<Runner, "build" | "collectArtifacts"> => ({
+    async build(input) { return { operationId: input.operationId, state: "succeeded", sourceDigest: input.sourceDigest, artifactDigest: context.artifactDigest, imageDigest: context.current.imageDigest, manifest: context.current.manifest, evidence: context.current.evidence, diagnostics: [], ...answer }; },
+    async collectArtifacts() { throw new Error("nothing is built yet"); },
+  });
+  const bind = context.preparations(build({}));
+  await bind.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-mismatch");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-mismatch");
+  // The builder answers another artifact than the one the binding names.
+  await expect(context.preparations(build({ artifactDigest: "f".repeat(64) })).prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_build_mismatch" });
+  // A failed build says why, in the builder's own words.
+  const failed = await context.preparations(build({ state: "failed", artifactDigest: undefined, diagnostics: [{ code: "toolchain_unavailable", message: "Pinned TypeScript toolchain must be provisioned" }, { code: "bare" }] as never })).prepare(projectId, reference).catch((error: unknown) => error);
+  expect(failed).toMatchObject({ code: "factory_package_build_mismatch", detail: "toolchain_unavailable: Pinned TypeScript toolchain must be provisioned; bare" });
+  await expect(context.preparations(build({ state: "failed", artifactDigest: undefined })).prepare(projectId, reference)).rejects.toMatchObject({ detail: "failed" });
+  // A build whose facts all match, but whose collected files are not the bound artifact, is refused too.
+  const tampered: Pick<Runner, "build" | "collectArtifacts"> = { build: build({}).build, async collectArtifacts() { return { ...structuredClone(context.artifacts), "extension.ts": "export const tampered = 1;" }; } };
+  await expect(context.preparations(tampered).prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_artifact_corrupt" });
+  expect(await bind.pendingPreparations()).toEqual([{ projectId, reference }]);
+});
+
+test("a package whose preparation failed waits before its next try, doubling to a minute, and a success clears the wait", async () => {
+  let clock = 0;
+  let fail = true;
+  let calls = 0;
+  const reported: string[] = [];
+  const driver = factoryPackagePreparationDriver({ pendingPreparations: async () => [{ projectId, reference }], prepare: async () => { calls++; if (fail) throw new Error("supervisor unavailable"); return {} as never; } }, (role) => { reported.push(role); }, () => clock);
+  const signal = new AbortController().signal;
+  const tries: number[] = [];
+  for (clock = 0; clock <= 200_000; clock += 500) { const before = calls; await driver.step(signal); if (calls > before) tries.push(clock); }
+  expect(tries.slice(0, 7)).toEqual([0, 1_000, 3_000, 7_000, 15_000, 31_000, 63_000]);
+  expect(tries[7]! - tries[6]!).toBe(60_000);
+  expect(reported).toHaveLength(tries.length);
+  fail = false;
+  clock = tries.at(-1)! + 60_000;
+  expect(await driver.step(signal)).toBe(true);
+  fail = true;
+  const before = calls;
+  await driver.step(signal);
+  expect(calls).toBe(before + 1);
+});
+
+test("the package-preparation role reports a refusal the package earned as a fault, and a builder failure as backpressure", async () => {
+  const item = { projectId, reference };
+  for (const [error, disposition] of [[new FactoryPackagePreparationError("factory_package_release_stale"), "fault"], [new Error("supervisor unavailable"), "transient"]] as const) {
+    const reported: string[] = [];
+    const driver = factoryPackagePreparationDriver({ pendingPreparations: async () => [item], prepare: async () => { throw error; } }, (role) => { reported.push(role); });
+    expect(await driver.step(new AbortController().signal)).toBe(false);
+    expect(reported).toEqual([`package-preparation:${disposition}:${projectId}:${reference.package}#${reference.export}`]);
+  }
+});
 
 test("a scoped package name is refused as a manifest name, and the bound manifest name must match the prepared release", async () => {
   const context = await packageContext();

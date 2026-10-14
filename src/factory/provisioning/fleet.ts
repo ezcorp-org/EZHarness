@@ -105,8 +105,7 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
   const invalid = FLEET_FIELD_CHECKS.filter(([, valid]) => !valid(settings)).map(([field]) => field);
   if (invalid.length > 0) throw fleetSettingsInvalid(invalid);
   // The runner profiles, and the release block the deployer will write, must be exactly what the startup document admits.
-  try { parseFactoryStartupConfig(startupProbeDocument(settings.installations.runnerProfiles)); }
-  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
+  parseFactoryFleetRunnerProfiles(settings.installations.runnerProfiles);
   if (settings.installations.release !== undefined) {
     const release = settings.installations.release;
     const shaped = keys(release, "profiles") || (keys(release, "github,profiles") && keys(release.github, "repository,tokenPath") && absolute(release.github!.tokenPath));
@@ -118,6 +117,12 @@ export function parseFactoryFleetSettings(value: unknown): FactoryFleetSettings 
     } catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.release."); }
   }
   return Object.freeze(JSON.parse(JSON.stringify(settings)) as FactoryFleetSettings);
+}
+
+/** The runner profiles must be exactly what the startup document admits; refused by the one name otherwise. */
+export function parseFactoryFleetRunnerProfiles(runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"]): void {
+  try { parseFactoryStartupConfig(startupProbeDocument(runnerProfiles)); }
+  catch { throw new FactoryProvisioningError("fleet_settings_invalid", "Fleet settings are invalid: installations.runnerProfiles."); }
 }
 
 /** A minimal startup document carrying only the runner profiles, so the startup parser judges them (and, beside them, a release block). */

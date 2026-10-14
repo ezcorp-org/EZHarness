@@ -37,7 +37,7 @@
  * settlement); the number only has to agree with the rows.
  */
 import { canonicalizeJson, sha256Hex } from "@ezcorp/factory-sdk/canonical";
-import { createFactoryGuestStaging, factoryGuestCheckpointName, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
+import { createFactoryGuestStaging, factoryGuestCheckpointName, factoryGuestCompletedWithoutOperations, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
 import type { FactoryArtifactReference, FactoryCheckpointReference, FactoryGuestModelMessage, FactoryGuestModelResponse, FactoryMeasuredUsage, FactoryModelPin, FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
 
 export const GRAPH_GUEST_OUTPUT = "result.json";
@@ -89,23 +89,9 @@ function operationId(request: FactoryRunnerRequest, index: number): string {
 
 const ZERO_USAGE: FactoryMeasuredUsage = Object.freeze({ kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" });
 
-/** A completed result for a task that settled no operation: cursor -1, no rows, zero usage. */
-async function completedWithoutOperations(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall, output: JsonValue): Promise<GuestResult> {
-  const index = request.authority.nextOperationIndex;
-  const staging = createFactoryGuestStaging({ call, operationId: operationId(request, index), operationIndex: index });
-  const promoted = await staging.stageResult(GRAPH_GUEST_OUTPUT, output);
-  const cursor = index - 1;
-  const checkpoint = await staging.stageCheckpoint({ schemaVersion: "w19a.checkpoint.v1", cursor }, cursor);
-  return {
-    schemaVersion: "factory.runner.result.v1",
-    status: "completed",
-    journalCursor: cursor,
-    operations: [],
-    resultDigest: promoted.resultDigest,
-    output: promoted.output as unknown as JsonValue,
-    usage: ZERO_USAGE as unknown as JsonValue,
-    workspaceCheckpoint: checkpoint as unknown as JsonValue,
-  };
+/** A completed result for a task that settled no operation, through the SDK's one helper. */
+function completedWithoutOperations(request: FactoryRunnerRequest, call: FactoryGuestBrokerCall, output: JsonValue): Promise<GuestResult> {
+  return factoryGuestCompletedWithoutOperations({ request, call, outputName: GRAPH_GUEST_OUTPUT, output, checkpointSchema: "w19a.checkpoint.v1" });
 }
 
 /** The words of a topic, normalised: what `prepare` counts and what `infer` is asked about. */

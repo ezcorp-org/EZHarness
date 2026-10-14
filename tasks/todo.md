@@ -6148,3 +6148,22 @@ Review: the shard did not hang and no test was slow; the runner was. The old cap
 - [ ] Leftovers: orchestrator boot back-off instead of exit; the self-hosted proof harness restored in-repo with a tenant offset; an independent archive release domain (W15).
 
 Review: the installation never came up because a lock re-resolution swapped SWC's plain addon for one that needs an executable cache, and no proof ran the shipped image again. The bundle is now built with the image and checked by digest, and a CI job runs the image under the shipped flags on every change.
+
+## W4H-26 — the started application can run a reference-code task: runner packages installed, prepared and dispatched (branch `wp/w4h-26-runner-wiring` from origin/main 1981febd2; gates `tasks/factory/w4h-26-GATES.md`)
+
+- [x] R1: reproduced over public HTTP on the composed application (W19a stack): the startup document refuses reference-code profiles; with a stock profile the bind is 404 `factory_package_release_unavailable` and the run fails `factory_native_package_untrusted`. Rulings 1-4 accepted (no host-side registry; D6 internal host-plane operation; D4 scope rule; split).
+- [x] D1: startup profiles admit configuration-digest runners; a class is shared only with equal allocations; a runner declared twice is refused. Fleet item: the local fleet declares snapshotRepository and freezeGitTree, tokens 50,000 (d9417ae3a).
+- [x] D2: one shared guest-package builder; the two reference-code packages declare every REFERENCE_CODE_IMPLEMENTATIONS export; snapshotRepository runs in the guest from a recorded tree and answers its port; the rest refuse by name (34d592140, 0beb0c613).
+- [x] D3: boot-time install through the v4 lifecycle behind EZCORP_FACTORY_ENABLED; contract rows first (66fc1acf7, 2e38e3aef, ea95d7fe6).
+- [x] D4: a global installation serves a project only through extension_project_bindings (737ad9151).
+- [x] D5: the package-preparation role with per-package backoff (f574b6c49, b9ce7a932). Midpoint reported (proof/midpoint-6.json).
+- [x] D6: the supervisor prepares over the W01b host service; digest checks on both sides; 4 of 4 mutants killed (6ba267aea, a32e94aa0).
+- [x] D7: snapshot-repository admitted, prepared, dispatched and executed in the pinned guest on the fixture repository; content recomputed and equal (proof/final.json).
+- [x] Visibility: the staging outcome is in readiness by name (27412cb92); the final proof reads it from /api/ready (proof/final-2.json).
+- [x] R5 (validator-8 G1): the loader is an explicit, tested guard exemption, the alias reverted (792dcb6b7); a preparation survives a supervisor restart (4fa87697d).
+- [x] N5: /api/ready carries a stable code and fixed reason per staging failure, never the raw error (9fd90638f).
+- [x] R6: synchronous join (N7), succeeded-only durable records (N6), other source refused first after a restart (T1) (abee88765).
+- [x] R7: integ/w00 1f63311fb (W4H-27) merged in (7e320fcb4); fleet.ts keeps both checks.
+- [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
+
+Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.

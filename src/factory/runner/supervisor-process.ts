@@ -46,9 +46,10 @@
  * record degrades.
  */
 import { createPrivateKey } from "node:crypto";
-import { resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
 import { fileURLToPath } from "node:url";
-import type { Runner } from "@ezcorp/extension-contract";
+import type { Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { isFactoryGuestMaterialFrame, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { readPrivatePath } from "../private-files";
 import { createFactoryGuestBrokerClient } from "./guest-broker-client";
@@ -292,7 +293,27 @@ export type FactoryHostRunner = Runner & {
 
 export type FactoryHostRunnerLoader = () => Promise<new (options: { root: string }) => FactoryHostRunner>;
 
-const loadPodmanRunner: FactoryHostRunnerLoader = async () => (await import("@ezcorp/extension-runner")).PodmanRunner as never;
+/** What `provisionToolchain` hands a runner: the bundled SDK and the pinned TypeScript toolchain. */
+type FactoryRunnerToolchain = { readonly sdkFiles: WorkspaceFiles; readonly toolchainFiles: WorkspaceFiles };
+
+/**
+ * The host's runner class, constructed with the pinned toolchain (W4H-26). A launch never needed it,
+ * but preparing a package builds it here, in the store a launch reads, and the v4 build refuses
+ * `toolchain_unavailable` without it. Provisioned once per load, from this checkout, exactly as the
+ * extension runner service provisions the release build, so the two builds agree byte for byte.
+ */
+export function factoryProvisionedRunnerLoader(load: () => Promise<{
+  readonly PodmanRunner: new (options: { root: string } & FactoryRunnerToolchain) => FactoryHostRunner;
+  provisionToolchain(): Promise<FactoryRunnerToolchain>;
+}>): FactoryHostRunnerLoader {
+  return async () => {
+    const { PodmanRunner, provisionToolchain } = await load();
+    const toolchain = await provisionToolchain();
+    return class extends PodmanRunner { constructor(options: { root: string }) { super({ ...options, ...toolchain }); } };
+  };
+}
+
+const loadPodmanRunner: FactoryHostRunnerLoader = factoryProvisionedRunnerLoader(async () => await import("@ezcorp/extension-runner") as never);
 
 /**
  * The host's runner, held for the process lifetime, and probed repeatedly.
@@ -394,6 +415,8 @@ export async function startFactoryConfiguredHostServices(
     runner,
     signingKey,
     tombstones,
+    // Beside the host key, like the tombstones: a preparation survives a restart (W4H-26).
+    preparationRecords: factoryHostPreparationRecords(join(dirname(config.hostKeyPath), FACTORY_HOST_PREPARATIONS_FOLDER)),
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,

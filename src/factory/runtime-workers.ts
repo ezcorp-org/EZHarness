@@ -66,6 +66,8 @@ export interface FactoryRuntimeWorkerCollaborators {
   /** Absent when this process cannot build it; the role then holds by name. */
   readonly compute?: FactoryComputeAdmissionDriver;
   readonly attempts?: FactoryAttemptDispatchDriver;
+  /** Prepares bound, trusted runner packages on the supervisor (C05, W4H-26); absent without a host launch endpoint. */
+  readonly packagePreparation?: FactoryRoleDriver;
   readonly projections?: FactoryProjectionDriver;
   /** Present only once the release store is composable. */
   readonly notificationInbox?: FactoryNotificationInboxDriver;
@@ -104,6 +106,7 @@ export interface FactoryRuntimeWorkerSet {
 export const FACTORY_WORKER_ROLES = Object.freeze([
   "compute-admission-dispatch",
   "compute-admission-poll",
+  "package-preparation",
   "attempt-dispatch",
   "run-projection",
   "notification-inbox-delivery",
@@ -180,6 +183,13 @@ export function registerFactoryRuntimeWorkers(collaborators: FactoryRuntimeWorke
     compute && (async (signal) => progress((await compute.pollNext(collaborators.service, signal)).status === "idle")),
     "compute-admissions", "W09",
     "the composition could not build FactoryComputeAdmissions; it needs a pool admission client");
+
+  // Prepares each bound package whose trust is active before an attempt can
+  // need it, so dispatch's readiness check (a database read) finds a receipt.
+  const preparation = collaborators.packagePreparation;
+  role("package-preparation", preparation && (async (signal) => progress(!(await preparation.step(signal)))),
+    "package-preparation", "W4H-26",
+    "this installation declares no hostLaunch endpoint, so no supervisor can build a bound package and none is prepared");
 
   // Claims a durable attempt and dispatches it to a trusted runner.
   //

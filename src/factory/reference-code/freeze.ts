@@ -8,7 +8,7 @@ import {
   type FactoryGitHubPublicationPlan,
   type FactoryGitHubPublicationRequest,
 } from "../release-github";
-import { referenceCodeChangedPaths, referenceCodeFilesDigest, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
+import { referenceCodeChangedPaths, referenceCodeFilesDigest, referenceCodeFilesToWire, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
 
 /**
  * Freezes a generated candidate into one complete, named Git tree and commit.
@@ -160,7 +160,7 @@ export function freezeReferenceCodeCandidate(input: ReferenceCodeFreezeInput): R
     dependencyLockDigest: `sha256:${digestBytes(lock.content)}`,
     protectedPaths: [...input.protectedPaths],
     allowedPaths: [...input.allowedPaths],
-    files: sorted.map(file => ({ path: file.path, mode: file.mode, contentBase64: Buffer.from(file.content).toString("base64") })),
+    files: referenceCodeFilesToWire(sorted),
   };
 
   let plan: FactoryGitHubPublicationPlan;

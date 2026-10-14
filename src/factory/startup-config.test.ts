@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
+import { referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { digestObject } from "../extensions/v4/blobs";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
@@ -333,7 +334,8 @@ describe("the runner profiles this installation dispatches to", () => {
   });
 
   test("a GPU profile holds exactly one whole host: any other gpu-host amount is refused by name (W02d R1)", () => {
-    const gpu = { ...profile, resourceClass: "gpu", allocation: { ...profile.allocation, resources: { cpu: 1, "gpu-host": 1 } } };
+    // Its own runner: one runner in two classes is a duplicate the runner policy refuses at composition.
+    const gpu = { ...profile, runner: { ...profile.runner, export: "render" }, resourceClass: "gpu", allocation: { ...profile.allocation, resources: { cpu: 1, "gpu-host": 1 } } };
     expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles: [profile, gpu] } })).runnerProfiles?.profiles).toHaveLength(2);
     for (const amount of [0, 2, 8]) {
       const refused = reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...gpu, allocation: { ...gpu.allocation, resources: { cpu: 1, "gpu-host": amount } } }] } }));
@@ -342,9 +344,31 @@ describe("the runner profiles this installation dispatches to", () => {
     }
   });
 
-  test("refuses a resource class declared twice, because the map would depend on order", () => {
-    expect(reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...profile, runner: { ...profile.runner, export: "other" } }] } })).invalid)
+  test("refuses a resource class declared twice with different allocations, because the map would depend on order", () => {
+    const larger = { ...profile.allocation, memoryBytes: 2 * profile.allocation.memoryBytes };
+    expect(reject(valid({ runnerProfiles: { ...section, profiles: [profile, { ...profile, runner: { ...profile.runner, export: "other" }, allocation: larger }] } })).invalid)
       .toContain("runnerProfiles.profiles");
+  });
+
+  test("refuses a runner declared twice, as the runner policy refuses it at composition", () => {
+    expect(reject(valid({ runnerProfiles: { ...section, profiles: [profile, profile] } })).invalid).toContain("runnerProfiles.profiles");
+  });
+
+  test("accepts a resource class shared by runners whose allocations are equal, since the map is then the same in any order", () => {
+    const other = { ...profile, runner: { ...profile.runner, export: "other" } };
+    expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles: [profile, other] } })).runnerProfiles?.profiles).toHaveLength(2);
+  });
+
+  test("accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26)", () => {
+    const unpinned = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && node.runner.model === undefined ? [node.runner] : []);
+    expect(unpinned.map(runner => runner.export)).toEqual(["snapshotRepository", "freezeGitTree"]);
+    const profiles = unpinned.map(runner => ({ ...profile, runner }));
+    expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles } })).runnerProfiles?.profiles.map(entry => entry.runner)).toEqual(unpinned);
+  });
+
+  test("refuses an unpinned runner whose configuration digest is not a sha256", () => {
+    const broken = { ...profile, runner: { ...profile.runner, configurationDigest: "not-a-digest" } };
+    expect(reject(valid({ runnerProfiles: { ...section, profiles: [broken] } })).invalid).toContain("runnerProfiles.profiles[0]");
   });
 });
 

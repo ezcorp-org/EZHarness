@@ -8,6 +8,7 @@ import {
   type FactoryGuestMaterialRefusal,
   type FactoryGuestMaterialRequest,
   type FactoryGuestMaterialResponse,
+  type FactoryRunnerRequest,
   type JsonValue,
 } from "./types.js";
 
@@ -234,4 +235,41 @@ export function createFactoryGuestStaging(options: FactoryGuestStagingOptions): 
       return Object.freeze({ ...material.material, journalCursor });
     },
   });
+}
+
+/**
+ * The COMPLETED result of a task that settled no operation: cursor one below
+ * the attempt's next operation index, no rows, measured zero usage.
+ *
+ * A completed result must mirror the journal row for row, and a guest that
+ * called nothing through the broker has no rows to mirror. The output is staged
+ * under `outputName` and a checkpoint under the cursor's name, both through the
+ * one staging client, so every deterministic guest task ends the same way
+ * (W19a's graph guest, the reference-code runners).
+ */
+export async function factoryGuestCompletedWithoutOperations(input: {
+  readonly request: FactoryRunnerRequest;
+  readonly call: FactoryGuestBrokerCall;
+  readonly outputName: string;
+  /** The node's output, or a function that stages its materials through the same client first and answers it. */
+  readonly output: JsonValue | ((staging: FactoryGuestStaging) => Promise<JsonValue>);
+  readonly checkpointSchema: string;
+}): Promise<Record<string, JsonValue>> {
+  const { authority } = input.request;
+  const index = authority.nextOperationIndex;
+  const staging = createFactoryGuestStaging({ call: input.call, operationId: `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${index}`, operationIndex: index });
+  const output = typeof input.output === "function" ? await input.output(staging) : input.output;
+  const promoted = await staging.stageResult(input.outputName, output);
+  const cursor = index - 1;
+  const checkpoint = await staging.stageCheckpoint({ schemaVersion: input.checkpointSchema, cursor }, cursor);
+  return {
+    schemaVersion: "factory.runner.result.v1",
+    status: "completed",
+    journalCursor: cursor,
+    operations: [],
+    resultDigest: promoted.resultDigest,
+    output: promoted.output as unknown as JsonValue,
+    usage: { kind: "measured", inputTokens: 0, outputTokens: 0, computeMs: 0, costMicros: "0" },
+    workspaceCheckpoint: checkpoint as unknown as JsonValue,
+  };
 }

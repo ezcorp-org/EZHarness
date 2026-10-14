@@ -1,11 +1,14 @@
+import { createHash } from "node:crypto";
 import { stat } from "node:fs/promises";
-import { executionLimits } from "@ezcorp/extension-runner";
-import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
+import { join } from "node:path";
+import { buildLimits, executionLimits } from "@ezcorp/extension-runner";
+import type { BuildResult, Runner, RunnerExecution } from "@ezcorp/extension-contract";
 import { validateFactoryRunnerResult, type FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { FactoryAttemptRuntimeError, type FactoryAttemptLaunchIntent } from "./attempt-wire";
+import { readPrivatePath, writePrivateBoundedAtomic } from "../private-files";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
 import type { FactoryGuestBroker } from "./guest-model-broker";
-import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor } from "./host-launch-service";
+import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor, FactoryHostPrepared, FactoryHostPreparation } from "./host-launch-service";
 
 export interface FactoryHostLaunchSupervisorOptions {
   readonly runner: Runner;
@@ -34,6 +37,11 @@ export interface FactoryHostLaunchSupervisorOptions {
    * attach is refused by name, before anything is started.
    */
   readonly stopped?: (tenantId: string, workerId: string) => boolean;
+  /**
+   * Where a finished preparation's build is recorded, so a repeated build identity after a restart
+   * reads it rather than building twice or meeting the runner's duplicate_operation (W4H-26).
+   */
+  readonly preparationRecords?: FactoryHostPreparationRecords;
   /** How long a settled answer waits here to be collected. */
   readonly retentionMs?: number;
   /** Whether a granted device node exists on this host; {@link factoryHostDevicePresent} unless a test replaces it. */
@@ -62,6 +70,42 @@ export async function factoryHostDevicePresent(path: string): Promise<boolean> {
  * is far longer than the product's own wait for it.
  */
 export const FACTORY_HOST_RESULT_RETENTION_MS = 15 * 60 * 1_000;
+
+/** One finished preparation, as this host records it: the source it was built from and the build's own result. */
+export interface FactoryHostPreparationRecord {
+  readonly sourceDigest: string;
+  readonly entrypoint: string;
+  readonly result: BuildResult;
+}
+
+export interface FactoryHostPreparationRecords {
+  read(operationId: string): Promise<FactoryHostPreparationRecord | undefined>;
+  write(operationId: string, record: FactoryHostPreparationRecord): Promise<void>;
+}
+
+const MAX_PREPARATION_RECORD_BYTES = 1024 * 1024;
+/** The folder beside the host key that holds this host's preparation records. */
+export const FACTORY_HOST_PREPARATIONS_FOLDER = "host-preparations";
+
+/**
+ * Durable preparation records in one private folder (beside the host key, like its tombstones): one
+ * file per build identity, written atomically. The artifacts themselves stay in the runner's store.
+ */
+export function factoryHostPreparationRecords(directory: string): FactoryHostPreparationRecords {
+  const path = (operationId: string) => join(directory, `host-preparation-${createHash("sha256").update(operationId).digest("hex")}.json`);
+  return Object.freeze({
+    async read(operationId: string): Promise<FactoryHostPreparationRecord | undefined> {
+      if (!await stat(path(operationId)).then(() => true, () => false)) return undefined;
+      return JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readPrivatePath(path(operationId), MAX_PREPARATION_RECORD_BYTES))) as FactoryHostPreparationRecord;
+    },
+    async write(operationId: string, record: FactoryHostPreparationRecord): Promise<void> {
+      await writePrivateBoundedAtomic(path(operationId), new TextEncoder().encode(JSON.stringify(record)), MAX_PREPARATION_RECORD_BYTES);
+    },
+  });
+}
+
+/** How many preparations' outcomes this host keeps for a retry; one per bound package version is plenty. */
+export const FACTORY_HOST_PREPARATION_RETENTION = 64;
 
 const DIAGNOSTIC_LIMIT = 1_024;
 /** How long a dead guest's exit code may take to arrive before its account goes without it. */
@@ -238,6 +282,8 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
     return reconnect(intent);
   };
 
+  const preparations = new Map<string, { readonly sourceDigest: string; readonly entrypoint: string; readonly outcome: Promise<FactoryHostPrepared> }>();
+
   return Object.freeze({
     async launch(intent: FactoryAttemptLaunchIntent): Promise<FactoryHostAttemptHandle> {
       assertHost(intent);
@@ -280,6 +326,48 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
       await release?.();
       if ("error" in outcome) throw outcome.error;
       return outcome.result;
+    },
+    /**
+     * Builds a package in this host's own store (C05 "Prepare a bound package for dispatch",
+     * W4H-26) under the host's own build limits, never the caller's, and answers the build with
+     * the artifact files that store now holds. A failed build is answered as it is, with none.
+     */
+    async prepare(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared> {
+      // The runner refuses a build identity it has already used and forgets it at a restart, so a
+      // repeat joins the first build in this process, or reads its durable record after a restart,
+      // instead of failing forever or building twice. The join entry is created before any await,
+      // so two concurrent first requests share one build (N7).
+      const id = preparation.operationId;
+      const sameSource = (known: { readonly sourceDigest: string; readonly entrypoint: string }) => {
+        if (known.sourceDigest !== preparation.sourceDigest || known.entrypoint !== preparation.entrypoint) {
+          throw new FactoryAttemptRuntimeError("invalid_request", "This host already prepared that build identity from other source.");
+        }
+      };
+      const known = preparations.get(id);
+      if (known) {
+        sameSource(known);
+        return untilAborted(known.outcome, signal);
+      }
+      const answer = async (result: BuildResult): Promise<FactoryHostPrepared> =>
+        result.state !== "succeeded" || !result.artifactDigest ? { result, artifacts: {} } : { result, artifacts: await options.runner.collectArtifacts(result.artifactDigest) };
+      const outcome = (async (): Promise<FactoryHostPrepared> => {
+        const stored = await options.preparationRecords?.read(id);
+        if (stored) {
+          sameSource(stored);
+          return answer(stored.result);
+        }
+        const result = await options.runner.build({ operationId: id, sourceDigest: preparation.sourceDigest, files: preparation.files, entrypoint: preparation.entrypoint, limits: buildLimits });
+        // Only a succeeded build is durable (N6): a failed one stays in memory for this process's
+        // retries and is built again after a restart, so a transient failure never closes the identity.
+        if (result.state === "succeeded") await options.preparationRecords?.write(id, { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, result });
+        return answer(result);
+      })();
+      const entry = { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, outcome };
+      preparations.set(id, entry);
+      // A request refused against the durable record leaves no entry behind, so it cannot poison the identity (T1).
+      outcome.catch(() => { if (preparations.get(id) === entry) preparations.delete(id); });
+      for (const key of preparations.keys()) { if (preparations.size <= FACTORY_HOST_PREPARATION_RETENTION) break; preparations.delete(key); }
+      return untilAborted(outcome, signal);
     },
   });
 }

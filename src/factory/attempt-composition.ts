@@ -30,6 +30,7 @@
  */
 import type { FactoryRunnerRequest } from "@ezcorp/factory-sdk";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
+import type { Runner } from "@ezcorp/extension-contract";
 import { buildLimits } from "@ezcorp/extension-runner";
 import type { TransactionalDb } from "../db/migrations/types";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
@@ -97,6 +98,8 @@ export function factoryPackageReadiness(
   tenantId: string,
   grants: FactoryGrants,
   blobs: BlobStore,
+  /** The builder `prepare` goes through: the host supervisor's preparation client where one is composed (W4H-26). */
+  builder: Pick<Runner, "build" | "collectArtifacts"> = createLazyExtensionRunner(),
 ): FactoryPackagePreparations {
   return new FactoryPackagePreparations(
     database,
@@ -104,7 +107,7 @@ export function factoryPackageReadiness(
     grants,
     new FactoryPackageTrusts(database, tenantId, grants),
     new FactoryV4PackageCatalog(new DatabaseLifecycleRepository(database as never), blobs),
-    createLazyExtensionRunner(),
+    builder,
     buildLimits,
   );
 }

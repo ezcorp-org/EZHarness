@@ -93,9 +93,10 @@ test('the guest carries the shipped staging client', () => {
 });
 `,
 	};
-	// The shipped staging client and everything it reaches in the SDK, found by following imports (W14b).
-	const { factorySdkClosure } = await import(join(repo, "src/factory/guest-sdk-closure.ts"));
-	return { ...await factorySdkClosure(join(repo, "packages/@ezcorp/factory-sdk/src"), own), ...own };
+	// The shipped staging client and everything it reaches in the SDK, found by following imports (W14b),
+	// through the product's one guest-package builder.
+	const { stageFactoryGuestPackage } = await import(join(repo, "src/factory/guest-package-build.ts"));
+	return await stageFactoryGuestPackage(repo, { sources: {}, specifiers: {}, provided: new Set(), generated: own }) as Record<string, string>;
 }
 
 export interface GuestBuild {
@@ -113,43 +114,30 @@ export interface GuestBuild {
 
 /** Builds the guest into one runner store and describes the release it produced. The same bytes always build to the same digest. */
 export async function buildFactoryGuest(repo: string, runnerRoot: string, operationId: string): Promise<GuestBuild> {
-	const { PodmanRunner, buildLimits, filesDigest } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
+	const { PodmanRunner, buildLimits } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
 	const { provisionToolchain } = await import(join(repo, "packages/@ezcorp/extension-runner/src/provision.ts"));
-	const { digestObject, FileBlobStore, putFiles } = await import(join(repo, "src/extensions/v4/blobs.ts"));
+	const { FileBlobStore } = await import(join(repo, "src/extensions/v4/blobs.ts"));
+	const { buildFactoryGuestHarnessRelease } = await import(join(repo, "src/factory/guest-package-build.ts"));
 
 	const files = await guestSource(repo);
 	const provisioned = await provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY });
 	const runner = new PodmanRunner({ root: runnerRoot, ...provisioned });
 	try {
-		const built = await runner.build({ operationId, sourceDigest: filesDigest(files), files, entrypoint: "extension.ts", limits: buildLimits });
-		if (built.state !== "succeeded" || !built.artifactDigest || !built.manifest) {
-			throw new Error(`the proof guest did not build: ${built.diagnostics?.map((entry: { code: string }) => entry.code).join(",") ?? built.state}`);
-		}
-		const blobs = new FileBlobStore(join(runnerRoot, "release-blobs"));
-		const sourceDigest = await putFiles(blobs, files, "workspace");
-		const input = {
-			installationId: "factory-services-guest-installation",
-			workspaceId: "workspace",
-			workspaceRevision: 1,
-			sourceDigest,
-			artifactDigest: built.artifactDigest,
-			imageDigest: built.imageDigest,
-			manifest: built.manifest,
-			evidence: built.evidence,
-			runnerProfile: "rootless-podman-v4",
-			policyDigest: digestObject({ runner: "v4" }),
-		};
+		const { build, sourceDigest, release } = await buildFactoryGuestHarnessRelease({
+			runner, blobs: new FileBlobStore(join(runnerRoot, "release-blobs")), files, operationId, limits: buildLimits,
+			installationId: "factory-services-guest-installation", releaseId: "factory-services-guest-release",
+		});
 		return Object.freeze({
-			artifactDigest: built.artifactDigest as string,
+			artifactDigest: build.artifactDigest,
 			sourceDigest,
 			reference: Object.freeze({
 				package: GUEST_PACKAGE,
 				manifestName: GUEST_MANIFEST_NAME,
 				version: GUEST_VERSION,
-				digest: `sha256:${built.artifactDigest}`,
+				digest: `sha256:${build.artifactDigest}`,
 				export: GUEST_EXPORT,
 			}),
-			release: { ...input, id: "factory-services-guest-release", releaseDigest: digestObject(input), createdAt: "2030-01-01T00:00:00.000Z" },
+			release,
 		});
 	} finally {
 		await runner.close();
