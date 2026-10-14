@@ -5620,6 +5620,11 @@ order, error code or message. The existing suites cover every changed line, so n
       (the 4 manifest and lock files equal main's blobs; root and web frozen installs; hold status 0: lockfiles byte-identical after the installs, Pi 0.99.2 installed, 9 manifest and Pi suites, typecheck and svelte-check 0, deps-audit clean, the whole web vitest pool 7952/7952, guard 516/0, main leg 0 findings; receipts bfce8cd5d).
 - [x] Post-merge main sync (W-SYNC-6): origin/main d3e6871e5 (the PR 337 merge) merged at 687d511ea (0 files, ancestry only; light hold 0;
       main leg 0 findings; receipts 53689bf60).
+- [x] Post-merge main syncs (W-SYNC-7 and W-SYNC-8): origin/main 48d90eb54 (#336, a 216-file validation sweep from another session) merged at
+      70b9c8bc9 (full hold: 73 root suites, the whole web vitest pool 8035/8035, installs with no drift, typecheck with main's new per-package
+      legs, main leg 0 findings; the hook ran all 96 mapped suites; receipts f87fee8c6); origin/main 1981febd2 (the PR 338 merge) merged at
+      1b68d4493 (0 files; receipts bea35538d). The publish now goes through a compare-and-stop guard (publish-if-main.sh).
+
 
 
 ## Wave 4 close (2026-10-01): follow-ups and standing user items
@@ -5949,6 +5954,39 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       scripts/ci-wall-time.test.ts 10/11 red on the first script → 11/11; every executable line of the script traced by its test; actionlint
       0 new findings: validator-8 ACCEPT 12a62aba62e97209 at d224026d8 (9 mutants red; 16 probe paths exit 0); merge 8b1aec3f4 /
       receipts a53f93a49. Lands in the second follow-up PR.
+- [x] W4H-25 (the first full factory run on this box with the real model, 2026-10-13): FAIL, documented. The Compose installation never came up —
+      provisioning stopped at step 5 of 7 (deployment_not_ready); 0 model calls. D1 the orchestrator crash-looped on a runtime webpack bundle
+      whose @swc/core 1.16.13 native addon needs a writable, executable user cache that the shipped container (read-only root, noexec /tmp)
+      correctly denies; D2 the fleet CLI exited 0 on the failure; D3 the deployer never wrote the release block; D4 one runner profile; D5 no
+      fleet stop command. The product path also lacked the reference-code runners as installed packages (W10c G8b) and a catalog driver
+      (G8d): validator-8 ACCEPT of the report as the documented state 4677e103f64f7c63 (W10 pass line OPEN); evidence
+      /tmp/factory-platform-evidence/w4h-25/ (report dd462d6d7cbcf24b; addendum 7ed8b8c8add813b4). Fixed by W4H-27 (D1, D2, D3, D5) and
+      W4H-26 (the runners, D4); the rest is W4H-28.
+- [x] W4H-27 (the Compose installation comes up): the orchestrator's workflow bundle is built at image build time and verified by digest at
+      every worker start (a missing or altered bundle refused by name), so no compiler or native-addon cache runs in the read-only container;
+      the fleet CLI exits non-zero with tenant, step, code and reason; the deployer writes the release block whenever release profiles exist
+      (S3 always under "ordinary/releases", GitHub only when declared, tokenPath only; with no profile no block); `stop` and `up`, idempotent
+      — `up` on a running fleet no longer recreates the shared pool or restarts the supervisor; the self-hosted proof's reason for passing
+      before (an older @swc/core from the W4H-10 sync) is answered, and a shipped-isolation guard (scripts/check-factory-image-shipped-config.ts,
+      flags from installation.yml and the deployer's env, a replay through the loader) runs in a new CI job that builds deploy/factory/Dockerfile
+      on every change; the purge case of tests/postgres/factory-provisioning.test.ts is independent of its neighbours (0.3 s, was 31 s);
+      the fleet declares no default release profile while the reference S3 adapter digest is a placeholder (factory_release_adapter_unpublished):
+      validator-8 REJECT at 713593038 (a personal email on every commit; `up` recreated the host) d79ded2a15eba38e, ACCEPT at b26a63460
+      9f30740c32e511bd, ACCEPT at e3b954880 ecc53642a671a58b; merge d4f1c6b0f / receipts 1f63311fb. The installation reached
+      step 7 on this box with isolation unchanged and 0 orchestrator restarts over 10 minutes after readiness (tenant-03, -04).
+- [x] W4H-26 (a reference-code task runs through the product): the five reference-code exports ship as tools of two v4 runner packages
+      (@ezcorp/reference-code, @ezcorp/reference-code-validator) built by the one shared guest-package builder and staged at boot through the
+      v4 lifecycle behind EZCORP_FACTORY_ENABLED (approval and trust stay human); the startup document accepts the reference task profiles;
+      a global installation serves a project through the existing project-binding route; a package-preparation runtime role prepares bound
+      packages; a new internal mutual-TLS host-plane operation lets the supervisor build a bound release in its own store and return the
+      artifact digest the product verifies before writing the receipt (idempotent by release, generation and source digest; durable records for
+      succeeded builds only; concurrent first requests build once; other source under a reused identity refused); readiness publishes the
+      boot staging outcome by package with a code and fixed reason; the Podman-guest guard gains a named, tested exemption for the supervisor's
+      loader: validator-8 REJECT at d2d78d98e (a rename hid the loader from the guard) 9360f9199ee215da, at fa15418c4 7ffce00de9049836, at
+      9326252cc (one missing restart test) e29e159648b9a259, at 02fb9136c 3fe5cc1c07455e71, ACCEPT at 89716018f 8871782893825c8d; merge
+      9bd32cc3b / receipts 4ce0e2392. Proof: on the composed application over public HTTP, snapshot-repository was admitted,
+      prepared through the supervisor, dispatched and executed in the pinned guest on the shipped fixture repository; the sealed snapshot
+      equals the product's own recompute; the run then stops at generate-private-candidate (W4H-28).
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -6045,6 +6083,28 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
 - [ ] Docker Hub anonymous pulls from the hosted runners fail intermittently (429 on 2026-10-09, 502 on 2026-10-12) on the pinned oven/bun
       images (Dockerfile.test, Dockerfile.dev, the extension-runner guest image); decide: a login step with DOCKERHUB_USERNAME and
       DOCKERHUB_TOKEN secrets (W4H-19 brief ready), or a mirror under ghcr.io/ezcorp-org. Until then a failed-jobs re-run is the recovery.
+- [ ] The orchestrator restarts a few times while the harness boots (ECONNRESET on the harness private service, bursts of about 5 s; the
+      restart-is-the-supervisor design; a depends_on wait would cycle through /api/ready): wait with a bounded back-off at boot instead of
+      exiting, so a real crash loop is visible (W4H-27).
+- [ ] Restore the self-hosted proof harness INTO the repository with its helpers and a tenant offset; the W16 copy under /tmp lost
+      ./temporal-http-checks.ts and hard-codes tenant names. Until then the W4H-27 R3 proof plus the shipped-isolation guard is the G7 pass (W4H-27).
+- [ ] The shipped-isolation guard replays a committed history through the bundle loader; it does not boot the orchestrator process itself (W4H-27 N4).
+- [ ] The reference S3 adapter's digest in the SDK is a placeholder that no published package carries, so a local installation declares no
+      release profile and cannot release; publish the adapter package, pin it, and declare the default profile (W4H-27 N3; W4H-28).
+- [ ] generateCandidate's configurationDigest in the reference.code.v1 definition is a placeholder (sha256:bbbb…), so no startup profile can pin
+      the gpt-6-luna model for it until the definition's pin is real (W4H-26; W4H-28).
+- [ ] The rest of the reference.code.v1 run through the product: the in-guest model adapter (generate, review) through the broker contract, a
+      repository-read broker operation, the toolchain claims lane on the pinned validator images (W4H-26 gap map G6; W4H-28). The catalog
+      driver (G8d) stays blocked by name.
+- [ ] GitHub publication from the started application (release-github.ts) needs the W07 GitHub App credential; the host-side scripts use the gh
+      CLI login. Install the App on the test repository and add its branch ruleset, or accept local publication (user).
+- [ ] The factory modules are imported at boot even with factories off (no work is done) (W4H-26 N3). The local fleet's cpu allocation rose
+      from 1,000 to 50,000 tokens, which applies to the existing guest too (W4H-26 N1).
+- [ ] The owners' test tenants on the shared proof PostgreSQL (fleets w4h25 and w4h27: databases and store-claim roles) stay until an approved
+      purge (administrator approval).
+- [ ] Hosted runner image: ubuntu-latest moves to Ubuntu 26 on 2026-10-19; re-measure the web shard wall-time medians (35 s install, 198 s vitest)
+      afterwards and restate them in ci.yml's comment (W4H-24 O2).
+
 
 
 ## W4H-11 — bundled bootstrap deadline on the hosted 4-CPU runner (branch `wp/w4h-11-bootstrap-deadline` from integ/w00 1bc5f63c7; gates `tasks/factory/w4h-11-GATES.md`)

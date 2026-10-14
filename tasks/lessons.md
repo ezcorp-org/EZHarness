@@ -2149,6 +2149,54 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Coordinator: Docker Hub answers 502 as well as 429 to the hosted runners' anonymous pulls (class D); the three jobs behind the pull fail
   closed as cascades (B). The root fix is a login step or a mirror, a maintainer decision; a re-run of the failed jobs is the recovery.
 
+#### Owners, validator, integrator and coordinator of the W4H-25…27 round (pending-lesson.md files, 2026-10-13 to 2026-10-14; condensed)
+- Owner: read the dispatch path before designing a fix that "moves a registration"; the host plane never runs package code (C05), so the
+  product-true form of a runner is an installed v4 package in the pinned guest, not a host registry (W4H-26).
+- Owner: a proof harness that performs a product step with the product's own classes hides every defect in the product's path; the graph
+  proof wrote the release records and built the guest itself, so six product defects stayed unseen until a run went through the real
+  application (W4H-26).
+- Owner: import.meta.dir inside a module the web server bundles points into web/build; resolve project paths from the project root (W4H-26).
+- Owner: a boot step that throws aborts every later boot step in the same function; report the failure, publish it in readiness by code and
+  fixed reason (never the raw error on a probe route), and continue (W4H-26).
+- Owner: a role whose item keeps failing at the worker's idle delay floods the log (1,500 reports in ten minutes); back off per item with a
+  bound (W4H-26).
+- Owner: Bun.file(path).exists() is false for a Unix socket; wait for a socket with stat().isSocket() (W4H-26).
+- Owner: a sourced env file that sets the caller's own variable name silently retargets the caller's paths (W4H-26).
+- Owner: a mutant that drops a digest comparison can survive a large suite; every digest comparison needs its own red test (W4H-26).
+- Owner: a proof is only as current as the bytes it ran. The W16 Compose proof rendered the shipped configuration but ran an image whose
+  compiler dependency was one minor version older; the sync that bumped it re-ran no proof, and the shipped container crash-looped for a week
+  unseen. A guard that boots the shipped image under the shipped isolation now runs on every change (W4H-27).
+- Owner: `git log -S` on a lockfile misses a version that only a merge commit introduced; read the merge parents, or `git log -G` on the
+  package name and read the version in the diff (W4H-25, W4H-27).
+- Owner: a file tsc emits into dist can collide with a build artifact written into the same dist; and postinstall runs build:packages on every
+  install in every CI job and Dockerfile, so a build step that needs a tool must have it everywhere (W4H-27).
+- Owner: a unit test that compares a default to its source of truth does not prove the default is publishable; the reference adapter digest
+  was a placeholder no package carries, so the fleet now refuses it by name instead of declaring a profile that cannot work (W4H-27).
+- Owner: in zsh `for f in $F` does not split a string; and a pipeline that ends in `head -0` still runs its earlier stages (a lock-free tsc ran) (W4H-27).
+- Owner: a proof harness that lives only under /tmp rots; the self-hosted proof lost a helper it imports. Proof harnesses belong in the repository (W4H-27).
+- Owner: `bun test` in a file whose cases leave databases behind makes a later drop pay for all of them (44 databases, 31 s, PostgreSQL
+  checkpointing); every case tears down what it created, and the purge case asserts it is alone (W4H-27).
+- Validator: a finding about a leaked personal address never repeats the address; the identity check writes only the allowed identity and
+  replaces any other with a placeholder, and receipts are scanned before any copy (W4H-27).
+- Validator: a "repro as Compose" with plain podman run misses the deployer's environment (HOME); reproduce with the deployer's own env (W4H-25, W4H-27).
+- Validator: Bun's default reporter prints no passing cases; per-case wall times need a JUnit report (W4H-27).
+- Validator: a real runner reports some build failures by throwing, not by a result; test the throw path and the restart after it (W4H-26).
+- Integrator: a fixed per-test hook budget met a test whose cost came from its neighbours' residue; measure the case alone and in its file before
+  any retry, and fix the hygiene, never the cap (W4H-27).
+- Integrator: a prep count that diverges from the hook's own mapping refuses the commit, by design; derive the list from the hook's function,
+  never from a parallel count (the orchestrator package line) (W-SYNC 48d90eb54).
+- Integrator: the pre-publish main check must compare against the sha recorded at the prep and stop, not print (W-SYNC 48d90eb54).
+- Integrator: an identity check is the first leg of every merge and every receipt set; the denied address lives in a private file outside the
+  receipts and a finding names only the commit or the file (W4H-27).
+- Integrator: a binding tool's scope must match its evidence: changed test-file lines against the test-file lcov; source lines are the merge
+  gates' over the full merged lcov; producer scripts are the producer legs' (W4H-27).
+- Coordinator: the full journey is the first proof after a merge, not a leftover. Every component was proven in isolation, and the first real run
+  through the product still met a start-up crash and three missing product paths (W4H-25).
+- Coordinator: a rename that escapes a guard's pattern is an evasion in form even when the runtime truth is clean; the acceptable form is a
+  named, reasoned, tested exemption, and the guard stays red for a real subclass (W4H-26).
+- Coordinator: when a validator finds a personal address in commits of a public repository, redact the verdict first, then re-author with equal
+  trees, then add the check that refuses it everywhere (W4H-27).
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
