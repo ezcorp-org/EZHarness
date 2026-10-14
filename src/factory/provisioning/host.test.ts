@@ -35,10 +35,13 @@ let host: FactoryFleetHost;
 class RecordingRuntime implements FactoryFleetHostRuntime {
   readonly calls: string[] = [];
   readonly bundles: FactoryFleetHostBundle[] = [];
-  async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}:${bundle.build.image.slice(-4)}`); this.bundles.push(bundle); }
+  /** Whether both services run: an apply starts them, a stop or remove stops them. */
+  serves = false;
+  async serving(paths: FactoryFleetHostPaths): Promise<boolean> { this.calls.push(`serving:${paths.context.tenantId}`); return this.serves; }
+  async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.serves = true; this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}:${bundle.build.image.slice(-4)}`); this.bundles.push(bundle); }
   async ready(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`ready:${bundle.admitted.length}`); }
-  async stop(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`stop:${paths.context.tenantId}`); }
-  async remove(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`remove:${paths.context.tenantId}`); }
+  async stop(paths: FactoryFleetHostPaths): Promise<void> { this.serves = false; this.calls.push(`stop:${paths.context.tenantId}`); }
+  async remove(paths: FactoryFleetHostPaths): Promise<void> { this.serves = false; this.calls.push(`remove:${paths.context.tenantId}`); }
   async purge(paths: FactoryFleetHostPaths): Promise<void> { this.calls.push(`purge:${paths.context.tenantId}`); }
 }
 
@@ -318,6 +321,11 @@ describe("admission", () => {
     await host.start();
     expect(runtime.calls).toEqual([]);
     await host.admit(await installation("tenant-01"));
+    // W4H-27 F2: a host that already serves is left exactly as it runs: no re-render, no recreate, no unit restart.
+    runtime.calls.length = 0;
+    await host.start();
+    await host.start();
+    expect(runtime.calls).toEqual(["serving:host", "serving:host"]);
     runtime.calls.length = 0;
     await host.stop();
     await host.stop();
@@ -325,7 +333,7 @@ describe("admission", () => {
     expect((await host.admitted()).map((entry) => entry.tenantId)).toEqual(["tenant-01"]);
     runtime.calls.length = 0;
     await host.start();
-    expect(runtime.calls).toEqual([`apply:tenant-01:${BUILD.image.slice(-4)}`, "ready:1"]);
+    expect(runtime.calls).toEqual(["serving:host", `apply:tenant-01:${BUILD.image.slice(-4)}`, "ready:1"]);
   }, SLOW);
 
   test("render with nothing admitted is refused by name", async () => {

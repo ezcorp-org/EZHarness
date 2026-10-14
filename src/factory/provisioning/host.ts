@@ -149,6 +149,8 @@ export interface FactoryFleetHostRuntime {
   apply(bundle: FactoryFleetHostBundle): Promise<void>;
   /** Resolves once both services publish a fresh ready record. */
   ready(bundle: FactoryFleetHostBundle): Promise<void>;
+  /** Whether both services run now: `up` leaves a serving host exactly as it runs. */
+  serving(paths: FactoryFleetHostPaths): Promise<boolean>;
   /** Stop both services and keep the pool's containers. Idempotent. */
   stop(paths: FactoryFleetHostPaths): Promise<void>;
   /** Stop both services. Idempotent. */
@@ -337,11 +339,15 @@ export class FactoryFleetHost {
     await this.options.locked(() => this.options.runtime.stop(this.paths));
   }
 
-  /** Start both shared services onto the recorded state and wait for them: the operator's `up`. A host serving nobody stays down. */
+  /**
+   * Start both shared services onto the recorded state and wait for them: the operator's `up`.
+   * A host serving nobody stays down, and a host that already serves is left exactly as it runs
+   * (no re-render, no recreated pool, no restarted supervisor: every installation shares them).
+   */
   async start(): Promise<void> {
     await this.options.locked(async () => {
       const state = await this.state();
-      if (Object.keys(state.admitted).length > 0) await this.publish(state);
+      if (Object.keys(state.admitted).length > 0 && !(await this.options.runtime.serving(this.paths))) await this.publish(state);
     });
   }
 

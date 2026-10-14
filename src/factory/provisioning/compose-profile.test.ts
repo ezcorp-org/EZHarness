@@ -520,6 +520,22 @@ describe("FactoryComposeHostTarget", () => {
     expect((await factoryRejection(hostTarget(down).remove(hostBundle.paths))).message).toBe("host compose down failed (1): gone");
   });
 
+  test("serving: the pool container runs and the supervisor unit is active; anything less is not serving", async () => {
+    const running = JSON.stringify({ Service: "pool", State: "running", Health: "healthy", ExitCode: 0 });
+    const answer = (ps: string, active: number) => fakeExecutor((command) => isCompose(command, "ps") ? { code: 0, stdout: ps, stderr: "" } : command[2] === "is-active" ? { code: active, stdout: "", stderr: "" } : undefined);
+    const serving = answer(running, 0);
+    expect(await hostTarget(serving).serving(hostBundle.paths)).toBe(true);
+    expect(serving.calls.map(line)).toEqual(["ps --all --format json", "systemctl --user is-active"]);
+    expect(await hostTarget(answer(running, 3)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(answer(JSON.stringify({ Service: "pool", State: "exited", Health: "", ExitCode: 0 }), 0)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(answer("", 0)).serving(hostBundle.paths)).toBe(false);
+    expect(await hostTarget(fakeExecutor((command) => isCompose(command, "ps") ? { code: 1, stdout: "", stderr: "no project" } : undefined)).serving(hostBundle.paths)).toBe(false);
+    const never = factoryFleetHostPaths("fleet-a", { secretsRoot: join(root, "none"), operatorRoot: join(root, "none"), runtimeRoot: join(root, "none-runtime") });
+    const bare = fakeExecutor();
+    expect(await hostTarget(bare).serving(never)).toBe(false);
+    expect(bare.calls).toEqual([]);
+  });
+
   test("stop stops the unit and the pool's containers, keeping them; a host never applied only checks its unit", async () => {
     const execute = fakeExecutor();
     await hostTarget(execute).stop(hostBundle.paths);

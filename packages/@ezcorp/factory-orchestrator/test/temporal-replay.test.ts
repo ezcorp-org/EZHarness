@@ -9,6 +9,7 @@ import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { bundleWorkflowCode, Worker, type WorkflowBundleWithSourceMap } from "@temporalio/worker";
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
+import { factoryWorkflowBundleDigest, loadFactoryWorkflowBundle } from "../src/workflow-bundle.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
@@ -212,6 +213,9 @@ before(async () => {
   historyDirectory = await mkdtemp(join(tmpdir(), "factory-history-"));
   environment = await TestWorkflowEnvironment.createTimeSkipping({ server: { executable: { type: "existing-path", path: server } } });
   bundle = await bundleWorkflowCode({ workflowsPath: new URL("../src/workflow.ts", import.meta.url).pathname });
+  // Every case below runs the bytes the image build ships: this bundle (kept for its source map) must equal the
+  // build's own (`build:workflow-bundle`, which the package test and coverage scripts run first), byte for byte.
+  assert.equal(factoryWorkflowBundleDigest(bundle.code), (await loadFactoryWorkflowBundle()).sha256, "the replay suite's bundle differs from the built bundle");
   if (process.env.FACTORY_BUNDLE_CODE_PATH) await writeFile(process.env.FACTORY_BUNDLE_CODE_PATH, bundle.code);
   if (process.env.FACTORY_BUNDLE_MAP_PATH) await writeFile(process.env.FACTORY_BUNDLE_MAP_PATH, JSON.stringify(bundle.sourceMap));
 });

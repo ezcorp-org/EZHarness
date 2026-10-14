@@ -27,17 +27,31 @@ export const LOCAL_RUNNER_PROFILES: FactoryLocalFleetOptions["runnerProfiles"] =
   }],
 });
 
+type ReleaseAdapter = NonNullable<FactoryLocalFleetOptions["release"]>["profiles"][number]["adapter"];
+
 /**
- * The release profile this local fleet declares: the S3 publication adapter the
- * reference definitions name (reference.image.v1's release node), publishing to
- * each installation's own store. Taken from the definition, never restated.
+ * The reference definitions' adapter digests are synthetic: one hex character repeated (factory-sdk
+ * references.ts `runner()`). No published package has such a digest, so a profile naming one could
+ * never install its adapter.
  */
-export const LOCAL_RELEASE: NonNullable<FactoryLocalFleetOptions["release"]> = Object.freeze({
-  // The five fields a release profile's adapter reference has; the definition's node also carries its configuration digest.
-  profiles: referenceImageV1.graph.nodes.flatMap((node) => node.kind === "release"
-    ? [{ adapter: { package: node.adapter.package, manifestName: node.adapter.manifestName, version: node.adapter.version, digest: node.adapter.digest, export: node.adapter.export }, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 }]
-    : []),
-});
+const PLACEHOLDER_DIGEST = /^sha256:([0-9a-f])\1{63}$/;
+
+/**
+ * The release profile a local fleet declares for each S3 publication adapter the reference definitions
+ * name, publishing to each installation's own store; an adapter whose digest is the definition's
+ * placeholder is refused by name instead (W4H-27 N3), so no fleet declares a profile nothing can install.
+ */
+export function localFleetRelease(adapters: readonly ReleaseAdapter[]): { readonly release?: NonNullable<FactoryLocalFleetOptions["release"]>; readonly refused: readonly string[] } {
+  const usable = adapters.filter((adapter) => !PLACEHOLDER_DIGEST.test(adapter.digest));
+  const refused = adapters.filter((adapter) => PLACEHOLDER_DIGEST.test(adapter.digest)).map((adapter) => `factory_release_adapter_unpublished: ${adapter.package}@${adapter.version}:${adapter.export} names the reference definition's placeholder digest; no published package has it, so no release profile is declared for it`);
+  if (usable.length === 0) return { refused };
+  return { release: { profiles: usable.map((adapter) => ({ adapter, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 })) }, refused };
+}
+
+/** reference.image.v1's S3 publication adapter: the five fields a release profile's adapter reference has (the node also carries its configuration digest). */
+export const LOCAL_RELEASE = localFleetRelease(referenceImageV1.graph.nodes.flatMap((node) => node.kind === "release"
+  ? [{ package: node.adapter.package, manifestName: node.adapter.manifestName, version: node.adapter.version, digest: node.adapter.digest, export: node.adapter.export }]
+  : []));
 
 export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<Record<string, string | undefined>>, bun: string): FactoryLocalFleetOptions {
   const flag = (name: string, fallback?: string): string => {
@@ -50,7 +64,7 @@ export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<R
   return {
     fleetId: flag("--fleet"), root: resolve(flag("--root")), image: flag("--image"), revision: flag("--revision"), portBase: Number(flag("--port-base", "31000")),
     adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR,
-    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, release: LOCAL_RELEASE,
+    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, ...(LOCAL_RELEASE.release === undefined ? {} : { release: LOCAL_RELEASE.release }),
   };
 }
 
@@ -60,4 +74,4 @@ export async function startFactoryFleetInit(argv: readonly string[], moduleUrl: 
   return settingsPath;
 }
 
-void startFactoryFleetInit(process.argv, import.meta.url).then((path) => { if (path) console.log(JSON.stringify({ settings: path })); });
+void startFactoryFleetInit(process.argv, import.meta.url).then((path) => { if (path) console.log(JSON.stringify({ settings: path, releaseRefused: LOCAL_RELEASE.refused })); });

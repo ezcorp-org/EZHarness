@@ -336,6 +336,15 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
     throw new FactoryProvisioningError("host_not_ready", `The fleet host did not become ready; still waiting on ${waiting}.`);
   }
 
+  /** The pool container runs and the supervisor unit is active. A host never applied serves nothing. */
+  async serving(paths: FactoryFleetHostPaths): Promise<boolean> {
+    if (!(await Bun.file(resolve(paths.runtimeDirectory, "compose.env")).exists())) return false;
+    const listed = await this.compose(paths, ["ps", "--all", "--format", "json"]);
+    const pool = listed.code === 0 ? parseComposePs(listed.stdout).find((entry) => entry.service === "pool") : undefined;
+    if (pool?.state !== "running") return false;
+    return (await this.options.execute(["systemctl", "--user", "is-active", factorySupervisorUnit(paths.context.fleetId)])).code === 0;
+  }
+
   /** Stop both shared services and keep the pool's containers, for the operator's `stop`. Idempotent. */
   async stop(paths: FactoryFleetHostPaths): Promise<void> {
     await this.stopUnit(paths);

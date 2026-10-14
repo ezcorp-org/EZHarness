@@ -928,6 +928,7 @@ describe("the fleet host: one shared pool and supervisor, and no residue on the 
     readonly bundles: FactoryFleetHostBundle[] = [];
     async apply(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`apply:${bundle.admitted.map((entry) => entry.tenantId).join(",")}`); this.bundles.push(bundle); }
     async ready(bundle: FactoryFleetHostBundle): Promise<void> { this.calls.push(`ready:${bundle.admitted.length}`); }
+    async serving(): Promise<boolean> { return false; }
     async stop(): Promise<void> { this.calls.push("stop"); }
     async remove(): Promise<void> { this.calls.push("remove"); }
     async purge(): Promise<void> { this.calls.push("purge"); }

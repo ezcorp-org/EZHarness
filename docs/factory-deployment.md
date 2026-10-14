@@ -134,7 +134,10 @@ release block. It always contains the installation's own S3 destination
 (`installation-s3`: its ordinary store, prefix `ordinary/releases`). It contains
 a GitHub destination only when the fleet declares one. The token file is
 delivered to the harness, and the document names it only by path. A local fleet
-(`factory-fleet-init-local.ts`) declares one default S3 profile.
+(`factory-fleet-init-local.ts`) declares an S3 profile for each S3 publication
+adapter the reference definitions name. Today their digests are placeholders that
+no published package has, so it declares none and prints the named reason
+(`factory_release_adapter_unpublished`).
 
 The orchestrator runs the workflow bundle that the image build made
 (`packages/@ezcorp/factory-orchestrator/dist/factory-workflow.bundle.js`, with
