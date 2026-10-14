@@ -21,7 +21,7 @@ import {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEYLESS_TOKEN, type ProviderCredential } from "./credentials";
+import { KEYLESS_TOKEN, ProviderCredentialUnusableError, type ProviderCredential } from "./credentials";
 import { oauthSettingKey } from "./credential-store";
 import { encrypt } from "./encryption";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
@@ -300,6 +300,32 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     const answers = await Promise.all([1, 2, 3].map(async () => (await broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).result()));
     expect(answers.map((a) => (a.content[0] as { text: string }).text)).toEqual([1, 2, 3].map(() => `luna:${OAUTH_TOKEN}`));
     expect(sent.map((s) => [s.model.api, s.options.apiKey])).toEqual([1, 2, 3].map(() => ["openai-codex-responses", OAUTH_TOKEN]));
+  });
+
+  test("a stored login that cannot be used is named as unusable, with its error class, never as not configured (W4H-28)", async () => {
+    // Connected, but expired with no refresh token: the ladder cannot derive a key from it.
+    await upsertSetting(oauthSettingKey(LUNA.provider), encrypt(JSON.stringify({ access: OAUTH_TOKEN, refresh: "", expires: Date.now() - 60_000 })));
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+    const record = factoryProviderReadinessRecord(readiness);
+    expect(record).toMatchObject({ failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+    expect(JSON.stringify(record)).not.toContain(OAUTH_TOKEN);
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+    await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/factory_provider_not_ready: openai\/gpt-6-luna \(provider_credential_unusable\)/);
+    expect(sent).toHaveLength(0);
+  });
+
+  test("a key derivation error carries its class and code into the readiness, and nothing else of it", async () => {
+    const derivation = Object.assign(new Error(`OAuth auth derivation failed for openai-codex: ${OAUTH_TOKEN}`), { name: "ModelsError", code: "oauth" });
+    const unusable = new ProviderCredentialUnusableError("openai", derivation);
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw unusable; } });
+    expect(readiness).toMatchObject({ failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "ModelsError", code: "oauth" } });
+    expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain(OAUTH_TOKEN);
+    // Any other resolver error is still "not configured": only a stored, failing credential is unusable.
+    const absent = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw new Error("No credentials available for openai."); } });
+    expect(absent).toMatchObject({ failures: ["provider_not_configured"] });
+    expect(absent).not.toHaveProperty("credentialFailure");
   });
 
   test("with no stored credential names the missing credential only, because the model is in the catalog", async () => {

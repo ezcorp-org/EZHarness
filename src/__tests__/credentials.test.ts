@@ -127,7 +127,17 @@ mock.module("@earendil-works/pi-ai/compat", () => ({
   getProviders: mock(() => []),
 }));
 
-afterAll(() => restoreModuleMocks());
+// beforeEach sets these for the BYOK fallback; restore them after the file so a later file in the same
+// process does not inherit a fixture API key (it made factory-broker.test.ts resolve "apikey" for openai).
+const PROVIDER_ENV_KEYS = ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GOOGLE_API_KEY", "OPENROUTER_API_KEY"] as const;
+const providerEnvBefore = Object.fromEntries(PROVIDER_ENV_KEYS.map(key => [key, process.env[key]]));
+afterAll(() => {
+  restoreModuleMocks();
+  for (const key of PROVIDER_ENV_KEYS) {
+    if (providerEnvBefore[key] === undefined) delete process.env[key];
+    else process.env[key] = providerEnvBefore[key];
+  }
+});
 
 // Import after mocks are set up
 const { getCredentialStore } = await import("../providers/credential-store");

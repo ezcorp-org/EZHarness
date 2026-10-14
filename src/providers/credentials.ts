@@ -285,6 +285,23 @@ async function getApiKeyCredential(
  * carve-outs). A second copy of that order would drift from the real one,
  * and a probe that disagrees with the resolver is worse than no probe.
  */
+/**
+ * A credential is stored for the provider but cannot be used (a connected OAuth login that could not
+ * derive or refresh a key). Distinct from "nothing configured", so readiness can name it; the cause
+ * is kept for its class, and its message is never copied into a record.
+ */
+export class ProviderCredentialUnusableError extends Error {
+  constructor(readonly provider: string, cause: unknown) {
+    super(
+      `OAuth for ${provider} is connected but could not be refreshed: ` +
+      `${cause instanceof Error ? cause.message : String(cause)}. ` +
+      `Sign in to ${provider} again, or add an API key.`,
+      { cause },
+    );
+    this.name = "ProviderCredentialUnusableError";
+  }
+}
+
 export async function tryGetCredential(
   provider: string,
   conversationId?: string,
@@ -380,14 +397,7 @@ export async function getCredential(
       }
     } catch {}
 
-    if (oauthFailure) {
-      throw new Error(
-        `OAuth for ${provider} is connected but could not be refreshed: ` +
-        `${oauthFailure instanceof Error ? oauthFailure.message : String(oauthFailure)}. ` +
-        `Sign in to ${provider} again, or add an API key.`,
-        { cause: oauthFailure },
-      );
-    }
+    if (oauthFailure) throw new ProviderCredentialUnusableError(provider, oauthFailure);
 
     throw new Error(
       `No credentials available for ${provider}. Connect via OAuth or add an API key.`,
