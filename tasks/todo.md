@@ -6163,6 +6163,7 @@ Review: the installation never came up because a lock re-resolution swapped SWC'
 - [x] R5 (validator-8 G1): the loader is an explicit, tested guard exemption, the alias reverted (792dcb6b7); a preparation survives a supervisor restart (4fa87697d).
 - [x] N5: /api/ready carries a stable code and fixed reason per staging failure, never the raw error (9fd90638f).
 - [x] R6: synchronous join (N7), succeeded-only durable records (N6), other source refused first after a restart (T1) (abee88765).
+- [x] R7: integ/w00 1f63311fb (W4H-27) merged in (7e320fcb4); fleet.ts keeps both checks.
 - [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
 
 Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.

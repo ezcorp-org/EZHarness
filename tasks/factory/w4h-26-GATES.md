@@ -51,6 +51,13 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   runner loader; the guard stays red for any real subclass (792dcb6b7). H4 after a restart: a finished preparation is
   recorded durably beside the host key, so a repeated build identity after a restart reads it, never a second build, never
   duplicate_operation; red on the frozen logic (4fa87697d).
+- R7 (integration): merge commit 7e320fcb4 brings integ/w00 1f63311fb (W4H-27) in. fleet.ts keeps both checks (the exported
+  parseFactoryFleetRunnerProfiles and W4H-27's installations.release check) on one probe document, startupProbeDocument;
+  the fleet-init test keeps both import sets and all bodies (W4H-27's fleet-init declares no default release profile;
+  the runner-profile test holds with that); tasks/todo.md is the union. At the merge: the 10 hook-mapped suites 0 fail,
+  fleet 14/0, fleet-cli 11/0, fleet-init 5/0, startup-config 55/0, typecheck 0 (tc-gate), lint 0, gate-integrity 0 findings
+  on both legs. The proof is not re-run: no file the proof uses changed in the merge (it reads LOCAL_RUNNER_PROFILES
+  directly, not the fleet settings parser; W4H-27 touched no runner, package, staging or proof-stack file).
 - R6 (validator-8's T1; the lead's N6, N7; ruled): the join entry is created before any await (concurrent first requests
   build once); only a succeeded preparation is recorded durably (a failed build is joined in memory and rebuilt after a
   restart); other source as the first request after a restart is refused against the record without poisoning the identity.
