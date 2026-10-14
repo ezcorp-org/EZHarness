@@ -46,13 +46,18 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   (ea95d7fe6); preparation read the release source from the factory S3 store instead of the v4 lifecycle's (f168d7475); the
   host runner had no toolchain, a reused build identity failed forever, a failed build said only "mismatch" (a32e94aa0); the
   C13 inventory rows and the host runner's class binding (610ca637d).
+- R5 (validator-8's G1, ruled): the HostRunner alias was a guard evasion in form and is reverted; the Podman-guest guard
+  gains an explicit, tested exemption (GUEST_EXEMPTIONS: one file, one text, its reason, exact-once) for the uninvoked
+  runner loader; the guard stays red for any real subclass (792dcb6b7). H4 after a restart: a finished preparation is
+  recorded durably beside the host key, so a repeated build identity after a restart reads it, never a second build, never
+  duplicate_operation; red on the frozen logic (4fa87697d).
 - Visibility (the lead's condition on "reported, never thrown"): built-in staging returns its outcome by package and the boot
   publishes it under readiness `detail.diagnostics.builtinRunnerPackages`, served by /api/ready (27412cb92).
 
 ## Gates
 
 - [x] G1 (R1): reproduced over public HTTP; refusals with file:line above. EVIDENCE: r1/, journey.md.
-- [x] G2: red first. All 16 new or changed test files are red on 1981febd2 with the base sources (red/red-on-base.txt; the
+- [x] G2: red first. All 17 new or changed test files are red on 1981febd2 with the base sources (red/red-on-base.txt; the
   base worktree .worktrees/w4h-26-base was restored after the run).
 - [x] G3: midpoint, a bound package reaches "prepared" on the composed application through the supervisor: receipt
   trust_revision 1, artifact c50a97ad… = the binding's (proof/midpoint-6.json 942bf5f59e114314).
@@ -61,11 +66,12 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   snapshot sha256:e020cd24… equals the digest recomputed from the fixture, and the port output equals the recomputed port;
   the run then fails at generate-private-candidate `factory_native_package_untrusted` (the later package). /api/ready names
   the staging outcome: builtinRunnerPackages staged ["reference-code", "reference-code-validator"], failed []. At the final
-  head 27412cb92: proof/final-2.json (32d3a144e4ed20d9); the earlier head 610ca637d: proof/final.json (698c29aa00328084).
+  head 4fa87697d: proof/final-3.json (3726e99755022c21); earlier heads: 27412cb92 proof/final-2.json (32d3a144e4ed20d9),
+  610ca637d proof/final.json (698c29aa00328084).
 - [x] G5: D6 mutants, each dropping one digest comparison: 4 of 4 killed (host source check; client artifact check; product
   build-vs-binding; product verifyArtifacts). EVIDENCE: mutants/d6-mutants.txt.
-- [x] G6: legs at 27412cb92: focused coverage of 51 test files, patch coverage PASS (24 files), new-file PASS (5 files, keys
-  added), CRAP no touched function over 30; guard set 42 files, 522 pass, 0 fail; typecheck 0 (tc-gate in the lock, after
+- [x] G6: legs at 4fa87697d: focused coverage of 51 test files, patch coverage PASS (25 files), new-file PASS (5 files, keys
+  added), CRAP no touched function over 30; guard set 42 files, 524 pass, 0 fail; typecheck 0 (tc-gate in the lock, after
   `bun run build:packages`); lint 0; gate-integrity PASS on both legs (default, BASE_REF=origin/main: 0 findings);
   check-boundaries, factory boundaries, lanes clean; prune scan clean. EVIDENCE: legs/.
 - [ ] G7: the proof on a started Compose installation, after W4H-27 merges (the Compose installation does not start today).
@@ -78,9 +84,9 @@ prepares a package; no product path puts a prepared artifact in the supervisor's
   reference.code.v1 pins configurationDigest `sha256:bbbb…`, and a pinned profile must satisfy runner.configurationDigest =
   model.configurationDigest = digest(model.configuration) (native-runner-policy.ts:85-88, startup-config.ts:501), which no
   configuration can. The later package must change the definition's pin (reported to the lead).
-- The local fleet's cpu class allocation rises from 1,000 to 50,000 tokens for the w09b guest too (one allocation per class).
 - The provisioned Compose installation gives the application no extension runner, so a boot build there fails
   runner_unconfigured; that composition is W4H-27's step.
 - The host service answers at most 4 MiB, so a package whose artifacts exceed it cannot be prepared (these are about 0.8 MB).
-- The Podman-guest job guard reads `extends PodmanRunner` as a test that starts a guest; the supervisor built the same runner
-  through its loader before, so the loaded class is bound as HostRunner. The guard's heuristic still does not see a loader.
+- N1: the local fleet's cpu allocation rises from 1,000 to 50,000 tokens, for the w09b guest too (one allocation per class).
+- N3: with factories off, the boot still imports the factory boot flag and runner-install (no work is done); a leftover.
+- The Podman-guest guard's exemption for the runner loader is explicit and tested (R5); validator-8's G1 on the earlier alias.
