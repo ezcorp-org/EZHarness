@@ -65,7 +65,7 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
   const runner = (text: string) => [{ manifestName: "reference-code", files: { "extension.ts": text }, entrypoint: "extension.ts" }];
 
   test("stage once in their own namespace, owned by the administrator, disabled, never approved", async () => {
-    await stageBuiltinRunnerSources(runner("export {}"));
+    expect(await stageBuiltinRunnerSources(runner("export {}"))).toEqual({ state: "staged", staged: ["reference-code"], failed: [] });
     await stageBuiltinRunnerSources(runner("export {}"));
     const id = builtinRunnerInstallationId("reference-code");
     expect(id).not.toBe(bundledInstallationId("reference-code"));
@@ -94,7 +94,7 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
 
   test("wait for an active administrator, and skip an uninstalled package", async () => {
     users = [];
-    await stageBuiltinRunnerSources(runner("export {}"));
+    expect(await stageBuiltinRunnerSources(runner("export {}"))).toEqual({ state: "awaiting-administrator" });
     expect(states.size).toBe(0);
     users = [{ id: "admin", role: "admin", status: "active" }];
     await stageBuiltinRunnerSources(runner("export {}"));
@@ -106,7 +106,7 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
   test("an installation whose owner is no longer active is left for a person, and nothing is built", async () => {
     await stageBuiltinRunnerSources(runner("export {}"));
     states.get(builtinRunnerInstallationId("reference-code"))!.installation.ownerId = "departed";
-    await stageBuiltinRunnerSources(runner("export const again = 1;"));
+    expect(await stageBuiltinRunnerSources(runner("export const again = 1;"))).toEqual({ state: "staged", staged: [], failed: [{ manifestName: "reference-code", error: "the installation is uninstalled or its owner is inactive; manual ownership review required" }] });
     expect(builds).toHaveLength(1);
   });
 
@@ -119,7 +119,8 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
 
   test("one package's failure is reported and does not stop the next", async () => {
     const entries = [{ manifestName: "broken", files: { "extension.ts": 1n } as never, entrypoint: "extension.ts" }, ...runner("export {}")];
-    await stageBuiltinRunnerSources(entries);
+    const outcome = await stageBuiltinRunnerSources(entries);
+    expect(outcome).toMatchObject({ state: "staged", staged: ["reference-code"], failed: [{ manifestName: "broken", error: expect.stringContaining("Only JSON data is accepted") }] });
     expect(builds).toHaveLength(1);
   });
 });

@@ -10,6 +10,7 @@ import { getProjectRoot } from "./project-root";
 import { isExtensionRunnerConfigured } from "./runner-connection";
 import { digestObject } from "./v4/blobs";
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { ReferenceCodeRunnerStaging } from "../factory/reference-code/runner-install";
 import type { InstallationState, LifecycleActor, LifecycleOperation } from "./v4/types";
 
 const log = extensionLogger("bundled", "bootstrap");
@@ -148,16 +149,22 @@ export function builtinRunnerInstallationId(manifestName: string): string {
  * administrator approves the exact release. The files are the product's committed source, staged by
  * the caller; the install confers no authority of its own.
  */
-export async function stageBuiltinRunnerSources(entries: readonly { manifestName: string; files: WorkspaceFiles; entrypoint: string }[]): Promise<void> {
+export async function stageBuiltinRunnerSources(entries: readonly { manifestName: string; files: WorkspaceFiles; entrypoint: string }[]): Promise<ReferenceCodeRunnerStaging> {
   const context = await stagingContext();
-  if (!context) return;
+  if (!context) return { state: "awaiting-administrator" };
   const ownerId = firstAdministrator(context.users)!.id;
+  const staged: string[] = [];
+  const failed: { manifestName: string; error: string }[] = [];
   for (const entry of entries) {
     try {
       const state = await stagedInstallation(context, entry.manifestName, builtinRunnerInstallationId(entry.manifestName), ownerId);
-      if (state) await stageSource(context, entry.manifestName, state, entry.files, entry.entrypoint);
+      if (!state) { failed.push({ manifestName: entry.manifestName, error: "the installation is uninstalled or its owner is inactive; manual ownership review required" }); continue; }
+      await stageSource(context, entry.manifestName, state, entry.files, entry.entrypoint);
+      staged.push(entry.manifestName);
     } catch (error) {
       log.error("Built-in runner package staging requires attention", { name: entry.manifestName, error: String(error) });
+      failed.push({ manifestName: entry.manifestName, error: String(error) });
     }
   }
+  return { state: "staged", staged, failed };
 }

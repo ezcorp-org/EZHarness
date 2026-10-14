@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach } from "bun:test";
-import { getReadiness, setReadiness, resetReadiness } from "../readiness";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
+import { getReadiness, setReadiness, resetReadiness, setReadinessDiagnostic } from "../readiness";
 
 beforeEach(() => {
   resetReadiness();
@@ -60,5 +60,25 @@ describe("readiness state module", () => {
     const b = getReadiness();
     expect(a.state).toBe(b.state);
     expect(a.since).toBe(b.since);
+  });
+});
+
+describe("named readiness diagnostics (W4H-26)", () => {
+  afterEach(() => { resetReadiness(); setReadinessDiagnostic("builtinRunnerPackages", undefined); });
+
+  test("a named diagnostic appears in the readiness detail and survives the next readiness write (W4H-26)", () => {
+    setReadinessDiagnostic("builtinRunnerPackages", { state: "failed", error: "Error: runner unconfigured" });
+    expect(getReadiness().detail).toEqual({ diagnostics: { builtinRunnerPackages: { state: "failed", error: "Error: runner unconfigured" } } });
+    setReadiness({ state: "ready", detail: { factory: { tenantId: "t" } } });
+    expect(getReadiness()).toMatchObject({ state: "ready", detail: { factory: { tenantId: "t" }, diagnostics: { builtinRunnerPackages: { state: "failed" } } } });
+  });
+
+  test("without a diagnostic the readiness is exactly what was set, and clearing one removes it", () => {
+    setReadiness({ state: "degraded", reason: "r", detail: "text detail" });
+    expect(getReadiness().detail).toBe("text detail");
+    setReadinessDiagnostic("builtinRunnerPackages", { state: "staged" });
+    expect(getReadiness().detail).toEqual({ value: "text detail", diagnostics: { builtinRunnerPackages: { state: "staged" } } });
+    setReadinessDiagnostic("builtinRunnerPackages", undefined);
+    expect(getReadiness().detail).toBe("text detail");
   });
 });
