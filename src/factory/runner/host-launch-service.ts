@@ -109,6 +109,13 @@ function standardErrorReport(entry: FactoryHostLaunchReport): void {
 export const FACTORY_HOST_PREPARATION_TIMEOUT_MS = 240_000;
 
 export const FACTORY_HOST_PREPARATION_PATH = "/v1/host/preparations";
+/**
+ * The preparation reply's bound, on both sides (W4H-28). The reply carries the built artifact's bytes
+ * only so the product can recompute their digest. A package's locked dependency closure travels as
+ * base64 in its `.runner/dependencies.json`: the reference-code validator's toolchain (TypeScript and
+ * its type packages) is about 40 MB of reply. Every other host-service reply stays at 4 MiB.
+ */
+export const FACTORY_HOST_PREPARATION_REPLY_BYTES = 64 * 1024 * 1024;
 export const FACTORY_HOST_LAUNCH_PATH = "/v1/host/launches";
 export const FACTORY_HOST_ATTACH_PATH = "/v1/host/attachments";
 export const FACTORY_HOST_RESULT_PATH = "/v1/host/results";
