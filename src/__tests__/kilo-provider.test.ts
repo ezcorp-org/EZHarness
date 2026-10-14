@@ -295,6 +295,22 @@ describe("T6 discovery", () => {
     }
   });
 
+  test("the one-shot catalog fetch keeps no connection open after it (W4H-30)", async () => {
+    const originalFetch = globalThis.fetch;
+    const inits: (RequestInit | undefined)[] = [];
+    globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+      inits.push(init);
+      return new Response(JSON.stringify(payload), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    try {
+      await fetchProviderModels(KILO_PROVIDER);
+      // The boot warm-up fetched it once and left an idle keep-alive to the gateway that a resource sample caught.
+      expect(inits.map(init => init?.keepalive)).toEqual([false]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
   test("an HTTP failure is reported, not swallowed", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = (async () => new Response("upstream down", { status: 503 })) as unknown as typeof fetch;
