@@ -157,6 +157,9 @@ test("a build that is not the binding's is refused by name and writes no receipt
   const failed = await context.preparations(build({ state: "failed", artifactDigest: undefined, diagnostics: [{ code: "toolchain_unavailable", message: "Pinned TypeScript toolchain must be provisioned" }, { code: "bare" }] as never })).prepare(projectId, reference).catch((error: unknown) => error);
   expect(failed).toMatchObject({ code: "factory_package_build_mismatch", detail: "toolchain_unavailable: Pinned TypeScript toolchain must be provisioned; bare" });
   await expect(context.preparations(build({ state: "failed", artifactDigest: undefined })).prepare(projectId, reference)).rejects.toMatchObject({ detail: "failed" });
+  // A build whose facts all match, but whose collected files are not the bound artifact, is refused too.
+  const tampered: Pick<Runner, "build" | "collectArtifacts"> = { build: build({}).build, async collectArtifacts() { return { ...structuredClone(context.artifacts), "extension.ts": "export const tampered = 1;" }; } };
+  await expect(context.preparations(tampered).prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_artifact_corrupt" });
   expect(await bind.pendingPreparations()).toEqual([{ projectId, reference }]);
 });
 
