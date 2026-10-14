@@ -404,6 +404,8 @@ export async function fetchKiloCatalog(apiKey?: string): Promise<KiloModel[]> {
   const res = await fetch(KILO_MODELS_URL, {
     headers: apiKey ? { Authorization: `Bearer ${apiKey}` } : {},
     signal: AbortSignal.timeout(20_000),
+    // A one-shot read (boot warm-up, admin refresh): no reason to keep the connection idle afterwards (W4H-30).
+    keepalive: false,
   });
   if (!res.ok) {
     throw new Error(`Kilo gateway returned ${res.status}: ${await res.text()}`);
