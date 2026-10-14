@@ -64,7 +64,9 @@ SOCKET="${PODMAN_SOCKET:-}"
 if [ -z "$SOCKET" ]; then
   SOCKET="/run/user/$(id -u)/podman/podman.sock"
   if [ ! -S "$SOCKET" ] && command -v podman >/dev/null 2>&1; then
-    MACHINE_SOCKET="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1)"
+    # Native Linux Podman has no machine and exits non-zero; fall through to
+    # the error below rather than letting errexit end the script silently.
+    MACHINE_SOCKET="$(podman machine inspect --format '{{.ConnectionInfo.PodmanSocket.Path}}' 2>/dev/null | head -1 || true)"
     if [ -n "$MACHINE_SOCKET" ]; then SOCKET="$MACHINE_SOCKET"; fi
   fi
 fi

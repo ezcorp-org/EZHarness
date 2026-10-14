@@ -1,3 +1,4 @@
+import { enforcingRunnerCapabilities } from "../../__tests__/helpers/runner-capabilities";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { providerMethodSchemas, sha256, type ExtensionManifestV4, type Runner, type SandboxProviderMethodGroup } from "@ezcorp/extension-contract";
 import { sql } from "drizzle-orm";
@@ -79,7 +80,7 @@ describe("invokeSandboxProvider", () => {
     };
     reference = { installationId, providerId: "local", releaseId, releaseBinding: await sha256(releaseBinding(snapshot)), generation: 1 };
     const runner: Runner = {
-      async build() { throw new Error("unused"); }, async cancel() {}, async inspect() { return { id: "fixture", state: "running", diagnostics: [] }; }, async collectArtifacts() { throw new Error("unused"); },
+      async build() { throw new Error("unused"); }, async cancel() {}, async inspect() { return { id: "fixture", state: "running", diagnostics: [] }; }, capabilities: enforcingRunnerCapabilities, async collectArtifacts() { throw new Error("unused"); },
       async start(start, reverse) {
         return { workerId: start.workerId, close: async () => {}, onNotification: () => () => {}, request: async (method, params) => {
           if (method === "extension/discover") return manifest;

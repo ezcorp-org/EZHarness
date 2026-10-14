@@ -187,12 +187,14 @@ export class LocalFactoryProvisioner {
     assertFactoryInstallationRequest(request);
     await this.setup();
     const names = factoryInstallationNames(this.options.fleetId, request.tenantId, { secretsRoot: this.options.secretsRoot, operatorRoot: this.options.operatorRoot });
-    // The durable intent, committed before any external effect so a crash in step 1 is recoverable.
-    await this.ledger.record({
-      tenantId: request.tenantId, fleetId: this.options.fleetId, installationId: randomUUID(), hostname: request.hostname, administratorEmail: request.administratorEmail.toLowerCase(),
-      invitationId: randomUUID(), ...names, rolePlan: randomUUID(), databasePlan: randomUUID(), ...(options.planLimits ? { planLimits: options.planLimits } : {}),
-    });
     return this.ledger.locked(request.tenantId, async () => {
+      // The durable intent, committed before any external effect so a crash in step 1 is recoverable.
+      // It is written under the tenant lock: two unserialized inserts can both pass the tenant_id
+      // conflict check, and the later one then fails on a derived unique column instead of doing nothing.
+      await this.ledger.record({
+        tenantId: request.tenantId, fleetId: this.options.fleetId, installationId: randomUUID(), hostname: request.hostname, administratorEmail: request.administratorEmail.toLowerCase(),
+        invitationId: randomUUID(), ...names, rolePlan: randomUUID(), databasePlan: randomUUID(), ...(options.planLimits ? { planLimits: options.planLimits } : {}),
+      });
       const record = await this.ledger.installation(request.tenantId);
       if (!record || record.hostname !== request.hostname || record.administratorEmail !== request.administratorEmail.toLowerCase() || record.fleetId !== this.options.fleetId
         || record.productDatabase !== names.productDatabase || record.productRole !== names.productRole || record.temporalNamespace !== names.temporalNamespace

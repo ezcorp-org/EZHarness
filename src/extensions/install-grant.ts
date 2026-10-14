@@ -22,7 +22,7 @@
  */
 import { clampExtensionPermissions, isGrantableEventSubscription } from "./clamp-permissions";
 import { capabilityToolsDisabled } from "./capability-flags";
-import { getRequiredPermissions } from "./permissions";
+import { getRequiredPermissions, type PermissionItem } from "./permissions";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 import { askLine } from "../ui/prompt";
 
@@ -226,7 +226,7 @@ export async function promptForPermissions(
     return { grantedAt: {} }; // no permissions requested
   }
 
-  printRequestedPermissions(manifest);
+  printRequestedPermissions(manifest, items);
 
   const answer = await askLine("Approve all permissions? [y/N/select] ");
   const choice = answer.trim().toLowerCase();
@@ -243,45 +243,11 @@ export async function promptForPermissions(
   return { grantedAt: {} };
 }
 
-/** Human-readable summary of every capability an install would grant. */
-function printRequestedPermissions(manifest: ExtensionManifestV2): void {
-  const perms = manifest.permissions ?? {};
+/** Human-readable summary of every capability an install would grant (permission-text.ts). */
+function printRequestedPermissions(manifest: ExtensionManifestV2, items: PermissionItem[]): void {
   console.log(`\nExtension "${manifest.name}" requests the following permissions:\n`);
-
-  if (perms.network?.length) {
-    console.log("  Network access:");
-    for (const d of perms.network) console.log(`    - ${d}`);
-    console.log();
-  }
-  if (perms.filesystem?.length) {
-    console.log("  Filesystem access:");
-    for (const path of perms.filesystem) console.log(`    - ${path}`);
-    console.log();
-  }
-  if (perms.shell) console.log("  Shell command execution\n");
-  if (perms.env?.length) {
-    console.log("  Environment variables:");
-    for (const v of perms.env) console.log(`    - ${v}`);
-    console.log();
-  }
-  if (perms.storage) console.log("  Persistent storage (self-scoped key/value)\n");
-  if (perms.spawnAgents) {
-    console.log(
-      `  Spawn sub-agents (max ${perms.spawnAgents.maxPerHour}/hr, ` +
-        `${perms.spawnAgents.maxConcurrent ?? 3} concurrent)\n`,
-    );
-  }
-  const events = normalizeDeclaredEvents(perms.eventSubscriptions);
-  if (events?.length) {
-    console.log("  Event subscriptions:");
-    for (const e of events) console.log(`    - ${e}`);
-    console.log();
-  }
-  if (perms.schedule?.crons?.length) {
-    console.log("  Scheduled background runs:");
-    for (const c of perms.schedule.crons) console.log(`    - ${c}`);
-    console.log();
-  }
+  for (const item of items) console.log(`  - ${item.description}`);
+  console.log();
 }
 
 /**

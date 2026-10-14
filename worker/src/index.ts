@@ -12,6 +12,8 @@ type Provider = "anthropic" | "google" | "openai";
 type RunStatus = "running" | "success" | "error";
 
 interface Env {
+  /** Shared bearer token for every API route. Unset means the Worker refuses all requests. */
+  AGENTS_API_TOKEN?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   DEFAULT_MODEL?: string;
@@ -53,7 +55,7 @@ const MAX_RUNS = 100;
 const CORS_HEADERS = {
   "access-control-allow-origin": "*",
   "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
+  "access-control-allow-headers": "authorization, content-type",
 };
 
 const agents = [{
@@ -137,19 +139,10 @@ class WorkerExecutor {
     return runs.get(id);
   }
 
-  async runAgent(name: string, input: Record<string, unknown>, env: Env): Promise<AgentRun> {
-    if (name !== "summarizer") throw new Error(`Agent not found: ${name}`);
+  /** Callers validate first (see startRun): the agent exists and `source` is non-empty text. */
+  async runAgent(name: string, source: string, input: Record<string, unknown>, env: Env): Promise<AgentRun> {
     const run: AgentRun = { id: crypto.randomUUID(), agentName: name, status: "running", startedAt: Date.now(), logs: [] };
     runs.set(run.id, run);
-    const source = text(input.text);
-    if (!source) {
-      run.status = "success";
-      run.finishedAt = Date.now();
-      run.result = { success: false, output: null, error: "Missing input.text" };
-      trimRuns();
-      return run;
-    }
-
     try {
       const providerName = provider(input.provider ?? env.DEFAULT_PROVIDER ?? "anthropic");
       const model = text(input.model) ?? text(env.DEFAULT_MODEL);
@@ -187,28 +180,64 @@ function trimRuns(): void {
 
 const executor = new WorkerExecutor();
 
+async function sha256(value: string): Promise<Uint8Array> {
+  return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
+}
+
+/** Compares fixed-length digests without an early exit, so timing does not reveal the token. */
+async function tokenMatches(presented: string, expected: string): Promise<boolean> {
+  const [left, right] = await Promise.all([sha256(presented), sha256(expected)]);
+  let difference = 0;
+  for (let index = 0; index < left.length; index += 1) difference |= left[index]! ^ right[index]!;
+  return difference === 0;
+}
+
+/** Fails closed: no configured token answers 503, a missing or wrong token answers 401. */
+async function authorize(request: Request, env: Env): Promise<Response | null> {
+  if (!env.AGENTS_API_TOKEN) return json({ error: "Worker API token is not configured" }, 503);
+  const header = request.headers.get("authorization") ?? "";
+  const presented = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  if (presented && await tokenMatches(presented, env.AGENTS_API_TOKEN)) return null;
+  const response = json({ error: "Unauthorized" }, 401);
+  response.headers.set("www-authenticate", "Bearer");
+  return response;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
-    const pathname = new URL(request.url).pathname;
+    // A browser preflight carries no credentials and returns no data.
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS_HEADERS });
-    if (pathname === "/api/agents" && request.method === "GET") return json(agents);
-    if (pathname === "/api/runs" && request.method === "GET") return json(await executor.listRuns());
-
-    const runMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
-    if (runMatch && request.method === "GET") {
-      const run = await executor.getRun(runMatch[1]!);
-      return run ? json(run) : json({ error: "Not found" }, 404);
-    }
-
-    const agentRunMatch = pathname.match(/^\/api\/agents\/([^/]+)\/run$/);
-    if (agentRunMatch && request.method === "POST") {
-      try {
-        const input = await request.json() as Record<string, unknown>;
-        return json(await executor.runAgent(agentRunMatch[1]!, input, env));
-      } catch (error) {
-        return json({ error: error instanceof Error ? error.message : String(error) }, 400);
-      }
-    }
-    return json({ error: "Not found" }, 404);
+    return await authorize(request, env) ?? route(request, env);
   },
 };
+
+/** Rejects bad requests before a run is recorded or a provider is called. */
+async function startRun(name: string, request: Request, env: Env): Promise<Response> {
+  if (!agents.some((agent) => agent.name === name)) return json({ error: `Agent not found: ${name}` }, 404);
+  let input: unknown;
+  try {
+    input = await request.json();
+  } catch (error) {
+    return json({ error: error instanceof Error ? error.message : String(error) }, 400);
+  }
+  const body = input !== null && typeof input === "object" && !Array.isArray(input) ? input as Record<string, unknown> : {};
+  const source = text(body.text);
+  if (!source) return json({ error: "input.text must be a non-empty string" }, 400);
+  return json(await executor.runAgent(name, source, body, env));
+}
+
+async function route(request: Request, env: Env): Promise<Response> {
+  const pathname = new URL(request.url).pathname;
+  if (pathname === "/api/agents" && request.method === "GET") return json(agents);
+  if (pathname === "/api/runs" && request.method === "GET") return json(await executor.listRuns());
+
+  const runMatch = pathname.match(/^\/api\/runs\/([^/]+)$/);
+  if (runMatch && request.method === "GET") {
+    const run = await executor.getRun(runMatch[1]!);
+    return run ? json(run) : json({ error: "Not found" }, 404);
+  }
+
+  const agentRunMatch = pathname.match(/^\/api\/agents\/([^/]+)\/run$/);
+  if (agentRunMatch && request.method === "POST") return startRun(agentRunMatch[1]!, request, env);
+  return json({ error: "Not found" }, 404);
+}

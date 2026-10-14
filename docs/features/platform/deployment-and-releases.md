@@ -4,15 +4,14 @@
 
 ## Intent
 
-EZCorp is a single-container, self-hosted platform, so the build/deploy story is part of the product. The image bakes in the MCP-sandbox runtime deps (namespaces, bubblewrap, seccomp BPF, a setuid preview helper), persists all DB state on a host bind mount, and refuses to boot prod with missing secrets. Releases are gated behind a verification pipeline (unit + snapshot/rollback + Docker upgrade) so a published image is provably upgrade-safe, and a lightweight update check tells running instances when a newer GitHub Release exists. The goal is zero-RPO local persistence and safe, observable upgrades for operators who run their own box.
+EZCorp is a single-container, self-hosted platform, so the build/deploy story is part of the product. The image bakes in sandbox runtime deps (bubblewrap for the agent-shell jail, a setuid preview helper), persists all DB state on a host bind mount, and refuses to boot prod with missing secrets. Releases are gated behind a verification pipeline (unit + snapshot/rollback + Docker upgrade) so a published image is provably upgrade-safe, and a lightweight update check tells running instances when a newer GitHub Release exists. The goal is zero-RPO local persistence and safe, observable upgrades for operators who run their own box.
 
 ## How it works
 
 ### Image build (two-stage `Dockerfile`)
 
 1. **Stage 1 (`oven/bun:1` builder)** — installs root + `web/` deps (`--frozen-lockfile --ignore-scripts`), `COPY . .`, builds the `@ezcorp/sdk` workspace (`bun run --cwd packages/@ezcorp/sdk build`), then the SvelteKit app (`cd web && bun run build`).
-2. **Stage 2 (`oven/bun:1-slim` runtime)** — apt-installs the MCP-sandbox runtime binaries (`util-linux`, `iproute2`, `iptables`, `nftables`, `libcap2-bin`, `bubblewrap`, `libseccomp2`), then does two self-contained compile-and-purge blocks (gcc + libs installed and removed in the same `RUN` so they never bloat the layer):
-   - **seccomp BPF** — compiles `build/compile-seccomp.c` and transforms the committed `src/extensions/mcp-seccomp.json` profile into `/app/src/extensions/mcp-seccomp.bpf` (opened at MCP-spawn time, passed to `bwrap --seccomp <fd>`).
+2. **Stage 2 (`oven/bun:1-slim` runtime)** — apt-installs runtime binaries (`util-linux`, `iproute2`, `iptables`, `nftables`, `libcap2-bin`, `bubblewrap`, `libseccomp2`; most were for the deleted host MCP launcher), then does a self-contained compile-and-purge block (gcc installed and removed in the same `RUN` so it never bloats the layer):
    - **preview-spawn helper** — compiles `build/preview-spawn.c` to `/app/bin/preview-spawn`, installed `root:root` mode `4755` (setuid). It lands **outside** the source tree on purpose — an extensionless ELF next to `preview-spawn.ts` would shadow the TS module and crash the preview subsystem at import.
 3. Build-arg metadata (`VERSION`, `REVISION`, `CREATED`) is surfaced as OCI labels **and** as runtime env vars: `EZCORP_IMAGE_VERSION` (the version the update check reports as `current`) and `EZCORP_IMAGE_SHA` (the **circuit-breaker key** read by `src/db/connection.ts`).
 4. Runtime deps are re-installed `--production`, backend `src/`, the SDK/ai-kit workspace source, bundled-extension `docs/` + `extensions/`, the tamper lockfile `manifest.lock.json`, and the compiled `web/build/` are copied in. `/app/data` + `/app/.ezcorp` are created and `chown`'d to `bun`; the setuid bit on `preview-spawn` is re-applied **after** the recursive chown (chown strips it).
@@ -96,7 +95,7 @@ bun run verify:all   # verify:backup && verify:edges && verify:docker{,-rollback
 
 ## Key files
 
-- `Dockerfile` — two-stage prod image: builder + slim runtime, MCP-sandbox deps, seccomp-BPF + setuid `preview-spawn` compile-and-purge, OCI labels, `USER bun`, healthcheck.
+- `Dockerfile` — two-stage prod image: builder + slim runtime, sandbox deps, setuid `preview-spawn` compile-and-purge, OCI labels, `USER bun`, healthcheck.
 - `Dockerfile.dev` — dev image (all deps incl. dev, no SvelteKit prod build, `git` for `installFromGit`, source bind-mounted at runtime).
 - `docker-compose.yml` — dev stack: host networking, Postgres + SearXNG sidecars, seed sentinel, HMR bind mounts, `EZCORP_DEV_INDICATOR`.
 - `compose.prod.yml` — prod stack: local-build-or-pull, `NET_ADMIN`, fail-on-missing-secret interpolation, host bind-mount persistence, `stop_grace_period: 30s`, commented Watchtower + external-Postgres.
@@ -114,7 +113,6 @@ bun run verify:all   # verify:backup && verify:edges && verify:docker{,-rollback
 - `scripts/verify-docker-image.sh` — image label/VOLUME/readiness/version assertions.
 - `scripts/verify-docker-rollback.sh` — Docker rollback (circuit breaker + recovery) verify.
 - `scripts/verify-docker-upgrade.sh` — two-image upgrade data + snapshot preservation.
-- `build/compile-seccomp.c` / `src/extensions/mcp-seccomp.json` — build-time JSON→BPF seccomp profile.
 - `build/preview-spawn.c` — setuid `preview-spawn` helper source.
 - `manifest.lock.json` — bundled-extension tamper lockfile baked at `/app`.
 
@@ -124,7 +122,7 @@ bun run verify:all   # verify:backup && verify:edges && verify:docker{,-rollback
 - [[dev-lifecycle-and-gates]] — the release pipeline's Gate 1/2 verify suite is the deployment-side counterpart to the per-PR CI gates.
 - [[sandbox-and-isolation]] — the image bakes in the namespace/bwrap/seccomp/nftables deps and `NET_ADMIN` posture that the MCP sandbox needs at runtime.
 - [[preview-port-exposure]] — the setuid `/app/bin/preview-spawn` helper compiled by the Dockerfile is what launches per-conversation preview processes.
-- [[mcp-servers]] — `cap_add: NET_ADMIN` + the seccomp BPF blob exist to isolate stdio MCP servers per spawn.
+- [[mcp-servers]] — stdio MCP servers run in the extension runner, not in this image's process tree.
 - [[web-search]] — both Compose stacks ship the SearXNG sidecar (loopback in dev, bridge-internal in prod).
 - [[authentication]] — prod refuses to boot without `EZCORP_JWT_SECRET` / encryption secrets, and `FORCE_SECURE_COOKIES` / `ORIGIN` are deploy-time session config.
 - [[bundled-catalog]] — `manifest.lock.json` + the bundled `docs/`/`extensions/` copies are baked into the image; a release that widens a bundled manifest disables that extension pending re-approval.

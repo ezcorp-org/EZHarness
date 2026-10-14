@@ -215,7 +215,13 @@ test.describe("/commands authoring UI", () => {
 
 	test("opening a command that does not exist shows the load error", async ({ page, mockApi }) => {
 		await mockApi({ userCommands: [{ name: "review", body: "Review: $ARGUMENTS" }] });
-		await page.goto("/commands/missing");
+		await page.goto("/commands/review");
+		await expect(page.getByTestId("command-form-body")).toHaveValue("Review: $ARGUMENTS");
+
+		// In-app, the reused page must drop the previous command's form, so
+		// a save cannot write /review's body while the URL says /missing.
+		await clickInAppLink(page, "/commands/missing");
+		await expect(page).toHaveURL("/commands/missing");
 		await expect(page.getByTestId("commands-edit-load-error")).toBeVisible();
 		await expect(page.getByTestId("command-form-body")).toHaveCount(0);
 	});

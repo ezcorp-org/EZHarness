@@ -9,6 +9,7 @@ import { buildLimits, DEFAULT_PYTHON_IMAGE, executionLimits, filesDigest, Python
 import { validateFactoryGuestMaterialRequest, validateFactoryGuestMaterialResponse, validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, validateFactoryRunnerRequest, validateFactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { loadFactoryConformanceFixtures, type FactoryConformanceKind } from "../../__tests__/helpers/factory-c02-conformance-fixtures";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestDigest, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 /**
  * The isolated Python guest, end to end through the shared runner.
@@ -59,7 +60,7 @@ function build(): { evidence: { tests: Array<{ name: string }>; discoveryDigest:
 async function guest<Result>(name: string, input: unknown): Promise<Result> {
   const workerId = randomUUID();
   const context = { workerId, invocationId: randomUUID(), releaseId: artifactDigest, principalId: "tenant-python", scopeId: "project-python", token: "python-token", deadline: Date.now() + executionLimits.timeoutMs - 5_000 };
-  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [] }, async () => { throw new Error("the Python guest must never reach the broker"); });
+  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [], processSpawn: FACTORY_GUEST_PROCESS_SPAWN }, async () => { throw new Error("the Python guest must never reach the broker"); });
   try { return await worker.request("extension/invoke", { name, input, context }) as Result; }
   finally { await worker.close(); }
 }

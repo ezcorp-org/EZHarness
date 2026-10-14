@@ -23,7 +23,7 @@
 import { logger } from "../logger";
 import { deriveHandlerContext, type RegisteredToolStub } from "./handler-context";
 import { recordCapabilityCall } from "./recordCapabilityCall";
-import type { ScheduleDaemon } from "./schedule-daemon";
+import { getActiveScheduleDaemon, type ScheduleDaemon } from "./schedule-daemon";
 import type { ExtensionPermissions, JsonRpcRequest, JsonRpcResponse } from "./types";
 
 const log = logger.child("ext.schedule-handler");
@@ -37,8 +37,8 @@ export interface ScheduleHandlerContext {
   granted: ExtensionPermissions;
   registeredTool: RegisteredToolStub;
   /** The daemon instance — used to share `fireNow` plumbing
-   *  (counters + DB writes + dispatch). When `undefined`, the
-   *  handler returns -32603 (no daemon configured).  */
+   *  (counters + DB writes + dispatch). When `undefined`, the handler
+   *  uses the daemon running in this process, else returns -32603.  */
   daemon?: ScheduleDaemon;
 }
 
@@ -84,12 +84,13 @@ export async function handlePiSchedule(
     return softFail(req, "cron-not-declared");
   }
 
-  if (!ctx.daemon) {
+  const daemon = ctx.daemon ?? getActiveScheduleDaemon();
+  if (!daemon) {
     log.warn("fireNow-without-daemon", { extensionId: handlerCtx.actorExtensionId });
     return softFail(req, "schedule-daemon-unavailable", -32603);
   }
 
-  const result = await ctx.daemon.fireNow(handlerCtx.actorExtensionId, params.cron);
+  const result = await daemon.fireNow(handlerCtx.actorExtensionId, params.cron);
   if (!result.ok) {
     await recordCapabilityCall({
       ctx: handlerCtx,

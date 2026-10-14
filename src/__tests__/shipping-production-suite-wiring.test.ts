@@ -33,7 +33,7 @@ case "$1" in
 esac
 if [[ -n "\${EZ_RUNTIME_RECEIPT_DIR:-}" ]]; then mkdir -p "$EZ_RUNTIME_RECEIPT_DIR"; fi
 if [[ -n "\${EZ_PRODUCTION_RECEIPT_DIR:-}" ]]; then mkdir -p "$EZ_PRODUCTION_RECEIPT_DIR"; fi
-printf 'argv=%s\nargs=%s\nruntime_image=%s\ncandidate_image=%s\nsource=%s\nstage2=%s\nstage2_image=%s\n' "$1" "$*" "\${EZ_PRODUCTION_IMAGE:-\${EZ_RUNTIME_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_IMAGE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_SOURCE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE:-}}" "\${EZCORP_STAGE2_PROOF:-}" "\${EZCORP_STAGE2_PROOF_IMAGE:-}" >> "\${FAKE_INVOCATION_LOG:?}"
+printf 'argv=%s\nargs=%s\nruntime_image=%s\ncandidate_image=%s\nsource=%s\nrunner_proof=%s\n' "$1" "$*" "\${EZ_PRODUCTION_IMAGE:-\${EZ_RUNTIME_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_IMAGE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE:-}}" "\${VERIFY_UPGRADE_CANDIDATE_SOURCE:-\${VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE:-}}" "\${EZCORP_RUNNER_ISOLATION_PROOF:-}" >> "\${FAKE_INVOCATION_LOG:?}"
 printf 'leaf=%s\\n' "$1"
 exit "$status"
 `);
@@ -149,9 +149,8 @@ test("shipping suite runs each named shard with only its registered proofs and c
       expect(invocations).toContain("source=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
       if (shard === "namespace") {
         expect(invocations).toContain("argv=-c");
-        expect(invocations).toContain("stage2=1");
-        expect(invocations).toContain("stage2_image=ezcorp:test-candidate");
-        expect(invocations).toContain("mcp-stage2-conntrack-soak.test.ts");
+        expect(invocations).toContain("runner_proof=1");
+        expect(invocations).toContain("runner-worker-isolation.proof.test.ts");
       } else {
         expect(invocations).toContain("runtime_image=ezcorp:test-candidate");
         if (shard === "recovery" || shard === "content") expect(invocations).toContain("candidate_image=ezcorp:test-candidate");
@@ -165,10 +164,8 @@ test("shipping suite runs each named shard with only its registered proofs and c
 test("shipping suite delegates selection to the shared plan and keeps the namespace proof isolated", async () => {
   const source = await Bun.file(suite).text();
   expect(source).toContain(`bun scripts/production-proof-plan.ts select "\${EZ_SHIPPING_SHARD:-}"`);
-  expect(source).toContain('"EZCORP_STAGE2_PROOF=1"');
-  expect(source).toContain('"EZCORP_STAGE2_PROOF_IMAGE=$candidate"');
-  expect(source).toContain("journalctl -k --no-pager -n 1 -o json | jq -e");
-  expect(source).toContain("mcp-netns-raw-socket-blocked.test.ts");
-  expect(source).toContain("mcp-stage2-ipv6-disabled.test.ts");
-  expect(source).toContain("mcp-stage2-conntrack-soak.test.ts");
+  expect(source).toContain('"EZCORP_RUNNER_ISOLATION_PROOF=1"');
+  expect(source).toContain("./src/__tests__/runner-worker-isolation.proof.test.ts");
+  // The retired host Stage 2 proof must not come back.
+  expect(source).not.toContain("EZCORP_STAGE2_PROOF");
 });

@@ -49,6 +49,11 @@ mock.module("../extensions/cli-control", () => ({
   initCliExtension: init, verifyCliExtension: async () => ({ state: "succeeded" }),
 }));
 
+// `ext publish` runs the real publisher. No publish token is stored, so
+// any token the CLI passes is rejected before a build starts.
+const realSettings = await import("../db/queries/settings");
+mock.module("../db/queries/settings", () => ({ ...realSettings, getAllSettings: async () => ({}) }));
+
 // Import after mocks
 const { parseArgs, cli } = await import("../cli");
 
@@ -196,6 +201,30 @@ describe("cli - ext:info display variations", () => {
     expect(output).not.toContain("MCP Servers:");
     expect(output).not.toContain("mcpServers");
     logSpy.mockRestore();
+  });
+
+  test("a stdio MCP server's permission line never claims it can start without a verdict", async () => {
+    mockExtensions.set("stdio-id", makeExtEntry("stdio-id", {
+      name: "stdio-ext",
+      manifest: makeManifest({
+        name: "stdio-ext",
+        kind: "mcp",
+        permissions: {},
+        mcpServers: [{ transport: "stdio", name: "my-server", description: "A server", command: "node", args: ["srv.ts"] }],
+      } as never),
+    }));
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
+    try {
+      await cli(["ext", "info", "stdio-ext"]);
+    } finally {
+      logSpy.mockRestore();
+    }
+
+    const output = logs.join("\n");
+    expect(output).toContain("  - Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission");
+    expect(output).not.toContain("Starts its MCP server process");
   });
 
   test("extension with agent and category prints Agent section", async () => {
@@ -381,5 +410,59 @@ describe("cli - ext:list formatting", () => {
     expect(output).toContain("Status");
     expect(output).toContain("-".repeat(82));
     logSpy.mockRestore();
+  });
+});
+
+describe("cli - ext:info dependencies", () => {
+  test("prints each dependency's status and the extensions that require it", async () => {
+    mockExtensions.set("app-id", makeExtEntry("app-id", {
+      name: "app",
+      manifest: makeManifest({
+        name: "app",
+        dependencies: {
+          "base-ok": { source: "github:t/base-ok", version: "^1.0.0" },
+          "base-old": { source: "github:t/base-old", version: "^2.0.0" },
+          "base-gone": { source: "github:t/base-gone", version: "^1.0.0" },
+        },
+      }),
+    }));
+    mockExtensions.set("ok-id", makeExtEntry("ok-id", { name: "base-ok", version: "1.2.0", manifest: makeManifest({ name: "base-ok" }) }));
+    mockExtensions.set("old-id", makeExtEntry("old-id", { name: "base-old", version: "1.0.0", manifest: makeManifest({ name: "base-old" }) }));
+    mockExtensions.set("user-id", makeExtEntry("user-id", {
+      name: "consumer",
+      manifest: makeManifest({ name: "consumer", dependencies: { app: { source: "github:t/app", version: "^1.0.0" } } }),
+    }));
+
+    const logs: string[] = [];
+    const logSpy = spyOn(console, "log").mockImplementation((...args) => logs.push(args.join(" ")));
+    await cli(["ext", "info", "app"]);
+    logSpy.mockRestore();
+
+    const output = logs.join("\n");
+    expect(output).toContain("Dependencies:");
+    expect(output).toContain("  base-ok ^1.0.0 [ok]");
+    expect(output).toContain("  base-old ^2.0.0 [incompatible]");
+    expect(output).toContain("  base-gone ^1.0.0 [missing]");
+    expect(output).toContain("Required by: consumer");
+  });
+});
+
+describe("cli - workflow and publish", () => {
+  test("an unknown workflow/pipeline subcommand falls back to help", () => {
+    expect(parseArgs(["pipeline", "bogus"])).toEqual({ command: "help" });
+    expect(parseArgs(["pipeline", "list"])).toEqual({ command: "workflow:list" });
+  });
+
+  test("ext publish with an unknown token prints the error and exits 1", async () => {
+    const errors: string[] = [];
+    const errSpy = spyOn(console, "error").mockImplementation((...args) => errors.push(args.join(" ")));
+    const exitSpy = spyOn(process, "exit").mockImplementation(() => { throw new Error("exit"); });
+
+    await expect(cli(["ext", "publish", "--token", "tok-1"])).rejects.toThrow("exit");
+
+    expect(errors).toContain("Error: Invalid publish token");
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    errSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 });

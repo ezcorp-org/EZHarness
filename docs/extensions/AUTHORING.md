@@ -31,6 +31,7 @@ Use [the SDK entrypoint guide](../../packages/@ezcorp/sdk/src/v4/README.md) for 
 - Test each declared contribution and the permissions it needs. Keep feature tests meaningful; do not delete an assertion to obtain a passing build.
 - Test malformed input, denied capabilities, cancellation, and the expected user-visible error.
 - Exercise the production runner and broker. A mocked subprocess is not isolation evidence.
+- In this repo, example and behavior tests under `docs/extensions/examples/` and `src/__tests__/` often drive an extension through `src/__tests__/helpers/host-extension-process.ts`. That harness spawns the extension on the host for speed. It is not the production path (production runs every extension in an extension-runner worker), so a passing harness test is behavior evidence, not isolation evidence.
 - For first-party host integration tests beside source, use `// @ezcorp-host-integration` as the first line of a test or spec file. The host test lanes run these files; the source collector omits them from the candidate. Keep portable feature tests unmarked. The collector rejects this marker on `extension.test.ts`.
 - Use the same sealed release for review and activation. A source, dependency, permission, or test change needs a new build and approval.
 - A failed candidate must leave the current approved release running. Repair the candidate; do not alter the active artifact.

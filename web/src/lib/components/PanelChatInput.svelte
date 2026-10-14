@@ -8,7 +8,7 @@
 	import { searchMentionItems } from "$lib/mention-search";
 	import { createLatestSearch } from "$lib/latest-search";
 	import { store } from "$lib/stores.svelte";
-	import { setComposerDisplay } from "$lib/chat-input-logic";
+	import { isSubmitEnter, setComposerDisplay } from "$lib/chat-input-logic";
 
 	let {
 		placeholder = "Send a message...",
@@ -143,7 +143,7 @@
 			}
 		}
 
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (isSubmitEnter(e)) {
 			e.preventDefault();
 			submit();
 		}

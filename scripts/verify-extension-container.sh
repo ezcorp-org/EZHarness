@@ -46,7 +46,8 @@ mkdir -m 700 "$run_root/socket"
 export EZ_EXTENSION_RUNNER_SOCKET="$run_root/socket/runner.sock"
 export EZ_EXTENSION_RUNNER_TOKEN_FILE="$run_root/token"
 export EZ_EXTENSION_RUNNER_STORE="$run_root/store"
-export EZ_EXTENSION_APP_UID="$(podman unshare awk -v id=1000 '$1 <= id && id < $1 + $3 { print $2 + id - $1 }' /proc/self/uid_map)"
+EZ_EXTENSION_APP_UID="$(podman unshare awk -v id=1000 '$1 <= id && id < $1 + $3 { print $2 + id - $1 }' /proc/self/uid_map)"
+export EZ_EXTENSION_APP_UID
 bash scripts/start-extension-runner-e2e.sh >"$run_root/runner.log" 2>&1 &
 runner_pid=$!
 runner_ready=false

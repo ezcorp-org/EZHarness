@@ -6,9 +6,9 @@
  * from `ext.manifest.permissions.network`, so an MCP extension showed "None
  * requested" — and because `clampExtensionPermissions` gates on
  * `if (submitted.network && manifest.network)`, an admin who submitted a host
- * anyway had it silently dropped. The stdio forward proxy
- * (`mcp-proxy.ts`) re-authorizes EVERY CONNECT against exactly that grant, so
- * the network capability was unreachable: no host could ever be allowed.
+ * anyway had it silently dropped. Stdio egress is authorized against exactly
+ * that grant (today by the extension runner's network brokers), so the
+ * network capability was unreachable: no host could ever be allowed.
  *
  * The manifest now declares the hosts the server definition names — for a
  * stdio server, the URLs on its own command line — so the row is real,

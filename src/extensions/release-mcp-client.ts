@@ -37,7 +37,6 @@ export class ReleaseMcpClient extends McpClient {
   override get isConnected(): boolean { return this.ready; }
   override async connect(): Promise<void> { await resolveActiveRelease(this.extensionId, this.runtime); this.ready = true; }
   override async close(): Promise<void> { this.ready = false; }
-  override getChildProcess(): null { return null; }
   override async listTools(): Promise<ToolDefinition[]> { return (await resolveActiveRelease(this.extensionId, this.runtime)).release.manifest.tools ?? []; }
   override async callTool(name: string, args: Record<string, unknown>, meta?: Record<string, unknown>, callOptions: McpCallOptions = {}): Promise<ToolCallResult> {
     const signal = callOptions.signal;

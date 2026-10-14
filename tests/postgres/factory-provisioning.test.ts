@@ -110,6 +110,15 @@ function provisioner(options: { readonly fault?: (step: FactoryProvisioningStepN
 
 const request = (tenantId: string) => ({ tenantId, hostname: `${tenantId}.${fleetId}.factory.test`, administratorEmail: `Admin@${tenantId}.example.test` });
 const stepsOf = (tenantId: string) => calls.filter((call) => call.tenantId === tenantId);
+
+/** Resolves once another session is blocked waiting for an advisory lock. */
+async function waitForAdvisoryLockWaiter(sql: SQL): Promise<void> {
+  const deadline = Date.now() + 30_000;
+  while ((await sql`SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`).length === 0) {
+    if (Date.now() > deadline) throw new Error("no session waited for the advisory lock");
+    await Bun.sleep(10);
+  }
+}
 const names = (tenantId: string) => factoryInstallationNames(fleetId, tenantId, { secretsRoot: join(root, "installations"), operatorRoot: join(root, "operator") });
 
 async function canLogin(role: string, password: string, database: string): Promise<boolean> {
@@ -219,6 +228,25 @@ describe("the seven steps and four phases", () => {
     const [left, right] = await Promise.all([run.provision(request("tenant-04")), run.provision(request("tenant-04"))]);
     expect(left.installationId).toBe(right.installationId);
     expect(stepsOf("tenant-04").filter((call) => call.action === "ensure").map((call) => call.step)).toEqual(["storage", "temporal", "deployment", "ingress", "invitation"]);
+  });
+
+  test("the durable intent is written under the tenant lock, so concurrent requests cannot race its unique columns", async () => {
+    // Two unserialized intent inserts can both pass the tenant_id conflict
+    // check; the later one then fails on a derived unique column (hostname)
+    // instead of doing nothing. Hold the tenant lock elsewhere and prove the
+    // request writes nothing until it owns the lock.
+    const run = provisioner();
+    const holder = new SQL(controlUrl, { max: 1 });
+    testPools?.push(holder);
+    let pending: Promise<unknown> | undefined;
+    await holder.begin(async (transaction) => {
+      await transaction`SELECT pg_advisory_xact_lock(hashtextextended(${"factory-provisioner-v1:tenant-06"}::text, 0))`;
+      pending = run.provision(request("tenant-06"));
+      await waitForAdvisoryLockWaiter(transaction);
+      expect(await transaction`SELECT tenant_id FROM factory_installations WHERE tenant_id = 'tenant-06'`).toHaveLength(0);
+    });
+    await pending;
+    expect((await run.status("tenant-06")).steps.every((step) => step.state === "complete")).toBe(true);
   });
 
   test("a request that changes a persisted identity is refused, and so is a malformed one", async () => {

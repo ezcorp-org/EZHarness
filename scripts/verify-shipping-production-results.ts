@@ -14,12 +14,31 @@ const CLEANUP_RECEIPTS: Readonly<Record<string, readonly string[]>> = {
   "historical-upgrade": ["upgrade/seed-previous", "upgrade/assert-candidate", "upgrade/assert-restore"],
   "legacy-adoption": ["legacy/seed", "legacy/adopt"], namespace: [],
 };
-const NAMESPACE_TESTS = [
-  "the production namespace blocks direct TCP; removing only nft makes the deny assertion fail",
-  "the launcher removes seeded IPv6 while IPv4 proxy traffic works; omitting only the disable writes fails",
-  "four workers complete 400 real proxy requests over five minutes and leave no owned containers",
-  "a killed worker fails the same controller despite low connection counts",
-];
+/** The `namespace` proof: the extension runner's worker isolation, run live on the candidate image. */
+export const RUNNER_ISOLATION_PROOF_FILE = "src/__tests__/runner-worker-isolation.proof.test.ts";
+const LIVE = "runner worker isolation (live) > ";
+const OFFLINE = "runner worker isolation (argv and fail-closed startup) > ";
+/** Every test the proof declares. Each must pass: a skipped live arm is not evidence. */
+export const RUNNER_ISOLATION_PROOF_TESTS: readonly string[] = Object.freeze([
+  `${LIVE}a production worker is isolated on every control`,
+  `${LIVE}a worker without the shell grant cannot start a process but can start a thread; an allow worker can`,
+  `${LIVE}without the guard a deny worker starts a process`,
+  `${LIVE}the shim is non-dumpable after it spawns, so a non-shell worker cannot open its memory file`,
+  `${LIVE}FAULT ARM: with a dumpable shim the same read-only open succeeds`,
+  `${LIVE}without --network=none the worker has a network, and startup refuses it`,
+  `${LIVE}with an unconfined seccomp profile add_key no longer fails with ENOSYS, and startup refuses it`,
+  `${LIVE}without --read-only the image root is writable, and startup refuses it`,
+  `${OFFLINE}every worker launch carries the isolation flags`,
+  `${OFFLINE}the shipped seccomp profile is deny-by-default and does not allow add_key`,
+  `${OFFLINE}startup refuses a host that is not rootless`,
+  `${OFFLINE}startup refuses a host that is without seccomp`,
+  `${OFFLINE}startup refuses a host that is on cgroup v1`,
+  `${OFFLINE}startup refuses a host that is without the pids controller`,
+  `${OFFLINE}startup refuses a seccomp profile that is not deny-by-default`,
+  `${OFFLINE}startup refuses when the worker probe does not match the secure profile`,
+]);
+/** What the retired host Stage 2 proof left in a receipt. Its presence means the wrong proof ran. */
+const STAGE2_MARKERS = [/EZCORP_STAGE2_PROOF/, /stage2-raw-network-proof/, /mcp-netns-raw-socket-blocked/, /removing only nft makes the deny assertion fail/];
 
 function fail(message: string): never { throw new Error(`production proof receipt rejected: ${message}`); }
 function containsPath(parent: string, candidate: string): boolean {
@@ -99,11 +118,26 @@ function parseLauncherFields(text: string, label: string): Map<string, string> {
 function isCandidateLauncher(proof: string, nested: string): boolean {
   return !(proof === "historical-upgrade" && nested === "upgrade/seed-previous") && !(proof === "legacy-adoption" && nested === "legacy/seed");
 }
+/**
+ * The namespace receipt is Bun's own report of the runner isolation proof. It
+ * must name that one file, list every declared test exactly once as passed
+ * (so a skipped live arm, a failure, or an extra test rejects), and end with
+ * the exact summary for that count.
+ */
 async function assertNamespaceEvidence(controllerLog: string): Promise<void> {
   const output = Bun.stripANSI(await readFile(controllerLog, "utf8"));
-  if (!/\b4 pass\b/.test(output) || !/\b0 fail\b/.test(output)) fail("namespace controller does not contain a successful native Bun summary");
-  if (/\bskipp?(?:ed|ing)?\b/i.test(output)) fail("namespace controller contains skipped tests");
-  for (const name of NAMESPACE_TESTS) if (!output.includes(name)) fail(`namespace controller is missing real test: ${name}`);
+  if (STAGE2_MARKERS.some(marker => marker.test(output))) fail("namespace controller is a retired Stage 2 receipt");
+  const files = [...output.matchAll(/^(?:::group::)?(\S+\.test\.ts):$/gm)].map(match => match[1]);
+  if (files.length !== 1 || files[0] !== RUNNER_ISOLATION_PROOF_FILE) fail(`namespace controller must report exactly ${RUNNER_ISOLATION_PROOF_FILE}`);
+  const reported = [...output.matchAll(/^\((\w+)\) (.+?)(?: \[[\d.]+m?s\])?$/gm)].map(([, status, name]) => ({ status, name: name! }));
+  for (const { status, name } of reported) {
+    if (!RUNNER_ISOLATION_PROOF_TESTS.includes(name)) fail(`namespace controller reports an unexpected test: ${name}`);
+    if (status !== "pass") fail(`namespace controller test did not pass (${status}): ${name}`);
+  }
+  for (const name of RUNNER_ISOLATION_PROOF_TESTS) if (reported.filter(entry => entry.name === name).length !== 1) fail(`namespace controller is missing test: ${name}`);
+  const count = RUNNER_ISOLATION_PROOF_TESTS.length;
+  const summary = [...output.matchAll(/^\s*(\d+) (pass|fail|skip|todo)$/gm)].map(([, value, kind]) => `${value} ${kind}`).join(",");
+  if (summary !== `${count} pass,0 fail` || !output.includes(`Ran ${count} tests across 1 file.`)) fail(`namespace controller summary is not exactly ${count} pass and 0 fail`);
 }
 async function assertLauncherReceipts(artifact: string, row: SummaryRow, revision: string, expectedImageId: string): Promise<void> {
   for (const nested of CLEANUP_RECEIPTS[row.proof] ?? fail(`no cleanup declaration for ${row.proof}`)) {

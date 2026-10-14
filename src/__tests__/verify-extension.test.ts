@@ -1,3 +1,4 @@
+import { enforcingRunnerCapabilities } from "./helpers/runner-capabilities";
 import { describe, expect, test } from "bun:test";
 import { verifyExtension } from "../extensions/sdk/verify";
 import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
@@ -36,7 +37,7 @@ function candidateRunner(request: RunnerExecution["request"]): { runner: Runner;
   let closed = false;
   const contexts: unknown[] = [];
   const runner: Runner = {
-    async build() { throw new Error("not used"); }, async cancel() {}, async inspect() { return { id: "worker", state: "running", diagnostics: [] }; }, async collectArtifacts() { return {}; },
+    async build() { throw new Error("not used"); }, async cancel() {}, async inspect() { return { id: "worker", state: "running", diagnostics: [] }; }, capabilities: enforcingRunnerCapabilities, async collectArtifacts() { return {}; },
     async start(input) {
       contexts.push(input.context);
       return { workerId: input.workerId, request, async close() { closed = true; }, onNotification() { return () => {}; } };

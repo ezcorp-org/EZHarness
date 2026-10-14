@@ -72,7 +72,7 @@ describe("provisionInternalKey", () => {
     expect(() => provisionInternalKey("", ["chat"], "sys-ai-kit")).toThrow(/extensionName/);
   });
 
-  test("refuses missing userId (forces ensureSystemUser to run first)", () => {
+  test("refuses a missing userId", () => {
     expect(() =>
       // @ts-expect-error — deliberately exercising the runtime guard
       provisionInternalKey("ai-kit", ["chat"], undefined),
@@ -132,7 +132,7 @@ describe("verifyInternalKey", () => {
     expect(principal!.scopes).toEqual(["read", "chat"]);
   });
 
-  test("userId is whatever the caller supplied (audit-prefixed via systemUserIdFor)", () => {
+  test("userId is whatever the caller supplied", () => {
     const { raw } = provisionInternalKey("ai-kit", ["chat"], "sys-ai-kit");
     const p = verifyInternalKey(raw, "127.0.0.1")!;
     expect(p.userId).toBe("sys-ai-kit");

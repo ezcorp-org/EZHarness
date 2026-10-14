@@ -990,6 +990,39 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
     expect(unassertedAddedBlocks(unawaited, new Set([2, 3, 4]))).toHaveLength(1);
     expect(unassertedAddedBlocks(shadowed, new Set([2, 3, 4, 5]))).toHaveLength(1);
   });
+  test("credits an awaited vitest vi.waitFor callback assertion", () => {
+    const waited = (viImport: string) => [
+      viImport,
+      "test('waits for the visible state', async () => {",
+      "  await vi.waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(waited('import { describe, test, expect, vi } from "vitest";'), new Set([2, 3, 4]))).toEqual([]);
+    const aliased = [
+      'import { vi as mocks } from "vitest";',
+      "test('waits for the visible state', async () => {",
+      "  await mocks.waitFor(() => expect(renderedState()).toBe('ready'));",
+      "});",
+    ].join("\n");
+    expect(unassertedAddedBlocks(aliased, new Set([2, 3, 4]))).toEqual([]);
+  });
+  test("does not trust a vi.waitFor without an assertion, unawaited, or not from vitest", () => {
+    const vacuous = (viImport: string, call: string, local = "") => [
+      viImport,
+      "test('does not assert', async () => {",
+      ...(local ? [`  ${local}`] : []),
+      `  ${call}`,
+      "});",
+    ].join("\n");
+    const fromVitest = 'import { vi } from "vitest";';
+    const lines = new Set([2, 3, 4, 5]);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await vi.waitFor(() => renderedState());"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous('import { vi } from "./fake-vi";', "await vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous("", "await vi.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await vi.waitFor(() => expect(renderedState()).toBe('ready'));", "const vi = { waitFor: (_callback: () => void) => {} };"), lines)).toHaveLength(1);
+    expect(unassertedAddedBlocks(vacuous(fromVitest, "await helpers.waitFor(() => expect(renderedState()).toBe('ready'));"), lines)).toHaveLength(1);
+  });
   test("does not borrow a nested helper with the same name from another test", () => {
     const duplicate = [
       "function saveAndReload() {}",
@@ -1062,6 +1095,29 @@ describe("gate-integrity: unassertedAddedBlocks", () => {
       "});",
     ].join("\n");
     expect(unassertedAddedBlocks(soft, new Set([2, 3]))).toEqual([]);
+  });
+  test("counts a generic expect<T>(...) call as a real assertion", () => {
+    const typed = (call: string) => ["it('typed', () => {", `  ${call}`, "});"].join("\n");
+    for (const call of [
+      "expect<Foo>(x).toEqual(y);",
+      "expect<Record<string, number>>(counts).toEqual({});",
+      "expect<Map<string, Array<Foo>>>(m).toBeDefined();",
+      "expect <Foo> (x).toBe(1);",
+    ]) {
+      expect(unassertedAddedBlocks(typed(call), new Set([2]))).toEqual([]);
+    }
+  });
+  test("does not count expect-like text that is not an assertion call", () => {
+    const vacuous = (line: string) => ["it('no assert', () => {", `  ${line}`, "});"].join("\n");
+    for (const line of [
+      "type T = expect<Foo>;",
+      "const ok = expect < limit;",
+      "myexpect<Foo>(x);",
+      "expectLike<Foo>(x);",
+      "const s = 'expect<Foo>(x)';",
+    ]) {
+      expect(unassertedAddedBlocks(vacuous(line), new Set([2]))).toHaveLength(1);
+    }
   });
   test("does not count braces inside strings as block boundaries", () => {
     const tricky = [
@@ -3040,6 +3096,20 @@ describe("check-boundaries: only a test may import test code", () => {
       expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
     }
     expect(checkSource("src/factory/boot.ts", `import { setupTestDb } from "../__tests__/helpers/test-pglite";`)).toHaveLength(1);
+  });
+
+  test("production cannot import the host extension spawn harness or its preload", () => {
+    // Production never spawns extension code on the host (#246); the spawn
+    // path and sandbox preload live only in the test tree.
+    const cases: [string, string, string][] = [
+      ["src/extensions/registry.ts", "../__tests__/helpers/host-extension-process", "src/__tests__/helpers/host-extension-process"],
+      ["src/extensions/release-process.ts", "../__tests__/helpers/host-sandbox/sandbox-preload", "src/__tests__/helpers/host-sandbox/sandbox-preload"],
+      ["web/src/lib/server/context.ts", "$server/__tests__/helpers/host-extension-process", "src/__tests__/helpers/host-extension-process"],
+    ];
+    for (const [from, spec, target] of cases) {
+      expect(checkEdge(from, spec), `${from} -> ${spec}`).toMatchObject({ rule: "no-test-imports-outside-tests", target });
+    }
+    expect(checkEdge("docs/extensions/examples/todo-tracker/e2e-server-pipeline.test.ts", "../../../../src/__tests__/helpers/host-extension-process")).toBeNull();
   });
 
   test("tests may import test code, and anyone may read test data", () => {

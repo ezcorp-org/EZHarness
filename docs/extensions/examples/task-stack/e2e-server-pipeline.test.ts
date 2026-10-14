@@ -4,7 +4,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
  * E2E test: exercises the REAL server pipeline for task-stack.
  *
  * Mirrors the canonical `docs/extensions/examples/auto-note/e2e-server-pipeline.test.ts`
- * pattern. Spawns task-stack through `ExtensionProcess` (from
+ * pattern. Spawns task-stack through `HostExtensionProcess` (from
  * `src/extensions/subprocess.ts`) — the same class the server uses in
  * `ExtensionRegistry.getProcess` — so bugs that only surface in the full
  * server-pipeline path (sandbox preload, JSON-RPC framing with notifications,
@@ -20,7 +20,7 @@ import { rmSync } from "fs";
 import { tmpdir } from "os";
 
 // ── DB stubs ────────────────────────────────────────────────────
-// Must be declared BEFORE importing ExtensionProcess so the subprocess module
+// Must be declared BEFORE importing HostExtensionProcess so the subprocess module
 // picks up the mocked queries (`incrementFailures` / `resetFailures` /
 // `disableExtension`) rather than hitting a real DB that isn't configured in
 // this test harness.
@@ -46,7 +46,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 }));
 
 // Import AFTER mock.module so the subprocess module resolves to our stub.
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { HostExtensionProcess } from "../../../../src/__tests__/helpers/host-extension-process";
 import { buildHarnessEnv, wireFsHandler, markGitRepository } from "@ezcorp/sdk/test";
 
 const TASK_STACK_ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
@@ -58,10 +58,10 @@ const TEST_TMP_ROOT = join(tmpdir(), `task-stack-e2e-pipeline-${Date.now()}`);
 // (EZCORP_FS_ALLOWED=1) and wire the `ezcorp/fs.*` reverse-RPC handler
 // (scoped to tmpdir, which contains the per-test `.git` cwd) — parity with
 // registry.ts + ToolExecutor. See the shared `_harness` helper.
-function makeProc(): ExtensionProcess {
+function makeProc(): HostExtensionProcess {
   const extId = "task-stack-test-" + Math.random().toString(36).slice(2, 8);
   const env = buildHarnessEnv(extId, { filesystem: true });
-  const proc = new ExtensionProcess(extId, TASK_STACK_ENTRYPOINT, env, {
+  const proc = new HostExtensionProcess(extId, TASK_STACK_ENTRYPOINT, env, {
     persistent: true,
     callTimeoutMs: 15_000,
   });
@@ -69,10 +69,10 @@ function makeProc(): ExtensionProcess {
   return proc;
 }
 
-describe("E2E: task-stack real ExtensionProcess (server pipeline)", () => {
+describe("E2E: task-stack real HostExtensionProcess (server pipeline)", () => {
   let cwd: string;
   let originalCwd: string;
-  const procs: ExtensionProcess[] = [];
+  const procs: HostExtensionProcess[] = [];
 
   beforeEach(() => {
     // Each test gets its own store dir; task-stack's `resolveProjectRoot`

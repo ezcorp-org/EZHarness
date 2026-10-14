@@ -10,8 +10,9 @@ receipt_dir="${EZ_PRODUCTION_RECEIPT_DIR:-$repo_root/.cache/terra-shipping/runti
 export EZ_PRODUCTION_RECEIPT_DIR="$receipt_dir"
 # The runner accepts the host UID. The default Docker daemon does not remap
 # bind-mounted Unix socket peer credentials, so run this owned app as that UID.
-export EZ_PRODUCTION_APP_UID="${EZ_PRODUCTION_APP_UID:-$(id -u)}"
-export EZ_PRODUCTION_APP_GID="${EZ_PRODUCTION_APP_GID:-$(id -g)}"
+EZ_PRODUCTION_APP_UID="${EZ_PRODUCTION_APP_UID:-$(id -u)}"
+EZ_PRODUCTION_APP_GID="${EZ_PRODUCTION_APP_GID:-$(id -g)}"
+export EZ_PRODUCTION_APP_UID EZ_PRODUCTION_APP_GID
 
 runtime_script="${EZ_PRODUCTION_RUNTIME_SCRIPT:-scripts/verify-shipping-runtime.ts}"
 exec bash scripts/verify-production-image-lifecycle.sh -- \

@@ -8,6 +8,7 @@
 	 * `aria-checked` here will stop updating — which is exactly the
 	 * regression `useSelectMode.reactivity.component.test.ts` watches for.
 	 */
+	import { untrack } from "svelte";
 	import { useSelectMode } from "../useSelectMode.svelte.js";
 	import type { Message } from "$lib/api.js";
 
@@ -15,12 +16,14 @@
 		messages: Message[];
 	}
 
-	let { messages }: Props = $props();
+	let { messages: initial }: Props = $props();
+	// Local copy so bulk handlers that rewrite the list re-render the rows.
+	let messages = $state(untrack(() => initial));
 
 	const selectMode = useSelectMode({
 		convId: () => "conv-1",
 		projectId: () => "proj-1",
-		allMessages: { get: () => messages, set: () => {} },
+		allMessages: { get: () => messages, set: (v) => { messages = v; } },
 		visibleMessages: () => messages,
 		savedMemories: { get: () => new Map(), set: () => {} },
 		isStreaming: () => false,
@@ -51,3 +54,8 @@
 		}}
 	>{msg.id}</div>
 {/each}
+
+<button data-testid="bulk-exclude" onclick={() => selectMode.handleBulkExclude()}>Exclude</button>
+<div data-testid="bulk-status">{selectMode.state.bulkStatus ?? ""}</div>
+<div data-testid="select-error">{selectMode.state.selectError ?? ""}</div>
+<div data-testid="excluded-ids">{messages.filter((m) => m.excluded).map((m) => m.id).join(",")}</div>

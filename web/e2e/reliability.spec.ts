@@ -206,8 +206,10 @@ test("after moving between chats, the banner and composer still follow the conne
 	await waitForChatReady(page);
 
 	// The composer and the banner subscribe on mount and unsubscribe on
-	// unmount; a client-side move to another chat must leave exactly one
-	// live subscription that still drives both.
+	// unmount; after a client-side move to another chat, the new
+	// subscription must still drive both. The leak itself (an old
+	// subscription never released) is not visible here; it is pinned by
+	// src/lib/components/__tests__/unmount-teardown.component.test.ts.
 	await page.locator('[data-testid="chat-nav-thread"][data-conversation-id="conv-2"]').first().click();
 	await expect(page).toHaveURL(/\/chat\/conv-2$/);
 	await waitForChatReady(page);

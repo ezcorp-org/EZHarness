@@ -122,7 +122,9 @@
 
 	async function handleSubmitCode() {
 		if (!oauthPending || !codeInput.trim()) return;
-		saving = { ...saving, [oauthPending.provider]: true };
+		// Read once: the success path clears oauthPending before `finally`.
+		const { provider } = oauthPending;
+		saving = { ...saving, [provider]: true };
 		oauthError = null;
 		try {
 			const result = await completeOAuthWithCode(oauthPending, codeInput);
@@ -138,7 +140,7 @@
 		} catch (err) {
 			oauthError = err instanceof Error ? err.message : "Unknown error";
 		} finally {
-			if (oauthPending) saving = { ...saving, [oauthPending.provider]: false };
+			saving = { ...saving, [provider]: false };
 		}
 	}
 

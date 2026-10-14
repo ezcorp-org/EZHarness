@@ -14,6 +14,7 @@ import type { FactoryAttemptMaterials, FactoryMaterialScope, FactoryScopedArtifa
 import { REFERENCE_DATA_CSV_MEDIA_TYPE, REFERENCE_DATA_LIMITS } from "./csv";
 import { FACTORY_REFERENCE_DATA_EXPORTS, type FactoryReferenceDataExport } from "./guest";
 import { REFERENCE_DATA_MANIFEST_MEDIA_TYPE, REFERENCE_DATA_MANIFEST_NAME, referenceDataPartitionName } from "./manifest";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "../runner/guest-process-policy";
 import {
   readReferenceDataMaterial,
   ReferenceDataGuestDirectory,
@@ -197,7 +198,7 @@ export async function dispatchReferenceDataAttempt(
     token: request.broker.attemptToken,
     deadline: Math.min(options.authority.deadlineAtMs, now() + executionLimits.timeoutMs - 1_000),
   };
-  const start: StartRequest = { workerId, artifactDigest: options.host.artifactDigest, context, limits: executionLimits, devices: [], materials: directory.root };
+  const start: StartRequest = { workerId, artifactDigest: options.host.artifactDigest, context, limits: executionLimits, devices: [], materials: directory.root, processSpawn: FACTORY_GUEST_PROCESS_SPAWN };
   const worker = await options.host.runner.start(start, async () => {
     // The guest has no reverse capability in this pack. Every byte moves
     // through the material directory, so a frame here is a defect.

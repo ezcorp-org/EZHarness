@@ -3,7 +3,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
 /**
  * webhook-ticket-loop — REAL subprocess e2e (Loops EZ Mode Phase 4).
  *
- * Spawns the example through the real `ExtensionProcess` transport under the
+ * Spawns the example through the real `HostExtensionProcess` transport under the
  * production sandbox-preload, then pushes an `ezcorp/webhook-fire` notification
  * exactly as the WebhookDeliveryDaemon does after it claims a delivery. Proves
  * the leg in-process mocks cannot: the delimited UNTRUSTED `WebhookInput`
@@ -30,7 +30,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { HostExtensionProcess } from "../../../../src/__tests__/helpers/host-extension-process";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { buildHarnessEnv, makeFsRpcHandler } from "@ezcorp/sdk/test";
 import type { JsonRpcRequest, JsonRpcResponse } from "@ezcorp/sdk";
@@ -87,7 +87,7 @@ function fireFrame(parsed: unknown, deliveryId: string, contentType = "applicati
 }
 
 describe("webhook-ticket-loop — real subprocess", () => {
-  let proc: ExtensionProcess | undefined;
+  let proc: HostExtensionProcess | undefined;
   let state: HostState;
   let projectRoot: string;
   let originalCwd: string;
@@ -107,11 +107,11 @@ describe("webhook-ticket-loop — real subprocess", () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  function spawnWired(settings: Record<string, unknown>): ExtensionProcess {
+  function spawnWired(settings: Record<string, unknown>): HostExtensionProcess {
     const extId = "webhook-ticket-loop-" + Math.random().toString(36).slice(2, 8);
     const env = buildHarnessEnv(extId, { filesystem: true });
     const fsHandler = makeFsRpcHandler(projectRoot);
-    const p = new ExtensionProcess(extId, ENTRYPOINT, env, { persistent: true, callTimeoutMs: 20_000 });
+    const p = new HostExtensionProcess(extId, ENTRYPOINT, env, { persistent: true, callTimeoutMs: 20_000 });
     p.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
       const params = (req.params ?? {}) as Record<string, unknown>;
       if (req.method === "ezcorp/storage") return ok(req.id, handleStorage(state, params));

@@ -49,6 +49,31 @@ describe("isEnhanceAvailable", () => {
     expect(calls).toBe(2);
   });
 
+  test("a changed URL is probed at once, not answered from the old URL's cache", async () => {
+    const fetchFn = (async (url: RequestInfo | URL) =>
+      new Response("{}", { status: String(url).startsWith("http://new-host") ? 200 : 500 })) as unknown as typeof fetch;
+    expect(await isEnhanceAvailable("http://old-host:11434", { fetchFn, nowFn: () => 0 })).toBe(false);
+    expect(await isEnhanceAvailable("http://new-host:11434", { fetchFn, nowFn: () => 10 })).toBe(true);
+    // Each URL keeps its own cached answer within the TTL.
+    expect(await isEnhanceAvailable("http://old-host:11434", { fetchFn, nowFn: () => 20 })).toBe(false);
+  });
+
+  test("past the URL cap, the oldest URL's answer is evicted and probed again", async () => {
+    const probed: string[] = [];
+    const fetchFn = (async (url: RequestInfo | URL) => {
+      probed.push(String(url));
+      return new Response("{}", { status: 200 });
+    }) as unknown as typeof fetch;
+    for (let index = 0; index <= 16; index += 1) {
+      await isEnhanceAvailable(`http://host-${index}:11434`, { fetchFn, nowFn: () => 0 });
+    }
+    await isEnhanceAvailable("http://host-16:11434", { fetchFn, nowFn: () => 1 });
+    expect(probed).toHaveLength(17);
+    await isEnhanceAvailable("http://host-0:11434", { fetchFn, nowFn: () => 2 });
+    expect(probed).toHaveLength(18);
+    expect(probed.at(-1)).toBe("http://host-0:11434/v1/models");
+  });
+
   test("network error → false", async () => {
     const fetchFn = (async () => {
       throw new Error("ECONNREFUSED");

@@ -114,12 +114,6 @@ vi.mock("$server/extensions/permission-engine", () => ({
 	getPermissionEngine: vi.fn(() => permissionAudit),
 	flushPermissionAuditForShutdown: vi.fn(async () => permissionAudit.flushAudit()),
 }));
-vi.mock("$lib/server/security/bundled-creds", () => ({
-  bootstrapBundledCredentials: vi.fn(async () => undefined),
-}));
-vi.mock("$lib/server/security/openai-extension-creds", () => ({
-  wireOpenAIExtensionCredentials: vi.fn(),
-}));
 vi.mock("$server/extensions/state-mediator", () => ({
   ExtensionStateMediator: class {},
   // ensureInitialized registers the mediator as the process-wide

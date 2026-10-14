@@ -46,31 +46,39 @@ export const ENHANCE_PROBE_TTL_MS = 60_000;
 const PROBE_TIMEOUT_MS = 1_500;
 const MAX_ENHANCED_LENGTH = 4_000;
 
-let probeState: { at: number; ok: boolean } | null = null;
+// Keyed by URL: a changed suggest URL is probed at once instead of inheriting
+// the old URL's answer. Few URLs are ever configured; the cap only guards
+// against unbounded growth (oldest probe evicted first).
+const MAX_PROBED_URLS = 16;
+const probeStates = new Map<string, { at: number; ok: boolean }>();
 
 /** Reset the cached probe — for tests. */
 export function resetEnhanceProbe(): void {
-  probeState = null;
+  probeStates.clear();
 }
 
 /**
  * Is the local model endpoint reachable? Both success and failure are
- * cached for ENHANCE_PROBE_TTL_MS.
+ * cached for ENHANCE_PROBE_TTL_MS, per URL.
  */
 export async function isEnhanceAvailable(baseUrl: string, deps?: EnhanceDeps): Promise<boolean> {
   const now = (deps?.nowFn ?? Date.now)();
-  if (probeState && now - probeState.at < ENHANCE_PROBE_TTL_MS) return probeState.ok;
+  const url = normalizeUrl(baseUrl);
+  const cached = probeStates.get(url);
+  if (cached && now - cached.at < ENHANCE_PROBE_TTL_MS) return cached.ok;
   const fetchFn = deps?.fetchFn ?? fetch;
   let ok = false;
   try {
-    const res = await fetchFn(`${normalizeUrl(baseUrl)}/v1/models`, {
+    const res = await fetchFn(`${url}/v1/models`, {
       signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
     });
     ok = res.ok;
   } catch {
     ok = false;
   }
-  probeState = { at: now, ok };
+  probeStates.delete(url);
+  probeStates.set(url, { at: now, ok });
+  if (probeStates.size > MAX_PROBED_URLS) probeStates.delete(probeStates.keys().next().value!);
   return ok;
 }
 

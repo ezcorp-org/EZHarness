@@ -11,7 +11,7 @@ mock.module("../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import { JsonRpcTransport } from "../extensions/json-rpc";
 
 // Workaround: Bun <=1.3.9 JIT bug causes child processes spawned from the
@@ -23,11 +23,11 @@ import { JsonRpcTransport } from "../extensions/json-rpc";
 // REAL `ensureRunning` (e.g. subprocess-spawn-cwd.test.ts, whose spawn-option
 // assertions + coverage depend on the real method). Capture + restore it in
 // afterAll so the leak is contained to this file (prototype-spy-leak hygiene).
-const originalEnsureRunning = ExtensionProcess.prototype.ensureRunning;
+const originalEnsureRunning = HostExtensionProcess.prototype.ensureRunning;
 afterAll(() => {
-  ExtensionProcess.prototype.ensureRunning = originalEnsureRunning;
+  HostExtensionProcess.prototype.ensureRunning = originalEnsureRunning;
 });
-ExtensionProcess.prototype.ensureRunning = function (this: any) {
+HostExtensionProcess.prototype.ensureRunning = function (this: any) {
   if (this.proc && !this.killed) return;
   this.killed = false;
 
@@ -67,8 +67,8 @@ const allowedEnv: Record<string, string> = {
   HOME: process.env.HOME ?? "",
 };
 
-describe("ExtensionProcess", () => {
-  let ep: ExtensionProcess;
+describe("HostExtensionProcess", () => {
+  let ep: HostExtensionProcess;
 
   beforeEach(() => {
     failureCount = 0;
@@ -79,14 +79,14 @@ describe("ExtensionProcess", () => {
   });
 
   test("ensureRunning spawns process", () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     expect(ep.isRunning).toBe(false);
     ep.ensureRunning();
     expect(ep.isRunning).toBe(true);
   });
 
   test("call sends request and receives response", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     const response = await ep.call("ping", { hello: "world" });
     expect(response.jsonrpc).toBe("2.0");
     expect(response.result).toEqual({
@@ -96,7 +96,7 @@ describe("ExtensionProcess", () => {
   });
 
   test("callTool convenience wrapper", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     const result = await ep.callTool("myTool", { key: "val" });
     expect(result.isError).toBe(false);
     expect(result.content[0]!.text).toContain("echo: tools/call");
@@ -133,7 +133,7 @@ main();
 `,
     );
 
-    ep = new ExtensionProcess("test-ext", errorPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", errorPath, allowedEnv);
     const result = await ep.callTool("failTool", {});
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toBe("Something went wrong");
@@ -143,7 +143,7 @@ main();
   });
 
   test("kill stops the process", () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     ep.ensureRunning();
     expect(ep.isRunning).toBe(true);
     ep.kill();
@@ -151,7 +151,7 @@ main();
   });
 
   test("idle timeout kills process", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv, {
       idleTimeoutMs: 100,
     });
     ep.ensureRunning();
@@ -162,7 +162,7 @@ main();
   });
 
   test("persistent option disables idle timeout", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv, {
       idleTimeoutMs: 100,
       persistent: true,
     });
@@ -174,7 +174,7 @@ main();
   });
 
   test("call timeout rejects and kills", async () => {
-    ep = new ExtensionProcess("test-ext", slowPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", slowPath, allowedEnv, {
       callTimeoutMs: 100,
     });
 
@@ -187,7 +187,7 @@ main();
     // requiresUserInput → tool-executor passes { skipTimeout: true }):
     // the per-call timeout race is suppressed and the subprocess is NOT
     // killed when the configured callTimeoutMs would have fired.
-    ep = new ExtensionProcess("test-ext", slowPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", slowPath, allowedEnv, {
       callTimeoutMs: 50,
     });
     const callPromise = ep.call("anything", undefined, { skipTimeout: true });
@@ -215,7 +215,7 @@ main();
   // `ensureRunning` with `Bun.spawn` spied.
 
   test("ensureRunning is idempotent", () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     ep.ensureRunning();
     const firstRunning = ep.isRunning;
     ep.ensureRunning();
@@ -244,7 +244,7 @@ main();
     writes: string[];
   } {
     const writes: string[] = [];
-    const e = new ExtensionProcess("test-ext", echoPath, allowedEnv) as any;
+    const e = new HostExtensionProcess("test-ext", echoPath, allowedEnv) as any;
     e.proc = {
       stdin: {
         write: (d: string) => {

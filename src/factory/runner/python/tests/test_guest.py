@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import stat
 import sys
 import tempfile
 import unittest
@@ -276,6 +277,26 @@ class ControlsTest(unittest.TestCase):
     def test_a_status_without_the_named_field_reports_an_empty_value(self) -> None:
         report = guest().controls(read=lambda path: "Name python\nOther:\t1" if path.endswith("status") else "v")
         self.assertEqual(report["capabilities"], "")
+
+    def test_the_default_probe_targets_a_world_writable_image_directory(self) -> None:
+        # uid 65534 can never write `/` itself, so a probe there reports
+        # "read-only" whether or not `--read-only` applied. The probe must
+        # target a directory on the image root that any uid may write.
+        with mock.patch("guest.tempfile.mkstemp", side_effect=OSError) as probe:
+            self.assertIs(guest().controls()["writableRoot"], False)
+        probe_dir = Path(probe.call_args.kwargs["dir"])
+        self.assertNotEqual(probe_dir, Path("/"))
+        self.assertTrue(probe_dir.stat().st_mode & stat.S_IWOTH)
+
+    def test_a_refused_probe_write_reports_a_read_only_root(self) -> None:
+        with tempfile.TemporaryDirectory() as parent:
+            report = guest().controls(probe_dir=str(Path(parent) / "absent"))
+        self.assertIs(report["writableRoot"], False)
+
+    def test_the_probe_leaves_no_file_behind(self) -> None:
+        with tempfile.TemporaryDirectory() as probe_dir:
+            self.assertIs(guest().controls(probe_dir=probe_dir)["writableRoot"], True)
+            self.assertEqual(list(Path(probe_dir).iterdir()), [])
 
     def test_the_controls_export_is_reachable_through_dispatch(self) -> None:
         answer = guest().dispatch("extension/invoke", {"name": "controls", "input": {}})

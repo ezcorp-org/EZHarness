@@ -13,6 +13,7 @@ import { eq, like } from "drizzle-orm";
 import { extensions, settings } from "../db/schema";
 import {
   mapGrantKeyToExpiryKind,
+  mapAlwaysAllowCapabilityToExpiryKind,
   runSweep,
   type Revocation,
 } from "../extensions/perm-expiry-sweep";
@@ -98,6 +99,17 @@ test("stub harness — drizzle eq/like operators import successfully", () => {
 });
 
 // ── mapGrantKeyToExpiryKind ─────────────────────────────────────────
+
+describe("mapAlwaysAllowCapabilityToExpiryKind", () => {
+  test.each([
+    ["shell", "shell"], ["fs.write", "filesystem-write"], ["fs.read", "filesystem-read"],
+    ["network", "network"], ["env", "env"], ["llm", "llm"], ["memory", "memory"],
+    ["lessons", "lessons"], ["storage", "storage"], ["schedule", "schedule"],
+    ["taskEvents", "taskEvents"], ["appendMessages", "appendMessages"], ["filesystem", null],
+  ] as const)("%s → %s", (capability, kind) => {
+    expect(mapAlwaysAllowCapabilityToExpiryKind(capability)).toBe(kind);
+  });
+});
 
 describe("mapGrantKeyToExpiryKind", () => {
   test("network → network", () => {

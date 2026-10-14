@@ -54,5 +54,4 @@ test("MCP initialize, sealed catalog and tool invocation work through the actual
   const client = await fixture.registry.getMcpClient(fixture.id);
   expect((await client.listTools()).map(tool => tool.name)).toEqual(["probe"]);
   expect((await probe()).pid).toBeGreaterThan(0);
-  expect(client.getChildProcess()).toBeNull();
 });

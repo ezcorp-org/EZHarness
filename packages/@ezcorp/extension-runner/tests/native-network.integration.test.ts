@@ -47,7 +47,8 @@ test("real rootless native MCP uses only the scoped proxy, never direct host soc
       const workerId = crypto.randomUUID();
       const context = { invocationId: crypto.randomUUID(), workerId, releaseId: "release", principalId: "owner", scopeId: "conversation", token, deadline: Date.now() + 30_000 };
       if (action === "revoked") granted = false;
-      const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits: executionLimits }, async (method, params) => {
+      // The worker starts its stdio MCP server, as the host allows a pure MCP bridge release.
+      const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits: executionLimits, processSpawn: "allow" }, async (method, params) => {
         const envelope = params as { context: unknown; input: Record<string, unknown> };
         expect(envelope.context).toEqual(context);
         const request = { jsonrpc: "2.0" as const, id: "reverse", method, params: { ...envelope.input, _meta: { ezCallId: token } } };

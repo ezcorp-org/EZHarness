@@ -11,6 +11,7 @@ interface ProviderRequest {
 const providerRequests: ProviderRequest[] = [];
 const originalFetch = globalThis.fetch;
 interface WorkerEnv {
+  AGENTS_API_TOKEN?: string;
   ANTHROPIC_API_KEY?: string;
   ANTHROPIC_BASE_URL?: string;
   DEFAULT_MODEL?: string;
@@ -23,8 +24,17 @@ interface WorkerEnv {
 
 const defaultEnv: WorkerEnv = { OPENAI_API_KEY: "openai-test-key", OPENAI_BASE_URL: "https://openai.test/v1" };
 
-async function request(path: string, init?: RequestInit, env: WorkerEnv = defaultEnv): Promise<Response> {
+const TOKEN = "test-agents-token";
+
+function rawRequest(path: string, init: RequestInit | undefined, env: WorkerEnv): Promise<Response> {
   return worker.fetch(new Request(`https://worker.test${path}`, init), env);
+}
+
+/** An authorized caller: the token is configured and sent. */
+async function request(path: string, init?: RequestInit, env: WorkerEnv = defaultEnv): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  headers.set("authorization", `Bearer ${TOKEN}`);
+  return rawRequest(path, { ...init, headers }, { AGENTS_API_TOKEN: TOKEN, ...env });
 }
 
 function sse(events: Array<{ event?: string; data: unknown; raw?: boolean }>): Response {
@@ -84,12 +94,12 @@ afterAll(() => {
 
 test("run routes return stored executor records and reject a missing run", async () => {
   const created = await request("/api/agents/summarizer/run", {
-    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "Stored run", provider: "openai", model: "fixture-openai" }),
   });
-  const run = await created.json() as { id: string; status: string; result: { success: boolean; error: string } };
+  const run = await created.json() as { id: string; status: string; result: { success: boolean; output: unknown } };
   expect(created.status).toBe(200);
   expect(run.status).toBe("success");
-  expect(run.result).toEqual({ success: false, output: null, error: "Missing input.text" });
+  expect(run.result).toEqual({ success: true, output: { summary: "openai summary" } });
 
   const listed = await request("/api/runs");
   expect(await listed.json()).toEqual(expect.arrayContaining([expect.objectContaining({ id: run.id, result: run.result })]));
@@ -98,6 +108,24 @@ test("run routes return stored executor records and reject a missing run", async
   const missing = await request("/api/runs/no-such-run");
   expect(missing.status).toBe(404);
   expect(await missing.json()).toEqual({ error: "Not found" });
+  expect(providerRequests).toHaveLength(1);
+});
+
+test.each([
+  ["missing", {}],
+  ["empty", { text: "" }],
+  ["blank", { text: "   " }],
+  ["non-string", { text: 42 }],
+  ["null body", null],
+  ["array body", ["text"]],
+])("a %s input.text is a 400 before any provider call, and records no run", async (_case, body) => {
+  const before = await (await request("/api/runs")).json() as unknown[];
+  const response = await request("/api/agents/summarizer/run", {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toEqual({ error: "input.text must be a non-empty string" });
+  expect(await (await request("/api/runs")).json()).toEqual(before);
   expect(providerRequests).toEqual([]);
 });
 
@@ -144,7 +172,7 @@ test("rejects unknown agents and missing or unsupported provider input before tr
   const unknown = await request("/api/agents/unknown/run", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: "must not reach a provider" }),
   });
-  expect(unknown.status).toBe(400);
+  expect(unknown.status).toBe(404);
   expect(await unknown.json()).toEqual({ error: "Agent not found: unknown" });
 
   const missingModel = await request("/api/agents/summarizer/run", {
@@ -219,7 +247,7 @@ test("retains only the newest 100 completed runs", async () => {
   const created: string[] = [];
   for (let index = 0; index < 101; index += 1) {
     const response = await request("/api/agents/summarizer/run", {
-      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({}),
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ text: `run ${index}`, provider: "openai", model: "fixture-openai" }),
     });
     created.push((await response.json() as { id: string }).id);
   }
@@ -243,4 +271,42 @@ test("lists agents and handles preflight, malformed JSON, and unknown paths", as
   const unknown = await request("/unknown");
   expect(unknown.status).toBe(404);
   expect(await unknown.json()).toEqual({ error: "Not found" });
+});
+
+const ROUTES: Array<[string, RequestInit | undefined]> = [
+  ["/api/agents", undefined],
+  ["/api/runs", undefined],
+  ["/api/runs/any-run", undefined],
+  ["/api/agents/summarizer/run", { method: "POST", body: JSON.stringify({ text: "must not run", model: "fixture" }) }],
+  ["/unknown", undefined],
+];
+
+test.each(ROUTES)("%s answers 503 when no API token is configured", async (path, init) => {
+  const response = await rawRequest(path, { ...init, headers: { authorization: `Bearer ${TOKEN}` } }, defaultEnv);
+  expect(response.status).toBe(503);
+  expect(await response.json()).toEqual({ error: "Worker API token is not configured" });
+  expect(providerRequests).toEqual([]);
+});
+
+test.each([
+  ["missing", undefined],
+  ["wrong", "Bearer wrong-token"],
+  ["longer", `Bearer ${TOKEN}x`],
+  ["unprefixed", TOKEN],
+])("every route answers 401 for a %s token", async (_case, authorization) => {
+  const env = { ...defaultEnv, AGENTS_API_TOKEN: TOKEN };
+  for (const [path, init] of ROUTES) {
+    const headers = authorization ? { authorization } : undefined;
+    const response = await rawRequest(path, { ...init, headers }, env);
+    expect(response.status).toBe(401);
+    expect(response.headers.get("www-authenticate")).toBe("Bearer");
+    expect(await response.json()).toEqual({ error: "Unauthorized" });
+  }
+  expect(providerRequests).toEqual([]);
+});
+
+test("preflight needs no token and allows the authorization header", async () => {
+  const preflight = await rawRequest("/api/runs", { method: "OPTIONS" }, defaultEnv);
+  expect(preflight.status).toBe(204);
+  expect(preflight.headers.get("access-control-allow-headers")).toContain("authorization");
 });
