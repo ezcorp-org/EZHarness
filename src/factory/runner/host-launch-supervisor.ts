@@ -333,17 +333,16 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
      * the artifact files that store now holds. A failed build is answered as it is, with none.
      */
     async prepare(preparation: FactoryHostPreparation, signal: AbortSignal): Promise<FactoryHostPrepared> {
-      // The runner refuses a build identity it has already used, and forgets it at a restart, so a
-      // retry of a preparation whose answer was lost joins the first build, or reads its durable
-      // record after a restart, instead of failing forever or building twice.
+      // The runner refuses a build identity it has already used and forgets it at a restart, so a
+      // repeat joins the first build in this process, or reads its durable record after a restart,
+      // instead of failing forever or building twice. The join entry is created before any await,
+      // so two concurrent first requests share one build (N7).
       const id = preparation.operationId;
       const sameSource = (known: { readonly sourceDigest: string; readonly entrypoint: string }) => {
         if (known.sourceDigest !== preparation.sourceDigest || known.entrypoint !== preparation.entrypoint) {
           throw new FactoryAttemptRuntimeError("invalid_request", "This host already prepared that build identity from other source.");
         }
       };
-      const stored = preparations.has(id) ? undefined : await options.preparationRecords?.read(id);
-      if (stored) sameSource(stored);
       const known = preparations.get(id);
       if (known) {
         sameSource(known);
@@ -351,12 +350,22 @@ export function createFactoryHostLaunchSupervisor(options: FactoryHostLaunchSupe
       }
       const answer = async (result: BuildResult): Promise<FactoryHostPrepared> =>
         result.state !== "succeeded" || !result.artifactDigest ? { result, artifacts: {} } : { result, artifacts: await options.runner.collectArtifacts(result.artifactDigest) };
-      const outcome = stored ? answer(stored.result) : (async (): Promise<FactoryHostPrepared> => {
+      const outcome = (async (): Promise<FactoryHostPrepared> => {
+        const stored = await options.preparationRecords?.read(id);
+        if (stored) {
+          sameSource(stored);
+          return answer(stored.result);
+        }
         const result = await options.runner.build({ operationId: id, sourceDigest: preparation.sourceDigest, files: preparation.files, entrypoint: preparation.entrypoint, limits: buildLimits });
-        await options.preparationRecords?.write(id, { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, result });
+        // Only a succeeded build is durable (N6): a failed one stays in memory for this process's
+        // retries and is built again after a restart, so a transient failure never closes the identity.
+        if (result.state === "succeeded") await options.preparationRecords?.write(id, { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, result });
         return answer(result);
       })();
-      preparations.set(id, { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, outcome });
+      const entry = { sourceDigest: preparation.sourceDigest, entrypoint: preparation.entrypoint, outcome };
+      preparations.set(id, entry);
+      // A request refused against the durable record leaves no entry behind, so it cannot poison the identity (T1).
+      outcome.catch(() => { if (preparations.get(id) === entry) preparations.delete(id); });
       for (const key of preparations.keys()) { if (preparations.size <= FACTORY_HOST_PREPARATION_RETENTION) break; preparations.delete(key); }
       return untilAborted(outcome, signal);
     },

@@ -290,7 +290,8 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
     }
     async collectArtifacts(digest: string): Promise<typeof artifacts> { this.collected.push(digest); return structuredClone(artifacts); }
   }
-  const supervising = (runner: BuildingRunner) => createFactoryHostLaunchSupervisor({ runner: runner as unknown as Runner, hostId, broker: { invoke: async () => ({}) } });
+  const supervising = (runner: BuildingRunner, preparationRecords?: ReturnType<typeof factoryHostPreparationRecords>) =>
+    createFactoryHostLaunchSupervisor({ runner: runner as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, ...(preparationRecords === undefined ? {} : { preparationRecords }) });
   const preparation = { tenantId: "tenant", operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts" };
 
   test("builds under the host's own build limits and answers the build with the artifacts its store holds", async () => {
@@ -329,12 +330,52 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
       // Other source under that identity is refused after the restart too, and does not poison the identity.
       await expect(restarted.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, new AbortController().signal)).rejects.toMatchObject({ code: "invalid_request" });
       expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
-      // A failed build is recorded as it is, and read as it is.
+      expect(await records.read("never-built")).toBeUndefined();
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("after a restart, other source under a reused identity is refused even as the FIRST request, and does not poison it (T1)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
+      const first = await supervising(new BuildingRunner(), records).prepare!(preparation, new AbortController().signal);
+      const after = new BuildingRunner();
+      const restarted = supervising(after, records);
+      await expect(restarted.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, new AbortController().signal)).rejects.toMatchObject({ code: "invalid_request" });
+      expect(after.asked).toEqual([]);
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      expect(after.asked).toEqual([]);
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("only a SUCCEEDED preparation is recorded: a failed build stays in memory and is rebuilt after a restart (N6)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
       const failing = new BuildingRunner();
       failing.outcome = "failed";
-      await createFactoryHostLaunchSupervisor({ runner: failing as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: records }).prepare!({ ...preparation, operationId: "build-failed" }, new AbortController().signal);
-      expect(await restarted.prepare!({ ...preparation, operationId: "build-failed" }, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
-      expect(await records.read("never-built")).toBeUndefined();
+      const host = supervising(failing, records);
+      expect(await host.prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
+      // In this process the failed answer is joined, not rebuilt.
+      await host.prepare!(preparation, new AbortController().signal);
+      expect(failing.asked).toHaveLength(1);
+      expect(await records.read(preparation.operationId)).toBeUndefined();
+      // After a restart the identity is built again.
+      const after = new BuildingRunner();
+      expect(await supervising(after, records).prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "succeeded" } });
+      expect(after.asked).toHaveLength(1);
+      expect(await records.read(preparation.operationId)).toMatchObject({ sourceDigest: preparation.sourceDigest, result: { state: "succeeded" } });
+    } finally { await rm(directory, { recursive: true, force: true }); }
+  });
+
+  test("two concurrent first requests with durable records build once (N7)", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const runner = new BuildingRunner();
+      const host = supervising(runner, factoryHostPreparationRecords(join(directory, "host-preparations")));
+      const [one, two] = await Promise.all([host.prepare!(preparation, new AbortController().signal), host.prepare!(preparation, new AbortController().signal)]);
+      expect(one).toEqual(two);
+      expect(runner.asked).toHaveLength(1);
     } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
