@@ -820,7 +820,11 @@ describe("factory Temporal workflow", () => {
       // cancel once the workflow has recorded both results. Otherwise the
       // cancel can request a stop for a successor activity that completes while
       // that workflow task is in flight, which the time-skipping test server
-      // rejects (ACTIVITY_UNKNOWN) and the run never advances.
+      // (temporal-test-server 1.38.0) rejects (ACTIVITY_UNKNOWN) and the run
+      // never advances. The real server accepts it: on Temporal CLI 1.9.1
+      // (Server 1.32.0) the forced ordering records the cancel request, then
+      // the buffered completion, and the run ends cancelled. So this is a
+      // test-server limit, not an orchestrator bug.
       const recorded = await waitForRecordedState(handle, (state) => state.nodes.b?.status === "succeeded" && state.nodes.d?.status === "succeeded", "both successors succeeding");
       assert.equal(recorded.nodes.c?.status, "running");
       const cancel = { kind: "cancel", id: "cancel-parallel", atMs: Date.now(), reason: "test complete" };
