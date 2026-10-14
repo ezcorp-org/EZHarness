@@ -1,0 +1,9 @@
+Web tests shard 1 (job 115704107128):
+  checkout and install wall time: 46s (median 35s, 1.3x; warns above 2x = 70s)
+  vitest wall time: 208s (median 198s, 1.1x; warns above 2x = 396s)
+Web tests shard 2 (job 115704106820):
+  checkout and install wall time: 40s (median 35s, 1.1x; warns above 2x = 70s)
+  vitest wall time: 203s (median 198s, 1.0x; warns above 2x = 396s)
+Web tests shard 3 (job 115704106851):
+  checkout and install wall time: 39s (median 35s, 1.1x; warns above 2x = 70s)
+  vitest wall time: 205s (median 198s, 1.0x; warns above 2x = 396s)
