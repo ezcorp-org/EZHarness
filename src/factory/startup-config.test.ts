@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { referenceCodeModelPin, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { digestObject } from "../extensions/v4/blobs";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
@@ -359,9 +359,9 @@ describe("the runner profiles this installation dispatches to", () => {
     expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles: [profile, other] } })).runnerProfiles?.profiles).toHaveLength(2);
   });
 
-  test("accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26)", () => {
+  test("accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26, W4H-28)", () => {
     const unpinned = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && node.runner.model === undefined ? [node.runner] : []);
-    expect(unpinned.map(runner => runner.export)).toEqual(["snapshotRepository", "freezeGitTree"]);
+    expect(unpinned.map(runner => runner.export)).toEqual(["snapshotRepository", "freezeGitTree", "protectedChecks"]);
     const profiles = unpinned.map(runner => ({ ...profile, runner }));
     expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles } })).runnerProfiles?.profiles.map(entry => entry.runner)).toEqual(unpinned);
   });
@@ -390,6 +390,13 @@ describe("a runner profile that pins a model", () => {
   /** `null` declares no installation pin at all. */
   const pinned = (profiles: unknown[], modelProvider: unknown = { provider: pin.provider, model: pin.model }) =>
     valid({ runnerProfiles: { brokerAudience: "factory-gateway", profiles }, ...(modelProvider === null ? {} : { modelProvider }) });
+
+  test("accepts reference.code.v1's generateCandidate pinned to the C10 model, whose digest is now a real configuration's (W4H-28)", () => {
+    const generate = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && node.runner.export === "generateCandidate" ? [node.runner] : [])[0]!;
+    const generateProfile = { ...profile, runner: generate, allocation: { ...profile.allocation, budget: { ...profile.allocation.budget, tokens: 50_000 } }, model: referenceCodeModelPin };
+    const parsed = parseFactoryStartupConfig(pinned([generateProfile], { provider: referenceCodeModelPin.provider, model: referenceCodeModelPin.model }));
+    expect(parsed.runnerProfiles?.profiles[0]?.model).toEqual(referenceCodeModelPin);
+  });
 
   test("accepts a pin that matches its runner and names the installation's provider, and keeps it", () => {
     expect(parseFactoryStartupConfig(pinned([profile])).runnerProfiles?.profiles[0]?.model).toEqual(pin);

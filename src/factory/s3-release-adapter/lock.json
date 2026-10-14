@@ -1,0 +1,5 @@
+{
+  "sourceDigest": "sha256:d982310251572b9b600532a38fcc169df500d4d8031e70d33301338e94368f45",
+  "artifactDigest": "sha256:a2d61ff1aa1bb56f346c8d9edd64d9af2fefe1f3586cc7fcaeba5d000ddd2a6c",
+  "image": "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895"
+}
