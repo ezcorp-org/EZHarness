@@ -23,7 +23,7 @@ const COMMIT = "1".repeat(40);
 describe("the reference-code runner packages the product installs (W4H-26)", () => {
   test("every REFERENCE_CODE_IMPLEMENTATIONS export is a tool of exactly the package the definition names", () => {
     const declared = REFERENCE_CODE_RUNNER_PACKAGES.flatMap(entry => entry.exports.map(exported => [exported, entry.manifestName] as const));
-    expect(declared.map(([exported]) => exported).sort()).toEqual(Object.keys(REFERENCE_CODE_IMPLEMENTATIONS).sort());
+    expect(declared.map(([exported]): string => exported).sort()).toEqual(Object.keys(REFERENCE_CODE_IMPLEMENTATIONS).sort());
     for (const [exported, manifestName] of declared) expect(REFERENCE_CODE_EXPORT_MANIFEST_NAMES[exported]).toBe(manifestName);
     expect(Object.keys(REFERENCE_CODE_RUNNER_TOOLS).sort()).toEqual(Object.keys(REFERENCE_CODE_IMPLEMENTATIONS).sort());
   });

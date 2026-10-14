@@ -276,21 +276,23 @@ describe("the host refuses a device it does not have before any container exists
 describe("preparing a package in this host's own store (C05, W4H-26)", () => {
   const files = { "extension.ts": "export {};" };
   const artifacts = { "extension.ts": "export {};", ".runner/recipe.json": "{}" };
-  class BuildingRunner extends GatedRunner {
+  /** A host store that builds: the two runner methods a preparation reaches, and a count of each. */
+  class BuildingRunner {
     asked: Array<Parameters<Runner["build"]>[0]> = [];
     collected: string[] = [];
     outcome: "succeeded" | "failed" = "succeeded";
-    override async build(input: Parameters<Runner["build"]>[0]): Promise<never> {
+    async build(input: Parameters<Runner["build"]>[0]): Promise<Awaited<ReturnType<Runner["build"]>>> {
       this.asked.push(input);
-      return { operationId: input.operationId, state: this.outcome, sourceDigest: input.sourceDigest, ...(this.outcome === "succeeded" ? { artifactDigest: "f".repeat(64) } : {}), imageDigest: "image@sha256:x", diagnostics: [], evidence: {} } as never;
+      return { operationId: input.operationId, state: this.outcome, sourceDigest: input.sourceDigest, ...(this.outcome === "succeeded" ? { artifactDigest: "f".repeat(64) } : {}), imageDigest: "image@sha256:x", diagnostics: [], evidence: {} as never };
     }
-    override async collectArtifacts(digest: string): Promise<never> { this.collected.push(digest); return structuredClone(artifacts) as never; }
+    async collectArtifacts(digest: string): Promise<typeof artifacts> { this.collected.push(digest); return structuredClone(artifacts); }
   }
+  const supervising = (runner: BuildingRunner) => createFactoryHostLaunchSupervisor({ runner: runner as unknown as Runner, hostId, broker: { invoke: async () => ({}) } });
   const preparation = { tenantId: "tenant", operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts" };
 
   test("builds under the host's own build limits and answers the build with the artifacts its store holds", async () => {
     const runner = new BuildingRunner();
-    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const host = supervising(runner);
     const prepared = await host.prepare!(preparation, new AbortController().signal);
     expect(runner.asked).toEqual([{ operationId: "build-1", sourceDigest: "d".repeat(64), files, entrypoint: "extension.ts", limits: buildLimits }]);
     expect(runner.collected).toEqual(["f".repeat(64)]);
@@ -299,7 +301,7 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
 
   test("a repeated build identity joins or reads the first build, and other source under it is refused", async () => {
     const runner = new BuildingRunner();
-    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const host = supervising(runner);
     const signal = new AbortController().signal;
     const [first, joined] = await Promise.all([host.prepare!(preparation, signal), host.prepare!(preparation, signal)]);
     expect(await host.prepare!(preparation, signal)).toEqual(first);
@@ -311,7 +313,7 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
 
   test("keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out", async () => {
     const runner = new BuildingRunner();
-    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const host = supervising(runner);
     const signal = new AbortController().signal;
     for (let index = 0; index <= FACTORY_HOST_PREPARATION_RETENTION; index++) await host.prepare!({ ...preparation, operationId: `build-${index}` }, signal);
     await host.prepare!({ ...preparation, operationId: `build-${FACTORY_HOST_PREPARATION_RETENTION}` }, signal);
@@ -323,7 +325,7 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
   test("a failed build is answered as it is, with no artifacts", async () => {
     const runner = new BuildingRunner();
     runner.outcome = "failed";
-    const host = createFactoryHostLaunchSupervisor({ runner, hostId, broker: { invoke: async () => ({}) } });
+    const host = supervising(runner);
     expect(await host.prepare!(preparation, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
     expect(runner.collected).toEqual([]);
   });

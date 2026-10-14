@@ -31,7 +31,7 @@ export async function createFactoryHostPreparationClient(options: GatewayTranspo
   const transport = await createGatewayTransport({ ...transportOptions, requestTimeoutMs: Math.max(transportOptions.requestTimeoutMs ?? 0, FACTORY_HOST_PREPARATION_CLIENT_TIMEOUT_MS) });
   // The last build's artifacts, for the commit that follows it: the role prepares one package at a time.
   let prepared: { readonly artifactDigest: string; readonly files: WorkspaceFiles } | undefined;
-  return Object.freeze({
+  const client: Pick<Runner, "build" | "collectArtifacts"> = {
     async build(input) {
       let body: { result?: BuildResult; artifacts?: WorkspaceFiles };
       try {
@@ -54,8 +54,10 @@ export async function createFactoryHostPreparationClient(options: GatewayTranspo
       return result;
     },
     async collectArtifacts(artifactDigest) {
-      if (prepared?.artifactDigest !== artifactDigest) throw new FactoryHostPreparationError("host_preparation_not_built", "this process has no prepared build of that artifact yet");
-      return structuredClone(prepared.files);
+      const last = prepared;
+      if (last?.artifactDigest !== artifactDigest) throw new FactoryHostPreparationError("host_preparation_not_built", "this process has no prepared build of that artifact yet");
+      return structuredClone(last.files);
     },
-  });
+  };
+  return Object.freeze(client);
 }

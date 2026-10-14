@@ -28,11 +28,9 @@ test("the entry runs only as the process entry and returns the written settings 
 
 test("the local fleet declares reference.code.v1's guest task runners with a slugify-sized budget, and the startup parser admits them (W4H-26)", () => {
   const declared = LOCAL_RUNNER_PROFILES.profiles.map(profile => profile.runner);
-  for (const exported of ["snapshotRepository", "freezeGitTree"]) {
-    const node = referenceCodeV1.graph.nodes.find(candidate => candidate.kind === "task" && candidate.runner.export === exported);
-    expect(node?.kind === "task" ? node.runner : undefined).toBeDefined();
-    expect(declared).toContainEqual(node?.kind === "task" ? node.runner : undefined);
-  }
+  const runners = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && ["snapshotRepository", "freezeGitTree"].includes(node.runner.export) ? [node.runner] : []);
+  expect(runners).toHaveLength(2);
+  for (const runner of runners) expect(declared as unknown[]).toContainEqual(runner);
   for (const profile of LOCAL_RUNNER_PROFILES.profiles) expect(profile.allocation.budget.tokens).toBe(50_000);
   expect(() => parseFactoryFleetRunnerProfiles(LOCAL_RUNNER_PROFILES)).not.toThrow();
 });
