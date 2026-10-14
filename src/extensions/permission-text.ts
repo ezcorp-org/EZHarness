@@ -4,7 +4,10 @@
  * builtins, no database), so the browser can import it too.
  */
 import type { ExtensionManifest } from "./types";
-import { declaresStdioMcpServer, type ExtensionManifestV4, type ProcessSpawnPolicy } from "@ezcorp/extension-contract";
+import type { ExtensionManifestV4, ProcessSpawnPolicy } from "@ezcorp/extension-contract";
+// The pure subpath: the package root loads the validators, which compile
+// schemas with `new Function` and break a page under its CSP.
+import { declaresStdioMcpServer } from "@ezcorp/extension-contract/spawn-policy";
 
 export interface PermissionItem {
   type: string;
