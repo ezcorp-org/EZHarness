@@ -13,7 +13,7 @@
  * never swallowed: an operator reads the code out of `/api/ready`.
  */
 import { startFactoryInstallation, type FactoryInstallationStartup } from "$server/factory/installation-startup";
-import { FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
+import { FACTORY_HOST_RUN_LIMITS, FactoryBootError, factoryBootConfig, type FactoryBootConfig } from "$server/factory/boot";
 import { setReadiness } from "$server/readiness";
 import { errorChain } from "$server/db/error-chain";
 import type { TransactionalDb } from "$server/db/migrations/types";
@@ -60,7 +60,7 @@ function hostRunOptions(env: Readonly<Record<string, string | undefined>>) {
   return {
     interpreterBuild: env.EZCORP_FACTORY_INTERPRETER_BUILD ?? "factory-interpreter-1",
     interpreterCompatibility: env.EZCORP_FACTORY_INTERPRETER_COMPATIBILITY ?? "1",
-    limits: { maxCostMicros: "1000000", maxTokens: 1_000_000, maxComputeMs: 3_600_000 },
+    limits: FACTORY_HOST_RUN_LIMITS,
   };
 }
 

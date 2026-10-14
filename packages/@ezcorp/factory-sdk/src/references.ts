@@ -161,9 +161,18 @@ function input(name: string): ValueReference {
   return { kind: "ref", root: "input", name };
 }
 
-function task(id: string, implementation: RunnerReference, dependsOn: readonly string[], outputPorts: Readonly<Record<string, PortSchema>>, effects: FactoryNode["effects"] = ["read"]): TaskNode {
-  return { id, kind: "task", runner: implementation, dependsOn, outputPorts, effects };
+function task(id: string, implementation: RunnerReference, dependsOn: readonly string[], outputPorts: Readonly<Record<string, PortSchema>>, effects: FactoryNode["effects"] = ["read"], maxCostMicros?: string): TaskNode {
+  return { id, kind: "task", runner: implementation, dependsOn, outputPorts, effects, ...(maxCostMicros === undefined ? {} : { resources: { maxCostMicros } }) };
 }
+
+/**
+ * What each reference.code.v1 task may spend, in cost micros. A task attempt holds its bound from the
+ * run's budget while it runs; a task that declared none would hold its allocation's whole cost, which a
+ * fleet may set to the run's whole cap, so any earlier spend (generate's model call) would refuse the
+ * next task. Generate makes the one model call; the other three make none. Together 400,000, well under
+ * the host's 1,000,000 run cap.
+ */
+const REFERENCE_CODE_TASK_COST_MICROS = Object.freeze({ snapshot: "50000", generate: "250000", freeze: "50000", checks: "50000" });
 
 function claim(id: string, validator: RunnerReference, freshnessMs?: number, required = true): AcceptanceClaim {
   return { id, validator, required, protected: true, ...(freshnessMs === undefined ? {} : { freshnessMs }) };
@@ -235,14 +244,14 @@ export function referenceCodeDefinition(options: ReferenceCodeDefinitionOptions 
     {
       nodes: [
         {
-          ...task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }),
+          ...task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.snapshot),
           inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema },
           bindings: { repositoryConnection: input("repositoryConnection"), baseCommitSha: input("baseCommitSha") },
         },
         {
           // The one repairable node. A protected rejection replaces its remediation input, and the
           // freeze, the checks and the decision below all re-run against the tree it then produces.
-          ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"]),
+          ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"], REFERENCE_CODE_TASK_COST_MICROS.generate),
           inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema, remediation: remediationSchema },
           bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch"), remediation: noRemediation },
           repairableInputs: ["remediation"],
@@ -253,11 +262,11 @@ export function referenceCodeDefinition(options: ReferenceCodeDefinitionOptions 
           // generator's output, so a generated candidate cannot restate the policy it is checked against.
           // Its `candidate` is what the declared release resolves from (the W07 publication request, or
           // the S3 accepted publication); `frozen` is the sealed frozen record the validators read.
-          ...task("freeze-complete-git-tree", codeFreeze, ["snapshot-repository", "generate-private-candidate"], { candidate: releaseCandidateSchema, frozen: artifactSchema }),
+          ...task("freeze-complete-git-tree", codeFreeze, ["snapshot-repository", "generate-private-candidate"], { candidate: releaseCandidateSchema, frozen: artifactSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.freeze),
           inputPorts: { candidate: artifactSchema, snapshot: artifactSchema, baseCommitSha: stringSchema, request: stringSchema, baseBranch: stringSchema, release: releaseKindSchema },
           bindings: { candidate: ref("generate-private-candidate", "candidate"), snapshot: ref("snapshot-repository", "snapshot"), baseCommitSha: input("baseCommitSha"), request: input("request"), baseBranch: input("baseBranch"), release: { kind: "literal", value: releaseKind } },
         },
-        { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "frozen") } },
+        { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.checks), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "frozen") } },
         { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: releaseCandidateSchema } },
         { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
         { id: releaseNode, kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: release, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destinationRepository"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },

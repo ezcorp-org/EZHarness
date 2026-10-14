@@ -80,3 +80,25 @@ describe("the reference S3 release adapter is a published artifact, not a placeh
     expect(releaseNode(referenceImageV1).adapter).toEqual(referenceS3ReleaseAdapter);
   });
 });
+
+describe("reference.code.v1 states what each task may spend (W4H-28 budget ruling)", () => {
+  const costs = (definition: FactoryDefinition) => Object.fromEntries(definition.graph.nodes.filter((node): node is Task => node.kind === "task").map(node => [node.id, node.resources?.maxCostMicros]));
+
+  test("every task node declares its cost; none falls back to the allocation's whole cost", () => {
+    expect(costs(referenceCodeV1)).toEqual({
+      "snapshot-repository": "50000",
+      "generate-private-candidate": "250000",
+      "freeze-complete-git-tree": "50000",
+      "protected-checks": "50000",
+    });
+  });
+
+  test("the declared costs together stay well under the run's 1,000,000 cost micros", () => {
+    const total = Object.values(costs(referenceCodeV1)).reduce((sum, cost) => sum + BigInt(cost!), 0n);
+    expect(total).toBe(400_000n);
+  });
+
+  test("the release destination and the model pin change no declared cost", () => {
+    expect(costs(referenceCodeDefinition({ release: "s3", model: referenceFactoryModelPin("ezcorp-mock", "mock:budget") }))).toEqual(costs(referenceCodeV1));
+  });
+});
