@@ -205,19 +205,25 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       return json(200, { result });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      if (error instanceof HostLaunchRouteError) return refused(error.status, error.code, message);
-      if (controller.signal.aborted) return refused(504, "host_timeout", message);
-      const code = error instanceof FactoryAttemptRuntimeError ? error.code : undefined;
-      // The guest ran here and ended without an answer: the detail is the runner's own account of it.
-      if (code === "guest_exited") return refused(502, "guest_exited", message);
-      // A granted device this host does not have: refused before any container existed (W02d R4).
-      if (code === "device_unavailable") return refused(422, "device_unavailable", message);
-      // A worker this host stopped before it ever ran (a durable tombstone, W02d R8) is never started or attached.
-      if (code === "worker_stopped") return refused(409, "worker_stopped", message);
-      if (code === "attempt_unknown" || message.includes("not running") || message.includes("uncertain")) return refused(409, "attempt_uncertain", message);
-      return refused(500, "host_failed", message);
+      const [status, code] = hostRefusalFor(error, message, controller.signal.aborted);
+      return refused(status, code, message);
     } finally { if (timer) clearTimeout(timer); }
   };
+}
+
+/** The status and code a route answers for an error, in the order the cases are told apart. */
+function hostRefusalFor(error: unknown, message: string, aborted: boolean): readonly [number, string] {
+  if (error instanceof HostLaunchRouteError) return [error.status, error.code];
+  if (aborted) return [504, "host_timeout"];
+  const code = error instanceof FactoryAttemptRuntimeError ? error.code : undefined;
+  // The guest ran here and ended without an answer: the detail is the runner's own account of it.
+  if (code === "guest_exited") return [502, "guest_exited"];
+  // A granted device this host does not have: refused before any container existed (W02d R4).
+  if (code === "device_unavailable") return [422, "device_unavailable"];
+  // A worker this host stopped before it ever ran (a durable tombstone, W02d R8) is never started or attached.
+  if (code === "worker_stopped") return [409, "worker_stopped"];
+  if (code === "attempt_unknown" || message.includes("not running") || message.includes("uncertain")) return [409, "attempt_uncertain"];
+  return [500, "host_failed"];
 }
 
 /**
