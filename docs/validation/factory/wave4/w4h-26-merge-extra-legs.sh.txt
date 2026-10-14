@@ -1,0 +1,27 @@
+# W4H-26 (integrator-5; the coordinator's prep order 2026-10-13): the composition root registers the reference-code runners at startup and a
+# product path installs the built-in runner packages. src/factory/ files are inside SOURCE_GLOBS: new-file, patch and CRAP vs the first parent
+# BIND (no MCG_COVERAGE_INFORMATIONAL). unit.txt = the hook-mapped suites + the W09 startup set (unit.startup.txt: the src/factory composition
+# tests, installation-startup, startup-config, reference-code/pack); pg.txt = the hook-mapped PostgreSQL suites + factory-host-launch, on an OWN
+# fresh pg15 (hold-own-pg.sh). The orchestrator package test + Node producer switch on in hold-w4f.sh if its files move.
+tc_leg typecheck-all bun run typecheck
+# v1.1 (the coordinator's ruled design 2026-10-13: startup-config, reference-code runner packages + guest entries, the boot install, package
+# preparation scoped by extension_project_bindings, a package-preparation runtime role, the host-launch service/client and supervisor-process.ts
+# with a new internal mutual-TLS operation). Producers switched on by the diff, as CI runs them:
+# - package preparation: scripts/factory-package-preparation-coverage.sh (PGlite; its lcov joins the merge)
+touches '^src/factory/(package-preparation|runtime-workers)\.ts|^src/db/migrations/add-factory-package-preparations' && leg pkgprep-producer env COV_OUT=$REPO/$C/pkgprep bash scripts/factory-package-preparation-coverage.sh
+# - the runner contracts job (ci.yml "Factory runner contracts"): strict Python quality + both runner conformance suites on the same schema
+if touches '^src/factory/(runner/|reference-code/)'; then
+  NOTEST=1 leg runner-python-quality bash scripts/python-quality.sh all
+  leg runner-conformance bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir=$C/runner-conformance ./src/factory/runner/native.integration.test.ts ./src/factory/runner/python-runner.integration.test.ts
+fi
+# - the podman integration suites of the supervisor, the host launch and package preparation (EZCORP_RUN_PODMAN_TESTS=1, as cov-extras runs them;
+#   own containers, removed by the suites; one lcov leg each)
+if touches '^src/factory/(runner/(supervisor|host-launch)|host-launch|package-preparation)'; then
+  for t in src/factory/runner/supervisor-process.podman.integration.test.ts src/factory/host-launch-e2e.podman.integration.test.ts src/factory/host-launch-lost-result.podman.integration.test.ts src/factory/package-preparation.podman.integration.test.ts; do
+    [ -f "$t" ] && leg "podman-$(basename $t .podman.integration.test.ts)" env EZCORP_RUN_PODMAN_TESTS=1 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=$C/podman-$(basename $t .podman.integration.test.ts) "./$t"
+  done
+fi
+# v2 (the frozen head d2d78d98e; the owner's 15 red-first files): the 48 new named cases (warn-cases.txt) bound by name through W4H-24's
+# case-check.sh (+ case-files-extra.txt: package-preparation.integration.test.ts, which the hook does not map), with test-file lcov; the two
+# red-first files without a new case name (runtime-composition, package-preparation.integration) are bound as whole files (their legs pass).
+NOTEST=1 leg red-first-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" /tmp/factory-platform-evidence/w00/w4h-merge/w4h-26-runner-wiring

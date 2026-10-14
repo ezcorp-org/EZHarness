@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:40:58.126Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-14T05:40:58.126Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-14T05:40:58.137Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-14T05:40:58.147Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+{"ts":"2026-10-14T05:40:58.158Z","level":"info","msg":"github-projects extension not installed — spawn proceeds without ticket tools","subsystem":"ext.github-projects.spawn","conversationId":"conv-1"}
+
+ 7 pass
+ 0 fail
+ 17 expect() calls
+Ran 7 tests across 1 file. [498.00ms]

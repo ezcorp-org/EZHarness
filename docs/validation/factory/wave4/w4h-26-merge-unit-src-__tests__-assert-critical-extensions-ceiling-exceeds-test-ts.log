@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:34:51.957Z","level":"warn","msg":"Critical extension task-tracking awaits a verified, human-approved release: agents cannot self-structure recovery / track multi-step work","subsystem":"startup/assert-critical-extensions","name":"task-tracking"}
+{"ts":"2026-10-14T05:34:51.957Z","level":"warn","msg":"Critical extension ask-user awaits a verified, human-approved release: agents cannot ask the user for clarification","subsystem":"startup/assert-critical-extensions","name":"ask-user"}
+{"ts":"2026-10-14T05:34:51.957Z","level":"warn","msg":"Critical extension extension-author awaits a verified, human-approved release: agents cannot author or install extensions in chat","subsystem":"startup/assert-critical-extensions","name":"extension-author"}
+
+ 1 pass
+ 0 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [430.00ms]

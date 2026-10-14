@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"ping-loop","extensionId":"ext-ping"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"github-projects","extensionId":"ext-gh"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"ping-loop","extensionId":"ext-ping"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"github-projects","extensionId":"ext-gh"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons-distiller"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory-extractor"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"warn","msg":"boot-spawn failed; event-only handlers will not fire until next boot","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons","error":"Error: spawn refused for ext-lessons"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"ping-loop","extensionId":"ext-ping"}
+{"ts":"2026-10-14T05:34:55.862Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"github-projects","extensionId":"ext-gh"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawn skipped: bundled extension disabled","subsystem":"extensions","name":"lessons-distiller"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"ping-loop","extensionId":"ext-ping"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"github-projects","extensionId":"ext-gh"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"lessons-distiller"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"memory-extractor"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"memory-extractor"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"info","msg":"boot-spawned bundled extension","subsystem":"extensions","name":"memory-extractor","extensionId":"ext-memory"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn failed; event-only handlers will not fire until next boot","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons","error":"Error: spawn refused for ext-lessons"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"memory-extractor"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.863Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+{"ts":"2026-10-14T05:34:55.985Z","level":"warn","msg":"boot-spawn failed; event-only handlers will not fire until next boot","subsystem":"extensions","name":"lessons-distiller","extensionId":"ext-lessons","error":"Error: spawn ENOENT"}
+{"ts":"2026-10-14T05:34:55.985Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"memory-extractor"}
+{"ts":"2026-10-14T05:34:55.985Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"ping-loop"}
+{"ts":"2026-10-14T05:34:55.985Z","level":"warn","msg":"boot-spawn skipped: bundled extension row missing — install must have failed earlier","subsystem":"extensions","name":"github-projects"}
+
+ 12 pass
+ 0 fail
+ 36 expect() calls
+Ran 12 tests across 1 file. [575.00ms]
