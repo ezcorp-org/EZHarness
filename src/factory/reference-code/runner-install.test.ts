@@ -52,7 +52,7 @@ test("every staging error maps to one fixed reason", () => {
   expect(reason(new Error("ENOENT: no such file or directory"))).toBe("source_missing");
   expect(reason(new LifecycleError("runner_unconfigured", "x"))).toBe("runner_unconfigured");
   expect(reason(new LifecycleError("stale_release", "x"))).toBe("lifecycle_refused");
-  expect(reason(new ContractError("Only JSON data is accepted"))).toBe("invalid_source");
+  expect(reason(new ContractError("invalid_json", "Only JSON data is accepted"))).toBe("invalid_source");
   expect(reason("a string")).toBe("unexpected");
   for (const [key, message] of Object.entries(REFERENCE_CODE_RUNNER_STAGE_REASONS)) {
     expect(referenceCodeRunnerStageFailure(key === "owner_inactive" ? REFERENCE_CODE_RUNNER_OWNER_INACTIVE : new Error("x")).code).toBe("factory_builtin_runner_stage_failed");
