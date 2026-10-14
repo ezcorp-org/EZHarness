@@ -39,6 +39,8 @@ class GatedRunner implements Runner {
   starts = 0;
   closes = 0;
   attaches = 0;
+  /** Every start and attach request, in order. */
+  readonly requests: StartRequest[] = [];
   readonly answer = latch<FactoryRunnerResult>();
   readonly states = new Map<string, RunnerInspection["state"]>();
   diagnostics: RunnerInspection["diagnostics"] = [];
@@ -54,6 +56,7 @@ class GatedRunner implements Runner {
   }
   async start(input: StartRequest): Promise<RunnerExecution> {
     this.starts += 1;
+    this.requests.push(input);
     await this.startGate;
     if (this.startFails) throw new Error("podman create failed");
     this.states.set(input.workerId, "running");
@@ -61,6 +64,7 @@ class GatedRunner implements Runner {
   }
   async attach(input: StartRequest): Promise<RunnerExecution> {
     this.attaches += 1;
+    this.requests.push(input);
     return this.execution(input.workerId, async () => { throw new Error("a reattached guest must never be invoked again"); });
   }
   /** When set, each execution reports this exit code once the guest's invocation has settled. */
@@ -198,6 +202,19 @@ describe("every way there will never be an answer is named", () => {
       expect((error as Error).message).toContain("lost with the earlier supervisor");
     }
     expect(runner.closes).toBe(1);
+  });
+});
+
+describe("the process policy of a factory guest", () => {
+  test("a guest this host starts or reattaches may start processes, because the runner denies a start that names no policy", async () => {
+    const runner = new GatedRunner();
+    const host = supervisor(runner);
+    const started = intentFor("attempt-policy-start");
+    const reattached = intentFor("attempt-policy-attach");
+    runner.states.set(reattached.workerId, "running");
+    expect(await host.launch(started, new AbortController().signal)).toMatchObject({ disposition: "started" });
+    expect(await host.attach(reattached, new AbortController().signal)).toMatchObject({ disposition: "attached" });
+    expect(runner.requests.map(request => [request.workerId, request.processSpawn])).toEqual([[started.workerId, "allow"], [reattached.workerId, "allow"]]);
   });
 });
 
