@@ -116,6 +116,14 @@ describe("parseFactoryFleetSettings", () => {
     expect(refusal(withField("installations.extra", 1)).message).toBe("Fleet settings are invalid: installations.");
   });
 
+  test("an installation model pin is carried for the profiles that pin it, and judged by the startup parser (W4H-28)", () => {
+    const pin = { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" };
+    expect(parseFactoryFleetSettings(withField("installations.modelProvider", pin)).installations.modelProvider).toEqual(pin as never);
+    for (const broken of [{ provider: "openai" }, { ...pin, credentialKind: "password" }]) {
+      expect(refusal(withField("installations.modelProvider", broken)).message).toBe("Fleet settings are invalid: installations.runnerProfiles.");
+    }
+  });
+
   test("runner profiles are judged by the startup document's parser", () => {
     const profile = FACTORY_TEST_RUNNER_PROFILES.profiles[0]!;
     for (const runnerProfiles of [

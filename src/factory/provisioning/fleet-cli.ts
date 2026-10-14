@@ -256,6 +256,8 @@ export interface FactoryLocalFleetOptions {
   readonly runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"];
   /** Where every installation may release; absent, the fleet declares no release block. */
   readonly release?: FactoryFleetSettings["installations"]["release"];
+  /** Every installation's pinned model; a pinned runner profile must name it (W4H-28). */
+  readonly modelProvider?: FactoryFleetSettings["installations"]["modelProvider"];
 }
 
 /**
@@ -300,7 +302,7 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
     },
     temporal: { port: options.portBase + 1_001, httpPort: options.portBase + 1_004, serverName: "temporal.local" },
     ingress: { address: "127.0.0.1", port: options.portBase + 1_005, domain: `${options.fleetId}.factory.test` },
-    installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }) },
+    installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }), ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }) },
     image: { reference: options.image, revision: options.revision },
     release: { directory: options.releaseDirectory, bun: options.bun, path: `${resolve(options.bun, "..")}:/run/current-system/sw/bin:/usr/bin:/bin` },
   });
