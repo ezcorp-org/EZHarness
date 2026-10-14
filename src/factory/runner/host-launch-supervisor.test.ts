@@ -13,7 +13,10 @@ import type { FactoryRunnerResult } from "@ezcorp/factory-sdk";
 import { factoryLaunchCompletedResult, factoryLaunchLease, factoryLaunchPackage, factoryLaunchRequest } from "../../__tests__/helpers/factory-attempt-launch-fixture";
 import { FactoryAttemptRuntimeError, snapshotIntent, type FactoryAttemptLaunchIntent } from "./attempt-wire";
 import { buildLimits } from "@ezcorp/extension-runner";
-import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent, FACTORY_HOST_PREPARATION_RETENTION } from "./host-launch-supervisor";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createFactoryHostLaunchSupervisor, factoryHostDevicePresent, factoryHostPreparationRecords, FACTORY_HOST_PREPARATION_RETENTION } from "./host-launch-supervisor";
 
 const hostId = factoryLaunchLease.hostId;
 const completed = factoryLaunchCompletedResult("host-supervisor");
@@ -309,6 +312,30 @@ describe("preparing a package in this host's own store (C05, W4H-26)", () => {
     expect(runner.asked).toHaveLength(1);
     await expect(host.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, signal)).rejects.toThrow("already prepared that build identity from other source");
     await expect(host.prepare!({ ...preparation, entrypoint: "other.ts" }, signal)).rejects.toMatchObject({ code: "invalid_request" });
+  });
+
+  test("after a restart, a repeated build identity reads the first build's record: never a second build, never duplicate_operation", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "w4h26-host-preparations-"));
+    try {
+      const records = factoryHostPreparationRecords(join(directory, "host-preparations"));
+      const before = new BuildingRunner();
+      const first = await createFactoryHostLaunchSupervisor({ runner: before as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: records }).prepare!(preparation, new AbortController().signal);
+      // A new process: a fresh runner whose operations are empty, the same durable records.
+      const after = new BuildingRunner();
+      after.build = async () => { throw new Error("duplicate_operation: Runner operation ID is already used"); };
+      const restarted = createFactoryHostLaunchSupervisor({ runner: after as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: factoryHostPreparationRecords(join(directory, "host-preparations")) });
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      expect(after.collected).toEqual(["f".repeat(64)]);
+      // Other source under that identity is refused after the restart too, and does not poison the identity.
+      await expect(restarted.prepare!({ ...preparation, sourceDigest: "e".repeat(64) }, new AbortController().signal)).rejects.toMatchObject({ code: "invalid_request" });
+      expect(await restarted.prepare!(preparation, new AbortController().signal)).toEqual(first);
+      // A failed build is recorded as it is, and read as it is.
+      const failing = new BuildingRunner();
+      failing.outcome = "failed";
+      await createFactoryHostLaunchSupervisor({ runner: failing as unknown as Runner, hostId, broker: { invoke: async () => ({}) }, preparationRecords: records }).prepare!({ ...preparation, operationId: "build-failed" }, new AbortController().signal);
+      expect(await restarted.prepare!({ ...preparation, operationId: "build-failed" }, new AbortController().signal)).toMatchObject({ result: { state: "failed" }, artifacts: {} });
+      expect(await records.read("never-built")).toBeUndefined();
+    } finally { await rm(directory, { recursive: true, force: true }); }
   });
 
   test("keeps at most FACTORY_HOST_PREPARATION_RETENTION outcomes, oldest first out", async () => {
