@@ -8,6 +8,7 @@ import { factoryDatabasePairs } from "../../factory/provisioning/database";
 import type { FactoryDeploymentSettings } from "../../factory/provisioning/deployment";
 import { FACTORY_HOST_FILES, factoryFleetHostIdentity, factoryFleetHostPaths, type FactoryFleetHostFacts } from "../../factory/provisioning/host";
 import type { FactoryInstallationContext } from "../../factory/provisioning/installation";
+import { FACTORY_FLEET_SCHEMA, type FactoryFleetSettings } from "../../factory/provisioning/fleet";
 import { privateDirectory } from "../../factory/private-files";
 
 /**
@@ -89,6 +90,26 @@ export const FACTORY_TEST_RUNNER_PROFILES = Object.freeze({
 });
 
 export const FACTORY_TEST_IMAGE = `registry.test/ezcorp@sha256:${"b".repeat(64)}`;
+
+const testStorageDomain = (port: number, prefix: string) => ({ endpoint: `http://127.0.0.1:${port}`, prefix, issuer: { kind: "seeded" as const, serverIdentityPath: "/srv/operator/storage-identity.json" } });
+
+/** A complete, valid fleet settings document: every field present, nothing optional declared. */
+export function makeFactoryTestFleetSettings(): FactoryFleetSettings {
+  return {
+    schemaVersion: FACTORY_FLEET_SCHEMA,
+    fleetId: "fleet-a",
+    profile: "compose",
+    roots: { operator: "/srv/operator", secrets: "/srv/secrets", runtime: "/srv/runtime" },
+    control: { databaseUrlPath: "/srv/operator/control-database-url" },
+    database: { adminUrlPath: "/srv/operator/admin-database-url", serviceHost: "127.0.0.1", servicePort: 55_432 },
+    storage: { ordinary: testStorageDomain(59_000, "ordinary"), archive: testStorageDomain(59_001, "archive"), failureDomain: "host-a" },
+    temporal: { port: 57_233, httpPort: 57_244, serverName: "temporal.test" },
+    ingress: { address: "127.0.0.1", port: 30_443, domain: "factory.example" },
+    installations: { portBase: 40_000, cpuCapacity: 4, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
+    image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
+    release: { directory: "/srv/release", bun: "/srv/bin/bun", path: "/usr/bin:/bin" },
+  };
+}
 
 /** Deployment settings for an installation whose runtime state lives under `runtimeRoot`. */
 /**

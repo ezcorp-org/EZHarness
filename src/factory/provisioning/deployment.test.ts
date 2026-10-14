@@ -17,9 +17,17 @@ import {
 import { factoryTemporalPositionsFromConfig } from "../recovery-composition";
 import { parseFactoryStartupConfig } from "../startup-config";
 import { FactoryTemporalHttpPositions } from "../temporal-retention";
+import { composeFactoryReleaseDestinations } from "../release-declaration";
+import { S3FactoryManifestReleaseProvider } from "../release-s3-publication";
+import { FactoryGitHubReleaseProvider } from "../release-github";
+import type { FactoryReleaseOperation } from "../releases";
 import {
   FACTORY_CONTAINER_PATHS,
   FACTORY_CONTAINER_SERVICES,
+  FACTORY_GITHUB_RELEASE_DESTINATION,
+  FACTORY_GITHUB_RELEASE_TOKEN_FILE,
+  FACTORY_INSTALLATION_S3_RELEASE_DESTINATION,
+  FACTORY_RELEASE_S3_PREFIX,
   FACTORY_DEFAULT_DATABASE_POOL_MAX,
   FACTORY_DEPLOYED_SERVICES,
   FactoryDeploymentStep,
@@ -365,6 +373,61 @@ describe("every rendered startup document declares the recovery sections W15's b
       finally { composed.listener?.stop(); }
     });
   }
+});
+
+describe("the startup release block (W4H-27 D3): what the deployer writes, the release reader resolves", () => {
+  const ADAPTER = { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"e".repeat(64)}`, export: "publish" };
+  const PROFILE = { adapter: ADAPTER, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 };
+  const TOKEN = "gh-release-token-value";
+  let root: string;
+  let installation: FactoryInstallationContext;
+
+  beforeAll(async () => {
+    root = await makeFactoryPrivateRoot();
+    installation = makeFactoryTestInstallation(root);
+    await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
+    // The installation's own ordinary-store identity, as the storage step leaves it.
+    await writeModeFile(join(installation.secretDirectory, "ordinary-storage.json"), JSON.stringify({ identities: [{ name: "tenant-01", credentials: [{ accessKey: "a", secretKey: "b" }] }] }));
+  });
+  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+
+  const startupOf = (bundle: FactoryInstallationBundle) => (bundle.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> }).document;
+  const operation = (provider: string, account: string) => ({ projectId: "project-1", operationId: "factory-release:op-1", dispatchGeneration: 1, state: "executing", destination: { provider, account, object: "x" } }) as unknown as FactoryReleaseOperation;
+  const collaborators = { database: {} as never, tenantId: "tenant-01", reader: {} as never, attempts: {} as never, materials: {} as never, releases: { async inspect() { return null; } } as never };
+
+  test("with profiles, the installation's own S3 destination and the declared GitHub one resolve through the release reader; the token travels by path", async () => {
+    const tokenPath = await writeModeFile(join(root, "operator-github-token"), TOKEN);
+    const settings = makeFactoryTestDeploymentSettings(join(root, "runtime"), { release: { github: { repository: "ezcorp-org/factory-platform-publication-tests", tokenPath }, profiles: [PROFILE] } });
+    const bundle = await renderFactoryInstallationBundle(installation, settings);
+    expect(startupOf(bundle).release).toEqual({
+      destinations: [
+        { name: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, kind: "s3", endpoint: "http://127.0.0.1:59000", bucket: "tenant-01", account: "tenant-01", prefix: FACTORY_RELEASE_S3_PREFIX, credentialsPath: "/run/ezcorp/secrets/ordinary-storage.json" },
+        { name: FACTORY_GITHUB_RELEASE_DESTINATION, kind: "github", repository: "ezcorp-org/factory-platform-publication-tests", tokenPath: `/run/ezcorp/secrets/${FACTORY_GITHUB_RELEASE_TOKEN_FILE}` },
+      ],
+      profiles: [PROFILE],
+    });
+    expect(bundle.deliveries.harness.files[FACTORY_GITHUB_RELEASE_TOKEN_FILE]).toEqual({ source: tokenPath });
+    await writeFactoryDeliveries(bundle);
+    const delivered = await readFile(join(bundle.deliveries.harness.directory, "factory-startup.json"), "utf8");
+    expect(delivered).not.toContain(TOKEN);
+    // The harness reads its delivery at /run/ezcorp/secrets; on the host it is the delivery directory.
+    const config = parseFactoryStartupConfig(JSON.parse(delivered.replaceAll(`${FACTORY_CONTAINER_PATHS.secrets}/`, `${bundle.deliveries.harness.directory}/`)));
+    const composed = await composeFactoryReleaseDestinations(config, collaborators);
+    expect(composed?.destinations).toEqual([FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, FACTORY_GITHUB_RELEASE_DESTINATION]);
+    expect(await composed!.providers.resolve(operation("s3", "tenant-01"))).toBeInstanceOf(S3FactoryManifestReleaseProvider);
+    expect(await composed!.providers.resolve(operation("github", "ezcorp-org/factory-platform-publication-tests"))).toBeInstanceOf(FactoryGitHubReleaseProvider);
+    expect((await factoryRejection(Promise.resolve(composed!.providers.resolve(operation("s3", "tenant-02"))))).code).toBe("factory_release_destination_unknown");
+  });
+
+  test("S3 always, GitHub only when declared; no profile, no release block", async () => {
+    const s3Only = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { release: { profiles: [PROFILE] } }));
+    expect((startupOf(s3Only).release as { destinations: { name: string }[] }).destinations.map((entry) => entry.name)).toEqual([FACTORY_INSTALLATION_S3_RELEASE_DESTINATION]);
+    expect(Object.keys(s3Only.deliveries.harness.files)).not.toContain(FACTORY_GITHUB_RELEASE_TOKEN_FILE);
+    for (const release of [undefined, { profiles: [] }]) {
+      const none = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), release === undefined ? {} : { release }));
+      expect(Object.keys(startupOf(none))).not.toContain("release");
+    }
+  });
 });
 
 describe("writeFactoryDeliveries", () => {

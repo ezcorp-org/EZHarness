@@ -9,6 +9,7 @@ import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { bundleWorkflowCode, Worker, type WorkflowBundleWithSourceMap } from "@temporalio/worker";
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
 import { createFactoryWorker } from "../src/worker.ts";
+import { factoryWorkflowBundleDigest, loadFactoryWorkflowBundle } from "../src/workflow-bundle.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
@@ -212,6 +213,9 @@ before(async () => {
   historyDirectory = await mkdtemp(join(tmpdir(), "factory-history-"));
   environment = await TestWorkflowEnvironment.createTimeSkipping({ server: { executable: { type: "existing-path", path: server } } });
   bundle = await bundleWorkflowCode({ workflowsPath: new URL("../src/workflow.ts", import.meta.url).pathname });
+  // Every case below runs the bytes the image build ships: this bundle (kept for its source map) must equal the
+  // build's own (`build:workflow-bundle`, which the package test and coverage scripts run first), byte for byte.
+  assert.equal(factoryWorkflowBundleDigest(bundle.code), (await loadFactoryWorkflowBundle()).sha256, "the replay suite's bundle differs from the built bundle");
   if (process.env.FACTORY_BUNDLE_CODE_PATH) await writeFile(process.env.FACTORY_BUNDLE_CODE_PATH, bundle.code);
   if (process.env.FACTORY_BUNDLE_MAP_PATH) await writeFile(process.env.FACTORY_BUNDLE_MAP_PATH, JSON.stringify(bundle.sourceMap));
 });
@@ -246,7 +250,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${kernelCommand.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     let observedStatus: FactoryWorkflowResult["status"] | undefined;
     await worker.runUntil(async () => {
       await deliverFactoryCommand(environment.client, command);
@@ -279,7 +283,7 @@ describe("factory Temporal workflow", () => {
         throw new Error("invalid input must not execute effects");
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/invalid-input-${process.pid}`,
@@ -307,7 +311,7 @@ describe("factory Temporal workflow", () => {
         throw new Error("missing definition must not execute effects");
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/missing-definition-${process.pid}`,
@@ -334,7 +338,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/run-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
@@ -375,7 +379,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/repair-replay-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(repairFactory, { logicalRunId: "repair-replay", startedAtMs })] });
@@ -426,7 +430,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/remediation-replay-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(remediationFactory, { logicalRunId: "remediation-replay", startedAtMs })] });
@@ -495,7 +499,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/release-outcome-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(releaseFactory, { logicalRunId: "release-outcome", startedAtMs })] });
@@ -576,7 +580,7 @@ describe("factory Temporal workflow", () => {
     let observed: () => void = () => undefined;
     const requested = new Promise<void>(resolve => { observed = resolve; });
     const seen: AcceptanceSeen = { acceptance: [], stops: [] };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
     const workflowId = `tenant/acceptance-by-inbox-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-by-inbox", startedAtMs })] });
@@ -617,7 +621,7 @@ describe("factory Temporal workflow", () => {
       let observed: () => void = () => undefined;
       const requested = new Promise<void>(resolve => { observed = resolve; });
       const seen: AcceptanceSeen = { acceptance: [], stops: [] };
-      const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
+      const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities: inboxAcceptanceActivities(factory, seen, () => observed()) });
       const workflowId = `tenant/${name}-${process.pid}`;
       await worker.runUntil(async () => {
         const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: name, startedAtMs })] });
@@ -661,7 +665,7 @@ describe("factory Temporal workflow", () => {
       if (input.command.kind === "request-acceptance") { effects += 1; throw new Error("factory gateway returned HTTP 500"); }
       return acceptanceActivity(input);
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/acceptance-effect-failed-${process.pid}`;
     let commandId = "";
     await worker.runUntil(async () => {
@@ -702,7 +706,7 @@ describe("factory Temporal workflow", () => {
       if (input.command.kind === "cancel-node") { stops.push(input.command.id); throw new Error("nothing to stop"); }
       return base(input);
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/dispatch-refused-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "dispatch-refused", startedAtMs })] });
@@ -733,7 +737,7 @@ describe("factory Temporal workflow", () => {
     activities.executeCommand = async (input) => input.command.kind === "request-acceptance"
       ? factoryCommandFailedEvent(input.command, "factory_protected_effect_untrusted", Date.now())
       : acceptanceActivity(input);
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     const workflowId = `tenant/acceptance-effect-named-${process.pid}`;
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", { workflowId, taskQueue: queue, retry: { maximumAttempts: 1 }, args: [workflowInput(factory, { logicalRunId: "acceptance-effect-named", startedAtMs })] });
@@ -777,7 +781,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/parallel-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -860,7 +864,7 @@ describe("factory Temporal workflow", () => {
         }
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const target = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: targetWorkflowId,
@@ -972,7 +976,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       for (const partition of [targetPartition, middlePartition, sourcePartition]) {
         const stored = storedPartition(repairFactory, partition.id);
@@ -1035,7 +1039,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/cancel-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1078,7 +1082,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/retry-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1113,7 +1117,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-field-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1154,7 +1158,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/lazy-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1176,7 +1180,7 @@ describe("factory Temporal workflow", () => {
       recordTransition: async () => { work += 1; },
       executeCommand: async (): Promise<KernelEvent | null> => { work += 1; throw new Error("invalid input must not execute"); },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/undeclared-durable-input-${process.pid}`, taskQueue: queue,
@@ -1200,7 +1204,7 @@ describe("factory Temporal workflow", () => {
       recordTransition: async () => undefined,
       executeCommand: async ({ command }): Promise<KernelEvent | null> => { throw new Error(`unexpected ${command.kind}`); },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const result = await environment.client.workflow.execute("factoryWorkflow", {
         workflowId: `tenant/parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1228,7 +1232,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${logicalRunId}:${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/cancel-parent-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1264,7 +1268,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/continue-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1292,7 +1296,7 @@ describe("factory Temporal workflow", () => {
       recordTransition: async () => { effects += 1; },
       executeCommand: async (): Promise<KernelEvent | null> => { effects += 1; throw new Error("mismatched continuation must not execute"); },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const handle = await environment.client.workflow.start("factoryWorkflow", {
         workflowId: `tenant/durable-continuation-${process.pid}`, taskQueue: queue, retry: { maximumAttempts: 1 },
@@ -1331,7 +1335,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const workflowId = `tenant/continued-approval-${process.pid}`;
       const handle = await environment.client.workflow.start("factoryWorkflow", {
@@ -1413,7 +1417,7 @@ describe("factory Temporal workflow", () => {
         throw new Error(`unexpected ${command.kind}`);
       },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const workflowId = `tenant/bounded-map-${process.pid}`;
       const handle = await environment.client.workflow.start("factoryWorkflow", {
@@ -1488,7 +1492,7 @@ describe("factory Temporal workflow", () => {
       recordTransition: async () => undefined,
       executeCommand: async ({ command }): Promise<KernelEvent | null> => { throw new Error(`unexpected ${command.kind}`); },
     };
-    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, activities });
+    const worker = await createFactoryWorker({ connection: environment.nativeConnection, namespace, workflowBundle: bundle, activities });
     await worker.runUntil(async () => {
       const logicalRunId = `completed-bounded-map-${process.pid}`;
       const handle = await environment.client.workflow.start("factoryWorkflow", {
