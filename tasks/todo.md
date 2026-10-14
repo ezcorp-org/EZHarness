@@ -6137,3 +6137,17 @@ Review: the nightly turned red because a new guard told the truth about five mut
 - [ ] R3: one hosted run after validator-8's ACCEPT and the integrator's merge.
 
 Review: the shard did not hang and no test was slow; the runner was. The old cap left a 2.5x margin; the new one leaves 6x, and the log now says when a runner is slow instead of leaving a silent cancel.
+
+## W4H-26 — the started application can run a reference-code task: runner packages installed, prepared and dispatched (branch `wp/w4h-26-runner-wiring` from origin/main 1981febd2; gates `tasks/factory/w4h-26-GATES.md`)
+
+- [x] R1: reproduced over public HTTP on the composed application (W19a stack): the startup document refuses reference-code profiles; with a stock profile the bind is 404 `factory_package_release_unavailable` and the run fails `factory_native_package_untrusted`. Rulings 1-4 accepted (no host-side registry; D6 internal host-plane operation; D4 scope rule; split).
+- [x] D1: startup profiles admit configuration-digest runners; a class is shared only with equal allocations; a runner declared twice is refused. Fleet item: the local fleet declares snapshotRepository and freezeGitTree, tokens 50,000 (d9417ae3a).
+- [x] D2: one shared guest-package builder; the two reference-code packages declare every REFERENCE_CODE_IMPLEMENTATIONS export; snapshotRepository runs in the guest from a recorded tree and answers its port; the rest refuse by name (34d592140, 0beb0c613).
+- [x] D3: boot-time install through the v4 lifecycle behind EZCORP_FACTORY_ENABLED; contract rows first (66fc1acf7, 2e38e3aef, ea95d7fe6).
+- [x] D4: a global installation serves a project only through extension_project_bindings (737ad9151).
+- [x] D5: the package-preparation role with per-package backoff (f574b6c49, b9ce7a932). Midpoint reported (proof/midpoint-6.json).
+- [x] D6: the supervisor prepares over the W01b host service; digest checks on both sides; 4 of 4 mutants killed (6ba267aea, a32e94aa0).
+- [x] D7: snapshot-repository admitted, prepared, dispatched and executed in the pinned guest on the fixture repository; content recomputed and equal (proof/final.json).
+- [ ] The Compose-level proof, after W4H-27 merges.
+
+Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.
