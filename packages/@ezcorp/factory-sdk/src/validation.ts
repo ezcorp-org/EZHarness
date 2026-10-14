@@ -382,13 +382,17 @@ function compareText(left: string, right: string): number {
   return left < right ? -1 : left > right ? 1 : 0;
 }
 
-function validDigest(value: string, prefixed: boolean): boolean {
-  const content = prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value;
-  if (content.length !== 64) return false;
-  for (const character of content) {
+/** Exactly `length` lowercase hex characters, checked without a regular expression (the validator's rule). */
+function lowerHex(value: string, length: number): boolean {
+  if (value.length !== length) return false;
+  for (const character of value) {
     if (!((character >= "0" && character <= "9") || (character >= "a" && character <= "f"))) return false;
   }
   return true;
+}
+
+function validDigest(value: string, prefixed: boolean): boolean {
+  return lowerHex(prefixed ? value.startsWith("sha256:") ? value.slice(7) : "" : value, 64);
 }
 
 function safeCounter(value: number, minimum = 0): boolean {
@@ -1142,7 +1146,7 @@ export function validateFactoryGuestRepositoryReadRequest(value: unknown): Valid
   const operation = validRepositoryOperation(value.operationId, value.operationIndex);
   if (!operation.ok) return operation;
   if (!boundedText(value.source, 128)) return issue("GUEST_REPOSITORY_SOURCE", "A repository read names a declared source.", ["source"]);
-  return /^[0-9a-f]{40}$/.test(value.commitSha) ? { ok: true } : issue("GUEST_REPOSITORY_COMMIT", "A repository read names one full 40-hex commit id.", ["commitSha"]);
+  return lowerHex(value.commitSha, 40) ? { ok: true } : issue("GUEST_REPOSITORY_COMMIT", "A repository read names one full 40-hex commit id.", ["commitSha"]);
 }
 
 /** The host's answer: the sealed tree's handle, or a named refusal. */

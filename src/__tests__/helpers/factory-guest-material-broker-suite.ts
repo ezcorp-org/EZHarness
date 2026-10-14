@@ -486,6 +486,7 @@ test("a host with no material service for the attempt refuses by name", async ()
     services: {
       materials: () => { throw new Error("this host serves no attempt-scoped material service"); },
       reader: () => fixture.reader,
+      content: () => fixture.reader,
       output: fixture.output,
     },
   });

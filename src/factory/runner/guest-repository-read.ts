@@ -91,7 +91,7 @@ async function fetchCommit(options: FactoryGuestRepositoryReadOptions, source: F
   await mkdir(path, { recursive: true, mode: 0o700 });
   if ((await git(binary, path, ["init", "--quiet", "--bare"])).status !== 0) throw new FactoryRepositoryReadError("repository_unavailable", `the cache of ${source.name} could not be initialized`);
   if ((await git(binary, path, ["cat-file", "-e", `${commitSha}^{commit}`])).status === 0) return path;
-  const header = source.tokenPath === undefined ? {} : { "http.extraHeader": `Authorization: Basic ${Buffer.from(`x-access-token:${(await options.readToken(source.tokenPath)).trim()}`).toString("base64")}` };
+  const header: Record<string, string> = source.tokenPath === undefined ? {} : { "http.extraHeader": `Authorization: Basic ${Buffer.from(`x-access-token:${(await options.readToken(source.tokenPath)).trim()}`).toString("base64")}` };
   // Protocol v2 serves a want for any commit the remote holds; only that commit's history is fetched.
   const fetched = await git(binary, path, ["-c", "protocol.version=2", "fetch", "--quiet", "--no-tags", "--depth=1", source.url, commitSha], header);
   if (fetched.status !== 0) {

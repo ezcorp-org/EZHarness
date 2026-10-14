@@ -25,10 +25,10 @@ const stopped = new FactoryAttemptLivenessError("factory_attempt_not_live", "Fac
 function journal(options: { settle?: () => Promise<void>; reconcileLate?: () => Promise<void> }) {
   const calls: Array<{ method: string; args: unknown[] }> = [];
   const double = {
-    async prepare() {}, async dispatch() { return { claimed: true }; }, async operation() { return { state: "dispatched" }; },
+    async prepare() {}, async dispatch() { return { claimed: true }; }, async operation() { return { state: "dispatched" }; }, async operations() { return []; },
     async settle(...args: unknown[]) { calls.push({ method: "settle", args }); await options.settle?.(); },
     async reconcileLate(...args: unknown[]) { calls.push({ method: "reconcileLate", args }); await options.reconcileLate?.(); },
-  } as unknown as Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation" | "reconcileLate">;
+  } as unknown as Pick<FactoryExecutionJournal, "prepare" | "dispatch" | "settle" | "operation" | "reconcileLate" | "operations">;
   const guest = createFactoryJournalGuestModelJournal({ journal: double, workspace: { checkpoint: async () => ({ artifactId: "checkpoint", digest, encodedBytes: 1, journalCursor: 0 }) } });
   return { guest, calls };
 }
