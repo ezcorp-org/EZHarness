@@ -1,0 +1,42 @@
+scripts/check-factory-image-shipped-config.test.ts: Ran 8 tests across 1 file. [1.76s]
+scripts/factory-fleet-init-local.test.ts: Ran 4 tests across 1 file. [514.00ms]
+scripts/factory-image-shipped-isolation-registration.test.ts: Ran 2 tests across 1 file. [439.00ms]
+src/factory/provisioning/compose-profile.test.ts: Ran 55 tests across 1 file. [600.00ms]
+src/factory/provisioning/deployment.test.ts: Ran 49 tests across 1 file. [1.66s]
+src/factory/provisioning/fleet-cli.test.ts: Ran 11 tests across 1 file. [502.00ms]
+src/factory/provisioning/fleet.test.ts: Ran 14 tests across 1 file. [508.00ms]
+src/factory/provisioning/host.test.ts: Ran 25 tests across 1 file. [3.57s]
+src/factory/provisioning/platform.test.ts: Ran 27 tests across 1 file. [1370.00ms]
+CASE PASS: a failed tenant names its failed step: the error's own, else the one its installation records, else none
+CASE PASS: a command with any failed tenant fails through the channel, naming the tenant, step, and reason; a clean one only prints
+CASE PASS: stop stops the installations newest first, then the host, then the platform; up is its reverse; both are idempotent
+CASE PASS: a release declaration is accepted exactly when the block the deployer writes from it passes the startup parser
+CASE PASS: with profiles, the installation's own S3 destination and the declared GitHub one resolve through the release reader; the token travels by path
+CASE PASS: S3 always, GitHub only when declared; no profile, no release block
+CASE PASS: stop stops both services and keeps every admission; start re-publishes the recorded state; a host serving nobody stays down
+CASE PASS: stop keeps the containers and start brings them back, then waits ready; stop is idempotent and a never-applied installation has nothing to stop
+CASE PASS: serving: the pool container runs and the supervisor unit is active; anything less is not serving
+CASE PASS: stop stops the unit and the pool's containers, keeping them; a host never applied only checks its unit
+CASE PASS: the orchestrator runs keep-id as the deployer's user, read-only, with the noexec /tmp, no new privileges, no capabilities, and the deployer's HOME
+CASE PASS: every installation service gets the same isolation; each its own HOME
+CASE PASS: each isolation key maps to its flag; a writable root maps to none; keys that do not isolate are ignored
+CASE PASS: a key the guard cannot apply, a variable it does not render, or a malformed list is a refusal, never a skipped flag
+CASE PASS: no network, the shipped flags, the replay program and the committed history mounted read-only, the image's own node
+CASE PASS: passes only when the image replays with its build-time bundle
+CASE PASS: the replay program replays the committed history with this tree's build-time bundle
+CASE PASS: runs only as the process entry, needs an image, and exits by the result
+CASE PASS: ci.yml builds the factory image and runs the guard on it, bounded
+CASE PASS: fails closed by name when the job, the build, the guard, the tag, the order, the setup or the bound drifts
+CASE PASS: the reference S3 publication adapter names a placeholder digest, so the local fleet refuses it by name and declares no release profile
+CASE PASS: an adapter with a real digest becomes the S3 release profile, and the fleet parser accepts it
+scripts/check-factory-image-shipped-config.test.ts: file 86/86 lines hit; added lines 103, instrumented 86, uncovered 0
+scripts/factory-fleet-init-local.test.ts: file 42/42 lines hit; added lines 23, instrumented 21, uncovered 0
+scripts/factory-image-shipped-isolation-registration.test.ts: file 38/38 lines hit; added lines 53, instrumented 38, uncovered 0
+src/factory/provisioning/compose-profile.test.ts: file 547/547 lines hit; added lines 48, instrumented 45, uncovered 0
+src/factory/provisioning/deployment.test.ts: file 557/557 lines hit; added lines 63, instrumented 51, uncovered 0
+src/factory/provisioning/fleet-cli.test.ts: file 163/163 lines hit; added lines 47, instrumented 44, uncovered 0
+src/factory/provisioning/fleet.test.ts: file 140/140 lines hit; added lines 20, instrumented 18, uncovered 0
+src/factory/provisioning/host.test.ts: file 386/386 lines hit; added lines 25, instrumented 22, uncovered 0
+src/factory/provisioning/platform.test.ts: file 316/316 lines hit; added lines 26, instrumented 22, uncovered 0
+bash line cover: merge d4f1c6b0f vs base bea35538d; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-27-compose-comes-up/case-check/bash-trace.txt
+no changed *.sh file

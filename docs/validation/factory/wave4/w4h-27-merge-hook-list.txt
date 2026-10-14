@@ -1,0 +1,11 @@
+scripts/check-factory-image-shipped-config.test.ts
+scripts/factory-fleet-init-local.test.ts
+scripts/factory-image-shipped-isolation-registration.test.ts
+src/factory/provisioning/compose-profile.test.ts
+src/factory/provisioning/deployment.test.ts
+src/factory/provisioning/fleet-cli.test.ts
+src/factory/provisioning/fleet.test.ts
+src/factory/provisioning/host.test.ts
+src/factory/provisioning/platform.test.ts
+tests/postgres/factory-provisioning.test.ts
+packages/@ezcorp/factory-orchestrator (node: bun run test)

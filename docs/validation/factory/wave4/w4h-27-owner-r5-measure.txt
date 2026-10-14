@@ -1,0 +1,3 @@
+run 1: cases 63 file 29.3s purge 0.31s max 10.31s (one settings document composes every driver over real stores)
+run 2: cases 63 file 28.8s purge 0.43s max 10.26s (one settings document composes every driver over real stores)
+run 3: cases 63 file 28.0s purge 0.31s max 10.28s (one settings document composes every driver over real stores)

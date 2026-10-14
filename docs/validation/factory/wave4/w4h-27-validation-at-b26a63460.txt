@@ -1,0 +1,153 @@
+ACCEPT wp/w4h-27-compose-comes-up at b26a634601d5 (R4; code 3134bbf8c; F1 and F2 fixed; N1, N3, N6 done)
+
+validator-8, 2026-10-14, R4 re-validation per team-lead's scope. Owner report w4h-27/report.txt (the old one kept as
+report-713593038.txt). The prior REJECT text follows below unchanged; it is also kept byte-equal in
+verdict-w4h-27-at-713593038.txt (sha256 d79ded2a15eba38e).
+
+## R4 checks
+F1 identity: 9 commits 1981febd2..b26a63460, author and committer archy with the noreply address on every one. The
+   personal address occurs 0 times in the diff, the commit messages and identities, the owner's evidence folder and the
+   worktree config. The 7 re-authored commits keep their trees exactly (e16afd04, 42f7b027, 22eb5c96, cfcdf3dd, 379be397,
+   02846c73, 429fb34c equal 3cb38ca05..713593038 pairwise), so my earlier legs carry over for that content.
+R4 delta (713593038..b26a63460, 11 files): host.ts and compose-profile.ts (F2), temporal-replay.test.ts (N1),
+   factory-fleet-init-local.ts and its test (N3), deployment docs, the PostgreSQL test double, gate file and todo.
+F2:
+- Fix: host start() publishes only when the host does not serve: compose-profile.ts serving() = env file present, the pool
+  container "running", and `systemctl --user is-active` on the supervisor unit.
+- Red-first on the 713593038 sources: host.test.ts and compose-profile.test.ts red by assertion; at the head 25 and 55 pass.
+- Mutants red: serving ignored; pool state unchecked; unit state unchecked; a never-applied host serving.
+- My own fleet (v8w27r4, my PostgreSQL and private storage): after provision, `up` twice on the running fleet: all 10
+  containers' start times SAME across both (host pool 22:06:33.79, orchestrator 22:06:53.94 EDT, unchanged). After `stop`,
+  `up`, then `up` again: all 10 SAME. Readiness "ready". The supervisor unit restart is not measured directly: in start()
+  only publish() restarts it, and publish() also force-recreates the pool, whose start time did not change.
+N1: temporal-replay.test.ts asserts its bundle digest equals loadFactoryWorkflowBundle()'s, byte for byte. Mutant (compare to a
+   wrong digest): the before hook fails with "the replay suite's bundle differs from the built bundle" and all 28 cases are
+   cancelled, exit 1 (killed; my detector counted it as survived because Node reports cancelled, not failed).
+N3: the placeholder adapter is refused by name. My fleet-init printed "factory_release_adapter_unpublished:
+   @ezcorp/s3-immutable-publish@1.0.0:publish names the reference definition's placeholder digest ...", and fleet.json has no
+   installations.release. The installation came up through step 7 without a release block (the startup document is valid
+   without it). In the started harness the document has no release block; every resolution answers no_release_block; no
+   token-like key. Per team-lead's D3 reading (no profile, no block) this is the expected state. Mutant (placeholder regex
+   never matches): fleet-init-local.test.ts red.
+N6: both "typecheck exit=1" lines were test-typing errors fixed in cf29d0ed3 and cffd66cd8 (re-authored, trees equal to
+   d61d38b00 and 581cac388), before any image build. My typecheck at b26a63460 exits 0.
+Image and guard: my build at the head records bundle sha256:e1b76e96bcbd688d, 2,759,236 bytes, equal to the owner's R4 image
+   (3134bbf8c, sha256:54d02d95); the shipped-isolation guard passes on both.
+Gates at b26a63460: gate-integrity main (origin/main 1981febd2) exit 0, 0 findings, log sha256 b1a0297506aab4a1; lint 0;
+   factory boundaries 0; gitleaks 0; new-file and patch coverage pass; CRAP --changed pass; guard set 524 pass (43 files);
+   typecheck exit 0 (tc rule, lock-free, lowest MemAvailable 14.4 GiB). Changed lines of the R4 delta: 18 executable, 0 missed.
+   Suites: host 25, compose-profile 55, fleet-init-local 4, fleet 14, fleet-cli 11, deployment 49, platform 27, guard 8,
+   orchestrator Node suite 202, PostgreSQL provisioning 63 (my own PostgreSQL).
+Everything of mine was removed (containers 0, volumes 0, unit inactive, fleet root gone, storage credentials 0, PostgreSQL gone).
+
+## Carried non-blocking notes (from the prior verdict)
+N2 boot restarts before readiness (ruled leftover 1); N4 the guard proves bundle load and replay, not the process boot
+(leftover); the hosted run of the new CI job is to be read at the PR. New: the published S3 adapter package is a leftover
+(team-lead), so a local installation refuses releases until one exists.
+
+## Prior verdict (REJECT at 713593038), unchanged
+REJECT wp/w4h-27-compose-comes-up at 71359303861ffe707f9cb7f363606c745b9370a1 (code 581cac388; two findings: F1 commit identity, F2 `up` recreates the shared host)
+
+validator-8, 2026-10-14. Plan plan-w4h-27.md c8cac2d7bd6a4e29 with Addendum A. Owner report w4h-27/report.txt 6d2e7510ca8d1b7f.
+All legs ran on git-archive snapshots outside the evidence folder (removed after). Heavy legs ran under gated-flock with the gate
+checked once in the lock. My own PostgreSQL, my own private storage stack and my own fleet (v8w27, ports 51000+, 28333/28334)
+were used. No shared service was touched. Everything of mine was removed at the end (containers 0, volumes 0, unit inactive,
+fleet root gone, credentials 0, own PostgreSQL gone).
+
+## Findings (blocking)
+
+F1 Commit identity. All 7 commits 1981febd2..713593038 have author and committer "archy <the user's personal address>". The 500 latest
+   commits on origin/main and every earlier package use archy <281643943+EZArchy@users.noreply.github.com>. The worktree
+   config of .worktrees/w4h-27 sets user.email=<the user's personal address>. The repository is PUBLIC, so a push publishes that address.
+   The branch is not pushed yet. Fix: set the noreply email in the worktree config, then re-author the 7 commits
+   (e.g. rebase with --exec "git commit --amend --no-edit --reset-author"). If every new commit has the same tree as the
+   old one, my legs carry over, and I re-check identity and tree equality only.
+F2 `fleet up` on a running fleet recreates the shared pool and restarts the shared supervisor.
+   - Seen (my fleet): the second `up` (00:47:10Z to 00:47:19Z) changed the host pool's start time 20:46:50 -> 20:47:12 EDT.
+     Every other container kept its start time (w4h-27-heavy/logs/after-up-1.log, hold-1.txt, hold-judged.log). The owner's
+     own R3 shows the same (w4h-27/logs/r3/after-up.txt 20:01:14 -> hold-1.txt 20:01:35, inside "r3 up-again").
+   - Cause: fleet-cli.ts fleetUp always calls services.startHost(). host.ts:341-346 start() calls publish(state) whenever any
+     installation is admitted. publish -> runtime.apply (compose-profile.ts:305 `compose up --force-recreate`, then :306
+     stopUnit and :307 a new systemd-run of the supervisor).
+   - Why it matters: the pool and the supervisor serve every installation on the host. An operator `up` on a healthy fleet
+     cuts them for all tenants. It contradicts fleet-cli.ts "Idempotent: an up fleet starts again with nothing to do" and
+     docs/factory-deployment.md "Both commands are safe to run again". The ruling asked for idempotent stop/up.
+   - The unit tests pass because host.test.ts asserts "start re-publishes the recorded state" and the recording executor
+     does not model a running host.
+   - Fix direction (owner's call): start() is a no-op when the host already serves (pool running and ready, unit active);
+     a red-first test with a running host asserts no apply; my real up/up repeat shows no start-time change.
+
+## What is green (each with its evidence)
+
+D1 build-time bundle:
+- Loader: refuses missing (factory_workflow_bundle_missing), malformed (_record_invalid), changed bytes or length
+  (_digest_mismatch); the record is written last through a rename.
+- Derived images from my image (w4h-27-tools/derive.sh), each through the guard under the shipped isolation:
+  bundle one byte changed -> _digest_mismatch; record digest one byte changed -> _digest_mismatch; bundle removed and record
+  removed -> _missing.
+- Reproducible: my independent image build records sha256:e1b76e96bcbd688d, 2,759,236 bytes, equal to the owner's image
+  (sha256:99a0492076c883bb). My image: sha256:7ad2f7b2d5d9a27d.
+- No runtime bundler: src and dist of process/worker/workflow-bundle in the image hold no bundleWorkflowCode; in my running
+  orchestrator /proc/*/maps hold 0 swc mappings (the only .node mapped is @temporalio/core-bridge).
+- Verify before Temporal: process.test.ts red under two mutants (error swallowed; code not named).
+- Node pinned: COPY --from=node uses the existing digest-pinned NODE_IMAGE; unpinning it makes check-factory-deployment-locks
+  fail; head 0.
+- Guard: red on the 1981febd2 image ("Error: Failed to load native binding"), PASS "REPLAY OK: build-time bundle" on the
+  owner's image and on mine.
+D2: real CLI, exit 1 with tenant, step, code and message: tenant-11 {"code":"storage_identity_unavailable","step":"storage"};
+   torn-down tenant-06 provisioning_torn_down (no step: refused before step 1); observe tenant-98 provisioning_unknown_tenant.
+D3: in my started harness the startup document has one destination installation-s3 (bucket and account tenant-05, prefix
+   ordinary/releases, credentialsPath /run/ezcorp/secrets/ordinary-storage.json) and one profile; no token-like key. Own S3
+   resolves to S3FactoryManifestReleaseProvider; a foreign S3 account and an undeclared GitHub repository are refused
+   factory_release_destination_unknown. GitHub only when declared and by path: deployment.test.ts, red under mutants.
+D5: stop twice and up twice exit 0; after stop every container exited; after up every container running and the harness
+   healthy; orchestration readiness "ready" again. (F2 is the side effect of the second up.)
+Comes up: tenant-05 phase invitation_issued (all 7 steps). Readiness lifecycle ready, workerPolling and dispatcherLive true.
+Isolation unchanged: gateway, orchestrator and harness have read-only root, /tmp rw,noexec,nosuid,nodev,size=64m,
+   no-new-privileges, keep-id user 1001:100, HOME /tmp, /tmp and /var/lib/ezcorp/home as the deployer sets them; CapPrm,
+   CapEff and CapBnd 0 in all three (cap_drop ALL; podman lists the 11 default caps); touch /app refused (read-only);
+   a binary copied to /tmp exits 126 (noexec).
+Restart hold: 10 one-minute samples after `up`; the orchestrator's restart count (3) and start time did not change, so 0
+   restarts in 10 minutes from readiness; the other containers unchanged except F2's pool.
+Fidelity and G7 (option (c)): the guard reads its flags from installation.yml and HOME from the deployer (mutants: read_only
+   dropped, template ignored, unknown key skipped, HOME restated, runtime bundle accepted: all red). The old harness cannot run
+   as is (its ./temporal-http-checks.ts import does not exist; it hard-codes tenant-01/02/10). The owner's R3 plus the guard, and my
+   own fleet run here, are the new G7 pass on this box.
+CI job: registration test red on the base ci.yml (2 tests) and green at head; mutants (flags restated, build step dropped) red.
+   The hosted run of the new job is not read yet (no PR); to read at the PR.
+
+## Mutants: 28 red of 29, 1 equivalent
+D1 7 (digest check removed; compared to itself; length check dropped; record key count dropped; bundle error swallowed;
+error code not named; runtime bundler back). D2 2. D3 4 red (S3 destination omitted; host token path written; release block not written; local profile dropped) + 1 equivalent. D5 7 (commands unregistered; platform stopped
+first; up without host; installation stop not idempotent; host stop not idempotent; platform stop not idempotent; idle host
+started). Guard 5. CI 2. Dockerfile node unpinned 1.
+Equivalent: d3-empty-release-accepted (fleet.ts "if (block === undefined) throw" removed). The startup parser's leaf walk
+(startup-config.ts:656-666) names a present-but-undefined `release` as an unknown leaf and refuses it, so the line is redundant.
+
+## Gates (at 713593038)
+gate-integrity main (origin/main = 1981febd2) exit 0, 0 findings ("Gate integrity PASSED"), log sha256 b1a0297506aab4a1;
+base leg 0 findings. coverage-thresholds.json only adds the two new files at 100. Lint 0; factory boundaries 0; boundaries 0;
+deployment locks 0; actionlint 0 new; gitleaks 0; new-file and patch coverage pass; CRAP --changed pass; guard set 524 pass
+(43 files); typecheck exit 0 (tc rule path b, lock-free, lowest MemAvailable 15.1 GiB, peak VmHWM 3.5 GiB).
+Suites with lcov: 9 bun unit files (193 tests incl. compose-profile 54 after svelte-kit sync), orchestrator Node suite 202,
+PostgreSQL provisioning 63 on my own PostgreSQL.
+Changed lines (w4h-27-tools/changed-lines.py, comments and lone braces skipped): 262 executable changed lines, 259 hit by
+lcov; the 3 left (check-factory-image-shipped-config.ts:73-75, the real podman spawn) and factory-image-replay-check.mjs
+(runs inside the image) ran in my guard runs (PASS lines, refusals, and the runtime-bundle branch failing on the old image).
+
+## Notes (non-blocking)
+N1 temporal-replay.test.ts still bundles at test time (before hook, bundleWorkflowCode), not the build's bundle as ruled. The
+   bytes are equal in the same tree (test-time and build record both sha256:f18b58a8cafcc128 in my snapshot), but no check
+   holds them equal. Loading the built bundle there would close it.
+N2 The orchestrator restarts during boot before readiness: 7 at first start, 3 at `up` (owner: 4 and 3). Ruled leftover 1.
+N3 The default local release profile carries the reference definition's placeholder adapter digest (sha256:ddd...d, from
+   factory-sdk references.ts:16 and :202). It matches the definition, as admission needs; a real release needs a real
+   adapter package (W4H-26 territory).
+N4 The guard proves the bundle load and a replay under the shipped flags, not the orchestrator process boot; the harness
+   boot under shipped isolation is proven by the fleet runs only (owner leftover 4).
+N5 My tool errors, corrected with direct evidence: the isolation judge matched the literal "ALL" (podman lists the caps; CapEff
+   0 proves it); the first exec probe used a shell builtin (redone: exit 126); the first changed-lines script had a quoting
+   error (redone as a tool file).
+N6 The owner's logs/heavy-build.log shows "typecheck exit=1" at 23:23:17Z (an earlier attempt). My typecheck at the head exits 0.
+
+Evidence: validator-8/w4h-27-light, w4h-27-light2, w4h-27-heavy (results.jsonl, logs/), w4h-27-tools/, hold-w4h-27-*.sh.

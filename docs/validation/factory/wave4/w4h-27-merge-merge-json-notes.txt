@@ -1,0 +1,18 @@
+For the W4H-27 merge.json (integrator-5, recorded 2026-10-14 on the coordinator's order):
+- hookTimeoutFinding: "a fixed per-test hook budget met a test whose cost came from its neighbours' residue; fixed at the root, not by raising
+  the cap". The first commit try at b26a63460 (2026-10-14T02:11:44Z - 02:17:43Z) was refused by the pre-commit hook: tests/postgres/factory-
+  provisioning.test.ts "teardown and purge > purge needs an installation-issued approval and closed work, drops the databases, and keeps the
+  archive key" timed out at 38.6 s against the hook's 30 s (62 pass, 1 fail; nothing committed; integ restored). Measured under the lock on an
+  own pg (ruling (b)): inside the whole file, base bea35538d (= main 1981febd2 code) 30.91 s / 30.83 s, head b26a63460 30.48 s / 30.45 s;
+  the case alone (-t) about 1.0 s at both. Head = base, both over the budget: a pre-existing test-hygiene defect (the 62 earlier tests'
+  leftover databases). Ruling (e): no re-run, no skip, no cap change; the owner made the case independent of the file's residue, red-first by
+  a database-set assertion; validator-8 re-checked the changed test. Evidence: purge-measure/ (measure.sh v2, full1..4 logs and junit).
+- measurementSlip: measure.sh v1's return-to-integ trap was replaced by own_pg_start's own EXIT trap; the integ worktree stayed detached at
+  b26a63460 (clean) about 30 s; checked back out, traps chained; no lasting effect (accepted by the coordinator).
+- caseCheckScopeDefect (integrator-5's tool, ruled 2026-10-14): the hold at d4f1c6b0f ended HEAVY DONE status=1 from ONE leg, red-first-cases,
+  while all 22 named cases passed: case-check.sh v6 (i) judged the changed SOURCE lines against the test-file-only lcov (44 lines in
+  compose-profile/fleet/host/deployment/fleet-cli/check-…-config.ts; covered by the pg and producer legs; the merge gates' patch PASSED over
+  11 files on the full merged lcov) and (ii) bound scripts/factory-orchestrator-coverage.sh (a producer script, run by the orchestrator-node
+  leg, not under the tests' trace). Fixed: case-check.sh v7 d3fdc21d487a58b5 (lines on changed *.test.ts only; BASH_LINE_EXCLUDE for
+  scripts/*-coverage.sh), bash-line-cover.py v2 767e675453ecd968; both exclusions self-tested; the ONE leg re-run under the lock against
+  d4f1c6b0f: exit 0, 22/22, test lines covered, no in-scope .sh (heavy-red-first-cases-rerun.log).

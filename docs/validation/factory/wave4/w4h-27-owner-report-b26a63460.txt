@@ -1,0 +1,69 @@
+W4H-27 report (R4): the Compose installation comes up. Supersedes report-713593038.txt (kept byte-equal).
+
+VERDICT: DONE. FROZEN at b26a63460 (code head 3134bbf8c).
+
+Branch wp/w4h-27-compose-comes-up on origin/main 1981febd2. Every commit: author and committer archy with main's
+noreply address; every commit's pre-commit hook green.
+  04789c3e5 fix(factory): the Compose installation comes up                       (was 3cb38ca05)
+  cf29d0ed3 test(factory): resolve may answer synchronously                        (was d61d38b00)
+  2521cc012 refactor(factory): the Compose target starts and waits ready           (was 393ae4a87)
+  6f97be253 fix(factory): the image runs the workflow-bundle entry directly        (was 1881d1a20)
+  baa97f271 fix(factory): the local release profile names five adapter fields      (was 73cb59582)
+  cffd66cd8 test(factory): read the reference S3 adapter through the release type  (was 581cac388)
+  5992d4f0f docs(factory): W4H-27 gate file and todo lines                          (was 713593038)
+  3134bbf8c fix(factory): `up` leaves a serving host alone; replay runs the built bundle; placeholder adapters refused
+  b26a63460 docs(factory): W4H-27 R4 gate results
+Proof image (R4): localhost/ezcorp-factory:3134bbf8ce22884de288f6e4e9f270019568de1c,
+  digest sha256:54d02d95484f060c984ed9b201048168f525d0c2358502f3983306a7f6c368e4 (image-3134bbf8c*.txt).
+R3 proof image (unchanged runtime code since): localhost/ezcorp-factory:581cac388… digest sha256:99a04920.
+Gate file tasks/factory/w4h-27-GATES.md (G1 to G10 and the R4 section). Lessons pending-lesson.md b2dc9a3de37f7095.
+
+R4 ADDENDUM (validator-8 REJECT of 713593038)
+F1 identity. The worktree config had a personal address; it now has archy with the address of main's last 500
+   commits. The 7 commits were re-authored (email only) with trees EQUAL before and after (r4-trees.txt
+   0b6ac347bcf0844a). The filter-branch backup ref was deleted. The personal address appears 0 times in the branch
+   diff, the commit log, the gate file, the todo lines, and this evidence directory.
+F2 `up` on a running fleet. FactoryFleetHost.start() now asks the runtime whether the host serves (pool container
+   running and the supervisor unit active) and re-publishes only when it does not. Red first: host 24/1, compose 54/1;
+   green 25/0, 55/0. Real proof: `up` twice with one installation and twice with two changed no container's start
+   time (logs/r4/compare.txt 4fd3b9eb71b29b17: SAME x3).
+N1 The replay suite asserts its bundle equals the built bundle byte for byte (it does), so every replay case runs
+   the shipped bytes.
+N3 REFUSED, not resolved: the reference S3 adapter's digest is a placeholder (one hex character repeated, from the
+   factory-sdk `runner()` helper) and no published package has it. The local fleet refuses it by name,
+   factory_release_adapter_unpublished, declares no release profile, and prints the refusal at fleet-init
+   (logs/r4/fleet-init.out fd78db3524db49b3). An adapter with a real digest becomes the profile (test). The deployer
+   and release-reader path stays proven by R3 G6 and the unit tests. tenant-04 on the new image has no release block
+   (logs/r4/release-resolve.out f64fa38b2f812904). This withdraws the Q2 default in practice until a real adapter
+   package exists.
+N6 The "typecheck exit=1" lines: 23:23Z TS2345 in deployment.test.ts (fixed by cf29d0ed3) and 23:50Z TS2352 in
+   factory-fleet-init-local.test.ts (fixed by cffd66cd8). Each stopped its job before the image build; no proof ran
+   on a tree that failed typecheck.
+R4 run: guard on the new image PASS; fleet-init; up x2 (SAME); tenant-04 through step 7, invitation_issued
+   (logs/r4/provision.out d20650230cf7e7b1); up x2 (SAME); stop (13 containers exited, volumes kept).
+R4 legs at 3134bbf8c: typecheck in the lock 0; lint 0 with 0 warnings; boundaries 0; gate-integrity main 0; guard
+   set 530/0; changed executable lines 269/269 (logs/changed-lines.txt d9d276a18aeed212); CRAP --changed 0 above 30.
+
+R1 TO R3 (unchanged results; details in report-713593038.txt and the gate file)
+  R1 reproduced step 5 deployment_not_ready from 1981febd2's image; W16 G7 answered (swc 1.16.2 then, 1.16.13 since).
+  Guard on 1981febd2's image FAIL "Failed to load native binding"; on the proof images PASS.
+  R3 tenant-03 through step 7 with the isolation unchanged; 10-minute hold with 0 restarts counted from readiness
+  (boot bursts 4 and 3, ECONNRESET on the harness private service, ruled left as designed); release destinations
+  resolved in the started harness; stop/up twice; tenant-11 forced failure exit 1 naming step storage.
+  G7: the new pass is R3 plus the guard (ruled option c); the old harness cannot run.
+
+LEFTOVERS
+  1. Orchestrator boot back-off instead of exiting while the harness boots.
+  2. Restore the self-hosted proof harness in the repository with its helpers and a tenant offset.
+  3. An independent archive release domain with its own identity (W15).
+  4. A published S3 publication adapter package, so a local fleet can declare a release profile.
+  5. The CI guard covers the orchestrator path; the harness boot under shipped isolation is proved by R3 only.
+  6. GitHub App token minting (W07).
+
+END STATE AND RESIDUE
+  Fleet w4h27 stopped with `stop` (13 containers exited, volumes kept); tenant-03 and tenant-04 stopped, not torn down.
+  Store claim roles for w4h27 tenant-02, 03, 04, 11 and 27, and my control and product databases, stay on the shared
+  PostgreSQL until a purge with an administrator approval. Nothing shared was restarted or recreated.
+  Secret scan: no token, key, or password value in this folder.
+
+FROZEN.

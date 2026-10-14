@@ -1,0 +1,29 @@
+build exit 0 (63b54411b42e58dac73257572817d3198cbbfcb6fd01d8100e64822faf0fd627)
+shipped-config PASS: podman run --rm --network=none --cap-drop=ALL --security-opt=no-new-privileges:true --tmpfs=/tmp:rw,noexec,nosuid,nodev,size=64m --read-only --user=1001:100 --userns=keep-id --env=HOME=/tmp --volume=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/factory-image-replay-check.mjs:/run/ezcorp-check/replay.mjs:ro --volume=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/factory-orchestrator/test/fixtures/factory-workflow-history.json:/run/ezcorp-check/history.json:ro --entrypoint=node localhost/i5-factory-shipped:d4f1c6b0f24f /run/ezcorp-check/replay.mjs /app /run/ezcorp-check/history.json
+REPLAY OK: build-time bundle
+2026-10-14T04:08:18.184Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'RUNNING'
+}
+2026-10-14T04:08:18.244Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPING'
+}
+2026-10-14T04:08:18.244Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINING'
+}
+2026-10-14T04:08:18.244Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'DRAINED'
+}
+2026-10-14T04:08:18.244Z [INFO] Worker state changed {
+  sdkComponent: 'worker',
+  taskQueue: 'fake_replay_queue-0',
+  state: 'STOPPED'
+}
+own tag localhost/i5-factory-shipped:d4f1c6b0f24f removed: yes
