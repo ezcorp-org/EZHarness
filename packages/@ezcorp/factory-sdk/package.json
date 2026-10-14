@@ -49,6 +49,11 @@
       "types": "./dist/guest-materials.d.ts",
       "import": "./dist/guest-materials.js"
     },
+    "./guest-model": {
+      "bun": "./src/guest-model.ts",
+      "types": "./dist/guest-model.d.ts",
+      "import": "./dist/guest-model.js"
+    },
     "./transport-types": {
       "bun": "./src/transport-types.ts",
       "types": "./dist/transport-types.d.ts",

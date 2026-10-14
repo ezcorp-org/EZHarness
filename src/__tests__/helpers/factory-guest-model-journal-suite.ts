@@ -121,6 +121,10 @@ export function factoryGuestModelJournalConformance(createFixture: () => Promise
     const usage = typeof settled?.usage_json === "string" ? JSON.parse(settled.usage_json) as JsonValue : settled?.usage_json;
     expect(usage).toEqual(completionFor(0).usage as unknown as JsonValue);
 
+    // The budget envelope reads what the journal measured for this attempt (W4H-28).
+    const spentJournal = createFactoryJournalGuestModelJournal({ journal, workspace: { checkpoint: async () => { throw new Error("unused"); } } });
+    expect(await spentJournal.spent(request)).toBe(completionFor(0).usage.inputTokens + completionFor(0).usage.outputTokens);
+
     // A settled operation never calls a model again, in this process or any other.
     expect(await instance.call(request, guestRequest(0))).toMatchObject({ status: "refused", refusal: { code: "operation_settled" } });
     expect(answers).toBe(1);

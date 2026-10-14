@@ -562,9 +562,13 @@ export interface FactoryGuestModelRequest {
  * `provider_auth_failed` (it refused the credential), `provider_rate_limited`
  * (it refused for rate), and `provider_unavailable` (anything else, including
  * every error the host cannot classify; a narrower code is never guessed).
+ * `budget_exceeded` is decided before any claim: the call's bound (its output
+ * bound plus its input at four bytes a token) does not fit what the attempt's
+ * token budget has left.
  */
 export type FactoryGuestModelRefusal =
   | "model_pin_mismatch"
+  | "budget_exceeded"
   | "input_too_large"
   | "operation_busy"
   | "operation_settled"

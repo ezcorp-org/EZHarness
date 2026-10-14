@@ -44,6 +44,11 @@ export const REFERENCE_CODE_RUNNER_PACKAGES: readonly ReferenceCodeRunnerPackage
 /** The committed sources every reference-code runner package stages. */
 const RUNNER_SOURCES: Readonly<Record<string, string>> = Object.freeze({
   "runner-entry.ts": "src/factory/reference-code/runner-entry.ts",
+  "candidate-rules.ts": "src/factory/reference-code/candidate-rules.ts",
+  "guest-generate.ts": "src/factory/reference-code/guest-generate.ts",
+  "freeze.ts": "src/factory/reference-code/freeze.ts",
+  "release-github-request.ts": "src/factory/release-github-request.ts",
+  "project-git-refs.ts": "src/extensions/project-git-refs.ts",
   "snapshot.ts": "src/factory/reference-code/snapshot.ts",
   "git-objects.ts": "src/factory/git-objects.ts",
   "digest.ts": "src/extensions/v4/digest.ts",
@@ -52,7 +57,15 @@ const RUNNER_SOURCES: Readonly<Record<string, string>> = Object.freeze({
 const RUNNER_SPECIFIERS: Readonly<Record<string, string>> = Object.freeze({
   ...REFERENCE_CODE_GUEST_SPECIFIERS,
   "@ezcorp/factory-sdk/guest-materials": "./guest-materials.ts",
+  "@ezcorp/factory-sdk/guest-model": "./guest-model.ts",
   "@ezcorp/factory-sdk/canonical": "./canonical.ts",
+  "./candidate-rules": "./candidate-rules.ts",
+  "./guest-generate": "./guest-generate.ts",
+  "./freeze": "./freeze.ts",
+  "../release-github-request": "./release-github-request.ts",
+  "../extensions/project-git-refs": "./project-git-refs.ts",
+  "../extensions/v4/digest": "./digest.ts",
+  "./git-objects": "./git-objects.ts",
 });
 
 const FEATURE_TEST = [
@@ -60,7 +73,7 @@ const FEATURE_TEST = [
   'import { REFERENCE_CODE_RUNNER_TOOLS } from "./runner-entry.ts";',
   "",
   'test("a pending export refuses by name", async () => {',
-  '  await expect(REFERENCE_CODE_RUNNER_TOOLS.generateCandidate({} as never, async () => null)).rejects.toThrow("reference_code_runner_pending");',
+  '  await expect(REFERENCE_CODE_RUNNER_TOOLS.protectedChecks({} as never, async () => null)).rejects.toThrow("reference_code_runner_pending");',
   "});",
   "",
 ].join("\n");
