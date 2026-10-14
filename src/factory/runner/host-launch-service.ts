@@ -178,15 +178,8 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       if (!body || typeof body !== "object" || Array.isArray(body)) refuse(400, "invalid_request");
       const fields = body as Record<string, unknown>;
       if (request.path === FACTORY_HOST_PREPARATION_PATH) {
-        const preparation = factoryHostPreparationFromWire(fields);
-        // The same identity binding as a launch: only for the tenant the calling peer acts for.
-        if (preparation.tenantId !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
-        // The host builds only the bytes the product's binding names.
-        if (filesDigest(preparation.files) !== preparation.sourceDigest) refuse(409, "source_digest_mismatch");
-        const prepare = snapshot.supervisor.prepare;
-        if (prepare === undefined) refuse(501, "preparation_unavailable");
         timer = setTimeout(() => controller.abort(), snapshot.prepareTimeoutMs);
-        return json(200, await prepare.call(snapshot.supervisor, preparation, controller.signal));
+        return json(200, await answerPreparation(snapshot.supervisor, fields, peerTenant, controller.signal));
       }
       if (request.path !== FACTORY_HOST_LAUNCH_PATH && request.path !== FACTORY_HOST_ATTACH_PATH && request.path !== FACTORY_HOST_RESULT_PATH) refuse(404, "not_found");
       try { intent = factoryAttemptLaunchIntentFromWire(fields.intent); }
@@ -225,6 +218,18 @@ export function createFactoryHostLaunchRouteHandler(options: FactoryHostLaunchSe
       return refused(500, "host_failed", message);
     } finally { if (timer) clearTimeout(timer); }
   };
+}
+
+/**
+ * One preparation, refused before anything is built unless it is for the calling peer's own tenant
+ * (the same identity binding as a launch) and its bytes are the digest the product's binding names.
+ */
+async function answerPreparation(supervisor: FactoryHostLaunchSupervisor, fields: Record<string, unknown>, peerTenant: string, signal: AbortSignal): Promise<FactoryHostPrepared> {
+  const preparation = factoryHostPreparationFromWire(fields);
+  if (preparation.tenantId !== peerTenant) refuse(403, FACTORY_HOST_FORBIDDEN_TENANT);
+  if (filesDigest(preparation.files) !== preparation.sourceDigest) refuse(409, "source_digest_mismatch");
+  if (supervisor.prepare === undefined) refuse(501, "preparation_unavailable");
+  return supervisor.prepare(preparation, signal);
 }
 
 const SHA256_HEX = /^[0-9a-f]{64}$/;

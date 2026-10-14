@@ -7,6 +7,8 @@ const approved: unknown[] = [];
 let users = [{ id: "admin", role: "admin", status: "active" }];
 let legacy: { id: string; creatorUserId: string | null; enabled: boolean } | undefined;
 const updates: unknown[] = [];
+const runs: unknown[] = [];
+let buildState = "awaiting_approval";
 mock.module("../../db/connection", () => ({ getDb: () => ({}) }));
 mock.module("../../db/queries/users", () => ({ listUsers: async () => users }));
 mock.module("../../db/queries/extensions", () => ({ getExtensionByName: async () => legacy, updateExtension: async (...args: unknown[]) => updates.push(args) }));
@@ -22,13 +24,13 @@ mock.module("../extension-lifecycle-service", () => ({ getExtensionLifecycle: as
     states.get(input.installationId)!.workspaces[workspace.id] = workspace;
     return { workspace };
   },
-  async build(actor: unknown, input: unknown) { builds.push({ actor, input }); return { id: "operation", state: "awaiting_approval" }; },
-  async runBuild() { throw new Error("Completed operation must not restart"); },
+  async build(actor: unknown, input: unknown) { builds.push({ actor, input }); return { id: "operation", state: buildState }; },
+  async runBuild(...args: unknown[]) { runs.push(args); throw new Error("Completed operation must not restart"); },
   policyDigest: () => "policy",
   async approve(...args: unknown[]) { approved.push(args); },
 }) }));
 const { stageBundledExtensionSources, bundledInstallationId, stageBuiltinRunnerSources, builtinRunnerInstallationId } = await import("../bundled-bootstrap");
-beforeEach(() => { states.clear(); builds.length = 0; approved.length = 0; updates.length = 0; legacy = undefined; users = [{ id: "admin", role: "admin", status: "active" }]; });
+beforeEach(() => { states.clear(); builds.length = 0; runs.length = 0; buildState = "awaiting_approval"; approved.length = 0; updates.length = 0; legacy = undefined; users = [{ id: "admin", role: "admin", status: "active" }]; });
 
 test("stages immutable source once without executing config or approving releases", async () => {
   const entries = [{ name: "test", path: "extensions/test" }];
@@ -99,6 +101,20 @@ describe("built-in runner packages (C05 'Install built-in runner packages', W4H-
     states.get(builtinRunnerInstallationId("reference-code"))!.installation.uninstalled = true;
     await stageBuiltinRunnerSources(runner("export const again = 1;"));
     expect(builds).toHaveLength(1);
+  });
+
+  test("an installation whose owner is no longer active is left for a person, and nothing is built", async () => {
+    await stageBuiltinRunnerSources(runner("export {}"));
+    states.get(builtinRunnerInstallationId("reference-code"))!.installation.ownerId = "departed";
+    await stageBuiltinRunnerSources(runner("export const again = 1;"));
+    expect(builds).toHaveLength(1);
+  });
+
+  test("a queued build runs in the isolated builder, and a failure there is logged rather than thrown", async () => {
+    buildState = "queued";
+    await stageBuiltinRunnerSources(runner("export {}"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(runs).toEqual([[{ principalId: "admin", scope: "global", kind: "service" }, builtinRunnerInstallationId("reference-code"), "operation"]]);
   });
 
   test("one package's failure is reported and does not stop the next", async () => {
