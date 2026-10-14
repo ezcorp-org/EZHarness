@@ -3787,3 +3787,13 @@ f0d89990ea742b1b8fb7e48e38655c0a206b500292a977349639bf8295d885ec  wave4i-3-push1
 c12d63fab38c2ac0ac9d02b7b8e83646113447c4ac637a3752aada85cac0ba85  wave4i-3-push10-attempt2-runs-at-push.txt
 0fe7fa30a6134fa35525b1fd35af57bb508db958ee94c22193ff912236a08e36  wave4i-3-push10-attempt2-tc-gate.log
 5fde7c0f1d99a4887243ca613a2ff0351d4ab9ae5b3e031962cab3b447117997  wave4i-3-push10-attempt2.json
+fb9cbcf6940227a8768b43c4674f82195165ac052fb4cdc1737d692c664067de  wave4i-3-push10-attempt3-ci-38525604869-a2-classification.md
+4119f983f6a6d30a6255a4f65b7d66c014147e6890dd4940a0e33ee638105dd7  wave4i-3-push10-attempt3-ci-38525604869-a2-e2e-mock-aggregate.log
+cd9a9035f7923e4cda320be4871eddb2a59a141e56f31fa5654d915b4a578f57  wave4i-3-push10-attempt3-ci-38525604869-a2-jobs.json
+8c940cf6636f289280c48c7284f01f174526a91648b14e0bea79d266ab3a489e  wave4i-3-push10-attempt3-ci-38525604869-a2-production-image-extension-lifecycle.log
+72fa4353041134e185e26c7e3ada1ae86d48126dfeebe04a1efe0dfeed16a997  wave4i-3-push10-attempt3-ci-38525604869-a2-production-proof-resources-r4-samples.json
+1dfe5f572a7b439d2a16914fd3a279eda1e88da1a2ed7ad226bf5105370ddfd5  wave4i-3-push10-attempt3-ci-38525604869-a2-production-proof-resources.log
+f0b3bb2c4434054141182894163f110db0b5626d41d39554dc34dba9a9f13058  wave4i-3-push10-attempt3-ci-38525604869-a2-runner-readiness.log
+4f1b08986a5091fbf171565c1c85523f1d9264deb175aa5af1f4c5b6a4080c63  wave4i-3-push10-attempt3-ci-38525604869-a2-vs-a1.md
+5a1fa1617ba0fa61ed89021002ec843d06f41bfe7d6d9490111c9e74467652ae  wave4i-3-push10-attempt3-hosted-baseline-38525604869-a1.tsv
+5f07bc4d3c426d0198cc62ba6bc78f43b0af424a873ce1047afc7cfff6fe81dc  wave4i-3-push10-attempt3.json
