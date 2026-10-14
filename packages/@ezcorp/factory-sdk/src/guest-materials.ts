@@ -251,13 +251,15 @@ export async function factoryGuestCompletedWithoutOperations(input: {
   readonly request: FactoryRunnerRequest;
   readonly call: FactoryGuestBrokerCall;
   readonly outputName: string;
-  readonly output: JsonValue;
+  /** The node's output, or a function that stages its materials through the same client first and answers it. */
+  readonly output: JsonValue | ((staging: FactoryGuestStaging) => Promise<JsonValue>);
   readonly checkpointSchema: string;
 }): Promise<Record<string, JsonValue>> {
   const { authority } = input.request;
   const index = authority.nextOperationIndex;
   const staging = createFactoryGuestStaging({ call: input.call, operationId: `${authority.runId}:${authority.nodeInstanceId}:${authority.candidateGeneration}:${index}`, operationIndex: index });
-  const promoted = await staging.stageResult(input.outputName, input.output);
+  const output = typeof input.output === "function" ? await input.output(staging) : input.output;
+  const promoted = await staging.stageResult(input.outputName, output);
   const cursor = index - 1;
   const checkpoint = await staging.stageCheckpoint({ schemaVersion: input.checkpointSchema, cursor }, cursor);
   return {

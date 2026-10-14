@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { referenceCodeV1, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { validateNodeOutput } from "@ezcorp/factory-sdk/kernel";
+import { sha256Hex } from "@ezcorp/factory-sdk/canonical";
 import { factoryGuestMaterialHost, factoryGuestStagedJson } from "../../__tests__/helpers/factory-guest-material-host";
 import { unresolvedImports } from "../guest-sdk-closure";
 import { REFERENCE_CODE_GUEST_ENTRYPOINT } from "./guest";
@@ -9,6 +11,7 @@ import { REFERENCE_CODE_RUNNER_PACKAGES, referenceCodeRunnerPackageFiles } from 
 import {
   REFERENCE_CODE_RECORDED_TREE_SCHEMA_VERSION,
   REFERENCE_CODE_RUNNER_TOOLS,
+  REFERENCE_CODE_RESULT_OUTPUT,
   REFERENCE_CODE_SNAPSHOT_OUTPUT,
   ReferenceCodeRunnerError,
   referenceCodeRecordedTree,
@@ -91,6 +94,11 @@ describe("snapshotRepository in the guest, from a recorded tree", () => {
     expect(result).toMatchObject({ status: "completed", journalCursor: -1, operations: [] });
     const snapshot = await snapshotReferenceCodeRepository(referenceCodeRecordedTreeReader(connection), COMMIT);
     expect(factoryGuestStagedJson(host.stored, REFERENCE_CODE_SNAPSHOT_OUTPUT)).toEqual(referenceCodeSnapshotRunnerOutput(snapshot));
+    // The node's `snapshot` port: an artifact reference to the sealed snapshot, valid against the definition's port schema.
+    const port = factoryGuestStagedJson(host.stored, REFERENCE_CODE_RESULT_OUTPUT) as { snapshot: { digest: string; mediaType: string; storage: string } };
+    expect(port.snapshot).toEqual({ digest: `sha256:${sha256Hex(host.stored.get(REFERENCE_CODE_SNAPSHOT_OUTPUT)!)}`, mediaType: "application/json", storage: expect.stringMatching(/^object-/) });
+    const node = referenceCodeV1.graph.nodes.find(candidate => candidate.id === "snapshot-repository")!;
+    expect(validateNodeOutput(node, port as never)).toBe(true);
   });
 
   test("an input that is not an inline object of bound ports is refused by name", async () => {

@@ -253,3 +253,15 @@ test("a task that settled no operation completes at cursor next-1 with no rows, 
   expect(log.frames.map(frame => frame.objectName)).toContain("result.json");
   expect(log.frames.map(frame => frame.objectName)).toContain(factoryGuestCheckpointName(2));
 });
+
+test("a task's output may stage its materials through the same client first, under the same operation", async () => {
+  const log: HostLog = { frames: [] };
+  const request = { authority: { runId: "run", nodeInstanceId: "node", candidateGeneration: 0, nextOperationIndex: 0 } } as unknown as FactoryRunnerRequest;
+  const result = await factoryGuestCompletedWithoutOperations({
+    request, call: host(log), outputName: "result.json", checkpointSchema: "test.checkpoint.v1",
+    output: async (staging) => { const staged = await staging.stageOutput("snapshot.json", new TextEncoder().encode("{}"), "application/json"); return { snapshot: { digest: staged.digest, mediaType: "application/json", storage: staged.material.artifactId } }; },
+  });
+  expect(result).toMatchObject({ status: "completed", journalCursor: -1 });
+  expect(log.frames.map(frame => frame.objectName).filter((name, index, all) => all.indexOf(name) === index)).toEqual(["snapshot.json", "result.json", factoryGuestCheckpointName(-1)]);
+  expect(log.frames.every(frame => frame.operationId === "run:node:0:0")).toBe(true);
+});

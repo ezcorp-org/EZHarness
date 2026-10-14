@@ -52,6 +52,7 @@ const RUNNER_SOURCES: Readonly<Record<string, string>> = Object.freeze({
 const RUNNER_SPECIFIERS: Readonly<Record<string, string>> = Object.freeze({
   ...REFERENCE_CODE_GUEST_SPECIFIERS,
   "@ezcorp/factory-sdk/guest-materials": "./guest-materials.ts",
+  "@ezcorp/factory-sdk/canonical": "./canonical.ts",
 });
 
 const FEATURE_TEST = [

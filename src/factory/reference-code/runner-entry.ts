@@ -1,3 +1,4 @@
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
 import { factoryGuestCompletedWithoutOperations, type FactoryGuestBrokerCall } from "@ezcorp/factory-sdk/guest-materials";
 import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk/types";
 import { factoryGitTreeId } from "../git-objects";
@@ -31,6 +32,7 @@ import {
 
 export const REFERENCE_CODE_RECORDED_TREE_SCHEMA_VERSION = "factory.reference-code-recorded-tree.v1" as const;
 export const REFERENCE_CODE_SNAPSHOT_OUTPUT = "snapshot.json";
+export const REFERENCE_CODE_RESULT_OUTPUT = "result.json";
 const CHECKPOINT_SCHEMA = "factory.reference-code-runner.checkpoint.v1";
 
 export type ReferenceCodeRunnerErrorCode =
@@ -106,7 +108,14 @@ export async function snapshotRepository(request: FactoryRunnerRequest, call: Fa
   const { repositoryConnection, baseCommitSha } = boundPorts(request);
   if (typeof baseCommitSha !== "string") throw new ReferenceCodeRunnerError("reference_code_runner_input_invalid", "baseCommitSha must be a string");
   const snapshot = await snapshotReferenceCodeRepository(referenceCodeRecordedTreeReader(repositoryConnection), baseCommitSha);
-  return factoryGuestCompletedWithoutOperations({ request, call, outputName: REFERENCE_CODE_SNAPSHOT_OUTPUT, output: referenceCodeSnapshotRunnerOutput(snapshot), checkpointSchema: CHECKPOINT_SCHEMA });
+  // The snapshot is a sealed material; the node's `snapshot` port names it by content digest and handle.
+  return factoryGuestCompletedWithoutOperations({
+    request, call, outputName: REFERENCE_CODE_RESULT_OUTPUT, checkpointSchema: CHECKPOINT_SCHEMA,
+    output: async staging => {
+      const staged = await staging.stageOutput(REFERENCE_CODE_SNAPSHOT_OUTPUT, new TextEncoder().encode(canonicalizeJson(referenceCodeSnapshotRunnerOutput(snapshot))), "application/json");
+      return { snapshot: { digest: staged.digest, mediaType: "application/json", storage: staged.material.artifactId } };
+    },
+  });
 }
 
 function pending(exported: string, needs: string): ReferenceCodeRunnerTool {
