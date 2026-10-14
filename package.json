@@ -53,18 +53,18 @@
     "gate:report": "bun scripts/quality-report.ts --text"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
+    "@biomejs/biome": "2.5.15",
     "@types/bun": "1.4.2",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.6.3",
+    "@types/node": "^26.6.4",
     "drizzle-kit": "^0.31.11"
   },
   "peerDependencies": {
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@aws-sdk/client-kms": "3.1131.0",
-    "@aws-sdk/client-s3": "3.1131.0",
+    "@aws-sdk/client-kms": "3.1147.0",
+    "@aws-sdk/client-s3": "3.1147.0",
     "@balena/dockerignore": "1.0.2",
     "@earendil-works/pi-agent-core": "0.99.2",
     "@earendil-works/pi-ai": "0.99.2",
@@ -76,8 +76,8 @@
     "@ezcorp/factory-sdk": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
-    "@huggingface/transformers": "^4.3.0",
-    "@modelcontextprotocol/sdk": "^1.30.1",
+    "@huggingface/transformers": "^4.3.1",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "@zxing/library": "^0.23.0",
     "drizzle-orm": "^0.45.3",
     "exceljs": "^4.4.0",
