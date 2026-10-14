@@ -42,6 +42,8 @@ const SCRIPT = join(REPO_ROOT, "deploy", "installer", "ezcorp");
 const COMPOSE_INSTALLER = join(REPO_ROOT, "deploy", "installer", "compose.installer.yml");
 const COMPOSE_ISOLATED = join(REPO_ROOT, "deploy", "installer", "compose.isolated.yml");
 const COMPOSE_TRUSTED_LOCAL = join(REPO_ROOT, "deploy", "installer", "compose.trusted-local.yml");
+const REAL_BASH = Bun.which("bash") ?? "";
+if (!REAL_BASH) throw new Error("Installer tests require Bash");
 const REAL_SED = Bun.which("sed") ?? "";
 if (!REAL_SED) throw new Error("Installer CLI tests require sed");
 const REAL_OPENSSL = Bun.which("openssl") ?? "";
@@ -776,7 +778,8 @@ function runTty(args: string[], answer: string, extraEnv: Record<string, string 
   const proc = Bun.spawnSync({
     // -e: exit with the child's status. -q: no banner. /dev/null: no typescript file.
     cmd: ["script", "-q", "-e", "-c", quoted, "/dev/null"],
-    env: cliEnv(extraEnv),
+    // script uses SHELL for -c. A caller's startup files can replace the fake PATH.
+    env: { ...cliEnv(extraEnv), SHELL: REAL_BASH },
     stdin: new TextEncoder().encode(`${answer}\n`),
     stdout: "pipe",
     stderr: "pipe",
@@ -793,6 +796,16 @@ function installTrustedLocal(): void {
 }
 
 describe("trusted-local — explicit terminal consent and mode changes", () => {
+  test("the terminal fixture does not execute the caller's shell", () => {
+    const callerShell = join(caseDir, "caller-shell");
+    writeFileSync(callerShell, "#!/bin/sh\nexit 93\n", { mode: 0o755 });
+    const installed = runTty(["install"], "I understand", { ...NO_RUNNER, SHELL: callerShell });
+    expect(installed.exitCode).toBe(0);
+    expect(installed.output).toContain("Type I understand");
+    expect(installed.log).toContain("compose ");
+    expect(envFile()).toContain("EZCORP_INSTALL_RUNNER_MODE=trusted-local");
+  });
+
   test("an explicit mode change preserves an existing install and its secrets", () => {
     expect(run(["install"]).exitCode).toBe(0);
     const before = envFile();
