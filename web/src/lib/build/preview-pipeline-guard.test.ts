@@ -9,7 +9,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { connect } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { gunzipSync } from 'node:zlib';
+import { gunzipSync, gzipSync } from 'node:zlib';
 import type { Plugin, PreviewServer } from 'vite';
 import { PIPELINE_REPLAY_DEFECT_BUNS, previewPipelineGuard } from './preview-pipeline-guard';
 
@@ -28,7 +28,11 @@ afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 type Served = { outcome: 'answered' | 'crashed' | 'stalled'; bodies: string[]; stderr: string };
 
-/** Parse complete HTTP/1.1 responses (chunked or sized) and return their decoded bodies. */
+/**
+ * Parse the complete, well-formed HTTP/1.1 responses (chunked or sized) at the start of `buffer` and return
+ * their decoded bodies. Parsing stops at the first incomplete, mis-framed or undecodable response, so a
+ * response the defect cut off counts as unanswered instead of throwing from a socket handler.
+ */
 function responses(buffer: Buffer): string[] {
 	const out: string[] = [];
 	let offset = 0;
@@ -36,32 +40,39 @@ function responses(buffer: Buffer): string[] {
 		const headEnd = buffer.indexOf('\r\n\r\n', offset);
 		if (headEnd === -1) return out;
 		const head = buffer.toString('latin1', offset, headEnd);
-		let position = headEnd + 4;
-		let body: Buffer;
-		if (/transfer-encoding: chunked/i.test(head)) {
-			const chunks: Buffer[] = [];
-			for (;;) {
-				const lineEnd = buffer.indexOf('\r\n', position);
-				if (lineEnd === -1) return out;
-				const size = Number.parseInt(buffer.toString('latin1', position, lineEnd), 16);
-				if (size === 0) {
-					position = lineEnd + 4;
-					break;
-				}
-				if (buffer.length < lineEnd + 2 + size + 2) return out;
-				chunks.push(buffer.subarray(lineEnd + 2, lineEnd + 2 + size));
-				position = lineEnd + 2 + size + 2;
-			}
-			body = Buffer.concat(chunks);
-		} else {
-			const length = Number(/content-length: (\d+)/i.exec(head)?.[1]);
-			if (buffer.length < position + length) return out;
-			body = buffer.subarray(position, position + length);
-			position += length;
+		const framed = /transfer-encoding: chunked/i.test(head) ? chunkedBody(buffer, headEnd + 4) : sizedBody(buffer, head, headEnd + 4);
+		if (!framed) return out;
+		try {
+			out.push((/content-encoding: gzip/i.test(head) ? gunzipSync(framed.body) : framed.body).toString());
+		} catch {
+			return out;
 		}
-		out.push((/content-encoding: gzip/i.test(head) ? gunzipSync(body) : body).toString());
-		offset = position;
+		offset = framed.end;
 	}
+}
+
+/** A chunked body starting at `position`, or null when it is incomplete or a chunk is mis-framed. */
+function chunkedBody(buffer: Buffer, position: number): { body: Buffer; end: number } | null {
+	const chunks: Buffer[] = [];
+	for (;;) {
+		const lineEnd = buffer.indexOf('\r\n', position);
+		if (lineEnd === -1) return null;
+		const sizeLine = buffer.toString('latin1', position, lineEnd);
+		if (!/^[0-9a-f]+$/i.test(sizeLine)) return null;
+		const size = Number.parseInt(sizeLine, 16);
+		const dataEnd = lineEnd + 2 + size;
+		if (buffer.length < dataEnd + 2 || buffer.toString('latin1', dataEnd, dataEnd + 2) !== '\r\n') return null;
+		if (size === 0) return { body: Buffer.concat(chunks), end: dataEnd + 2 };
+		chunks.push(buffer.subarray(lineEnd + 2, dataEnd));
+		position = dataEnd + 2;
+	}
+}
+
+/** A Content-Length body starting at `position`, or null when it is incomplete or unsized. */
+function sizedBody(buffer: Buffer, head: string, position: number): { body: Buffer; end: number } | null {
+	const length = Number(/content-length: (\d+)/i.exec(head)?.[1]);
+	if (!Number.isInteger(length) || buffer.length < position + length) return null;
+	return { body: buffer.subarray(position, position + length), end: position + length };
 }
 
 /** Two pipelined GETs in one packet; resolves with the decoded bodies, or fewer when the peer stops. */
@@ -160,6 +171,21 @@ describe('previewPipelineGuard', () => {
 		installed[0](req, {}, () => nextCalls++);
 		expect(req.headers).toEqual({ host: 'x' });
 		expect(nextCalls).toBe(1);
+	});
+
+	// The defect can also cut a response off mid-body and start the next one on the same socket. The parser
+	// must count that as an unanswered pair, not throw from a socket handler (a CI flake: "incorrect header check").
+	test('a cut-off or undecodable response ends the parse instead of throwing', () => {
+		const gzipped = gzipSync(SCRIPT);
+		const head = 'HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nTransfer-Encoding: chunked\r\n\r\n';
+		const chunk = (bytes: Buffer) => Buffer.concat([Buffer.from(`${bytes.length.toString(16)}\r\n`, 'latin1'), bytes, Buffer.from('\r\n')]);
+		const whole = Buffer.concat([Buffer.from(head, 'latin1'), chunk(gzipped), Buffer.from('0\r\n\r\n')]);
+		const cutOff = Buffer.concat([Buffer.from(head, 'latin1'), chunk(gzipped.subarray(0, 100)), whole]);
+		const notGzip = Buffer.concat([Buffer.from(head, 'latin1'), chunk(Buffer.from('plain text')), Buffer.from('0\r\n\r\n')]);
+		expect(responses(whole)).toEqual([SCRIPT]);
+		expect(responses(cutOff)).toEqual([]);
+		expect(responses(notGzip)).toEqual([]);
+		expect(responses(Buffer.concat([whole, notGzip, whole]))).toEqual([SCRIPT]);
 	});
 
 	test('the default version is the running Bun', () => {
