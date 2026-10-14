@@ -29,7 +29,8 @@ Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-27 (archy via --worktre
 - D3: with profiles declared, the deployer writes `release`: the installation's own S3 destination always
   (`installation-s3`: ordinary store, bucket and account = tenant, prefix `ordinary/releases`, the delivered
   ordinary-storage.json), a GitHub destination only when the fleet declares one (token file delivered to the harness,
-  named by path). The local fleet declares one default S3 profile (reference.image.v1's S3 publication adapter).
+  named by path). The local fleet declares an S3 profile per reference S3 publication adapter with a real digest;
+  today's reference digest is a placeholder, so it is refused by name (R4 N3) and no profile is declared.
 - D5: `stop` (installations newest first, the host pool and supervisor, the platform; containers kept) and `up`
   (the reverse; each waited ready). Both idempotent.
 - Fidelity: `scripts/check-factory-image-shipped-config.ts <image>` runs the image's workflow path under the flags read
@@ -86,3 +87,29 @@ Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-27 (archy via --worktre
   unchanged: its ./temporal-http-checks.ts import exists nowhere on this box or in git, it hard-codes tenant-01,
   tenant-02 and tenant-10, and the tenant-01 bucket is still claimed by w4h25's fleet. The W16 G7 checkbox stays as
   history; restoring the harness in-repo is a leftover.
+
+## R4 (validator-8 REJECT of 713593038: F1, F2; folded N1, N3, N6)
+
+- [x] F1 identity: worktree config now carries archy with main's noreply address (the address of the last 500 main
+  commits). The 7 commits were re-authored with filter-branch (author and committer email only); trees unchanged,
+  before -> after: 3cb38ca05->04789c3e5, d61d38b00->cf29d0ed3, 393ae4a87->2521cc012, 1881d1a20->6f97be253,
+  73cb59582->baa97f271, 581cac388->cffd66cd8, 713593038->5992d4f0f, every tree EQUAL (r4-trees.txt). The
+  filter-branch backup ref was deleted. The personal address appears 0 times in the branch diff, the commit log, the
+  gate file, the todo lines and the evidence directory.
+- [x] F2 `up` on a serving fleet: FactoryFleetHost.start() re-publishes only when the runtime says the host does not
+  serve (pool container running and `systemctl --user is-active` of the supervisor unit). Red first: host 24/1,
+  compose 54/1; then 25/0, 55/0. Real proof at 3134bbf8c: `up` twice with one installation and twice with two left
+  every container's start time unchanged (logs/r4/compare.txt: SAME x3).
+- [x] N1 the temporal replay suite asserts its bundle equals the built factory-workflow bundle byte for byte (it does:
+  webpack output is deterministic), so every replay case runs the shipped bytes.
+- [x] N3 the reference S3 adapter digest is a placeholder (one hex character repeated, factory-sdk `runner()`); no
+  published package has it. The local fleet REFUSES it by name (`factory_release_adapter_unpublished`) and declares
+  no release profile; fleet-init prints the refusal (logs/r4/fleet-init.out). An adapter with a real digest becomes
+  the profile and passes the fleet parser (test). The D3 deployer and reader path stays proven by G6 and the unit
+  tests; tenant-04 (new image) has no release block (logs/r4/release-resolve.out: no_release_block).
+- [x] N6 the two "typecheck exit=1" lines in the heavy-build logs: 23:23Z TS2345 in deployment.test.ts (fixed in
+  d61d38b00, now cf29d0ed3) and 23:50Z TS2352 in factory-fleet-init-local.test.ts (fixed in 581cac388, now
+  cffd66cd8). Both stopped the job before any image build; no proof ran on a tree that failed typecheck.
+- [x] R4 legs at 3134bbf8c: typecheck in the lock 0; lint 0 (0 warnings); boundaries 0; gate-integrity main 0;
+  guard set 530/0; changed executable lines 269/269; CRAP --changed 0 above 30; guard on the new image PASS;
+  tenant-04 through step 7 (invitation_issued); fleet stopped with `stop` (13 containers exited, volumes kept).
