@@ -12,7 +12,6 @@ test("MCP registry does not allocate host veth or subprocess resources and close
     expect(fixture.starts()).toBe(1);
     expect(fixture.closed()).toBe(1);
     expect(spawn).not.toHaveBeenCalled();
-    expect(client.getChildProcess()).toBeNull();
     fixture.invoke(async () => { throw new Error("worker failed"); });
     await expect(client.callTool("echo", {}, fixture.meta)).rejects.toThrow("worker failed");
     expect(fixture.closed()).toBe(2);

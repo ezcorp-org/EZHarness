@@ -20,7 +20,7 @@
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import { ExtensionRegistry } from "../extensions/registry";
 import { extensionToAgentTool, ToolExecutor } from "../extensions/tool-executor";
 import { configureReleaseRuntime } from "../extensions/release-process";
@@ -74,7 +74,7 @@ async function runRawToolCall(
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<{ result: unknown; error: unknown }> {
-  const proc = new ExtensionProcess(
+  const proc = new HostExtensionProcess(
     "price-chart-test",
     EXT_ENTRY,
     buildEnv(),

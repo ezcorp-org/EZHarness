@@ -121,9 +121,14 @@ const ENGINE_ONLY = ["scripts/test-linux.sh"];
 // fully-qualified `docker.io/...` image references out of it.
 const BARE_DOCKER = /(?<![\w\-./`'"])docker (compose|rm|rmi|build|inspect|run|logs|exec|volume|restart|image|images|stop|start|container|info|ps|pull|tag|save|load)\b/;
 
-function resolveCompose(path: string, env: Record<string, string> = {}): { compose: string; dockerHost: string; exitCode: number; stderr: string } {
+function resolveCompose(path: string, env: Record<string, string> = {}, strict = false): { compose: string; dockerHost: string; exitCode: number; stderr: string } {
+  // strict: the caller runs under `set -euo pipefail` and calls resolve_compose
+  // as a plain statement, as verify-production-image-lifecycle.sh does.
+  const script = strict
+    ? `set -euo pipefail; source "${LIB}"; resolve_compose; printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`
+    : `source "${LIB}" && resolve_compose && printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`;
   const proc = Bun.spawnSync({
-    cmd: [BASH, "-c", `source "${LIB}" && resolve_compose && printf '%s\\n%s' "\${COMPOSE[*]}" "\${DOCKER_HOST:-}"`],
+    cmd: [BASH, "-c", script],
     env: { PATH: path, ...env },
     stdout: "pipe",
     stderr: "pipe",
@@ -179,6 +184,17 @@ describe("container-engine.sh — resolve_compose", () => {
     writeFileSync(join(dir, "podman"), "#!/bin/sh\nexit 0\n");
     chmodSync(join(dir, "podman"), 0o755);
     const r = resolveCompose(dir, { EZCORP_CONTAINER_ENGINE: "podman" });
+    expect(r.exitCode).toBe(2);
+    expect(r.stderr).toContain("podman.socket");
+    expect(r.stderr).toContain("podman machine start");
+  });
+
+  test("under a strict caller, a failing podman machine lookup still names both fixes", () => {
+    // Native Linux Podman with no machine: `podman machine inspect` exits 125.
+    const dir = pathWith("docker-compose");
+    writeFileSync(join(dir, "podman"), "#!/bin/sh\nexit 125\n");
+    chmodSync(join(dir, "podman"), 0o755);
+    const r = resolveCompose(dir, { EZCORP_CONTAINER_ENGINE: "podman" }, true);
     expect(r.exitCode).toBe(2);
     expect(r.stderr).toContain("podman.socket");
     expect(r.stderr).toContain("podman machine start");

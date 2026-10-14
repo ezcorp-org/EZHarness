@@ -48,7 +48,8 @@ export EZ_EXTENSION_RUNNER_TOKEN_FILE="$run_root/token"
 export EZ_EXTENSION_RUNNER_STORE="$run_root/store"
 export EZCORP_EXTENSION_RUNNER_SOCKET="$EZ_EXTENSION_RUNNER_SOCKET"
 bun -e 'import {randomBytes} from "node:crypto"; await Bun.write(process.env.EZ_EXTENSION_RUNNER_TOKEN_FILE, randomBytes(32).toString("hex"));'
-export EZCORP_EXTENSION_RUNNER_TOKEN="$(cat "$EZ_EXTENSION_RUNNER_TOKEN_FILE")"
+EZCORP_EXTENSION_RUNNER_TOKEN="$(cat "$EZ_EXTENSION_RUNNER_TOKEN_FILE")"
+export EZCORP_EXTENSION_RUNNER_TOKEN
 bash scripts/start-extension-runner-e2e.sh &
 runner_pid=$!
 export EZ_TEST_RUNNER_PID="$runner_pid"

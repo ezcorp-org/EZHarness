@@ -49,6 +49,9 @@ from factory_validation import (
 Json = Any
 
 GUEST_VERSION: Final = "factory.python-guest.v1"
+# World-writable on the image root, so only `--read-only` stops uid 65534
+# writing there; see `Guest.controls`. Not used for temporary data.
+ROOT_WRITE_PROBE_DIR: Final = "/var/tmp"  # noqa: S108 - a read-only-root probe target, not a temp file location
 MAX_FRAME_BYTES: Final = 1024 * 1024
 # The one reverse capability an isolated factory guest may name.
 BROKER_METHOD: Final = "factory.broker"
@@ -360,17 +363,25 @@ class Guest:
         return result
 
     @staticmethod
-    def controls(read: Callable[[str], str] = read_control) -> dict[str, Json]:
+    def controls(read: Callable[[str], str] = read_control, probe_dir: str = ROOT_WRITE_PROBE_DIR) -> dict[str, Json]:
         """What the guest observes of its own confinement.
 
         The host verifies the same facts from the container runtime, which is
         what C05 requires; this corroborates them from inside so a control that
         the runtime reports but the kernel did not apply cannot pass unseen.
+
+        The root-write check targets `probe_dir`, world-writable `/var/tmp` on
+        the image root, so only `--read-only` stops uid 65534 writing there. A
+        path an unprivileged user can never write (such as `/`) cannot detect
+        a writable root. A unique name avoids another user's file, and the
+        probe file is removed after a successful write.
         """
         status = read("/proc/self/status")
         writable_root = True
         try:
-            Path("/root-write-probe").write_text("x", encoding="utf-8")
+            handle, probe = tempfile.mkstemp(prefix="root-write-probe-", dir=probe_dir)
+            os.close(handle)
+            Path(probe).unlink()
         except OSError:
             writable_root = False
         devices = sorted(entry.name for entry in Path("/dev").iterdir()) if Path("/dev").is_dir() else []

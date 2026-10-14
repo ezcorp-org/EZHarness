@@ -113,12 +113,6 @@ vi.mock("$server/extensions/permission-engine", () => ({
 	getPermissionEngine: vi.fn(() => ({})),
 	flushPermissionAuditForShutdown: vi.fn(async () => undefined),
 }));
-vi.mock("$lib/server/security/bundled-creds", () => ({
-	bootstrapBundledCredentials: vi.fn(async () => undefined),
-}));
-vi.mock("$lib/server/security/openai-extension-creds", () => ({
-	wireOpenAIExtensionCredentials: vi.fn(),
-}));
 vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
 	LifecycleHookDispatcher: class {
 		registerExtension = vi.fn();

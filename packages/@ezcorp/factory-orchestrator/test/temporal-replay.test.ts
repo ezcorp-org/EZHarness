@@ -3,12 +3,12 @@ import { createHash } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import { TestWorkflowEnvironment, type TestWorkflowEnvironment as TestEnvironment } from "@temporalio/testing";
 import { WorkflowExecutionAlreadyStartedError } from "@temporalio/client";
 import { bundleWorkflowCode, Worker, type WorkflowBundleWithSourceMap } from "@temporalio/worker";
 import { historyToJSON } from "@temporalio/common/lib/proto-utils.js";
-import { createFactoryWorker } from "../src/worker.ts";
+import { createFactoryWorker as createUntrackedFactoryWorker } from "../src/worker.ts";
 import { factoryWorkflowBundleDigest, loadFactoryWorkflowBundle } from "../src/workflow-bundle.ts";
 import { Context } from "@temporalio/activity";
 import { canonicalizeJson, compileFactory, createCompiledExecutionManifest, createCompiledPartitionArtifact, FACTORY_LAZY_INPUT_SCHEMA_VERSION } from "@ezcorp/factory-sdk";
@@ -174,6 +174,42 @@ async function waitForContinuedRun(handle: WorkflowHandle, previousRunId: string
   }
   throw new Error(`workflow did not continue from run ${previousRunId}`);
 }
+
+/** Polls the workflow's own state until `ready` holds, so a test acts only on what the workflow has recorded. */
+async function waitForRecordedState(handle: WorkflowHandle, ready: (state: KernelState) => boolean, what: string): Promise<KernelState> {
+  for (let attempt = 0; attempt < 500; attempt += 1) {
+    const state: KernelState = await handle.query("factoryState");
+    if (ready(state)) return state;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`the workflow never recorded ${what}`);
+}
+
+/**
+ * Every test worker polls the one shared task queue, and the Temporal runtime
+ * refuses a second worker on it while the first is registered. A test that
+ * times out never leaves its `runUntil`, so its worker would keep the queue
+ * and every later test would fail at `Worker.create`. afterEach stops the
+ * workers a test left running, so each test fails on its own.
+ */
+const workers = new Set<Worker>();
+async function createFactoryWorker(options: Parameters<typeof createUntrackedFactoryWorker>[0]): Promise<Worker> {
+  const worker = await createUntrackedFactoryWorker(options);
+  workers.add(worker);
+  return worker;
+}
+
+afterEach(async () => {
+  for (const worker of workers) {
+    if (worker.getState() === "RUNNING") worker.shutdown();
+    const deadline = Date.now() + 60_000;
+    while (worker.getState() !== "INITIALIZED" && worker.getState() !== "STOPPED" && worker.getState() !== "FAILED") {
+      if (Date.now() > deadline) throw new Error(`a test worker did not stop: ${worker.getState()}`);
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+  workers.clear();
+});
 
 async function waitForState(handle: WorkflowHandle): Promise<KernelState> {
   for (let attempt = 0; attempt < 500; attempt += 1) {
@@ -566,12 +602,7 @@ describe("factory Temporal workflow", () => {
   }
 
   async function waitForAcceptanceWaiting(handle: WorkflowHandle): Promise<KernelState> {
-    for (let attempt = 0; attempt < 500; attempt += 1) {
-      const state: KernelState = await handle.query("factoryState");
-      if (state.nodes.accept?.waitingReason === "external_reconciliation") return state;
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    }
-    throw new Error("the acceptance node never waited");
+    return waitForRecordedState(handle, (state) => state.nodes.accept?.waitingReason === "external_reconciliation", "the acceptance node waiting");
   }
 
   it("keeps an acceptance node waiting on a null effect and completes it once from its inbox event", async () => {
@@ -789,6 +820,17 @@ describe("factory Temporal workflow", () => {
       });
       await successors;
       assert.deepEqual([...completed].sort(), ["a", "b", "d"]);
+      // The successors' activities finish only after their result is sent, so
+      // cancel once the workflow has recorded both results. Otherwise the
+      // cancel can request a stop for a successor activity that completes while
+      // that workflow task is in flight, which the time-skipping test server
+      // (temporal-test-server 1.38.0) rejects (ACTIVITY_UNKNOWN) and the run
+      // never advances. The real server accepts it: on Temporal CLI 1.9.1
+      // (Server 1.32.0) the forced ordering records the cancel request, then
+      // the buffered completion, and the run ends cancelled. So this is a
+      // test-server limit, not an orchestrator bug.
+      const recorded = await waitForRecordedState(handle, (state) => state.nodes.b?.status === "succeeded" && state.nodes.d?.status === "succeeded", "both successors succeeding");
+      assert.equal(recorded.nodes.c?.status, "running");
       const cancel = { kind: "cancel", id: "cancel-parallel", atMs: Date.now(), reason: "test complete" };
       await handle.signal("factoryInbox", { sequence: 1, eventId: cancel.id, eventHash: eventHash(cancel), event: cancel });
       assert.equal((await handle.result()).status, "cancelled");

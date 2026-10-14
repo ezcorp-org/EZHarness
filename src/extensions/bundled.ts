@@ -60,15 +60,11 @@ interface BundledExtension {
    * separate from the existing `ENV_KEY_LEAK_WARNING` migration-soft
    * row.
    *
-   * Set this ONLY for bundled extensions whose env grant is either:
-   *   - A host-internal cred (`EZCORP_API_KEY`, `EZCORP_SESSION_COOKIE`)
-   *     that the host injects via `bootstrapBundledCredentials` rather
-   *     than expecting the user to populate. Different category from
-   *     user-supplied API keys; will likely never need migration.
-   *   - A third-party API cred that is BYOK + injected via a
-   *     per-extension cred resolver (see e.g.
-   *     `web/src/lib/server/security/openai-extension-creds.ts`).
-   *     Pending the v1.5+ `ctx.secrets` migration.
+   * Set this ONLY for bundled extensions whose env grant names a
+   * third-party API cred that the credential broker resolves host-side
+   * (`ezcorp/env.get` → `src/extensions/credential-broker.ts`; see e.g.
+   * `web/src/lib/server/security/openai-extension-creds.ts`). The worker
+   * receives a short-lived handle, never the raw value.
    *
    * GREP `envEscapeHatch` to find every escape-hatch entry when the
    * migration lands. Removing this flag should remove `permissions.env`
@@ -245,18 +241,13 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
   {
     name: "ai-kit",
     path: "packages/@ezcorp/ai-kit",
-    // v1.4 envEscapeHatch — `EZCORP_API_KEY` is a host-internal cred
-    // injected by `bootstrapBundledCredentials` (NOT a user-supplied
-    // third-party API key). Different category from web-search /
-    // openai-image-gen-2 — this one will likely never migrate to
-    // ctx.secrets because the cred is host-self-issued. Grep for
-    // `envEscapeHatch` when the v1.5+ ctx.secrets migration lands.
-    envEscapeHatch: true,
+    // No env grant and no `envEscapeHatch`: ai-kit reaches the EZCorp
+    // API only through the host API broker (`ezcorp/api.request`), which
+    // mints a per-request key host-side. No credential enters the worker.
     permissions: {
       network: ["localhost", "127.0.0.1"],
       filesystem: ["$CWD"],
-      env: ["EZCORP_BASE_URL", "EZCORP_API_KEY", "EZCORP_SESSION_COOKIE"],
-      grantedAt: { network: Date.now(), filesystem: Date.now(), env: Date.now() },
+      grantedAt: { network: Date.now(), filesystem: Date.now() },
     },
   },
   {
@@ -284,12 +275,11 @@ const BUNDLED_EXTENSIONS: BundledExtension[] = [
     name: "openai-image-gen-2",
     path: "docs/extensions/examples/openai-image-gen-2",
     // v1.4 envEscapeHatch — third-party API creds. `OPENAI_API_KEY`
-    // is the BYOK fallback path (admin settings → decrypt → inject;
-    // see `web/src/lib/server/security/openai-extension-creds.ts:40`),
-    // and `OPENAI_ACCESS_TOKEN` is the OAuth-Codex path. Both are
-    // resolved per-spawn by `wireOpenAIExtensionCredentials`. Pending
-    // the v1.5+ `ctx.secrets` migration which will remove the direct
-    // env grant. Grep for `envEscapeHatch` when migrating.
+    // is the BYOK fallback path (admin settings → decrypt), and
+    // `OPENAI_ACCESS_TOKEN` is the OAuth-Codex path. The credential
+    // broker resolves both per call through
+    // `web/src/lib/server/security/openai-extension-creds.ts`; the worker
+    // gets a short-lived handle. Grep for `envEscapeHatch` when migrating.
     envEscapeHatch: true,
     permissions: {
       network: ["api.openai.com", "chatgpt.com"],

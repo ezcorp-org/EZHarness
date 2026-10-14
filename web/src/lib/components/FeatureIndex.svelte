@@ -3,6 +3,7 @@
 	import { searchMentions } from "$lib/api";
 	import { debounce } from "$lib/components/ui/helpers";
 	import { addToast } from "$lib/toast.svelte.js";
+	import { isSubmitEnter } from "$lib/chat-input-logic";
 
 	/**
 	 * Per-project Feature Index settings UI.
@@ -249,7 +250,7 @@
 	}
 
 	function handleCreateKey(e: KeyboardEvent): void {
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (isSubmitEnter(e)) {
 			e.preventDefault();
 			void handleCreate();
 		} else if (e.key === "Escape") {
@@ -264,7 +265,7 @@
 	 * discards. Other keys pass through.
 	 */
 	function handleEditKey(e: KeyboardEvent, f: FeatureRow): void {
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (isSubmitEnter(e)) {
 			e.preventDefault();
 			void commitEdit(f);
 		} else if (e.key === "Escape") {

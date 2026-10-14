@@ -91,6 +91,12 @@ test("lazy runner forwards every operation and resolves the current connection e
   expect(resolutions).toBe(5);
 });
 
+test("lazy runner forwards capabilities, and a resolved runner without them reports no enforcement", async () => {
+  const enforcing = { processSpawnEnforcement: true };
+  expect(await createLazyExtensionRunner(() => ({ capabilities: async () => enforcing }) as unknown as Runner).capabilities!()).toEqual(enforcing);
+  expect(await createLazyExtensionRunner(() => ({}) as unknown as Runner).capabilities!()).toEqual({ processSpawnEnforcement: false });
+});
+
 test("the configuration probe reports host settings as a boolean instead of throwing", () => {
   const names = ["EZCORP_EXTENSION_RUNNER_SOCKET", "EZCORP_EXTENSION_RUNNER_TOKEN", "EZCORP_EXTENSION_RUNNER_TOKEN_FILE"];
   const previous = names.map((name) => process.env[name]);

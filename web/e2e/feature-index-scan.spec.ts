@@ -430,8 +430,13 @@ test.describe("Feature Index — settings UI scan flow", () => {
       .first();
     await expect(nameInput2).toHaveValue("");
 
-    // Type valid name + Enter → creates the feature, closes the form.
+    // An Enter that confirms an IME candidate must not submit the form.
     await nameInput2.fill("brand-new");
+    await nameInput2.dispatchEvent("keydown", { key: "Enter", isComposing: true, bubbles: true });
+    await expect(nameInput2).toBeVisible();
+    await expect(nameInput2).toHaveValue("brand-new");
+
+    // Plain Enter → creates the feature, closes the form.
     await nameInput2.press("Enter");
     const table = page.locator("table");
     await expect(table.getByText("brand-new")).toBeVisible({ timeout: 5000 });

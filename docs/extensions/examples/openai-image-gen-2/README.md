@@ -11,10 +11,12 @@ The extension picks the right upstream automatically:
 | `OPENAI_ACCESS_TOKEN` (subscription OAuth) | Codex Responses + `image_generation` | `chatgpt.com/backend-api/codex/responses` |
 | `OPENAI_API_KEY` (BYOK sk-…) | Images API | `api.openai.com/v1/images/generations` |
 
-OAuth wins when both are present. Credentials are injected at spawn
-time by the platform's `wireOpenAIExtensionCredentials` — the user
-doesn't set env vars directly; they connect OpenAI via the admin UI's
-OAuth flow or store a BYOK key in admin settings.
+OAuth wins when both are present. The extension asks for each with
+`getGrantedEnv`; the platform's credential broker returns a short-lived
+handle, and the network broker swaps in the real credential only for
+`api.openai.com` and `chatgpt.com`. The user doesn't set env vars
+directly; they connect OpenAI via the admin UI's OAuth flow or store a
+BYOK key in admin settings.
 
 ## Tools
 

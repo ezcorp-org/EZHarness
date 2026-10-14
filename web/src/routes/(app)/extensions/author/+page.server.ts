@@ -1,6 +1,7 @@
 import { error } from "@sveltejs/kit";
 import { checkProjectRole, requireAuth } from "$server/auth/middleware";
-import { getExtensionLifecycle } from "$server/extensions/extension-lifecycle-service";
+import { getExtensionLifecycle, getExtensionRunner } from "$server/extensions/extension-lifecycle-service";
+import { approvalProcessSpawn } from "$server/extensions/process-spawn-policy";
 import { getExtensionProjectBinding } from "$server/extensions/project-binding";
 import { listProjects } from "$server/db/queries/projects";
 import { resolveControlActor } from "$lib/server/extensions/control-actor";
@@ -32,7 +33,9 @@ export const load: PageServerLoad = async ({ url, locals }) => {
   }
   try {
     actor.scope = (await resolveControlActor(user, "human", installationId)).scope;
-    const state = await lifecycle.inspect(actor, installationId);
+    const inspected = await lifecycle.inspect(actor, installationId);
+    // The same verdict extensions_inspect carries, so the approval card's MCP line holds after a refresh.
+    const state = { ...inspected, approvalProcessSpawn: await approvalProcessSpawn(await getExtensionRunner(), inspected) };
     const extensionName = await resolveInstallationName(state);
     const workspaceId = url.searchParams.get("workspace") ?? Object.values(state.workspaces).sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id;
     let source: Awaited<ReturnType<typeof lifecycle.readWorkspace>> | { workspace: null; files: Record<string, never> } = { workspace: null, files: {} };

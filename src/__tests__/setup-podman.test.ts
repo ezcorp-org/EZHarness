@@ -989,6 +989,22 @@ describe("setup-podman.sh — the unsandboxed-extensions decision", () => {
     expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
   });
 
+  test("macOS prompt, end of input with no answer: says so, stops non-zero, writes nothing", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start"], env, { stdin: "" }, { EZ_SETUP_FORCE_TTY: "1" });
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("no answer was given");
+    expect(r.stderr).toContain("trusted-local was not enabled");
+    expect(existsSync(env.EZ_SETUP_ENV_FILE)).toBe(false);
+  });
+
+  test("macOS prompt, 'y' at end of input without a newline still counts as the answer", () => {
+    const env = scratch("Darwin");
+    const r = run(["--no-start"], env, { stdin: "y" }, { EZ_SETUP_FORCE_TTY: "1" });
+    expect(r.exitCode).toBe(0);
+    expect(ackIsSet(readFileSync(env.EZ_SETUP_ENV_FILE, "utf8"))).toBe(true);
+  });
+
   test("Linux by default: explains both options and stops — never downgrades to unsandboxed", () => {
     const env = scratch("Linux");
     const r = run(["--no-start"], env);

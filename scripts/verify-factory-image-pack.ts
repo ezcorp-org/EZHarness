@@ -48,6 +48,7 @@ import type {
 } from "../src/factory/artifact-materials.ts";
 import { referenceImageGuestFiles, REFERENCE_IMAGE_GUEST_ENTRYPOINT, referenceImageRunnerClosure } from "../src/factory/reference-image/closure.ts";
 import { sealGuestMaterials, type GuestMaterialClaim, type GuestMaterialSink, type SealedGuestMaterial } from "../src/factory/reference-image/materials.ts";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "../src/factory/runner/guest-process-policy.ts";
 import { referenceImageLock, referenceImageLockDigest } from "../src/factory/reference-image/lock.ts";
 import { assessRound, type VariantRecord } from "../src/factory/reference-image/variants.ts";
 import { factoryAttemptDeviceGrant, factoryHeldAllocationDevices, type FactoryAttemptLease } from "../src/factory/runner/attempt-runtime.ts";
@@ -334,7 +335,7 @@ async function main(): Promise<number> {
       let worker: Worker | undefined;
       try {
         worker = (await runner.start(
-          { workerId, artifactDigest, context: context as never, limits: GPU_CEILING, devices: grant.devices, materials: materialDirectory },
+          { workerId, artifactDigest, context: context as never, limits: GPU_CEILING, devices: grant.devices, materials: materialDirectory, processSpawn: FACTORY_GUEST_PROCESS_SPAWN },
           async () => { throw new Error("the image guest never reaches the broker"); },
         )) as unknown as Worker;
         const runtime = (await worker.request("extension/invoke", { name: "runtime", input: {}, context })) as { runtime: Record<string, string> };
@@ -421,7 +422,7 @@ async function main(): Promise<number> {
       const workerId = randomUUID();
       const context = contextFor(workerId, artifactDigest, CPU_LIMITS);
       const worker = (await runner.start(
-        { workerId, artifactDigest, context: context as never, limits: CPU_LIMITS, devices: cpuGrant.devices },
+        { workerId, artifactDigest, context: context as never, limits: CPU_LIMITS, devices: cpuGrant.devices, processSpawn: FACTORY_GUEST_PROCESS_SPAWN },
         async () => { throw new Error("the image guest never reaches the broker"); },
       )) as unknown as Worker;
       try {

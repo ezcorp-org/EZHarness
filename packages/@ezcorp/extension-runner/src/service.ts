@@ -259,6 +259,10 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/cancel": await closeSession(identifier(data.id)); await options.runner.cancel(data.id); return respond(200, {});
       case "/v4/inspect": return respond(200, await options.runner.inspect(identifier(data.id)));
       case "/v4/artifacts": return respond(200, { files: await options.runner.collectArtifacts(data.artifactDigest) });
+      // A host asks before it starts a worker that may not spawn: a runner that
+      // cannot block process creation says so here, and an older runner answers
+      // unknown_method, which the host reads as the same "not enforced".
+      case "/v4/capabilities": return respond(200, await options.runner.capabilities?.() ?? { processSpawnEnforcement: false });
       default: return respond(404, { error: { code: "unknown_method", message: "Unknown runner endpoint" } });
     }
   }

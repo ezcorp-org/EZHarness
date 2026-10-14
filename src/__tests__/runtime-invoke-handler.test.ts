@@ -69,6 +69,21 @@ mock.module("../runtime/lessons/triggers", () => ({
   detectUserCorrection: (texts: unknown) => mockDetectUserCorrection(texts),
 }));
 
+// Memory maintenance RPCs: only the leaf calls are stubbed; the real
+// modules' other exports pass through so a shared run sees a full shape.
+const realCompaction = await import("../memory/compaction");
+const realDedup = await import("../memory/dedup");
+const mockRunCompaction = mock(async (_projectId?: string) => 0);
+const mockDedupAndWriteMemory = mock(async (_input: unknown) => ({ action: "inserted" }) as unknown);
+mock.module("../memory/compaction", () => ({
+  ...realCompaction,
+  runCompaction: (projectId?: string) => mockRunCompaction(projectId),
+}));
+mock.module("../memory/dedup", () => ({
+  ...realDedup,
+  dedupAndWriteMemory: (input: unknown) => mockDedupAndWriteMemory(input),
+}));
+
 // Import after mocks so the handler picks up the mocked dependencies.
 const { handleRuntimeInvoke, isRuntimeInvokeMethod } = await import(
   "../extensions/runtime-invoke-handler"
@@ -726,5 +741,84 @@ describe("handleRuntimeInvoke — runtime.settings.getMine", () => {
     );
     expect(res.error?.code).toBe(-32603);
     expect(res.error?.message).toMatch(/settings resolve failed.*schema validation failed/i);
+  });
+});
+
+// ── Bundled-only memory maintenance RPCs ──────────────────────────────
+
+function invoke(method: string, args: Record<string, unknown>, ctx: RuntimeInvokeContext) {
+  return handleRuntimeInvoke(method, args, ctx, makeReq(method, args));
+}
+
+describe("handleRuntimeInvoke — runtime.memory.compact", () => {
+  const bundled = () => makeCtx({ extensionName: "memory-extractor" });
+
+  beforeEach(() => {
+    mockRunCompaction.mockReset();
+    mockRunCompaction.mockImplementation(async () => 3);
+  });
+
+  test("a user-installed extension is refused with -32604 and nothing runs", async () => {
+    const resp = await invoke("runtime.memory.compact", {}, makeCtx({ extensionName: "my-ext" }));
+    expect(resp.error).toMatchObject({ code: -32604, message: "runtime.memory.compact is restricted to bundled extensions" });
+    expect(mockRunCompaction).not.toHaveBeenCalled();
+  });
+
+  test("compacts every project when no projectId is given, or one project when it is", async () => {
+    expect((await invoke("runtime.memory.compact", {}, bundled())).result).toEqual({ mergedCount: 3 });
+    await invoke("runtime.memory.compact", { projectId: "proj-9" }, bundled());
+    expect(mockRunCompaction.mock.calls).toEqual([[undefined], ["proj-9"]]);
+  });
+
+  test("an empty projectId is a -32602 argument error", async () => {
+    const resp = await invoke("runtime.memory.compact", { projectId: "" }, bundled());
+    expect(resp.error).toMatchObject({ code: -32602, message: "projectId must be a non-empty string when provided" });
+  });
+
+  test("a compaction failure is reported as -32603 with the cause", async () => {
+    mockRunCompaction.mockImplementation(async () => { throw new Error("db locked"); });
+    const resp = await invoke("runtime.memory.compact", {}, bundled());
+    expect(resp.error).toMatchObject({ code: -32603, message: "compaction failed: db locked" });
+  });
+});
+
+describe("handleRuntimeInvoke — runtime.memory.dedupMemoryWrite argument checks", () => {
+  const bundled = () => makeCtx({ extensionName: "memory-extractor" });
+  const valid = { content: "prefers tabs", category: "preferences", conversationId: "conv-1" };
+
+  beforeEach(() => {
+    mockDedupAndWriteMemory.mockReset();
+  });
+
+  test.each([
+    ["an empty content", { ...valid, content: "" }, "content must be a non-empty string"],
+    ["an unknown category", { ...valid, category: "secrets" }, "category must be one of preferences|biographical|technical|decisions_goals"],
+    ["a missing conversationId", { ...valid, conversationId: undefined }, "conversationId must be a non-empty string"],
+  ])("rejects %s with -32602 before writing", async (_label, args, message) => {
+    const resp = await invoke("runtime.memory.dedupMemoryWrite", args, bundled());
+    expect(resp.error).toMatchObject({ code: -32602, message });
+    expect(mockDedupAndWriteMemory).not.toHaveBeenCalled();
+  });
+
+  test("a write failure is reported as -32603 with the cause", async () => {
+    mockDedupAndWriteMemory.mockImplementation(async () => { throw new Error("embedder offline"); });
+    const resp = await invoke("runtime.memory.dedupMemoryWrite", valid, bundled());
+    expect(resp.error).toMatchObject({ code: -32603, message: "dedupMemoryWrite failed: embedder offline" });
+  });
+});
+
+describe("handleRuntimeInvoke — event-driven wiring fallback", () => {
+  test("a wiring lookup that throws denies the read instead of allowing it", async () => {
+    const resp = await invoke(
+      "runtime.conversations.getMessages",
+      { conversationId: "conv-other" },
+      makeCtx({
+        currentConversationId: null,
+        eventDriven: true,
+        wiringLookup: async () => { throw new Error("db down"); },
+      }),
+    );
+    expect(resp.error).toMatchObject({ code: -32604, message: "conversationId must match current conversation" });
+    expect(mockGetMessages).not.toHaveBeenCalled();
   });
 });

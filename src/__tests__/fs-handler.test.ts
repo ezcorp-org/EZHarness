@@ -704,3 +704,107 @@ describe("fs-handler — unlink", () => {
     }
   });
 });
+
+// ════════════════════════════════════════════════════════════════════
+// Per-tool filesystem mode narrowing (`capabilities.filesystem.mode`)
+// ════════════════════════════════════════════════════════════════════
+
+describe("fs-handler — per-tool mode narrowing", () => {
+  /** A ctx whose manifest declares one read-only tool and one write-only tool. */
+  function narrowedCtx(): FsHandlerContext {
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const manifest = {
+      tools: [
+        { name: "reader", capabilities: { filesystem: { paths: [grantedDir], mode: ["read"] } } },
+        { name: "writer", capabilities: { filesystem: { paths: [grantedDir], mode: ["write"] } } },
+        { name: "plain" },
+      ],
+    };
+    return { ...ctx, registry: { ...ctx.registry, getManifest: () => manifest } as unknown as FsHandlerContext["registry"] };
+  }
+
+  const READ_OPS = [
+    ["read", handleFsReadRpc],
+    ["list", handleFsListRpc],
+    ["stat", handleFsStatRpc],
+    ["exists", handleFsExistsRpc],
+  ] as const;
+  const WRITE_OPS = [
+    ["mkdir", handleFsMkdirRpc],
+    ["unlink", handleFsUnlinkRpc],
+  ] as const;
+
+  test.each(READ_OPS)("a write-only tool cannot %s", async (op, handler) => {
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: grantedDir, _toolName: "writer" }), narrowedCtx())) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toBe('Filesystem access denied: tool "writer" capabilities.filesystem.mode does not include "read"');
+  });
+
+  test.each(WRITE_OPS)("a read-only tool cannot %s, and nothing changes on disk", async (op, handler) => {
+    const target = join(grantedDir, "keep.txt");
+    writeFileSync(target, "x");
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: target, _toolName: "reader" }), narrowedCtx())) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toContain('does not include "write"');
+    expect(readFileSync(target, "utf-8")).toBe("x");
+  });
+
+  test("a tool without a filesystem declaration, or an unknown tool, uses the extension grant", async () => {
+    for (const toolName of ["plain", "no-such-tool"]) {
+      const r = (await handleFsStatRpc(makeRequest("ezcorp/fs.stat", { path: grantedDir, _toolName: toolName }), narrowedCtx())) as JsonRpcResponse;
+      expect(r.error).toBeUndefined();
+    }
+  });
+});
+
+describe("fs-handler — unlink refusals", () => {
+  test("an extension the registry no longer knows cannot unlink", async () => {
+    const target = join(grantedDir, "orphan.txt");
+    writeFileSync(target, "x");
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const unknown = { ...ctx, extensionId: "ext-gone" };
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: target }), unknown)) as JsonRpcResponse;
+    expect(r.error).toMatchObject({ code: -32603, message: "Extension not found in registry" });
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("a policy deny keeps the file", async () => {
+    const target = join(grantedDir, "guarded.txt");
+    writeFileSync(target, "x");
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), engine: createStubPermissionEngine("deny-all") };
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: target }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toStartWith("Filesystem access denied:");
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("unlinking a directory reports the OS error code", async () => {
+    const dir = join(grantedDir, "subdir");
+    mkdirSync(dir);
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: dir }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32000);
+    expect(r.error?.message).toMatch(/^E(ISDIR|PERM): unlink failed: /);
+    expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe("fs-handler — write and exists refusals", () => {
+  test.each([
+    ["write", handleFsWriteRpc, { content: "x" }],
+    ["exists", handleFsExistsRpc, {}],
+  ] as const)("an extension the registry no longer knows cannot %s", async (op, handler, extra) => {
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), extensionId: "ext-gone" };
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: join(grantedDir, "new.txt"), ...extra }), ctx)) as JsonRpcResponse;
+    expect(r.error).toMatchObject({ code: -32603, message: "Extension not found in registry" });
+    expect(existsSync(join(grantedDir, "new.txt"))).toBe(false);
+  });
+
+  test("a policy deny hides whether a path exists", async () => {
+    writeFileSync(join(grantedDir, "secret.txt"), "x");
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), engine: createStubPermissionEngine("deny-all") };
+    const r = (await handleFsExistsRpc(makeRequest("ezcorp/fs.exists", { path: join(grantedDir, "secret.txt") }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.result).toBeUndefined();
+  });
+});

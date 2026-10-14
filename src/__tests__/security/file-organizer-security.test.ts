@@ -22,7 +22,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { mkdtemp, mkdir, writeFile, rm, readFile, readdir, symlink, lstat, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join, } from "node:path";
 import { FileOrganizerDaemon, DEFAULT_SETTINGS } from "../../extensions/file-organizer-daemon";
 import {
   applyProposal,
@@ -35,47 +35,12 @@ import {
 } from "../../extensions/file-organizer-applier";
 import type { PermissionEngine } from "../../extensions/permission-engine";
 
-const SANDBOX_PRELOAD_PATH = resolve(import.meta.dir, "../../extensions/runtime/sandbox-preload.ts");
-const NETWORK_DENY = /requires 'network' permission/;
-
 function fakeEngine(decision: "allow" | "deny" = "allow"): PermissionEngine {
   return {
     authorize: async () =>
       decision === "allow" ? { decision: "allow", auditId: "a" } : { decision: "deny", reason: "deny", auditId: "ad" },
   } as unknown as PermissionEngine;
 }
-
-// ── 1. No calls home (no network grant) ─────────────────────────────
-
-async function runUnderPreload(code: string, networkAllowed = false): Promise<{ stdout: string; exitCode: number }> {
-  const env: Record<string, string> = { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" };
-  if (networkAllowed) env.EZCORP_NETWORK_ALLOWED = "1";
-  const proc = Bun.spawn(["bun", "--preload", SANDBOX_PRELOAD_PATH, "-e", code], { stdout: "pipe", stderr: "pipe", env });
-  const stdout = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
-  return { stdout, exitCode };
-}
-
-const probe = (expr: string) =>
-  `try { ${expr}; console.log("OK"); } catch (e) { console.log("ERR:" + (e?.message ?? String(e))); }`;
-
-describe("file-organizer: no calls home (no network grant)", () => {
-  test("fetch() is denied in the sandbox (the extension declares no network)", async () => {
-    const out = await runUnderPreload(probe(`fetch('http://example.com/')`), false);
-    expect(out.stdout).toMatch(NETWORK_DENY);
-    expect(out.stdout).not.toMatch(/^OK$/m);
-  });
-
-  test("require('http') is denied in the sandbox", async () => {
-    const out = await runUnderPreload(probe(`require('http').request`), false);
-    expect(out.stdout).toMatch(NETWORK_DENY);
-  });
-
-  test("require('dns') is denied (no DNS lookups either)", async () => {
-    const out = await runUnderPreload(probe(`require('dns').lookup`), false);
-    expect(out.stdout).toMatch(NETWORK_DENY);
-  });
-});
 
 // ── 2 + 3. Host-side fs containment + fail-closed ───────────────────
 

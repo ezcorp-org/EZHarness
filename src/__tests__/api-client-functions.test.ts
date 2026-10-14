@@ -8,6 +8,8 @@ import {
 	initiateOAuth,
 	completeOAuth,
 	disconnectOAuth,
+	sendMessage,
+	exportConversation,
 	type ProviderStatus,
 } from "../../web/src/lib/api";
 
@@ -286,5 +288,109 @@ describe("disconnectOAuth", () => {
 		globalThis.fetch = createMockFetch(500, {}, "Internal Server Error") as any;
 
 		await expect(disconnectOAuth("google")).rejects.toThrow("500 Internal Server Error");
+	});
+});
+
+// ── sendMessage with attachments ────────────────────────────────────
+
+describe("sendMessage", () => {
+	test("with attachments, posts multipart form data carrying every set field", async () => {
+		mockFetch = createMockFetch(200, { userMessage: { id: "u1" }, runId: "r1" });
+		globalThis.fetch = mockFetch as any;
+		const file = new File(["png"], "shot.png", { type: "image/png" });
+
+		const result = await sendMessage("c1", {
+			content: "what is this?",
+			provider: "openai",
+			model: "gpt-4o",
+			parentMessageId: "p1",
+			editOf: "e1",
+			permissionMode: "plan",
+			thinkingLevel: "high",
+			attachments: [file],
+		});
+
+		expect(result.runId).toBe("r1");
+		const { input, init } = mockFetch.calls[0]!;
+		expect(input).toBe("/api/conversations/c1/messages");
+		const form = init!.body as FormData;
+		expect(form).toBeInstanceOf(FormData);
+		expect(Object.fromEntries([...form.entries()].filter(([k]) => k !== "files"))).toEqual({
+			content: "what is this?",
+			provider: "openai",
+			model: "gpt-4o",
+			parentMessageId: "p1",
+			editOf: "e1",
+			permissionMode: "plan",
+			thinkingLevel: "high",
+		});
+		expect((form.getAll("files")[0] as File).name).toBe("shot.png");
+	});
+
+	test("with attachments, leaves unset optional fields out of the form", async () => {
+		const file = new File(["x"], "a.txt", { type: "text/plain" });
+		await sendMessage("c1", { content: "hi", attachments: [file] });
+		const form = mockFetch.calls[0]!.init!.body as FormData;
+		expect([...form.keys()]).toEqual(["content", "files"]);
+	});
+});
+
+// ── exportConversation ──────────────────────────────────────────────
+
+describe("exportConversation", () => {
+	function captureDownload() {
+		const anchor = { href: "", download: "", click: () => { anchor.clicked = true; }, clicked: false };
+		const g = globalThis as any;
+		const saved = { document: g.document, create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+		const revoked: string[] = [];
+		g.document = { createElement: () => anchor };
+		URL.createObjectURL = () => "blob:export";
+		URL.revokeObjectURL = (u: string) => { revoked.push(u); };
+		const restore = () => {
+			g.document = saved.document;
+			URL.createObjectURL = saved.create;
+			URL.revokeObjectURL = saved.revoke;
+		};
+		return { anchor, revoked, restore };
+	}
+
+	test("downloads under the server's filename and scopes to the leaf", async () => {
+		globalThis.fetch = Object.assign(
+			async (input: RequestInfo | URL) => {
+				mockFetch.calls.push({ input: String(input) });
+				return new Response("# chat", { headers: { "Content-Disposition": 'attachment; filename="My chat.md"' } });
+			},
+		) as any;
+		const dl = captureDownload();
+		try {
+			await exportConversation("c1", "markdown", "leaf-9");
+		} finally {
+			dl.restore();
+		}
+		expect(mockFetch.calls[0]!.input).toBe("/api/conversations/c1/export?format=markdown&leafMessageId=leaf-9");
+		expect(dl.anchor).toMatchObject({ href: "blob:export", download: "My chat.md", clicked: true });
+		expect(dl.revoked).toEqual(["blob:export"]);
+	});
+
+	test("falls back to a format-based filename without a Content-Disposition", async () => {
+		globalThis.fetch = (async () => new Response("{}")) as any;
+		const dl = captureDownload();
+		try {
+			await exportConversation("c1", "json");
+		} finally {
+			dl.restore();
+		}
+		expect(dl.anchor.download).toBe("conversation.json");
+	});
+
+	test("throws the server's error and starts no download", async () => {
+		globalThis.fetch = createMockFetch(404, { error: "Conversation not found" }) as any;
+		const dl = captureDownload();
+		try {
+			await expect(exportConversation("c1", "markdown")).rejects.toThrow("Conversation not found");
+		} finally {
+			dl.restore();
+		}
+		expect(dl.anchor.clicked).toBe(false);
 	});
 });

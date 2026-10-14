@@ -249,3 +249,158 @@ describe("lessons: write", () => {
     expect(denied.error?.code).toBe(-32103);
   });
 });
+
+/** Run one `ezcorp/lessons` action as `actorExtId` acting for `onBehalfOf`. */
+function call(
+  params: Record<string, unknown>,
+  opts: { ext?: string; user?: string; granted?: ExtensionPermissions } = {},
+) {
+  return handlePiLessons(
+    { jsonrpc: "2.0", id: 1, method: "ezcorp/lessons", params: params as never },
+    { granted: opts.granted ?? grantedWrite(), registeredTool: { extensionId: opts.ext ?? extensionId } },
+    { ezOnBehalfOf: opts.user ?? userId, ezConversationId: conversationId },
+  );
+}
+
+async function writeLesson(slug: string, opts: { ext?: string; user?: string } = {}): Promise<string> {
+  const resp = await call({ action: "write", input: { slug, title: `T-${slug}`, body: `B-${slug}`, projectId } }, opts);
+  return (resp.result as { lesson: { id: string } }).lesson.id;
+}
+
+function lessonRow(id: string) {
+  return getTestDb().select().from(lessons).where(eq(lessons.id, id)).then((r) => r[0]);
+}
+
+describe("lessons: read access", () => {
+  const readOnly: ExtensionPermissions = {
+    grantedAt: { lessons: Date.now() },
+    lessons: { access: "read", maxWritesPerDay: 50, maxVisibility: "user" },
+  };
+
+  test("list returns only the caller's own lessons, filtered by project and capped by limit", async () => {
+    await writeLesson("a-one");
+    await writeLesson("a-two");
+    await writeLesson("b-one", { ext: extensionId2 });
+
+    const all = await call({ action: "list" });
+    expect((all.result as { lessons: { slug: string }[] }).lessons.map((l) => l.slug).sort()).toEqual(["a-one", "a-two"]);
+
+    const limited = await call({ action: "list", projectId, limit: 1 });
+    expect((limited.result as { lessons: unknown[] }).lessons).toHaveLength(1);
+
+    const otherProject = await call({ action: "list", projectId: "no-such-project" });
+    expect((otherProject.result as { lessons: unknown[] }).lessons).toHaveLength(0);
+  });
+
+  test("get finds a lesson by id or by slug+projectId, and needs one of them", async () => {
+    const id = await writeLesson("by-key");
+
+    const byId = await call({ action: "get", id }, { granted: readOnly });
+    expect((byId.result as { lesson: { slug: string } }).lesson.slug).toBe("by-key");
+
+    const bySlug = await call({ action: "get", slug: "by-key", projectId }, { granted: readOnly });
+    expect((bySlug.result as { lesson: { id: string } }).lesson.id).toBe(id);
+
+    const missing = await call({ action: "get", slug: "by-key" }, { granted: readOnly });
+    expect(missing.error?.data).toMatchObject({ reason: "id or (slug+projectId) required" });
+  });
+
+  test("read access cannot write, update or archive", async () => {
+    for (const action of ["write", "update", "archive"]) {
+      const resp = await call({ action, id: "x" }, { granted: readOnly });
+      expect(resp.error?.data).toMatchObject({ reason: "lessons write access not granted" });
+    }
+  });
+
+  test("an unknown action is a soft failure", async () => {
+    const resp = await call({ action: "explode" });
+    expect(resp.error?.data).toMatchObject({ reason: "unknown-action" });
+  });
+});
+
+describe("lessons: cross-user and cross-extension isolation", () => {
+  let otherUserId: string;
+
+  beforeAll(async () => {
+    const u = await createUser({ email: "less-h-other@example.com", passwordHash: "h", name: "O", role: "member", status: "active" });
+    otherUserId = u.id;
+  });
+
+  test("get by id does not return a lesson another extension wrote", async () => {
+    const id = await writeLesson("ext2-secret", { ext: extensionId2 });
+    const resp = await call({ action: "get", id });
+    expect((resp.result as { lesson: unknown }).lesson).toBeNull();
+  });
+
+  test("acting for another user, the same extension cannot read the first user's lessons", async () => {
+    const id = await writeLesson("private-note");
+
+    const list = await call({ action: "list" }, { user: otherUserId });
+    expect((list.result as { lessons: unknown[] }).lessons).toHaveLength(0);
+    const byId = await call({ action: "get", id }, { user: otherUserId });
+    expect((byId.result as { lesson: unknown }).lesson).toBeNull();
+    const bySlug = await call({ action: "get", slug: "private-note", projectId }, { user: otherUserId });
+    expect((bySlug.result as { lesson: unknown }).lesson).toBeNull();
+  });
+
+  test("acting for another user, the same extension cannot change the first user's lessons", async () => {
+    const id = await writeLesson("keep-me");
+
+    for (const action of ["update", "archive", "recordFired", "recordDismissed"]) {
+      const resp = await call({ action, id, patch: { body: "hijacked" } }, { user: otherUserId });
+      expect(resp.error?.data).toMatchObject({ reason: "not-found" });
+    }
+    const row = await lessonRow(id);
+    expect(row).toMatchObject({ body: "B-keep-me", firedCount: 0, dismissedCount: 0 });
+  });
+});
+
+describe("lessons: update, archive and counters", () => {
+  test("update changes title, body, frontmatter and clamps visibility", async () => {
+    const id = await writeLesson("edit-me");
+    const resp = await call({
+      action: "update", id,
+      patch: { title: "New", body: "New body", frontmatter: { tag: "x" }, visibility: "global" },
+    });
+    expect(resp.result).toEqual({ ok: true });
+    expect(await lessonRow(id)).toMatchObject({ title: "New", body: "New body", frontmatter: { tag: "x" }, visibility: "user" });
+  });
+
+  test("update to project visibility is kept when the grant allows it", async () => {
+    const id = await writeLesson("share-me");
+    await call({ action: "update", id, patch: { visibility: "project" } }, { granted: grantedWrite({ maxVisibility: "project" }) });
+    expect((await lessonRow(id))?.visibility).toBe("project");
+  });
+
+  test("archive deletes the lesson; only the author may archive it", async () => {
+    const id = await writeLesson("old");
+    const denied = await call({ action: "archive", id }, { ext: extensionId2 });
+    expect(denied.error?.data).toMatchObject({ reason: "not-author" });
+
+    expect((await call({ action: "archive", id })).result).toEqual({ ok: true });
+    expect(await lessonRow(id)).toBeUndefined();
+    const again = await call({ action: "archive", id });
+    expect(again.error?.data).toMatchObject({ reason: "not-found" });
+  });
+
+  test("recordFired and recordDismissed count up for the author", async () => {
+    const id = await writeLesson("counted");
+    await Promise.all([call({ action: "recordFired", id }), call({ action: "recordFired", id })]);
+    await call({ action: "recordDismissed", id });
+
+    const row = await lessonRow(id);
+    expect(row?.firedCount).toBe(2);
+    expect(row?.lastFiredAt).toBeInstanceOf(Date);
+    expect(row?.dismissedCount).toBe(1);
+
+    const denied = await call({ action: "recordDismissed", id }, { ext: extensionId2 });
+    expect(denied.error?.data).toMatchObject({ reason: "not-author" });
+  });
+
+  test("id-based actions require an id", async () => {
+    for (const action of ["update", "archive", "recordFired", "recordDismissed"]) {
+      const resp = await call({ action });
+      expect(resp.error?.data).toMatchObject({ reason: "id required" });
+    }
+  });
+});

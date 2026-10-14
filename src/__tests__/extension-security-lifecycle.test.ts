@@ -274,7 +274,7 @@ describe("required permissions extraction", () => {
     const shell = items.find((i) => i.type === "shell");
     expect(shell).toBeDefined();
     expect(shell!.value).toBe(true);
-    expect(shell!.description).toContain("shell");
+    expect(shell!.description).toContain("process creation is blocked");
 
     const env = items.find((i) => i.type === "env");
     expect(env).toBeDefined();

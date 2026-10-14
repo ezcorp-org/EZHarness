@@ -694,7 +694,13 @@ select_fresh_runner() {
   elif have_tty; then
     print_consequence
     printf '  Continue with unsandboxed extensions? [y/N] '
-    read -r answer
+    # At end of input, read fails; under errexit that would exit silently.
+    # A last line without a newline still counts as the answer.
+    answer=""
+    if ! read -r answer && [ -z "$answer" ]; then
+      printf '\n'
+      die "no answer was given (end of input); trusted-local was not enabled"
+    fi
     case "$answer" in
       y | Y | yes | YES) append_trusted_local "$candidate" ;;
       *) die "stopped at your request; trusted-local was not enabled" ;;

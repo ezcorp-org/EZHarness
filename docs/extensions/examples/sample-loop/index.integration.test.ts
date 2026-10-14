@@ -3,7 +3,7 @@ const fixtureImportMeta = { dir: import.meta.dir, dirname: import.meta.dir, url:
 /**
  * sample-loop — REAL subprocess integration test.
  *
- * Spawns the reference example through the real `ExtensionProcess`
+ * Spawns the reference example through the real `HostExtensionProcess`
  * transport under the production sandbox-preload, fires a `run:complete`
  * event, and asserts the full primitive path end-to-end: the loop runs,
  * persists a run record via `ezcorp/storage` (per-run + index keys), calls
@@ -36,7 +36,7 @@ mock.module("../../../../src/db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../../../../src/extensions/subprocess";
+import { HostExtensionProcess } from "../../../../src/__tests__/helpers/host-extension-process";
 import { restoreModuleMocks } from "@ezcorp/sdk/test";
 import { buildHarnessEnv } from "@ezcorp/sdk/test";
 import { sampleLoopHost } from "../../../../src/__tests__/helpers/sample-loop-harness";
@@ -44,7 +44,7 @@ import { sampleLoopHost } from "../../../../src/__tests__/helpers/sample-loop-ha
 const ENTRYPOINT = join(fixtureImportMeta.dir, "index.ts");
 
 describe("sample-loop — real subprocess", () => {
-  let proc: ExtensionProcess | undefined;
+  let proc: HostExtensionProcess | undefined;
   let state: ReturnType<typeof sampleLoopHost>;
   let projectRoot: string;
   let originalCwd: string;
@@ -72,13 +72,13 @@ describe("sample-loop — real subprocess", () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  function spawnWired(): ExtensionProcess {
+  function spawnWired(): HostExtensionProcess {
     const extId = "sample-loop-" + Math.random().toString(36).slice(2, 8);
     // Grant fs (artifact mirror) — but DO NOT set EZCORP_PROJECT_ROOT
     // (that triggers the bwrap wrap). The loop resolves the data dir from
     // the inherited cwd instead.
     const env = buildHarnessEnv(extId, { filesystem: true });
-    const p = new ExtensionProcess(extId, ENTRYPOINT, env, {
+    const p = new HostExtensionProcess(extId, ENTRYPOINT, env, {
       persistent: true,
       callTimeoutMs: 15_000,
     });

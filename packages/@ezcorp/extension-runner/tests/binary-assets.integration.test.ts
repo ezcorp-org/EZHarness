@@ -45,7 +45,8 @@ test("PNG and executable assets survive source import, isolated build, invocatio
     expect(filesDigest({ ...snapshot.files, "bin/helper": { encoding: "base64", data: Buffer.from(script).toString("base64"), executable: false } })).not.toBe(build.sourceDigest);
     const workerId = crypto.randomUUID();
     const context = { workerId, invocationId: crypto.randomUUID(), releaseId: build.artifactDigest!, principalId: "owner", scopeId: "test", token: "test", deadline: Date.now() + 30_000 };
-    const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits }, async () => { throw new Error("No host capabilities are declared"); });
+    // The guest runs its packaged helper, as a worker with the shell grant may.
+    const worker = await runner.start({ workerId, artifactDigest: build.artifactDigest!, context, limits: executionLimits, processSpawn: "allow" }, async () => { throw new Error("No host capabilities are declared"); });
     try { expect(await worker.request("extension/invoke", { name: "echo", input: {}, context })).toEqual({ png: png.toString("base64"), output: "isolated-asset", mode: 0o555, assetMode: 0o444 }); }
     finally { await worker.close(); }
     expect(await Bun.file(marker).exists()).toBe(false);

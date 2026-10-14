@@ -3,9 +3,8 @@
  * /api/conversations/[id]/team/[agentConfigId]/messages (+server.ts).
  *
  * Covers auth (401), missing conv (404), ownership 404, missing team
- * config (404), and the empty-team happy path. Full happy path with
- * members hits many DB queries; we cover the ownership/validation
- * gates that are most likely to regress.
+ * config (404), the empty-team happy path, and the member-stream
+ * assembly (orchestrator vs. parent sub-conversations, name fallbacks).
  *
  * Mocks conversations + agent-configs queries at the import boundary.
  */
@@ -99,5 +98,88 @@ describe("GET /api/conversations/[id]/team/[agentConfigId]/messages", () => {
     expect(body.team.name).toBe("Empty Team");
     expect(body.team.members.length).toBe(0);
     expect(body.streams.length).toBe(0);
+  });
+
+  const msg = (id: string, toolName?: string) => ({
+    id,
+    role: "assistant",
+    content: `content ${id}`,
+    createdAt: "2026-10-13T00:00:00Z",
+    toolCalls: toolName
+      ? [{ id: `tc-${id}`, toolName, input: { q: 1 }, outputSummary: "ok", success: true, durationMs: 5, status: "done", extra: "dropped" }]
+      : [],
+  });
+
+  test("assembles member streams from orchestrator and parent sub-conversations", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    const configs: Record<string, { name: string; references?: unknown }> = {
+      "agent-cfg": { name: "Squad", references: { members: [{ agentConfigId: "m1" }, { agentConfigId: "m2" }, { agentConfigId: "m3" }, { agentConfigId: "m4" }] } },
+      m1: { name: "Planner" },
+      m3: { name: "Idle" },
+    };
+    getAgentConfig.mockImplementation(async (id: string) => configs[id] ?? null);
+    getSubConversations.mockImplementation(async (parentId: string) =>
+      parentId === "c1"
+        ? [
+            { id: "orch", agentConfigId: "agent-cfg", title: "Orchestrator" },
+            // A direct child of the parent for m1 loses to the orchestrator's child.
+            { id: "m1-direct", agentConfigId: "m1", title: "stale" },
+            { id: "m2-direct", agentConfigId: "m2", title: "Coder thread" },
+            { id: "loose", agentConfigId: null, title: "no agent" },
+          ]
+        : [{ id: "m1-sub", agentConfigId: "m1", title: "Planner thread" }],
+    );
+    getMessagesWithToolCalls.mockImplementation(async (convId: string) => ({
+      messages: [msg(`${convId}-a`, convId === "m1-sub" ? "read_file" : undefined)],
+    }));
+
+    const res = await GET(makeEvent({ locals: { user } }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+
+    expect(body.team).toEqual({
+      name: "Squad",
+      members: [
+        { agentConfigId: "m1", agentName: "Planner" },
+        { agentConfigId: "m2", agentName: "Unknown" },
+        { agentConfigId: "m3", agentName: "Idle" },
+        { agentConfigId: "m4", agentName: "Unknown" },
+      ],
+    });
+    expect(body.orchestrator).toEqual({
+      agentConfigId: "agent-cfg",
+      agentName: "Squad (orchestrator)",
+      subConversationId: "orch",
+      messages: [{ id: "orch-a", role: "assistant", content: "content orch-a", createdAt: "2026-10-13T00:00:00Z", toolCalls: [] }],
+    });
+    const [m1, m2, m3, m4] = body.streams;
+    expect(m1.subConversationId).toBe("m1-sub");
+    expect(m1.agentName).toBe("Planner");
+    expect(m1.messages[0].toolCalls).toEqual([
+      { id: "tc-m1-sub-a", toolName: "read_file", input: { q: 1 }, outputSummary: "ok", success: true, durationMs: 5, status: "done" },
+    ]);
+    // No config: the stream name falls back to the sub-conversation title.
+    expect(m2).toMatchObject({ subConversationId: "m2-direct", agentName: "Coder thread" });
+    // No sub-conversation: an empty stream keeps the configured name.
+    expect(m3).toEqual({ agentConfigId: "m3", agentName: "Idle", subConversationId: null, messages: [] });
+    expect(m4).toEqual({ agentConfigId: "m4", agentName: "Unknown", subConversationId: null, messages: [] });
+  });
+
+  test("without an orchestrator conversation, members resolve from the parent only", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getAgentConfig.mockImplementation(async (id: string) =>
+      id === "agent-cfg" ? { name: "Squad", references: { members: [{ agentConfigId: "m1" }] } } : null,
+    );
+    getSubConversations.mockResolvedValue([{ id: "m1-direct", agentConfigId: "m1", title: null }]);
+    getMessagesWithToolCalls.mockResolvedValue({ messages: [] });
+
+    const res = await GET(makeEvent({ locals: { user } }));
+    const body = await res.json();
+
+    expect(body.orchestrator).toBeNull();
+    expect(getSubConversations).toHaveBeenCalledTimes(1);
+    expect(body.streams).toEqual([
+      { agentConfigId: "m1", agentName: "Unknown", subConversationId: "m1-direct", messages: [] },
+    ]);
   });
 });

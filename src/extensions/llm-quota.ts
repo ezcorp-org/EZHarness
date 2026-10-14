@@ -283,6 +283,12 @@ export function getLlmQuota(): LlmQuota {
   return singleton;
 }
 
+/** Shutdown: save today's counters so a restart hydrates them. Does not
+ *  create the quota when no extension has used the LLM in this process. */
+export async function flushLlmQuota(): Promise<void> {
+  await singleton?.flush();
+}
+
 /** Test-only — replace the singleton with a fresh instance so a test
  *  doesn't see counters from a sibling test run. */
 export function _resetLlmQuotaForTests(): void {

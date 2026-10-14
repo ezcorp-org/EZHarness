@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync, rmSync, chmodSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
-import type { ExtensionPermissions, ToolCallResult, JsonRpcRequest } from "../extensions/types";
+import type { ToolCallResult, JsonRpcRequest } from "../extensions/types";
 
 // ── Mocks ────────────────────────────────────────────────────────
 
@@ -43,7 +43,7 @@ afterAll(() => restoreModuleMocks());
 // ── Imports (after mocks) ────────────────────────────────────────
 
 import { ToolExecutor, PermissionDeniedError } from "../extensions/tool-executor";
-import { ExtensionRegistry, buildAllowedEnv } from "../extensions/registry";
+import { ExtensionRegistry } from "../extensions/registry";
 import type { ExtensionManifestV2 } from "../extensions/types";
 import { FileBlobStore, putFiles, getFiles } from "../extensions/v4/blobs";
 import { releaseRuntimeFixture } from "./helpers/release-runtime";
@@ -467,106 +467,6 @@ describe("handlePiInvoke cross-extension calls", () => {
 // 4. Environment Variable Isolation
 // ═══════════════════════════════════════════════════════════════════
 
-describe("buildAllowedEnv environment variable isolation", () => {
-  const baseManifest = makeManifest();
-
-  test("only includes PATH, HOME, NODE_ENV, TMPDIR, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT by default", () => {
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const env = buildAllowedEnv(baseManifest, granted, `env-test-${randomUUID()}`);
-
-    const keys = Object.keys(env);
-    // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT is unconditionally
-    // injected so sandboxed extensions can locate the project root without
-    // their own (poisoned) `.git` walk (registry.ts:108). The file-organizer
-    // change (registry.ts:135) ALSO injects EZCORP_EXTENSION_DATA_ROOT
-    // unconditionally (getProjectRoot() never throws) so bundled extensions
-    // can compute their `.ezcorp/extension-data/<name>/` store path.
-    expect(keys).toEqual([
-      "PATH",
-      "HOME",
-      "NODE_ENV",
-      "TMPDIR",
-      "EZCORP_PROJECT_ROOT",
-      "EZCORP_EXTENSION_DATA_ROOT",
-    ]);
-  });
-
-  test("only adds env vars in BOTH manifest permissions AND granted permissions", () => {
-    const original = process.env.MY_SECRET;
-    process.env.MY_SECRET = "the-secret";
-
-    try {
-      const manifest = makeManifest({ permissions: { env: ["MY_SECRET"] } });
-      const granted: ExtensionPermissions = {
-        env: ["MY_SECRET"],
-        grantedAt: {},
-      };
-      const env = buildAllowedEnv(manifest, granted, `env-both-${randomUUID()}`);
-      expect(env.MY_SECRET).toBe("the-secret");
-    } finally {
-      if (original === undefined) delete process.env.MY_SECRET;
-      else process.env.MY_SECRET = original;
-    }
-  });
-
-  test("does NOT include env vars in manifest but NOT granted", () => {
-    const original = process.env.MANIFEST_ONLY_RT;
-    process.env.MANIFEST_ONLY_RT = "should-not-appear";
-
-    try {
-      const manifest = makeManifest({ permissions: { env: ["MANIFEST_ONLY_RT"] } });
-      const granted: ExtensionPermissions = { grantedAt: {} };
-      const env = buildAllowedEnv(manifest, granted, `env-manifest-only-${randomUUID()}`);
-      expect(env.MANIFEST_ONLY_RT).toBeUndefined();
-    } finally {
-      if (original === undefined) delete process.env.MANIFEST_ONLY_RT;
-      else process.env.MANIFEST_ONLY_RT = original;
-    }
-  });
-
-  test("does NOT include env vars granted but NOT in manifest", () => {
-    const original = process.env.GRANTED_ONLY_RT;
-    process.env.GRANTED_ONLY_RT = "should-not-appear";
-
-    try {
-      const manifest = makeManifest({ permissions: {} });
-      const granted: ExtensionPermissions = {
-        env: ["GRANTED_ONLY_RT"],
-        grantedAt: {},
-      };
-      const env = buildAllowedEnv(manifest, granted, `env-granted-only-${randomUUID()}`);
-      expect(env.GRANTED_ONLY_RT).toBeUndefined();
-    } finally {
-      if (original === undefined) delete process.env.GRANTED_ONLY_RT;
-      else process.env.GRANTED_ONLY_RT = original;
-    }
-  });
-
-  test("creates per-extension TMPDIR", () => {
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const extId = `tmpdir-rt-${randomUUID()}`;
-    const env = buildAllowedEnv(baseManifest, granted, extId);
-
-    expect(env.TMPDIR).toContain("ezcorp-ext");
-    expect(env.TMPDIR).toContain(extId);
-
-    // Clean up
-    rmSync(env.TMPDIR!, { recursive: true, force: true });
-  });
-
-  test("different extensions get different TMPDIRs", () => {
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const extId1 = `tmpdir-a-${randomUUID()}`;
-    const extId2 = `tmpdir-b-${randomUUID()}`;
-    const env1 = buildAllowedEnv(baseManifest, granted, extId1);
-    const env2 = buildAllowedEnv(baseManifest, granted, extId2);
-
-    expect(env1.TMPDIR).not.toBe(env2.TMPDIR);
-
-    rmSync(env1.TMPDIR!, { recursive: true, force: true });
-    rmSync(env2.TMPDIR!, { recursive: true, force: true });
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════
 // 5. Registry Only Loads Enabled Extensions

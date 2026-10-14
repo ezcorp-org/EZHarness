@@ -268,6 +268,15 @@ const MODULE_PATHS = [
   // (triggers below IS mocked and stays).
   "../../runtime/lessons/triggers",
   "../../memory/compaction",
+  // runtime-invoke-handler.test.ts stubs dedupAndWriteMemory. Cheap to
+  // preload: it imports only db/queries/{memories,conversations} and the
+  // logger, all snapshotted here.
+  "../../memory/dedup",
+  // background-timers.test.ts stubs runScheduledAudit. Its imports are
+  // db/queries/{features,projects,feature-classifications} and the leaf
+  // audit modules (precheck, llm-classify, cache, report): no daemon and
+  // no preview graph.
+  "../../runtime/audit/run",
   "../../chat/attachments/content-builder",
   "../../chat/attachments/storage",
   "../../chat/attachments/validator",
@@ -310,18 +319,15 @@ const MODULE_PATHS = [
   // re-register them and stop their stubs from leaking into subsequent
   // test files (a pollution that surfaces as full-suite failures on
   // agent-configs-handler, agent-input-form, api-tool-invoke.server).
-  "../../extensions/runtime/dns",
   "../../extensions/runtime/internal-host",
-  "../../extensions/runtime/seccomp-loader",
   "../../extensions/schedule-daemon",
-  // tool-executor-schedule-daemon.test.ts mock.module's the schedule
-  // reverse-RPC handler to capture the ctx the executor threads into it
-  // (setScheduleDaemon wiring suite). Snapshot so restoreModuleMocks()
-  // re-registers the real handler in afterAll and the capture stub never
-  // leaks into subsequent test files. Safe to eagerly preload: its only
-  // runtime imports are logger + db/queries/* (already snapshotted) — it
-  // does NOT pull the preview-daemon / activate-extension graphs that
-  // hang phase-2b-e2e.
+  // tool-executor-rpc-delegates.unit.test.ts mock.module's the schedule
+  // reverse-RPC handler to capture the ctx the executor threads into it.
+  // Snapshot so restoreModuleMocks() re-registers the real handler in
+  // afterAll and the capture stub never leaks into subsequent test files.
+  // Safe to eagerly preload: its only runtime imports are logger +
+  // db/queries/* (already snapshotted) — it does NOT pull the
+  // preview-daemon / activate-extension graphs that hang phase-2b-e2e.
   "../../extensions/schedule-handler",
   // Loops EZ Mode Phase 2: event-subscription-dispatcher.test.ts mocks the
   // global loops kill switch to drive its suspend/resume branches. Snapshot so
@@ -376,20 +382,10 @@ const MODULE_PATHS = [
   // and the stub never leaks into subsequent test files (e.g. embed-worker.test.ts,
   // which imports the REAL EmbedWorker).
   "../../extensions/embed-worker",
-  "../../extensions/mcp-sandbox",
   // Factory shell tests replace boot policy and host capability discovery.
   // Restore both real modules before another suite checks isolation.
   "../../factory/boot",
   "../../extensions/sandbox/capability-probe",
-  // mcp-sandbox-require-sandbox.test.ts substitutes the Stage 2 proxy with a
-  // host-safe fake. Restore the real proxy after the suite so a later MCP
-  // test cannot inherit its fake listener or token state.
-  "../../extensions/mcp-proxy",
-  // mcp-sandbox-require-sandbox.test.ts (EZCORP_MCP_REQUIRE_SANDBOX
-  // fail-closed gate) and preview-netns.test.ts mock the kernel-probe
-  // module to drive capability branches deterministically. Snapshot so
-  // restoreModuleMocks() re-registers the real probes in afterAll.
-  "../../extensions/mcp-netns",
   "../../extensions/permission-engine",
   "../../db/queries/sdk-capability-calls",
   "../../providers/llm",

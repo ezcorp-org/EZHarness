@@ -473,8 +473,8 @@ export async function disableExtension(id: string): Promise<void> {
  *   • the manifest-level declaration is the CEILING
  *     `clampExtensionPermissions` intersects an admin's submitted grant
  *     against, so without it no `network` host could ever be granted — and
- *     `mcp-proxy.ts` re-authorizes every stdio CONNECT against exactly that
- *     grant.
+ *     the runner's network brokers authorize stdio egress against exactly
+ *     that grant.
  *
  * The install-time grant is recorded as BOTH `grantedPermissions` and
  * `installedPermissions`, the same pairing `activateExtension` writes, so the
@@ -606,7 +606,7 @@ export async function updateMcpExtension(input: {
  * stored server definition. ENFORCED behaviour is NOT unchanged, and the
  * difference matters:
  *
- *   • stdio egress WIDENS. `mcp-proxy.ts` re-authorizes every CONNECT against
+ *   • stdio egress WIDENS. Egress is authorized against
  *     `grantedPermissions`, which was `{grantedAt:{}}` for a legacy row — so
  *     ALL stdio egress was denied. After this backfill, a server started as
  *     `npx -y mcp-remote https://c.example.com/mcp` can reach

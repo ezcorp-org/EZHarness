@@ -92,42 +92,25 @@ describe("ExtensionRegistry getMcpClient", () => {
     expect((registry as any).mcpClients.has("fails-1")).toBe(false);
   });
 
-  // Phase 7 fix-pass C3 — reload() must stop and drop the per-MCP
-  // forward-proxy for any extension whose DB row has been removed
-  // (uninstalled). Pre-fix-pass, mcpProxies.clear() ran only in
-  // killAll(), leaking listener + bearer token until process exit.
-  test("reload() stops + drops proxy for an uninstalled extension (fix-pass C3)", async () => {
+  // Phase 7 fix-pass C3 — reload() must release what an uninstalled MCP
+  // extension holds. The host forward-proxy is gone (MCP runs in a runner
+  // worker), so what it holds now is its MCP client, which owns that worker.
+  test("reload() closes + drops the MCP client of an uninstalled extension (fix-pass C3)", async () => {
     const registry = ExtensionRegistry.getInstance();
-    // Seed the registry with a manifest and a fake proxy. The
-    // manifest entry is what `reload() → loadFromDb()` populates from
-    // the DB; we don't need a real DB row for the inverse direction
-    // (the test asserts that an extension NOT in the post-reload map
-    // gets its proxy stopped).
-    let stopped = 0;
-    const fakeProxy = {
-      start: async () => {},
-      stop: async () => {
-        stopped += 1;
-      },
-      proxyUrl: () => "http://_:tok@127.0.0.1:1",
-      bytesTransferred: () => ({ rx: 0, tx: 0 }),
-      connectionsCount: () => 0,
-      _resetCountersForTests: () => {},
-    };
-    // White-box poke at the registry's private map — the public API
-    // doesn't expose a way to seed a proxy without going through
-    // `getMcpClient`, which would require a full subprocess setup.
-    type RegInternals = { mcpProxies: Map<string, typeof fakeProxy> };
+    let closed = 0;
+    const fakeClient = { close: async () => { closed += 1; } };
+    // White-box poke at the registry's private map: the public API seeds a
+    // client only through `getMcpClient`, which needs a release runtime.
+    type RegInternals = { mcpClients: Map<string, typeof fakeClient> };
     const internals = registry as unknown as RegInternals;
-    internals.mcpProxies.set("uninstalled-1", fakeProxy);
-    // Don't seed manifests — after reload(), the manifests map will
-    // be rebuilt from the (empty) DB and "uninstalled-1" won't be
-    // there. The reload() pass is what should stop the proxy.
+    internals.mcpClients.set("uninstalled-1", fakeClient);
+    // No manifest is seeded, so after reload() the (empty) DB leaves
+    // "uninstalled-1" out of the live set and its client must go.
 
     await registry.reload();
 
-    expect(stopped).toBe(1);
-    expect(internals.mcpProxies.has("uninstalled-1")).toBe(false);
+    expect(closed).toBe(1);
+    expect(internals.mcpClients.has("uninstalled-1")).toBe(false);
   });
 
   test("caches and returns the same connected client on subsequent calls", async () => {

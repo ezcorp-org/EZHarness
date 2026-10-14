@@ -82,6 +82,18 @@ describe("resolveBundledExtensions — opt-out gate", () => {
     expect(manifest.permissions.env ?? []).not.toContain("EZCORP_SESSION_COOKIE");
   });
 
+  test("ai-kit's bundled grant and ceiling carry no host credential env or escape hatch", async () => {
+    // ai-kit reaches the EZCorp API only through the host API broker, so
+    // neither the bundled entry nor the reviewed ceiling may admit the old
+    // injected-credential env names.
+    const entry = resolveBundledExtensions({}).find((e) => e.name === "ai-kit")!;
+    expect(entry.envEscapeHatch).toBeUndefined();
+    expect(entry.permissions.env).toBeUndefined();
+    expect(entry.permissions.grantedAt.env).toBeUndefined();
+    const { getCeiling } = await import("../extensions/bundled-ceiling");
+    expect(getCeiling("ai-kit")?.env).toBeUndefined();
+  });
+
   test("disabling ai-kit does NOT affect other bundled extensions", () => {
     const list = resolveBundledExtensions({ EZCORP_DISABLE_AI_KIT: "1" });
     // web-search is a baseline bundled extension — it must survive.

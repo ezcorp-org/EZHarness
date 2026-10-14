@@ -1,4 +1,4 @@
-// Regression tests for sec-SB6: `ExtensionProcess` holds the
+// Regression tests for sec-SB6: `HostExtensionProcess` holds the
 // reverse-RPC request and notification handlers in
 // `pendingRequestHandler` / `pendingNotificationHandler` and re-wires
 // them onto a fresh `JsonRpcTransport` every time the subprocess is
@@ -43,12 +43,12 @@ mock.module("../../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../../extensions/subprocess";
+import { HostExtensionProcess } from "../helpers/host-extension-process";
 import { JsonRpcTransport } from "../../extensions/json-rpc";
 import type { JsonRpcRequest, JsonRpcResponse, JsonRpcNotification } from "../../extensions/types";
 
 // Same Bun <=1.3.9 JIT workaround used in subprocess.test.ts.
-ExtensionProcess.prototype.ensureRunning = function (this: any) {
+HostExtensionProcess.prototype.ensureRunning = function (this: any) {
   if (this.proc && !this.killed) return;
   this.killed = false;
 
@@ -190,15 +190,15 @@ function makeNotificationHandler() {
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", () => {
-  let ep: ExtensionProcess;
+describe("sec-SB6: HostExtensionProcess re-wires reverse-RPC handlers on restart", () => {
+  let ep: HostExtensionProcess;
 
   afterEach(() => {
     ep?.kill();
   });
 
   test("kill() closes the transport and clears the instance reference", async () => {
-    ep = new ExtensionProcess("sb6-kill", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-kill", HELPER_PATH, allowedEnv, { persistent: true });
     const { handler, waitFor } = makeRequestHandler();
     ep.setRequestHandler(handler);
     ep.ensureRunning();
@@ -217,7 +217,7 @@ describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", (
   });
 
   test("a restart wires the SAME handler onto a fresh transport", async () => {
-    ep = new ExtensionProcess("sb6-restart-same", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-restart-same", HELPER_PATH, allowedEnv, { persistent: true });
     const { handler, received, waitFor } = makeRequestHandler();
     ep.setRequestHandler(handler);
 
@@ -241,7 +241,7 @@ describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", (
   });
 
   test("setRequestHandler(newHandler) between restarts routes to the NEW handler", async () => {
-    ep = new ExtensionProcess("sb6-swap", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-swap", HELPER_PATH, allowedEnv, { persistent: true });
 
     const first = makeRequestHandler();
     const second = makeRequestHandler();
@@ -266,7 +266,7 @@ describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", (
   });
 
   test("multiple back-to-back restarts keep the handler state consistent", async () => {
-    ep = new ExtensionProcess("sb6-multi-restart", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-multi-restart", HELPER_PATH, allowedEnv, { persistent: true });
     const { handler, received, waitFor } = makeRequestHandler();
     ep.setRequestHandler(handler);
 
@@ -284,7 +284,7 @@ describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", (
   });
 
   test("notification handler is also re-wired on restart", async () => {
-    ep = new ExtensionProcess("sb6-notif", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-notif", HELPER_PATH, allowedEnv, { persistent: true });
 
     const { handler: reqHandler } = makeRequestHandler();
     const { handler: notifHandler, received, waitFor } = makeNotificationHandler();
@@ -309,7 +309,7 @@ describe("sec-SB6: ExtensionProcess re-wires reverse-RPC handlers on restart", (
     // Edge case: caller wires the handler lazily, post-spawn. The
     // subprocess is racing to emit its boot request — whichever order we
     // land in, the new handler must be what catches the next boot.
-    ep = new ExtensionProcess("sb6-late-wire", HELPER_PATH, allowedEnv, { persistent: true });
+    ep = new HostExtensionProcess("sb6-late-wire", HELPER_PATH, allowedEnv, { persistent: true });
     ep.ensureRunning();
 
     const { handler, received, waitFor } = makeRequestHandler();

@@ -434,7 +434,8 @@ test("kernel PID, temporary storage, memory and descendant cancellation limits h
     const workerId = randomUUID();
     const context = { workerId, invocationId: randomUUID(), releaseId: result.artifactDigest!, principalId: "user-a", scopeId: "scope-a", token: "test-token", deadline: Date.now() + 20_000 };
     const limits = { ...executionLimits, memoryBytes: 128 * 1024 ** 2, pids: 32, tmpBytes: 8 * 1024 ** 2 };
-    const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits }, async () => null);
+    // The guest starts descendants, as a worker with the shell grant may.
+    const worker = await runner.start({ workerId, artifactDigest: result.artifactDigest!, context, limits, processSpawn: "allow" }, async () => null);
     const pending = worker.request("extension/invoke", { name: "echo", input: { action }, context });
     if (action === "disk") expect(await pending).toEqual({ limited: true });
     else if (action === "pids") { const output = await pending as { children: number; spawnFailure: string | null }; expect(output.children).toBeLessThan(32); expect(output.children).toBeGreaterThan(0); expect(output.spawnFailure).toBe("EAGAIN"); }

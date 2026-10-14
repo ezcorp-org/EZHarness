@@ -21,6 +21,7 @@
 
 	import type { ToolCallState } from "$lib/stores.svelte.js";
 	import { userFetch } from "$lib/utils/fetch-policy.js";
+	import { isSubmitEnter } from "$lib/chat-input-logic";
 
 	let { toolCall }: { toolCall: ToolCallState } = $props();
 
@@ -108,7 +109,7 @@
 
 	function handleTextareaKeydown(e: KeyboardEvent): void {
 		// Enter submits, Shift+Enter newlines (textarea-of-record convention).
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (isSubmitEnter(e)) {
 			e.preventDefault();
 			void submitAnswer(textValue);
 		}

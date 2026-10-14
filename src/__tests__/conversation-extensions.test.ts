@@ -42,7 +42,11 @@ mockDbConnection();
 import {
   addConversationExtensions,
   getConversationExtensionIds,
+  getConversationExtensionMimes,
+  getExtensionMimesByNames,
 } from "../db/queries/conversation-extensions";
+import { ExtensionRegistry } from "../extensions/registry";
+import type { ExtensionManifestV2 } from "../extensions/types";
 import { createConversation } from "../db/queries/conversations";
 import { createProject } from "../db/queries/projects";
 import { createExtension } from "../db/queries/extensions";
@@ -233,5 +237,42 @@ describe("cascade deletion", () => {
     // Extensions for that conversation are gone
     const after = await getConversationExtensionIds(conv.id);
     expect(after).toEqual([]);
+  });
+});
+
+// ── Extension-declared attachment MIMEs ──────────────────────────────
+
+describe("extension attachment MIMEs", () => {
+  function manifestWithMimes(name: string, mimes?: string[]): ExtensionManifestV2 {
+    return { ...stubManifest, name, ...(mimes ? { acceptedAttachmentMimes: mimes } : {}) } as unknown as ExtensionManifestV2;
+  }
+
+  test("a conversation accepts the union of its wired extensions' MIMEs", async () => {
+    const excel = await makeExtension("mime-excel");
+    const pdf = await makeExtension("mime-pdf");
+    const plain = await makeExtension("mime-plain");
+    const notLoaded = await makeExtension("mime-unloaded");
+    const reg = ExtensionRegistry.getInstance();
+    reg.setManifestForTest(excel.id, manifestWithMimes("excel", ["application/vnd.ms-excel", "text/csv"]));
+    reg.setManifestForTest(pdf.id, manifestWithMimes("pdf", ["application/pdf", "text/csv"]));
+    reg.setManifestForTest(plain.id, manifestWithMimes("plain"));
+
+    const conv = await createConversation(projectId);
+    expect(await getConversationExtensionMimes(conv.id)).toEqual([]);
+
+    await addConversationExtensions(conv.id, [excel, pdf, plain, notLoaded].map((e) => ({ extensionId: e.id })));
+
+    expect((await getConversationExtensionMimes(conv.id)).sort()).toEqual(
+      ["application/pdf", "application/vnd.ms-excel", "text/csv"],
+    );
+  });
+
+  test("drafted !ext:NAME mentions grant their MIMEs by name before the message is sent", async () => {
+    const ext = await makeExtension("mime-by-name");
+    ExtensionRegistry.getInstance().setManifestForTest(ext.id, manifestWithMimes("sheets", ["text/tab-separated-values"]));
+
+    expect(getExtensionMimesByNames([])).toEqual([]);
+    expect(getExtensionMimesByNames(["", 7 as unknown as string])).toEqual([]);
+    expect(getExtensionMimesByNames(["sheets", "sheets", "no-such-ext"])).toEqual(["text/tab-separated-values"]);
   });
 });

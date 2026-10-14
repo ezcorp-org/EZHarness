@@ -11,9 +11,9 @@
  * `docs/extensions/data-storage.md`.
  *
  * Before this module the literal `.ezcorp/extension-data` was spelled
- * independently in `chat/attachments/ext-files-resolver.ts` and
- * `extensions/mcp-sandbox.ts`. Both now import from here, so an uninstall
- * cannot delete one directory while the sandbox mounts another.
+ * independently in `chat/attachments/ext-files-resolver.ts` and the (since
+ * deleted) host MCP sandbox. Callers import it from here, so an uninstall
+ * cannot delete one directory while a jail mounts another.
  *
  * A leaf module (`node:path` + `./project-root`) on purpose: the same
  * constraint `install-roots.ts` documents. Nothing here may reach the DB

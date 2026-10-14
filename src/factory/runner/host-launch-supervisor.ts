@@ -9,6 +9,7 @@ import { readPrivatePath, writePrivateBoundedAtomic } from "../private-files";
 import { FACTORY_GUEST_BROKER_METHOD, factoryGuestFrameInput } from "./guest-frames";
 import type { FactoryGuestBroker } from "./guest-model-broker";
 import type { FactoryHostAttemptHandle, FactoryHostLaunchSupervisor, FactoryHostPrepared, FactoryHostPreparation } from "./host-launch-service";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 export interface FactoryHostLaunchSupervisorOptions {
   readonly runner: Runner;
@@ -138,6 +139,7 @@ function startRequest(intent: FactoryAttemptLaunchIntent, now: () => number) {
     context: { invocationId: intent.invocationId, workerId: intent.workerId, releaseId: intent.preparedPackage.artifactDigest, principalId: intent.request.authority.tenantId, scopeId: intent.request.authority.projectId, token: intent.request.broker.attemptToken, deadline },
     limits: executionLimits,
     devices: intent.devices.devices,
+    processSpawn: FACTORY_GUEST_PROCESS_SPAWN,
   };
 }
 

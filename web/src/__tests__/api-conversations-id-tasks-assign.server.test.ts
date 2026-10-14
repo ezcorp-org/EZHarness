@@ -4,8 +4,9 @@ import { taskSnapshotPort, taskAssignmentPort } from "./helpers/task-state-port"
  * /api/conversations/[id]/tasks/[taskId]/assign (+server.ts).
  *
  * Covers POST/DELETE auth gates (401), ownership 404, missing-task
- * 404, agent-config 404, required-body-field validation (400), and
- * the 409 "cannot remove running assignment" path on DELETE.
+ * 404, agent-config 404, required-body-field validation (400), subtask
+ * and team assignment, removal (task + subtask level), and the 409
+ * "cannot remove running assignment" path on DELETE.
  *
  * Mocks conversations queries, agent-configs queries, task-tracking
  * host, and the bus so the test stays off the WIP DB.
@@ -177,6 +178,53 @@ describe("POST /api/conversations/[id]/tasks/[taskId]/assign", () => {
     expect(body.assignment.status).toBe("assigned");
     expect(busEmit).toHaveBeenCalled();
   });
+
+  const taskWithSubtask = () => ({
+    conversationId: "c1",
+    tasks: [
+      {
+        id: "t1",
+        status: "pending",
+        assignments: [],
+        subtasks: [{ id: "st-1" }],
+      },
+    ],
+  });
+
+  test("assigns a team to a subtask", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getTaskSnapshotForConversation.mockResolvedValue(taskWithSubtask());
+    getAgentConfig.mockResolvedValue({
+      id: "team-1",
+      name: "Squad",
+      references: { members: [{ agentConfigId: "m1" }] },
+    });
+
+    const res = await POST(
+      makeEvent({ locals: { user }, body: { agentConfigId: "team-1", subtaskId: "st-1" } }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      assignment: { id: string; isTeam: boolean };
+      snapshot: { tasks: { assignments: unknown[]; subtasks: { assignments: { id: string }[] }[] }[] };
+    };
+    expect(body.assignment.isTeam).toBe(true);
+    const [task] = body.snapshot.tasks;
+    expect(task!.assignments).toEqual([]);
+    expect(task!.subtasks[0]!.assignments.map((a) => a.id)).toEqual([body.assignment.id]);
+  });
+
+  test("returns 404 for an unknown subtask", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    getTaskSnapshotForConversation.mockResolvedValue(taskWithSubtask());
+    getAgentConfig.mockResolvedValue({ id: "a1", name: "A", references: null });
+
+    const res = await POST(
+      makeEvent({ locals: { user }, body: { agentConfigId: "a1", subtaskId: "nope" } }),
+    );
+    expect(res.status).toBe(404);
+    expect(((await res.json()) as { error?: string }).error).toBe("Subtask not found");
+  });
 });
 
 describe("DELETE /api/conversations/[id]/tasks/[taskId]/assign", () => {
@@ -256,5 +304,65 @@ describe("DELETE /api/conversations/[id]/tasks/[taskId]/assign", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { error?: string };
     expect(body.error).toBe("Assignment not found");
+  });
+
+  const del = (assignmentId: string) =>
+    DELETE(makeEvent({ method: "DELETE", locals: { user }, body: { assignmentId } }));
+
+  test("removes an assigned task-level assignment", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    const snapshot = {
+      conversationId: "c1",
+      tasks: [
+        {
+          id: "t1",
+          status: "pending",
+          assignments: [{ id: "as1", status: "assigned" }, { id: "as2", status: "assigned" }],
+          subtasks: [],
+        },
+      ],
+    };
+    getTaskSnapshotForConversation.mockResolvedValue(snapshot);
+
+    const res = await del("as1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(snapshot.tasks[0]!.assignments.map((a) => a.id)).toEqual(["as2"]);
+    expect(busEmit).toHaveBeenCalledWith("task:snapshot", expect.objectContaining({ conversationId: "c1" }));
+  });
+
+  test("removes a subtask assignment, and refuses a running one", async () => {
+    getConversation.mockResolvedValue({ id: "c1", userId: "u1" });
+    const snapshot = {
+      conversationId: "c1",
+      tasks: [
+        {
+          id: "t1",
+          status: "active",
+          assignments: [],
+          subtasks: [
+            { id: "st-0" },
+            {
+              id: "st-1",
+              assignments: [
+                { id: "sub-run", status: "running" },
+                { id: "sub-as", status: "assigned" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    getTaskSnapshotForConversation.mockResolvedValue(snapshot);
+
+    const refused = await del("sub-run");
+    expect(refused.status).toBe(409);
+    expect(((await refused.json()) as { error?: string }).error).toBe(
+      'Cannot remove assignment in "running" status',
+    );
+
+    const res = await del("sub-as");
+    expect(res.status).toBe(200);
+    expect(snapshot.tasks[0]!.subtasks[1]!.assignments!.map((a) => a.id)).toEqual(["sub-run"]);
   });
 });

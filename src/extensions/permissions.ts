@@ -2,7 +2,7 @@
  * Extension permission checking, runtime confirmation, and always-allow persistence.
  */
 
-import type { ExtensionPermissions, ExtensionManifest } from "./types";
+import type { ExtensionPermissions } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { getProjectRoot } from "./bundled";
 import { getDbMaskDirs } from "../db/connection";
@@ -434,49 +434,8 @@ export async function checkFilesystemPermission(
 }
 
 // ── Permission Display ──────────────────────────────────────────────
-
-export interface PermissionItem {
-  type: string;
-  value: string | boolean;
-  description: string;
-}
-
-const PERMISSION_DESCRIPTIONS: Record<string, (v: string | boolean) => string> = {
-  network: (v) => `Network access to ${v}`,
-  filesystem: (v) => `Filesystem access to ${v}`,
-  shell: () => "Execute shell commands",
-  env: (v) => `Read environment variable ${v}`,
-  storage: () => "Persistent key-value storage",
-};
-
-export function getRequiredPermissions(manifest: ExtensionManifest): PermissionItem[] {
-  const items: PermissionItem[] = [];
-  const perms = manifest.permissions;
-
-  if (perms.network) {
-    for (const domain of perms.network) {
-      items.push({ type: "network", value: domain, description: PERMISSION_DESCRIPTIONS.network!(domain) });
-    }
-  }
-  if (perms.filesystem) {
-    for (const path of perms.filesystem) {
-      items.push({ type: "filesystem", value: path, description: PERMISSION_DESCRIPTIONS.filesystem!(path) });
-    }
-  }
-  if (perms.shell) {
-    items.push({ type: "shell", value: true, description: PERMISSION_DESCRIPTIONS.shell!(true) });
-  }
-  if (perms.env) {
-    for (const varName of perms.env) {
-      items.push({ type: "env", value: varName, description: PERMISSION_DESCRIPTIONS.env!(varName) });
-    }
-  }
-  if (perms.storage) {
-    items.push({ type: "storage", value: true, description: PERMISSION_DESCRIPTIONS.storage!(true) });
-  }
-
-  return items;
-}
+// Browser-safe, so the author page shows the same text: see permission-text.ts.
+export { getRequiredPermissions, type PermissionItem } from "./permission-text";
 
 // ── Permission Diff ─────────────────────────────────────────────────
 
