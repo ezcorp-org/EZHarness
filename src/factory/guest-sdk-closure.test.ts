@@ -112,7 +112,8 @@ const SDK_SOURCE_DIRECTORY = /factory-sdk(?:\/|\\{1,2}|["'`]\s*,\s*["'`])src(?![
 // times) can come back. Every other candidate is named here with the reason it is not one. An unknown
 // candidate fails this test by path, however it is written.
 test("every source that names the SDK source directory stages SDK modules through the closure helper, or is named", () => {
-  const throughClosure = ["scripts/factory-graph-proof/guest-package.ts", "src/factory/reference-code/guest.ts", "web/e2e/factory-services/guest.ts"];
+  // The one guest-package builder (W4H-26); the graph proof, the factory-services guest and the reference-code guests stage through it.
+  const throughClosure = ["src/factory/guest-package-build.ts"];
   // Python guests stage generated JSON schemas by name and import no TypeScript; the reference-data pack's
   // import-closure guard (reference-data/guest.test.ts) covers their Python modules.
   const schemasOnly = ["src/factory/reference-data/guest.ts", "src/factory/runner/python-guest.ts"];
