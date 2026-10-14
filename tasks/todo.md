@@ -6150,6 +6150,7 @@ Review: the shard did not hang and no test was slow; the runner was. The old cap
 - [x] D7: snapshot-repository admitted, prepared, dispatched and executed in the pinned guest on the fixture repository; content recomputed and equal (proof/final.json).
 - [x] Visibility: the staging outcome is in readiness by name (27412cb92); the final proof reads it from /api/ready (proof/final-2.json).
 - [x] R5 (validator-8 G1): the loader is an explicit, tested guard exemption, the alias reverted (792dcb6b7); a preparation survives a supervisor restart (4fa87697d).
+- [x] N5: /api/ready carries a stable code and fixed reason per staging failure, never the raw error (9fd90638f).
 - [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
 
 Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.
