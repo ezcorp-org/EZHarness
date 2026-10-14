@@ -6148,6 +6148,7 @@ Review: the shard did not hang and no test was slow; the runner was. The old cap
 - [x] D5: the package-preparation role with per-package backoff (f574b6c49, b9ce7a932). Midpoint reported (proof/midpoint-6.json).
 - [x] D6: the supervisor prepares over the W01b host service; digest checks on both sides; 4 of 4 mutants killed (6ba267aea, a32e94aa0).
 - [x] D7: snapshot-repository admitted, prepared, dispatched and executed in the pinned guest on the fixture repository; content recomputed and equal (proof/final.json).
-- [ ] The Compose-level proof, after W4H-27 merges.
+- [x] Visibility: the staging outcome is in readiness by name (27412cb92); the final proof reads it from /api/ready (proof/final-2.json).
+- [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
 
 Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.
