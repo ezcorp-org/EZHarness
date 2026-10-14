@@ -81,6 +81,17 @@ function reviewData(grants: string[], processSpawn: "allow" | "deny"): Record<st
 	};
 }
 
+/**
+ * The author page must load no code the app's CSP refuses: the extension
+ * contract's schema compiler uses eval, so it must stay on the server.
+ */
+function collectConsoleErrors(page: Page): string[] {
+	const errors: string[] = [];
+	page.on("console", (message) => { if (message.type() === "error") errors.push(message.text()); });
+	page.on("pageerror", (error) => errors.push(error.message));
+	return errors;
+}
+
 async function openApprovalCard(page: Page) {
 	await page.goto("/extensions");
 	await clickInAppLink(page, `/extensions/author?installation=${INSTALLATION}`);
@@ -91,6 +102,7 @@ test("the approval card reads each grant in words and keeps the raw grants colla
 	await mockApi({ projects: [proj] });
 	const grants = ['["network",["api.weather.example"]]', '["shell",true]'];
 	const review = await setupAuthorReviewMock(page, { installationId: INSTALLATION, reviewData: () => reviewData(grants, "allow") });
+	const consoleErrors = collectConsoleErrors(page);
 	try {
 		const card = await openApprovalCard(page);
 		await expect(card.getByRole("heading", { name: "Human approval required" })).toBeVisible();
@@ -107,6 +119,7 @@ test("the approval card reads each grant in words and keeps the raw grants colla
 
 		await raw.getByText("Raw grants").click();
 		await expect(raw.locator("pre")).toContainText('"shell"');
+		expect(consoleErrors.filter((text) => /eval|compiling schema|Content Security Policy/i.test(text))).toEqual([]);
 	} finally {
 		await review.close();
 	}
