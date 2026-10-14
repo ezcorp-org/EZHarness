@@ -435,13 +435,13 @@ describe("factoryHostRunnerProbe", () => {
     const toolchain = { sdkFiles: { "node_modules/@ezcorp/sdk/package.json": "{}" }, toolchainFiles: { "node_modules/typescript/package.json": "{}" } };
     class PodmanRunner {
       constructor(options: unknown) { constructed.push(options); }
-      async initialize(): Promise<void> {}
-      async close(): Promise<void> {}
     }
     const load = factoryProvisionedRunnerLoader(async () => ({ PodmanRunner: PodmanRunner as never, provisionToolchain: async () => { provisioned += 1; return toolchain; } }));
     const Runner = await load();
     new Runner({ root: "/tmp/w4h26-runner-root" });
-    expect(constructed).toEqual([{ root: "/tmp/w4h26-runner-root", ...toolchain }]);
+    new Runner({ root: "/tmp/w4h26-runner-root-2" });
+    // Each construction carries the toolchain; the toolchain was provisioned once, at the load.
+    expect(constructed).toEqual([{ root: "/tmp/w4h26-runner-root", ...toolchain }, { root: "/tmp/w4h26-runner-root-2", ...toolchain }]);
     expect(provisioned).toBe(1);
   });
 
