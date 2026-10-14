@@ -8,6 +8,7 @@
  */
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 import { join } from "node:path";
+import { isIP } from "node:net";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 
 export const TENANT = "tenant-01";
@@ -163,5 +164,34 @@ export function distinctPortPicker(pick: () => number, attempts = 50): () => num
       if (!given.has(port)) { given.add(port); return port; }
     }
     throw new Error(`the stack found no distinct free port in ${attempts} draws`);
+  };
+}
+
+/** Where the web server listens, the origin it answers for, and the address the proof's own calls use. */
+export interface WebBinding { readonly host: string; readonly port: number; readonly origin: string; readonly apiHost: string }
+
+/**
+ * The web server's binding. By default loopback on a free port. A proof that a person must reach (a provider connect
+ * over the tailnet) names one address, a port and the origin that person's browser sends. The proof calls the server
+ * on the address it listens on; for the wildcard 0.0.0.0, on loopback.
+ */
+export function webBinding(requested: { readonly host?: string; readonly port?: number; readonly origin?: string }, pickPort: () => number): WebBinding {
+  const host = requested.host ?? "127.0.0.1";
+  if (isIP(host) !== 4) throw new Error(`the web host must be an IPv4 address: ${host}`);
+  const port = requested.port ?? pickPort();
+  if (!Number.isInteger(port) || port < 1 || port > 65_535) throw new Error(`the web port must be 1-65535: ${port}`);
+  const apiHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+  const origin = requested.origin ?? `http://${apiHost}:${port}`;
+  const parsed = new URL(origin);
+  if (parsed.protocol !== "http:" || parsed.origin !== origin) throw new Error(`the web origin must be a bare http origin: ${origin}`);
+  return { host, port, origin, apiHost };
+}
+
+/** The binding a proof asks for, from PROOF_WEB_HOST, PROOF_WEB_PORT and PROOF_WEB_ORIGIN; each absent one is defaulted. */
+export function webBindingRequest(env: Readonly<Record<string, string | undefined>>): { host?: string; port?: number; origin?: string } {
+  return {
+    ...(env.PROOF_WEB_HOST ? { host: env.PROOF_WEB_HOST } : {}),
+    ...(env.PROOF_WEB_PORT ? { port: Number(env.PROOF_WEB_PORT) } : {}),
+    ...(env.PROOF_WEB_ORIGIN ? { origin: env.PROOF_WEB_ORIGIN } : {}),
   };
 }

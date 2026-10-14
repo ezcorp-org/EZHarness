@@ -35,11 +35,11 @@ import type { SQL } from "bun";
 import { openBunSql } from "../../src/db/bun-sql-pipelining";
 import type { JsonValue } from "@ezcorp/factory-sdk";
 import { collectSecretValues, openProcessLog, preserveStackDiagnostics, redactStreamedLogs, type PassDiagnostics, type ProcessLog } from "./diagnostics";
-import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, wrapsDocument, type StackLayout } from "./stack-documents";
+import { GUEST_BROKER_ISSUER, INSTALLATION, distinctPortPicker, MASTER_KEY_ID, NAMESPACE, SUPERVISOR_SUBJECT, TENANT, orchestratorDocument, poolDatabaseDocument, poolDocument, startupDocument, supervisorDocument, webBinding, wrapsDocument, type StackLayout } from "./stack-documents";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
 import { openDeployment, recordDeployment, type PersistentDeployment } from "./deployment";
 
-export { HOST_ID, INSTALLATION, TENANT } from "./stack-documents";
+export { HOST_ID, INSTALLATION, TENANT, webBindingRequest } from "./stack-documents";
 /** How often the streamed logs are redacted while a pass runs. */
 const REDACT_INTERVAL_MS = 2_000;
 const TEMPORAL_CLI = process.env.W19A_TEMPORAL_CLI ?? "/tmp/factory-tools/temporal-cli/temporal";
@@ -67,6 +67,8 @@ export interface StackOptions {
    * both, and the product database is never dropped. Absent, every start is a new installation.
    */
   readonly deploymentDir?: string;
+  /** The web server's address, port and origin (`webBinding`); absent, loopback on a free port. */
+  readonly web?: { readonly host?: string; readonly port?: number; readonly origin?: string };
 }
 
 interface Child { readonly name: string; child: ReturnType<typeof spawn>; log: string[]; readonly file: ProcessLog; readonly closed: Promise<void> }
@@ -135,11 +137,11 @@ function rs256(privateKey: import("node:crypto").KeyObject, kid: string, claims:
 }
 
 /** One session's worth of real HTTP, cookies included: the product's own auth, never around it. */
-export function session(port: number) {
+export function session(port: number, host = "127.0.0.1") {
   let cookie = "";
   return {
     async call(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<{ method: string; path: string; status: number; body: unknown }> {
-      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+      const response = await fetch(`http://${host}:${port}${path}`, {
         method,
         redirect: "manual",
         headers: { ...(body === undefined ? {} : { "content-type": "application/json" }), ...(cookie ? { cookie } : {}), ...headers },
@@ -396,9 +398,11 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   record.hostProcesses = Object.fromEntries(await Promise.all(["pool", "supervisor"].map(async (name) => [name, JSON.parse(await readFile(join(root, "readiness", `${name}.json`), "utf8").catch(() => "null"))?.lifecycle ?? null])));
 
   // ── The web server ──
-  const port = freePort();
+  const binding = webBinding(options.web ?? {}, freePort);
+  const port = binding.port;
+  record.webBinding = { host: binding.host, port: binding.port, origin: binding.origin };
   const webEnvironment: Record<string, string> = {
-    PORT: String(port), HOST: "127.0.0.1", ORIGIN: `http://127.0.0.1:${port}`,
+    PORT: String(port), HOST: binding.host, ORIGIN: binding.origin,
     EZCORP_FACTORY_ENABLED: "1", EZCORP_INSTALLATION_ID: INSTALLATION,
     EZCORP_FACTORY_INTERPRETER_COMPATIBILITY: "factory-kernel.v1",
     // One class per node; the startup document keys admission by class.
@@ -429,7 +433,7 @@ export async function startStack(options: StackOptions): Promise<Stack> {
   }
   record.orchestration = orchestration?.lifecycle ?? null;
 
-  const api = session(port);
+  const api = session(port, binding.apiHost);
   const waitReady = async (): Promise<{ status: number; body: unknown } | null> => {
     for (let attempt = 0; attempt < 180; attempt++) {
       const probe = await api.call("GET", "/api/ready").catch((error: unknown) => ({ status: 0, body: String(error) }));
