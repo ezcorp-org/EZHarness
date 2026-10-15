@@ -233,3 +233,27 @@ test("a 500 on a non-idempotent start reaches the runner exactly once: the clien
     expect(starts).toBe(1);
   } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
 });
+
+test("restore: the client hands an artifact to the runner through the service, and a runner without restore answers unknown_method (W4H-32)", async () => {
+  const directory = await mkdtemp("/tmp/ez-runner-restore-");
+  const token = "test-service-credential-32-bytes-minimum";
+  const files = { "extension.js": "export {};", ".runner/recipe.json": "{}" };
+  const restored: unknown[] = [];
+  const base: Runner = {
+    build: async () => { throw new Error("unused"); },
+    start: async () => { throw new Error("unused"); },
+    cancel: async () => {},
+    inspect: async id => ({ id, state: "unknown", diagnostics: [] }),
+    collectArtifacts: async () => ({}),
+  };
+  const restore = async (runner: Runner, name: string) => {
+    const socketPath = join(directory, `${name}.sock`);
+    const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+    try { return await new RunnerClient({ socketPath, token }).restoreArtifact(filesDigest(files), files); } finally { await server.close(); }
+  };
+  try {
+    expect(await restore({ ...base, restoreArtifact: async (digest, given) => { restored.push([digest, given]); } }, "restoring")).toBeUndefined();
+    expect(restored).toEqual([[filesDigest(files), files]]);
+    await expect(restore(base, "legacy")).rejects.toMatchObject({ code: "unknown_method" });
+  } finally { await rm(directory, { recursive: true, force: true }); }
+});

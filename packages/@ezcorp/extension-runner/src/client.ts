@@ -43,6 +43,8 @@ export class RunnerClient implements Runner {
   inspect(id: string): Promise<RunnerInspection> { return this.call("inspect", { id }); }
   cancel(id: string): Promise<void> { return this.call("cancel", { id }); }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> { return (await this.call<{ files: WorkspaceFiles }>("artifacts", { artifactDigest })).files; }
+  /** The host's copy of a release artifact, back into the runner's store (W4H-32). A service from before it answers unknown_method. */
+  async restoreArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> { await this.call("artifacts/restore", { artifactDigest, files }); }
   /**
    * What the runner service enforces. A service from before `/v4/capabilities`
    * answers unknown_method: it enforces nothing optional, so that is reported

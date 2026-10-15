@@ -683,6 +683,11 @@ export class PodmanRunner implements Runner {
   private requireBuilding(id: string): void {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
+  /** The artifact bounds a stored release is read and restored under. */
+  private static validateArtifact(files: WorkspaceFiles, artifactDigest: string): void {
+    validateFiles(files, 160 * 1024 ** 2, 4000);
+    if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
+  }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
     // A release built into another store (a store a previous boot removed) is named, never a raw file error (real-8).
     const text = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8").catch((error: unknown) => {
@@ -690,9 +695,22 @@ export class PodmanRunner implements Runner {
       throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, errorShape(error));
     });
     const files = JSON.parse(text);
-    validateFiles(files, 160 * 1024 ** 2, 4000);
-    if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
+    PodmanRunner.validateArtifact(files, artifactDigest);
     return files;
+  }
+  /**
+   * C05 "Rehydrate a missing runner artifact" (W4H-32): the host's own copy of a release artifact, back into this
+   * store. Files that do not digest to their key are refused before anything is written; an artifact already in the
+   * store is left as it is, so a second restore is a no-op. The write is the build's own atomic store.
+   */
+  async restoreArtifact(artifactDigest: string, files: WorkspaceFiles): Promise<void> {
+    PodmanRunner.validateArtifact(files, digest(artifactDigest));
+    await this.prepareStore();
+    const present = await lstat(join(this.root, "artifacts", artifactDigest)).then(() => true, (error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+      return false;
+    });
+    if (!present) await this.storeArtifact(artifactDigest, files);
   }
   async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<FramedExecution> {
     return this.startExecution(input, reverseRpc, false);
@@ -722,11 +740,13 @@ export class PodmanRunner implements Runner {
     if (!discovery) await this.authorize("execute", input.artifactDigest);
     if (this.operations.has(input.workerId)) throw new RunnerError("duplicate_worker", "Worker ID is already used");
     if (this.activeExecutions >= (this.options.maxExecutions ?? 4)) throw new RunnerError("runner_busy", "Execution concurrency limit reached", "queue", true);
+    // Read before the worker is registered: a start refused for a missing artifact leaves no trace, so the host can
+    // restore the artifact and send the same start again (W4H-32).
+    const artifacts = await this.collectArtifacts(input.artifactDigest);
     this.activeExecutions++;
     this.operations.set(input.workerId, { id: input.workerId, state: "running", diagnostics: [] });
     let staged: string | undefined;
     try {
-      const artifacts = await this.collectArtifacts(input.artifactDigest);
       const recipe = JSON.parse(workspaceText(artifacts[".runner/recipe.json"] ?? "{}", ".runner/recipe.json"));
       if (recipe.image !== this.image || recipe.seccompDigest !== sha256(await readFile(this.seccompPath))) throw new RunnerError("runtime_profile_changed", "Runtime image or isolation policy differs from the built release");
       staged = await this.stage(artifacts);

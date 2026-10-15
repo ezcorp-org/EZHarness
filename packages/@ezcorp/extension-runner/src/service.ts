@@ -80,6 +80,11 @@ function respond(status: number, body: unknown): Response {
   return new Response(json, { status, headers: { "content-type": "application/json" } });
 }
 
+/** An endpoint this runner does not serve; a host reads it as "not supported" (capabilities, restore). */
+function unknownMethod(): Response {
+  return respond(404, { error: { code: "unknown_method", message: "Unknown runner endpoint" } });
+}
+
 /** Release one host attachment. The worker keeps running and keeps every queued event. */
 function releaseAttachment(session: Session): void {
   clearTimeout(session.lease);
@@ -274,11 +279,16 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       case "/v4/cancel": await closeSession(identifier(data.id)); await options.runner.cancel(data.id); return respond(200, {});
       case "/v4/inspect": return respond(200, await options.runner.inspect(identifier(data.id)));
       case "/v4/artifacts": return respond(200, { files: await options.runner.collectArtifacts(data.artifactDigest) });
+      // The host's own copy of a release artifact, back into this store (W4H-32). A runner without it answers like an older service.
+      case "/v4/artifacts/restore":
+        if (!options.runner.restoreArtifact) return unknownMethod();
+        await options.runner.restoreArtifact(data.artifactDigest, data.files);
+        return respond(200, {});
       // A host asks before it starts a worker that may not spawn: a runner that
       // cannot block process creation says so here, and an older runner answers
       // unknown_method, which the host reads as the same "not enforced".
       case "/v4/capabilities": return respond(200, await options.runner.capabilities?.() ?? { processSpawnEnforcement: false });
-      default: return respond(404, { error: { code: "unknown_method", message: "Unknown runner endpoint" } });
+      default: return unknownMethod();
     }
   }
 
