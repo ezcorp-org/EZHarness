@@ -432,12 +432,12 @@ function syncSet<T>(target: Set<T>, source: Set<T>): void {
 
 export interface UseSelectModeReturn {
 	state: {
-		selectMode: boolean;
-		selectedIds: Set<string>;
-		selectCloning: boolean;
-		bulkBusy: boolean;
-		bulkStatus: string | null;
-		selectError: string | null;
+		readonly selectMode: boolean;
+		readonly selectedIds: Set<string>;
+		readonly selectCloning: boolean;
+		readonly bulkBusy: boolean;
+		readonly bulkStatus: string | null;
+		readonly selectError: string | null;
 	};
 	derived: {
 		readonly selectedCount: number;
@@ -545,23 +545,17 @@ export function useSelectMode(host: SelectModeHost): UseSelectModeReturn {
 
 	// `state` and `derived` use property accessors so the `$state` /
 	// `$derived` slots above stay live across the module boundary. The
-	// caller can still freely read `state.selectMode`,
-	// `state.selectedIds`, etc., and Svelte will track the read.
+	// caller reads `state.selectMode`, `state.selectedIds`, etc., and
+	// Svelte tracks the read. The view is read-only: every write goes
+	// through the handlers below (`selectedIds` is mutated in place, since
+	// re-assigning it would lose the SvelteSet identity).
 	const state = {
 		get selectMode() { return selectMode; },
-		set selectMode(v: boolean) { selectMode = v; },
-		// `selectedIds` is exposed without a setter — the spec requires
-		// in-place mutation only. Re-assigning the slot would lose the
-		// SvelteSet identity and break reactivity in the template.
 		get selectedIds() { return selectedIds; },
 		get selectCloning() { return selectCloning; },
-		set selectCloning(v: boolean) { selectCloning = v; },
 		get bulkBusy() { return bulkBusy; },
-		set bulkBusy(v: boolean) { bulkBusy = v; },
 		get bulkStatus() { return bulkStatus; },
-		set bulkStatus(v: string | null) { bulkStatus = v; },
 		get selectError() { return selectError; },
-		set selectError(v: string | null) { selectError = v; },
 	};
 
 	const derived = {

@@ -14,7 +14,9 @@
  *
  * ── Why every fs call is a host round trip ─────────────────────────────
  *
- * `src/extensions/runtime/sandbox-preload.ts` poisons `node:fs`,
+ * In production this code runs in an extension-runner worker with no host
+ * filesystem, and the test harness preload
+ * (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`) poisons `node:fs`,
  * `fs/promises`, `Bun.file`, `Bun.write` and `Bun.glob` at load. That is
  * not advice: the host realpaths each path BEFORE the PDP authorizes it,
  * which is what closes the TOCTOU window a subprocess-side `Bun.file()`

@@ -279,4 +279,52 @@ describe("ChatThread chrome.loadedTools surfacing contract", () => {
 		const refetch = new URL(toolsRequests[toolsRequests.length - 1]!, "http://localhost");
 		expect(refetch.searchParams.get("conversationId")).toBe("conv-1");
 	});
+
+	test("a failed tool-scope save rolls the selection back and tells the user", async () => {
+		const { updateConversation } = await import("$lib/api.js");
+		const { toastStore } = await import("$lib/toast.svelte.js");
+		vi.mocked(updateConversation).mockRejectedValueOnce(new Error("db down"));
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const { getByTestId, findByTestId } = render(Probe, {});
+		await vi.waitFor(() => {
+			expect(getByTestId("probe-tool-count")).toHaveTextContent("2");
+		});
+		const requestsBefore = toolsRequests.length;
+
+		const { fireEvent } = await import("@testing-library/svelte");
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await fireEvent.click(await findByTestId("conv-ext-toggle-ext-analyzer"));
+
+		await vi.waitFor(() => {
+			expect(toastStore.toasts.map((t) => t.message)).toContain("Couldn't save tool selection");
+		});
+		// The optimistic "Customized" scope is rolled back to the saved one.
+		expect(getByTestId("conversation-tools-state")).toHaveTextContent("All extensions");
+		expect(warn).toHaveBeenCalledWith("Failed to persist conversation tool scope:", expect.any(Error));
+		// No badge refetch for a scope that never landed.
+		expect(toolsRequests.length).toBe(requestsBefore);
+		warn.mockRestore();
+	});
+
+	test("reset clears the conversation tool scope", async () => {
+		const { updateConversation } = await import("$lib/api.js");
+		const { getByTestId, findByTestId } = render(Probe, {});
+		await vi.waitFor(() => {
+			expect(getByTestId("probe-tool-count")).toHaveTextContent("2");
+		});
+		const { fireEvent } = await import("@testing-library/svelte");
+		await fireEvent.click(getByTestId("conversation-tools-trigger"));
+		await fireEvent.click(await findByTestId("conv-ext-toggle-ext-analyzer"));
+		await vi.waitFor(() => {
+			expect(getByTestId("conversation-tools-state")).toHaveTextContent("Customized");
+		});
+
+		await fireEvent.click(getByTestId("conversation-tools-reset"));
+
+		await vi.waitFor(() => {
+			expect(vi.mocked(updateConversation)).toHaveBeenLastCalledWith("conv-1", { extensionTools: null });
+		});
+		expect(getByTestId("conversation-tools-state")).toHaveTextContent("All extensions");
+	});
 });
+

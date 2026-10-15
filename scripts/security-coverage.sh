@@ -48,13 +48,11 @@ SEC_SRC=(
   web/src/lib/server/security/openai-extension-creds.ts
   web/src/lib/server/security/payload.ts
   web/src/lib/server/security/internal-auth.ts
-  web/src/lib/server/security/system-user.ts
-  web/src/lib/server/security/bundled-creds.ts
   web/src/lib/server/security/rate-limiter.ts
   web/src/lib/server/security/api-keys.ts
   web/src/lib/server/security/resource-quotas.ts
   # Boundary 1 (per-API-key route allowlist). Measured HERE rather than by the
-  # vitest leg for the same reason the nine above are: hooks.server.ts imports
+  # vitest leg for the same reason the seven above are: hooks.server.ts imports
   # it statically, so a bun shard that imports hooks.server.ts already emits
   # bun span records for it, and adding a second v8 measurement would union two
   # different line sets. One producer, filtered to this list.

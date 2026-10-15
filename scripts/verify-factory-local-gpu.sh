@@ -3,7 +3,8 @@ set -euo pipefail
 
 # Trusted fixtures only. ROCm on this host requires both render devices during
 # initialization. ROCR_VISIBLE_DEVICES is a selector, not an authority boundary.
-readonly repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+readonly repo_root
 readonly image='docker.io/rocm/pytorch@sha256:0f6e6e98a3d60159443962394866696fa5977b42369413053c3158caf485980d'
 readonly runtime_base="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is required.}"
 [[ "$(stat -c '%a:%u' "$runtime_base")" == "700:$UID" ]]

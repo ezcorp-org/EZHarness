@@ -7,6 +7,7 @@ import { buildLimits, executionLimits, filesDigest, PodmanRunner, PythonPodmanRu
 import type { WorkspaceFiles } from "@ezcorp/extension-contract";
 import { manifest as bunManifest, provision, source } from "../../../packages/@ezcorp/extension-runner/tests/helpers";
 import { FACTORY_PYTHON_GUEST_ENTRYPOINT, factoryPythonGuestFiles, factoryPythonRunnerClosure } from "./python-guest";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 /**
  * Applied-control verification from the host.
@@ -30,7 +31,10 @@ type Inspection = {
 
 type GuestControls = { uid: number; gid: number; capabilities: string; noNewPrivileges: string; seccomp: string; memoryMax: string; swapMax: string; cpuMax: string; pidsMax: string; routes: string[]; ipv6Routes: string[]; environment: string[]; devices: string[]; gpuDevices: string[]; writableRoot: boolean; distributions: string[]; python: string; runtime: string };
 
-const BUN_CONTROLS = `async () => { const fs = require("node:fs"); const read = p => { try { return fs.readFileSync(p, "utf8").trim(); } catch { return "unavailable"; } }; const status = read("/proc/self/status"); const field = name => (status.split("\\n").find(line => line.split(":")[0] === name) ?? "").split(":")[1]?.trim() ?? ""; let writableRoot = true; try { fs.writeFileSync("/root-write-probe", "x"); } catch { writableRoot = false; } const devices = fs.existsSync("/dev") ? fs.readdirSync("/dev").sort() : []; return { uid: process.getuid?.() ?? -1, gid: process.getgid?.() ?? -1, capabilities: field("CapEff"), noNewPrivileges: field("NoNewPrivs"), seccomp: field("Seccomp"), memoryMax: read("/sys/fs/cgroup/memory.max"), swapMax: read("/sys/fs/cgroup/memory.swap.max"), cpuMax: read("/sys/fs/cgroup/cpu.max"), pidsMax: read("/sys/fs/cgroup/pids.max"), routes: read("/proc/net/route").split("\\n").filter(Boolean).slice(1), ipv6Routes: read("/proc/net/ipv6_route").split("\\n").filter(line => line && !line.endsWith("lo")), environment: Object.keys(process.env).sort(), devices, gpuDevices: devices.filter(name => name === "kfd" || name === "dri"), writableRoot, distributions: [], python: "", runtime: "bun" }; }`;
+// The root-write check targets world-writable /var/tmp, as the Python guest
+// does: only `--read-only` stops uid 65534 writing there. A path an
+// unprivileged user can never write (such as `/`) cannot detect a writable root.
+const BUN_CONTROLS = `async () => { const fs = require("node:fs"); const read = p => { try { return fs.readFileSync(p, "utf8").trim(); } catch { return "unavailable"; } }; const status = read("/proc/self/status"); const field = name => (status.split("\\n").find(line => line.split(":")[0] === name) ?? "").split(":")[1]?.trim() ?? ""; let writableRoot = true; try { const probe = "/var/tmp/root-write-probe-" + crypto.randomUUID(); fs.writeFileSync(probe, "x", { flag: "wx" }); fs.unlinkSync(probe); } catch { writableRoot = false; } const devices = fs.existsSync("/dev") ? fs.readdirSync("/dev").sort() : []; return { uid: process.getuid?.() ?? -1, gid: process.getgid?.() ?? -1, capabilities: field("CapEff"), noNewPrivileges: field("NoNewPrivs"), seccomp: field("Seccomp"), memoryMax: read("/sys/fs/cgroup/memory.max"), swapMax: read("/sys/fs/cgroup/memory.swap.max"), cpuMax: read("/sys/fs/cgroup/cpu.max"), pidsMax: read("/sys/fs/cgroup/pids.max"), routes: read("/proc/net/route").split("\\n").filter(Boolean).slice(1), ipv6Routes: read("/proc/net/ipv6_route").split("\\n").filter(line => line && !line.endsWith("lo")), environment: Object.keys(process.env).sort(), devices, gpuDevices: devices.filter(name => name === "kfd" || name === "dri"), writableRoot, distributions: [], python: "", runtime: "bun" }; }`;
 
 let bunRoot: string;
 let pythonRoot: string;
@@ -82,7 +86,7 @@ async function measure(language: "bun" | "python"): Promise<{ applied: Inspectio
   const artifactDigest = language === "bun" ? bunArtifact : pythonArtifact;
   const workerId = randomUUID();
   const context = { workerId, invocationId: randomUUID(), releaseId: artifactDigest, principalId: "tenant-controls", scopeId: "project-controls", token: "controls-token", deadline: Date.now() + executionLimits.timeoutMs - 5_000 };
-  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [] }, async () => { throw new Error("an applied-control probe never reaches the broker"); });
+  const worker = await runner.start({ workerId, artifactDigest, context, limits: executionLimits, devices: [], processSpawn: FACTORY_GUEST_PROCESS_SPAWN }, async () => { throw new Error("an applied-control probe never reaches the broker"); });
   try {
     const reported = await worker.request("extension/invoke", { name: language === "bun" ? "echo" : "controls", input: {}, context }) as GuestControls;
     const applied = await inspect(containerName(root, workerId));

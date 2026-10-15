@@ -4,12 +4,14 @@
  *
  * ── Why this is a grep and not a convention ────────────────────────────
  *
- * `src/extensions/runtime/sandbox-preload.ts` poisons `node:fs`,
+ * In production this code runs in an extension-runner worker with no host
+ * filesystem, and the test harness preload
+ * (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`) poisons `node:fs`,
  * `fs/promises`, `child_process`, `Bun.file`, `Bun.write`, `Bun.glob`,
  * `Bun.spawn` and `Bun.$` at load, so a direct call fails at run time
- * anyway. But it fails INSIDE the subprocess, as an opaque "Transport
- * closed" or a permission-shaped error three layers from the cause, and
- * only on the code path that happens to run. This test fails in CI, on
+ * anyway. But it fails INSIDE the extension process, as an opaque error
+ * several layers from the cause, and only on the code path that happens
+ * to run. This test fails in CI, on
  * the diff that introduced it, naming the file and the line.
  *
  * It also protects a property the poison does not: the host mediates
@@ -41,9 +43,10 @@
  * PDP, or the audit log.
  *
  * Nothing here uses it, and `Glob#scan` is in the forbidden list below so
- * nothing here ever will. But the gap belongs to
- * `src/extensions/runtime/sandbox-preload.ts`, not to this extension, and
- * this comment is the pointer for whoever closes it.
+ * nothing here ever will. But the gap belongs to the test harness preload
+ * (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`), not to this
+ * extension, and this comment is the pointer for whoever closes it. In
+ * production the runner worker has no host filesystem to enumerate.
  */
 import { describe, expect, test } from "bun:test";
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";

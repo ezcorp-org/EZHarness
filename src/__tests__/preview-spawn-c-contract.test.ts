@@ -4,8 +4,7 @@
  * tasks/preview-port-exposure.md "Phase 3 REDESIGN — portable uid-based
  * isolation", item 1).
  *
- * Why source-text grep over runtime gcc (mirrors
- * src/__tests__/mcp-seccomp-compile.test.ts):
+ * Why source-text grep over runtime gcc:
  *   - A C toolchain isn't guaranteed on every dev host (macOS without Xcode
  *     CLT, NixOS outside a nix-shell). Runtime compilation + execution of a
  *     setuid drop also needs root + a real preview uid, which is only

@@ -175,6 +175,42 @@ describe("ProviderSettings completion refresh", () => {
 		open.mockRestore();
 	});
 
+	// Regression: the success path cleared oauthPending before `finally`
+	// read it, so the provider stayed "saving" and its controls stayed
+	// disabled until a reload.
+	test("a pasted OAuth callback that succeeds leaves the provider's controls enabled", async () => {
+		let providers: ProviderStatus[] = [{ ...oauthProvider, oauthConnected: false }];
+		api.fetchProviders.mockImplementation(async () => providers);
+		oauth.startOAuthFlow.mockResolvedValue({ provider: "openai", authUrl: "https://auth.example.test" });
+		oauth.completeOAuthWithCode.mockImplementation(async () => {
+			providers = [oauthProvider];
+			return { success: true, provider: "openai" };
+		});
+		vi.spyOn(window, "open").mockImplementation(() => null);
+		const { container, getByText } = render(ProviderSettings);
+		await waitFor(() => expect(container.querySelector('[data-testid="provider-card-openai"]')).not.toBeNull());
+		const card = providerCard(container, "openai");
+		await waitFor(() => expect(card.getByRole("button", { name: "Connect OpenAI Subscription" })).toBeVisible());
+		await fireEvent.click(card.getByRole("button", { name: "Connect OpenAI Subscription" }));
+		await fireEvent.input(container.querySelector<HTMLInputElement>('input[placeholder^="Paste the callback URL"]')!, { target: { value: "http://callback" } });
+		await fireEvent.click(getByText("Submit"));
+
+		await waitFor(() => expect(card.getByRole("button", { name: "Disconnect" })).toBeEnabled());
+	});
+
+	test("cancelling a pending OAuth connect closes the callback form", async () => {
+		api.fetchProviders.mockResolvedValue([{ ...oauthProvider, oauthConnected: false }]);
+		oauth.startOAuthFlow.mockResolvedValue({ provider: "openai", authUrl: "https://auth.example.test" });
+		vi.spyOn(window, "open").mockImplementation(() => null);
+		const { container, getByText, queryByText } = render(ProviderSettings);
+		await waitFor(() => expect(container.querySelector('[data-testid="provider-card-openai"]')).not.toBeNull());
+		const card = providerCard(container, "openai");
+		await fireEvent.click(await waitFor(() => card.getByRole("button", { name: "Connect OpenAI Subscription" })));
+		await waitFor(() => expect(getByText("Connect OpenAI")).toBeVisible());
+		await fireEvent.click(getByText("Cancel"));
+		expect(queryByText("Connect OpenAI")).toBeNull();
+	});
+
 	test("shows OAuth callback errors", async () => {
 		api.fetchProviders.mockResolvedValue([{ ...oauthProvider, oauthConnected: false }]);
 		oauth.startOAuthFlow.mockResolvedValue({ provider: "openai", authUrl: "https://auth.example.test" });
@@ -189,6 +225,47 @@ describe("ProviderSettings completion refresh", () => {
 		await fireEvent.click(getByText("Submit"));
 		await waitFor(() => expect(getByText("Code was rejected")).toBeVisible());
 
+	});
+
+	test("a network failure while testing or refreshing shows as a failed result", async () => {
+		api.fetchProviders.mockResolvedValue([{ provider: "kilo", hasKey: false, source: "none", oauthConnected: false, oauthExpired: false, oauthSupported: false, expiresAt: null }]);
+		api.testProviderConnection.mockRejectedValueOnce(new Error("offline"));
+		api.refreshProviderModels.mockRejectedValueOnce(new Error("offline"));
+		const { container } = render(ProviderSettings);
+		await waitFor(() => expect(container.querySelector('[data-testid="provider-card-kilo"]')).not.toBeNull());
+		const card = providerCard(container, "kilo");
+		await fireEvent.click(await waitFor(() => card.getByRole("button", { name: "Test" })));
+		await waitFor(() => expect(card.getByText("Connection failed")).toBeVisible());
+		await fireEvent.click(card.getByRole("button", { name: "Refresh models" }));
+		await waitFor(() => expect(card.getByText("Refresh failed")).toHaveAttribute("title", "Request failed"));
+	});
+
+	test.each([
+		["removing a key", () => api.deleteProviderKey.mockRejectedValue(new Error("x")), [byokProvider], ["Remove", "Confirm"], "Failed to remove key for anthropic"],
+		["disconnecting OAuth", () => api.disconnectOAuth.mockRejectedValue(new Error("x")), [oauthProvider], ["Disconnect", "Confirm"], "Failed to disconnect openai"],
+		["starting OAuth", () => oauth.startOAuthFlow.mockRejectedValue(new Error("popup blocked")), [{ ...oauthProvider, oauthConnected: false }], ["Connect OpenAI Subscription"], "Failed to start OAuth flow for openai: popup blocked"],
+	] as const)("a failure while %s is reported", async (_label, fail, providers, clicks, message) => {
+		fail();
+		api.fetchProviders.mockResolvedValue([...providers]);
+		const { getByRole, getByTestId } = render(ProviderSettings);
+		for (const name of clicks) {
+			await fireEvent.click(await waitFor(() => getByRole("button", { name })));
+		}
+		await waitFor(() => expect(getByTestId("provider-error")).toHaveTextContent(message));
+	});
+
+	test("a completed OAuth popup reloads providers and refreshes that provider's models", async () => {
+		let onResult: (r: { success: boolean; provider: string }) => void = () => {};
+		oauth.listenForOAuthResult.mockImplementation((cb: typeof onResult) => { onResult = cb; return () => {}; });
+		api.fetchProviders.mockResolvedValue([oauthProvider]);
+		render(ProviderSettings);
+		await waitFor(() => expect(api.fetchProviders).toHaveBeenCalledTimes(1));
+
+		onResult({ success: false, provider: "openai" });
+		expect(api.refreshProviderModels).not.toHaveBeenCalled();
+		onResult({ success: true, provider: "openai" });
+		await waitFor(() => expect(api.fetchProviders).toHaveBeenCalledTimes(2));
+		expect(api.refreshProviderModels).toHaveBeenCalledWith("openai");
 	});
 
 	test("shows a readable error when provider status cannot load", async () => {

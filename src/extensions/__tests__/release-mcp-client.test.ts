@@ -148,7 +148,6 @@ test("remote MCP uses approved catalog and a live scoped token over real HTTP pr
   try {
     await value.client.connect();
     expect(value.client.isConnected).toBe(true);
-    expect(value.client.getChildProcess()).toBeNull();
     expect(await value.client.listTools()).toEqual(value.snapshot.release.manifest.tools!);
     expect(await value.client.callTool("echo", { text: "hello" }, { ezCallId: value.token })).toMatchObject({ content: [{ type: "text", text: "hello" }] });
     expect(JSON.stringify(value.requests)).not.toContain(value.token);

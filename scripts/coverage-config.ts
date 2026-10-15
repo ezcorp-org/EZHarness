@@ -66,13 +66,13 @@ export const EXCLUDES: readonly string[] = [
   // must not shield run B from the idle kill) and
   // `src/__tests__/permission-wrap.test.ts` (the wrapper populates it).
   "src/runtime/stream-chat/host.ts",
-  // NOTE: the 9 web security helpers (bearer-auth, openai-extension-creds,
-  // payload, internal-auth, system-user, bundled-creds, rate-limiter, api-keys,
-  // resource-quotas) were REMOVED from this list. Their bun:test suites rely on
+  // NOTE: the 7 web security helpers (bearer-auth, openai-extension-creds,
+  // payload, internal-auth, rate-limiter, api-keys, resource-quotas) were
+  // REMOVED from this list. Their bun:test suites rely on
   // per-`beforeEach` `mock.module` re-registration (a bun-only feature, no
   // `vi.mock` equivalent) so they can't run in the v8/vitest leg — but
   // scripts/security-coverage.sh now measures them under `bun --coverage` and
-  // FILTERS the lcov to exactly these 9 files (no web/src/lib union artifact),
+  // FILTERS the lcov to exactly these 7 files (no web/src/lib union artifact),
   // uploaded as an `lcov-cov-*` artifact by the CI `web-security-coverage` job.
   // Each clears the `web/src/lib/**` 90% floor (measured 97.78–100%). Their
   // suites are ALSO run for pass/fail by the `web-bun-tests` job.

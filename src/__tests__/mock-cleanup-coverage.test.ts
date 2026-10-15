@@ -51,7 +51,9 @@ const EXEMPT_PATTERNS: RegExp[] = [
   // residual leak — benign at the current suite order: the baseline
   // full-suite run has zero preview-test failures. Revisit if
   // preview-*.test.ts start failing in full-directory runs only.
-  /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|netns|uid-pool|detection-bridge|bus-registry)$/,
+  // preview-reaper joins them for the same reason: it imports
+  // preview-spawn-orchestration and preview-uid-pool.
+  /^\.\.\/runtime\/preview\/preview-(port-watcher|port-source|consent|capabilities|uid-pool|detection-bridge|bus-registry|reaper)$/,
   // assert-bundled-not-stranded.test.ts stubs the bundled-extension
   // registry. It cannot be snapshotted: the eager preload import pulled
   // in the whole bundled-extension graph per spawn, so it was trimmed
@@ -77,9 +79,8 @@ import { readFileSync as rfs } from "node:fs";
  *
  * BOTH scrapers below depend on this, for the same reason and in both
  * directions: a path merely NAMED in prose must never be mistaken for a
- * real occurrence. On the mock side, preview-netns.test.ts's "we
- * deliberately do NOT mock.module(\"…\")" note must not count as a mock
- * target. On the MODULE_PATHS side, mock-cleanup.ts documents the paths
+ * real occurrence. On the mock side, a test's "we deliberately do NOT
+ * mock.module(\"…\")" note must not count as a mock target. On the MODULE_PATHS side, mock-cleanup.ts documents the paths
  * it deliberately does NOT snapshot (the wave-3 trims) by quoting them —
  * and a comment mention used to satisfy this meta-test for a mock that
  * `restoreModuleMocks()` cannot actually undo (issue #138).

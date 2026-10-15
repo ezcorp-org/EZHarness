@@ -40,22 +40,9 @@ mock.module("$server/providers/credential-store", () => ({
 }));
 
 import {
-  buildOpenAIInjectedEnv,
   resolveOpenAIApiKey,
   resolveOpenAIAccessToken,
-  wireOpenAIExtensionCredentials,
-  OPENAI_IMAGE_GEN_EXT_NAME,
 } from "$lib/server/security/openai-extension-creds";
-
-class FakeRegistry {
-  resolvers = new Map<string, () => Promise<Readonly<Record<string, string>>>>();
-  setInjectedEnvResolver(
-    name: string,
-    fn: () => Promise<Readonly<Record<string, string>>>,
-  ): void {
-    this.resolvers.set(name, fn);
-  }
-}
 
 beforeEach(() => {
   storedApiKey = undefined;
@@ -66,29 +53,6 @@ beforeEach(() => {
   upsertCalls = [];
   resolveOAuthAuthImpl = async () => undefined;
   getSettingThrows = false;
-});
-
-describe("buildOpenAIInjectedEnv", () => {
-  test("injects OPENAI_API_KEY when only an sk-... key is available", () => {
-    expect(buildOpenAIInjectedEnv("sk-abc", null)).toEqual({ OPENAI_API_KEY: "sk-abc" });
-  });
-
-  test("injects OPENAI_ACCESS_TOKEN when only an OAuth token is available", () => {
-    expect(buildOpenAIInjectedEnv(null, "oa-token")).toEqual({ OPENAI_ACCESS_TOKEN: "oa-token" });
-  });
-
-  test("injects BOTH when both are available — extension picks the right path", () => {
-    expect(buildOpenAIInjectedEnv("sk-abc", "oa-token")).toEqual({
-      OPENAI_API_KEY: "sk-abc",
-      OPENAI_ACCESS_TOKEN: "oa-token",
-    });
-  });
-
-  test("returns empty map when both are missing", () => {
-    expect(buildOpenAIInjectedEnv(null, null)).toEqual({});
-    expect(buildOpenAIInjectedEnv(undefined, undefined)).toEqual({});
-    expect(buildOpenAIInjectedEnv("", "")).toEqual({});
-  });
 });
 
 describe("resolveOpenAIApiKey — lookup order", () => {
@@ -209,108 +173,4 @@ describe("resolveOpenAIAccessToken", () => {
     expect(await resolveOpenAIApiKey()).toBeNull();
   });
 
-  test("an unreachable settings store injects NO credential env at spawn", async () => {
-    // The property that actually matters downstream: a store outage must not
-    // hand the extension subprocess a half-built env. It gets an empty map and
-    // produces its own "set OPENAI_API_KEY" error.
-    storedOAuth = "enc";
-    storedApiKey = "enc-key";
-    getSettingThrows = true;
-
-    const registry = new FakeRegistry();
-    wireOpenAIExtensionCredentials(registry as never);
-    const resolver = registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME);
-    expect(resolver).toBeDefined();
-    expect(await resolver!()).toEqual({});
-  });
-});
-
-describe("wireOpenAIExtensionCredentials", () => {
-  let registry: FakeRegistry;
-  beforeEach(() => {
-    registry = new FakeRegistry();
-  });
-
-  test("registers a resolver under the extension's canonical name", () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => "sk-test",
-      accessToken: async () => null,
-    });
-    expect(registry.resolvers.has(OPENAI_IMAGE_GEN_EXT_NAME)).toBe(true);
-  });
-
-  test("injects only OPENAI_API_KEY when only BYOK is available", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => "sk-byok",
-      accessToken: async () => null,
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({ OPENAI_API_KEY: "sk-byok" });
-  });
-
-  test("injects only OPENAI_ACCESS_TOKEN when only OAuth is connected", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => null,
-      accessToken: async () => "oa-subscription",
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({ OPENAI_ACCESS_TOKEN: "oa-subscription" });
-  });
-
-  test("injects BOTH when both are configured", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => "sk-byok",
-      accessToken: async () => "oa-subscription",
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({
-      OPENAI_API_KEY: "sk-byok",
-      OPENAI_ACCESS_TOKEN: "oa-subscription",
-    });
-  });
-
-  test("returns empty env map when neither resolver yields a credential", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => null,
-      accessToken: async () => null,
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({});
-  });
-
-  test("swallows errors from either resolver and returns empty map", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => {
-        throw new Error("apiKey failed");
-      },
-      accessToken: async () => "oa-token",
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({});
-  });
-
-  test("resolvers are called fresh each spawn (OAuth refresh, BYOK rotation)", async () => {
-    let n = 0;
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => null,
-      accessToken: async () => `oa-${n++}`,
-    });
-    const r = registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!;
-    expect(await r()).toEqual({ OPENAI_ACCESS_TOKEN: "oa-0" });
-    expect(await r()).toEqual({ OPENAI_ACCESS_TOKEN: "oa-1" });
-    expect(await r()).toEqual({ OPENAI_ACCESS_TOKEN: "oa-2" });
-  });
-
-  test("last wire wins (re-wire-able)", async () => {
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => "sk-old",
-      accessToken: async () => null,
-    });
-    wireOpenAIExtensionCredentials(registry as any, {
-      apiKey: async () => "sk-new",
-      accessToken: async () => null,
-    });
-    const env = await registry.resolvers.get(OPENAI_IMAGE_GEN_EXT_NAME)!();
-    expect(env).toEqual({ OPENAI_API_KEY: "sk-new" });
-  });
 });

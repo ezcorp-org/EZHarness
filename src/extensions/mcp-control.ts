@@ -3,7 +3,7 @@ import { MCP_CATALOG_PROBE_FAILED_MESSAGE } from "../mcp/connect-failure";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { readMcpCatalog } from "@ezcorp/sdk/v4";
-import { validateManifest, valueSchemaValidator } from "@ezcorp/extension-contract";
+import { MCP_BRIDGE_ENTRYPOINT, MCP_BRIDGE_MANIFEST, MCP_BRIDGE_SOURCE, MCP_BRIDGE_TEST, MCP_BRIDGE_TEST_SOURCE, validateManifest, valueSchemaValidator } from "@ezcorp/extension-contract";
 import { guardedStreamingFetch } from "../search/egress";
 import { getUserById } from "../db/queries/users";
 import { insertAuditEntry } from "../db/queries/audit-log";
@@ -55,9 +55,9 @@ export async function stageMcpExtension(actor: LifecycleActor, input: { name: st
     } catch { throw new LifecycleError("mcp_probe_failed", MCP_CATALOG_PROBE_FAILED_MESSAGE); }
   }
   const files = {
-    "mcp.manifest.json": JSON.stringify(manifest, null, 2),
-    "extension.ts": "import {createMcpExtension,serve} from '@ezcorp/sdk/v4';import manifest from './mcp.manifest.json';await serve(await createMcpExtension({manifest}));\n",
-    "metadata.test.ts": "import {test,expect} from 'bun:test';import {validateManifest} from '@ezcorp/sdk/v4';import manifest from './mcp.manifest.json';test('MCP metadata',()=>expect(validateManifest(manifest).kind).toBe('mcp'));\n",
+    [MCP_BRIDGE_MANIFEST]: JSON.stringify(manifest, null, 2),
+    [MCP_BRIDGE_ENTRYPOINT]: MCP_BRIDGE_SOURCE,
+    [MCP_BRIDGE_TEST]: MCP_BRIDGE_TEST_SOURCE,
   };
   const lifecycle = await getExtensionLifecycle();
   const created = await lifecycle.createWorkspace(actor, { files, ...(input.installationId ? { installationId: input.installationId } : {}) });

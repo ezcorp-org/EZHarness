@@ -14,7 +14,6 @@ import { getUserById } from "../../db/queries/users";
 import { getDb, type DbTransaction } from "../../db/connection";
 import type { StorageDatabase } from "../../db/queries/extension-storage";
 import { hasExtensionScope } from "../../auth/extension-rbac";
-import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
@@ -126,6 +125,111 @@ interface SensitivePromptCall {
   emitToolStart: (timestamp: number) => void;
 }
 
+type RegisteredTool = SensitivePromptCall["registered"];
+type ExtensionManifest = ReturnType<ExtensionRegistry["getManifest"]>;
+
+/** One authorized call, as the dispatch helpers of {@link ToolExecutor} see it. */
+interface DispatchCall {
+  toolName: string;
+  originalName: string;
+  extensionId: string;
+  conversationId: string;
+  messageId: string | null;
+  /** Post-resolver input: what the PDP checked and what is recorded. */
+  input: Record<string, unknown>;
+  registered: RegisteredTool;
+  meta: ExecuteToolCallOpts["metadata"];
+  opts: ExecuteToolCallOpts | undefined;
+  invocationGuard: InvocationGuard | undefined;
+  serviceInvocation: ServiceInvocation | undefined;
+  serviceTargetBinding: string | undefined;
+  invocationMetadata: Record<string, unknown> | undefined;
+  startTime: number;
+}
+
+/** Card and invocation fields shared by `tool:start` and the terminal tool event. */
+function toolEventTags(registered: RegisteredTool, meta: ExecuteToolCallOpts["metadata"]) {
+  return {
+    ...(registered.cardType && { cardType: registered.cardType }),
+    ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+    ...(meta?.source && { source: meta.source }),
+    ...(meta?.invocationId && { invocationId: meta.invocationId }),
+  };
+}
+
+/** Text of a thrown value, as the failed tool result shows it. */
+function toolErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : JSON.stringify(error);
+}
+
+/** Tool arguments with the cross-extension call depth added when nested. */
+function withCallDepth(input: Record<string, unknown>, depth: number | undefined): Record<string, unknown> {
+  return depth != null && depth > 0 ? { ...input, _depth: depth } : input;
+}
+
+/**
+ * `_meta` fields for the conversation. Resolve the conversation's ACTIVE
+ * project root so filesystem-scoping extensions (ez-code-factory's gate)
+ * target the RIGHT project. A single persistent subprocess serves every
+ * conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env var only
+ * ever names ONE project — structurally wrong. The host owns the truth
+ * (`conversations.projectId` → `projects.path`), so we resolve it per-call
+ * and forward it on `_meta`. Best-effort: any failure leaves it undefined
+ * (the SDK/ext fall back to the env var) rather than failing the tool call.
+ */
+async function conversationMeta(conversationId: string): Promise<Record<string, unknown>> {
+  const meta: Record<string, unknown> = { ezConversationId: conversationId };
+  try {
+    const conv = await getConversation(conversationId);
+    const project = conv?.projectId ? await getProject(conv.projectId) : undefined;
+    if (project?.path) meta.ezProjectRoot = project.path;
+  } catch {
+    // leave meta.ezProjectRoot unset — resolve defensively
+  }
+  return meta;
+}
+
+/** Run and parent ids from the invocation metadata, for call provenance. */
+function provenanceLineage(metadata: Record<string, unknown> | undefined): { runId: string | null; parentCallId: string | null } {
+  const runId = metadata?.runId;
+  const parentCallId = metadata?.parentCallId;
+  return {
+    runId: typeof runId === "string" ? runId : null,
+    parentCallId: typeof parentCallId === "string" ? parentCallId : null,
+  };
+}
+
+/** Provenance fields of a sealed service invocation. */
+function serviceProvenance(serviceInvocation: ServiceInvocation, invocationGuard: InvocationGuard | undefined) {
+  return {
+    serviceInvocation,
+    invocationGuard,
+    runId: serviceInvocation.workflowRunId,
+    ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}),
+  };
+}
+
+/** Abort and guard controls forwarded to the tool call transport. */
+type ToolCallControl = { signal?: AbortSignal; invocationGuard?: InvocationGuard };
+
+/**
+ * Transport options for one tool call. Abort signal and invocation guard go
+ * to both transports; the subprocess also gets the timeout exemption. When
+ * there is nothing to set, `callOptions` stays undefined so the common case
+ * keeps the 3-arg call shape (tests assert with strict `toHaveBeenCalledWith`
+ * arity).
+ */
+function toolCallTransportOptions(
+  signal: AbortSignal | undefined,
+  invocationGuard: InvocationGuard | undefined,
+  skipTimeout: boolean,
+): { controlOptions?: ToolCallControl; callOptions?: ToolCallControl & { skipTimeout: boolean } } {
+  if (!signal && !invocationGuard) return skipTimeout ? { callOptions: { skipTimeout: true } } : {};
+  const controlOptions = { ...(signal ? { signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
+  return { controlOptions, callOptions: { skipTimeout, ...controlOptions } };
+}
+
 /** Count one tool call against the conversation's per-turn budget. */
 function chargeTurnToolCall(conversationId: string): void {
   if (conversationId && conversationId !== "cross-ext") {
@@ -159,7 +263,6 @@ export class ToolExecutor {
   private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
-  private scheduleDaemon?: ScheduleDaemon;
   private argsResolver?: ArgsResolver;
   // Watchdog visibility for the extension sensitive-cap PDP-prompt gate.
   // Built-in tool gates register in the executor's `pendingPermissions`
@@ -238,14 +341,6 @@ export class ToolExecutor {
    *  so hourly/concurrent caps apply across all of a user's turns. */
   setSpawnQuota(quota: SpawnQuota): void {
     this.spawnQuota = quota;
-  }
-
-  /** Wire the shared ScheduleDaemon so `ctx.schedule.fireNow()` can
-   *  share its quota counters + dispatch path. The daemon is owned by
-   *  `src/startup/background-timers.ts`; this setter lets the same
-   *  instance be threaded into every ToolExecutor in the process. */
-  setScheduleDaemon(daemon: ScheduleDaemon): void {
-    this.scheduleDaemon = daemon;
   }
 
   /** Register a pre-call transformer for tool args. Used to substitute
@@ -694,10 +789,7 @@ export class ToolExecutor {
         // unredacted resolved input.
         input: redactLargeDataUris(input),
         timestamp,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
+        ...toolEventTags(registered, meta),
       });
     };
 
@@ -818,301 +910,278 @@ export class ToolExecutor {
     // otherwise the normal pre-dispatch tool:start (unchanged behavior).
     emitToolStart(startTime);
 
-    return withRuntimeToolContext(runtimeCtxForCall, async () => {
+    const call: DispatchCall = {
+      toolName, originalName, extensionId, conversationId, messageId, input, registered, meta,
+      opts: _opts, invocationGuard, serviceInvocation, serviceTargetBinding, invocationMetadata, startTime,
+    };
+    return withRuntimeToolContext(runtimeCtxForCall, () => this.runDispatch(call));
+  }
+
+  /** Dispatch an authorized call and record its outcome. A failure at any
+   *  step, including the record of a success, becomes a recorded error result. */
+  private async runDispatch(call: DispatchCall): Promise<ToolCallResult> {
     try {
-      _opts?.signal?.throwIfAborted();
-      // Resolve shared variables (x-shared) before dispatching to either
-      // subprocess or MCP client.
-      const resolvedInput = resolveSharedVariables(
-        registered.inputSchema,
-        input,
-      );
-
-      const manifest = this.registry.getManifest(extensionId);
-      const isMcp = manifest?.kind === "mcp";
-
-      // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
-      // to the SDK's auto-generated handler (bypassing the subprocess
-      // and the MCP client entirely). The registry tagged these with
-      // `entityKind` + `entityType`; dispatch finds the declaration on
-      // the manifest, binds an EntityStoreLike to the acting scope, and
-      // returns the SDK's `ToolCallResult` directly. The audit log
-      // (`recordToolCall` below) still runs uniformly so SDK-served
-      // calls appear in the same row as subprocess-served ones — only
-      // the bytes between PDP and audit differ.
-      if (registered.entityKind && registered.entityType && manifest) {
-        const decl = manifest.entities?.find(
-          (e) => e.type === registered.entityType,
-        );
-        if (!decl) {
-          throw new Error(
-            `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
-          );
-        }
-        const scope = decl.scope ?? "user";
-        // Bind the host store to the acting scope. For "user", we use
-        // the acting user (currentUserId). For "conversation", we use
-        // the conversation id. "project" maps onto conversation per the
-        // host-store adapter (v1 has no project tier).
-        const scopeId =
-          scope === "user"
-            ? (this.currentUserId ?? null)
-            : (conversationId ?? null);
-        if (!scopeId) {
-          throw new Error(
-            `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
-          );
-        }
-        const executeEntity = async (database?: StorageDatabase) => {
-          _opts?.signal?.throwIfAborted();
-          const store = createHostEntityStore({ extensionId, scope, scopeId, ...(database ? { database } : {}) });
-          const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
-          const result = await handler(resolvedInput);
-          _opts?.signal?.throwIfAborted();
-          return result;
-        };
-        const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
-          await verifyInvocationLocks(transaction, invocationGuard);
-          const result = await executeEntity(transaction);
-          await verifyInvocationLocks(transaction, invocationGuard);
-          return result;
-        });
-        const duration = Date.now() - startTime;
-        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
-          conversationId,
-          extensionId,
-          toolName,
-          output: entityResult,
-          duration,
-          success: !entityResult.isError,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        } };
-        await this.recordToolCall(
-          conversationId,
-          messageId,
-          extensionId,
-          toolName,
-          input,
-          entityResult,
-          startTime,
-          registered.cardType,
-          registered.cardLayout,
-          toolEvent,
-        );
-        emitPersistedDomainEvent(this.bus, toolEvent);
-        return entityResult;
-      }
-
-      let result: ToolCallResult;
-      {
-        const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(extensionId);
-
-        // Wire handlers if not already wired for this extension
-        if (proc) await this.ensureSubprocessRpcWired(extensionId, proc);
-
-        // Use originalName for RPC call to subprocess, not the namespaced name
-        const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
-          ? { ...resolvedInput, _depth: _opts._callDepth }
-          : resolvedInput;
-        // Propagate the acting-user id through the JSON-RPC `_meta`
-        // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
-        // and bundled extensions (like ai-kit) forward it as the
-        // X-Ezcorp-On-Behalf-Of header on any outbound call back into
-        // this server. This is the ONLY path by which the conversation
-        // owner's id reaches a tool handler — it is never part of the
-        // LLM-visible arguments (see bearer-auth.ts for the reason).
-        const meta: Record<string, unknown> = {};
-        if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
-        if (conversationId) {
-          meta.ezConversationId = conversationId;
-          // Resolve the conversation's ACTIVE project root so filesystem-
-          // scoping extensions (ez-code-factory's gate) target the RIGHT
-          // project. A single persistent subprocess serves every
-          // conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env
-          // var only ever names ONE project — structurally wrong. The host
-          // owns the truth (`conversations.projectId` → `projects.path`),
-          // so we resolve it per-call and forward it on `_meta`. Best-effort:
-          // any failure leaves it undefined (the SDK/ext fall back to the
-          // env var) rather than failing the tool call.
-          try {
-            const conv = await getConversation(conversationId);
-            if (conv?.projectId) {
-              const project = await getProject(conv.projectId);
-              if (project?.path) meta.ezProjectRoot = project.path;
-            }
-          } catch {
-            // leave meta.ezProjectRoot unset — resolve defensively
-          }
-        }
-        if (this.currentModel) meta.ezModel = this.currentModel;
-        if (this.currentProvider) meta.ezProvider = this.currentProvider;
-        // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
-        // use it to build clickable deep-links in tool responses. Safe
-        // to pass to every subprocess; non-URL-building tools ignore it.
-        const publicUrl = process.env.EZCORP_PUBLIC_URL;
-        if (publicUrl) meta.ezPublicUrl = publicUrl;
-        // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
-        // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
-        // surfaces it on the handler ctx.
-        //
-        // Per-extension user/global settings (lazy-foraging-hammock):
-        // when the manifest declares a `settings` schema, resolve the
-        // effective values for the acting user and merge them under
-        // `invocationMetadata.settings`. Caller-supplied settings win
-        // over resolved values (the host orchestrator may pre-bind
-        // overrides at wire time); resolved values fill the gaps.
-        let mergedInvocationMetadata = invocationMetadata;
-        if (manifest?.settings) {
-          // Pass the in-memory schema so the resolver skips the
-          // per-call `extensions.manifest` DB query — N+1 fix.
-          const resolved = await resolveExtensionSettings(
-            extensionId,
-            this.currentUserId ?? null,
-            manifest.settings,
-          );
-          const callerSettings = (invocationMetadata?.settings ?? undefined) as
-            | Record<string, unknown>
-            | undefined;
-          mergedInvocationMetadata = {
-            ...invocationMetadata,
-            settings: { ...resolved, ...(callerSettings ?? {}) },
-          };
-        }
-        if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
-          meta.invocationMetadata = mergedInvocationMetadata;
-        }
-        // Per-call reverse-RPC provenance. The subprocess echoes ONLY
-        // this opaque, host-issued token back on its capability calls;
-        // the host resolves the real {onBehalfOf, conversationId, runId,
-        // parentCallId} from the registry — never from mutable singleton
-        // state. The snapshot is taken from THIS call's values, so it
-        // stays correct under concurrency and for long-running tools.
-        const im = mergedInvocationMetadata as
-          | { runId?: unknown; parentCallId?: unknown }
-          | undefined;
-        const ezCallId = registerCallProvenance({
-          onBehalfOf: this.currentUserId ?? null,
-          conversationId: conversationId ?? null,
-          runId: typeof im?.runId === "string" ? im.runId : null,
-          parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
-          actorExtensionId: extensionId,
-          kind: "tool",
-          ownerless: !this.currentUserId && !serviceInvocation,
-          ...(serviceInvocation ? { serviceInvocation, invocationGuard, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
-        });
-        meta.ezCallId = ezCallId;
-        if (serviceTargetBinding !== undefined || _opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = serviceTargetBinding ?? _opts?.expectedReleaseBinding;
-        // Only pass the fourth `options` arg when there's something to set —
-        // keeps the 3-arg call shape for the common case (tests assert with
-        // strict `toHaveBeenCalledWith` arity). The token is released the
-        // moment the forward call returns — all reverse-RPCs for it have
-        // necessarily completed by then.
-        // Long-blocking exemption from the flat per-call subprocess RPC timeout
-        // (subprocess.ts kills the process on any call exceeding callTimeoutMs,
-        // default 30s). Two host-controlled cases opt out:
-        //   1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
-        //      user.
-        //   2. A BUNDLED orchestration tool that legitimately awaits async events
-        //      (invoke_agent / collect_agent_result — see
-        //      LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
-        //      the SHARED orchestration subprocess, dropping every backgroundSpawn
-        //      + in-flight invoke across all conversations.
-        // Gated on `registry.isBundled` so a third-party manifest cannot self-grant
-        // supervision evasion (the bare-name set is host-produced; see filter.ts).
-        // Unbounded here (not a raised finite cap) because the activity-sliding
-        // give-up deadline + configurable maxCycles exceed any fixed cap; the tool
-        // self-bounds via its own reap/gate, and the parent-run watchdog provides
-        // the run-level bound (bounded for collect; agent:* liveness for invoke).
-        const skipCallTimeout =
-          registered.requiresUserInput === true ||
-          (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
-            this.registry.isBundled?.(extensionId) === true);
-        try {
-          _opts?.signal?.throwIfAborted();
-          if (invocationGuard) await invocationGuard();
-          _opts?.signal?.throwIfAborted();
-          const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
-          const controlled = _opts?.signal || invocationGuard;
-          const callOptions = controlled ? { skipTimeout: skipCallTimeout, ...controlOptions } : skipCallTimeout ? { skipTimeout: true } : undefined;
-          result = isMcp
-            ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(controlled ? [controlOptions] : []))
-            : callOptions
-            ? await proc!.callTool(originalName, callArgs, meta, callOptions)
-            : await proc!.callTool(originalName, callArgs, meta);
-        } finally {
-          releaseCallProvenance(ezCallId);
-        }
-      }
-
-      // Record to tool_calls table
-      const duration = Date.now() - startTime;
-      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
-        conversationId,
-        extensionId,
-        toolName,
-        output: result,
-        duration,
-        success: !result.isError,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      } };
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        result,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-        toolEvent,
-      );
-      emitPersistedDomainEvent(this.bus, toolEvent);
-
+      const result = await this.dispatchTool(call);
+      await this.recordToolOutcome(call, "tool:complete", result, { output: result, success: !result.isError });
       return result;
     } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : (typeof error === 'string' ? error : JSON.stringify(error));
+      const errorMsg = toolErrorMessage(error);
       const errorResult: ToolCallResult = {
         content: [{ type: "text", text: errorMsg }],
         isError: true,
       };
-
-      // Record error to tool_calls table
-      const duration = Date.now() - startTime;
-      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
-        conversationId,
-        extensionId,
-        toolName,
-        error: errorMsg,
-        duration,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
-      } };
-      await this.recordToolCall(
-        conversationId,
-        messageId,
-        extensionId,
-        toolName,
-        input,
-        errorResult,
-        startTime,
-        registered.cardType,
-        registered.cardLayout,
-        toolEvent,
-      );
-      emitPersistedDomainEvent(this.bus, toolEvent);
-
+      await this.recordToolOutcome(call, "tool:error", errorResult, { error: errorMsg });
       return errorResult;
     }
+  }
+
+  /** Write the tool_calls row and emit the terminal tool event. */
+  private async recordToolOutcome(
+    call: DispatchCall,
+    type: "tool:complete" | "tool:error",
+    result: ToolCallResult,
+    outcome: Record<string, unknown>,
+  ): Promise<void> {
+    const { conversationId, extensionId, toolName, registered } = call;
+    const duration = Date.now() - call.startTime;
+    const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type, conversationId, payload: {
+      conversationId,
+      extensionId,
+      toolName,
+      ...outcome,
+      duration,
+      ...toolEventTags(registered, call.meta),
+    } };
+    await this.recordToolCall(
+      conversationId,
+      call.messageId,
+      extensionId,
+      toolName,
+      call.input,
+      result,
+      call.startTime,
+      registered.cardType,
+      registered.cardLayout,
+      toolEvent,
+    );
+    emitPersistedDomainEvent(this.bus, toolEvent);
+  }
+
+  /** Route an authorized call to the SDK entity handler or the extension. */
+  private async dispatchTool(call: DispatchCall): Promise<ToolCallResult> {
+    call.opts?.signal?.throwIfAborted();
+    // Resolve shared variables (x-shared) before dispatching to either
+    // subprocess or MCP client.
+    const resolvedInput = resolveSharedVariables(call.registered.inputSchema, call.input);
+    const manifest = this.registry.getManifest(call.extensionId);
+    // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
+    // to the SDK's auto-generated handler (bypassing the subprocess
+    // and the MCP client entirely). The registry tagged these with
+    // `entityKind` + `entityType`; dispatch finds the declaration on
+    // the manifest, binds an EntityStoreLike to the acting scope, and
+    // returns the SDK's `ToolCallResult` directly. The audit log
+    // (`recordToolOutcome`) still runs uniformly so SDK-served calls
+    // appear in the same row as subprocess-served ones — only the bytes
+    // between PDP and audit differ.
+    if (call.registered.entityKind && call.registered.entityType && manifest) {
+      return this.dispatchEntityTool(call, manifest, resolvedInput);
+    }
+    return this.dispatchExtensionTool(call, manifest, resolvedInput);
+  }
+
+  /** Run an SDK entity CRUD handler inside one locked transaction. */
+  private async dispatchEntityTool(
+    call: DispatchCall,
+    manifest: NonNullable<ExtensionManifest>,
+    resolvedInput: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const { extensionId, registered, invocationGuard } = call;
+    const decl = manifest.entities?.find((e) => e.type === registered.entityType);
+    if (!decl) {
+      throw new Error(
+        `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
+      );
+    }
+    const scope = decl.scope ?? "user";
+    const scopeId = this.entityScopeId(scope, call.conversationId);
+    if (!scopeId) {
+      throw new Error(
+        `Cannot dispatch entity tool ${call.toolName}: no ${scope}-scope id available`,
+      );
+    }
+    const signal = call.opts?.signal;
+    const executeEntity = async (database: StorageDatabase) => {
+      signal?.throwIfAborted();
+      const store = createHostEntityStore({ extensionId, scope, scopeId, database });
+      const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
+      const result = await handler(resolvedInput);
+      signal?.throwIfAborted();
+      return result;
+    };
+    return getDb().transaction(async (transaction: DbTransaction) => {
+      await verifyInvocationLocks(transaction, invocationGuard);
+      const result = await executeEntity(transaction);
+      await verifyInvocationLocks(transaction, invocationGuard);
+      return result;
     });
+  }
+
+  /** Bind the host entity store to the acting scope. For "user", we use the
+   *  acting user (currentUserId). For "conversation", we use the conversation
+   *  id. "project" maps onto conversation per the host-store adapter (v1 has
+   *  no project tier). */
+  private entityScopeId(scope: string, conversationId: string): string | null {
+    return scope === "user" ? (this.currentUserId ?? null) : (conversationId ?? null);
+  }
+
+  /** Forward the call to the extension's subprocess or MCP client. */
+  private async dispatchExtensionTool(
+    call: DispatchCall,
+    manifest: ExtensionManifest,
+    resolvedInput: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const isMcp = manifest?.kind === "mcp";
+    const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(call.extensionId);
+
+    // Wire handlers if not already wired for this extension
+    if (proc) await this.ensureSubprocessRpcWired(call.extensionId, proc);
+
+    // Use originalName for RPC call to subprocess, not the namespaced name
+    const callArgs = withCallDepth(resolvedInput, call.opts?._callDepth);
+    const rpcMeta = await this.buildToolCallMeta(call, manifest);
+    // The provenance token is released the moment the forward call
+    // returns — all reverse-RPCs for it have necessarily completed by then.
+    try {
+      return await this.sendToolCall(call, isMcp ? undefined : proc, callArgs, rpcMeta);
+    } finally {
+      releaseCallProvenance(rpcMeta.ezCallId as string);
+    }
+  }
+
+  /** JSON-RPC `_meta` for one tool call. Registers the call's provenance
+   *  token; the caller must release `ezCallId`. */
+  private async buildToolCallMeta(call: DispatchCall, manifest: ExtensionManifest): Promise<Record<string, unknown>> {
+    // Propagate the acting-user id through the JSON-RPC `_meta`
+    // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
+    // and bundled extensions (like ai-kit) forward it as the
+    // X-Ezcorp-On-Behalf-Of header on any outbound call back into
+    // this server. This is the ONLY path by which the conversation
+    // owner's id reaches a tool handler — it is never part of the
+    // LLM-visible arguments (see bearer-auth.ts for the reason).
+    const meta: Record<string, unknown> = {};
+    if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
+    if (call.conversationId) Object.assign(meta, await conversationMeta(call.conversationId));
+    if (this.currentModel) meta.ezModel = this.currentModel;
+    if (this.currentProvider) meta.ezProvider = this.currentProvider;
+    // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
+    // use it to build clickable deep-links in tool responses. Safe
+    // to pass to every subprocess; non-URL-building tools ignore it.
+    const publicUrl = process.env.EZCORP_PUBLIC_URL;
+    if (publicUrl) meta.ezPublicUrl = publicUrl;
+    // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
+    // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
+    // surfaces it on the handler ctx.
+    const invocationMetadata = await this.withExtensionSettings(call, manifest);
+    if (invocationMetadata && Object.keys(invocationMetadata).length > 0) {
+      meta.invocationMetadata = invocationMetadata;
+    }
+    meta.ezCallId = this.registerToolCallProvenance(call, invocationMetadata);
+    const expectedReleaseBinding = call.serviceTargetBinding ?? call.opts?.expectedReleaseBinding;
+    if (expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = expectedReleaseBinding;
+    return meta;
+  }
+
+  /** Per-extension user/global settings (lazy-foraging-hammock): when the
+   *  manifest declares a `settings` schema, resolve the effective values for
+   *  the acting user and merge them under `invocationMetadata.settings`.
+   *  Caller-supplied settings win over resolved values (the host
+   *  orchestrator may pre-bind overrides at wire time); resolved values fill
+   *  the gaps. */
+  private async withExtensionSettings(
+    call: DispatchCall,
+    manifest: ExtensionManifest,
+  ): Promise<Record<string, unknown> | undefined> {
+    const { invocationMetadata } = call;
+    if (!manifest?.settings) return invocationMetadata;
+    // Pass the in-memory schema so the resolver skips the
+    // per-call `extensions.manifest` DB query — N+1 fix.
+    const resolved = await resolveExtensionSettings(
+      call.extensionId,
+      this.currentUserId ?? null,
+      manifest.settings,
+    );
+    const callerSettings = invocationMetadata?.settings as Record<string, unknown> | undefined;
+    return {
+      ...invocationMetadata,
+      settings: { ...resolved, ...(callerSettings ?? {}) },
+    };
+  }
+
+  /** Per-call reverse-RPC provenance. The subprocess echoes ONLY this
+   *  opaque, host-issued token back on its capability calls; the host
+   *  resolves the real {onBehalfOf, conversationId, runId, parentCallId}
+   *  from the registry — never from mutable singleton state. The snapshot
+   *  is taken from THIS call's values, so it stays correct under
+   *  concurrency and for long-running tools. */
+  private registerToolCallProvenance(
+    call: DispatchCall,
+    invocationMetadata: Record<string, unknown> | undefined,
+  ): string {
+    const { serviceInvocation } = call;
+    return registerCallProvenance({
+      onBehalfOf: this.currentUserId ?? null,
+      conversationId: call.conversationId ?? null,
+      ...provenanceLineage(invocationMetadata),
+      actorExtensionId: call.extensionId,
+      kind: "tool",
+      ownerless: !this.currentUserId && !serviceInvocation,
+      ...(serviceInvocation ? serviceProvenance(serviceInvocation, call.invocationGuard) : {}),
+    });
+  }
+
+  /** Check abort and the invocation guard, then make the transport call.
+   *  `proc` is undefined for an MCP extension. */
+  private async sendToolCall(
+    call: DispatchCall,
+    proc: ExtensionProcess | undefined,
+    callArgs: Record<string, unknown>,
+    rpcMeta: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const { extensionId, originalName, invocationGuard } = call;
+    const signal = call.opts?.signal;
+    signal?.throwIfAborted();
+    if (invocationGuard) await invocationGuard();
+    signal?.throwIfAborted();
+    const { controlOptions, callOptions } = toolCallTransportOptions(signal, invocationGuard, this.skipsCallTimeout(call));
+    if (!proc) {
+      const client = await this.registry.getMcpClient(extensionId);
+      return client.callTool(originalName, callArgs, rpcMeta, ...(controlOptions ? [controlOptions] : []));
+    }
+    return callOptions
+      ? proc.callTool(originalName, callArgs, rpcMeta, callOptions)
+      : proc.callTool(originalName, callArgs, rpcMeta);
+  }
+
+  /** Long-blocking exemption from the flat per-call subprocess RPC timeout
+   *  (subprocess.ts kills the process on any call exceeding callTimeoutMs,
+   *  default 30s). Two host-controlled cases opt out:
+   *    1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
+   *       user.
+   *    2. A BUNDLED orchestration tool that legitimately awaits async events
+   *       (invoke_agent / collect_agent_result — see
+   *       LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
+   *       the SHARED orchestration subprocess, dropping every backgroundSpawn
+   *       + in-flight invoke across all conversations.
+   *  Gated on `registry.isBundled` so a third-party manifest cannot self-grant
+   *  supervision evasion (the bare-name set is host-produced; see filter.ts).
+   *  Unbounded here (not a raised finite cap) because the activity-sliding
+   *  give-up deadline + configurable maxCycles exceed any fixed cap; the tool
+   *  self-bounds via its own reap/gate, and the parent-run watchdog provides
+   *  the run-level bound (bounded for collect; agent:* liveness for invoke). */
+  private skipsCallTimeout(call: DispatchCall): boolean {
+    return call.registered.requiresUserInput === true ||
+      (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(call.originalName) &&
+        this.registry.isBundled?.(call.extensionId) === true);
   }
 
   /** Legacy `ezcorp/fs` path-check shim — see {@link fsHandlePiFs}. */
@@ -1191,7 +1260,6 @@ export class ToolExecutor {
       bus: this.bus,
       executor: this.executor,
       spawnQuota: this.spawnQuota,
-      scheduleDaemon: this.scheduleDaemon,
       currentModel: this.currentModel,
       currentProvider: this.currentProvider,
       currentUserId: this.currentUserId,

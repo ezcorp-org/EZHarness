@@ -160,4 +160,68 @@ describe("TaskPanel", () => {
 		expect(screen.getByText(/Retry/)).not.toHaveTextContent("Retrying");
 		errorSpy.mockRestore();
 	});
+
+	test("tells the user why a start was refused and why a retry or stop could not be sent", async () => {
+		const { toastStore } = await import("$lib/toast.svelte.js");
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+			if (url.includes("/start")) return new Response(JSON.stringify({ error: "agent offline" }), { status: 409 });
+			throw new Error("network down");
+		}));
+		const snapshot = { conversationId: "conv-1", tasks: [
+			task({ id: "failed", title: "Failed", status: "failed" }),
+			task({ id: "assigned", title: "Assigned", assignments: [{ id: "start", agentConfigId: "a", agentName: "Starter", isTeam: false, status: "assigned" }] }),
+			task({ id: "running", title: "Running", status: "active", assignments: [{ id: "stop", agentConfigId: "a", agentName: "Runner", isTeam: false, status: "running" }] }),
+		] } as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1" });
+		await fireEvent.click(screen.getByText(/Retry/));
+		await fireEvent.click(screen.getByTitle("Start assignment"));
+		await fireEvent.click(screen.getByTitle("Stop assignment (preserves context for resume)"));
+
+		await waitFor(() => expect(toastStore.toasts.map((t) => t.message)).toEqual(expect.arrayContaining([
+			"Failed to retry task",
+			"Failed to start assignment: agent offline",
+			"Failed to stop assignment",
+		])));
+		expect(screen.getByTitle("Start assignment")).not.toBeDisabled();
+		errorSpy.mockRestore();
+	});
+
+	test("clicking an assigned pending task opens its detail instead of sending it to chat", async () => {
+		const ontaskclick = vi.fn();
+		const onsendmessage = vi.fn();
+		const snapshot = { conversationId: "conv-1", tasks: [
+			task({ id: "t", title: "Owned task", assignments: [{ id: "as", agentConfigId: "a", agentName: "Owner", isTeam: false, status: "assigned" }] }),
+		] } as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1", ontaskclick, onsendmessage });
+		await fireEvent.click(screen.getByText("Owned task"));
+		expect(ontaskclick).toHaveBeenCalledWith(expect.objectContaining({ id: "t" }));
+		expect(onsendmessage).not.toHaveBeenCalled();
+	});
+
+	test("the assign button toggles the assignment picker", async () => {
+		vi.stubGlobal("fetch", vi.fn(async () => new Response("[]", { status: 200 })));
+		const snapshot = { conversationId: "conv-1", tasks: [task({ id: "t", title: "Unowned" })] } as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1" });
+		const open = screen.getByTestId("open-assignment-picker");
+
+		await fireEvent.click(open);
+		expect(open).toHaveClass("opacity-100");
+		await fireEvent.click(open);
+		expect(open).not.toHaveClass("opacity-100");
+	});
+
+	test("a completed subtask shows a check, and a failed task without a failure time shows no timer", async () => {
+		const snapshot = { conversationId: "conv-1", tasks: [
+			task({ id: "t", title: "Parent", subtasks: [{ id: "s1", title: "Done step", completed: true }] }),
+			task({ id: "f", title: "Broke", status: "failed", startedAt: "2026-01-01T00:00:00.000Z" }),
+		] } as any;
+		render(TaskPanel, { snapshot, conversationId: "conv-1" });
+		await fireEvent.click(screen.getByRole("button", { name: "Toggle subtasks" }));
+		const step = screen.getByText("Done step");
+		expect(step.parentElement!.querySelector("svg")).not.toBeNull();
+		const failedRow = document.querySelector('[data-task-id="f"]')!;
+		expect(failedRow.textContent).not.toMatch(/\d+s\b/);
+	});
 });
+

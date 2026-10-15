@@ -184,7 +184,9 @@ describe("collectPromptToolRows (DB)", () => {
     await closeTestDb();
   });
 
-  const T0 = new Date("2026-06-01T10:00:00Z");
+  // Relative to now: the query's window is NOW()-based, so a fixed date
+  // would fall out of the 365-day window a year after it was written.
+  const T0 = new Date(Date.now() - 30 * 24 * 60 * 60_000);
   const at = (mins: number) => new Date(T0.getTime() + mins * 60_000);
 
   async function seedConversation(id: string): Promise<void> {
@@ -242,6 +244,15 @@ describe("collectPromptToolRows (DB)", () => {
     await seedCall("c1", "ancient__tool", new Date("2020-01-01T00:00:00Z"));
 
     expect(await collectPromptToolRows(365)).toEqual([]);
+  });
+
+  test("a fractional day window is accepted and covers whole days", async () => {
+    await seedConversation("c1");
+    await seedMessage("m1", "c1", "user", "scan my repository please", new Date(Date.now() - 60 * 60_000));
+    await seedCall("c1", "analyzer__scan", new Date(Date.now() - 30 * 60_000));
+    expect(await collectPromptToolRows(1.5)).toEqual([
+      { messageId: "m1", prompt: "scan my repository please", toolName: "analyzer__scan" },
+    ]);
   });
 
   test("assistant-only conversations produce no pairs (LATERAL finds no user turn)", async () => {

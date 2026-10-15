@@ -1,20 +1,21 @@
 import { beforeEach, expect, test, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn(), getExtension: vi.fn(), getExtensionsByIds: vi.fn(), getReleaseNamesByInstallationIds: vi.fn() }));
+const mocks = vi.hoisted(() => ({ list: vi.fn(), inspect: vi.fn(), readWorkspace: vi.fn(), listProjects: vi.fn(), getExtensionProjectBinding: vi.fn(), checkProjectRole: vi.fn(), getExtension: vi.fn(), getExtensionsByIds: vi.fn(), getReleaseNamesByInstallationIds: vi.fn(), approvalProcessSpawn: vi.fn(), runner: { id: "runner" } }));
 vi.mock("$lib/server/extensions/control-actor", () => ({ resolveControlActor: async (user: { id: string }, kind: string) => ({ principalId: user.id, scope: "global", kind }) }));
 vi.mock("$server/db/queries/projects", () => mocks);
 vi.mock("$server/db/queries/extensions", () => mocks);
 vi.mock("$server/db/queries/extension-releases", () => mocks);
 vi.mock("$server/extensions/project-binding", () => mocks);
 vi.mock("$server/auth/middleware", () => ({ checkProjectRole: mocks.checkProjectRole, requireAuth: (locals: { user?: { id: string } }) => { if (!locals.user) throw new Response("Unauthorized", { status: 401 }); return locals.user; } }));
-vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => mocks }));
+vi.mock("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => mocks, getExtensionRunner: async () => mocks.runner }));
+vi.mock("$server/extensions/process-spawn-policy", () => ({ approvalProcessSpawn: mocks.approvalProcessSpawn }));
 import { load } from "../routes/(app)/extensions/author/+page.server";
 
 function event(query = "", authenticated = true) {
   return { url: new URL(`http://localhost/extensions/author${query}`), locals: { user: authenticated ? { id: "owner", role: "admin" } : undefined, authMethod: "session" } } as Parameters<typeof load>[0];
 }
 
-beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); mocks.getExtension.mockResolvedValue(null); mocks.getExtensionsByIds.mockResolvedValue(new Map()); mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map()); });
+beforeEach(() => { vi.clearAllMocks(); mocks.list.mockResolvedValue([]); mocks.listProjects.mockResolvedValue([]); mocks.getExtensionProjectBinding.mockResolvedValue(null); mocks.getExtension.mockResolvedValue(null); mocks.getExtensionsByIds.mockResolvedValue(new Map()); mocks.getReleaseNamesByInstallationIds.mockResolvedValue(new Map()); mocks.approvalProcessSpawn.mockResolvedValue({}); });
 
 test("requires authentication before listing workspaces", async () => {
   await expect(load(event("", false))).rejects.toMatchObject({ status: 401 });
@@ -114,4 +115,12 @@ test("a selected installation carries the name the heading already resolved", as
   mocks.inspect.mockResolvedValue({ installation: { id: "installation", ownerId: "owner", activeReleaseId: "release" }, workspaces: {}, releases: { release } });
   expect(await load(event("?installation=installation"))).toMatchObject({ installations: [{ id: "installation", name: "memory-extractor" }] });
   expect(mocks.getReleaseNamesByInstallationIds).not.toHaveBeenCalled();
+});
+
+test("each approval carries the host's process verdict for its release, so the card's MCP line is true", async () => {
+  const inspected = { installation: { id: "installation" }, workspaces: {}, releases: {}, approvals: { approval: { id: "approval" } } };
+  mocks.inspect.mockResolvedValue(inspected);
+  mocks.approvalProcessSpawn.mockResolvedValue({ approval: "deny" });
+  expect(await load(event("?installation=installation"))).toMatchObject({ state: { approvals: { approval: { id: "approval" } }, approvalProcessSpawn: { approval: "deny" } } });
+  expect(mocks.approvalProcessSpawn).toHaveBeenCalledWith(mocks.runner, inspected);
 });

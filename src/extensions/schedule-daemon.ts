@@ -170,6 +170,17 @@ function envelopeFrom(
   return fallback;
 }
 
+/** The daemon started in this process (set by `start`, cleared by `stop`). */
+let activeDaemon: ScheduleDaemon | undefined;
+
+/**
+ * The running daemon, for `ctx.schedule.fireNow()`. The reverse-RPC
+ * handler has no other path to it: background-timers owns the instance.
+ */
+export function getActiveScheduleDaemon(): ScheduleDaemon | undefined {
+  return activeDaemon;
+}
+
 export class ScheduleDaemon {
   private readonly opts: Required<Omit<ScheduleDaemonOptions, "registry" | "now" | "skipLockfile" | "lockfilePath" | "random">> & {
     now: () => Date;
@@ -272,12 +283,14 @@ export class ScheduleDaemon {
     if (typeof this.timer === "object" && "unref" in this.timer) {
       (this.timer as unknown as { unref: () => void }).unref();
     }
+    activeDaemon = this;
     return true;
   }
 
   stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    if (activeDaemon === this) activeDaemon = undefined;
     if (this.lockfileOwned) {
       void releaseLockfile(this.opts.lockfilePath).catch(() => {});
       this.lockfileOwned = false;

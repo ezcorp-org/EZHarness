@@ -20,8 +20,9 @@ import { FileOrganizerDaemon, DEFAULT_SETTINGS, mergeFileOrganizerSettings, type
 import { getGithubProjectsDaemon, reconcileOrphanedProposals } from "../integrations/github-projects/daemon";
 import type { GithubProjectsDaemon } from "../integrations/github-projects/daemon";
 import { PreviewPortWatcher } from "../runtime/preview/preview-port-watcher";
-import { NetnsPortSource, ProcPortSource } from "../runtime/preview/preview-port-source";
-import { previewCapabilities } from "../runtime/preview/preview-netns";
+import { ProcPortSource } from "../runtime/preview/preview-port-source";
+import { previewCapabilities } from "../runtime/preview/preview-capabilities";
+import { flushLlmQuota } from "../extensions/llm-quota";
 import { enforceDataDirLockdown } from "../runtime/preview/preview-uid-pool";
 import { onPreviewDetected } from "../runtime/preview/preview-detection-bridge";
 import { getRegisteredPreviewBus } from "../runtime/preview/preview-bus-registry";
@@ -471,42 +472,42 @@ export async function startBackgroundTimers(): Promise<void> {
     githubProjectsDaemon = undefined;
   }
 
-  // Phase 2 (Secure Preview): PreviewPortWatcher — auto-detection of dev
-  // servers that start LISTENing inside a conversation's netns. Sibling to
-  // the daemons above (lockfile, kill switch, interval). The enumeration
-  // source is the capability-gated NetnsPortSource: on a host where dynamic
-  // previews are fail-closed (D2 — the default posture today) it yields
-  // nothing, so the watcher is a logged no-op. `onDetected` routes each
-  // requester-scoped detection through decideOnDetection (always-expose
-  // pref → auto-expose, else surface a consent card). Same fail-safe
-  // contract as HostMaintenanceDaemon/EmbedWorker: log + drop the handle on
-  // a failed start; never block boot. Gated by
-  // EZCORP_DISABLE_PREVIEW_WATCHER=1 (handled inside start()).
-  //
-  // Phase 3a — make dynamic previews RUN. Two boot steps:
-  //   1. KEYSTONE: chmod .ezcorp/data to 0700 so a preview uid (a distinct
-  //      uid with no supplementary groups) can never read the PGlite DB /
-  //      encrypted JWT secret. If this fails we still start the watcher but
-  //      the uid-mode source will be fail-closed by capability detection.
-  //   2. Pick the enumeration SOURCE by capability mode:
-  //        - mode 'uid'   → ProcPortSource (reads /proc/net/tcp{,6}, maps
-  //                         the uid column → conversation via the uid pool),
-  //        - mode 'netns' → NetnsPortSource (hardened; unavailable here),
-  //        - mode 'static'→ NetnsPortSource (yields nothing — logged no-op).
-  //
-  // onDetected routes each requester-scoped detection through
-  // onPreviewDetected, which runs the consent decision (always-expose →
-  // auto-expose, else a consent card) and PUSHES it onto the LIVE
-  // conversation SSE stream via the registered bus (preview-bus-registry —
-  // the web layer registers getBus() at init). Until a bus is registered it
-  // is a logged no-op (fail-safe).
-  //
-  // SEAM (reported): no conversation calls `previewPortWatcher.watch(conv,
-  // user)` from here — that registration is driven by shell/dev-server tool
-  // use in the run loop, plus the spawn-as-preview-uid hook. Those are the
-  // remaining integration points (see preview-spawn-orchestration.ts + the
-  // SUMMARY). The watcher + source + bridge are fully wired and tested; the
-  // per-conversation watch()/spawn trigger is the marked seam.
+  await startPreviewPortWatcher();
+
+  // Surface coverage audit (opt-in via global:auditIntervalHours,
+  // default 0 = disabled — audits make LLM calls so we don't surprise
+  // users with cost. On-demand runs via the surface-audit agent always
+  // work regardless of this setting.)
+  try {
+    const intervalHours = ((await getSetting("global:auditIntervalHours")) as number) ?? 0;
+    if (intervalHours > 0) {
+      const intervalMs = intervalHours * 60 * 60 * 1000;
+      intervals.push(setInterval(() => {
+        runScheduledSurfaceAudit().catch((e: unknown) => {
+          log.error("Surface audit error", { error: String(e) });
+        });
+      }, intervalMs));
+      log.info("Surface audit started", { intervalHours });
+    }
+  } catch (e) {
+    log.warn("Failed to start surface audit timer", { error: String(e) });
+  }
+}
+
+/**
+ * Secure previews: start the PreviewPortWatcher, which detects dev servers
+ * that a conversation's preview uid starts LISTENing on and routes each
+ * requester-scoped detection to the consent bridge (always-expose →
+ * auto-expose, else a consent card on the live conversation stream).
+ *
+ * Boot steps: (1) KEYSTONE — chmod .ezcorp/data to 0700 so a preview uid can
+ * never read the PGlite DB / JWT secret; (2) in uid mode, watch through
+ * ProcPortSource (/proc/net/tcp uid column → conversation). Static mode has
+ * no dynamic previews, so the watcher does not start. Fail-safe like the
+ * other daemons: log + drop the handle on a failed start; never block boot.
+ * Gated by EZCORP_DISABLE_PREVIEW_WATCHER=1 (handled inside start()).
+ */
+async function startPreviewPortWatcher(): Promise<void> {
   try {
     const caps = previewCapabilities();
     const lockdown = enforceDataDirLockdown();
@@ -516,11 +517,19 @@ export async function startBackgroundTimers(): Promise<void> {
         reason: lockdown.reason,
       });
     }
-    const source: PreviewPortSource =
-      caps.mode === "uid" ? new ProcPortSource() : new NetnsPortSource();
+    if (!caps.dynamic) {
+      // Static mode: no dev servers run as preview uids, so there is nothing
+      // to detect. The shell tool tells the user why no link appears.
+      log.info("PreviewPortWatcher not started: dynamic previews unavailable", {
+        mode: caps.mode,
+        reason: caps.reason,
+      });
+      return;
+    }
+    const source: PreviewPortSource = new ProcPortSource();
     log.info("PreviewPortWatcher source selected by capability mode", {
       mode: caps.mode,
-      source: caps.mode === "uid" ? "ProcPortSource" : "NetnsPortSource",
+      source: "ProcPortSource",
       dataDirLocked: lockdown.ok,
     });
     // Idle reaping (Phase 3b): a conversation whose dev server has gone quiet
@@ -566,25 +575,6 @@ export async function startBackgroundTimers(): Promise<void> {
   } catch (e) {
     log.warn("Failed to start PreviewPortWatcher", { error: String(e) });
     previewPortWatcher = undefined;
-  }
-
-  // Surface coverage audit (opt-in via global:auditIntervalHours,
-  // default 0 = disabled — audits make LLM calls so we don't surprise
-  // users with cost. On-demand runs via the surface-audit agent always
-  // work regardless of this setting.)
-  try {
-    const intervalHours = ((await getSetting("global:auditIntervalHours")) as number) ?? 0;
-    if (intervalHours > 0) {
-      const intervalMs = intervalHours * 60 * 60 * 1000;
-      intervals.push(setInterval(() => {
-        runScheduledSurfaceAudit().catch((e: unknown) => {
-          log.error("Surface audit error", { error: String(e) });
-        });
-      }, intervalMs));
-      log.info("Surface audit started", { intervalHours });
-    }
-  } catch (e) {
-    log.warn("Failed to start surface audit timer", { error: String(e) });
   }
 }
 
@@ -808,6 +798,10 @@ export async function stopBackgroundTimers(): Promise<void> {
   }
   disposers.length = 0;
 
+  // Save extension LLM usage before the DB closes. The quota flushes every
+  // 60 s; without this a restart forgets up to a minute of calls. flush()
+  // logs and skips a failed row itself, so it never throws.
+  await flushLlmQuota();
 }
 
 /** Test-only: reset the singleton flag so tests can re-invoke. */

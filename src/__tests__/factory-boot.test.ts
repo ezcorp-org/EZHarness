@@ -210,29 +210,6 @@ describe("factory boot flag and readiness", () => {
     }
   });
 
-  test("a factory MCP request fails before the degraded no-context spawn path", async () => {
-    const root = await mkdtemp(join(tmpdir(), "factory-mcp-"));
-    const marker = join(root, "spawned");
-    try {
-      const child = await runFactoryChild(
-        `const { buildSandboxedMcpSpec } = await import('./src/extensions/mcp-sandbox.ts');
-         try {
-           const result = await buildSandboxedMcpSpec({ transport: 'stdio', name: 'probe', command: 'touch', args: [${JSON.stringify(marker)}] }, { schemaVersion: 2, name: 'probe', version: '1.0.0', description: '', author: { name: 'test' }, permissions: {} }, { grantedAt: {} }, 'probe');
-           const process = Bun.spawn([result.spec.command, ...(result.spec.args ?? [])], { env: result.spec.env });
-           await process.exited;
-           process.exit(1);
-         } catch (error) {
-           if (!(error instanceof Error) || !error.message.includes('EZCORP_MCP_REQUIRE_SANDBOX=1')) process.exit(1);
-         }`,
-        { EZCORP_FACTORY_ENABLED: "1" },
-      );
-      expect(child.exitCode).toBe(0);
-      expect(existsSync(marker)).toBe(false);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
-
   test("factory JWT issuance cannot fall back to a secret-derived installation ID", async () => {
     const child = await runFactoryChild(
       `const { signJWT } = await import('./src/auth/jwt.ts');

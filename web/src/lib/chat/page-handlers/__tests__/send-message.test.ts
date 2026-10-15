@@ -1623,3 +1623,122 @@ describe("handleRerun (re-send a user turn unchanged)", () => {
 		expect(state.error).toBe("Failed to re-run prompt");
 	});
 });
+
+// ── Failure and no-run edges ─────────────────────────────────────────────
+
+describe("handleSend / sub-conversation failure and no-run edges", () => {
+	const SUB = {
+		id: "sub-1",
+		agentConfigId: "ac-1",
+		agentName: "researcher",
+		parentConversationId: "conv-1",
+		parentMessageId: "u-anchor",
+	};
+
+	test("`/login openai` reports a failed OAuth start", async () => {
+		startOAuthFlowMock.mockRejectedValueOnce(new Error("popup blocked"));
+		const { host, state } = makeHost();
+		await makeSendMessage(host).handleSend("/login openai");
+		expect(state.systemMessages).toEqual(["Failed to start OAuth: popup blocked"]);
+		expect(state.chatOAuthPending).toBeNull();
+	});
+
+	test("`/model` reports a failed model list fetch", async () => {
+		fetchMock.mockRejectedValueOnce(new Error("offline"));
+		const { host, state } = makeHost();
+		await makeSendMessage(host).handleSend("/model");
+		expect(state.systemMessages).toEqual(["Failed to fetch available models."]);
+	});
+
+	test("`/model gpt-4o` reports a failed validation fetch", async () => {
+		fetchMock.mockRejectedValueOnce(new Error("offline"));
+		const { host, state } = makeHost();
+		await makeSendMessage(host).handleSend("/model gpt-4o");
+		expect(state.systemMessages).toEqual(["Failed to fetch models for validation."]);
+		expect(state.handleModelChangeCalls).toEqual([]);
+	});
+
+	test("`/model gpt-4o` switches when exactly one provider serves that model", async () => {
+		fetchMock.mockImplementationOnce(async () =>
+			new Response(JSON.stringify([
+				{ provider: "openai", model: "gpt-4o", available: true },
+				{ provider: "anthropic", model: "claude-4", available: true },
+			]), { status: 200, headers: { "Content-Type": "application/json" } }),
+		);
+		const { host, state } = makeHost();
+		await makeSendMessage(host).handleSend("/model gpt-4o");
+		expect(state.handleModelChangeCalls).toEqual([{ provider: "openai", model: "gpt-4o" }]);
+	});
+
+	test("an action-only send (no run) anchors the leaf on the last action result", async () => {
+		sendMessageMock.mockResolvedValueOnce({
+			userMessage: makeMessage("real-user-id", { content: "![EZ:clear]" }),
+			runId: null as unknown as string,
+			ezActionResults: [{ id: "ez-1", role: "ez-action-result", content: "{}" }],
+		} as never);
+		const { host, state } = makeHost({ activeRunId: "stale-run" });
+		await makeSendMessage(host).handleSend("![EZ:clear]");
+		expect(state.activeLeafId).toBe("ez-1");
+		expect(state.activeRunId).toBeNull();
+		expect(startStreamingMock).not.toHaveBeenCalled();
+	});
+
+	test("a failed regenerate sets the error banner", async () => {
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		sendMessageMock.mockRejectedValueOnce(new Error("boom"));
+		const u1 = makeMessage("u1", { role: "user", content: "Q" });
+		const a1 = makeMessage("a1", { role: "assistant", content: "A" });
+		const { host, state } = makeHost({ allMessages: [u1, a1], activeLeafId: "a1" });
+		await makeSendMessage(host).handleRegenerate(a1);
+		expect(state.error).toBe("Failed to regenerate response");
+		err.mockRestore();
+	});
+
+	test("a sub-conversation send with no run stops the spinner without streaming", async () => {
+		subConversationStoreState.active = { ...SUB };
+		sendMessageMock.mockResolvedValueOnce({
+			userMessage: makeMessage("x"),
+			runId: null as unknown as string,
+		});
+		const { host } = makeHost();
+		await makeSendMessage(host).handleSubConvoSend("hi");
+		expect(subConversationStoreState.streaming).toBe(false);
+		expect(startStreamingMock).not.toHaveBeenCalled();
+	});
+
+	test("a failed sub-conversation send stops the spinner", async () => {
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		subConversationStoreState.active = { ...SUB };
+		sendMessageMock.mockRejectedValueOnce(new Error("down"));
+		const { host } = makeHost();
+		await makeSendMessage(host).handleSubConvoSend("hi");
+		expect(subConversationStoreState.streaming).toBe(false);
+		expect(err).toHaveBeenCalledWith("Sub-convo send failed:", expect.any(Error));
+		err.mockRestore();
+	});
+
+	test("a failed summary post on return is logged and the sub-conversation still ends", async () => {
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		subConversationStoreState.active = { ...SUB };
+		subConversationStoreState.messages = [{ id: "x", role: "assistant", content: "answer", createdAt: new Date() }];
+		sendMessageMock.mockRejectedValueOnce(new Error("down"));
+		const { host, state } = makeHost();
+		await makeSendMessage(host).handleSubConvoReturn();
+		expect(subConversationStoreState.endCalls).toBe(1);
+		expect(state.loadMessagesCalls).toBe(0);
+		expect(err).toHaveBeenCalledWith("Failed to insert sub-convo summary:", expect.any(Error));
+		err.mockRestore();
+	});
+
+	test("a failed sub-conversation start is logged and nothing is registered", async () => {
+		const err = vi.spyOn(console, "error").mockImplementation(() => {});
+		subConversationStoreState.active = null;
+		createSubConversationMock.mockRejectedValueOnce(new Error("down"));
+		const { host, state } = makeHost();
+		await makeSendMessage(host).startSubConvo({ name: "qa-bot" }, "u-1");
+		expect(state.subConversations).toEqual([]);
+		expect(subConversationStoreState.startCalls).toEqual([]);
+		expect(err).toHaveBeenCalledWith("Failed to start sub-conversation:", expect.any(Error));
+		err.mockRestore();
+	});
+});

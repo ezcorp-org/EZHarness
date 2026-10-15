@@ -581,6 +581,37 @@
     "web/src/lib/components/ConversationList.svelte",
     "web/src/routes/(app)/+layout.svelte",
     "web/src/routes/(app)/project/[id]/chat/+page.svelte",
-    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte"
+    "web/src/routes/(app)/project/[id]/chat/[convId]/+page.svelte",
+    "web/src/routes/+layout.svelte"
+  ],
+  "web/e2e/extension-author-approval-grants.spec.ts": [
+    "web/src/routes/(app)/extensions/author/+page.svelte"
+  ],
+  "web/e2e/panel-chat-mentions.spec.ts": [
+    "web/src/lib/components/PanelChatInput.svelte",
+    "web/src/lib/components/TeamChatPanel.svelte",
+    "web/src/lib/components/MentionPopover.svelte"
+  ],
+  "web/e2e/composer-ime-enter.spec.ts": [
+    "web/src/lib/components/ChatInput.svelte",
+    "web/src/lib/components/ChatThread.svelte",
+    "web/src/lib/components/ez/EzPanel.svelte"
+  ],
+  "web/e2e/provider-oauth-paste.spec.ts": [
+    "web/src/lib/components/ProviderSettings.svelte"
+  ],
+  "web/e2e/agent-detail-actions.spec.ts": [
+    "web/src/routes/(app)/agents/[name]/+page.svelte",
+    "web/src/lib/components/TeamBuilderForm.svelte"
+  ],
+  "web/e2e/extensions-library-edges.spec.ts": [
+    "web/src/routes/(app)/extensions/+page.svelte"
+  ],
+  "web/e2e/extension-detail-edges.spec.ts": [
+    "web/src/routes/(app)/extensions/[id]/+page.svelte",
+    "web/src/lib/components/extensions/UninstallDialog.svelte"
+  ],
+  "web/e2e/admin-dashboard-edges.spec.ts": [
+    "web/src/routes/(app)/admin/dashboard/+page.svelte"
   ]
 }

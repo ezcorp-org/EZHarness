@@ -102,26 +102,6 @@ export async function addConversationExtensions(
 }
 
 /**
- * Copy the `conversation_extensions` rows from one conversation to
- * another. Used by Phase 2d's `ezcorp/spawn-assignment` so a freshly
- * created sub-conversation inherits the parent's extension set — the
- * spawning extension (and its wired siblings) are automatically
- * observable on the child with no per-spawn opt-in. Idempotent via
- * the existing UNIQUE(conversation_id, extension_id) constraint.
- */
-export async function copyConversationExtensions(
-  fromConversationId: string,
-  toConversationId: string,
-): Promise<void> {
-  const ids = await getConversationExtensionIds(fromConversationId);
-  if (ids.length === 0) return;
-  await addConversationExtensions(
-    toConversationId,
-    ids.map((extensionId) => ({ extensionId })),
-  );
-}
-
-/**
  * Union of `acceptedAttachmentMimes` across every extension wired into
  * the conversation. Used by the upload route + `/api/models/capabilities`
  * to extend the file picker's allowlist with extension-declared MIMEs.

@@ -592,7 +592,7 @@ describe("permissions (supplemental)", () => {
       expect(shellItems).toHaveLength(1);
       const shell0 = at(shellItems, 0, "shellItems");
       expect(shell0.value).toBe(true);
-      expect(shell0.description).toBe("Execute shell commands");
+      expect(shell0.description).toBe("Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)");
 
       const envItems = items.filter((i) => i.type === "env");
       expect(envItems).toHaveLength(2);

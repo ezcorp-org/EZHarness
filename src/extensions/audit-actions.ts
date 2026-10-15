@@ -298,6 +298,9 @@ export const EXT_AUDIT_ACTIONS = {
    */
   BUNDLED_DRIFT_REAPPROVED: "ext:bundled:drift-reapproved",
   // ── Phase 7: MCP isolation (forward proxy + Linux netns) ──
+  // Historical: since #246 MCP servers run in the extension runner, and
+  // the host MCP sandbox that wrote the MCP_* rows below is deleted. The
+  // codes stay so existing audit rows keep their labels.
   /**
    * `mcp-sandbox.ts` successfully started an MCP process inside a
    * fresh user+net+mount namespace. One row per MCP-extension start.

@@ -26,7 +26,7 @@ beforeEach(() => {
 
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { existsSync, rmSync } from "node:fs";
+import { existsSync, } from "node:fs";
 
 // Mock DB and security modules so tool-executor and registry don't hit real DB
 mock.module("../db/connection", () => ({
@@ -68,12 +68,7 @@ import {
 } from "../extensions/call-provenance";
 import * as cancelRunHandlerModule from "../extensions/cancel-run-handler";
 
-import {
-  buildAllowedEnv,
-  cleanupExtTmpDir,
-  ExtensionRegistry,
-  type RegisteredTool,
-} from "../extensions/registry";
+import { cleanupExtTmpDir, ExtensionRegistry, type RegisteredTool } from "../extensions/registry";
 import type { ExtensionManifestV2, ExtensionPermissions, JsonRpcRequest, ToolCallResult } from "../extensions/types";
 import {
   ToolExecutor,
@@ -181,157 +176,6 @@ function makeMockRegistry(opts: {
 // 1. buildAllowedEnv (pure function from registry.ts)
 // ════════════════════════════════════════════════════════════════════
 
-describe("buildAllowedEnv", () => {
-  test("includes PATH, HOME, NODE_ENV, and per-extension TMPDIR", () => {
-    const manifest = makeManifest({ permissions: {} });
-    const granted: ExtensionPermissions = { grantedAt: {} };
-
-    const env = buildAllowedEnv(manifest, granted, "ext-1");
-
-    expect(env.PATH).toBe(process.env.PATH ?? "");
-    expect(env.HOME).toBe(process.env.HOME ?? "");
-    expect(env.NODE_ENV).toBeDefined();
-    expect(env.TMPDIR).toBe(join(tmpdir(), "ezcorp-ext", "ext-1"));
-  });
-
-  test("creates the TMPDIR directory", () => {
-    const extId = `buildenv-test-${Date.now()}`;
-    const manifest = makeManifest({ permissions: {} });
-    const granted: ExtensionPermissions = { grantedAt: {} };
-
-    buildAllowedEnv(manifest, granted, extId);
-
-    const tmpPath = join(tmpdir(), "ezcorp-ext", extId);
-    expect(existsSync(tmpPath)).toBe(true);
-
-    // Cleanup
-    rmSync(tmpPath, { recursive: true, force: true });
-  });
-
-  test("adds manifest env vars only when present in BOTH manifest and granted", () => {
-    const manifest = makeManifest({
-      permissions: { env: ["API_KEY", "SECRET_TOKEN", "UNUSED_VAR"] },
-    });
-    const granted: ExtensionPermissions = {
-      env: ["API_KEY", "SECRET_TOKEN"],
-      grantedAt: {},
-    };
-
-    // Set env vars for the test
-    const origApiKey = process.env.API_KEY;
-    const origSecret = process.env.SECRET_TOKEN;
-    process.env.API_KEY = "test-key";
-    process.env.SECRET_TOKEN = "test-secret";
-
-    try {
-      const env = buildAllowedEnv(manifest, granted, "ext-env-test");
-
-      expect(env.API_KEY).toBe("test-key");
-      expect(env.SECRET_TOKEN).toBe("test-secret");
-      // UNUSED_VAR is in manifest but not in granted
-      expect(env.UNUSED_VAR).toBeUndefined();
-    } finally {
-      if (origApiKey === undefined) delete process.env.API_KEY;
-      else process.env.API_KEY = origApiKey;
-      if (origSecret === undefined) delete process.env.SECRET_TOKEN;
-      else process.env.SECRET_TOKEN = origSecret;
-    }
-  });
-
-  test("does not add env var if not set in process.env", () => {
-    const manifest = makeManifest({
-      permissions: { env: ["NONEXISTENT_VAR_12345"] },
-    });
-    const granted: ExtensionPermissions = {
-      env: ["NONEXISTENT_VAR_12345"],
-      grantedAt: {},
-    };
-
-    delete process.env.NONEXISTENT_VAR_12345;
-    const env = buildAllowedEnv(manifest, granted, "ext-missing-env");
-    expect(env.NONEXISTENT_VAR_12345).toBeUndefined();
-  });
-
-  test("does not leak any process.env vars beyond the allowed set", () => {
-    const manifest = makeManifest({ permissions: {} });
-    const granted: ExtensionPermissions = { grantedAt: {} };
-
-    const env = buildAllowedEnv(manifest, granted, "ext-leak-test");
-
-    const keys = Object.keys(env);
-    expect(keys).toEqual(
-      expect.arrayContaining([
-        "PATH",
-        "HOME",
-        "NODE_ENV",
-        "TMPDIR",
-        "EZCORP_PROJECT_ROOT",
-        "EZCORP_EXTENSION_DATA_ROOT",
-      ]),
-    );
-    // Phase post-perm-cleanup: registry injects EZCORP_PROJECT_ROOT
-    // unconditionally (when a `.git` ancestor is found, true under the test
-    // runner); the file-organizer change (registry.ts:135) ALSO injects
-    // EZCORP_EXTENSION_DATA_ROOT unconditionally (getProjectRoot never throws).
-    // PATH + HOME + NODE_ENV + TMPDIR + EZCORP_PROJECT_ROOT + EZCORP_EXTENSION_DATA_ROOT = 6.
-    expect(keys.length).toBe(6);
-  });
-
-  test("handles empty permissions on both manifest and granted", () => {
-    const manifest = makeManifest({ permissions: {} });
-    const granted: ExtensionPermissions = { grantedAt: {} };
-
-    const env = buildAllowedEnv(manifest, granted, "ext-empty");
-    // PATH, HOME, NODE_ENV, TMPDIR, EZCORP_PROJECT_ROOT, EZCORP_EXTENSION_DATA_ROOT
-    expect(Object.keys(env).length).toBe(6);
-  });
-
-  test("handles manifest env but no granted env", () => {
-    const manifest = makeManifest({ permissions: { env: ["API_KEY"] } });
-    const granted: ExtensionPermissions = { grantedAt: {} }; // no env
-
-    const env = buildAllowedEnv(manifest, granted, "ext-no-granted");
-    expect(env.API_KEY).toBeUndefined();
-  });
-
-  test("handles granted env but no manifest env", () => {
-    const manifest = makeManifest({ permissions: {} }); // no env
-    const granted: ExtensionPermissions = { env: ["API_KEY"], grantedAt: {} };
-
-    const env = buildAllowedEnv(manifest, granted, "ext-no-manifest");
-    expect(env.API_KEY).toBeUndefined();
-  });
-
-  // Phase 3: EZCORP_FS_ALLOWED informational flag emission.
-  test("emits EZCORP_FS_ALLOWED=1 when granted has any filesystem path", () => {
-    const manifest = makeManifest({ permissions: { filesystem: ["/tmp/x"] } });
-    const granted: ExtensionPermissions = {
-      filesystem: ["/tmp/x"],
-      grantedAt: {},
-    };
-    const env = buildAllowedEnv(manifest, granted, "ext-fs-1");
-    expect(env.EZCORP_FS_ALLOWED).toBe("1");
-  });
-
-  test("does NOT emit EZCORP_FS_ALLOWED when granted.filesystem is empty / undefined", () => {
-    const manifest = makeManifest({ permissions: {} });
-    const granted: ExtensionPermissions = { grantedAt: {} };
-    const env = buildAllowedEnv(manifest, granted, "ext-fs-empty");
-    expect(env.EZCORP_FS_ALLOWED).toBeUndefined();
-  });
-
-  test("emits EZCORP_FS_ALLOWED for multi-path grants too", () => {
-    const manifest = makeManifest({
-      permissions: { filesystem: ["/tmp/a", "/tmp/b"] },
-    });
-    const granted: ExtensionPermissions = {
-      filesystem: ["/tmp/a", "/tmp/b"],
-      grantedAt: {},
-    };
-    const env = buildAllowedEnv(manifest, granted, "ext-fs-multi");
-    expect(env.EZCORP_FS_ALLOWED).toBe("1");
-  });
-});
 
 // ════════════════════════════════════════════════════════════════════
 // 2. cleanupExtTmpDir

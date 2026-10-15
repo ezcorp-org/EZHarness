@@ -407,3 +407,60 @@ describe("CommandPalette — command rows carry a leading icon", () => {
 		}
 	});
 });
+
+describe("CommandPalette — closing and navigation edges", () => {
+	function renderWithClose() {
+		const onclose = vi.fn();
+		const view = render(CommandPalette, {
+			props: { open: true, onclose, activeProjectId: ACTIVE_PROJECT, activeConversationId: ACTIVE_CONV },
+		});
+		return { ...view, onclose };
+	}
+
+	test("Escape closes the palette", async () => {
+		const { container, onclose } = renderWithClose();
+		const input = await type(container, "wor");
+		await fireEvent.keyDown(input, { key: "Escape" });
+		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
+	test("a click on the backdrop closes it; a click inside does not", async () => {
+		const { getByRole, onclose } = renderWithClose();
+		const dialog = getByRole("dialog");
+		await fireEvent.click(dialog.querySelector("input")!);
+		expect(onclose).not.toHaveBeenCalled();
+		await fireEvent.click(dialog.parentElement!);
+		expect(onclose).toHaveBeenCalledTimes(1);
+	});
+
+	test("ArrowUp from the first row wraps to the last", async () => {
+		const { container } = renderPalette();
+		const input = container.querySelector("input[type=text]") as HTMLInputElement;
+		const rows = () => [...container.querySelectorAll("[data-active]")];
+		expect(rows()[0]).toHaveAttribute("data-active", "true");
+		await fireEvent.keyDown(input, { key: "ArrowUp" });
+		expect(rows().at(-1)).toHaveAttribute("data-active", "true");
+	});
+
+	test("a failed message search shows no hits instead of stale ones", async () => {
+		const { container } = renderPalette();
+		await type(container, "wor");
+		await waitFor(() => expect(container.textContent).toContain("Active Convo"));
+		searchMessagesMock.mockRejectedValue(new Error("offline"));
+		await type(container, "word");
+		await waitFor(() => expect(container.textContent).not.toContain("Active Convo"));
+		expect(container.textContent).not.toMatch(/degraded|keyword|semantic unavailable/i);
+	});
+
+	test("message hits show their age in hours or days", async () => {
+		setHits([
+			{ ...otherA, createdAt: new Date(Date.now() - 3 * 3_600_000).toISOString() },
+			{ ...otherB, createdAt: new Date(Date.now() - 2 * 86_400_000).toISOString() },
+		]);
+		const { container } = renderPalette();
+		await type(container, "wor");
+		await waitFor(() => expect(container.textContent).toContain("3h ago"));
+		expect(container.textContent).toContain("2d ago");
+	});
+});
+

@@ -4,7 +4,7 @@
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
 import {
-  setupTestDb, closeTestDb, mockDbConnection, getTestDb,
+  setupTestDb, closeTestDb, mockDbConnection, getTestDb, getTestPglite,
 } from "../../__tests__/helpers/test-pglite";
 
 mock.module("../../db/queries/settings", () => ({
@@ -421,5 +421,84 @@ describe("memory: cross-user isolation (shared extension identity)", () => {
     );
     expect(got.error).toBeUndefined();
     expect((got.result as { memory: { id: string } }).memory.id).toBe(memId);
+  });
+});
+
+describe("memory: read, update and archive", () => {
+  /** Embedding that depends on the text, so a stale vector is visible. */
+  const contentEmbed = async (text: string): Promise<number[]> =>
+    new Array<number>(384).fill(0).map((_, i) => ((text.charCodeAt(i % text.length) + i) % 97) / 100);
+
+  function call(params: Record<string, unknown>, granted = grantedWrite(), ext = extensionId) {
+    return handlePiMemory(
+      { jsonrpc: "2.0", id: 1, method: "ezcorp/memory", params: params as never },
+      { granted, registeredTool: { extensionId: ext }, embedFn: contentEmbed },
+      rpcMeta(),
+    );
+  }
+
+  async function write(content: string, category = "technical", ext = extensionId): Promise<string> {
+    const resp = await call({ action: "write", input: { content, category } }, grantedWrite(), ext);
+    return (resp.result as { memory: { id: string } }).memory.id;
+  }
+
+  async function storedEmbedding(id: string): Promise<string> {
+    const res = await getTestPglite().query<{ e: string }>("SELECT embedding::text AS e FROM memories WHERE id = $1", [id]);
+    return res.rows[0]!.e;
+  }
+
+  test("update of the content re-embeds it, so recall matches the new text", async () => {
+    const id = await write("the build uses webpack");
+    const before = await storedEmbedding(id);
+
+    const resp = await call({ action: "update", id, patch: { content: "the build uses vite now" } });
+
+    expect(resp.result).toEqual({ ok: true });
+    const [row] = await getTestDb().select().from(memories).where(eq(memories.id, id));
+    expect(row!.content).toBe("the build uses vite now");
+    const after = await storedEmbedding(id);
+    expect(after).not.toBe(before);
+    expect(after).toBe(`[${(await contentEmbed("the build uses vite now")).join(",")}]`);
+  });
+
+  test("update without new content keeps content and embedding", async () => {
+    const id = await write("keep me");
+    const before = await storedEmbedding(id);
+    expect((await call({ action: "update", id, patch: {} })).result).toEqual({ ok: true });
+    expect(await storedEmbedding(id)).toBe(before);
+  });
+
+  test("archive marks the author's memory archived; others get not-author", async () => {
+    const id = await write("old fact");
+    const denied = await call({ action: "archive", id }, grantedWrite(), extensionId2);
+    expect(denied.error?.data).toMatchObject({ reason: "not-author" });
+
+    expect((await call({ action: "archive", id })).result).toEqual({ ok: true });
+    const [row] = await getTestDb().select().from(memories).where(eq(memories.id, id));
+    expect(row!.status).toBe("archived");
+  });
+
+  test("list filters by an allowed category and refuses a category outside the grant", async () => {
+    await write("tech note", "technical");
+    await write("pref note", "preference");
+
+    const tech = await call({ action: "list", category: "technical" }, grantedRead());
+    expect((tech.result as { memories: { content: string }[] }).memories.map((m) => m.content)).toEqual(["tech note"]);
+
+    const denied = await call({ action: "list", category: "preference" }, grantedRead({ categories: ["technical"] }));
+    expect(denied.error?.data).toMatchObject({ reason: "category-not-allowed" });
+  });
+
+  test("get with selfOnly refuses another extension's memory", async () => {
+    const id = await write("ext2 note", "technical", extensionId2);
+    const resp = await call({ action: "get", id }, grantedRead());
+    expect(resp.error?.data).toMatchObject({ reason: "selfOnly-forbidden" });
+  });
+
+  test("id-based actions require an id; write requires input", async () => {
+    for (const action of ["get", "update", "archive"]) {
+      expect((await call({ action })).error?.data).toMatchObject({ reason: "id required" });
+    }
+    expect((await call({ action: "write" })).error?.data).toMatchObject({ reason: "input required" });
   });
 });

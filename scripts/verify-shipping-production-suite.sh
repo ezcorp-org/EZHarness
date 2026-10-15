@@ -121,7 +121,10 @@ for proof in "${selected_proofs[@]}"; do
       run_proof legacy-adoption 35m env "VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE=$candidate" "VERIFY_LEGACY_ADOPTION_CANDIDATE_IMAGE_ID=$podman_id" "VERIFY_LEGACY_ADOPTION_CANDIDATE_SOURCE=$source_revision" "VERIFY_LEGACY_ADOPTION_RECEIPT_DIR=$receipt_root/legacy-adoption/legacy" "EZ_LEGACY_ADOPTION_APP_UID=$app_uid" "EZ_LEGACY_ADOPTION_APP_GID=$app_gid" "EZ_PRODUCTION_RUNNER_APP_UID=$runner_uid" bash scripts/verify-legacy-adoption.sh
       ;;
     namespace)
-      run_proof namespace 15m env "EZCORP_STAGE2_PROOF=1" "EZCORP_STAGE2_PROOF_IMAGE=$candidate" bash -c 'journalctl -k --no-pager -n 1 -o json | jq -e '\''.__CURSOR | strings | length > 0'\'' && exec bun test ./src/__tests__/mcp-netns-raw-socket-blocked.test.ts ./src/__tests__/mcp-stage2-ipv6-disabled.test.ts ./src/__tests__/mcp-stage2-conntrack-soak.test.ts'
+      # Extensions and MCP servers run in extension-runner workers (#246);
+      # this proves the worker isolation that ships, with a fault arm per
+      # control (see the test file header).
+      run_proof namespace 15m env "EZCORP_RUNNER_ISOLATION_PROOF=1" bash -c 'exec bun test --timeout 120000 ./src/__tests__/runner-worker-isolation.proof.test.ts'
       ;;
     *)
       echo "Unknown selected proof: $proof" >&2

@@ -20,7 +20,7 @@ import { join } from "node:path";
  *    tests exist for; the non-purge path was doing exactly this when the
  *    lifecycle was first run by hand.
  *  - **Port coupling.** The image pins EZCORP_PORT=3000 and in-container
- *    loopback callers (web/src/lib/server/security/bundled-creds.ts) depend on
+ *    loopback callers (web/src/lib/server/extensions/host-api-transport.ts) depend on
  *    it, while ORIGIN must track the HOST port or svelte-adapter-bun defaults
  *    the scheme to https and login breaks. Setting the wrong one of those two
  *    is invisible until a user tries to log in.
@@ -67,7 +67,7 @@ stub(
     '  "machine inspect")',
     `    [ "\${EZCORP_TEST_NATIVE_PODMAN:-0}" = 1 ] && exit 1`,
     `    case "$*" in *PodmanSocket*) echo "\${EZCORP_TEST_SOCKET:-/tmp/podman.sock}" ;; *) echo "running" ;; esac; exit 0 ;;`,
-    '  "info --format") echo "/run/user/1000/podman/podman.sock"; exit 0 ;;',
+    `  "info --format") [ "\${EZCORP_TEST_NO_SOCKET:-0}" = 1 ] || echo "/run/user/1000/podman/podman.sock"; exit 0 ;;`,
     '  "image exists") exit 0 ;;',
     `  "pull "*) exit "\${EZCORP_TEST_FAIL_PULL:-0}" ;;`,
     "esac",
@@ -366,6 +366,14 @@ describe("ezcorp uninstall — what it may and may not destroy", () => {
     expect(existsSync(dataRoot)).toBe(false);
   });
 
+  test("--purge with no answer says nothing was deleted", () => {
+    run(["install"]);
+    const refused = run(["uninstall", "--purge"]);
+    expect(refused.exitCode).not.toBe(0);
+    expect(refused.stderr).toContain("nothing was deleted");
+    expect(existsSync(join(dataRoot, "data"))).toBe(true);
+  });
+
   test("reinstall keeps the suggestion opt-in together with its URL", () => {
     expect(run(["install"]).exitCode).toBe(0);
     expect(run(["suggestions", "on"]).exitCode).toBe(0);
@@ -568,6 +576,33 @@ describe("installer lifecycle failures", () => {
     expect(envFile()).toBe(before);
   });
 
+  test.each(["0", "1"])("a failed download removes its unused snapshot (restart failure %s)", (failUp) => {
+    expect(run(["install"]).exitCode).toBe(0);
+    writeFileSync(join(dataRoot, "data", "sentinel"), "original");
+    const result = run(["update", "next"], { EZCORP_TEST_FAIL_PULL: "1", EZCORP_TEST_FAIL_UP: failUp });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not download");
+    expect(readFileSync(join(dataRoot, "data", "sentinel"), "utf8")).toBe("original");
+    expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+  });
+
+  test("a failed backup removes the partial copy and restarts the unchanged app", () => {
+    expect(run(["install"]).exitCode).toBe(0);
+    const unreadable = join(dataRoot, "data", "unreadable");
+    writeFileSync(unreadable, "original");
+    chmodSync(unreadable, 0o000);
+    try {
+      const result = run(["update", "next"]);
+      expect(result.exitCode).not.toBe(0);
+      expect(result.stderr).toContain("could not back up");
+      expect(result.log).not.toContain("pull ");
+      expect(result.log.split("\n").filter((line) => line.startsWith("compose ") && line.includes("up -d"))).toHaveLength(1);
+      expect(readdirSync(dataRoot).filter((name) => name.startsWith("pre-update-"))).toEqual([]);
+    } finally {
+      chmodSync(unreadable, 0o600);
+    }
+  });
+
   test("a successful update retains data and removes its temporary snapshot", () => {
     expect(run(["install"]).exitCode).toBe(0);
     writeFileSync(join(dataRoot, "data", "sentinel"), "original");
@@ -641,6 +676,13 @@ describe("installer lifecycle failures", () => {
     expect(result.exitCode).toBe(0);
     expect(result.log).toContain("compose host=unix:///run/user/1000/podman/podman.sock");
     expect(result.log).not.toContain("host=unix:///wrong/docker.sock");
+  });
+
+  test("a missing Podman socket is named before any config is written", () => {
+    const result = run(["install"], { EZCORP_TEST_NATIVE_PODMAN: "1", EZCORP_TEST_NO_SOCKET: "1" });
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("could not find the Podman API socket");
+    expect(existsSync(join(configDir, ".env"))).toBe(false);
   });
 
   test("Podman socket paths can contain spaces", () => {

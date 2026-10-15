@@ -1,4 +1,4 @@
-import { test, expect, describe, mock, afterEach } from "bun:test";
+import { test, expect, describe, mock, afterEach, spyOn } from "bun:test";
 import type { ExtensionManifestV2, ExtensionPermissions } from "./types";
 
 // ── Mock the interactive prompt so the TTY paths are deterministic ────
@@ -332,6 +332,53 @@ describe("promptForPermissions", () => {
 });
 
 // ── promptPerCategory (partial approvals) ─────────────────────────────
+
+describe("promptForPermissions — the printed list", () => {
+  test("uses the shared permission text, and a stdio MCP server never claims it can start", async () => {
+    const restore = setTTY(true);
+    askAnswers = ["n"];
+    const logged: string[] = [];
+    const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => { logged.push(args.join(" ")); });
+    try {
+      const manifest = fullManifest({ kind: "mcp", mcpServers: [{ name: "files", transport: "stdio", command: "files-server" }] } as never, { shell: true });
+      await promptForPermissions(manifest, false);
+    } finally {
+      log.mockRestore();
+      restore();
+    }
+    const output = logged.join("\n");
+    expect(output).toContain("Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)");
+    expect(output).toContain("Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission");
+    expect(output).not.toContain("Starts its MCP server process");
+  });
+});
+
+describe("promptForPermissions — every permission type is asked for", () => {
+  const only = (permissions: Record<string, unknown>) =>
+    ({ schemaVersion: 2, name: "solo-ext", version: "1.0.0", description: "x", entrypoint: "./index.ts", permissions }) as unknown as ExtensionManifestV2;
+
+  for (const [name, permissions, line] of [
+    ["spawnAgents", { spawnAgents: { maxPerHour: 5 } }, "Start sub-agent runs (at most 5 per hour)"],
+    ["schedule", { schedule: { crons: ["0 9 * * *"], maxRunsPerDay: 2 } }, "Run on a schedule: 0 9 * * *"],
+  ] as const) {
+    test(`a manifest that asks only for ${name} is prompted, listed, and granted on yes`, async () => {
+      const restore = setTTY(true);
+      askAnswers = ["y"];
+      const logged: string[] = [];
+      const log = spyOn(console, "log").mockImplementation((...args: unknown[]) => { logged.push(args.join(" ")); });
+      let grant: ExtensionPermissions;
+      try {
+        grant = await promptForPermissions(only(permissions), false);
+      } finally {
+        log.mockRestore();
+        restore();
+      }
+      expect(askedPrompts).toEqual(["Approve all permissions? [y/N/select] "]);
+      expect(logged.join("\n")).toContain(line);
+      expect(grant[name]).toBeDefined();
+    });
+  }
+});
 
 describe("promptPerCategory", () => {
   test("grants only the approved categories; declines drop events", async () => {

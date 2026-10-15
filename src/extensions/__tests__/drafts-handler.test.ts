@@ -721,6 +721,37 @@ test("reopen returns the immutable workspace handoff under host-owned identity",
   } finally { reopen.mockRestore(); }
 });
 
+describe("ezcorp/drafts — reopen refusals", () => {
+  test("a missing name is a -32602 argument error", async () => {
+    const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "reopen" }, "reopen-no-name"), makeCtx({ userId: USER }));
+    expect(response.error).toMatchObject({ code: -32602, message: "Missing or invalid 'name'" });
+  });
+
+  test("a ReopenError keeps its code in data.code so the tool can branch on it", async () => {
+    const module = await import("../reopen-extension");
+    const reopen = spyOn(module, "reopenInstalledAsDraft").mockRejectedValue(
+      new module.ReopenError("NOT_FOUND_OR_NOT_MODIFIABLE", "no such extension"),
+    );
+    try {
+      const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "reopen", name: "missing-ext" }, "reopen-miss"), makeCtx({ userId: USER }));
+      expect(response.error).toEqual({
+        code: -32603,
+        message: "NOT_FOUND_OR_NOT_MODIFIABLE: no such extension",
+        data: { code: "NOT_FOUND_OR_NOT_MODIFIABLE" },
+      });
+    } finally { reopen.mockRestore(); }
+  });
+
+  test("any other failure is reported as a generic reopen failure", async () => {
+    const module = await import("../reopen-extension");
+    const reopen = spyOn(module, "reopenInstalledAsDraft").mockRejectedValue(new Error("disk full"));
+    try {
+      const response = await handleDraftsRpc(ALLOWED_NAME, rpc({ action: "reopen", name: "some-ext" }, "reopen-fail"), makeCtx({ userId: USER }));
+      expect(response.error).toMatchObject({ code: -32603, message: "Reopen failed: Error: disk full" });
+    } finally { reopen.mockRestore(); }
+  });
+});
+
 describe("ezcorp/drafts — legacy install cutover", () => {
   for (const [name, params, userId] of [
     ["missing draft", {}, USER],

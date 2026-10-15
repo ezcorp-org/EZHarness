@@ -97,7 +97,9 @@ export async function runScheduledAudit(ctx: AgentContext): Promise<void> {
   const projects = await listProjects();
   for (const p of projects) {
     if (ctx.signal.aborted) break;
-    if (!p.path) continue;
+    // "global" is the seeded pseudo-project for chats with no project. Its
+    // path is "/", so auditing it would write reports to /.ezcorp.
+    if (!p.path || p.id === "global") continue;
     try {
       await runAudit(p.id, p.path, ctx);
     } catch (e) {

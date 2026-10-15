@@ -17,11 +17,11 @@
  *     gates on `if (submitted.network && manifest.network)`. With no manifest
  *     ceiling an admin's `PUT /api/extensions/<id>/permissions` network grant
  *     was silently dropped, so a stdio MCP server could NEVER be granted a
- *     host — and `mcp-proxy.ts` re-authorizes EVERY CONNECT against exactly
- *     that grant. The proxy denied all egress with no way to allow any.
- *   • A remote (`http`/`sse`) MCP server is never sandboxed at all
- *     (`buildSandboxedMcpSpec` returns those specs untouched), so the
- *     per-dispatch PDP gate is its ONLY governance — and it was inert.
+ *     host — and stdio egress is authorized against exactly that grant, so
+ *     all egress was denied with no way to allow any.
+ *   • A remote (`http`/`sse`) MCP server is a network peer, not a process
+ *     we sandbox, so the per-dispatch PDP gate is its ONLY governance —
+ *     and it was inert.
  *
  * ── The derivation rule ─────────────────────────────────────────────
  *
@@ -35,20 +35,19 @@
  *     bare (`https://x`) or flag-attached (`--endpoint=https://x`).
  *     This is what makes the stdio grant non-vacuous: `npx mcp-remote
  *     https://mcp.example.com/mcp` declares (and grants) `mcp.example.com`,
- *     which is precisely the host the proxy will be asked to CONNECT to.
+ *     which is precisely the host its egress will be checked against.
  *     A command line that names no host derives NOTHING and stays
- *     DENY-BY-DEFAULT — the proxy refuses every CONNECT, which is the
+ *     DENY-BY-DEFAULT — every egress attempt is refused, which is the
  *     current behavior, now explicit rather than accidental.
  *
  * Hosts are NOT filtered against `isInternalHost`. A remote MCP server on
  * `http://localhost:3000/mcp` is a legitimate deployment; dropping it here
  * would hand that server an EMPTY needed set and re-open the exact inertness
- * this module exists to close. The proxy keeps its own unconditional
- * internal-host deny for stdio egress (`mcp-proxy.ts`), which is the layer
- * where that decision belongs.
+ * this module exists to close. Whether a host may be dialed is decided by
+ * the egress layers (the target guard, the runner's network brokers).
  *
- * Hostnames are normalized with the SAME `normalizeHostname` the proxy uses
- * to build its `network` capability value. Exact-match is the comparison
+ * Hostnames are normalized with the SAME `normalizeHostname` the egress
+ * checks use to build their `network` capability value. Exact-match is the comparison
  * semantic for `network` caps (`capabilityCovers`), so any divergence in
  * normalization would deny a grant that reads as correct.
  *

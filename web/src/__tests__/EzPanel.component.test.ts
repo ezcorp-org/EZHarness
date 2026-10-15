@@ -343,6 +343,125 @@ describe("EzPanel — composer", () => {
 	});
 });
 
+describe("EzPanel — send outcomes", () => {
+	// A saved model enables Send without waiting on /api/models.
+	async function sendFromComposer(text: string) {
+		localStorage.setItem(
+			"ez-panel:selected-model",
+			JSON.stringify({ provider: "anthropic", model: "claude-sonnet-4-6" }),
+		);
+		openEzPanel();
+		const view = render(EzPanel);
+		await waitFor(() => expect(mocks.fetchAllMessagesMock).toHaveBeenCalled());
+		const input = (await view.findByPlaceholderText(/Ask Ez to do something/i)) as HTMLTextAreaElement;
+		await waitFor(() => expect(input.disabled).toBe(false));
+		await fireEvent.input(input, { target: { value: text } });
+		const sendBtn = (await view.findByLabelText("Send message")) as HTMLButtonElement;
+		await waitFor(() => expect(sendBtn.disabled).toBe(false));
+		const loadsBefore = mocks.fetchAllMessagesMock.mock.calls.length;
+		await fireEvent.click(sendBtn);
+		return { ...view, loadsBefore };
+	}
+
+	const persisted = (id: string, role: string, content: string) => ({
+		id, role, content, conversationId: "ez-conv-1", excluded: false, createdAt: "",
+		thinkingContent: null, model: null, provider: null, usage: null, runId: null, parentMessageId: null,
+	});
+
+	test("an action-only send (no run) reloads the persisted turn instead of streaming", async () => {
+		mocks.sendMessageMock.mockResolvedValue({ userMessage: persisted("u1", "user", "![EZ:clear]"), runId: null });
+		// The action's result card exists only once the send has landed.
+		mocks.fetchAllMessagesMock.mockImplementation(async () =>
+			mocks.sendMessageMock.mock.calls.length > 0
+				? [persisted("u1", "user", "![EZ:clear]"), persisted("x1", "assistant", "Cleared.")]
+				: [],
+		);
+		const view = await sendFromComposer("![EZ:clear]");
+
+		await waitFor(() => expect(mocks.fetchAllMessagesMock.mock.calls.length).toBeGreaterThan(view.loadsBefore));
+		expect(mocks.startStreamingMock).not.toHaveBeenCalled();
+		expect(await view.findByText("Cleared.")).toBeInTheDocument();
+	});
+
+	test("a run that finished before streaming registered reloads instead of showing a placeholder", async () => {
+		mocks.startStreamingMock.mockReturnValue(false);
+		const { loadsBefore } = await sendFromComposer("quick one");
+
+		await waitFor(() => expect(mocks.fetchAllMessagesMock.mock.calls.length).toBeGreaterThan(loadsBefore));
+		expect(mocks.startStreamingMock).toHaveBeenCalledWith("r1", "ez-conv-1");
+		expect(document.querySelector('[data-role="assistant"]')).toBeNull();
+	});
+
+	// Regression: send() rethrew after rolling back, but both callers fire it
+	// with `void`, so every failed send was an unhandled promise rejection.
+	test("a failed send removes the optimistic message and shows the error", async () => {
+		mocks.sendMessageMock.mockRejectedValue(new Error("rate limited"));
+		const view = await sendFromComposer("will fail");
+
+		expect((await view.findByRole("alert")).textContent).toBe("rate limited");
+		expect(view.queryByText("will fail")).toBeNull();
+	});
+
+	test("clearing during a run stops the stream before wiping the thread", async () => {
+		mocks.fakeStore.streamingMessages = { r1: "partial" };
+		const view = await sendFromComposer("long task");
+		await waitFor(() => expect(mocks.startStreamingMock).toHaveBeenCalled());
+
+		const clearBtn = await view.findByTestId("ez-panel-clear");
+		await fireEvent.click(clearBtn); // arm
+		await fireEvent.click(clearBtn); // confirm
+
+		await waitFor(() => expect(mocks.clearEzMock).toHaveBeenCalledTimes(1));
+		expect(mocks.stopStreamingMock).toHaveBeenCalledWith("r1");
+		expect(mocks.stopStreamingMock.mock.invocationCallOrder[0]!).toBeLessThan(
+			mocks.clearEzMock.mock.invocationCallOrder[0]!,
+		);
+		await waitFor(() => expect(view.queryByText("long task")).toBeNull());
+	});
+
+	test("Stop ends the active run", async () => {
+		mocks.fakeStore.streamingMessages = { r1: "partial" };
+		const view = await sendFromComposer("long task");
+		await waitFor(() => expect(mocks.startStreamingMock).toHaveBeenCalled());
+
+		await fireEvent.click(await view.findByLabelText("Stop generating"));
+
+		expect(mocks.stopStreamingMock).toHaveBeenCalledWith("r1");
+		await waitFor(() => expect(view.queryByLabelText("Stop generating")).toBeNull());
+	});
+});
+
+describe("EzPanel — load failures", () => {
+	test("a malformed saved model is ignored, so Send waits for a model", async () => {
+		localStorage.setItem("ez-panel:selected-model", "{not json");
+		openEzPanel();
+		const { findByPlaceholderText, findByLabelText } = render(EzPanel);
+		const input = (await findByPlaceholderText(/Ask Ez to do something/i)) as HTMLTextAreaElement;
+		await fireEvent.input(input, { target: { value: "hello" } });
+		const sendBtn = (await findByLabelText("Send message")) as HTMLButtonElement;
+		expect(sendBtn.title).toMatch(/Select a model first/i);
+	});
+
+
+	test("a failed conversation lookup shows an inline error", async () => {
+		mocks.getOrCreateMock.mockRejectedValue(new Error("offline"));
+		openEzPanel();
+		const { findByRole } = render(EzPanel);
+		expect((await findByRole("alert")).textContent).toBe("Could not load Ez conversation: offline");
+		expect(mocks.fetchAllMessagesMock).not.toHaveBeenCalled();
+	});
+
+	test("a failed message refresh is logged and leaves the panel usable", async () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+		mocks.fetchAllMessagesMock.mockRejectedValue(new Error("db down"));
+		openEzPanel();
+		const { findByPlaceholderText } = render(EzPanel);
+		await waitFor(() => expect(warn).toHaveBeenCalledWith("Ez panel refresh failed", expect.any(Error)));
+		expect(await findByPlaceholderText(/Ask Ez to do something/i)).toBeInTheDocument();
+		warn.mockRestore();
+	});
+});
+
 describe("EzPanel — client-tool dispatch", () => {
 	test("an ez:client-tool window event invokes the dispatcher and POSTs the result", async () => {
 		const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
@@ -449,11 +568,14 @@ describe("EzPanel — tools chip", () => {
 		}
 	});
 
-	test("tools popover surfaces an inline message when the fetch fails (non-fatal)", async () => {
+	test.each([
+		["an error status", async () => new Response("nope", { status: 500 })],
+		["a network error", async () => { throw new TypeError("Failed to fetch"); }],
+	])("tools popover surfaces an inline message when the fetch fails with %s (non-fatal)", async (_label, toolsResponse) => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = vi.fn(async (input: RequestInfo | URL) => {
 			const url = typeof input === "string" ? input : input.toString();
-			if (url.includes("/api/tools")) return new Response("nope", { status: 500 });
+			if (url.includes("/api/tools")) return toolsResponse();
 			return new Response(JSON.stringify({ messages: [], orphanedToolCalls: [] }), { status: 200, headers: { "content-type": "application/json" } });
 		}) as unknown as typeof fetch;
 

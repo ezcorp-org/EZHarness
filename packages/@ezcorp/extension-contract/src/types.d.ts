@@ -287,6 +287,21 @@ export interface StartRequest {
    * its own directory. No credential and no network reach the guest either way.
    */
   materials?: string;
+  /**
+   * Whether the worker may start other processes after it starts. Absent means
+   * "deny": a runner that enforces the policy blocks process creation in the
+   * worker and still lets it create threads. The host sends "allow" only for a
+   * worker whose release holds the shell grant, for a release that is only the
+   * sealed SDK MCP bridge with a stdio server, and for factory guests.
+   */
+  processSpawn?: ProcessSpawnPolicy;
+}
+/** The process-creation policy of one worker start. */
+export type ProcessSpawnPolicy = "allow" | "deny";
+/** What a runner enforces. A runner from before this interface enforces none of it. */
+export interface RunnerCapabilities {
+  /** The runner applies `StartRequest.processSpawn`, so a "deny" worker cannot start a process. */
+  processSpawnEnforcement: boolean;
 }
 export interface RunnerInspection {
   id: string;
@@ -316,6 +331,8 @@ export interface Runner {
   abort?(id: string): Promise<void>;
   inspect(id: string): Promise<RunnerInspection>;
   collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles>;
+  /** What this runner enforces. A runner without it enforces nothing optional. */
+  capabilities?(): Promise<RunnerCapabilities>;
 }
 export interface WireData {
   publishedRelease: PublishedExtensionRelease;

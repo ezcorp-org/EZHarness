@@ -9,8 +9,7 @@
  * server (e.g. `npm run dev` / `bun dev`):
  *
  *   launchPreviewDevServer({ conversationId, userId, workDir, command, args })
- *     1. capability gate — only `uid` mode here (netns mode spawns
- *        differently; static mode refuses),
+ *     1. capability gate — only `uid` mode (static mode refuses),
  *     2. allocate (or reuse) the conversation's preview uid,
  *     3. register the conversation with the watcher so the new LISTEN
  *        socket is detected + attributed,
@@ -28,7 +27,7 @@
  */
 
 import { logger } from "../../logger";
-import { previewCapabilities } from "./preview-netns";
+import { previewCapabilities, type PreviewMode } from "./preview-capabilities";
 import { allocatePreviewUid, reapPreviewUid } from "./preview-uid-pool";
 import { spawnPreviewServer, killPreviewProcess, type PreviewProcess } from "./preview-spawn";
 import type { PreviewPortWatcher } from "./preview-port-watcher";
@@ -149,7 +148,7 @@ export interface LaunchPreviewDeps {
    *  the server still launches. */
   watcher?: Pick<PreviewPortWatcher, "watch">;
   /** Injected capability probe (defaults to previewCapabilities). */
-  capabilities?: () => { mode: "netns" | "uid" | "static" };
+  capabilities?: () => { mode: PreviewMode };
   /** Injected uid allocator (defaults to the live uid pool). */
   allocUid?: (conversationId: string) => { uid: number } | null;
   /** Injected spawner (defaults to spawnPreviewServer). */
@@ -172,8 +171,7 @@ export function launchPreviewDevServer(
 
   const caps = (deps.capabilities ?? previewCapabilities)();
   if (caps.mode !== "uid") {
-    // netns mode launches via the hardened path; static mode has no dynamic
-    // previews. This orchestration is the uid-mode path only.
+    // Static mode has no dynamic previews.
     return { ok: false, reason: `uid-mode previews unavailable (mode=${caps.mode})` };
   }
 

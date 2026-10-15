@@ -3,7 +3,6 @@ import { ExtensionRegistry } from "../extensions/registry";
 import type { ExtensionManifestV2, ExtensionPermissions } from "../extensions/types";
 import type { ExtensionProcess } from "../extensions/subprocess";
 import type { McpClient } from "../mcp/client";
-import type { McpProxyHandle } from "../extensions/mcp-proxy";
 
 interface RegistryInternals {
   processes: Map<string, ExtensionProcess>;
@@ -12,7 +11,6 @@ interface RegistryInternals {
   grantedPerms: Map<string, ExtensionPermissions>;
   bundledFlags: Map<string, boolean>;
   mcpClients: Map<string, McpClient>;
-  mcpProxies: Map<string, McpProxyHandle>;
 }
 
 const manifest = (version: string, checksum: string): ExtensionManifestV2 => ({
@@ -103,22 +101,17 @@ describe("ExtensionRegistry.reload process invalidation", () => {
 describe("ExtensionRegistry.reload MCP invalidation", () => {
   afterEach(() => ExtensionRegistry.resetInstance());
 
-  const fakeProxy = (log: string[], id: string) => ({
-    stop: async () => { log.push(`stop:${id}`); },
-  }) as unknown as McpProxyHandle;
   const fakeClient = (log: string[], id: string) => ({
     isConnected: true,
     close: async () => { log.push(`close:${id}`); },
   }) as unknown as McpClient;
 
-  test("an UPGRADED mcp extension drops its stale proxy and client", async () => {
+  test("an UPGRADED mcp extension drops its stale client", async () => {
     const registry = ExtensionRegistry.getInstance();
     const state = registry as unknown as RegistryInternals;
     const log: string[] = [];
 
-    state.mcpProxies.set("upgraded", fakeProxy(log, "upgraded"));
     state.mcpClients.set("upgraded", fakeClient(log, "upgraded"));
-    state.mcpProxies.set("untouched", fakeProxy(log, "untouched"));
     state.mcpClients.set("untouched", fakeClient(log, "untouched"));
     seed(state, "upgraded", manifest("1.0.0", "old"));
     seed(state, "untouched", manifest("1.0.0", "same"));
@@ -130,22 +123,19 @@ describe("ExtensionRegistry.reload MCP invalidation", () => {
     };
 
     await registry.reload();
-    // `stop()`/`close()` are fire-and-forget inside reload.
+    // `close()` is fire-and-forget inside reload.
     await Bun.sleep(1);
 
-    expect(log.sort()).toEqual(["close:upgraded", "stop:upgraded"]);
-    expect(state.mcpProxies.has("upgraded")).toBe(false);
+    expect(log).toEqual(["close:upgraded"]);
     expect(state.mcpClients.has("upgraded")).toBe(false);
-    expect(state.mcpProxies.has("untouched")).toBe(true);
     expect(state.mcpClients.has("untouched")).toBe(true);
   });
 
-  test("a REMOVED mcp extension still drops its proxy and client", async () => {
+  test("a REMOVED mcp extension still drops its client", async () => {
     const registry = ExtensionRegistry.getInstance();
     const state = registry as unknown as RegistryInternals;
     const log: string[] = [];
 
-    state.mcpProxies.set("gone", fakeProxy(log, "gone"));
     state.mcpClients.set("gone", fakeClient(log, "gone"));
     seed(state, "gone", manifest("1.0.0", "old"));
 
@@ -154,8 +144,7 @@ describe("ExtensionRegistry.reload MCP invalidation", () => {
     await registry.reload();
     await Bun.sleep(1);
 
-    expect(log.sort()).toEqual(["close:gone", "stop:gone"]);
-    expect(state.mcpProxies.size).toBe(0);
+    expect(log).toEqual(["close:gone"]);
     expect(state.mcpClients.size).toBe(0);
   });
 });

@@ -173,6 +173,13 @@ writeFileSync(
   '#!/usr/bin/env bash\nprintf "%s\\n" "$PODMAN_ERROR" >&2\nexit 125\n',
 );
 chmodSync(join(BIN_PODMAN_FAILURE, "podman"), 0o755);
+// No user socket and no Podman machine: a uid with no /run/user directory and
+// a podman whose `machine inspect` fails, as on Linux before podman.socket.
+const BIN_NO_SOCKET = join(SANDBOX, "bin-no-socket");
+mkdirSync(BIN_NO_SOCKET);
+copyFileSync(join(BIN_PODMAN_FAILURE, "podman"), join(BIN_NO_SOCKET, "podman"));
+writeFileSync(join(BIN_NO_SOCKET, "id"), "#!/usr/bin/env bash\necho 4000000000\n");
+chmodSync(join(BIN_NO_SOCKET, "id"), 0o755);
 
 const sandboxGitEnv: Record<string, string> = {};
 for (const [key, value] of Object.entries(process.env)) {
@@ -476,6 +483,13 @@ describe("podman wrapper — the invocation it guarantees", () => {
     });
     expect(result.exitCode).toBe(1);
     expect(result.stderr).toContain(`runner socket host GID ${RUNNER_HOST_GID} is not mapped`);
+  });
+
+  test("names the missing Podman socket when no Podman machine exists", () => {
+    const result = run(["ps"], { PODMAN_SOCKET: "", PATH: `${BIN_NO_SOCKET}:${BIN}:${baseEnv.PATH}` });
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("no Podman socket at /run/user/4000000000/podman/podman.sock");
+    expect(result.invocation).toBeNull();
   });
 
   test("names a configured runner socket that does not exist", () => {

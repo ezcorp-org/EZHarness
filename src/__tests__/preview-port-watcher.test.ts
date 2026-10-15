@@ -10,19 +10,16 @@
  *  - infra-port filter: built-in + caller-supplied infra ports never emit
  *  - requester scoping: the event carries the registering user's id, and
  *    the SAME port in two conversations attributes to each conv's user
- *  - capability-gated source: NetnsPortSource yields [] (logged no-op) when
- *    dynamic is unavailable; enumerates via the injected reader when available
  *  - source-read failure for one conversation doesn't abort the tick
  *  - kill switch + lockfile-sibling refusal
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import {
   PreviewPortWatcher,
   _previewPortWatcherInternals,
   type PreviewDetectedEvent,
 } from "../runtime/preview/preview-port-watcher";
 import {
-  NetnsPortSource,
   StaticPortSource,
   type PreviewListener,
 } from "../runtime/preview/preview-port-source";
@@ -391,34 +388,6 @@ describe("PreviewPortWatcher — lifecycle", () => {
       if (prev === undefined) delete process.env.EZCORP_PREVIEW_WATCHER_POLL_MS;
       else process.env.EZCORP_PREVIEW_WATCHER_POLL_MS = prev;
     }
-  });
-});
-
-describe("NetnsPortSource — capability gating (D2)", () => {
-  test("yields nothing (logged no-op) when dynamic is unavailable", () => {
-    const reader = mock((_id: string) => [{ port: 5173 }]);
-    const src = new NetnsPortSource(
-      () => ({ dynamic: false, reason: "veth probe failed" }),
-      reader,
-    );
-    expect(src.listListeners("conv1")).toEqual([]);
-    expect(src.listListeners("conv1")).toEqual([]); // logged-once, still empty
-    // The reader is NEVER consulted when fail-closed.
-    expect(reader).not.toHaveBeenCalled();
-  });
-
-  test("enumerates via the injected reader when dynamic is available", () => {
-    const reader = mock((_id: string) => [{ port: 5173 }, { port: 24678 }]);
-    const src = new NetnsPortSource(() => ({ dynamic: true, reason: null }), reader);
-    expect(src.listListeners("conv1")).toEqual([{ port: 5173 }, { port: 24678 }]);
-    expect(reader).toHaveBeenCalledWith("conv1");
-  });
-
-  test("phase3StubReader returns [] (live /proc/net/tcp read is Phase 3)", () => {
-    expect(NetnsPortSource.phase3StubReader("conv1")).toEqual([]);
-    // Default reader is the stub: available but unwired → empty.
-    const src = new NetnsPortSource(() => ({ dynamic: true, reason: null }));
-    expect(src.listListeners("conv1")).toEqual([]);
   });
 });
 

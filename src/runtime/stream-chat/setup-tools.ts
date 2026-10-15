@@ -970,6 +970,22 @@ export async function resolveModelTierAndCredential(
   };
 }
 
+/** A team config's own tool scope, or undefined when it restricts nothing
+ *  (no allowed and no denied tools). */
+export function configuredTeamToolScope(scope: TeamToolScope | undefined): TeamToolScope | undefined {
+  if (!scope) return undefined;
+  return (scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0 ? scope : undefined;
+}
+
+/** The team tool scope every sub-agent member invoked this turn runs under:
+ *  a team mentioned in the message wins over the agent config's own scope. */
+export function turnTeamToolScope(
+  mentioned: TeamToolScope | undefined,
+  configured: TeamToolScope | undefined,
+): TeamToolScope | undefined {
+  return mentioned ?? configured;
+}
+
 /**
  * Validate the provider, then drive parallel memory injection and tool loading.
  * Mutates `ctx.systemMemoryTail`, `ctx.agentTools`,
@@ -1752,10 +1768,8 @@ export async function setupTools(
                 }
               }
               // Team-level tool scope (overrides per-member tool lists)
-              const scope = refs?.teamToolScope;
-              if (scope && ((scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0)) {
-                orchRun._teamToolScope = scope;
-              }
+              const scope = configuredTeamToolScope(refs?.teamToolScope);
+              if (scope) orchRun._teamToolScope = scope;
             } catch { /* Agent config ref wiring failure is non-fatal */ }
           }
           }
@@ -1779,9 +1793,10 @@ export async function setupTools(
             // Team-level tool scope — from team-mention (depth 0) or from team config refs.
             // Cascades to all invoked sub-members, overriding any per-member tool lists.
             const firstMentionedTeam = mentionedTeams[0];
-            const resolvedTeamToolScope =
-              firstMentionedTeam?.team.teamToolScope
-              ?? orchRun._teamToolScope;
+            const resolvedTeamToolScope = turnTeamToolScope(
+              firstMentionedTeam?.team.teamToolScope,
+              orchRun._teamToolScope,
+            );
 
             // Orchestration extension (Phase 4 commit-5): wire-on-first-use for
             // invoke_agent. The legacy built-in was deleted; the same tool

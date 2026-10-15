@@ -1,5 +1,5 @@
 /**
- * ExtensionProcess npm-dependency contract + crash-surfacing coverage
+ * HostExtensionProcess npm-dependency contract + crash-surfacing coverage
  * (src/extensions/subprocess.ts, feature: extension npm-deps):
  *
  *   - the spawn PRE-CHECK: an unresolvable npmDependencies declaration
@@ -48,7 +48,7 @@ mock.module("../extensions/registry", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess, redactStderrTail } from "../extensions/subprocess";
+import { HostExtensionProcess, redactStderrTail } from "./helpers/host-extension-process";
 
 const echoPath = join(import.meta.dir, "helpers", "echo-extension.ts");
 const crashPath = join(import.meta.dir, "helpers", "crash-extension.ts");
@@ -64,9 +64,9 @@ beforeEach(() => {
   reloadCalled = false;
 });
 
-describe("ExtensionProcess npm-dependency spawn pre-check", () => {
+describe("HostExtensionProcess npm-dependency spawn pre-check", () => {
   test("an unresolvable dep throws the actionable message and never spawns", () => {
-    const ep = new ExtensionProcess("dep-missing", echoPath, allowedEnv, {
+    const ep = new HostExtensionProcess("dep-missing", echoPath, allowedEnv, {
       npmDependencies: { "totally-not-installed-xyz": "^1.0.0" },
     });
     expect(() => ep.ensureRunning()).toThrow(
@@ -78,7 +78,7 @@ describe("ExtensionProcess npm-dependency spawn pre-check", () => {
   });
 
   test("the pre-check error names the extension when extensionName is provided", () => {
-    const ep = new ExtensionProcess("0000-uuid-like-id", echoPath, allowedEnv, {
+    const ep = new HostExtensionProcess("0000-uuid-like-id", echoPath, allowedEnv, {
       npmDependencies: { "totally-not-installed-xyz": "^1.0.0" },
       extensionName: "graded-card-scanner",
     });
@@ -87,7 +87,7 @@ describe("ExtensionProcess npm-dependency spawn pre-check", () => {
   });
 
   test("call() surfaces the pre-check failure (flows into the tool result)", async () => {
-    const ep = new ExtensionProcess("dep-missing-2", echoPath, allowedEnv, {
+    const ep = new HostExtensionProcess("dep-missing-2", echoPath, allowedEnv, {
       npmDependencies: { "totally-not-installed-xyz": "^1.0.0" },
     });
     await expect(ep.call("tools/call", { name: "x", arguments: {} })).rejects.toThrow(
@@ -99,7 +99,7 @@ describe("ExtensionProcess npm-dependency spawn pre-check", () => {
   test("a resolvable dep passes the pre-check and the subprocess runs", async () => {
     // `yaml` is in the repo-root dependencies → resolves from the helpers
     // dir by walking up to the app node_modules.
-    const ep = new ExtensionProcess("dep-ok", echoPath, allowedEnv, {
+    const ep = new HostExtensionProcess("dep-ok", echoPath, allowedEnv, {
       npmDependencies: { yaml: "^2.8.2" },
     });
     try {
@@ -112,9 +112,9 @@ describe("ExtensionProcess npm-dependency spawn pre-check", () => {
   }, 15000);
 });
 
-describe("ExtensionProcess crash-surfacing", () => {
+describe("HostExtensionProcess crash-surfacing", () => {
   test("a child that dies mid-call rejects with the stderr tail, not 'Transport closed'", async () => {
-    const ep = new ExtensionProcess("crash-enrich", crashPath, allowedEnv);
+    const ep = new HostExtensionProcess("crash-enrich", crashPath, allowedEnv);
     let caught: Error | null = null;
     try {
       await ep.callTool("boom", {});
@@ -133,7 +133,7 @@ describe("ExtensionProcess crash-surfacing", () => {
     // The enrichment only fires when the child left a stderr tail — a
     // stderr-less crash must surface the original error unchanged (the
     // do-not-enrich branch).
-    const ep = new ExtensionProcess("crash-silent", crashSilentPath, allowedEnv);
+    const ep = new HostExtensionProcess("crash-silent", crashSilentPath, allowedEnv);
     let caught: Error | null = null;
     try {
       await ep.callTool("boom", {});
@@ -156,7 +156,7 @@ describe("ExtensionProcess crash-surfacing", () => {
       stderrLines.push(typeof chunk === "string" ? chunk : String(chunk));
       return true;
     };
-    const ep = new ExtensionProcess("crash-autodisable", crashPath, allowedEnv);
+    const ep = new HostExtensionProcess("crash-autodisable", crashPath, allowedEnv);
     try {
       await ep.callTool("boom", {}).catch(() => {});
       // The exit handler runs async off proc.exited: incrementFailures →

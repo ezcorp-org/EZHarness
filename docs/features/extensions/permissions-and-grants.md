@@ -32,7 +32,7 @@ Every decision writes exactly one `auditLog` row (`AUDIT_PERM_ALLOWED` / `_DENIE
 
 ### Where the PDP is called
 
-`engine.authorize` is the single gate consulted by every host-side handler: `tool-executor/executor.ts` (forward tool dispatch), `fs-handler.ts` (read/write/list/stat), `network-handler.ts`, `storage-handler.ts`, `mcp-proxy.ts`, `append-message-handler.ts`, `agent-configs-handler.ts`, `task-events-handler.ts`, `spawn-assignment-handler.ts`, `cancel-run-handler.ts`, `finalize-tool-call-handler.ts`, and `file-organizer-applier.ts`.
+`engine.authorize` is the single gate consulted by every host-side handler: `tool-executor/executor.ts` (forward tool dispatch), `fs-handler.ts` (read/write/list/stat), `network-handler.ts`, `storage-handler.ts`, `release-mcp-client.ts`, `append-message-handler.ts`, `agent-configs-handler.ts`, `task-events-handler.ts`, `spawn-assignment-handler.ts`, `cancel-run-handler.ts`, `finalize-tool-call-handler.ts`, and `file-organizer-applier.ts`.
 
 ### Sensitive-cap prompt flow (`tool-executor/executor.ts` → gate → resolve route)
 
@@ -180,7 +180,7 @@ Extension capability calls (`ctx.llm`, `ctx.memory`, `ctx.schedule`, `ctx.drafts
 - [[rbac-and-permission-modes]] — `scope: "forever"` and the permissions-overwrite PUT require the admin role.
 - [[agents]] — spawn-assignment writes per-conversation grant overrides = `intersect(parent, child-agent)`.
 - [[scheduling-and-loops]] — schedule/event fires mint fire-provenance tokens; schedule grants have their own ceiling + expiry tier.
-- [[mcp-servers]] — `mcp-proxy.ts` PDP-gates each MCP host call against the extension's network grant, and `mcp-capabilities.ts` derives the manifest declaration + install grant that make that gate reachable; the wiring gate above decides who may attach an MCP extension in the first place, and the four lifecycle mutations are audited.
+- [[mcp-servers]] — `release-mcp-client.ts` PDP-gates each MCP call and every remote request against the extension's grants, and `mcp-capabilities.ts` derives the manifest declaration + install grant that make that gate reachable; the wiring gate above decides who may attach an MCP extension in the first place, and the four lifecycle mutations are audited.
 - [[settings-system]] — always-allow rows + sticky picker TTLs persist in the `settings` KV table.
 
 ## Related docs

@@ -218,10 +218,11 @@ export const BUNDLED_CEILING: Record<string, ExtensionPermissions> = {
   // set is denied. Adding `127.0.0.1` here keeps the existing
   // bundled grant intact (no Day-1 break) without permitting any
   // remote network host.
+  // No env: ai-kit uses the host API broker, so no credential env name
+  // is admitted.
   "ai-kit": {
     network: ["localhost", "127.0.0.1"],
     filesystem: ["$CWD"],
-    env: ["EZCORP_BASE_URL", "EZCORP_API_KEY", "EZCORP_SESSION_COOKIE"],
     grantedAt: {},
   },
 

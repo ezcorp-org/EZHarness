@@ -137,8 +137,15 @@ describe("getRequiredPermissions", () => {
     const items = getRequiredPermissions(manifest);
     expect(items.find((i) => i.type === "network")!.description).toBe("Network access to api.example.com");
     expect(items.find((i) => i.type === "filesystem")!.description).toBe("Filesystem access to /tmp");
-    expect(items.find((i) => i.type === "shell")!.description).toBe("Execute shell commands");
+    expect(items.find((i) => i.type === "shell")!.description).toBe("Start other programs or processes (enforced in the extension's worker; without it, process creation is blocked)");
     expect(items.find((i) => i.type === "env")!.description).toBe("Read environment variable MY_VAR");
+  });
+
+  test("a stdio MCP server gets a neutral line (the manifest alone cannot say it may start); a remote one gets none", () => {
+    const stdio = makeManifest({ kind: "mcp", mcpServers: [{ name: "files", transport: "stdio", command: "files-server" }], permissions: {} } as never);
+    expect(getRequiredPermissions(stdio).map((i) => i.description)).toEqual(["Has a stdio MCP server: it can start its server only if the release is a plain MCP bridge or has the shell permission"]);
+    const remote = makeManifest({ kind: "mcp", mcpServers: [{ name: "files", transport: "http", url: "https://mcp.example.com/mcp" }], permissions: {} } as never);
+    expect(getRequiredPermissions(remote)).toEqual([]);
   });
 
   test("handles manifest with all permission types", () => {

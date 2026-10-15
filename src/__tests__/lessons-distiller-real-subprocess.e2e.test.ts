@@ -32,7 +32,7 @@ mock.module("../db/queries/extensions", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import type { JsonRpcResponse } from "../extensions/types";
 
 const ENTRYPOINT = join(
@@ -97,7 +97,7 @@ function handleStorage(state: HostState, params: Record<string, unknown>): unkno
   }
 }
 
-function wireHost(proc: ExtensionProcess, state: HostState): void {
+function wireHost(proc: HostExtensionProcess, state: HostState): void {
   proc.setRequestHandler(async (req): Promise<JsonRpcResponse> => {
     const params = (req.params ?? {}) as Record<string, unknown>;
     state.calls.push({ method: req.method, params });
@@ -168,9 +168,9 @@ function wireHost(proc: ExtensionProcess, state: HostState): void {
   });
 }
 
-async function start(state: HostState): Promise<ExtensionProcess> {
+async function start(state: HostState): Promise<HostExtensionProcess> {
   const extId = "lessons-distiller-e2e-" + Math.random().toString(36).slice(2, 8);
-  const proc = new ExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
+  const proc = new HostExtensionProcess(extId, ENTRYPOINT, makeEnv(extId), {
     persistent: true,
     callTimeoutMs: 15_000,
   });
@@ -198,7 +198,7 @@ const GOOD_LESSON = JSON.stringify({
 });
 
 describe("lessons-distiller — real subprocess auto-distill", () => {
-  let proc: ExtensionProcess | undefined;
+  let proc: HostExtensionProcess | undefined;
   let state: HostState;
 
   beforeEach(() => {

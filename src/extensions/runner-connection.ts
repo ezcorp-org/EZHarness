@@ -70,5 +70,6 @@ export function createLazyExtensionRunner(resolve: () => Runner | Promise<Runner
     async cancel(id) { return (await resolve()).cancel(id); },
     async inspect(id) { return (await resolve()).inspect(id); },
     async collectArtifacts(digest) { return (await resolve()).collectArtifacts(digest); },
+    async capabilities() { return await (await resolve()).capabilities?.() ?? { processSpawnEnforcement: false }; },
   };
 }

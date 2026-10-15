@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 import { canonicalJson, type JsonValue } from "@ezcorp/extension-contract";
-import type { Runner, RunnerExecution } from "@ezcorp/extension-contract";
+import type { Runner, RunnerExecution, StartRequest } from "@ezcorp/extension-contract";
 import { executionLimits } from "@ezcorp/extension-runner";
 import type { FactoryCheckpointReference } from "@ezcorp/factory-sdk";
 import type { FactoryExecutionJournal, FactoryAttemptAuthority, FactoryJournalOperation } from "../executions";
 import { FACTORY_GUEST_TOOL_METHOD, factoryGuestFrameInput } from "./guest-frames";
+import { FACTORY_GUEST_PROCESS_SPAWN } from "./guest-process-policy";
 
 /**
  * Writes one workspace checkpoint and returns the durable reference the journal
@@ -107,10 +108,14 @@ export class FactoryRunnerSupervisor {
     const inspection = await this.options.runner.inspect(invocation.workerId);
     if (inspection.state === "running") {
       if (!this.options.runner.attach) throw new Error("Factory runner cannot reattach to a surviving worker.");
-      return this.options.runner.attach({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
+      return this.options.runner.attach(this.startRequest(input, invocation), reverse);
     }
     if (inspection.state !== "unknown") throw new Error("Factory worker is stopped and cannot be restarted by recovery.");
-    return this.options.runner.start({ workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [] }, reverse);
+    return this.options.runner.start(this.startRequest(input, invocation), reverse);
+  }
+
+  private startRequest(input: FactoryToolInvocation, invocation: ReturnType<typeof factoryToolInvocationContext>): StartRequest {
+    return { workerId: invocation.workerId, artifactDigest: input.artifactDigest, context: invocation, limits: executionLimits, devices: input.devices ?? [], processSpawn: FACTORY_GUEST_PROCESS_SPAWN };
   }
 
   private reverse(input: FactoryToolInvocation, invocation: ReturnType<typeof factoryToolInvocationContext>, operationEntry: FactoryJournalOperation, onClaim: () => void): (method: string, raw: unknown) => Promise<unknown> {

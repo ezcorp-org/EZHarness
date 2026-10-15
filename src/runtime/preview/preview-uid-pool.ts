@@ -13,9 +13,7 @@
  *     socket owned by a preview uid maps straight back to its conversation
  *     and user (see ProcPortSource).
  *
- * This mirrors the shape of `allocatePreviewNetns` (alloc/reap/idempotent/
- * reuse-after-reap + an active count) so the watcher + spawn wiring treat
- * uid and netns modes the same way.
+ * Shape: alloc/reap/idempotent/reuse-after-reap + an active count.
  *
  * THE KEYSTONE — `.ezcorp/data` must be 0700 owned by the app uid so a
  * preview uid (a different uid with no supplementary groups) cannot read
