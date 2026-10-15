@@ -8988,3 +8988,17 @@ Evidence: transfer focused-20261015T034041Z; own compiler focused-20261015T03405
 - [x] Obtain independent review and commit the repair.
 
 Type repair review: Full canonical typecheck and Svelte both native0. Five affected consumer files pass42 cases/693 assertions, including missing-resource denial before capture/publication. Final seven new service files remain100% line coverage; patch gate passes the three changed production files. Nonempty canonical repair CRAP scores3 files/4 functions, zero violations, maximum23. Original combined gate RED and all earlier receipts remain intact. Transfer fixture fix is separately owned and committed; no copied transfer/UI files enter this repair leaf. Root retains the required combined fast gate before push.
+
+## Incus live-flow fixture schema repair
+
+- [x] Reproduce the exact canonical guest-read failure on unchanged isolated source.
+- [x] Replace obsolete manual fixture schema with existing canonical isolated DB setup.
+- [x] Check related real-caller fixtures for the same missing schema.
+- [x] Prove the focused consumer and retained authority/lifecycle assertions pass.
+- [x] Obtain independent review before the normal commit.
+
+Fixture repair review: The unchanged f2d216 test reproduced the exact guest-read missing-schema RED (native1). Reusing setupIsolatedTestDb supplies current imports/member and all normal schema without a production guard change or global DB mock. The project seed through the final guest/auth/stale-pin/destroy assertions is byte-identical. Focused GREEN1/0/23 assertions and scoped Biome0; own frozen install did not change manifests/locks. Receipts and before/after source pins remain in .cache/live-flow-fixture. Independent exact-consumer rerun passed1/0/23 assertions, source review CLEAR; no whole gate or unrelated TypeScript work was run.
+
+Related caller audit: the separate transfer owner found no second missing-schema consumer. Host-live-preview uses the canonical DB helper; caller unit fixtures already define both guard tables. Its review is preserved at incus-personal-pr-transfer-sol61-oct15/.cache/incus-transfer-validation/import-guard-fixture-audit/REVIEW.md.
+
+Full-run truth: mandatory fast45012 on f2d2169 stopped with actual exit70 after the real file1984 fixture failure;1994 other file receipts were0. That failed full run is preserved and is not a passing gate. Root must run the next required fast gate on the integrated repair head.

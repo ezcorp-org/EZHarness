@@ -1,14 +1,10 @@
 import { afterEach, expect, test } from "bun:test";
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
+import type { PGlite } from "@electric-sql/pglite";
 import { sandboxPresetDigest, type SandboxProtocolOperation } from "@ezcorp/extension-contract";
 import { incusManifest, INCUS_PRESETS } from "../../extensions/incus-sandbox/manifest";
 import { digest } from "../../scripts/incus/model";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
-import { up as addSandboxController } from "../db/migrations/add-sandbox-controller";
-import { up as addExtensionReleases } from "../db/migrations/add-extension-releases";
-import { up as addProviderConnections } from "../db/migrations/add-provider-connections";
-import { up as addQualificationFixtures } from "../db/migrations/add-incus-qualification-fixtures";
+import { setupIsolatedTestDb } from "../__tests__/helpers/test-pglite";
 import * as schema from "../db/schema";
 import { SandboxAdmissionStore } from "../sandboxes/admission";
 import { SandboxController } from "../sandboxes/controller";
@@ -23,15 +19,8 @@ const now = Date.parse("2026-09-22T12:00:00Z");
 const preset = INCUS_PRESETS[0]!;
 
 async function fixture() {
-  const pglite = new PGlite();
+  const { pglite, db } = await setupIsolatedTestDb();
   open.push(pglite);
-  await pglite.waitReady;
-  await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
-  const db = drizzle(pglite, { schema });
-  await addExtensionReleases(db);
-  await addProviderConnections(db);
-  await addSandboxController(db);
-  await addQualificationFixtures(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/host-canary" });
   const runtime = releaseRuntimeFixture("installation", incusManifest);
   const snapshot = runtime.snapshot;
