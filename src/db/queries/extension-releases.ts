@@ -12,6 +12,11 @@ export function releaseRows<Result>(result: unknown): Result[] {
   throw new LifecycleError("database_result", "The database returned an unsupported result.");
 }
 
+/** Whether some release record names this artifact digest (W4H-32: only a named artifact is ever rehydrated). */
+export async function releaseNamesArtifact(db: Pick<MigrationDb, "execute">, artifactDigest: string): Promise<boolean> {
+  return releaseRows(await db.execute(sql`SELECT 1 FROM extension_release_records WHERE kind = 'releases' AND (payload::jsonb ->> 'artifactDigest') = ${artifactDigest} LIMIT 1`)).length > 0;
+}
+
 const recordKinds = ["workspaces", "revisions", "operations", "releases", "approvals"] as const;
 
 async function readState(db: MigrationDb, installationId: string, lock: "update" | "share"): Promise<InstallationState | null> {
