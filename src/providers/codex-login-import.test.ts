@@ -125,6 +125,14 @@ describe("importing stores the credential through the product's own credential s
     expect(await getCredential("openai")).toMatchObject({ type: "oauth" });
   });
 
+  test("a secret and salt holding $, a backtick, a backslash and both quotes store a login that decrypts unchanged", async () => {
+    setEnv({ EZCORP_ENCRYPTION_SECRET: "fx-$HOME-`id`-\\-\"-'", EZCORP_ENCRYPTION_SALT: "fx-$(true)-\\-\"'" });
+    expect(process.env.EZCORP_ENCRYPTION_SECRET).toBe("fx-$HOME-`id`-\\-\"-'");
+    await importCodexLogin(authFile(), deps());
+    expect(JSON.parse(decrypt(String(await getSetting(oauthSettingKey("openai")))))).toMatchObject({ refresh: REFRESH });
+    expect(await importCodexLogin(authFile(), deps(), { dryRun: true })).toMatchObject({ secretCheck: "read" });
+  });
+
   test("a missing file is refused by name and nothing is stored", async () => {
     expect(await refusal(importCodexLogin(join(dir, "absent.json"), deps()))).toMatchObject({ code: "codex_login_unreadable" });
     expect(await refusal(importCodexLogin(authFile("{not json"), deps()))).toMatchObject({ code: "codex_login_shape_unexpected" });

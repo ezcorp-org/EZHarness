@@ -19,6 +19,7 @@ import { closeDb, initDb } from "../db/connection";
 import { getSetting } from "../db/queries/settings";
 import { getCredentialStore, oauthSettingKey, tagOAuthCredential, type SettingsCredentialStore } from "./credential-store";
 import { decrypt, encrypt } from "./encryption";
+import { errorShape } from "./error-shape";
 
 /** The claim the access token carries the ChatGPT account under (the same path pi-ai reads). */
 const ACCOUNT_CLAIM = "https://api.openai.com/auth";
@@ -71,18 +72,6 @@ const defaultDeps = (): CodexLoginImportDeps => ({ connect: initDb, close: close
 
 function record(value: unknown): Record<string, unknown> | undefined {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
-}
-
-/** The error's own class and code, from the deepest cause that has them; never its message. */
-function errorShape(error: unknown): { errorClass: string; errorCode?: string } {
-  let deepest = error, errorCode: string | undefined;
-  for (let at: unknown = error; at instanceof Error; at = at.cause) {
-    deepest = at;
-    const code = (at as { code?: unknown }).code;
-    if (typeof code === "string") errorCode = code;
-  }
-  const errorClass = deepest instanceof Error ? deepest.name : typeof deepest;
-  return errorCode === undefined ? { errorClass } : { errorClass, errorCode };
 }
 
 /** Host:port and database name of a connection URL; the user and password are never read out. */
@@ -171,7 +160,7 @@ export async function importCodexLogin(
   return summary;
 }
 
-const USAGE = "usage: bun scripts/import-codex-login.ts [--dry-run] --from <path to auth.json>";
+const USAGE = "usage: bun scripts/import-codex-login.ts [--dry-run] --from <path to auth.json> [--deployment <dir> --postgres-env <file> --postgres-port <port>]";
 
 /** The command line: one JSON line (the summary on stdout, or the refusal on stderr) and an exit code. */
 export async function runCodexLoginImportCli(
