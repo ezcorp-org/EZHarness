@@ -1,4 +1,13 @@
 {
+  "src/db/migrations/add-github-personal-pr-workspace-authority.ts": 100,
+  "src/infrastructure/incus-feature-runtime.ts": 100,
+  "src/infrastructure/incus-workspace-import-authority.ts": 100,
+  "src/integrations/github-personal-prs/workspace.ts": 100,
+  "src/integrations/github-personal-prs/repository-source.ts": 100,
+  "src/integrations/github-personal-prs/incus-workspace-service.ts": 100,
+  "src/integrations/github-personal-prs/incus-import.ts": 100,
+  "src/integrations/github-personal-prs/incus-workspace.ts": 100,
+  "src/extensions/project-source-files.ts": 100,
   "src/infrastructure/incus-guest/memory-stress.c": 100,
   "src/infrastructure/incus-memory-stress-asset.ts": 100,
   "src/infrastructure/incus-cleanup-stop-policy.ts": 100,

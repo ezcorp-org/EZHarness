@@ -145,6 +145,9 @@ jobs:
       - name: Run Bun.sql request-queue regression
         run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 300000 ./tests/postgres/bun-sql-request-queue.test.ts
 
+      - name: Preserve private repository imports across the Incus authority migration
+        run: FACTORY_TEST_POSTGRES_URL="$DATABASE_URL" bun test --timeout 60000 ./tests/postgres/github-personal-pr-upgrade.test.ts
+
       - name: Run pool service PostgreSQL and Node mTLS coverage producer
         env:
           COV_OUT: coverage-factory-pool

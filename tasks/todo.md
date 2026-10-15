@@ -7,8 +7,8 @@ This checkpoint supersedes the older progress notes below. The product is a pers
 - [x] Review and integrate the Stryker fixture repair, Incus repository import UI, name/recovery fixes, and bounded source-transfer adapter.
 - [x] Verify transfer coverage and complexity independently; document the import limits and host-only credential boundary.
 - [x] Pass the eight final focused backend files and migration preservation tests on PGlite and PostgreSQL.
-- [ ] Complete the two API route tests, service source coverage, complexity, and independent review; integrate the service-owned guard and orchestration.
-- [ ] Complete the browser recovery-link fix. The original three browser cases passed, but visual review found same-tab navigation could discard the saved retry request.
+- [x] Complete the two API route tests, service source coverage, complexity, and independent review; integrate the service-owned guard and orchestration.
+- [x] Complete the browser recovery-link fix. The original three browser cases passed; the added browser regression proves management opens separately and retry retains the same request and key.
 - [ ] Validate the complete committed source: types, Svelte, fast gate, browser evidence, coverage, canonical complexity gate, and required hosted checks.
 - [ ] Build and verify the immutable combined bundle; update the isolated app and worker while preserving its database and reviewed configuration.
 - [ ] Complete final-source live qualification, repeated lifecycle evidence, retained native AI turns, preview access, restart/resume, cleanup, and zero accounting.
@@ -16,6 +16,8 @@ This checkpoint supersedes the older progress notes below. The product is a pers
 - [ ] Verify normal owner login and the completed user flow before releasing the ingress hold; prepare the PR for its required non-author review.
 
 Review: the old0009 fast run was deliberately stopped with one known failure after1,932 completed file receipts. Its evidence is preserved; it is not a full pass. The repaired source requires a new combined gate. The provider0.1.6 approval remains valid and is not being requested again. Unrelated healthy work is left alone while bounded tests wait for memory admission.
+
+Integration review: service commit8c8253697 is integrated as7bcbe86b6; all24 source/test blobs match its independently reviewed V5 manifest. The two notes-only conflicts preserve both histories. Service proof includes52 selected backend/database cases,40 route cases, seven new files at100%, changed-line coverage, and canonical complexity17files/106functions with zero violations. UI recovery a9a89dbf5 is integrated ascc7d9563d with exact source/test blobs. Integration reuses these unchanged focused results through the documented test-only hook skip while retaining lint. The combined source still needs its mandatory local fast gate and exact-head hosted browser, coverage, and complexity checks; no deployment or live acceptance is claimed.
 
 # Historical PR303 merge validation — 15 October 2026
 
