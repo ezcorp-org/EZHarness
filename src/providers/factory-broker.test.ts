@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { closeTestDb, mockDbConnection, setupTestDb } from "../__tests__/helpers/test-pglite";
 
 // The default model check reads the operator's registrations from settings.
@@ -25,6 +25,8 @@ import { KEYLESS_TOKEN, ProviderCredentialUnusableError, ProviderNotConfiguredEr
 import { oauthSettingKey } from "./credential-store";
 import { encrypt } from "./encryption";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
+import * as settingsQueries from "../db/queries/settings";
+import { getCredential } from "./credentials";
 
 beforeAll(async () => { await setupTestDb(); });
 afterAll(async () => { await closeTestDb(); });
@@ -356,6 +358,79 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     expect(error).toBeInstanceOf(FactoryProviderReadinessError);
     expect((error as FactoryProviderReadinessError).readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
     expect(sent).toHaveLength(0);
+  });
+
+  describe("the ladder classifies every step (P-F3, C10)", () => {
+    const KEY_PIN: FactoryProviderPin = { provider: "openai", model: "gpt-4.1-mini" };
+    /** A row the current secret cannot decrypt: what a rotated or wrong web secret leaves behind. */
+    const unreadableRow = () => upsertSetting(oauthSettingKey(LUNA.provider), "v1:000000000000000000000000:00000000000000000000000000000000:00");
+    const ACCESS_MODE = "provider:accessMode:openai";
+    afterEach(async () => { await deleteSetting(ACCESS_MODE); });
+    /** The OAuth-row read alone fails, as a database would; every other settings read works. */
+    async function withOAuthRowReadFailing<T>(run: () => Promise<T>): Promise<T> {
+      const real = settingsQueries.getSetting;
+      const spy = spyOn(settingsQueries, "getSetting").mockImplementation(async (key: string) => {
+        if (key === oauthSettingKey(LUNA.provider)) throw new Error("Failed query: select", { cause: Object.assign(new Error("Connection closed"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" }) });
+        return real(key);
+      });
+      try { return await run(); } finally { spy.mockRestore(); }
+    }
+
+    test("P-F3a: an explicit access mode with nothing stored is not configured, by the typed refusal with the same message", async () => {
+      await upsertSetting(ACCESS_MODE, "oauth");
+      const oauth = await getCredential("openai").then(() => undefined, (e: unknown) => e);
+      expect(oauth).toBeInstanceOf(ProviderNotConfiguredError);
+      expect((oauth as Error).message).toBe("No OAuth token for openai");
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_not_configured"] });
+      await upsertSetting(ACCESS_MODE, "apikey");
+      const key = await getCredential("openai").then(() => undefined, (e: unknown) => e);
+      expect(key).toBeInstanceOf(ProviderNotConfiguredError);
+      expect((key as Error).message).toBe("Missing API key for openai");
+      expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).toMatchObject({ failures: ["provider_not_configured"] });
+    });
+
+    test("P-F3b: a stored OAuth row the secret cannot decrypt is unusable, never not configured", async () => {
+      await unreadableRow();
+      const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+      expect(readiness).toMatchObject({ ready: false, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+      await upsertSetting(oauthSettingKey(LUNA.provider), encrypt("not json"));
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_credential_unusable"] });
+    });
+
+    test("P-F3b: a database error on the OAuth-row read alone is a readiness error, at readiness, in the record and at the call", async () => {
+      await withOAuthRowReadFailing(async () => {
+        const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
+        expect(readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
+        expect(factoryProviderReadinessRecord(readiness)).toMatchObject({ failures: ["provider_readiness_error"] });
+        const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+        const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+        await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/provider_readiness_error/);
+        expect(sent).toHaveLength(0);
+      });
+    });
+
+    test("an unreadable OAuth row with a valid key: ready on the key, with the broken login as one warning", async () => {
+      await unreadableRow();
+      await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+      const readiness = await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true });
+      expect(readiness).toMatchObject({ ready: true, credentialKind: "apikey", failures: [], warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      const record = factoryProviderReadinessRecord(readiness);
+      expect(record).toMatchObject({ warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      expect(JSON.stringify(record)).not.toContain(API_KEY);
+    });
+
+    test("a database error on the OAuth-row read with a valid key refuses at once; the key is not consulted", async () => {
+      await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
+      await withOAuthRowReadFailing(async () => {
+        expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"] });
+      });
+    });
+
+    test("a login with no usable OAuth key and nothing else configured still reads not configured, and a healthy pin carries no warnings", async () => {
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_not_configured"] });
+      await signIn();
+      expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).not.toHaveProperty("warnings");
+    });
   });
 
   test("with no stored credential names the missing credential only, because the model is in the catalog", async () => {

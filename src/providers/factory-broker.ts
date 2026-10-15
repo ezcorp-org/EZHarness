@@ -1,9 +1,8 @@
 import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
-import { authCallOptions, getCredential, ProviderCredentialUnusableError, ProviderNotConfiguredError, type ProviderCredential } from "./credentials";
+import { authCallOptions, credentialFailureOf, getCredential, ProviderNotConfiguredError, type CredentialFailure, type ProviderCredential } from "./credentials";
 import { errorShape } from "./error-shape";
-import { isBrokenOAuth } from "./credential-store";
 import { resolveModelForCredential, resolveOAuthModel } from "./registry";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
 
@@ -59,12 +58,16 @@ export interface FactoryProviderReadiness {
   readonly credentialFailure?: FactoryCredentialFailure;
   /** Why the credential could not be read at all (a database or store error): class and code, never its message. */
   readonly readinessFailure?: FactoryCredentialFailure;
+  /** Non-blocking: a broken OAuth login the ladder served an API key past (C10, P-F3). Absent when there is none. */
+  readonly warnings?: readonly FactoryProviderReadinessWarning[];
   readonly checkedAtMs: number;
 }
 
-export interface FactoryCredentialFailure {
-  readonly errorClass: string;
-  readonly code?: string;
+export type FactoryCredentialFailure = CredentialFailure;
+
+export interface FactoryProviderReadinessWarning {
+  readonly code: "provider_credential_unusable";
+  readonly credentialFailure: FactoryCredentialFailure;
 }
 
 export class FactoryProviderReadinessError extends Error {
@@ -112,14 +115,6 @@ function failureDetail(resolved: FactoryPinCredential): Pick<FactoryProviderRead
   return {};
 }
 
-/** The class and code of a stored credential's failure, or undefined when the error is not one. */
-function unusableCredential(error: unknown): FactoryCredentialFailure | undefined {
-  const cause = error instanceof ProviderCredentialUnusableError ? error.cause : isBrokenOAuth(error) ? error : undefined;
-  if (cause === undefined) return undefined;
-  const code = (cause as { code?: unknown } | null)?.code;
-  return { errorClass: cause instanceof Error ? cause.name : typeof cause, ...(typeof code === "string" ? { code } : {}) };
-}
-
 /**
  * Resolves the deployment's credential for a pin and refuses it by name when it is absent or of a
  * kind the pin does not allow. Readiness and the call both read through here, and the call sends
@@ -135,7 +130,7 @@ export async function resolveCredentialForPin(
   } catch (error) {
     // A stored credential that fails is named for what it is. Only the ladder's typed "nothing configured" is not
     // configured; any other error (a database or store error) is a readiness error, never "connect a provider" (C10).
-    const credentialFailure = unusableCredential(error);
+    const credentialFailure = credentialFailureOf(error);
     if (credentialFailure !== undefined) return { credential: null, failure: "provider_credential_unusable", credentialFailure };
     if (!(error instanceof ProviderNotConfiguredError)) {
       const { errorClass, errorCode } = errorShape(error);
@@ -177,6 +172,7 @@ export async function factoryProviderReadiness(
     ...(pin.credentialKind === undefined ? {} : { requiredCredentialKind: pin.credentialKind }),
     failures,
     ...failureDetail(resolved),
+    ...(credential?.bypassedFailure === undefined ? {} : { warnings: [{ code: "provider_credential_unusable", credentialFailure: credential.bypassedFailure }] }),
     checkedAtMs: now(),
   };
 }
@@ -231,6 +227,7 @@ export function factoryProviderReadinessRecord(readiness: FactoryProviderReadine
     failures: [...readiness.failures],
     ...(readiness.credentialFailure === undefined ? {} : { credentialFailure: { ...readiness.credentialFailure } }),
     ...(readiness.readinessFailure === undefined ? {} : { readinessFailure: { ...readiness.readinessFailure } }),
+    ...(readiness.warnings === undefined ? {} : { warnings: readiness.warnings.map((warning) => ({ code: warning.code, credentialFailure: { ...warning.credentialFailure } })) }),
     checkedAt: new Date(readiness.checkedAtMs).toISOString(),
   };
 }

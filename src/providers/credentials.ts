@@ -76,6 +76,14 @@ export interface ProviderCredential {
   type: "oauth" | "apikey";
   token: string;
   refreshed?: boolean;
+  /** Set when the ladder served this key past a broken OAuth login: that login's class and code, never its message. */
+  bypassedFailure?: CredentialFailure;
+}
+
+/** A credential failure for a record: the error's class and code, never its message (it may quote a provider reply). */
+export interface CredentialFailure {
+  readonly errorClass: string;
+  readonly code?: string;
 }
 
 // Re-export pi-ai's OAuthCredentials for downstream usage
@@ -151,13 +159,20 @@ async function getOAuthCredential(
   // env key over EZCorp's own BYOK precedence. Gate first, always.
   const stored = await getSetting(oauthSettingKey(provider));
   if (!stored || typeof stored !== "string") {
-    throw new Error(`No OAuth token for ${provider}`);
+    throw new ProviderNotConfiguredError(provider, `No OAuth token for ${provider}`);
   }
 
-  const creds = JSON.parse(decrypt(stored)) as OAuthCredentials;
+  // A row that exists but cannot be read (a wrong or rotated web secret, a corrupt row) is a broken login,
+  // never "not configured" (C10, P-F3).
+  let creds: OAuthCredentials;
+  try {
+    creds = JSON.parse(decrypt(stored)) as OAuthCredentials;
+  } catch (cause) {
+    throw new OAuthUnusableError(`Stored OAuth login for ${provider} cannot be read`, { cause });
+  }
   const oauthProviderId = OAUTH_PROVIDER_IDS[provider];
   if (!oauthProviderId) {
-    throw new Error(`No OAuth provider mapping for ${provider}`);
+    throw new ProviderNotConfiguredError(provider, `No OAuth provider mapping for ${provider}`);
   }
 
   // Google Cloud Code Assist requires a projectId. If missing (e.g. OAuth
@@ -208,7 +223,8 @@ async function getOAuthCredential(
     // serve this provider", a CONFIGURATION fact. A refresh that genuinely
     // fails throws `ModelsError` with `code: "oauth"` out of `resolveOAuthAuth`
     // and is NOT caught here — see the comment at getCredential's step 3.
-    throw new Error(
+    throw new ProviderNotConfiguredError(
+      provider,
       `No pi-ai OAuth provider for ${provider} (${oauthProviderId}); cannot derive a token`,
     );
   }
@@ -227,18 +243,16 @@ async function getOAuthCredential(
 
 /** @deprecated Use getCredential() instead */
 export async function getApiKey(provider: string): Promise<string> {
-  // Check BYOK stored key first
-  try {
-    const stored = await getSetting(`provider:apiKey:${provider}`);
-    if (stored && typeof stored === "string") {
-      try {
-        return decrypt(stored);
-      } catch {
-        // Decrypt failed -- fall through to env var
-      }
+  // Check BYOK stored key first. A database error is not "no key": it propagates (C10, P-F3).
+  const stored = await getSetting(`provider:apiKey:${provider}`);
+  let unreadable: unknown;
+  if (stored && typeof stored === "string") {
+    try {
+      return decrypt(stored);
+    } catch (cause) {
+      // Decrypt failed -- fall through to env var, but never report "no key" for it
+      unreadable = cause;
     }
-  } catch {
-    // Settings DB unavailable -- fall through to env var
   }
 
   // Try pi-ai's env key resolver (checks standard env vars like ANTHROPIC_API_KEY)
@@ -254,7 +268,8 @@ export async function getApiKey(provider: string): Promise<string> {
   const ownEnvKey = PROVIDER_ENV_KEYS[provider];
   if (ownEnvKey && process.env[ownEnvKey]) return process.env[ownEnvKey];
 
-  throw new Error(`Missing API key for ${provider}`);
+  if (unreadable !== undefined) throw new Error(`Stored API key for ${provider} cannot be read`, { cause: unreadable });
+  throw new ProviderNotConfiguredError(provider, `Missing API key for ${provider}`);
 }
 
 async function getApiKeyCredential(
@@ -308,10 +323,18 @@ export class ProviderCredentialUnusableError extends Error {
  * ladder reads the store (a database error) is a readiness error, never "connect a provider".
  */
 export class ProviderNotConfiguredError extends Error {
-  constructor(readonly provider: string) {
-    super(`No credentials available for ${provider}. Connect via OAuth or add an API key.`);
+  constructor(readonly provider: string, message = `No credentials available for ${provider}. Connect via OAuth or add an API key.`) {
+    super(message);
     this.name = "ProviderNotConfiguredError";
   }
+}
+
+/** The class and code of a broken stored login (or of the cause an unusable-credential error carries), else undefined. */
+export function credentialFailureOf(error: unknown): CredentialFailure | undefined {
+  const cause = error instanceof ProviderCredentialUnusableError ? error.cause : isBrokenOAuth(error) ? error : undefined;
+  if (cause === undefined) return undefined;
+  const code = (cause as { code?: unknown } | null)?.code;
+  return { errorClass: cause instanceof Error ? cause.name : typeof cause, ...(typeof code === "string" ? { code } : {}) };
 }
 
 export async function tryGetCredential(
@@ -368,14 +391,19 @@ export async function getCredential(
     try {
       return await getOAuthCredential(provider);
     } catch (err) {
+      // Only "nothing stored" and a broken login fall through; a database or store error refuses at once, because
+      // the key below comes from the same store (C10, P-F3).
       if (isBrokenOAuth(err)) oauthFailure = err;
-      // Fall through
+      else if (!(err instanceof ProviderNotConfiguredError)) throw err;
     }
   }
 
   try {
-    return await getApiKeyCredential(provider);
-  } catch {
+    const key = await getApiKeyCredential(provider);
+    const bypassedFailure = credentialFailureOf(oauthFailure);
+    return bypassedFailure === undefined ? key : { ...key, bypassedFailure };
+  } catch (err) {
+    if (!(err instanceof ProviderNotConfiguredError)) throw err;
     // Keyless free tier: the provider serves SOME models to anonymous
     // callers, so "no key" is a usable state rather than a failure. Kilo is
     // the only such provider today — measured, its gateway answers a free
@@ -395,19 +423,17 @@ export async function getCredential(
     }
 
     // Last resort: local providers with baseUrl don't need credentials
-    try {
-      const customModels = await getSetting("provider:customModels");
-      if (
-        Array.isArray(customModels) &&
-        customModels.some((m: unknown): boolean => {
-          if (!m || typeof m !== "object") return false;
-          const r = m as { provider?: unknown; baseUrl?: unknown };
-          return r.provider === provider && typeof r.baseUrl === "string";
-        })
-      ) {
-        return { type: "apikey", token: KEYLESS_TOKEN };
-      }
-    } catch {}
+    const customModels = await getSetting("provider:customModels");
+    if (
+      Array.isArray(customModels) &&
+      customModels.some((m: unknown): boolean => {
+        if (!m || typeof m !== "object") return false;
+        const r = m as { provider?: unknown; baseUrl?: unknown };
+        return r.provider === provider && typeof r.baseUrl === "string";
+      })
+    ) {
+      return { type: "apikey", token: KEYLESS_TOKEN };
+    }
 
     if (oauthFailure) throw new ProviderCredentialUnusableError(provider, oauthFailure);
 
