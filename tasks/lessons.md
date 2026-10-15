@@ -1,5 +1,7 @@
 # Lessons
 
+- When the user says to leave unrelated work alone, preserve that choice. Do not stop its healthy processes to free memory or repeat the permission question. Sequence our own checks and measure available memory before starting them.
+
 - Keep the product scope explicit: these are persistent AI development sandboxes. The isolated EZHarness test instance validates that workflow; it is not an application hosting product.
 
 - Read the complete executed time check before stating a wait deadline. Qualification age starts at verifiedAt, not at a later snapshot capturedAt. Do not add a new wait to preserve an incorrect earlier estimate.

@@ -1,4 +1,23 @@
-# PR303 merge validation — 15 October 2026
+# Sandbox completion checkpoint — 15 October 2026
+
+This checkpoint supersedes the older progress notes below. The product is a persistent AI development workspace. Local fixtures are not live-server qualification.
+
+- [x] Complete reviewed recovery, stop the isolated runner, and verify zero resource accounting.
+- [x] Merge main934 and preserve the existing Incus and extension security controls.
+- [x] Review and integrate the Stryker fixture repair, Incus repository import UI, name/recovery fixes, and bounded source-transfer adapter.
+- [x] Verify transfer coverage and complexity independently; document the import limits and host-only credential boundary.
+- [x] Pass the eight final focused backend files and migration preservation tests on PGlite and PostgreSQL.
+- [ ] Complete the two API route tests, service source coverage, complexity, and independent review; integrate the service-owned guard and orchestration.
+- [ ] Complete the browser recovery-link fix. The original three browser cases passed, but visual review found same-tab navigation could discard the saved retry request.
+- [ ] Validate the complete committed source: types, Svelte, fast gate, browser evidence, coverage, canonical complexity gate, and required hosted checks.
+- [ ] Build and verify the immutable combined bundle; update the isolated app and worker while preserving its database and reviewed configuration.
+- [ ] Complete final-source live qualification, repeated lifecycle evidence, retained native AI turns, preview access, restart/resume, cleanup, and zero accounting.
+- [ ] Prove one private repository import, native edit, reviewed draft PR, and exact remote diff through the app owner's GitHub connection.
+- [ ] Verify normal owner login and the completed user flow before releasing the ingress hold; prepare the PR for its required non-author review.
+
+Review: the old0009 fast run was deliberately stopped with one known failure after1,932 completed file receipts. Its evidence is preserved; it is not a full pass. The repaired source requires a new combined gate. The provider0.1.6 approval remains valid and is not being requested again. Unrelated healthy work is left alone while bounded tests wait for memory admission.
+
+# Historical PR303 merge validation — 15 October 2026
 
 - [x] Reconcile main 934531e2 with the reviewed Incus integration; preserve both security and workspace routing behavior.
 - [x] Keep Bun 1.4.2 and the reviewed bundle runtime pinning fix.
@@ -8876,23 +8895,6 @@ Lesson: At a process runner boundary, assert that the parent-tracked `$!` equals
 Review: Provisional source tree 5293cac8db22c78ae8c38c342fe65dbb92af091d independently reviewed with no source blocker. Relative to reviewed 64d9, it changes exactly the same 344 paths as main 1981-to-934, with no missing or unrelated source paths. Both reviewed leaves remain byte-identical. No merge commit, full gate, push, or live checks are authorized in this step.
 
 Final review: Full repository typecheck passed all backend, web, backend-tests, web-e2e, package, and locked Python legs on source tree 2f15e23d65ff641e59d4596893ad25d127e5fa1a. Web Svelte check and scoped Biome passed. The 16 focused suites finish green after two concrete test-fixture repairs; the gateway context suite also passes. Initial failures and final native exits remain in .cache/main934. The six production resolutions remain unchanged from the independently cleared 5293 tree. Test changes outside the 344 upstream paths are limited to an explicit strict fixture-table type and canonical process-policy capability in the provider test runner. No test assertion, gate, timeout, or authority was weakened. Merge remains uncommitted for independent final review.
-# Sandbox completion checkpoint — 15 October 2026
-
-This checkpoint supersedes the older progress notes below. The product is a persistent AI development workspace. Local fixtures are not live-server qualification.
-
-- [x] Complete reviewed recovery, stop the isolated runner, and verify zero resource accounting.
-- [x] Merge main934 and preserve the existing Incus and extension security controls.
-- [x] Review and integrate the Stryker fixture repair, Incus repository import UI, name/recovery fixes, and bounded source-transfer adapter.
-- [x] Verify transfer coverage and complexity independently; document the import limits and host-only credential boundary.
-- [ ] Complete the service gap tests, both database migration tests, source coverage, and final service review; integrate the service-owned guard and orchestration.
-- [ ] Validate the complete committed source: types, Svelte, fast gate, browser evidence, coverage, canonical complexity gate, and required hosted checks.
-- [ ] Build and verify the immutable combined bundle; update the isolated app and worker while preserving its database and reviewed configuration.
-- [ ] Complete final-source live qualification, repeated lifecycle evidence, retained native AI turns, preview access, restart/resume, cleanup, and zero accounting.
-- [ ] Prove one private repository import, native edit, reviewed draft PR, and exact remote diff through the app owner's GitHub connection.
-- [ ] Verify normal owner login and the completed user flow before releasing the ingress hold; prepare the PR for its required non-author review.
-
-Review: the old0009 fast run was deliberately stopped with one known failure after1,932 completed file receipts. Its evidence is preserved; it is not a full pass. The repaired source requires a new combined gate. The provider0.1.6 approval remains valid and is not being requested again. Unrelated healthy work is left alone while bounded tests wait for memory admission.
-
 # Stryker fixture repair (2026-10-15)
 
 - [x] Inspect canonical RED and the installed runner's real version selection.
