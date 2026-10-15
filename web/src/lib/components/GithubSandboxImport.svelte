@@ -35,6 +35,7 @@
 	let incusUnknown = $state(false);
 	let incusPartial = $state(false);
 	const environmentKey = (environment: IncusEnvironment) => `incus:${environment.installationId}:${environment.connectionId}:${environment.presetId}`;
+	const privateSandboxName = (fullName: string) => `Sandbox for ${fullName}`.slice(0, 120);
 
 	$effect(() => {
 		if (pendingPrivate || connection?.status !== "connected") return;
@@ -85,7 +86,7 @@
 		try {
 			if (!pendingPrivate && (selectedIncus || incusRequest)) {
 				if (!incusRequest && selectedIncus) incusRequest = {
-					kind: "incus", name: `Sandbox for ${selectedRepository.fullName}`,
+					kind: "incus", name: privateSandboxName(selectedRepository.fullName),
 					installationId: selectedIncus.installationId, connectionId: selectedIncus.connectionId,
 					presetId: selectedIncus.presetId, repositoryId: selectedRepository.id, baseRef,
 				};
@@ -112,7 +113,7 @@
 				const createResponse = await fetch("/api/github/sandboxes", {
 					method: "POST",
 					headers: { "content-type": "application/json", "Idempotency-Key": createKey },
-					body: JSON.stringify({ name: `Sandbox for ${selectedRepository.fullName}`, providerInstallationId: selectedProvider!.installationId, providerId: selectedProvider!.providerId }),
+					body: JSON.stringify({ name: privateSandboxName(selectedRepository.fullName), providerInstallationId: selectedProvider!.installationId, providerId: selectedProvider!.providerId }),
 				});
 				const created = await createResponse.json();
 				if (!createResponse.ok) throw new Error(created.error ?? "Could not create private sandbox");
@@ -163,5 +164,5 @@
 			{#if trustedGithubUrl(connection.installUrl)}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={trustedGithubUrl(connection.installUrl) ?? undefined} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Enable repositories on GitHub</a>{/if}
 		<a class="mt-3 block text-xs text-[var(--color-accent)] underline" href="/settings/github">Manage GitHub connection</a>
 	{/if}
-	{#if newProjectId && error}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={`/project/${newProjectId}/settings`}>Open the private sandbox</a>{/if}
+	{#if newProjectId && error}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={`/project/${newProjectId}${incusRequest ? "" : "/settings"}`}>Open the private sandbox</a>{/if}
 </section>

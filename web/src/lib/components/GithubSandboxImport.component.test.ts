@@ -13,10 +13,10 @@ function response(body: unknown, status = 200) {
 	return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 }
 
-function incusReadResponse(url: string) {
+function incusReadResponse(url: string, fullName = "owner/private") {
 		if (url === "/api/github/connection") return response({ status: "connected", configured: true });
 		if (url === "/api/github/repositories") return response({ repositories: [
-			{ id: 42, fullName: "owner/private", defaultBranch: "main", private: true, accessStatus: "ready" },
+			{ id: 42, fullName, defaultBranch: "main", private: true, accessStatus: "ready" },
 		] });
 		if (url === "/api/infrastructure/incus/management") return response({ environments: [
 			{ installationId: "incus", connectionId: "local", presetId: "small", label: "Private Incus", qualified: true },
@@ -25,6 +25,47 @@ function incusReadResponse(url: string) {
 		], truncated: false });
 		return undefined;
 }
+
+test.each(["incus", "legacy"])("bounds generated %s project names while preserving the repository label", async (kind) => {
+	const fullName = `${"o".repeat(39)}/${"r".repeat(100)}`;
+	const names: string[] = [];
+	vi.stubGlobal("fetch", vi.fn((url: string, init?: RequestInit) => {
+		const result = incusReadResponse(url, fullName);
+		if (result) return Promise.resolve(result);
+		if (url === "/api/github/sandboxes") {
+			names.push(JSON.parse(init!.body as string).name);
+			return Promise.resolve(response({ project: { id: "long-name-project" }, import: { importState: "ready" } }));
+		}
+		if (url.endsWith("/long-name-project/import")) return Promise.resolve(response({ importState: "ready" }));
+		throw new Error(`Unexpected URL ${url}`);
+	}));
+	refreshProjects.mockResolvedValue(true);
+	const view = render(GithubSandboxImport, { projectId: "source", providers: [{ installationId: "local", providerId: "local", label: "Local", ready: true }] });
+	await waitFor(() => expect(view.getByRole("option", { name: fullName })).toBeVisible());
+	await waitFor(() => expect(view.getByRole("option", { name: "Private Incus" })).toBeVisible());
+	await fireEvent.change(view.getByLabelText("Repository"), { target: { value: "42" } });
+	await fireEvent.change(view.getByLabelText("Sandbox provider"), { target: { value: kind === "incus" ? "incus:incus:local:small" : "local" } });
+	await fireEvent.click(view.getByRole("button", { name: "Create private sandbox & import" }));
+	await waitFor(() => expect(goto).toHaveBeenCalled());
+	expect(names).toHaveLength(1);
+	expect(names[0]).toHaveLength(120);
+	expect(names[0]).toBe(`Sandbox for ${fullName}`.slice(0, 120));
+	expect(view.getByRole("option", { name: fullName })).toBeVisible();
+});
+
+test("links to the Incus project when the project list cannot refresh after import", async () => {
+	vi.stubGlobal("fetch", vi.fn((url: string) => Promise.resolve(incusReadResponse(url)
+		?? response({ project: { id: "incus-project" }, import: { importState: "ready" } }))));
+	refreshProjects.mockResolvedValue(false);
+	const view = render(GithubSandboxImport, { projectId: "source" });
+	await waitFor(() => expect(view.getByRole("option", { name: "Private Incus" })).toBeVisible());
+	await fireEvent.change(view.getByLabelText("Repository"), { target: { value: "42" } });
+	await fireEvent.change(view.getByLabelText("Sandbox provider"), { target: { value: "incus:incus:local:small" } });
+	await fireEvent.click(view.getByRole("button", { name: "Create private sandbox & import" }));
+	await waitFor(() => expect(view.getByRole("alert")).toHaveTextContent("Could not load the private sandbox"));
+	expect(view.getByRole("link", { name: "Open the private sandbox" })).toHaveAttribute("href", "/project/incus-project");
+	expect(goto).not.toHaveBeenCalled();
+});
 
 test("offers only qualified Incus environments without requiring a legacy provider", async () => {
 	vi.stubGlobal("fetch", vi.fn((url: string) => {

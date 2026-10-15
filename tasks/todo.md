@@ -8898,3 +8898,13 @@ Independent review CLEAR; root approved normal commit. Canonical RED preserved a
 Review: Component regression reproduced the absent qualified option (native 1). The focused importer suite passes after the change. The request and key stay fixed after submission; partial transfer disables retry. Legacy two-step import and pending-sandbox import remain covered. Touched TypeScript Biome and diff checks pass. Browser evidence is prepared but not run; generated SvelteKit configuration was required before tests. Earlier setup failures are preserved separately. Independent review and browser verification remain open. No shared dependency caches, full gates, or live services were used.
 
 Review lesson: Verify the destination and recovery codes for each provider. Incus opens the project route; legacy sandbox import opens settings. A saved startup operation can resume, but partial file transfer must stop for operator review.
+
+## Import UI name and recovery-link followup
+
+- [x] Reproduce long valid GitHub repository names through submitted component request bodies.
+- [x] Share one bounded name generator across legacy and Incus create requests.
+- [x] Use the Incus project route for the recovery link after a project-list refresh failure.
+- [x] Run the bounded component file and touched checks after runtime admission.
+- [ ] Obtain independent review, then commit with normal hooks.
+
+Review: All three regression cases failed before the fix: both submitted names exceeded 120 characters and the Incus recovery link used settings. After the fix, the focused component file passes 16/0 (native 0, 1.65 seconds). The full repository label stays unchanged. The legacy recovery link still opens settings. No schema widening, backend changes, whole gate, or browser run. Independent review and normal commit remain pending.
