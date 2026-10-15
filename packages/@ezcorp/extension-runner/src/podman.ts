@@ -1,3 +1,4 @@
+import { errorShape } from "@ezcorp/extension-contract";
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { Readable, Writable } from "node:stream";
@@ -683,7 +684,12 @@ export class PodmanRunner implements Runner {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
-    const files = JSON.parse(await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8"));
+    // A release built into another store (a store a previous boot removed) is named, never a raw file error (real-8).
+    const text = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8").catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+      throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, errorShape(error));
+    });
+    const files = JSON.parse(text);
     validateFiles(files, 160 * 1024 ** 2, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;
