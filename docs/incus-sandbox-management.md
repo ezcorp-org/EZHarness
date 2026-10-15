@@ -1,6 +1,6 @@
 # Manage Incus sandboxes
 
-The Incus management page is an admin-only control panel at `/extensions/incus-management`. It manages named EZHarness project sandboxes backed by Incus. A new project starts with an empty workspace. The current flow does not copy an existing project, clone a repository, or bootstrap source code.
+The Incus management page is an admin-only control panel at `/extensions/incus-management`. It manages named EZHarness project sandboxes backed by Incus. A project created on this page starts with an empty workspace. To import repository source into a new private sandbox, use the separate GitHub import flow described below.
 
 ## Set up and qualify an environment
 
@@ -61,13 +61,25 @@ Chat uses the native EZHarness agent loop. Project file and shell tools use the 
 
 ## Recover an unfinished operation
 
+For repository work, see [Import a private GitHub repository](#import-a-private-github-repository). Lifecycle recovery keeps the original operation identity.
+
 Refresh status before another action. If a result is unknown, the provider may have accepted the operation while its reply was lost. Use **Reconcile pending work** for the saved operation. Keep the same operation identity; do not create a second sandbox to clear an unknown result.
 
 If qualification or fixture apply is uncertain, use its saved-status check. Do not cancel an apply after it was sent. If the browser reports a damaged saved request, stop creating sandboxes until an administrator checks the matching project, binding, or host fixtures.
 
+## Import a private GitHub repository
+
+Connect your own GitHub account in **Settings → GitHub** and enable the repository you need. In the private GitHub sandbox import form, an administrator can select a qualified Incus environment, repository, and base branch. EZHarness creates a new private project, starts its sandbox, and imports the source at a fixed commit. This imports source files and initializes a local Git checkout; it does not clone the repository's full history or give GitHub credentials to the guest.
+
+Incus import accepts at most 2,000 regular files and 32 MiB of content, with a 64 KiB limit per imported file and a 240-byte limit per relative path. Unsupported source is refused before guest allocation. See the [personal GitHub flow](features/platform/personal-github.md#user-flow) for the shared source restrictions and connection requirements.
+
+Wait for import to finish before opening the project. A pending or uncertain startup keeps the original request and operation IDs when retried. A partial file transfer is not repeated: inspect the saved sandbox and dispose of it only after checking whether any work must be preserved.
+
+Use the native EZHarness chat to edit and test the guest checkout. After a completed run, choose **Prepare PR review**, inspect the saved changes, and confirm a draft PR. Publication uses those reviewed host-stored bytes, even if guest files change later. Each GitHub write checks current authority. Stop/start retains the same workspace. A replacement sandbox or changed provider authority cannot use the old import or review.
+
 ## Supported behavior and validation
 
-The page supports qualification fixture planning, host-capacity planning, project sandbox creation, status refresh, start, stop, reconciliation, confirmed disposal, and chat entry for a confirmed running sandbox. It does not offer repository bootstrap, preview control, or guest process-log browsing.
+The management page supports qualification fixture planning, host-capacity planning, project sandbox creation, status refresh, start, stop, reconciliation, confirmed disposal, and chat entry for a confirmed running sandbox. Repository import uses the separate GitHub form. The management page does not provide preview control or guest process-log browsing.
 
 Browser tests verify the UI and saved-request recovery. Hosted production
 proofs and regression fixtures have their own source-bound results. These
