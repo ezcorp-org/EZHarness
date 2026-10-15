@@ -19,6 +19,8 @@ Review: the old0009 fast run was deliberately stopped with one known failure aft
 
 Integration review: service commit8c8253697 is integrated as7bcbe86b6; all24 source/test blobs match its independently reviewed V5 manifest. The two notes-only conflicts preserve both histories. Service proof includes52 selected backend/database cases,40 route cases, seven new files at100%, changed-line coverage, and canonical complexity17files/106functions with zero violations. UI recovery a9a89dbf5 is integrated ascc7d9563d with exact source/test blobs. Integration reuses these unchanged focused results through the documented test-only hook skip while retaining lint. The combined source still needs its mandatory local fast gate and exact-head hosted browser, coverage, and complexity checks; no deployment or live acceptance is claimed.
 
+Compiler milestone: the combined fd83 run exposed22 TypeScript diagnostics and5 corresponding Svelte errors. Root stopped only its owned run (native26247 exit70); the unit and two exact external test containers were cleaned up and independently checked. The repaired service source passed full typecheck, Svelte,42 affected cases, changed-line coverage and complexity; transfer proof passed16 cases. Independent V6 review checked99 hashes. Repair commits b6594c60c and11a8b565b are integrated as4c5a7ade7 and852abcbfd. The next canonical run must use the complete committed source; the stopped run remains RED/incomplete.
+
 # Historical PR303 merge validation — 15 October 2026
 
 - [x] Reconcile main 934531e2 with the reviewed Incus integration; preserve both security and workspace routing behavior.
@@ -8983,6 +8985,6 @@ Evidence: transfer focused-20261015T034041Z; own compiler focused-20261015T03405
 - [x] Receive transfer-owner fixture correction.
 - [x] Run full strict typecheck and Svelte checks after old gate cleanup.
 - [x] Run affected focused consumers and refresh final-byte coverage.
-- [ ] Obtain independent review and commit the repair.
+- [x] Obtain independent review and commit the repair.
 
 Type repair review: Full canonical typecheck and Svelte both native0. Five affected consumer files pass42 cases/693 assertions, including missing-resource denial before capture/publication. Final seven new service files remain100% line coverage; patch gate passes the three changed production files. Nonempty canonical repair CRAP scores3 files/4 functions, zero violations, maximum23. Original combined gate RED and all earlier receipts remain intact. Transfer fixture fix is separately owned and committed; no copied transfer/UI files enter this repair leaf. Root retains the required combined fast gate before push.
