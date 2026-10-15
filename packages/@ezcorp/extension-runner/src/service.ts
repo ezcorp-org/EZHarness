@@ -12,7 +12,22 @@ type Event = { id?: string; method: string; params: unknown };
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
 interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; delivered: Set<string>; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
-export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number }
+export interface RunnerServiceOptions {
+  socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number;
+  /** Where an error that is not a RunnerError is reported; the client only ever sees the generic refusal. Default: one JSON line on stderr. */
+  onUnclassifiedError?: (error: unknown) => void;
+}
+
+/** The runner's own record of an unclassified error: its class, code and message (bounded), so the cause is never lost. */
+function reportUnclassifiedError(error: unknown): void {
+  const code = (error as { code?: unknown } | null)?.code;
+  console.error(JSON.stringify({
+    level: "error", msg: "runner request failed with an unclassified error",
+    errorClass: error instanceof Error ? error.name : typeof error,
+    ...(typeof code === "string" ? { code } : {}),
+    message: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+  }));
+}
 export interface RunnerService {
   close(): Promise<void>;
   /** Worker IDs whose event stream a host holds right now. Observation only; no endpoint exposes it. */
@@ -302,7 +317,10 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       // Bun's unix listener takes no idle timeout. The slow-client bound stays
       // where the untrusted peer connects: peer-gateway.py times out every
       // relay read at 360 s and admits at most 32 connections.
-      fetch: request => handle(request).catch(error => respond(400, { error: (error instanceof RunnerError ? error : new RunnerError("invalid_request", "Runner request was invalid")).diagnostic() })),
+      fetch: request => handle(request).catch(error => {
+        if (!(error instanceof RunnerError)) (options.onUnclassifiedError ?? reportUnclassifiedError)(error);
+        return respond(400, { error: (error instanceof RunnerError ? error : new RunnerError("invalid_request", "Runner request was invalid")).diagnostic() });
+      }),
     });
     await chmod(privatePath, 0o600);
     const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);

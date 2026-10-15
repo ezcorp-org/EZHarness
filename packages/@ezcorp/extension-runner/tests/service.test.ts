@@ -162,3 +162,44 @@ test("capabilities: a runner advertises process-spawn enforcement, and a runner 
     await expect(new RunnerClient({ socketPath: join(directory, "absent.sock"), token }).capabilities()).rejects.toThrow();
   } finally { await old.stop(true); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("an unclassified error is reported by the runner with its class, code and message, and the client still sees only the generic refusal", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-unclassified-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const missing = Object.assign(new Error("ENOENT: no such file or directory, open '/store/state/worker.json'"), { code: "ENOENT" });
+  const runner = { inspect: async () => { throw missing; } } as unknown as Runner;
+  const reported: unknown[] = [];
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!(), onUnclassifiedError: error => { reported.push(error); } });
+  try {
+    await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toThrow("Runner request was invalid");
+    expect(reported).toEqual([missing]);
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});
+
+test("by default an unclassified error goes to the runner's stderr as one JSON line", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-unclassified-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const runner = { inspect: async () => { throw Object.assign(new TypeError("x".repeat(600)), { code: "E_FIXTURE" }); } } as unknown as Runner;
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (line: unknown) => { lines.push(String(line)); };
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+  try {
+    await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toThrow("Runner request was invalid");
+    const line = JSON.parse(lines.at(-1)!);
+    expect(line).toMatchObject({ level: "error", msg: "runner request failed with an unclassified error", errorClass: "TypeError", code: "E_FIXTURE" });
+    expect(line.message).toHaveLength(500);
+    console.error = original;
+    lines.length = 0;
+    const plain = { inspect: async () => { throw "not an error"; } } as unknown as Runner;
+    await server.close();
+    const second = await startRunnerService({ runner: plain, socketPath, token, allowedUid: process.getuid!() });
+    console.error = (line: unknown) => { lines.push(String(line)); };
+    try {
+      await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toThrow("Runner request was invalid");
+      expect(JSON.parse(lines.at(-1)!)).toEqual({ level: "error", msg: "runner request failed with an unclassified error", errorClass: "string", message: "not an error" });
+    } finally { console.error = original; await second.close(); }
+  } finally { console.error = original; await rm(temporaryRoot, { recursive: true, force: true }); }
+});
