@@ -1355,5 +1355,6 @@
   "src/providers/codex-login-import.ts": 100,
   "src/providers/error-shape.ts": 100,
   "scripts/factory-graph-proof/codex-import-deployment.ts": 100,
-  "packages/@ezcorp/extension-contract/src/error-shape.ts": 100
+  "packages/@ezcorp/extension-contract/src/error-shape.ts": 100,
+  "scripts/factory-graph-proof/release-selection.ts": 100
 }

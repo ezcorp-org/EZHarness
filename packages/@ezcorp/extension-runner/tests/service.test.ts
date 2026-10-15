@@ -217,3 +217,19 @@ test("by default an unclassified error goes to the runner's stderr as one JSON l
     expect(JSON.parse(lines.at(-1)!)).toEqual({ level: "error", msg: "runner request failed with an unclassified error", errorClass: "string", message: "not an error" });
   } finally { console.error = original; await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
 });
+
+test("a 500 on a non-idempotent start reaches the runner exactly once: the client never retries it", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-start-once-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  let starts = 0;
+  const runner = { start: async () => { starts += 1; throw Object.assign(new Error("state file vanished"), { code: "ENOENT" }); } } as unknown as Runner;
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!(), onUnclassifiedError: () => {} });
+  try {
+    const context = { workerId: "worker", invocationId: "invocation", releaseId: "release", principalId: "user", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
+    await expect(new RunnerClient({ socketPath, token }).start({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async () => null))
+      .rejects.toMatchObject({ code: "runner_internal_error", detail: { errorClass: "Error", errorCode: "ENOENT" } });
+    await Bun.sleep(200);
+    expect(starts).toBe(1);
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});
