@@ -112,6 +112,9 @@ async function seedSections(installation: Omit<ConsoleInstallation, "artifactId"
       VALUES (${tenantId},${PROJECT},'approval-1',${runId},'root','cmd-approve',1,${hex("source")},'node-a',0,1,${sha("definition")},1,0,'user',${OWNER.id},'owner','["yes","no"]','{}',${installation.clock.now + 60_000},${hex("context")},${sha("protected")},'pending')`);
     await transaction.execute(sql`INSERT INTO factory_budget_reservations (tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,state) VALUES
       (${tenantId},${PROJECT},${runId},'reservation-1',${parentEnvelope!.envelope_id},${sha("reservation-1")},'{}','settled'), (${tenantId},${PROJECT},${runId},'reservation-2',${parentEnvelope!.envelope_id},${sha("reservation-2")},'{}','held')`);
+    // A reservation that settled when its attempt completed: its actual cost, and no usage settlement row (AC-3).
+    await transaction.execute(sql`INSERT INTO factory_budget_reservations (tenant_id,project_id,run_id,reservation_id,envelope_id,request_digest,amount,actual,state) VALUES
+      (${tenantId},${PROJECT},${runId},'reservation-3',${parentEnvelope!.envelope_id},${sha("reservation-3")},'{}','{"computeMs":"2122","costMicros":"178","tokens":"1410"}','settled')`);
     await transaction.execute(sql`INSERT INTO factory_compute_admissions (tenant_id,project_id,run_id,reservation_id,request_digest,request_json,state,next_poll_at) VALUES (${tenantId},${PROJECT},${runId},'reservation-2',${sha("admission")},'{}','queued',0)`);
     for (const [revision, known, unknown] of [[1, "100", null], [2, "250", "7"]] as const) {
       await transaction.execute(sql`INSERT INTO factory_usage_settlements (tenant_id,project_id,run_id,reservation_id,revision,attempt_id,source,known_cost_micros,unknown_cost_micros,settled_at_ms,settlement_digest,event_json,event_digest)
@@ -175,7 +178,9 @@ export function factoryConsoleConformance(create: () => Promise<FactoryConsoleFi
       expect(view.artifacts.items.map(item => item.artifactId)).toContain(a.artifactId);
       expect(view.blockers.map(item => [item.kind, item.id]).sort()).toEqual([["approval", "approval-1"], ["budget", expect.any(String)], ["compute", "reservation-2"], ["release", "operation-1"]].sort());
       expect(view.blockers.find(item => item.kind === "release")!.reason).toContain("uncertain");
-      expect(view.costs).toMatchObject({ knownCostMicros: "250", unknownCostMicros: "7", admissionBlocked: true, uncertain: true, limitMicros: "5000" });
+      // Known = reservation-1's latest settlement (250) + reservation-3's actual cost on completion (178); the held
+      // reservation-2 adds nothing known (AC-3).
+      expect(view.costs).toMatchObject({ knownCostMicros: "428", unknownCostMicros: "7", admissionBlocked: true, uncertain: true, limitMicros: "5000" });
       expect(view.acceptance).toEqual([{ commandId: "cmd-accept", decision: "rejected", candidateDigest: sha("candidate"), reasons: [{ claimId: "tests-pass", validatorId: "validator.tests", verdict: "FAIL", reasonCode: "TESTS_FAILED" }], groupFailures: [{ groupId: "quality", passes: 1, minimumPasses: 2 }], decidedAtMs: expect.any(Number) }]);
       expect(view.releases).toEqual([{ operationId: "operation-1", nodeInstanceId: "node-a", state: "uncertain", action: "factory.release.publish", dispatchGeneration: 2, outcomeCode: "provider_timeout", deadlineMs: a.clock.now + 60_000 }]);
     });
