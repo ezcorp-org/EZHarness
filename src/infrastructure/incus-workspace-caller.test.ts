@@ -11,6 +11,8 @@ import { SandboxController } from "../sandboxes/controller";
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
 import type { ProviderConnectionCredentials, ProviderConnectionScope } from "./provider-connections/store";
 import { IncusWorkspaceCaller } from "./incus-workspace-caller";
+import { createSandboxProjectCommandRunner } from "../runtime/workspaces/project-command-runner";
+import { withIncusWorkspaceImportAuthority } from "./incus-workspace-import-authority";
 import { eq } from "drizzle-orm";
 import { getBuiltinToolDefs } from "../runtime/tools";
 import { createProviderSandboxWorkspaceBackend } from "../runtime/workspaces/provider-backend";
@@ -24,6 +26,7 @@ async function setup(defaultInvoke = false, hostOwned = true) {
   open.push(pglite);
   await pglite.waitReady;
   await pglite.exec("CREATE TABLE projects (id TEXT PRIMARY KEY, name TEXT NOT NULL, path TEXT NOT NULL, purpose TEXT NOT NULL DEFAULT 'user', icon TEXT, variables JSONB NOT NULL DEFAULT '{}', created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); CREATE TABLE github_personal_pr_imports (project_id TEXT NOT NULL, owner_id TEXT NOT NULL, operation_id TEXT NOT NULL, state TEXT NOT NULL, workspace_authority JSONB)");
   const db = drizzle(pglite, { schema });
   await addSandboxController(db);
   await db.insert(schema.projects).values({ id: "project", name: "project", path: "/work/project" });
@@ -84,7 +87,7 @@ afterEach(async () => { await Promise.all(open.splice(0).map(db => db.close()));
 
 test("native tools deny the next guest call after the initiating member loses membership", async () => {
   const { caller, db, pglite, binding, calls, setResponse } = await setup(false, false);
-  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
   await pglite.exec("INSERT INTO users VALUES ('member','member','active'); INSERT INTO project_members VALUES ('membership','project','member','member')");
   setResponse(operation => operation === "files.stat"
     ? { ok: true, file: { path: "src/app.ts", kind: "file", revision: "revision-1", sizeBytes: 0, executable: false } }
@@ -103,7 +106,7 @@ test("native tools deny the next guest call after the initiating member loses me
 
 test("each call reads current active user and role; no principal or forged payload can grant authority", async () => {
   const { caller, pglite, binding, calls } = await setup(false, false);
-  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL)");
   await pglite.exec("INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','owner')");
   const request = { binding, toolCallId: "stat:1", action: "file.stat" as const, payload: { path: "src/app.ts" } };
   await expect(caller.call(request)).rejects.toThrow("principal is unavailable");
@@ -122,7 +125,7 @@ test("each call reads current active user and role; no principal or forged paylo
 
 test("membership revoked during connection resolution denies before guest dispatch", async () => {
   const { caller, pglite, binding, calls, setConnectionHook } = await setup(false, false);
-  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
   setConnectionHook(async () => { await pglite.exec("DELETE FROM project_members"); });
   await expect(caller.call({ binding, principal: { userId: "actor" }, toolCallId: "stat:1", action: "file.stat", payload: { path: "src/app.ts" } }))
     .rejects.toThrow("authority is unavailable");
@@ -131,7 +134,7 @@ test("membership revoked during connection resolution denies before guest dispat
 
 test("the production release call receives a guard that rejects later revocation with the captured project", async () => {
   const { caller, pglite, binding } = await setup(true, false);
-  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
   const invoke = spyOn(ReleaseProcess.prototype, "callIncusSandboxOperation").mockImplementation(async (_binding, _operation, _input, options) => {
     expect(options?.invocationGuard).toBeFunction();
     await options!.invocationGuard!();
@@ -151,7 +154,7 @@ test("the production release call receives a guard that rejects later revocation
 
 test("binding mutation during the first authority read cannot select another sandbox", async () => {
   const { caller, db, pglite, binding, calls } = await setup(false, false);
-  await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+  await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
   await db.insert(schema.projects).values({ id: "foreign", name: "foreign", path: "/foreign" });
   const [original] = await db.select().from(schema.sandboxBindings);
   await db.insert(schema.sandboxBindings).values({ ...original!, id: "foreign-binding", projectId: "foreign", resourceKey: "foreign-binding" });
@@ -263,7 +266,7 @@ test("default caller settles and retires a failed release invocation", async () 
 test("native shell cleanup after abort keeps current membership authorization", async () => {
   for (const revoke of [false, true]) {
     const { caller, pglite, binding, calls, setResponse } = await setup(false, false);
-    await pglite.exec("CREATE TABLE users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
+    await pglite.exec("CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, role TEXT NOT NULL, status TEXT NOT NULL); CREATE TABLE IF NOT EXISTS project_members (id TEXT PRIMARY KEY, project_id TEXT NOT NULL, user_id TEXT NOT NULL, role TEXT NOT NULL); INSERT INTO users VALUES ('actor','member','active'); INSERT INTO project_members VALUES ('membership','project','actor','member')");
     const controller = new AbortController();
     setResponse(async operation => {
       if (operation === "processes.start") return { ok: true, processId: "owned-process", bootId: "owned-boot", startedAt: "2026-09-22T12:00:00Z" };
@@ -286,4 +289,62 @@ test("native shell cleanup after abort keeps current membership authorization", 
       expect(calls.at(-1)!.input).toMatchObject({ processId: "owned-process", bootId: "owned-boot" });
     }
   }
+});
+
+
+test("actual dispatch rechecks an import marker admitted while the production release call waited", async () => {
+  const { caller, pglite, binding } = await setup(true, false);
+  await pglite.exec("INSERT INTO users VALUES ('owner','member','active'); INSERT INTO project_members VALUES ('member','project','owner','owner')");
+  let guestEffects = 0;
+  const invoke = spyOn(ReleaseProcess.prototype, "callIncusSandboxOperation").mockImplementation(async (_binding, _operation, _input, options) => {
+    if (!options?.invocationGuard) throw new Error("Expected actual dispatch guard");
+    await options.invocationGuard();
+    await pglite.exec("INSERT INTO github_personal_pr_imports VALUES ('project','owner','import-operation','importing','{}')");
+    await options.invocationGuard();
+    guestEffects++;
+    throw new Error("Guest effect must never run");
+  });
+  try {
+    await expect(caller.call({ binding, principal: { userId: "owner" }, toolCallId: "stat:1", action: "file.stat", payload: { path: "src/app.ts" } }))
+      .rejects.toThrow("import must finish");
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(guestEffects).toBe(0);
+  } finally { invoke.mockRestore(); }
+});
+
+test("only the exact live owner import context can use a pending workspace; failed imports remain denied", async () => {
+  const { caller, pglite, binding, calls } = await setup(false, false);
+  await pglite.exec("INSERT INTO users VALUES ('owner','member','active'); INSERT INTO project_members VALUES ('member','project','owner','owner'); INSERT INTO github_personal_pr_imports VALUES ('project','owner','import-operation','importing','{}')");
+  const request = { binding, principal: { userId: "owner" }, toolCallId: "stat:1", action: "file.stat" as const, payload: { path: "src/app.ts" } };
+  await expect(caller.call(request)).rejects.toThrow("import must finish");
+  await expect(withIncusWorkspaceImportAuthority({ ownerId: "owner", projectId: "project", operationId: "wrong" }, () => true, () => caller.call(request)))
+    .rejects.toThrow("import must finish");
+  const exact = { ownerId: "owner", projectId: "project", operationId: "import-operation" };
+  await withIncusWorkspaceImportAuthority(exact, (action, payload) => action === "file.stat" && payload.path === "src/app.ts", async () => {
+    await expect(caller.call(request)).resolves.toMatchObject({ ok: true });
+    await expect(caller.call({ ...request, payload: { path: "another" } })).rejects.toThrow("import must finish");
+    await pglite.exec("UPDATE github_personal_pr_imports SET state='failed'");
+    await expect(caller.call(request)).rejects.toThrow("import must finish");
+  });
+  expect(calls).toHaveLength(1);
+});
+
+
+test("independent project command runners have distinct actual host request identities", async () => {
+  const { caller, binding, calls, setResponse } = await setup();
+  let processSequence = 0;
+  setResponse((operation, input) => {
+    if (operation === "processes.start") return { ok: true, processId: `process-${++processSequence}`, bootId: "boot", startedAt: "2026-09-22T12:00:00Z" };
+    if (operation === "processes.readOutput") return { ok: true, chunks: [], nextCursor: { sandboxId: "binding", processId: input.processId, bootId: "boot", offsetBytes: 0 }, eof: true };
+    if (operation === "processes.inspect") return { ok: true, process: { processId: input.processId, sandboxId: "binding", bootId: "boot", state: "succeeded", startedAt: "2026-09-22T12:00:00Z", finishedAt: "2026-09-22T12:00:01Z", exitCode: 0, signal: null } };
+    throw new Error("Unexpected process operation");
+  });
+  const target = sandboxWorkspaceTarget(binding, createProviderSandboxWorkspaceBackend(caller));
+  expect((await createSandboxProjectCommandRunner(target)(["git", "init"], ".")).exitCode).toBe(0);
+  expect((await createSandboxProjectCommandRunner(target)(["git", "ls-files", "-z"], ".")).exitCode).toBe(0);
+  const starts = calls.filter(call => call.operation === "processes.start");
+  expect(starts).toHaveLength(2);
+  expect(starts[0]?.input.argv).not.toEqual(starts[1]?.input.argv);
+  expect(starts[0]?.input.requestId).not.toBe(starts[1]?.input.requestId);
+  expect(starts[0]?.input.idempotencyKey).not.toBe(starts[1]?.input.idempotencyKey);
 });

@@ -17,6 +17,7 @@ import {
 import type { ProviderSandboxWorkspaceCaller, WorkspaceGuestAction } from "../runtime/workspaces/provider-backend";
 import type { SandboxWorkspaceBinding } from "../runtime/workspaces/target";
 import { incusMethodName } from "../../extensions/incus-sandbox/manifest";
+import { assertIncusWorkspaceImportAuthority, recordIncusWorkspaceImportResult } from "./incus-workspace-import-authority";
 import { ProviderConnectionStore, type ProviderConnectionCredentials, type ProviderConnectionScope } from "./provider-connections/store";
 
 const operationByAction = {
@@ -147,33 +148,40 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
     if (request.signal?.aborted) throw new Error("Incus workspace action was cancelled");
     // Capture the host principal before any asynchronous work; payload fields cannot replace it.
     const userId = request.principal?.userId;
+    const action = request.action;
+    const payload = structuredClone(request.payload);
+    const toolCallId = request.toolCallId;
     const binding = Object.freeze({ ...request.binding });
     const { current, snapshot, connection } = await this.authorizeBinding(binding, userId);
-    const authorize = () => this.authorize(binding.projectId, userId);
-    const operation = operationByAction[request.action];
-    if (!operation || Object.keys(request.payload).some(key => !payloadKeys[request.action].includes(key))) {
+    const importAuthority = { projectId: binding.projectId, userId, action: action, payload: payload };
+    const authorize = async () => {
+      await this.authorize(binding.projectId, userId);
+      await assertIncusWorkspaceImportAuthority(importAuthority, this.db);
+    };
+    const operation = operationByAction[action];
+    if (!operation || Object.keys(payload).some(key => !payloadKeys[action].includes(key))) {
       throw new Error("Incus workspace action is unsupported");
     }
     if (!snapshot.release.manifest.methods?.some(method => method.name === incusMethodName(operation))) {
       throw new Error("Incus workspace release changed");
     }
     const nowMs = this.now();
-    const processDeadlineMs = request.payload.processDeadlineMs;
-    if (request.action === "process.start" && (!Number.isSafeInteger(processDeadlineMs)
+    const processDeadlineMs = payload.processDeadlineMs;
+    if (action === "process.start" && (!Number.isSafeInteger(processDeadlineMs)
       || (processDeadlineMs as number) <= nowMs)) {
       throw new Error("Invalid Incus process deadline");
     }
-    const deadlineMs = request.action === "process.start"
+    const deadlineMs = action === "process.start"
       ? Math.min(nowMs + 30_000, processDeadlineMs as number)
       : nowMs + 30_000;
     const input: Record<string, unknown> = {
-      ...request.payload,
+      ...payload,
       providerId: "incus", connectionId: current.connectionId, sandboxId: current.id,
       rpcDeadlineMs: deadlineMs,
     };
-    if (request.action === "process.start") input.user = connection.configuration.guestUser;
-    if (mutations.has(request.action)) {
-      const identity = mutationIdentity(current.id, current.generation, request.action, request.toolCallId);
+    if (action === "process.start") input.user = connection.configuration.guestUser;
+    if (mutations.has(action)) {
+      const identity = mutationIdentity(current.id, current.generation, action, toolCallId);
       input.requestId = identity;
       input.idempotencyKey = identity;
     }
@@ -181,6 +189,8 @@ export class IncusWorkspaceCaller implements ProviderSandboxWorkspaceCaller {
     if (request.signal?.aborted) throw new Error("Incus workspace action was cancelled");
     await authorize();
     const result = await this.invoke(current.providerInstallationId, current.id, operation, input, request.signal, authorize);
-    return validateSandboxProviderMethodExchange(operation, input, result).result;
+    const validated = validateSandboxProviderMethodExchange(operation, input, result).result;
+    recordIncusWorkspaceImportResult(importAuthority, validated);
+    return validated;
   }
 }

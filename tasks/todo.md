@@ -8908,3 +8908,12 @@ Review lesson: Verify the destination and recovery codes for each provider. Incu
 - [ ] Obtain independent review, then commit with normal hooks.
 
 Review: All three regression cases failed before the fix: both submitted names exceeded 120 characters and the Incus recovery link used settings. After the fix, the focused component file passes 16/0 (native 0, 1.65 seconds). The full repository label stays unchanged. The legacy recovery link still opens settings. No schema widening, backend changes, whole gate, or browser run. Independent review and normal commit remain pending.
+
+
+## Incus private repository transfer
+
+- Added host-authorized import/capture, bounded CAS transfer, and shared Git source selection.
+- Focused tests pass; both new production files and touched caller/runner have 100% measured line coverage. Canonical CRAP scores5files/37functions with maxCC25 and zero violations.
+- Evidence: final-coverage-review.json SHA62ea07f73d7c37bd33d2283cacda5985a64eacbd3e7abc99394e3520eadcf7e5; source-review-v3.json SHA5001ad603e2336181969a7530ba8d927af7ee1673858e12b587d05d3080b6ff5 (under .cache/incus-transfer-validation).
+- Commit uses approved EZ_SKIP_HOOK_TESTS=1 only: unchanged focused suites already passed; the first redundant hook stopped at its memory floor. Lint/manifest hooks remain active. Final combined fast and hosted gates remain required.
+- This leaf depends on service-owned incus-workspace-import-authority.ts; the copied dependency is excluded from this commit and standalone typecheck is not claimed.
