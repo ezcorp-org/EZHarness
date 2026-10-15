@@ -61,6 +61,11 @@ export function validIncusProjectName(value: unknown): value is string {
     && !Array.from(value).some(character => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 }
 
+/** Host-only creation hook. Request JSON cannot select or supply this callback. */
+export type InitializeIncusProject = (transaction: DbTransaction, value: {
+  project: typeof projects.$inferSelect; binding: SandboxBinding; releaseDigest: string; created: boolean;
+}) => Promise<void>;
+
 export interface IncusFeatureRequest {
   bindingId: string;
   idempotencyScope: string;
@@ -425,7 +430,7 @@ export class IncusFeatureService {
 
   /** Publish a user project only after its sandbox route and quota exist in
    * the same transaction. An unbound project would otherwise select a host path. */
-  async prepareProject(input: PrepareIncusProjectInput): Promise<{
+  async prepareProject(input: PrepareIncusProjectInput, initialize?: InitializeIncusProject): Promise<{
     project: typeof projects.$inferSelect; binding: SandboxBinding;
   }> {
     if (!validIncusProjectName(input.name)
@@ -443,8 +448,9 @@ export class IncusFeatureService {
       const [member] = await this.db.select().from(projectMembers).where(and(
         eq(projectMembers.projectId, projectId), eq(projectMembers.userId, input.ownerUserId))).limit(1);
       if (member?.role !== "owner") throw new Error("Incus project owner is unavailable");
-      const { existing: binding } = await this.checkedPreparation({ ...input, projectId });
+      const { existing: binding, approved } = await this.checkedPreparation({ ...input, projectId });
       if (!binding) throw new Error("Incus project binding is unavailable");
+      if (initialize) await this.db.transaction(transaction => initialize(transaction, { project: existing, binding, releaseDigest: approved.snapshot.release.releaseDigest, created: false }));
       return { project: existing, binding };
     }
     const approved = await this.approved({ ...input, projectId });
@@ -458,9 +464,10 @@ export class IncusFeatureService {
         providerInstallationId: input.installationId, connectionId: input.connectionId,
         limit: resources(approved.preset) }, transaction);
       const binding = await this.createApprovedBinding({ ...input, projectId }, approved, transaction);
+      if (initialize) await initialize(transaction, { project, binding, releaseDigest: approved.snapshot.release.releaseDigest, created: true });
       return { project, binding };
     });
-    return created ?? this.prepareProject(input);
+    return created ?? this.prepareProject(input, initialize);
   }
 
   private async assertUserBinding(id: string): Promise<void> {
@@ -493,6 +500,20 @@ export class IncusFeatureService {
 
   private async providerGeneration(binding: SandboxBinding, requiredState?: "running" | "stopped"): Promise<number> {
     return readIncusProviderGeneration(binding, this.inspect, this.now, requiredState);
+  }
+
+  /** Observe one saved user-workspace receipt. This never dispatches journaled work. */
+  async inspectSavedOperation(bindingId: string, operationId: string): Promise<SandboxOperation> {
+    await this.assertUserBinding(bindingId);
+    const { binding } = await this.readyBinding(bindingId, false);
+    const operation = await this.controller.getOperation(operationId);
+    const [project] = await this.db.select({ purpose: projects.purpose }).from(projects).where(eq(projects.id, binding.projectId)).limit(1);
+    if (project?.purpose !== "user" || !operation || operation.bindingId !== bindingId
+      || !["CREATE", "START"].includes(operation.kind) || operation.generation !== binding.generation
+      || binding.currentOperationId !== operation.id) throw new Error("Saved Incus workspace operation changed");
+    const observed = await this.controller.inspectOperation(operation.id);
+    if (observed.state === "SUCCEEDED") await this.settle(observed);
+    return observed;
   }
 
   async create(request: IncusFeatureRequest): Promise<IncusFeatureEffect> {

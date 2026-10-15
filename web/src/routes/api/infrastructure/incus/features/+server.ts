@@ -1,12 +1,11 @@
-import { IncusAdmissionReadinessService } from "$server/infrastructure/incus-admission-readiness";
+import { configuredIncusFeatureService } from "$server/infrastructure/incus-feature-runtime";
 import { IncusAdmissionReadinessError } from "$server/infrastructure/incus-admission-contract";
 import { json } from "@sveltejs/kit";
 import { desc, eq } from "drizzle-orm";
 import { checkProjectRole, requireAdminSession } from "$server/auth/middleware";
 import { getDb } from "$server/db/connection";
 import { projects, sandboxBindings, sandboxOperations } from "$server/db/schema";
-import { IncusFeatureService, IncusStopRequiredError, IncusCleanupRecoveryUnavailableError, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
-import { IncusQualificationStore } from "$server/infrastructure/incus-qualification";
+import { IncusStopRequiredError, IncusCleanupRecoveryUnavailableError, validIncusProjectName } from "$server/infrastructure/incus-feature-service";
 import type { RequestHandler } from "./$types";
 
 const identifier = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
@@ -65,10 +64,6 @@ async function scopedBinding(bindingId: string, projectId: string): Promise<type
   return binding?.projectId === projectId ? binding : json({ code: "not_found", message: "Feature sandbox was not found in this project." }, { status: 404 });
 }
 
-function service(): IncusFeatureService {
-  const qualifications = new IncusQualificationStore({ db: getDb() });
-  return new IncusFeatureService({ admissionReadiness: new IncusAdmissionReadinessService(getDb(), qualifications), loadQualification: scope => qualifications.load(scope) });
-}
 
 /** Public receipt only: internal journal counters and provider error text are not API data. */
 function publicOperation(operation: typeof sandboxOperations.$inferSelect) {
@@ -102,9 +97,9 @@ export const POST: RequestHandler = async ({ locals, request }) => {
   if (!input) return invalid();
   const action = input.action as Action;
   try {
-    if (action === "reconcile") return json({ result: await service().reconcile(input.limit as number | undefined) });
+    if (action === "reconcile") return json({ result: await configuredIncusFeatureService().reconcile(input.limit as number | undefined) });
     if (action === "prepareProject") {
-      const result = await service().prepareProject({ name: input.name as string,
+      const result = await configuredIncusFeatureService().prepareProject({ name: input.name as string,
         ownerUserId: admin.id, idempotencyKey: input.idempotencyKey as string,
         installationId: input.installationId as string, connectionId: input.connectionId as string,
         presetId: input.presetId as string });
@@ -114,7 +109,7 @@ export const POST: RequestHandler = async ({ locals, request }) => {
     const denied = await authorizeProject(locals, projectId);
     if (denied) return denied;
     if (action === "prepare") {
-      const binding = await service().prepare({ projectId, installationId: input.installationId as string,
+      const binding = await configuredIncusFeatureService().prepare({ projectId, installationId: input.installationId as string,
         connectionId: input.connectionId as string, presetId: input.presetId as string });
       return json({ binding });
     }
@@ -131,14 +126,14 @@ export const POST: RequestHandler = async ({ locals, request }) => {
       return json({ binding, operation: operation ?? null });
     }
     if (action === "recoverCleanup") {
-      const result = await service().recoverCleanup(bindingId, input.failedDestroyOperationId as string);
+      const result = await configuredIncusFeatureService().recoverCleanup(bindingId, input.failedDestroyOperationId as string);
       return json({ recovery: { id: result.recovery.id, state: result.recovery.state,
         failedDestroyOperationId: result.recovery.failedDestroyOperationId,
         stopOperationId: result.recovery.stopOperationId, destroyOperationId: result.recovery.destroyOperationId },
         operation: publicOperation(result.operation) }, { status: 202 });
     }
     const mutation = { bindingId, idempotencyScope: input.idempotencyScope as string, idempotencyKey: input.idempotencyKey as string };
-    const configured = service();
+    const configured = configuredIncusFeatureService();
     if (action === "create" || action === "start") {
       const effect = action === "create" ? await configured.create(mutation) : await configured.start(mutation);
       return json(effect.state === "DISPATCHED" ? { ...effect, operation: publicOperation(effect.operation) } : effect,

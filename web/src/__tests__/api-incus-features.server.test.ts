@@ -50,6 +50,7 @@ vi.mock("$server/infrastructure/incus-feature-service", () => ({
 		&& value.trim() === value && value.length <= 128,
 	IncusFeatureService: class {
 		constructor(private readonly deps: { loadQualification: () => Promise<unknown> }) {}
+		async prepareProject(input: Record<string, string>) { calls.push(`prepareProject:${JSON.stringify(input)}`); return { project: { id: "new-project" }, binding }; }
 		async prepare(input: { projectId: string }) {
 			calls.push(`prepare:${input.projectId}`);
 			if (!await this.deps.loadQualification()) throw new Error("qualification unavailable");
@@ -203,4 +204,15 @@ test("completed cleanup recovery returns saved linked IDs without private journa
  expect(JSON.stringify(body)).not.toContain("PRIVATE-JOURNAL-CANARY");
  expect(body.operation).not.toHaveProperty("reconcileOrder");
  expect(calls).toEqual(["role:member", "recoverCleanup:binding-a:failed-a"]);
+});
+
+
+test("new management workspace forwards only authenticated operator ownership to the shared factory", async () => {
+ const input = { action: "prepareProject", name: "Feature workspace", installationId: "installation-a", connectionId: "connection-a", presetId: "preset-a", idempotencyKey: "new-key" };
+ expect((await POST(event(input, { user: { id: "member", role: "user" }, authMethod: "session" }))).status).toBe(403);
+ expect(calls).toEqual([]);
+ const response = await POST(event(input));
+ expect(response.status).toBe(200);
+ expect(await response.json()).toEqual({ project: { id: "new-project" }, binding });
+ expect(calls).toEqual([`prepareProject:${JSON.stringify({ name: input.name, ownerUserId: "admin", idempotencyKey: input.idempotencyKey, installationId: input.installationId, connectionId: input.connectionId, presetId: input.presetId })}`]);
 });

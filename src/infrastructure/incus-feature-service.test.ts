@@ -981,3 +981,51 @@ test("terminal denied user CREATE cannot dispose an absent guest or release its 
   expect(await f.db.select().from(schema.projects)).toHaveLength(1);
   expect(f.dispatches).toHaveLength(1);
 }, DB_TEST_TIMEOUT_MS);
+
+
+async function privateImportFixture() {
+  const result = await fixture();
+  const { admission, preset } = result;
+  await admission.configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
+    allocatable: { memoryBytes: 2 * preset.limits.memoryBytes, cpuMillicores: 2 * preset.limits.cpuMillis,
+      pids: 2 * preset.limits.pids, diskBytes: 2 * preset.limits.diskBytes, executionSlots: 2 },
+    safetyMargin: { memoryBytes: 0, cpuMillicores: 0, pids: 0, diskBytes: 0, executionSlots: 0 } });
+  const input = { name: "Private import", ownerUserId: "admin", idempotencyKey: "private-import",
+    installationId: "installation", connectionId: "connection", presetId: preset.id };
+  return { ...result, input };
+}
+
+test("private import marker failure rolls back project, membership, quota and binding before guest effects", async () => {
+  const { db, service, input, dispatches } = await privateImportFixture();
+  await expect(service.prepareProject(input, async () => { throw new Error("marker unavailable"); })).rejects.toThrow("marker unavailable");
+  expect(await db.select().from(schema.projects)).toHaveLength(1);
+  expect(await db.select().from(schema.projectMembers)).toEqual([]);
+  expect(await db.select().from(schema.sandboxBindings)).toEqual([]);
+  expect(await db.select().from(schema.sandboxProjectQuotas)).toEqual([]);
+  expect(dispatches).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
+test("private import initializer commits inside project transaction and verifies the same marker on replay", async () => {
+  const { db, service, input, dispatches } = await privateImportFixture();
+  await db.execute(sql`CREATE TABLE private_import_marker (project_id TEXT PRIMARY KEY, binding_id TEXT NOT NULL, release_digest TEXT NOT NULL)`);
+  const observed: boolean[] = [];
+  const initialize: import("./incus-feature-service").InitializeIncusProject = async (transaction, value) => {
+    observed.push(value.created);
+    if (value.created) await transaction.execute(sql`INSERT INTO private_import_marker VALUES (${value.project.id},${value.binding.id},${value.releaseDigest})`);
+    const marker = await transaction.execute(sql`SELECT binding_id FROM private_import_marker WHERE project_id=${value.project.id}`);
+    expect((marker as { rows: { binding_id: string }[] }).rows[0]?.binding_id).toBe(value.binding.id);
+  };
+  const first = await service.prepareProject(input, initialize);
+  expect((await service.prepareProject(input, initialize)).binding.id).toBe(first.binding.id);
+  expect(observed).toEqual([true, false]);
+  expect(dispatches).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);
+
+test("private import initializer cannot attach a marker to a previously unrelated existing project", async () => {
+  const { service, input, dispatches } = await privateImportFixture();
+  await service.prepareProject(input);
+  await expect(service.prepareProject(input, async (_transaction, value) => {
+    if (!value.created) throw new Error("existing project has no admitted import");
+  })).rejects.toThrow("no admitted import");
+  expect(dispatches).toEqual([]);
+}, DB_TEST_TIMEOUT_MS);

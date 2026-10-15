@@ -2573,3 +2573,17 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 ## 2026-10-15 — Separate serial and parallel resource admission
 
 - A memory threshold approved for overlapping jobs is not a universal start limit. Confirm which owned child is active. When the other lane yields, use the agreed serial threshold and keep the original runtime bound and owned stop floor. Do not wait repeatedly on the parallel threshold while running alone.
+
+## Incus private repository import
+
+- A stopped guest is not proof that no earlier native process can run. Admit repository import only in a new private project transaction, before the first guest CREATE or project exposure.
+- Keep one saved authority record. Read the import state and sole-owner membership together; fail closed when the database result has an invalid shape.
+- A pending lifecycle retry must observe its exact saved operation. Do not send another CREATE or inspect unrelated operations.
+- Map unsupported source and partial transfer results at the Incus boundary. A generic temporary error must not offer a retry for a transfer that cannot be repeated.
+- A changed request under an existing idempotency key is a conflict. Use the existing typed conflict error so the route returns 409, never a temporary 503 that suggests retry.
+- Trace the actual runner callback chain before changing async authority. A synthetic callback from an unrelated async resource is not proof that the production chain loses its context. Keep fail-closed behavior unless the real boundary reproduces a fault.
+- Verify the local web binary and generated package outputs before a test. Do not let bunx fetch a missing test tool. Use the frozen private install and explicit installed binary; keep Vite caches inside the same worktree.
+- A private PostgreSQL credential file is not a complete test context. Reuse the pinned canonical binding that verifies the fixture and derives its current loopback URL. Never print that URL.
+- A new authority type shares the installed import table and key space with legacy rows. Check its discriminator and saved request before reading nested fields. A legacy key collision must return typed conflict with no source fetch or guest effects.
+
+- Focused suite success does not prove changed-line coverage. Run the existing canonical patch check before final handoff; add a real route request for any uncovered production branch. Normalize web LCOV with the existing web producer tag/path rules before merging.

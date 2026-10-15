@@ -8946,3 +8946,21 @@ Review: All three regression cases failed before the fix: both submitted names e
 - [x] Obtain independent review before committing the small correction.
 
 Review: Initial clean 5ed browser proof passed 3/0 with six images (native 0, 58.0 seconds). The focused browser regression then failed because the management click replaced the original page and no popup opened. The safe-link correction passed the same focused case (native 0, 51.4 seconds including canonical web build): management opens separately, the original form stays disabled, and retry sends the identical request and key. Both final mobile images were inspected; no clipping or overlap found. Biome and diff checks pass. All owned process groups closed and preview port 4187 is free. No real backend, Incus, or GitHub proof is claimed. Independent review cleared the exact code, browser proof, visual evidence, and all 36 receipt hashes. Normal commit is authorized.
+
+## Incus personal GitHub workspace service bridge
+
+- [x] Reproduce unsupported Incus import/review at the existing service consumer.
+- [x] Add the narrow workspace port; preserve legacy transfer, auth, and publisher.
+- [x] Persist private import authority before first lifecycle effect; enforce it at guest dispatch.
+- [x] Reuse normal lifecycle, saved source, immutable host review, and per-write publication authorization.
+- [x] Coordinate the existing import UI with its separate owner.
+- [x] Prove focused service, route, PGlite, and PostgreSQL behavior.
+- [x] Verify seven new service files at100% line coverage and canonical nonempty complexity audit.
+- [x] Obtain final independent source/evidence reconciliation.
+- [ ] Commit only owned files; root retains combined gates and live rollout.
+
+Review: The eight focused backend children passed. The affected Incus import suite then passed15/0/541 assertions after a real legacy-NULL-key RED and typed409 repair. Two route files passed39/0; the added management owner-forwarding case then passed in its targeted12/0 rerun (final route cases28+12). The additive upgrade preserves installed legacy records and NULL authority, with safe rerun on both PGlite and the existing private PostgreSQL fixture. Own frozen dependency installs, package build, and SvelteKit sync passed; manifests and locks did not change.
+
+Canonical coverage merge reports all seven new service files at100%: migration3/3, runtime8/8, import guard38/38, port35/35, source11/11, Incus workspace95/95, import129/129. Canonical patch coverage passes all changed executable lines in17 files. Canonical changed-function CRAP scores17 files/106 functions, zero violations, maximum complexity25. Its detached diagnostic commit is labelled NOT RELEASE; no branch or coordinator index was changed. Existing canonical merge removes Bun import-only span-fill noise; no custom line exclusion or threshold change was used.
+
+Receipts: `.cache/incus-personal-pr/focused-20261015T030030Z`, corrected PostgreSQL `remaining-20261015T030413Z/postgres-upgrade`, affected import `final-remaining-20261015T032328Z`, route/prerequisites `web-final-20261015T032449Z`, and `ast-final`. Earlier product RED, fixture failures, missing prerequisites, and resource stops remain preserved. No whole gate or live acceptance is claimed. Root owns integration, hosted gates, and live deployment.

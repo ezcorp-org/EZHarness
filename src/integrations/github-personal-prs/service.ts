@@ -2,11 +2,10 @@ import { createHash, randomUUID } from "node:crypto";
 import { sql } from "drizzle-orm";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { getDb, type DbTransaction } from "../../db/connection";
-import { getSandboxController } from "../../runtime/sandbox/controller";
-import { assertUserEffectCurrent, checkRepository, getConnectionBinding, withUserToken, withUserTokenReadOnly } from "../github-user/broker";
-import { githubApi, githubApiRequest, GithubUserError } from "../github-user/transport";
-import { fetchApprovedBase } from "./github-source";
-import { exportSnapshotFromSandbox, importSnapshotToSandbox } from "./provider-transfer";
+import { getPersonalPrWorkspace, type PersonalPrWorkspaceStatus } from "./workspace";
+import { assertUserEffectCurrent, getConnectionBinding, withUserToken, withUserTokenReadOnly } from "../github-user/broker";
+import { githubApiRequest, GithubUserError } from "../github-user/transport";
+import { approvedRepositorySource } from "./repository-source";
 import { validateSnapshot, type SnapshotFileInput, type ValidatedSnapshot } from "./snapshot";
 import { buildReviewDiff, type ReviewFile } from "./review-diff";
 import { publishFrozenDraft, reconcileFrozenDraft, PrPublisherError, type PublishedPr } from "./publisher";
@@ -50,6 +49,7 @@ interface ProposalIdentity {
   baseRef: string; baseSha: string; baseDigest: string; importId: string; snapshotId: string;
   treeDigest: string; connectionGeneration: number; githubAccountId: number;
   operationId: string; branch: string; title: string; body: string;
+  workspaceAuthority?: Readonly<Record<string, unknown>>;
 }
 function digestProposal(identity: ProposalIdentity): string { return sha(identity); }
 function identityFromRow(row: Row, title: string, body: string): ProposalIdentity {
@@ -58,7 +58,8 @@ function identityFromRow(row: Row, title: string, body: string): ProposalIdentit
     resourceId: String(row.resource_id), repositoryId: Number(row.repository_id), baseRef: String(row.base_ref), baseSha: String(row.base_sha),
     baseDigest: String(row.base_digest), importId: String(row.import_id), snapshotId: String(row.artifact_id), treeDigest: String(row.tree_digest),
     connectionGeneration: Number(row.connection_generation), githubAccountId: Number(row.github_account_id), operationId: String(row.operation_id),
-    branch: String(row.branch), title, body };
+    branch: String(row.branch), title, body,
+    ...(row.workspace_authority == null ? {} : { workspaceAuthority: parse<Readonly<Record<string, unknown>>>(row.workspace_authority) }) };
 }
 function latestRunQuery(run: Row, userId: string) {
   return sql`SELECT id,status,started_at,created_at FROM runs WHERE project_id=${run.project_id} AND conversation_id=${run.conversation_id} AND user_id=${userId} ORDER BY started_at DESC,created_at DESC LIMIT 2`;
@@ -73,7 +74,7 @@ function isUniqueLatestRun(runId: string, latest: Row[], active: Row[]): boolean
   return !second || new Date(String(first.started_at)).getTime() !== new Date(String(second.started_at)).getTime() || new Date(String(first.created_at)).getTime() !== new Date(String(second.created_at)).getTime();
 }
 
-async function eligibleRun(userId: string, runId: string): Promise<{ run: Row; projectId: string; source: Row; status: Awaited<ReturnType<ReturnType<typeof getSandboxController>["getProjectSandboxStatus"]>> }> {
+async function eligibleRun(userId: string, runId: string): Promise<{ run: Row; projectId: string; source: Row; status: PersonalPrWorkspaceStatus }> {
   const [run] = rows(await getDb().execute(sql`SELECT id,project_id,conversation_id,user_id,status,finished_at FROM runs WHERE id=${runId}`));
   if (!run || run.user_id !== userId || !run.project_id || !run.conversation_id) throw new PersonalPrError("not_found", "Run not found");
   if (run.status !== "success" || !run.finished_at) throw new PersonalPrError("conflict", "The run has not completed successfully");
@@ -83,28 +84,33 @@ async function eligibleRun(userId: string, runId: string): Promise<{ run: Row; p
   const projectId = String(run.project_id);
   const [source] = rows(await getDb().execute(sql`SELECT * FROM github_personal_pr_imports WHERE project_id=${projectId} AND owner_id=${userId} AND state='ready'`));
   if (!source) throw new PersonalPrError("conflict", "No ready imported repository for this run");
-  const status = await getSandboxController().getProjectSandboxStatus(userId, projectId);
+  const status = await (await getPersonalPrWorkspace(userId, projectId)).forRun(String(run.conversation_id));
   if (!status.privateOwnerOnly || status.initializationState !== "ready" || status.privateConversationId !== run.conversation_id || !status.resource) throw new PersonalPrError("forbidden", "Run is not in your private sandbox conversation");
+  if (source.workspace_authority != null && canonicalJson(parse(source.workspace_authority)) !== canonicalJson(status.authority)) throw new PersonalPrError("conflict", "Imported workspace authority changed");
   if (source.binding_id !== status.bindingId || Number(source.provider_generation) !== status.provider.generation || source.resource_id !== status.resource.resourceId) throw new PersonalPrError("conflict", "Imported repository or sandbox changed");
   return { run, projectId, source, status };
 }
 
 export async function importApprovedRepository(userId: string, input: { projectId: string; repositoryId: number; baseRef: string; idempotencyKey: string }): Promise<PersonalPrView> {
   if (!validId(input.projectId) || !validId(input.idempotencyKey) || !Number.isSafeInteger(input.repositoryId) || input.repositoryId <= 0) throw new PersonalPrError("invalid_input", "Invalid repository import request");
-  const [existing] = rows(await getDb().execute(sql`SELECT repository_id,repository_name,base_ref,base_sha,state,idempotency_key FROM github_personal_pr_imports WHERE owner_id=${userId} AND project_id=${input.projectId}`));
+  const [existing] = rows(await getDb().execute(sql`SELECT repository_id,repository_name,base_ref,base_sha,state,idempotency_key,workspace_authority FROM github_personal_pr_imports WHERE owner_id=${userId} AND project_id=${input.projectId}`));
   if (existing) {
     if (existing.idempotency_key !== input.idempotencyKey || Number(existing.repository_id) !== input.repositoryId || existing.base_ref !== input.baseRef) throw new PersonalPrError("conflict", "This private sandbox has a different import");
+    if (existing.workspace_authority != null) {
+      const { resumeIncusRepository } = await import("./incus-import");
+      return resumeIncusRepository(userId, input.projectId);
+    }
     if (existing.state === "ready") return { state: "working", projectId: input.projectId, importState: "ready", repository: { id: input.repositoryId, fullName: String(existing.repository_name), baseRef: String(existing.base_ref), baseSha: String(existing.base_sha) } };
     throw new PersonalPrError("conflict", "Repository import is incomplete; use a new private sandbox if it failed");
   }
-  const controller = getSandboxController();
-  const initial = await controller.getProjectSandboxStatus(userId, input.projectId);
+  const workspacePort = await getPersonalPrWorkspace(userId, input.projectId);
+  const initial = await workspacePort.status();
   if (!initial.privateOwnerOnly || initial.initializationState !== "pending" || initial.operation?.action !== "create" || initial.operation.state !== "admitted") throw new PersonalPrError("conflict", "This sandbox cannot import a repository");
-  const repository = await checkRepository({ userId, repositoryId: input.repositoryId });
-  if (repository.status !== "ready" || !repository.repository) return { state: "blocked", projectId: input.projectId, blockReason: repository.status };
   const operationId = randomUUID();
-  const approved = await withUserToken({ userId, repositoryId: input.repositoryId, kind: "import", operationId }, token => fetchApprovedBase({ repositoryId: input.repositoryId, fullName: repository.repository!.fullName, baseRef: input.baseRef, token }, (path, credential) => githubApi(credential, path)));
-  const current = await controller.getProjectSandboxStatus(userId, input.projectId);
+  const selected = await approvedRepositorySource(userId, input.repositoryId, input.baseRef, operationId);
+  if (!selected.source) return { state: "blocked", projectId: input.projectId, blockReason: selected.blocked };
+  const approved = selected.source;
+  const current = await workspacePort.status();
   if (current.bindingId !== initial.bindingId || current.provider.generation !== initial.provider.generation || current.initializationState !== "pending") throw new PersonalPrError("conflict", "Sandbox binding changed during repository import");
   const [workspace] = rows(await getDb().execute(sql`SELECT revision FROM project_workspace_bindings WHERE project_id=${input.projectId} AND binding_id=${current.bindingId}`));
   if (!workspace) throw new PersonalPrError("conflict", "Sandbox workspace binding is unavailable");
@@ -112,11 +118,8 @@ export async function importApprovedRepository(userId: string, input: { projectI
   const artifact = files(approved.snapshot);
   await getDb().execute(sql`INSERT INTO github_personal_pr_imports (id,owner_id,project_id,binding_id,workspace_revision,provider_generation,repository_id,repository_name,base_ref,base_sha,base_digest,state,operation_id,idempotency_key,artifact) VALUES (${importId},${userId},${input.projectId},${current.bindingId},${Number(workspace.revision)},${current.provider.generation},${input.repositoryId},${approved.fullName},${approved.baseRef},${approved.baseSha},${approved.snapshot.digest},'importing',${operationId},${input.idempotencyKey},${JSON.stringify(artifact)})`);
   try {
-    await controller.runPrivateWorkspaceImport(userId, input.projectId, operationId, async () => {
-      const created = await controller.executeAdmittedLocalSandboxOperation(userId, initial.operation!.id);
-      if (created.resource?.observedState !== "stopped" || created.bindingId !== current.bindingId) throw new PersonalPrError("unavailable", "Private sandbox could not be created");
-      await importSnapshotToSandbox(controller, userId, input.projectId, approved.snapshot);
-      const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_imports SET resource_id=${created.resource.resourceId},state='ready',completed_at=NOW() WHERE id=${importId} AND owner_id=${userId} AND binding_id=${current.bindingId} AND state='importing' RETURNING id`))[0];
+    await workspacePort.importSnapshot(operationId, current, approved.snapshot, async created => {
+      const updated = rows(await getDb().execute(sql`UPDATE github_personal_pr_imports SET resource_id=${created.resource!.resourceId},state='ready',completed_at=NOW() WHERE id=${importId} AND owner_id=${userId} AND binding_id=${current.bindingId} AND state='importing' RETURNING id`))[0];
       if (!updated) throw new PersonalPrError("conflict", "Repository import state changed");
     });
   } catch (error) {
@@ -128,24 +131,21 @@ export async function importApprovedRepository(userId: string, input: { projectI
 
 export async function preparePersonalPr(userId: string, input: { runId: string; title?: string; body?: string }): Promise<PersonalPrView> {
   if (!validId(input.runId)) throw new PersonalPrError("invalid_input", "Invalid run");
-  const { run, projectId, source, status: initial } = await eligibleRun(userId, input.runId);
+  const { run, projectId, source } = await eligibleRun(userId, input.runId);
   const [existing] = rows(await getDb().execute(sql`SELECT proposal.id FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id WHERE snapshot.run_id=${input.runId} AND proposal.owner_id=${userId}`));
   if (existing) return getPersonalPrForReviewId(userId, String(existing.id));
-  const controller = getSandboxController();
-  let status = initial;
-  if (status.resource?.observedState === "running") {
-    const stop = await controller.requestSandboxAction(userId, projectId, { action: "stop", idempotencyKey: randomUUID() });
-    status = await controller.executeAdmittedLocalSandboxOperation(userId, stop.id);
-  }
-  if (status.resource?.observedState !== "stopped") throw new PersonalPrError("unavailable", "Sandbox must stop before review");
+  const workspacePort = await getPersonalPrWorkspace(userId, projectId);
+  const status = await workspacePort.prepareReview();
+  if (!workspacePort.canReview(status)) throw new PersonalPrError("unavailable", "Sandbox is unavailable for review");
   if (source.binding_id !== status.bindingId || Number(source.provider_generation) !== status.provider.generation || source.resource_id !== status.resource.resourceId) throw new PersonalPrError("conflict", "Imported repository or sandbox changed");
-  const [workspace] = rows(await getDb().execute(sql`SELECT revision FROM project_workspace_bindings WHERE project_id=${projectId} AND binding_id=${status.bindingId}`));
+  const workspace = status.kind === "incus" ? { revision: Number(status.authority?.workspaceRevision) }
+    : rows(await getDb().execute(sql`SELECT revision FROM project_workspace_bindings WHERE project_id=${projectId} AND binding_id=${status.bindingId}`))[0];
   if (!workspace || Number(workspace.revision) !== Number(source.workspace_revision)) throw new PersonalPrError("conflict", "Workspace revision changed");
   const base = validateSnapshot(parse<SnapshotFileInput[]>(source.artifact));
   if (base.digest !== source.base_digest) throw new PersonalPrError("conflict", "Imported base artifact changed");
-  const snapshot = await exportSnapshotFromSandbox(controller, userId, projectId, String(run.conversation_id));
+  const snapshot = await workspacePort.capture(String(run.conversation_id));
   const afterExport = await eligibleRun(userId, input.runId);
-  if (afterExport.status.bindingId !== status.bindingId || afterExport.status.resource?.resourceId !== status.resource.resourceId || afterExport.status.resource?.observedState !== "stopped" || afterExport.source.id !== source.id) throw new PersonalPrError("conflict", "Private sandbox changed during review");
+  if (afterExport.status.bindingId !== status.bindingId || afterExport.status.resource?.resourceId !== status.resource.resourceId || !workspacePort.canReview(afterExport.status) || afterExport.source.id !== source.id) throw new PersonalPrError("conflict", "Private sandbox changed during review");
   const changes = await buildReviewDiff(base, snapshot);
   if (!changes.length) return { state: "no_changes", projectId };
   const connection = await getConnectionBinding({ userId });
@@ -154,7 +154,7 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
   if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
   const snapshotId = randomUUID(); const proposalId = randomUUID(); const operationId = randomUUID();
   const branch = `ez-personal/${operationId}`;
-  const proposalDigest = digestProposal({ ownerId: userId, conversationId: String(run.conversation_id), runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseRef: String(source.base_ref), baseSha: String(source.base_sha), baseDigest: String(source.base_digest), importId: String(source.id), snapshotId, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body });
+  const proposalDigest = digestProposal({ ownerId: userId, conversationId: String(run.conversation_id), runId: input.runId, projectId, bindingId: status.bindingId, workspaceRevision: Number(workspace.revision), providerGeneration: status.provider.generation, resourceId: status.resource.resourceId, repositoryId: Number(source.repository_id), baseRef: String(source.base_ref), baseSha: String(source.base_sha), baseDigest: String(source.base_digest), importId: String(source.id), snapshotId, treeDigest: snapshot.digest, connectionGeneration: connection.generation, githubAccountId: connection.githubAccountId, operationId, branch, title, body, ...(status.authority ? { workspaceAuthority: status.authority } : {}) });
   await getDb().transaction(async (tx: DbTransaction) => {
     await tx.execute(sql`INSERT INTO github_personal_pr_snapshots (id,import_id,owner_id,project_id,conversation_id,run_id,binding_id,workspace_revision,provider_generation,resource_id,repository_id,base_sha,tree_digest,artifact,checks) VALUES (${snapshotId},${source.id},${userId},${projectId},${run.conversation_id},${input.runId},${status.bindingId},${Number(workspace.revision)},${status.provider.generation},${status.resource!.resourceId},${Number(source.repository_id)},${source.base_sha},${snapshot.digest},${JSON.stringify(files(snapshot))},${JSON.stringify([])})`);
     await tx.execute(sql`INSERT INTO github_personal_pr_proposals (id,snapshot_id,owner_id,github_account_id,connection_generation,repository_id,base_sha,title,body,digest,state,operation_id,branch,expires_at) VALUES (${proposalId},${snapshotId},${userId},${connection.githubAccountId},${connection.generation},${Number(source.repository_id)},${source.base_sha},${title},${body},${proposalDigest},'ready',${operationId},${branch},NOW() + INTERVAL '24 hours')`);
@@ -218,7 +218,7 @@ async function recoverExpiredPreCommit(userId: string, row: Row, expectedDigest:
 }
 
 async function proposalRow(userId: string, proposalId: string): Promise<Row> {
-  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,snapshot.id AS artifact_id,snapshot.import_id,snapshot.owner_id AS snapshot_owner_id,snapshot.project_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.base_digest,source.artifact AS base_artifact,source.state AS import_state FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
+  const [row] = rows(await getDb().execute(sql`SELECT proposal.*,snapshot.id AS artifact_id,snapshot.import_id,snapshot.owner_id AS snapshot_owner_id,snapshot.project_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,snapshot.artifact AS snapshot_artifact,source.repository_name,source.base_ref,source.base_digest,source.artifact AS base_artifact,source.state AS import_state,source.workspace_authority FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id WHERE proposal.id=${proposalId} AND proposal.owner_id=${userId}`));
   if (!row) throw new PersonalPrError("not_found", "Review not found");
   return row;
 }
@@ -239,20 +239,39 @@ async function reviewForPublication(userId: string, input: ConfirmationInput, ro
   if (!title || title.length > 500 || body.length > 100_000) throw new PersonalPrError("invalid_input", "Invalid pull request title or body");
   if (proposalDigest(row, String(row.title), String(row.body)) !== row.digest) throw new PersonalPrError("conflict", "Review identity changed");
   const artifacts = verifiedArtifacts(row);
-  const status = await getSandboxController().getProjectSandboxStatus(userId, String(row.project_id));
+  const workspacePort = await getPersonalPrWorkspace(userId, String(row.project_id));
+  const status = await workspacePort.status();
   if (!status.privateOwnerOnly || status.initializationState !== "ready" || status.privateConversationId !== row.conversation_id ||
       status.bindingId !== row.binding_id || status.provider.generation !== Number(row.provider_generation) ||
-      status.resource?.resourceId !== row.resource_id || status.resource?.observedState !== "stopped") throw new PersonalPrError("conflict", "Private sandbox changed after review");
+      status.resource?.resourceId !== row.resource_id || !workspacePort.canReview(status)) throw new PersonalPrError("conflict", "Private sandbox changed after review");
   return { title, body, artifacts };
 }
 
-function assertLivePublication(live: Row | undefined, row: Row, userId: string, expectedDigest: string, treeDigest: string): void {
-  if (live?.state !== "ready" || live.digest !== expectedDigest || new Date(String(live.expires_at)).getTime() <= Date.now() || live.owner_id !== userId || live.private_owner_id !== userId || live.private_conversation_id !== live.conversation_id || live.private_initialization_state !== "ready" || live.import_state !== "ready" || live.run_status !== "success" || !live.finished_at || Number(live.live_revision) !== Number(live.workspace_revision) || live.binding_id !== row.binding_id || Number(live.provider_generation) !== Number(row.provider_generation) || live.provider_resource_id !== live.resource_id || live.observed_state !== "stopped" || live.tree_digest !== treeDigest) throw new PersonalPrError("conflict", "Review changed before publication");
+function assertLivePublication(live: Row | undefined, row: Row, userId: string, expectedDigest: string, treeDigest: string, expectedState = "stopped"): void {
+  if (live?.state !== "ready" || live.digest !== expectedDigest || new Date(String(live.expires_at)).getTime() <= Date.now() || live.owner_id !== userId || live.private_owner_id !== userId || live.private_conversation_id !== live.conversation_id || live.private_initialization_state !== "ready" || live.import_state !== "ready" || live.run_status !== "success" || !live.finished_at || Number(live.live_revision) !== Number(live.workspace_revision) || live.binding_id !== row.binding_id || Number(live.provider_generation) !== Number(row.provider_generation) || live.provider_resource_id !== live.resource_id || live.observed_state !== expectedState || live.tree_digest !== treeDigest) throw new PersonalPrError("conflict", "Review changed before publication");
 }
 
+async function assertWorkspacePublicationAuthority(tx: DbTransaction, userId: string, row: Row): Promise<void> {
+  const port = await getPersonalPrWorkspace(userId, String(row.project_id), tx);
+  if (row.workspace_authority != null) {
+    if (!port.assertPublication) throw new PersonalPrError("conflict", "Workspace publication authority is unavailable");
+    await port.assertPublication(tx, { bindingId: String(row.binding_id), generation: Number(row.provider_generation),
+      resourceId: String(row.resource_id), workspaceRevision: Number(row.workspace_revision), conversationId: String(row.conversation_id),
+      authority: parse(row.workspace_authority) });
+  }
+ }
+
 async function claimPublication(tx: DbTransaction, userId: string, input: ConfirmationInput, row: Row, title: string, body: string, nextDigest: string, treeDigest: string, claimOwner: string): Promise<void> {
-  const [live] = rows(await tx.execute(sql`SELECT proposal.state,proposal.digest,proposal.expires_at,snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,source.state AS import_state,workspace.revision AS live_revision,binding.private_owner_id,binding.private_conversation_id,binding.private_initialization_state,resource.provider_resource_id,resource.observed_state,run.status AS run_status,run.finished_at FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN project_workspace_bindings workspace ON workspace.project_id=snapshot.project_id AND workspace.binding_id=snapshot.binding_id JOIN sandbox_provider_bindings binding ON binding.id=snapshot.binding_id JOIN sandbox_resources resource ON resource.binding_id=binding.id JOIN runs run ON run.id=snapshot.run_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal`));
-  assertLivePublication(live, row, userId, input.expectedDigest, treeDigest);
+  await assertWorkspacePublicationAuthority(tx, userId, row);
+  const query = row.workspace_authority == null ? sql`SELECT proposal.state,proposal.digest,proposal.expires_at,snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,source.state AS import_state,workspace.revision AS live_revision,binding.private_owner_id,binding.private_conversation_id,binding.private_initialization_state,resource.provider_resource_id,resource.observed_state,run.status AS run_status,run.finished_at FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN project_workspace_bindings workspace ON workspace.project_id=snapshot.project_id AND workspace.binding_id=snapshot.binding_id JOIN sandbox_provider_bindings binding ON binding.id=snapshot.binding_id JOIN sandbox_resources resource ON resource.binding_id=binding.id JOIN runs run ON run.id=snapshot.run_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal` : sql`SELECT proposal.state,proposal.digest,proposal.expires_at,
+    snapshot.owner_id,snapshot.conversation_id,snapshot.run_id,snapshot.binding_id,snapshot.workspace_revision,snapshot.provider_generation,snapshot.resource_id,snapshot.tree_digest,
+    source.state AS import_state,binding.generation AS live_revision,source.owner_id AS private_owner_id,source.conversation_id AS private_conversation_id,
+    source.state AS private_initialization_state,binding.resource_key AS provider_resource_id,lower(binding.observed_state) AS observed_state,run.status AS run_status,run.finished_at
+    FROM github_personal_pr_proposals proposal JOIN github_personal_pr_snapshots snapshot ON snapshot.id=proposal.snapshot_id
+    JOIN github_personal_pr_imports source ON source.id=snapshot.import_id JOIN sandbox_bindings binding ON binding.id=snapshot.binding_id
+    JOIN runs run ON run.id=snapshot.run_id AND run.user_id=${userId} AND run.project_id=snapshot.project_id AND run.conversation_id=snapshot.conversation_id WHERE proposal.id=${input.proposalId} AND proposal.owner_id=${userId} FOR UPDATE OF proposal`;
+  const [live] = rows(await tx.execute(query));
+  assertLivePublication(live, row, userId, input.expectedDigest, treeDigest, row.workspace_authority == null ? "stopped" : "running");
   const latest = rows(await tx.execute(latestRunQuery(row, userId)));
   const active = rows(await tx.execute(activeRunQuery(row, userId)));
   if (!isUniqueLatestRun(String(row.run_id), latest, active)) throw new PersonalPrError("conflict", "A newer run needs a new review");
@@ -324,6 +343,9 @@ export async function confirmPersonalPr(userId: string, input: ConfirmationInput
         }, async (credential, path, method, body) => {
           await assertPublicationClaim(userId, input.proposalId, String(row.operation_id), claimOwner);
           await assertUserEffectCurrent({ userId, operationId: String(row.operation_id), repositoryId: Number(row.repository_id), expectedGeneration: Number(row.connection_generation) });
+          if (method === "POST" && row.workspace_authority != null) {
+            await getDb().transaction((tx: DbTransaction) => assertWorkspacePublicationAuthority(tx, userId, row));
+          }
           return githubApiRequest(credential, path, method, body);
         });
       } finally { stopHeartbeat(); }
