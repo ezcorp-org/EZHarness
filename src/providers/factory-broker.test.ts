@@ -426,6 +426,61 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
       });
     });
 
+    describe("Google discovery and a stored API-key row are broken logins too (C10, S)", () => {
+      const GOOGLE: FactoryProviderPin = { provider: "google", model: "gemini-2.5-flash" };
+      const ENV = ["OPENAI_API_KEY", "GOOGLE_API_KEY"] as const;
+      const savedEnv = Object.fromEntries(ENV.map((name) => [name, process.env[name]]));
+      const realFetch = globalThis.fetch;
+      beforeEach(() => { for (const name of ENV) delete process.env[name]; });
+      afterEach(async () => {
+        for (const name of ENV) { if (savedEnv[name] === undefined) delete process.env[name]; else process.env[name] = savedEnv[name]; }
+        globalThis.fetch = realFetch;
+        await deleteSetting(oauthSettingKey("google"));
+        await deleteSetting("provider:apiKey:google");
+      });
+      /** A Google login with no Cloud project, whose discovery the endpoint refuses. */
+      async function googleLoginDiscoveryFails() {
+        await upsertSetting(oauthSettingKey("google"), encrypt(JSON.stringify({ access: "fixture-google-access", refresh: "fixture-google-refresh", expires: Date.now() + 3_600_000 })));
+        globalThis.fetch = (async () => new Response("denied", { status: 403 })) as unknown as typeof fetch;
+      }
+      const unreadableKey = () => upsertSetting(API_KEY_SETTING, "v1:000000000000000000000000:00000000000000000000000000000000:00");
+
+      test("a failed Google project discovery with no key is unusable, never a readiness error", async () => {
+        await googleLoginDiscoveryFails();
+        expect(await factoryProviderReadiness(GOOGLE, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: false, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "OAuthUnusableError" } });
+      });
+
+      test("a failed Google project discovery with a valid key: ready on the key, with one warning", async () => {
+        await googleLoginDiscoveryFails();
+        await upsertSetting("provider:apiKey:google", encrypt("fixture-google-key"));
+        expect(await factoryProviderReadiness(GOOGLE, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: true, credentialKind: "apikey", warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "OAuthUnusableError" } }] });
+      });
+
+      test("S-2: a stored API key that cannot be decrypted, with no env key, is unusable", async () => {
+        await unreadableKey();
+        expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true }))
+          .toMatchObject({ ready: false, credentialKind: null, failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "ApiKeyUnusableError" } });
+      });
+
+      test("S-1: the same with an env key: ready on the env key, with the unreadable row as one warning", async () => {
+        await unreadableKey();
+        process.env.OPENAI_API_KEY = "fixture-env-key";
+        const readiness = await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true });
+        expect(readiness).toMatchObject({ ready: true, credentialKind: "apikey", warnings: [{ code: "provider_credential_unusable", credentialFailure: { errorClass: "ApiKeyUnusableError" } }] });
+        expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain("fixture-env-key");
+      });
+
+      test("a broken OAuth row AND an unreadable stored key with an env key: two warnings, one per broken row", async () => {
+        await unreadableRow();
+        await unreadableKey();
+        process.env.OPENAI_API_KEY = "fixture-env-key";
+        expect((await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).warnings?.map((w) => w.credentialFailure.errorClass))
+          .toEqual(["OAuthUnusableError", "ApiKeyUnusableError"]);
+      });
+    });
+
     test("a login with no usable OAuth key and nothing else configured still reads not configured, and a healthy pin carries no warnings", async () => {
       expect(await factoryProviderReadiness(LUNA, { now: () => NOW })).toMatchObject({ failures: ["provider_not_configured"] });
       await signIn();

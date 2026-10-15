@@ -172,7 +172,7 @@ export async function factoryProviderReadiness(
     ...(pin.credentialKind === undefined ? {} : { requiredCredentialKind: pin.credentialKind }),
     failures,
     ...failureDetail(resolved),
-    ...(credential?.bypassedFailure === undefined ? {} : { warnings: [{ code: "provider_credential_unusable", credentialFailure: credential.bypassedFailure }] }),
+    ...(credential?.bypassedFailures === undefined ? {} : { warnings: credential.bypassedFailures.map((credentialFailure) => ({ code: "provider_credential_unusable" as const, credentialFailure })) }),
     checkedAtMs: now(),
   };
 }

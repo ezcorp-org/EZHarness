@@ -146,6 +146,7 @@ const {
   getApiKey,
   _clearRefreshLocks,
   ProviderNotConfiguredError,
+  ApiKeyUnusableError,
 } = await import("../providers/credentials");
 
 // Store original env
@@ -550,7 +551,7 @@ test("a stored key that cannot be decrypted and no env key is never \"no key\": 
   (decryptFn as any).mockImplementationOnce(() => { throw cause; });
 
   const error = await getApiKey("openai").then(() => undefined, (e: unknown) => e);
-  expect(error).toBeInstanceOf(Error);
+  expect(error).toBeInstanceOf(ApiKeyUnusableError);
   expect(error).not.toBeInstanceOf(ProviderNotConfiguredError);
   expect((error as Error).message).toBe("Stored API key for openai cannot be read");
   expect((error as Error).cause).toBe(cause);

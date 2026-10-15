@@ -76,8 +76,9 @@ export interface ProviderCredential {
   type: "oauth" | "apikey";
   token: string;
   refreshed?: boolean;
-  /** Set when the ladder served this key past a broken OAuth login: that login's class and code, never its message. */
-  bypassedFailure?: CredentialFailure;
+  /** Set when the ladder served this key past broken stored rows (an OAuth login, a stored key): each one's class and
+   *  code, never its message. Readiness shows them as non-blocking warnings (C10). */
+  bypassedFailures?: readonly CredentialFailure[];
 }
 
 /** A credential failure for a record: the error's class and code, never its message (it may quote a provider reply). */
@@ -182,7 +183,10 @@ async function getOAuthCredential(
   // store's `modify` so every write to this row goes down one serialized
   // path and cannot interleave with a refresh.
   if (provider === "google" && !creds.projectId) {
-    const projectId = await discoverGoogleProject(creds.access);
+    // A failed discovery is a defect of the login, not of the store: a broken login (C10).
+    const projectId = await discoverGoogleProject(creds.access).catch((cause: unknown) => {
+      throw new OAuthUnusableError(cause instanceof Error ? cause.message : String(cause), { cause });
+    });
     creds.projectId = projectId;
     await getCredentialStore().modify(oauthProviderId, async () => tagOAuthCredential(creds));
   }
@@ -243,21 +247,38 @@ async function getOAuthCredential(
 
 /** @deprecated Use getCredential() instead */
 export async function getApiKey(provider: string): Promise<string> {
+  return (await readApiKey(provider)).token;
+}
+
+/**
+ * A stored API key exists but cannot be decrypted (a wrong or rotated web secret, a corrupt row): a broken
+ * credential, never "no key" (C10, S). The cause is kept for its class; its message is never copied into a record.
+ */
+export class ApiKeyUnusableError extends Error {
+  constructor(readonly provider: string, cause: unknown) {
+    super(`Stored API key for ${provider} cannot be read`, { cause });
+    this.name = "ApiKeyUnusableError";
+  }
+}
+
+/** The key to send, and the stored row it was served past when that row could not be read. */
+async function readApiKey(provider: string): Promise<{ token: string; bypassedFailures?: readonly CredentialFailure[] }> {
   // Check BYOK stored key first. A database error is not "no key": it propagates (C10, P-F3).
   const stored = await getSetting(`provider:apiKey:${provider}`);
-  let unreadable: unknown;
+  let unreadable: ApiKeyUnusableError | undefined;
   if (stored && typeof stored === "string") {
     try {
-      return decrypt(stored);
+      return { token: decrypt(stored) };
     } catch (cause) {
-      // Decrypt failed -- fall through to env var, but never report "no key" for it
-      unreadable = cause;
+      // Decrypt failed -- fall through to env var, and say so (a warning), never "no key"
+      unreadable = new ApiKeyUnusableError(provider, cause);
     }
   }
+  const served = (token: string) => (unreadable === undefined ? { token } : { token, bypassedFailures: [credentialFailureOf(unreadable)!] });
 
   // Try pi-ai's env key resolver (checks standard env vars like ANTHROPIC_API_KEY)
   const envKey = getEnvApiKey(provider);
-  if (envKey) return envKey;
+  if (envKey) return served(envKey);
 
   // pi-ai only resolves env vars for providers IT knows. Kilo is not a pi-ai
   // provider, so `getEnvApiKey("kilo")` is always empty and `KILO_API_KEY` was
@@ -266,17 +287,17 @@ export async function getApiKey(provider: string): Promise<string> {
   // free-only. Consult this repo's own provider table for anything pi does not
   // cover.
   const ownEnvKey = PROVIDER_ENV_KEYS[provider];
-  if (ownEnvKey && process.env[ownEnvKey]) return process.env[ownEnvKey];
+  if (ownEnvKey && process.env[ownEnvKey]) return served(process.env[ownEnvKey]);
 
-  if (unreadable !== undefined) throw new Error(`Stored API key for ${provider} cannot be read`, { cause: unreadable });
+  if (unreadable !== undefined) throw unreadable;
   throw new ProviderNotConfiguredError(provider, `Missing API key for ${provider}`);
 }
 
 async function getApiKeyCredential(
   provider: string,
 ): Promise<ProviderCredential> {
-  const token = await getApiKey(provider);
-  return { type: "apikey", token };
+  const { token, bypassedFailures } = await readApiKey(provider);
+  return bypassedFailures === undefined ? { type: "apikey", token } : { type: "apikey", token, bypassedFailures };
 }
 
 // ── Main Credential Resolution ────────────────────────────────────────
@@ -331,7 +352,7 @@ export class ProviderNotConfiguredError extends Error {
 
 /** The class and code of a broken stored login (or of the cause an unusable-credential error carries), else undefined. */
 export function credentialFailureOf(error: unknown): CredentialFailure | undefined {
-  const cause = error instanceof ProviderCredentialUnusableError ? error.cause : isBrokenOAuth(error) ? error : undefined;
+  const cause = error instanceof ProviderCredentialUnusableError ? error.cause : isBrokenOAuth(error) || error instanceof ApiKeyUnusableError ? error : undefined;
   if (cause === undefined) return undefined;
   const code = (cause as { code?: unknown } | null)?.code;
   return { errorClass: cause instanceof Error ? cause.name : typeof cause, ...(typeof code === "string" ? { code } : {}) };
@@ -400,8 +421,9 @@ export async function getCredential(
 
   try {
     const key = await getApiKeyCredential(provider);
-    const bypassedFailure = credentialFailureOf(oauthFailure);
-    return bypassedFailure === undefined ? key : { ...key, bypassedFailure };
+    const oauthBypassed = credentialFailureOf(oauthFailure);
+    const bypassedFailures = [...(oauthBypassed === undefined ? [] : [oauthBypassed]), ...(key.bypassedFailures ?? [])];
+    return bypassedFailures.length === 0 ? key : { ...key, bypassedFailures };
   } catch (err) {
     if (!(err instanceof ProviderNotConfiguredError)) throw err;
     // Keyless free tier: the provider serves SOME models to anonymous
