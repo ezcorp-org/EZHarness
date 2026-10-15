@@ -8876,3 +8876,11 @@ Lesson: At a process runner boundary, assert that the parent-tracked `$!` equals
 Review: Provisional source tree 5293cac8db22c78ae8c38c342fe65dbb92af091d independently reviewed with no source blocker. Relative to reviewed 64d9, it changes exactly the same 344 paths as main 1981-to-934, with no missing or unrelated source paths. Both reviewed leaves remain byte-identical. No merge commit, full gate, push, or live checks are authorized in this step.
 
 Final review: Full repository typecheck passed all backend, web, backend-tests, web-e2e, package, and locked Python legs on source tree 2f15e23d65ff641e59d4596893ad25d127e5fa1a. Web Svelte check and scoped Biome passed. The 16 focused suites finish green after two concrete test-fixture repairs; the gateway context suite also passes. Initial failures and final native exits remain in .cache/main934. The six production resolutions remain unchanged from the independently cleared 5293 tree. Test changes outside the 344 upstream paths are limited to an explicit strict fixture-table type and canonical process-policy capability in the provider test runner. No test assertion, gate, timeout, or authority was weakened. Merge remains uncommitted for independent final review.
+# Stryker fixture repair (2026-10-15)
+
+- [x] Inspect canonical RED and the installed runner's real version selection.
+- [x] Fix only the fixture call; preserve Vitest 5 and legacy production behavior.
+- [x] Run a bounded focused regression with exact installed dependencies when authorized.
+- [x] Submit diff and evidence for independent review before commit.
+
+Independent review CLEAR; root approved normal commit. Canonical RED preserved and reproduced in own-tree copied baseline: native 1, same separator mismatch, 1 pass/1 fail. Corrected focused file: pinned Bun 1.4.2, native 0, 2 pass/0 fail, 8 assertions, 876 ms. Test now passes the named Vitest 5 separator explicitly, checks both omitted-argument legacy defaults, and calls the actual runner's run() method with a small context to verify its installed-version selector. No production code, patch or installed dependency was changed. Own-tree dependency symlinks reuse exact frozen installed bytes. Touched Biome: native 0. Diff check passed. Evidence in `.cache/stryker-fixture/`. No whole gate or live action run.

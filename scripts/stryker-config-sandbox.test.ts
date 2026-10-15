@@ -26,12 +26,27 @@ test("Stryker can load the copied Svelte config without the root build helper", 
 
 test("the pinned Stryker runner uses Vitest's nested suite separator", async () => {
 	const helper = resolve(webRoot, "node_modules/@stryker-mutator/vitest-runner/dist/src/test-helpers.js");
-	const { collectTestName, toRawTestId } = await import(pathToFileURL(helper).href);
+	const { collectTestName, toRawTestId, VITEST_5_TEST_NAME_SEPARATOR } = await import(pathToFileURL(helper).href);
 	const file = { filepath: "/tmp/example.test.ts" };
 	const outer = { name: "outer [A+B]" };
 	const inner = { name: "nested (x)", suite: outer };
 	const task = { name: "case #1 > literal [x]", suite: inner, file };
 	const name = "outer [A+B] > nested (x) > case #1 > literal [x]";
-	expect(collectTestName(task)).toBe(name);
-	expect(toRawTestId(task)).toBe(`${file.filepath}#${name}`);
+	expect(collectTestName(task, VITEST_5_TEST_NAME_SEPARATOR)).toBe(name);
+	expect(toRawTestId(task, VITEST_5_TEST_NAME_SEPARATOR)).toBe(`${file.filepath}#${name}`);
+	const legacyName = "outer [A+B] nested (x) case #1 > literal [x]";
+	expect(collectTestName(task)).toBe(legacyName);
+	expect(toRawTestId(task)).toBe(`${file.filepath}#${legacyName}`);
+
+	const runnerModule = resolve(webRoot, "node_modules/@stryker-mutator/vitest-runner/dist/src/vitest-test-runner.js");
+	const { VitestTestRunner } = await import(pathToFileURL(runnerModule).href);
+	const runner = new VitestTestRunner({ vitest: { related: false } }, {}, "__stryker__");
+	runner.ctx = {
+		config: {}, projects: [],
+		state: { filesMap: new Map(), errorsSet: new Set(), getFiles: () => [{ ...file, tasks: [{ ...task, type: "test", result: { state: "pass" } }] }] },
+		start: async () => {},
+	};
+	const result = await runner.run();
+	expect(result.tests).toMatchObject([{ name }]);
+	expect(result.tests[0].id).toEndWith(`#${name}`);
 });
