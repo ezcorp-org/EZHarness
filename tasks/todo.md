@@ -6335,3 +6335,12 @@ Review: the installation never came up because a lock re-resolution swapped SWC'
 - [ ] The Compose-level proof, after W4H-27 merges. The generate runner's fleet profile is blocked by the definition's placeholder pin.
 
 Review: the brief's "move the registration" had no registration to move; the product-true register is a v4 runner package per export, installed at boot and prepared by the supervisor. The composed-application runs exposed five product defects the harness-supplied graph proof had hidden (bundle-relative sources, the catalog's blob store, the host runner's toolchain, a reused build identity, the port shape); each is fixed with a test.
+
+## W4H-32 — a missing runner artifact is rehydrated from the product's own copy (branch `wp/w4h-32-runner-rehydrate` from integ/w00 390c49a90; gates `tasks/factory/w4h-32-GATES.md`)
+
+- [ ] Contract rows: C05 "Rehydrate a missing runner artifact (W4H-32)"; C10 amendment (activation recovers; a rebuild is never an error handler).
+- [ ] Runner: restoreArtifact (digest checked, atomic, idempotent) through the contract, the PodmanRunner, the service route and the client; a start refused for a missing artifact registers no worker.
+- [ ] Host: one rehydrating wrapper around the product runner (release record required, blob digest verified, one join per digest, exactly one retry, named refusal artifact_unrecoverable).
+- [ ] Readiness: non-blocking warnings {code, artifactDigest, count}.
+- [ ] Package preparation: build only on the supervisor's "not built yet"; any other artifact read error refuses by name.
+- [ ] Two-boot test on a kept store; mutants; static legs; heavy legs through gated-flock; freeze.
