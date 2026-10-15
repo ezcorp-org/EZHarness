@@ -2587,3 +2587,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - A new authority type shares the installed import table and key space with legacy rows. Check its discriminator and saved request before reading nested fields. A legacy key collision must return typed conflict with no source fetch or guest effects.
 
 - Focused suite success does not prove changed-line coverage. Run the existing canonical patch check before final handoff; add a real route request for any uncovered production branch. Normalize web LCOV with the existing web producer tag/path rules before merging.
+
+- Bun runtime tests do not typecheck fixtures. Before reporting an integrated feature ready, require the full strict compiler and Svelte surface on the exact combined source. Use real contract-shaped fixtures, typed transaction callbacks, and explicit null narrowing.

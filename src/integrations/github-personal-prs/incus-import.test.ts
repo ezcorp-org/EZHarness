@@ -20,15 +20,16 @@ import { SandboxController, type SandboxProviderRequest } from "../../sandboxes/
 import { createProviderSandboxWorkspaceBackend } from "../../runtime/workspaces/provider-backend";
 import { setSandboxWorkspaceTargetResolver } from "../../runtime/workspaces/project-target";
 import { sandboxWorkspaceTarget } from "../../runtime/workspaces/target";
-import { validateSnapshot } from "./snapshot";
+import { validateSnapshot, type SnapshotFileInput } from "./snapshot";
 import { GithubSourceError } from "./github-source";
 
+type TestTransaction = Parameters<Parameters<ReturnType<typeof getTestDb>["transaction"]>[0]>[0];
 mockDbConnection();
 const owner = "incus-import-owner";
 const preset = INCUS_PRESETS[0]!;
 const input = { name: "Repository feature", installationId: "installation", connectionId: "connection", presetId: preset.id,
   repositoryId: 42, baseRef: "main", idempotencyKey: "private-repository" };
-function sourceFile(text: string, path = "src/app.txt") {
+function sourceFile(text: string, path = "src/app.txt"): SnapshotFileInput {
   const bytes = Buffer.from(text);
   return { path, mode: "100644", data: bytes.toString("base64"), sha256: createHash("sha256").update(bytes).digest("hex") };
 }
@@ -62,7 +63,7 @@ class FakeGithubUserError extends Error { constructor(public code: string) { sup
 mock.module("../github-user/broker", () => ({
   getConnectionBinding: async () => ({ githubAccountId: 17, generation: 1 }),
   assertUserEffectCurrent: async () => {},
-  withUserToken: async (request: { authorizeDispatch?: (tx: ReturnType<typeof getTestDb>) => Promise<void> }, effect: (token: string) => Promise<unknown>) => {
+  withUserToken: async (request: { authorizeDispatch?: (tx: TestTransaction) => Promise<void> }, effect: (token: string) => Promise<unknown>) => {
     if (request.authorizeDispatch) await getTestDb().transaction(request.authorizeDispatch);
     return effect("host-github-token-canary");
   },
@@ -135,7 +136,13 @@ beforeEach(async () => {
       return pending ? { outcome: "PENDING", providerOperationId: `provider-${request.operationId}` }
         : { outcome: "SUCCEEDED", observedState: request.kind === "START" ? "RUNNING" : "STOPPED" };
     },
-    async inspectOperation(request) { return pending ? { outcome: "PENDING", providerOperationId: request.providerOperationId ?? undefined } : { outcome: "SUCCEEDED", observedState: request.kind === "START" ? "RUNNING" : "STOPPED" }; },
+    async inspectOperation(request) {
+      if (pending) {
+        if (!request.providerOperationId) throw new Error("Pending fixture operation has no provider receipt");
+        return { outcome: "PENDING", providerOperationId: request.providerOperationId };
+      }
+      return { outcome: "SUCCEEDED", observedState: request.kind === "START" ? "RUNNING" : "STOPPED" };
+    },
   });
   const admission = new SandboxAdmissionStore(db);
   await admission.configureHostCapacity({ providerInstallationId: "installation", connectionId: "connection",
@@ -260,7 +267,7 @@ test("native Incus source edit is reviewed once and published from frozen host b
   const later = Buffer.from("later guest edit must not be published");
   await caller.call({ binding: target.binding, principal: { userId: owner }, toolCallId: "later-edit:2", action: "file.writeAtomic", payload: {
     path: "src/app.txt", expectedRevision: current.file.revision, byteLength: later.length, dataBase64: later.toString("base64"), executable: false } });
-  const published = await confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "", idempotencyKey: "publish-feature" });
+  const published = await confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "" });
   expect(published.state).toBe("created");
   const blobs = githubWrites.filter(value => value.path.endsWith("/git/blobs"));
   expect(blobs).toHaveLength(1);
@@ -275,7 +282,7 @@ test("Incus connection revocation after publication claim blocks the first GitHu
     publicationRead = undefined;
     await getTestDb().execute(sql`UPDATE provider_connections SET revoked_at=NOW() WHERE id='connection'`);
   };
-  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "", idempotencyKey: "publish-revoked" })).rejects.toMatchObject({ code: "unavailable" });
+  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "" })).rejects.toMatchObject({ code: "unavailable" });
   expect(githubWrites).toEqual([]);
 });
 
@@ -341,7 +348,7 @@ test("Incus port refuses direct existing-workspace import and a changed capture 
     publicationRead = undefined;
     await getTestDb().execute(sql`UPDATE sandbox_bindings SET generation=generation+1 WHERE project_id=${projectId}`);
   };
-  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "", idempotencyKey: "publish-replaced-generation" })).rejects.toMatchObject({ code: "unavailable" });
+  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Feature implementation", body: "" })).rejects.toMatchObject({ code: "unavailable" });
   expect(githubWrites).toEqual([]);
 });
 

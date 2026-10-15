@@ -8975,3 +8975,14 @@ Receipts: `.cache/incus-personal-pr/focused-20261015T030030Z`, corrected Postgre
 - [x] Independent source review clear. Root authorized TEST-ONLY EZ_SKIP_HOOK_TESTS=1 for commit; normal lint/manifest hooks retained.
 
 Evidence: transfer focused-20261015T034041Z; own compiler focused-20261015T034053Z; service type-repair-20261015T034154Z/typecheck.
+
+## Canonical gate type repair
+
+- [x] Read and diagnose the actual combined compiler errors.
+- [x] Fix service and fixture types without changing authority or failure behavior.
+- [x] Receive transfer-owner fixture correction.
+- [x] Run full strict typecheck and Svelte checks after old gate cleanup.
+- [x] Run affected focused consumers and refresh final-byte coverage.
+- [ ] Obtain independent review and commit the repair.
+
+Type repair review: Full canonical typecheck and Svelte both native0. Five affected consumer files pass42 cases/693 assertions, including missing-resource denial before capture/publication. Final seven new service files remain100% line coverage; patch gate passes the three changed production files. Nonempty canonical repair CRAP scores3 files/4 functions, zero violations, maximum23. Original combined gate RED and all earlier receipts remain intact. Transfer fixture fix is separately owned and committed; no copied transfer/UI files enter this repair leaf. Root retains the required combined fast gate before push.

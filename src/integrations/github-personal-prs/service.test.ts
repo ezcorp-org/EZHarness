@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 import { sql } from "drizzle-orm";
+import { releaseRows } from "../../db/queries/extension-releases";
 import { mockDbConnection, getTestDb, setupTestDb } from "../../__tests__/helpers/test-pglite";
 import { validateSnapshot, type SnapshotFileInput } from "./snapshot";
 
@@ -84,12 +85,13 @@ const { legacyPersonalPrWorkspace } = await import("./workspace");
 let incusMode = false;
 let incusAuthorityCurrent = true;
 let incusCaptures = 0;
+let reviewResourceMissing = false;
 const incusAuthority = { kind: "incus", bindingId, workspaceRevision: 1 };
 const incusStatus = () => ({ projectId, kind: "incus" as const, privateOwnerOnly: true, initializationState: state,
   privateConversationId: conversation, bindingId, provider: { generation: 1 },
   resource: { resourceId: bindingId, observedState: "running" }, operation: null, authority: incusAuthority });
 mock.module("./workspace", () => ({ getPersonalPrWorkspace: async (userId: string, project: string) => incusMode ? {
-  status: async () => incusStatus(), forRun: async () => incusStatus(), prepareReview: async () => incusStatus(),
+  status: async () => incusStatus(), forRun: async () => incusStatus(), prepareReview: async () => ({ ...incusStatus(), resource: reviewResourceMissing ? null : incusStatus().resource }),
   canReview: (value: { resource?: { observedState: string } | null }) => value.resource?.observedState === "running",
   capture: async () => { incusCaptures++; await duringExport?.(); return changed; },
   assertPublication: async () => { if (!incusAuthorityCurrent) throw new Error("Incus authority changed before publication"); },
@@ -107,7 +109,7 @@ async function seed() {
   await db.execute(sql`INSERT INTO sandbox_resources(id,binding_id,provider_resource_id,desired_state,observed_state,limits) VALUES ('internal-resource',${bindingId},${resourceId},'stopped','stopped','{}')`);
 }
 
-beforeEach(async () => { await setupTestDb(); incusMode = false; incusAuthorityCurrent = true; incusCaptures = 0; state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; duringPublish = undefined; afterCommitReady = undefined; statusCalls = 0; await seed(); });
+beforeEach(async () => { await setupTestDb(); incusMode = false; incusAuthorityCurrent = true; incusCaptures = 0; reviewResourceMissing = false; state = "pending"; conversation = null; publishCount = 0; canDispatch = true; effectChecks = 0; maxEffectChecks = Number.POSITIVE_INFINITY; githubWrites = 0; baseMoved = false; reconcileMode = "missing"; duringExport = undefined; duringPublish = undefined; afterCommitReady = undefined; statusCalls = 0; await seed(); });
 
 async function prepareReadyRun() {
   await importApprovedRepository(owner, { projectId, repositoryId: 42, baseRef: "main", idempotencyKey: "same-import" });
@@ -357,7 +359,7 @@ test("Incus owner run captures and publishes reviewed host bytes without legacy 
   expect(publishCount).toBe(1);
   expect(incusCaptures).toBe(1);
   const snapshotRows = await getTestDb().execute(sql`SELECT artifact FROM github_personal_pr_snapshots WHERE run_id=${runId}`);
-  expect(validateSnapshot((snapshotRows as { rows: { artifact: SnapshotFileInput[] }[] }).rows[0]!.artifact).digest).toBe(changed.digest);
+  expect(validateSnapshot(releaseRows<{ artifact: SnapshotFileInput[] }>(snapshotRows)[0]!.artifact).digest).toBe(changed.digest);
 });
 
 test("Incus authority drift denies publication before any GitHub effect", async () => {
@@ -379,8 +381,16 @@ test("Incus import authority mutation cannot reuse an already-reviewed proposal"
 test("Incus revocation after publication claim fences the next GitHub write", async () => {
   const review = await prepareReadyIncusRun();
   duringPublish = async () => { incusAuthorityCurrent = false; };
-  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Draft", body: "", idempotencyKey: "incus-dispatch" })).rejects.toMatchObject({ code: "unavailable" });
+  await expect(confirmPersonalPr(owner, { proposalId: review.proposalId!, expectedDigest: review.digest!, title: "Draft", body: "" })).rejects.toMatchObject({ code: "unavailable" });
   expect(publishCount).toBe(1);
   expect(githubWrites).toBe(0);
   expect(incusCaptures).toBe(1);
+});
+
+
+test("resource lost before review remains unavailable before capture or publication", async () => {
+  reviewResourceMissing = true;
+  await expect(prepareReadyIncusRun()).rejects.toMatchObject({ code: "unavailable" });
+  expect(incusCaptures).toBe(0);
+  expect(publishCount).toBe(0);
 });

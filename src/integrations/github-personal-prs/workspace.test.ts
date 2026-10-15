@@ -25,7 +25,7 @@ beforeEach(() => { observed = "stopped"; createdBinding = "binding"; imported = 
 
 test("durable import authority selects Incus; valid absent or legacy authority selects existing controller", async () => {
   const selected = await getPersonalPrWorkspace("owner", "project", database({ rows: [{ workspace_authority: { kind: "incus" } }] }));
-  expect(selected).toEqual({ marker: "incus" });
+  expect(selected).toHaveProperty("marker", "incus");
   expect(incusSelections).toBe(1);
   for (const value of [{ rows: [] }, { rows: [{ workspace_authority: null }] }]) {
     expect((await (await getPersonalPrWorkspace("owner", "project", database(value))).status()).kind).toBe("legacy");

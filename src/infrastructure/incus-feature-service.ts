@@ -450,7 +450,7 @@ export class IncusFeatureService {
       if (member?.role !== "owner") throw new Error("Incus project owner is unavailable");
       const { existing: binding, approved } = await this.checkedPreparation({ ...input, projectId });
       if (!binding) throw new Error("Incus project binding is unavailable");
-      if (initialize) await this.db.transaction(transaction => initialize(transaction, { project: existing, binding, releaseDigest: approved.snapshot.release.releaseDigest, created: false }));
+      if (initialize) await this.db.transaction((transaction: DbTransaction) => initialize(transaction, { project: existing, binding, releaseDigest: approved.snapshot.release.releaseDigest, created: false }));
       return { project: existing, binding };
     }
     const approved = await this.approved({ ...input, projectId });

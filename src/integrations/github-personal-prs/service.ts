@@ -136,7 +136,7 @@ export async function preparePersonalPr(userId: string, input: { runId: string; 
   if (existing) return getPersonalPrForReviewId(userId, String(existing.id));
   const workspacePort = await getPersonalPrWorkspace(userId, projectId);
   const status = await workspacePort.prepareReview();
-  if (!workspacePort.canReview(status)) throw new PersonalPrError("unavailable", "Sandbox is unavailable for review");
+  if (!status.resource || !workspacePort.canReview(status)) throw new PersonalPrError("unavailable", "Sandbox is unavailable for review");
   if (source.binding_id !== status.bindingId || Number(source.provider_generation) !== status.provider.generation || source.resource_id !== status.resource.resourceId) throw new PersonalPrError("conflict", "Imported repository or sandbox changed");
   const workspace = status.kind === "incus" ? { revision: Number(status.authority?.workspaceRevision) }
     : rows(await getDb().execute(sql`SELECT revision FROM project_workspace_bindings WHERE project_id=${projectId} AND binding_id=${status.bindingId}`))[0];
