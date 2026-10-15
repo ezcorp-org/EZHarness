@@ -52,6 +52,7 @@ import { findTrustedLocalApproval } from "../db/queries/extension-trusted-local-
 import { ExtensionRegistry } from "../extensions/registry";
 import { getExtensionLifecycle, getExtensionReleaseBlobs, getExtensionRunner, resetExtensionServices } from "../extensions/extension-lifecycle-service";
 import { DatabaseLifecycleRepository } from "../db/queries/extension-releases";
+import { sql } from "drizzle-orm";
 import { trustedLocalBunDigest, UNSANDBOXED_ACK_SENTENCE } from "../extensions/runner-mode";
 import { digestObject, FileBlobStore, getFiles, putFiles } from "../extensions/v4/blobs";
 
@@ -106,7 +107,12 @@ describe("extension lifecycle service in trusted-local mode", () => {
     try {
       expect(await (await getExtensionRunner()).collectArtifacts(artifactDigest)).toEqual(files);
       expect(restored).toEqual([artifactDigest]);
-    } finally { fakeRunner = undefined; }
+    } finally {
+      fakeRunner = undefined;
+      // Only this test's rows: a later recovery sweep must not find a fixture installation it cannot recover.
+      await getTestDb().execute(sql`DELETE FROM extension_release_records WHERE installation_id = 'w4h32-installation'`);
+      await getTestDb().execute(sql`DELETE FROM extension_release_installations WHERE id = 'w4h32-installation'`);
+    }
   });
 
   test("initialisation installs the runner's approval store and audit sink exactly once", async () => {
