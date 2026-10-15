@@ -193,7 +193,7 @@ test("a genuine validation refusal keeps HTTP 400 and its own text", async () =>
   try {
     const raw = await fetch("http://runner/v4/inspect", { unix: socketPath, method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "[]" });
     expect(raw.status).toBe(400);
-    expect((await raw.json()).error).toMatchObject({ code: "invalid_request" });
+    expect(((await raw.json()) as { error: unknown }).error).toMatchObject({ code: "invalid_request" });
   } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
 });
 
