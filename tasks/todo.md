@@ -8884,3 +8884,17 @@ Final review: Full repository typecheck passed all backend, web, backend-tests, 
 - [x] Submit diff and evidence for independent review before commit.
 
 Independent review CLEAR; root approved normal commit. Canonical RED preserved and reproduced in own-tree copied baseline: native 1, same separator mismatch, 1 pass/1 fail. Corrected focused file: pinned Bun 1.4.2, native 0, 2 pass/0 fail, 8 assertions, 876 ms. Test now passes the named Vitest 5 separator explicitly, checks both omitted-argument legacy defaults, and calls the actual runner's run() method with a small context to verify its installed-version selector. No production code, patch or installed dependency was changed. Own-tree dependency symlinks reuse exact frozen installed bytes. Touched Biome: native 0. Diff check passed. Evidence in `.cache/stryker-fixture/`. No whole gate or live action run.
+
+## New private Incus repository import UI
+
+- [x] Agree the existing management GET and discriminated import POST with the service owner.
+- [x] Confirm the existing panel exposes import without legacy providers; keep its source unchanged.
+- [x] Reproduce the missing qualified Incus option with a focused component test.
+- [x] Add qualified environment selection and one-step source import without changing legacy import.
+- [x] Keep the same request and key for uncertain-operation recovery; explain new workspace and source-only import.
+- [ ] Verify focused component tests, touched checks, and required visual evidence under coordinator admission.
+- [ ] Obtain independent review of the exact patch and evidence.
+
+Review: Component regression reproduced the absent qualified option (native 1). The focused importer suite passes after the change. The request and key stay fixed after submission; partial transfer disables retry. Legacy two-step import and pending-sandbox import remain covered. Touched TypeScript Biome and diff checks pass. Browser evidence is prepared but not run; generated SvelteKit configuration was required before tests. Earlier setup failures are preserved separately. Independent review and browser verification remain open. No shared dependency caches, full gates, or live services were used.
+
+Review lesson: Verify the destination and recovery codes for each provider. Incus opens the project route; legacy sandbox import opens settings. A saved startup operation can resume, but partial file transfer must stop for operator review.

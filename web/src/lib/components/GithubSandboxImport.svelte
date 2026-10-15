@@ -6,6 +6,8 @@
 	type Provider = { installationId: string; providerId: string; label: string; ready: boolean; reason?: string };
 	type Repository = { id: number; fullName: string; defaultBranch: string; private: boolean; accessStatus: "ready" | "insufficient_user_permission" };
 	type Connection = { status: "disconnected" | "connected" | "reconnect_required"; configured: boolean; installUrl?: string };
+	type IncusEnvironment = { installationId: string; connectionId: string; presetId: string; label: string; qualified: boolean };
+	type IncusRequest = { kind: "incus"; name: string; installationId: string; connectionId: string; presetId: string; repositoryId: number; baseRef: string };
 
 	let { projectId, providers = [], pendingPrivate = false, onimported }: {
 		projectId: string;
@@ -27,6 +29,27 @@
 	let importKey = $state<string | null>(null);
 	let importSubmitted = $state(false);
 	let loaded = $state(false);
+	let incusEnvironments = $state<IncusEnvironment[]>([]);
+	let incusNotice = $state("");
+	let incusRequest = $state<IncusRequest | null>(null);
+	let incusUnknown = $state(false);
+	let incusPartial = $state(false);
+	const environmentKey = (environment: IncusEnvironment) => `incus:${environment.installationId}:${environment.connectionId}:${environment.presetId}`;
+
+	$effect(() => {
+		if (pendingPrivate || connection?.status !== "connected") return;
+		const controller = new AbortController();
+		fetch("/api/infrastructure/incus/management", { signal: controller.signal }).then(async (result) => {
+			if (result.status === 403) return;
+			if (!result.ok) throw new Error("Could not load Incus environments");
+			const data = await result.json() as { environments?: IncusEnvironment[]; truncated?: boolean };
+			if (!controller.signal.aborted) {
+				incusEnvironments = (data.environments ?? []).filter((environment) => environment.qualified === true);
+				if (data.truncated) incusNotice = "More environments are available in Incus management.";
+			}
+		}).catch(() => { if (!controller.signal.aborted) incusNotice = "Incus environments could not be loaded. Check Incus management and reopen this form."; });
+		return () => controller.abort();
+	});
 
 	$effect(() => {
 		const controller = new AbortController();
@@ -51,13 +74,37 @@
 	$effect(() => { baseRef = selectedRepository?.defaultBranch ?? ""; });
 	let validBaseRef = $derived(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/.test(baseRef) && !baseRef.includes("..") && !baseRef.includes("//") && !baseRef.endsWith("/") && !baseRef.endsWith(".lock"));
 	let selectedProvider = $derived(providers.find((provider) => provider.installationId === providerId));
+	let selectedIncus = $derived(incusEnvironments.find((environment) => environmentKey(environment) === providerId));
 
 	async function importRepository() {
+		if (incusPartial) return;
 		if (!selectedRepository || selectedRepository.accessStatus !== "ready" || !validBaseRef || busy) return;
-		if (!pendingPrivate && !selectedProvider?.ready) return;
+		if (!pendingPrivate && !selectedProvider?.ready && !selectedIncus && !incusRequest) return;
 		busy = true;
 		error = "";
 		try {
+			if (!pendingPrivate && (selectedIncus || incusRequest)) {
+				if (!incusRequest && selectedIncus) incusRequest = {
+					kind: "incus", name: `Sandbox for ${selectedRepository.fullName}`,
+					installationId: selectedIncus.installationId, connectionId: selectedIncus.connectionId,
+					presetId: selectedIncus.presetId, repositoryId: selectedRepository.id, baseRef,
+				};
+				createKey ??= crypto.randomUUID();
+				createSubmitted = true;
+				const result = await fetch("/api/github/sandboxes", {
+					method: "POST", headers: { "content-type": "application/json", "Idempotency-Key": createKey },
+					body: JSON.stringify(incusRequest),
+				});
+				const created = await result.json();
+				if (created.code === "incus_import_partial") incusPartial = true;
+				if (!result.ok) throw new Error(created.error ?? "Could not import source into a new Incus workspace");
+				newProjectId = created.project.id as string;
+				if (created.import?.importState !== "ready") { incusUnknown = true; return; }
+				incusUnknown = false;
+				if (!await refreshProjects()) throw new Error("Could not load the private sandbox");
+				await goto(`/project/${newProjectId}`);
+				return;
+			}
 			let targetId = pendingPrivate ? projectId : newProjectId;
 			if (!targetId) {
 				createKey ??= crypto.randomUUID();
@@ -103,10 +150,15 @@
 			<div class="mt-3 grid gap-3 sm:grid-cols-2">
 					<div><label for="github-import-repository" class="block text-xs font-medium text-[var(--color-text-secondary)]">Repository</label><select id="github-import-repository" bind:value={repositoryId} disabled={busy || createSubmitted || importSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value={0}>Select a repository</option>{#each repositories as repository}<option value={repository.id}>{repository.fullName}{repository.accessStatus === "ready" ? "" : " · no write access"}</option>{/each}</select></div>
 					<div><label for="github-import-base" class="block text-xs font-medium text-[var(--color-text-secondary)]">Base branch</label><input id="github-import-base" type="text" bind:value={baseRef} disabled={busy || createSubmitted || importSubmitted || !!newProjectId || !selectedRepository} maxlength="200" placeholder="Select a repository first" aria-invalid={!!baseRef && !validBaseRef} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]" /></div>
-				{#if !pendingPrivate}<div><label for="github-import-provider" class="block text-xs font-medium text-[var(--color-text-secondary)]">Sandbox provider</label><select id="github-import-provider" bind:value={providerId} disabled={busy || createSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value="">Select a provider</option>{#each providers as provider}<option value={provider.installationId} disabled={!provider.ready}>{provider.label}</option>{/each}</select></div>{/if}
+				{#if !pendingPrivate}<div><label for="github-import-provider" class="block text-xs font-medium text-[var(--color-text-secondary)]">Sandbox provider</label><select id="github-import-provider" bind:value={providerId} disabled={busy || createSubmitted || !!newProjectId} class="mt-1 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-text-primary)]"><option value="">Select a provider</option>{#each providers as provider}<option value={provider.installationId} disabled={!provider.ready}>{provider.label}</option>{/each}{#each incusEnvironments as environment}<option value={environmentKey(environment)}>{environment.label}</option>{/each}</select></div>{/if}
 			</div>
 			{#if selectedRepository?.accessStatus === "insufficient_user_permission"}<p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="status">Your GitHub account needs write access to this repository.</p>{/if}
-				<button class="mt-3 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={busy || !validBaseRef || selectedRepository?.accessStatus !== "ready" || !pendingPrivate && !selectedProvider?.ready} onclick={importRepository}>{busy ? "Importing repository…" : pendingPrivate ? "Import into this sandbox" : "Create private sandbox & import"}</button>
+			{#if incusNotice}<p class="mt-2 text-sm text-[var(--color-text-secondary)]" role="status">{incusNotice}</p>{/if}
+			{#if selectedIncus || incusRequest}
+				<p class="mt-2 text-sm text-[var(--color-text-secondary)]">This import starts a new private Incus workspace. It copies a source snapshot, without full Git history, submodules, or Git LFS content. Limits: 64 KiB per file, 2,000 files, 32 MiB total, and 240 UTF-8 bytes per relative path.</p>
+				{#if incusUnknown || error && incusRequest}<p class="mt-2 text-sm text-amber-700 dark:text-amber-300" role="status">{#if incusPartial}The source transfer needs review. Inspect the workspace in Incus management and dispose of it if needed. This form will not repeat file writes.{:else}{incusUnknown ? "The operation outcome is unknown." : "The import did not finish."} Keep this form open. Inspect Incus management for a saved operation before retrying. Retry keeps the same request and key and resumes the saved source if an operation exists.{/if} <a class="underline" href="/extensions/incus-management">Inspect saved operation in Incus management</a></p>{/if}
+			{/if}
+				<button class="mt-3 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-500 disabled:opacity-50" disabled={busy || incusPartial || !validBaseRef || selectedRepository?.accessStatus !== "ready" || !pendingPrivate && !selectedProvider?.ready && !selectedIncus && !incusRequest} onclick={importRepository}>{busy ? "Importing repository…" : incusPartial ? "Source transfer needs review" : incusRequest ? "Retry saved import" : pendingPrivate ? "Import into this sandbox" : "Create private sandbox & import"}</button>
 			{:else}<p class="mt-3 text-sm text-[var(--color-text-secondary)]">No enabled repositories are available. Enable a repository or request organization approval on GitHub.</p>{/if}
 			{#if trustedGithubUrl(connection.installUrl)}<a class="mt-3 block text-sm text-[var(--color-accent)] underline" href={trustedGithubUrl(connection.installUrl) ?? undefined} target="_blank" rel="noopener noreferrer" referrerpolicy="no-referrer">Enable repositories on GitHub</a>{/if}
 		<a class="mt-3 block text-xs text-[var(--color-accent)] underline" href="/settings/github">Manage GitHub connection</a>
