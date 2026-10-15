@@ -1,0 +1,22 @@
+W4H-6 report 2 (green). Branch wp/w4h-6, head ca20a093c (code tree a3a644888 = 8a4cf8b04). Base 52d8ba079.
+
+Commits (archy identity on all; hook mapped suites per commit):
+  1b4954ce2 fix(factory): end a reference-code check command's whole process group on its budget            hook 1 (workspace.test.ts 15/0)
+  e090a379f fix(extension-runner): read worker channel FIFOs on the event loop, not the fs thread pool       hook 1 (channel-pool 1/0)
+  1be3d0ac5 test(extension-runner): channel-pool guests open their FIFOs as the shim does                    hook 1 (channel-pool 1/0)
+  0d71cf09f fix(extension-runner): wrap the FIFO reader without a cast; test a channel round trip in-process  hook 1 (channel-pool 2/0)
+  8a4cf8b04 test(factory): the supervisor attach test names the worker the supervisor names                  hook 1 (supervisor.podman 2/0, run under the heavy lock)
+  ca20a093c docs(factory): W4H-6 gates and todo                                                              hook 0
+Proof refs: proof/w4h-6-scratch-1, -2, -3 (scratch-3 tree a3a644888 = 8a4cf8b04 tree; the head container ran it).
+
+Per-file pairs, runner container (Ubuntu 24.04, podman 4.9.3, 4 CPUs, 16 GiB, Bun 1.4.2), hosted shard lists:
+  workspace.test.ts      alone base 12/1 (30000 ms timeout) -> head 15/0; shard 7 base 2217/4 -> head 2220/3 (workspace green;
+                         rest: applied-controls = W4H-3 image, biome-ignores-worktrees = no node in this container)
+                         red pin (new test) red at base on host, green at head on host and container.
+  e2e-server-pipeline    alone base 6/1 (x2, plus traced) -> head 7/0; shard 2 base 2299/1 -> head 2300/0.
+                         red pin tests/channel-pool.test.ts: base red by name on host and container; head green; child 20/20 both.
+  supervisor.podman      alone base 1/1 (Worker closed 73.8 s; traced) -> head 2/0; shard 0 base 2522/2 -> head 2524/0.
+                         red pin (start guard on the base test): "the fresh supervisor started a second worker instead of attaching".
+Quality at 8a4cf8b04: typecheck 0, lint 0, boundaries 0, gate-integrity (BASE_REF=integ/w00) 0, guard set 468/0 (36 files),
+new-file and patch coverage passed (3 files; every changed executable line).
+Gate file: tasks/factory/w4h-6-GATES.md (G1-G4 ticked).

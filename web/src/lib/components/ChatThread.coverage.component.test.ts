@@ -16,7 +16,7 @@
  * vitest + jsdom + @testing-library/svelte.
  */
 
-import { render } from "@testing-library/svelte";
+import { render, within } from "@testing-library/svelte";
 import { describe, test, expect, vi, beforeEach } from "vitest";
 import type { Message } from "$lib/api.js";
 import { __resetCapabilityCacheForTests } from "$lib/chat/attachment-client";
@@ -478,15 +478,34 @@ describe("ChatThread edit / edit-text / exclude / branch / memory", () => {
 	});
 
 	test("save then remove memory", async () => {
-		userFetchMock.mockResolvedValueOnce({
-			status: 201,
-			ok: true,
-			json: async () => ({ id: "mem-1" }),
+		// Key the 201 on the URL: mount-time fetches (e.g. the extension
+		// toolbar) would otherwise consume a `mockResolvedValueOnce`.
+		userFetchMock.mockImplementation(async (...args: unknown[]) =>
+			args[0] === "/api/memories"
+				? { status: 201, ok: true, json: async () => ({ id: "mem-1" }) }
+				: { ok: true, json: async () => ({}) },
+		);
+		const { api } = mount(linear());
+		await api.__test.handleSaveMemory(msg("u1"));
+		expect(api.__test.hasSavedMemory("u1")).toBe(true);
+		await api.__test.handleRemoveMemory(msg("u1"));
+		expect(userFetchMock).toHaveBeenCalledWith("/api/memories/mem-1", {
+			method: "DELETE",
+		});
+		expect(api.__test.hasSavedMemory("u1")).toBe(false);
+	});
+
+	test("a failed memory delete keeps the message marked as saved", async () => {
+		userFetchMock.mockImplementation(async (...args: unknown[]) => {
+			if (args[0] === "/api/memories")
+				return { status: 201, ok: true, json: async () => ({ id: "mem-2" }) };
+			if (args[0] === "/api/memories/mem-2") throw new Error("net");
+			return { ok: true, json: async () => ({}) };
 		});
 		const { api } = mount(linear());
 		await api.__test.handleSaveMemory(msg("u1"));
 		await api.__test.handleRemoveMemory(msg("u1"));
-		expect(userFetchMock).toHaveBeenCalled();
+		expect(api.__test.hasSavedMemory("u1")).toBe(true);
 	});
 
 	test("removeMemory no-ops when nothing saved (no DELETE issued)", async () => {
@@ -544,17 +563,41 @@ describe("ChatThread handleStop", () => {
 
 	test("stop tolerates active-run POST + refetch failure (still clears the run)", async () => {
 		const { api } = mount(linear());
+		const { store } = await import("$lib/stores.svelte.js");
+		// A stream entry keeps the run live; without one it is reconciled
+		// away before handleStop runs.
+		store.streamingMessages = { ...store.streamingMessages, "run-z": "" };
 		api.__test.setActiveRun("run-z");
 		expect(api.getThreadState().activeRunId).toBe("run-z");
+		userFetchMock.mockClear();
 		userFetchMock.mockRejectedValueOnce(new Error("net"));
 		fetchAllMessagesMock.mockRejectedValueOnce(new Error("net"));
 		// Both the cancel POST and the post-stop refetch throw; both
 		// catch blocks must swallow so the run is still cleared and the
 		// thread doesn't surface an error to the user.
 		await api.__test.handleStop();
+		expect(userFetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/active-run",
+			expect.objectContaining({ method: "POST" }),
+		);
+		expect(fetchAllMessagesMock).toHaveBeenCalled();
 		const st = api.getThreadState();
 		expect(st.activeRunId).toBeNull();
 		expect(st.isStreaming).toBe(false);
+	});
+
+	test("stop moves the active leaf when the refetched tree no longer has it", async () => {
+		const tree = linear(); // leaf a2
+		const { api } = mount(tree);
+		await vi.waitFor(() => expect(api.getThreadState().activeLeafId).toBe("a2"));
+		const { store } = await import("$lib/stores.svelte.js");
+		store.streamingMessages = { ...store.streamingMessages, "run-gone": "" };
+		api.__test.setActiveRun("run-gone");
+		// The server never persisted the cancelled reply: a2 is gone.
+		fetchAllMessagesMock.mockResolvedValueOnce(tree.slice(0, 3));
+		await api.__test.handleStop();
+		expect(fetchAllMessagesMock).toHaveBeenCalledTimes(1);
+		expect(api.getThreadState().activeLeafId).toBe("u2");
 	});
 });
 
@@ -842,22 +885,32 @@ describe("ChatThread sub-conversation + bulk + misc", () => {
 		expect(sendMessageMock).toHaveBeenCalled();
 	});
 
-	test("stuck-run banner + checking skeleton render under the right state", async () => {
+	test("stuck-run banner shows for a stale run and its Cancel stops the run", async () => {
+		const onopenobservability = vi.fn();
 		const tree = [msg("u1", { role: "user" })];
-		const { api, container } = mount(tree);
-		api.__test.setActiveRun("run-stuck");
+		const { api, findByRole, getByRole } = mount(tree, { onopenobservability });
 		const { store } = await import("$lib/stores.svelte.js");
+		// Seed the stream before the run id: a run with no stream entry is
+		// reconciled away as already finished.
 		store.streamingMessages = {
 			...store.streamingMessages,
 			"run-stuck": "x",
 		};
+		api.__test.setActiveRun("run-stuck");
 		api.__test.setStaleness(35_000, Date.now() - 35_000);
-		await vi.waitFor(() => {
-			// StuckRunBanner mounts (its testid-free; assert by text the
-			// component renders a Cancel affordance) OR the thread stays
-			// stable — either way no throw.
-			expect(container).toBeTruthy();
-		});
+		const banner = await findByRole("status");
+		expect(banner.textContent).toContain("Total elapsed");
+
+		getByRole("button", { name: "View details" }).click();
+		expect(onopenobservability).toHaveBeenCalledTimes(1);
+
+		userFetchMock.mockClear();
+		getByRole("button", { name: "Cancel" }).click();
+		await vi.waitFor(() => expect(api.getThreadState().activeRunId).toBeNull());
+		expect(userFetchMock).toHaveBeenCalledWith(
+			"/api/conversations/conv-1/active-run",
+			expect.objectContaining({ method: "POST" }),
+		);
 	});
 });
 
@@ -1032,5 +1085,271 @@ describe("ChatThread topic contexts (WS4)", () => {
 		expect(api.__test.getTopicsState().open).toBe(true);
 		api.__test.toggleTopics(false);
 		expect(api.__test.getTopicsState().open).toBe(false);
+	});
+});
+
+describe("ChatThread message-level recovery + bulk extension actions", () => {
+	const PROVIDER_DOWN = `Error: ${JSON.stringify({
+		type: "provider_unavailable",
+		failedProvider: "openai",
+		failedModel: "gpt-4o",
+		suggestion: { provider: "anthropic", model: "claude-x", tier: "t" },
+		message: "down",
+	})}`;
+
+	function sentWith(content: string) {
+		return (sendMessageMock.mock.calls as unknown as [string, Record<string, unknown>][])
+			.map(([, d]) => d)
+			.filter((d) => d.content === content);
+	}
+
+	test("the provider fallback button re-sends the prompt on the suggested model", async () => {
+		const tree = [
+			msg("u1", { role: "user", createdAt: "2026-01-01T00:00:01.000Z" }),
+			msg("a1", {
+				role: "assistant",
+				parentMessageId: "u1",
+				content: PROVIDER_DOWN,
+				createdAt: "2026-01-01T00:00:02.000Z",
+			}),
+		];
+		const { api, findByRole } = mount(tree);
+		(await findByRole("button", { name: "Try with anthropic (claude-x)?" })).click();
+
+		await vi.waitFor(() => expect(sentWith("c-u1")).toHaveLength(1));
+		expect(sentWith("c-u1")[0]).toMatchObject({ provider: "anthropic", model: "claude-x" });
+		expect(api.getThreadState().allMessages.some((m) => m.id === "a1")).toBe(false);
+	});
+
+	test("Retry on a failed reply re-sends the prompt before it", async () => {
+		const tree = [
+			msg("u1", { role: "user", createdAt: "2026-01-01T00:00:01.000Z" }),
+			msg("a1", {
+				role: "assistant",
+				parentMessageId: "u1",
+				content: "Error: boom",
+				createdAt: "2026-01-01T00:00:02.000Z",
+			}),
+		];
+		const { api, findAllByRole } = mount(tree);
+		// The error card and the hover toolbar both offer Retry; same handler.
+		const [retry] = await findAllByRole("button", { name: "Retry" });
+		// Picking a model also releases the harness's queued ?initial send,
+		// which moves the leaf; click in the same tick so Retry sees a1.
+		api.__test.handleModelChange("openai", "gpt-4o");
+		retry!.click();
+
+		await vi.waitFor(() => expect(sentWith("c-u1")).toHaveLength(1));
+		expect(api.getThreadState().allMessages.some((m) => m.id === "a1")).toBe(false);
+	});
+
+	test("a bulk extension action posts the selected messages in thread order", async () => {
+		const { extensionToolbarStore } = await import(
+			"$lib/stores/extension-toolbar.svelte.js"
+		);
+		extensionToolbarStore.reset();
+		userFetchMock.mockImplementation(async (...args: unknown[]) =>
+			String(args[0]).endsWith("/extension-toolbar")
+				? {
+						ok: true,
+						json: async () => ({
+							items: [
+								{
+									extName: "notes",
+									id: "save",
+									icon: "N",
+									tooltip: "Save to notes",
+									event: "notes:save",
+									appliesToSelection: "bulk",
+								},
+							],
+						}),
+					}
+				: { ok: true, json: async () => ({}) },
+		);
+		const { api, findByTestId } = mount(linear());
+		const sel = api as unknown as {
+			toggleSelectMode: () => void;
+			toggleSelectedMessage: (i: string) => void;
+		};
+		sel.toggleSelectMode();
+		// Selected out of order: the payload follows the thread, not the clicks.
+		sel.toggleSelectedMessage("u2");
+		sel.toggleSelectedMessage("u1");
+		(await findByTestId("ext-action-notes-save")).click();
+
+		await vi.waitFor(() =>
+			expect(userFetchMock).toHaveBeenCalledWith(
+				"/api/extensions/notes/events/save",
+				expect.objectContaining({ method: "POST" }),
+			),
+		);
+		const call = (userFetchMock.mock.calls as unknown as [string, { body: string }][]).find(
+			([u]) => u === "/api/extensions/notes/events/save",
+		)!;
+		expect(JSON.parse(call[1].body)).toEqual({
+			messageIds: ["u1", "u2"],
+			conversationId: "conv-1",
+			content: "c-u1\n\nc-u2",
+		});
+		extensionToolbarStore.reset();
+	});
+
+	test("a memories card shows once per run of replies that used the same memories", async () => {
+		const tabs = { id: "m1", content: "Prefers tabs", category: "preferences" };
+		const bun = { id: "m2", content: "Uses bun", category: "preferences" };
+		const withMemories = (second: (typeof tabs)[]) =>
+			linear().map((m) =>
+				m.id === "a1"
+					? { ...m, memoriesUsed: [tabs] }
+					: m.id === "a2"
+						? { ...m, memoriesUsed: second }
+						: m,
+			) as Message[];
+
+		const same = mount(withMemories([tabs]));
+		await vi.waitFor(() => expect(same.getAllByText("Prefers tabs")).toHaveLength(1));
+		same.unmount();
+
+		const changed = mount(withMemories([bun]));
+		await changed.findByText("Uses bun");
+		expect(changed.getAllByText("Prefers tabs")).toHaveLength(1);
+	});
+
+	test("Jump to bottom appears after scrolling up and re-pins the thread", async () => {
+		const { container, findByRole, queryByRole } = mount(linear());
+		const el = container.querySelector<HTMLElement>(
+			'[data-testid="chat-messages-container"]',
+		)!;
+		Object.defineProperty(el, "scrollHeight", { configurable: true, value: 1000 });
+		Object.defineProperty(el, "clientHeight", { configurable: true, value: 200 });
+		el.scrollTop = 100;
+		el.dispatchEvent(new Event("scroll"));
+
+		const jump = await findByRole("button", { name: "Jump to bottom" });
+		const scrollIntoView = vi.spyOn(Element.prototype, "scrollIntoView");
+		jump.click();
+
+		await vi.waitFor(() => expect(queryByRole("button", { name: "Jump to bottom" })).toBeNull());
+		expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth" });
+		scrollIntoView.mockRestore();
+	});
+});
+
+describe("ChatThread inline tool cards", () => {
+	const lookupTool = {
+		name: "lookup",
+		description: "Look a thing up",
+		inputSchema: { type: "object", properties: { q: { type: "string" } } },
+	};
+
+	async function failedCall(id: string, messageId?: string) {
+		const { inlineToolStore } = await import("$lib/inline-tool-store.svelte.js");
+		inlineToolStore.add({
+			id,
+			extensionName: "ext-a",
+			toolName: "lookup",
+			input: { q: "first" },
+			conversationId: "conv-1",
+			...(messageId ? { messageId } : {}),
+		});
+		inlineToolStore.updateFromEvent(id, "tool:error", { error: "boom", duration: 1 });
+		return inlineToolStore;
+	}
+
+	beforeEach(async () => {
+		const { inlineToolStore } = await import("$lib/inline-tool-store.svelte.js");
+		inlineToolStore.calls = [];
+		userFetchMock.mockImplementation(async (...args: unknown[]) =>
+			args[0] === "/api/extensions/ext-a/tools"
+				? { ok: true, json: async () => ({ tools: [lookupTool] }) }
+				: { ok: true, json: async () => ({}) },
+		);
+	});
+
+	test("Edit & Retry on a prompt's failed tool opens the prefilled form; Cancel closes it", async () => {
+		await failedCall("call-1", "u1");
+		const { findByRole, getByRole, queryByRole, getByDisplayValue } = mount(linear());
+
+		(await findByRole("button", { name: "Edit & Retry" })).click();
+
+		await findByRole("button", { name: "Add" });
+		expect(getByDisplayValue("first")).toBeTruthy();
+		getByRole("button", { name: "Cancel" }).click();
+		await vi.waitFor(() => expect(queryByRole("button", { name: "Add" })).toBeNull());
+
+		// Re-open and confirm: the edited call re-runs under the same prompt.
+		getByRole("button", { name: "Edit & Retry" }).click();
+		(await findByRole("button", { name: "Add" })).click();
+		await vi.waitFor(() => expect(queryByRole("button", { name: "Add" })).toBeNull());
+		const { inlineToolStore } = await import("$lib/inline-tool-store.svelte.js");
+		expect(inlineToolStore.calls.at(-1)).toMatchObject({ messageId: "u1", toolName: "lookup" });
+	});
+
+	test("Retry on a prompt's failed tool re-invokes it under the same prompt", async () => {
+		const store = await failedCall("call-4", "u1");
+		const { findByRole } = mount(linear());
+
+		(await findByRole("button", { name: "Retry" })).click();
+
+		await vi.waitFor(() => expect(store.calls).toHaveLength(2));
+		expect(store.calls[1]).toMatchObject({ messageId: "u1", input: { q: "first" } });
+	});
+
+	test("an unanchored failed tool can be retried, or edited and re-run", async () => {
+		const store = await failedCall("call-2");
+		const { findByRole, queryByRole, container } = mount(linear());
+		const card = await vi.waitFor(() => {
+			const c = container.querySelector("#tool-call-call-2");
+			expect(c).toBeTruthy();
+			return c as HTMLElement;
+		});
+
+		(card.querySelector("button") as HTMLButtonElement).click(); // Retry
+		await vi.waitFor(() => expect(store.calls).toHaveLength(2));
+		expect(store.calls[1]).toMatchObject({ toolName: "lookup", input: { q: "first" } });
+
+		(await findByRole("button", { name: "Edit & Retry" })).click();
+		const add = await findByRole("button", { name: "Add" });
+		// The retried call's running card has its own Cancel; use the form's.
+		within(add.closest("form")!).getByRole("button", { name: "Cancel" }).click();
+		await vi.waitFor(() => expect(queryByRole("button", { name: "Add" })).toBeNull());
+
+		(await findByRole("button", { name: "Edit & Retry" })).click();
+		(await findByRole("button", { name: "Add" })).click();
+		await vi.waitFor(() => expect(queryByRole("button", { name: "Add" })).toBeNull());
+		await vi.waitFor(() =>
+			expect(userFetchMock).toHaveBeenCalledWith(
+				"/api/tool-invoke",
+				expect.objectContaining({ method: "POST" }),
+			),
+		);
+		expect(store.calls).toHaveLength(3);
+	});
+
+	test.each([
+		["under a prompt", { messageId: "u1" }],
+		["unanchored", {}],
+	])("Cancel on a running tool %s marks it cancelled", async (_label, anchor) => {
+		const { inlineToolStore } = await import("$lib/inline-tool-store.svelte.js");
+		inlineToolStore.add({
+			id: "call-3",
+			extensionName: "ext-a",
+			toolName: "lookup",
+			input: {},
+			conversationId: "conv-1",
+			...anchor,
+		});
+		inlineToolStore.updateFromEvent("call-3", "tool:start", { timestamp: Date.now() });
+		const { findByRole } = mount(linear());
+
+		(await findByRole("button", { name: "Cancel" })).click();
+
+		await vi.waitFor(() =>
+			expect(inlineToolStore.calls[0]).toMatchObject({
+				status: "error",
+				error: "Cancelled by user",
+			}),
+		);
 	});
 });

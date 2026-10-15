@@ -24,7 +24,7 @@
 // must be able to reverse the action.
 
 import { test, expect, describe, beforeAll, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import {
   setupTestDb,
   closeTestDb,
@@ -62,7 +62,7 @@ mock.module("$server/extensions/security", () => require("../extensions/security
 mock.module("../../web/src/routes/api/extensions/[id]/$types", () => ({}));
 mock.module("../../web/src/routes/api/extensions/[id]/activate/$types", () => ({}));
 mock.module("$server/db/queries/audit-log", () => require("../db/queries/audit-log"));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 mock.module("../../web/src/lib/server/security/api-keys", () => ({ requireScope: () => null }));
 
 // ── Handler + collaborators (AFTER mocks) ────────────────────────

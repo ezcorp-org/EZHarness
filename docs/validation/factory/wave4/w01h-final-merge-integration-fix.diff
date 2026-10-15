@@ -1,0 +1,22 @@
+diff --git a/tasks/factory/w01h-GATES.md b/tasks/factory/w01h-GATES.md
+index ec167bc8c..e2bec40f9 100644
+--- a/tasks/factory/w01h-GATES.md
++++ b/tasks/factory/w01h-GATES.md
+@@ -33,6 +33,17 @@ Evidence: `/tmp/factory-platform-evidence/w01h/`.
+ | `942a03dac` | the orchestrator's gateway bounds stay above the private service's slow-stop bound (orchestrator); EZ_SKIP_HOOK_TESTS=1 by the lead's ruling, its 4 listed suites run outside the hook |
+ | `702bad45d` | defect 5: a stopped approval settles in place; a denied approval ends its run (kernel) |
+ 
++## Files owned by other packages (validator-2 finding L1, added at the integ/w00 merge)
++
++W01h changed these files outside its own runner and outcome code. Each row names the ruling that put the change in scope.
++
++| File | Commit | Change | Ruling |
++| --- | --- | --- | --- |
++| `packages/@ezcorp/factory-sdk/src/kernel.ts` | `702bad45d` | `physicalNode` treats an approval like an acceptance, so every stop settles it in place | defect 5, ruled into W01h: a stopped approval settles in place, so a denied approval ends its run |
++| `src/factory/installation-startup.ts` | `4cd3f76b4` | the attempt dispatcher gets the journal and the host report | the W01h assignment (defect runner-outcome-unknown-stuck-run): a lost answer ends `failed` by name, and the dispatcher keeps the cause |
++| `packages/@ezcorp/factory-orchestrator/src/contracts.ts`, `process.ts`, `workflow.ts` | `942a03dac` | the gateway and queue client bound is 50 s; audit and read start-to-close go from 30 s to 90 s | the lead's transport-caller sweep: the orchestrator's bounds stay above the private service's 40 s slow stop (table above) |
++| `packages/@ezcorp/extension-runner/src/podman.ts` | `34fee7df5` | a closed worker's removal waits for the container to exit and records its own exit code | the W01h assignment (diagnostics) and option 2 of the 2026-09-25 contract ruling: a dead guest's account carries its exit code (G12) |
++
+ ## The defect
+ 
+ integrator-2's W19a merge batch (control-no-pin pass, host load 45 to 60): node `prepare` settled

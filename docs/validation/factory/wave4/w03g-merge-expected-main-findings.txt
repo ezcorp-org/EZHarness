@@ -1,0 +1,8 @@
+scripts/check-coverage.ts
+scripts/check-new-file-coverage.ts
+scripts/check-patch-coverage.ts
+scripts/coverage-attestations.json
+scripts/factory-orchestrator-v8-to-lcov.mjs
+scripts/merge-browser-route-coverage.sh
+scripts/merge-lcov.ts
+scripts/node-v8-to-lcov.mjs

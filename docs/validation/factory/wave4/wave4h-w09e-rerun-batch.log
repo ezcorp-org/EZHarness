@@ -1,0 +1,8 @@
+=== heavy 2026-10-03T16:44:54Z
+HEAD 1992630f37832aaea2e7dae0b60552224247903a MERGE_HEAD  index-tree 2f1582ce0ab88cf1b3a32914ab363ed904eb54ee
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+port 4173 listeners before: 0
+resource-gate 2026-10-03T16:44:54Z w09e-e2e-console disk=148G memAvailable=15GiB swapFreeKiB=3082508/17173956
+--- START w09e-e2e-console 2026-10-03T16:44:54Z
+--- END   w09e-e2e-console 2026-10-03T16:45:43Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-10-03T16:45:43Z

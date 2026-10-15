@@ -1,0 +1,92 @@
+W4H-10 verdict (main sync, W-SYNC-2), validator-5 (lock-veto lane validator-2), 2026-10-05T07:25Z
+
+VERDICT: ACCEPT wp/w4h-10-sync at e6a3a70f2, with ONE gate open for integration: new-file and patch coverage against the new
+origin/main beaff68c8 need the full-pool LCOV (section 6). Every other check passes.
+Commits (first parent): 7247f7e9a = M, the merge (parents 1ef82e971 = the wave head, beaff68c8 = origin/main); 62cf3c661 = P, Pi 0.87.1
+and C10 OAuth-only; e6a3a70f2, the gate file. Identity: 3 of 3 archy <281643943+EZArchy@users.noreply.github.com> as author and
+committer. main's own commits, reached through the second parent, keep their upstream authors (the W-SYNC ruling).
+
+1. (a) Merge structure (validator-5/check-merge.py, generalised from validator-6's W-SYNC checker, self-tested both ways on 787f8676c;
+   log sha256 b2015b20a7599f5bb7cfeb1ffd27ac94de4b974d75064f1770554ca1be978525)
+   - Parents: exactly 1ef82e971, beaff68c8: PASS.
+   - Against the mechanical merge (git merge-tree --write-tree = 2b834b062) the merge differs in 12 paths: the 9 conflict files and 3
+     more, each read:
+       src/__tests__/browser-coverage-to-lcov.test.ts: 65 -> 66 routes (64 at 31052930d plus one from each side), test only;
+       web/src/__tests__/dependency-security.test.ts: main's exact pins raised to the merged devalue 5.9.4 and undici 8.11.2 (up, not down);
+       src/__tests__/helpers/git-fixture-env.ts: main's GIT_* loop replaced by the wave's shared withoutGitContext
+         (packages/@ezcorp/sdk/src/git/index.ts:64-72), which strips the same set (every GIT_* name, undefined values); one definition, DRY.
+   - Both sides kept: src/api-registry.ts (wave 63 added lines, main 15: 0 missing), src/db/schema.ts (578 and 124: 0 missing),
+     web/src/app.d.ts (2 and 2: 0), web/src/__tests__/route-contract.test.ts (25 and 15: 0). src/__tests__/gate-scripts.test.ts: the
+     wave's 800 lines all present; 5 of main's 35 are absent, all the `env: fixtureGitEnv()` spawn options, which the merge replaces
+     with the wave's scratchRepository env (an isolated git env, the same intent); main's standalone fixtureGitEnv tests stay (:150-171).
+   - tasks/todo.md: a true union (0 lines lost, 0 markers, 0 lines in neither side). No conflict marker in any of the 9 files.
+2. (b) Lockfiles and pins
+   - Frozen installs with Bun 1.4.2: root, web, .github/gate-integrity-deps: 0. manifest.lock.json `--check`: 0.
+   - validator-5/check-pins.py at M and at e6a3a70f2: no package version lower than main's or the wave's (bun.lock and web/bun.lock;
+     result sha256 3bfc8b177ccb27009737e9bec527f9b08e60da995f8eac7f6a23c190a7ff5e63). The wave's hono 4.13.12, ms 3.0.0-canary.1,
+     protobufjs 8.8.0, source-map 0.7.6 are kept. 10 wave-only transitive packages are gone (8 root: @aws-crypto/{sha256-browser,
+     sha256-js,supports-web-crypto,util}, @aws-sdk/util-locate-window, @smithy/{is-array-buffer,util-buffer-from,util-utf8}; 2 web:
+     siginfo, stackback): none is a direct dependency and no entry of the merged lockfiles depends on them.
+3. (c) Pi 0.87.1 and C10 (the lead's rulings)
+   - pi-ai 0.87.1 installed. Catalog (read through @earendil-works/pi-ai/compat; sha256 65ed31074ae3a4299e11aaf02f730f9f11a1793a7ddd2c20ad023254d4825fe2):
+     openai-codex gpt-6-luna = openai-codex-responses, https://chatgpt.com/backend-api, text+image, 272000, 128000, reasoning,
+     cost 0.1/0.5/0.01/0.125. The api-key catalog `openai` ALSO has gpt-6-luna (openai-responses, https://api.openai.com/v1).
+   - The LOCAL_OAUTH_OVERRIDES entry is removed; the only registry.ts change is that removal plus two comment lines; the gpt-5.5
+     override is untouched (out of scope). The registry test asserts the catalog shape and resolveOAuthModel = the catalog entry.
+   - Tier: before (M, cost 0) tier balanced, costTier medium (name hints); after (catalog, blended 0.6) tier fast, costTier low
+     (computed with tierForModel and costTierForBlendedRate). No factory code selects by tier (0 hits of getModelsForTier,
+     findModelForProviderInTier, tierForModel in src/factory, packages/@ezcorp/factory-*, the broker, the reference scripts).
+   - C10 OAuth-only: referenceModelPin (references.ts) names credentialKind "oauth"; resolveCredentialForPin is the one credential read
+     for readiness and for stream(), which sends only what it returned; the refusal is credential_kind_required. The tests assert the
+     catalog fact (getModel("openai","gpt-6-luna") defined), the refusal by name with nothing sent, and the oauth-then-apikey race.
+     Red first: the owner's c10-red.log, 20 pass / 3 fail by name (sha256 31ab44c4d18c3f32...). My mutants, each red by name (95 tests):
+       readiness kind check removed; call-time kind check removed; failure renamed model_not_available; credentialKind dropped from
+       references.ts (factory-sdk rebuilt).
+     C10 suites 95/0 (factory-broker, verify-factory-reference-code-provider, registry-oauth-model-resolution, startup-config).
+   - No other api-key path: in factory code only src/providers/factory-broker.ts calls authCallOptions or resolveModelForCredential.
+     The pin reaches production from the installation's modelProvider config; the reference scripts and the graph-proof hold
+     (hold.ts:47) carry credentialKind "oauth"; proof.ts pins only ollama or mock.
+   - Readiness probe, offline (in-memory store): ready false, requiredCredentialKind "oauth", failures ["provider_not_configured"],
+     no model_not_available (sha256 b2b03b9966de19ae171e9a5ff90861060bbfff1d94a0b4a23e6fa03a7b387bbe).
+   - Definition digests unchanged (the definitions name only the model id).
+4. (d) Tests by name (heavy, gated-flock, lock_veto validator-2 first, load < 10, 07:02Z-07:07Z; heavy/hold.log sha256
+   e2e0bb50b196c029ea59b7167402386cc07dcfb4b72b818330f46ed48c88865d)
+   - The merge commit's 57 hook-mapped suites (hook-list-merge.txt sha256 45ba088481f9e09f, = the list printed at commit; the lead's
+     list-bound ruling w00/ruling-hook-skip-w4h-10-merge.txt), one process each at e6a3a70f2: 57 pass, 0 fail, every one with a
+     nonzero count (40 bun, 2 bun in web, 15 Vitest; s57.txt sha256 fc18fb685f913c87b7f68b58a88058702da3ddc81ce1cfa3c02d6c095a1bcec4).
+     They include all 54 test files main changed or added (private GitHub: github-user, github-personal-prs, github-app-directory,
+     personal-github-journey, github-personal-migrations, the web github routes and components; the installer: installer-core;
+     dependency security, root and web). The owner's own run of the 57 at the merge: 55 green, 2 red (the two semantic conflicts),
+     then fixed (hook57-run.log sha256 b69587d930d71e10...).
+   - Migrations on a dedicated database (created, then dropped): db-migration-postgres 24/0; factory-schema + migrate-lock 3/0.
+   - Hook-mapped suites of P with lcov: verify-factory-reference-code-provider 10, startup-config 51, factory-broker 23,
+     factory-execution.integration 6, registry-oauth-model-resolution 11: all 0 fail.
+   - main's Playwright specs (personal-github-*) run in the integrator's wave4i-2 browser part (the lead's ruling).
+5. (e) Static and gates at e6a3a70f2 (hold-e6a3a70f2/hold.log, sha256 4329bffe43275606f16329bbbd9c44b1fcc7fe4ddcafcfb1023e836050e032aa)
+   - typecheck, lint, both boundary checks: 0. `bun run typecheck` (all programs): 0. Web build: 0. gitleaks: 0.
+   - Gate-integrity vs origin/main: findings set equal to the standing 8 (no new line). Vs the wave head 1ef82e971: PASSED.
+   - Guard set 39 files, 500 pass, 2 skip, 0 fail (the owner's 760 = this set plus the two changed test files).
+   - New-file, patch and CRAP for this package's own lines (vs M): PASSED.
+   - Prune scan: "prune scan: clean (6 hit(s))", w00/prune-scan.sh sha256 a4a59601cec26963ba26d47a62b833c27f8bc5d30fa542a71006b33d30029a02;
+     the 6 are candidate-only: main's in-memory prune() in src/runtime/sandbox/local-podman/exports.ts (3) and the same 3 lines echoed
+     from the owner's prune log.
+   - Config check: exit 0 at every start and end (888c78b9e94ea660 = accepted baseline).
+6. OPEN, for integration: new-file and patch coverage vs beaff68c8. With this package's LCOVs both fail on 490 files, all the wave's
+   own (for example web/src/routes/api/installation/*); none of this package's 24 files is among them. Judging 100 percent of the
+   wave's lines against the new main needs the full-pool LCOV of the integrator's combined run; I could not measure it here.
+7. Findings and observations
+   - LEFTOVER (the lead's ruling 2): OAuth-plan calls are now priced at the catalog's API rates. Prices follow the model, not the
+     credential: modelPrices (src/providers/registry.ts, resolveModelObject(...).cost), analytics priceSegment (src/db/queries/
+     analytics.ts) and stepCostUsd (src/runtime/workflow-step-cost.ts); the owner adds factoryMeasuredUsageOf
+     (src/factory/runner/provider-one-hop.ts:84-93). pi-ai 0.87.1 also prices other openai-codex models (gpt-5.3-codex-spark 1.75/14),
+     so analytics' "OAuth models arrive at zero" assumption no longer holds on main either.
+   - Observation (low): a hand-written installation config that pins openai/gpt-6-luna without modelProvider.credentialKind runs on
+     any credential kind, by design ("absent means any configured kind"). scripts/factory-graph-proof/stack.ts:54 and
+     stack-documents.ts:38 type modelProvider as { provider, model }; credentialKind passes through only at runtime (spread), so a
+     refactor could drop it without a type error.
+8. Disclosures (mine): my first pin check read the main repository's HEAD instead of the merge for the head leg, and counted dropped
+   transitive packages as lowered; both fixed in the tool (results above from the fixed tool). My first catalog read used the package
+   root, which does not export getModels at 0.87.1; reread through /compat. A tier listing through getModelsForTier omitted the
+   unconfigured openai-codex provider; computed directly instead. All snapshots outside the evidence tree; removed after use.
+
+Evidence dir: /tmp/factory-platform-evidence/w4g-validation/v5-w4h10/

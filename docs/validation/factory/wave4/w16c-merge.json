@@ -1,0 +1,183 @@
+{
+ "package": "w16c",
+ "branch": "wp/w16c-boot-bounds",
+ "head": "0dbf591deb121b8efefbbbbcdf2019b9163f322d",
+ "acceptedCodeHead": "61a0b88ffb8f9412a4e8b35c0787fb7badaeaf0c",
+ "branchBase": "f7c1290a6",
+ "validatorVerdict": "final ACCEPT by validator-4 at 61a0b88ff, restated at 0dbf591de (docs-only: tasks/factory/w16c-GATES.md); copied as w16c-validation.txt",
+ "workerReport": "no separate report file; the worker's gates file tasks/factory/w16c-GATES.md is in the merged tree",
+ "mergeSha": "6c1e94f679eac4cebf1804f1f27d1c407cff2f84",
+ "tree": "52d5f9f2aab5ac7fb46599e6d1da14d5b71987e7",
+ "parents": [
+  "146a948294cffb85e2a4d13c50c6798d89044a03",
+  "0dbf591deb121b8efefbbbbcdf2019b9163f322d"
+ ],
+ "conflicts": {},
+ "integrationFix": [],
+ "order": "lead ruling 2026-09-27 11:05Z: W16c merged before W01h, which is held until W14b fixes the graph guest build regression",
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-27T11:06:25Z",
+   "end": "2026-09-27T11:06:26Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "adb80ed62554fef86bb919ce24b2d05bf3265075b18791e36675a814e102e534"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-27T11:06:26Z",
+   "end": "2026-09-27T11:07:07Z",
+   "command": "bun run typecheck",
+   "logSha256": "1ceb5456fe49511c8d341345e6e1d1203cb9618dd1470b97bcb88932c233249b"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:07Z",
+   "end": "2026-09-27T11:07:09Z",
+   "command": "bun run lint",
+   "logSha256": "d21573200afa7e715718c3b186af136a5713523f096d0a92c0e973a4d9959f7b"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:09Z",
+   "end": "2026-09-27T11:07:11Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:11Z",
+   "end": "2026-09-27T11:07:12Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:12Z",
+   "end": "2026-09-27T11:07:17Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-service-probes-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:17Z",
+   "end": "2026-09-27T11:07:18Z",
+   "command": "bun test --timeout 60000 ./src/factory/service-probes.test.ts",
+   "logSha256": "e28bed14780cfcaa27c59fa0ca0f179fdffdc3001f683b67e693b3ec934b68f3"
+  },
+  {
+   "name": "focused-src-factory-installation-startup-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:18Z",
+   "end": "2026-09-27T11:07:24Z",
+   "command": "bun test --timeout 60000 ./src/factory/installation-startup.test.ts",
+   "logSha256": "ad142d923ad04ebe765e66d1431785ac9117b05f69d70eaccc1bc0efb72d5622"
+  },
+  {
+   "name": "focused-src-factory-runtime-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:24Z",
+   "end": "2026-09-27T11:07:25Z",
+   "command": "bun test --timeout 60000 ./src/factory/runtime-composition.test.ts",
+   "logSha256": "96d34e030aeed643eb3db308e522b7bcf66b85147f0bce36ba8878f287158f4d"
+  },
+  {
+   "name": "focused-src-extensions-v4-blobs-s3-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:25Z",
+   "end": "2026-09-27T11:07:26Z",
+   "command": "bun test --timeout 60000 ./src/extensions/v4/blobs-s3.test.ts",
+   "logSha256": "fc434463f269abdc1a895dd438164e1cb02086eb9c3b006aff76963f5d571cfc"
+  },
+  {
+   "name": "focused-src-__tests__-db-connection-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:26Z",
+   "end": "2026-09-27T11:07:28Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/db-connection.test.ts",
+   "logSha256": "7705836f4f3f5897957fb5b1ca65ca1e5678c3fc9437d18a923efe96af384254"
+  },
+  {
+   "name": "focused-src-__tests__-cov-fix-connection-postgres-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:28Z",
+   "end": "2026-09-27T11:07:28Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/cov-fix-connection-postgres.test.ts",
+   "logSha256": "68fa6064bc9fa5a31e5da0f211453d6f8dd48da181a81b1ebb250f6c84839ea0"
+  },
+  {
+   "name": "focused-scripts-factory-postgres-suite-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:28Z",
+   "end": "2026-09-27T11:07:29Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-postgres-suite-registration.test.ts",
+   "logSha256": "7baf90d27df1c50179ac445a5d73d66ca7048885788f685d85256aeb2a755e15"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-27T11:07:29Z",
+   "end": "2026-09-27T11:07:38Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "ba49ecce8a82bfaad9dfb5dcb16d608717cfdd4a2b28333c33f44299d1b1cf87"
+  }
+ ],
+ "heavy": {
+  "batch": [
+   "=== w16c heavy 2026-09-27T11:19:42Z",
+   "HEAD 146a948294cffb85e2a4d13c50c6798d89044a03 MERGE_HEAD 0dbf591deb121b8efefbbbbcdf2019b9163f322d index-tree 52d5f9f2aab5ac7fb46599e6d1da14d5b71987e7",
+   "resource-gate 2026-09-27T11:19:43Z pg-lcov disk=125G memAvailable=17GiB swapFreeKiB=6175040/17173956",
+   "--- START pg-lcov 2026-09-27T11:19:43Z",
+   "--- END   pg-lcov 2026-09-27T11:20:31Z exit=0  20 pass 0 fail ",
+   "resource-gate 2026-09-27T11:20:31Z focused-lcov disk=125G memAvailable=16GiB swapFreeKiB=6211172/17173956",
+   "--- START focused-lcov 2026-09-27T11:20:31Z",
+   "--- END   focused-lcov 2026-09-27T11:20:39Z exit=0  144 pass 0 fail ",
+   "resource-gate 2026-09-27T11:20:39Z web-factory-boot-lcov disk=125G memAvailable=17GiB swapFreeKiB=6211480/17173956",
+   "--- START web-factory-boot-lcov 2026-09-27T11:20:39Z",
+   "--- END   web-factory-boot-lcov 2026-09-27T11:20:46Z exit=0  Tests 13 passed (13) ",
+   "resource-gate 2026-09-27T11:20:46Z coverage-merge disk=125G memAvailable=17GiB swapFreeKiB=6210996/17173956",
+   "--- START coverage-merge 2026-09-27T11:20:46Z",
+   "--- END   coverage-merge 2026-09-27T11:20:47Z exit=0 ",
+   "resource-gate 2026-09-27T11:20:47Z web-build disk=125G memAvailable=17GiB swapFreeKiB=6211108/17173956",
+   "--- START web-build 2026-09-27T11:20:47Z",
+   "--- END   web-build 2026-09-27T11:21:29Z exit=0 ",
+   "resource-gate 2026-09-27T11:21:29Z graph-mock-pass disk=125G memAvailable=16GiB swapFreeKiB=6213096/17173956",
+   "--- START graph-mock-pass 2026-09-27T11:21:29Z",
+   "--- END   graph-mock-pass 2026-09-27T11:21:32Z exit=1 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/w16c-merge/graph/w16c-merge-mock.json; nothing to dump",
+   "W16C HEAVY DONE status=1 dirty=0 2026-09-27T11:21:32Z"
+  ],
+  "legs": {
+   "postgresLcov": "migrate-lock, factory-schema, factory-restore 20/0",
+   "focusedLcov": "7 files 144/0 (incl. scripts/factory-postgres-suite-registration.test.ts)",
+   "webFactoryBoot": "13/13 with V8 lcov",
+   "webBuild": "exit 0"
+  }
+ },
+ "graphMockPass": {
+  "standingRule": "lead 2026-09-27: every merge's heavy batch runs scripts/factory-graph-proof/run.sh pass mock none at the merged head",
+  "ranAt": "staged merge, index tree 52d5f9f2a",
+  "outcome": "failed",
+  "failure": "harness error: Error: the graph guest did not build: command_failed: types.ts(6,8): error TS2307: Cannot find module './console-types.ts' or its corresponding type declarations.",
+  "disposition": "KNOWN REGRESSION on integ/w00 from the W14 merge (guest-package.ts copies a fixed SDK module list without console-types.ts); not W16c's; fixed by W14b (pending). W16c committed on the lead's order to merge it now. No database kept."
+ },
+ "coverage": {
+  "where": "staging at the merge commit, lcov merged from the PostgreSQL, focused and web legs",
+  "baseRef": "146a94829",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (7 files)"
+ },
+ "commitHook": {
+  "filesRun": 9,
+  "result": "hook ran its 9 mapped suites itself (8 bun, 1 vitest), all 0 fail; under the cap, no skip"
+ },
+ "slipRecorded": "W01h merge heavy legs (earlier this day): list paths without ./ ran nothing; merge-heavy-batch.sh now prefixes ./ ; W16c lists use ./ paths and every leg shows its counts",
+ "standingSteps": "resource gate before every leg (disk 127G, MemAvailable 16 GiB); config hash 44962525f1ca1a8b; packages cleaned and rebuilt after the W01h abort"
+}

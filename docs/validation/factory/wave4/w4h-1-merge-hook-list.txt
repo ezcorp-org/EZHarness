@@ -1,0 +1,3 @@
+packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts
+packages/@ezcorp/ai-kit/test/unit/client.test.ts
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts

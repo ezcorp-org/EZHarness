@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# integrator-5: the CI "Gate-integrity meta-check" step locally in F at the pushed head (read only), timed.
+set -u; F=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform; unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GATE_CHANGE_APPROVED
+. /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$F" || exit 95; cd "$F"
+echo "head $(git rev-parse --short=9 HEAD) start $(date -u +%T)"; s=$(date +%s)
+BASE_REF=origin/main NODE_PATH="$F/.github/gate-integrity-deps/node_modules" timeout 900 bun scripts/gate-integrity.ts; rc=$?
+echo "exit $rc after $(( $(date +%s) - s )) s"

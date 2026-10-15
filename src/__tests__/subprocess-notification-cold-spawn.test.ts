@@ -1,12 +1,12 @@
 /**
- * `ExtensionProcess.sendNotification` — the cold-spawn contract.
+ * `HostExtensionProcess.sendNotification` — the cold-spawn contract.
  *
  * ## The defect this pins
  *
  * `sendNotification` used to open with `if (!this.proc || this.killed)
  * return;` and document itself as "will NOT start it". Nothing on the
  * inbound path spawns before it: `ExtensionRegistry.getProcess()` only
- * CONSTRUCTS an `ExtensionProcess`, and
+ * CONSTRUCTS an `HostExtensionProcess`, and
  * `ToolExecutor.ensureSubprocessRpcWired()` only installs handlers on
  * that object. So the FIRST Hub page action after a server restart hit
  * that early return, the events route still answered `{ok:true}` with a
@@ -24,7 +24,7 @@
  */
 import { describe, expect, test } from "bun:test";
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 
 const echoPath = `${import.meta.dir}/helpers/echo-extension.ts`;
 const baseEnv: Record<string, string> = {
@@ -54,8 +54,8 @@ test("subprocess call settlement waits for the real child response and releases 
 
 /** A process that has been constructed and NEVER called — exactly the
  *  state the events route hands to `sendNotification` on a cold server. */
-function coldProcess(id: string, opts?: Record<string, unknown>): ExtensionProcess {
-  return new ExtensionProcess(id, echoPath, baseEnv, opts as never);
+function coldProcess(id: string, opts?: Record<string, unknown>): HostExtensionProcess {
+  return new HostExtensionProcess(id, echoPath, baseEnv, opts as never);
 }
 
 describe("a notification to a COLD subprocess", () => {

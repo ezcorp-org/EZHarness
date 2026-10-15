@@ -1,0 +1,1 @@
+prune scan: clean (0 hit(s))

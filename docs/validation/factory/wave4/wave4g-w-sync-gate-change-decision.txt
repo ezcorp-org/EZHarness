@@ -1,0 +1,9 @@
+GATE-CHANGE DECISION (coordinator, 2026-10-01T17:58Z) — W-SYNC, base leg (vs 6fe920150) of any merge gate run at 787f8676c or its docs child
+
+Path approved: exactly scripts/check-web-vitest-coverage.ts, as changed by origin/main's #319 (4 insertions, 3 deletions vs 6fe920150).
+Grounds: the merge 787f8676c carries the file byte-identical to origin/main 31052930d (`git diff --quiet origin/main 787f8676c -- scripts/check-web-vitest-coverage.ts`
+exits 0). The merge made no change of its own to the file; the finding on a base leg against 6fe920150 is main's change arriving through the
+second parent, which is the purpose of the sync. validator-6's verdict (w-sync-validation/verdict-validator-6-wsync.txt) records the same.
+Conditions: (1) a base leg against 6fe920150 shows exactly this one path, no other; (2) the main leg (origin/main) shows exactly the 8-line
+expected set w00/expected-integ-findings-vs-main.txt; (3) GATE_CHANGE_APPROVED is set only in merge-commit-gates' approved base run, never
+in a commit, hook, test, hold or wave-run environment; (4) if the wave4g chain has no base leg against 6fe920150, this decision is unused.

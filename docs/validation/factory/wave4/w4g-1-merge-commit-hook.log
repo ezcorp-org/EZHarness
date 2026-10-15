@@ -1,0 +1,24 @@
+Checked 6 files in 6ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: scripts/build-workspace-packages.test.ts
+bun test v1.4.2 (744846f84)
+$ echo built-a > out.txt
+$ exit 3
+error: script "build" exited with code 3
+
+ 6 pass
+ 0 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [719.00ms]
+  bun: scripts/container-workspace-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 29 pass
+ 0 fail
+ 39 expect() calls
+Ran 29 tests across 1 file. [464.00ms]
+[detached HEAD 4ae2f1658] merge: wp/w4g-1 a6de7a0cf into integ/w00 (W4G-1 every frozen-install input on disk in the container files; one derived package build)

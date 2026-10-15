@@ -1,0 +1,411 @@
+  bun: src/__tests__/extension-event-end-to-end.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 42 expect() calls
+Ran 12 tests across 1 file. [616.00ms]
+  bun: src/__tests__/extensions-delete-route-policy.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 27 expect() calls
+Ran 9 tests across 1 file. [577.00ms]
+  bun: src/__tests__/extensions-patch-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 11 pass
+ 0 fail
+ 51 expect() calls
+Ran 11 tests across 1 file. [585.00ms]
+  bun: src/__tests__/local-model-test-endpoint.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 23 expect() calls
+Ran 9 tests across 1 file. [608.00ms]
+  bun: src/__tests__/memory-list-derived-owner.integration.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 45 expect() calls
+Ran 8 tests across 1 file. [3.12s]
+  bun: src/__tests__/messages-multipart-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 10 pass
+ 0 fail
+ 51 expect() calls
+Ran 10 tests across 1 file. [1337.00ms]
+  bun: src/__tests__/messages-permission-mode-ceiling-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 17 pass
+ 0 fail
+ 48 expect() calls
+Ran 17 tests across 1 file. [1219.00ms]
+  bun: src/__tests__/mock-cleanup-coverage.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 33 pass
+ 0 fail
+ 74 expect() calls
+Ran 33 tests across 1 file. [813.00ms]
+  bun: src/__tests__/security/c2-session-revocation.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 25 expect() calls
+Ran 4 tests across 1 file. [619.00ms]
+  bun: src/__tests__/security/h1-local-provider-ssrf.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 148 pass
+ 0 fail
+ 331 expect() calls
+Ran 148 tests across 1 file. [601.00ms]
+  bun: src/__tests__/security/kb-ownerless-rows-are-shared.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 72 expect() calls
+Ran 21 tests across 1 file. [590.00ms]
+  bun: src/__tests__/security/project-permission-mode-authz.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 30 pass
+ 0 fail
+ 80 expect() calls
+Ran 30 tests across 1 file. [595.00ms]
+  bun: web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 12 pass
+ 0 fail
+ 18 expect() calls
+Ran 12 tests across 1 file. [595.00ms]
+  bun: web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 45 expect() calls
+Ran 21 tests across 1 file. [614.00ms]
+  bun: web/src/routes/api/extensions/__tests__/secrets-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 29 pass
+ 0 fail
+ 77 expect() calls
+Ran 29 tests across 1 file. [571.00ms]
+  bun: web/src/routes/api/extensions/__tests__/triggers-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 22 expect() calls
+Ran 13 tests across 1 file. [584.00ms]
+  bun: web/src/routes/api/import/__tests__/commit.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 48 expect() calls
+Ran 13 tests across 1 file. [600.00ms]
+  bun: web/src/__tests__/agent-chat-api.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:07:25.022Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model timeout"}
+{"ts":"2026-09-25T09:07:25.025Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"No credentials available for anthropic. Connect via OAuth or add an API key."}
+
+ 39 pass
+ 0 fail
+ 101 expect() calls
+Ran 39 tests across 1 file. [591.00ms]
+  bun: web/src/__tests__/ask-user-answer-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 37 expect() calls
+Ran 13 tests across 1 file. [570.00ms]
+  bun: web/src/__tests__/extension-browser-isolation.test.ts
+bun test v1.3.14 (0d9b296a)
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+ 1 pass
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [1000.00ms]
+  bun: web/src/__tests__/extensions-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 55 pass
+ 0 fail
+ 277 expect() calls
+Ran 55 tests across 1 file. [571.00ms]
+  bun: web/src/__tests__/extensions-data-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 282 expect() calls
+Ran 21 tests across 1 file. [603.00ms]
+  bun: web/src/__tests__/extensions-events-route.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 44 pass
+ 0 fail
+ 141 expect() calls
+Ran 44 tests across 1 file. [604.00ms]
+  bun: web/src/__tests__/messages-ownership-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 21 pass
+ 0 fail
+ 32 expect() calls
+Ran 21 tests across 1 file. [590.00ms]
+  bun: web/src/__tests__/messages-ownership-baseline-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 22 pass
+ 0 fail
+ 35 expect() calls
+Ran 22 tests across 1 file. [586.00ms]
+  bun: web/src/__tests__/tasks-assignment-api.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:07:30.328Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.328Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"a701b42f-51a0-40f0-85de-cbcf0b51f838"}
+
+web/src/__tests__/tasks-assignment-api.test.ts:
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "a701b42f-51a0-40f0-85de-cbcf0b51f838",
+}
+{"ts":"2026-09-25T09:07:30.328Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.328Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"df3e06ed-1255-4fc5-b429-040e1d05a7d9"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "df3e06ed-1255-4fc5-b429-040e1d05a7d9",
+}
+{"ts":"2026-09-25T09:07:30.328Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"48c35fe6-d6d9-48a3-8bb7-ea112c48426d"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "48c35fe6-d6d9-48a3-8bb7-ea112c48426d",
+}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"af03f5d1-f332-4943-bea1-6e3b6c12e8ce"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "af03f5d1-f332-4943-bea1-6e3b6c12e8ce",
+}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"0187f5aa-61e9-444e-aae0-bd2989da7107"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "0187f5aa-61e9-444e-aae0-bd2989da7107",
+}
+[task-assignment-start] Task not found {
+  taskId: "nonexistent-task",
+  conversationId: "conv-1",
+  storeTaskCount: 1,
+  taskIds: [ "task-1" ],
+}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"2be233e9-b58e-4be0-8f9e-0ca963cfa0dd"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "2be233e9-b58e-4be0-8f9e-0ca963cfa0dd",
+}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.329Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"existing-sub-conv","agentRunId":"6e553018-148d-4221-bbe8-e9112864ba4e"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "existing-sub-conv",
+  agentRunId: "6e553018-148d-4221-bbe8-e9112864ba4e",
+}
+{"ts":"2026-09-25T09:07:30.330Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.330Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"2b58d4fa-8375-4124-83d8-191f4784ece2"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "2b58d4fa-8375-4124-83d8-191f4784ece2",
+}
+{"ts":"2026-09-25T09:07:30.331Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.331Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"a7c74920-5b7c-4c2c-9cbe-2d96d3833f21"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "a7c74920-5b7c-4c2c-9cbe-2d96d3833f21",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"9d9e3d21-622f-438c-8862-34b4cc06526a"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "9d9e3d21-622f-438c-8862-34b4cc06526a",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"0ab734f6-c2fb-4714-a061-0686ae72656f"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "0ab734f6-c2fb-4714-a061-0686ae72656f",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"8d1741dc-c524-498f-b3ff-6c89c045226b"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "8d1741dc-c524-498f-b3ff-6c89c045226b",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"f130c2b6-d743-4c43-98bd-7be223918df7"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "f130c2b6-d743-4c43-98bd-7be223918df7",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"2be704e7-33f8-4435-ab09-a5d8ca487ea4"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "2be704e7-33f8-4435-ab09-a5d8ca487ea4",
+}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.332Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"8c204827-7d5e-4e8c-a612-3801a7892736"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "8c204827-7d5e-4e8c-a612-3801a7892736",
+}
+{"ts":"2026-09-25T09:07:30.333Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.333Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"41f0218f-3388-41c4-a246-bb83b3ee1be3"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "41f0218f-3388-41c4-a246-bb83b3ee1be3",
+}
+{"ts":"2026-09-25T09:07:30.333Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"completed","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.336Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.336Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"d9ecc2a2-23a2-4eb4-bfdb-b296f5b1b2c7"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "d9ecc2a2-23a2-4eb4-bfdb-b296f5b1b2c7",
+}
+{"ts":"2026-09-25T09:07:30.336Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.336Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"1cb3f590-c447-4a09-8613-3b81d99ad24b"}
+{"ts":"2026-09-25T09:07:30.337Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.337Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"agent-cfg-1","agentName":"TestAgent","subConversationId":"sub-conv-new","agentRunId":"40b66851-205c-440c-82e4-2abb5f28df29"}
+[task-assignment-start] Started {
+  conversationId: "conv-1",
+  taskId: "task-1",
+  assignmentId: "assign-1",
+  agentConfigId: "agent-cfg-1",
+  agentName: "TestAgent",
+  subConversationId: "sub-conv-new",
+  agentRunId: "40b66851-205c-440c-82e4-2abb5f28df29",
+}
+{"ts":"2026-09-25T09:07:30.337Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-09-25T09:07:30.337Z","level":"info","msg":"Auto-continue with pending message","subsystem":"start-assignment","conversationId":"conv-1","taskId":"task-1","newRunId":"c4a60614-ff5e-484a-9dc5-5994cea89689"}
+
+ 40 pass
+ 0 fail
+ 152 expect() calls
+Ran 40 tests across 1 file. [606.00ms]
+  bun: web/src/__tests__/tasks-stop-retry-api.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 17 pass
+ 0 fail
+ 88 expect() calls
+Ran 17 tests across 1 file. [601.00ms]
+  bun: web/src/__tests__/team-panel-refresh-flow.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:07:31.653Z","level":"error","msg":"streamChat error","subsystem":"api.agent-chat","error":"model exploded"}
+
+ 4 pass
+ 0 fail
+ 21 expect() calls
+Ran 4 tests across 1 file. [668.00ms]

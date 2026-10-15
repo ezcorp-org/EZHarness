@@ -1,5 +1,5 @@
 import { test, expect, describe, afterAll, beforeEach, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER, MEMBER_USER } from "./helpers/mock-request";
 
 // ── Module-level mocks (BEFORE handler imports) ──────────────────
@@ -12,7 +12,7 @@ mock.module("../../web/src/routes/api/admin/errors/$types", () => ({}));
 mock.module("$lib/server/security/validation", () =>
   require("../../web/src/lib/server/security/validation"),
 );
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

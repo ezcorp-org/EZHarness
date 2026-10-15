@@ -1,0 +1,16 @@
+diff --git a/tasks/factory/w14b-GATES.md b/tasks/factory/w14b-GATES.md
+index af644fc56..3a896ba1a 100644
+--- a/tasks/factory/w14b-GATES.md
++++ b/tasks/factory/w14b-GATES.md
+@@ -54,8 +54,9 @@ suite `guest.podman.integration.test.ts` under the lock (`logs/podman-red-at-146
+     source directory in any form (a joined path, path segments, an import path, a Windows path) is a
+     candidate. Each candidate must call `factorySdkClosure(`, or be one of the two Python packagers that
+     stage generated JSON schemas only (checked: they read no SDK `.ts` module), or one of three named
+-    non-packagers that read the SDK tree to check it and stage nothing (`check-factory-boundaries.ts`,
+-    `check-schema-generate-drift.ts`, `coverage-config.ts`). An unknown candidate fails the test by path.
++    non-packagers that stage nothing into a guest workspace: `check-factory-boundaries.ts` and
++    `coverage-config.ts` read the SDK tree to check it, and `check-schema-generate-drift.ts` reads and
++    restores its own generated schemas. An unknown candidate fails the test by path.
+     A second case pins what the pattern recognises and what it must not (`@ezcorp/factory-sdk`, `dist`).
+     Negative controls, each a temporary file removed after its run: a fixed-list packager with the old
+     markers, and one with none of them (a `Map` built with `readFileSync` over `join("packages", "@ezcorp",

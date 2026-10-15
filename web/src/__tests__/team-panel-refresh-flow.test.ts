@@ -15,8 +15,9 @@
  *
  * If any link breaks, this test catches it.
  */
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
 
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 // ── Conversation graph (mirrors the team structure) ────────────────
 //
 //   main-conv         (user-owned, the user's chat page)
@@ -85,15 +86,26 @@ mock.module("$server/db/queries/agent-configs", () => ({
   })),
 }));
 
-mock.module("$server/db/queries/project-members", () => ({ getProjectMembership: async () => ({ role: "member" }) }));
-const { checkProjectWorkAccess } = await import("$server/auth/middleware");
-mock.module("$server/auth/middleware", () => ({
-  checkProjectWorkAccess,
-  requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
-}));
-mock.module("$lib/server/security/api-keys", () => ({
+const realProjectMembers = serverModule("db/queries/project-members", {});
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/db/queries/project-members", () => ({
+    ...realProjectMembers,
+    getProjectMembership: async () => ({ role: "member" }),
+  }));
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: () => ({ id: "user-1", email: "u@e.com", name: "U", role: "member" }),
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/db/queries/project-members", () => realProjectMembers);
+});
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => null,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 mock.module("$server/runtime/pending-messages", () => ({ enqueue: () => {} }));
 mock.module("$server/types", () => ({ CURRENT_MODEL_SENTINEL: "__current__" }));
 
@@ -109,7 +121,7 @@ const mockExecutor = {
   getActiveRunForConversation: () => null,
 };
 
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => mockExecutor,
   getCommandRegistry: () => ({
@@ -117,7 +129,8 @@ mock.module("$lib/server/context", () => ({
     findCommand: async () => null,
     invalidate: () => {},
   }),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 mock.module("$server/db/queries/projects", () => ({
   getProject: async () => null,

@@ -1,0 +1,2 @@
+./scripts/verify-shipping-runtime-runner-fd-settle.test.ts
+./scripts/verify-shipping-runtime-resource-accounting.test.ts

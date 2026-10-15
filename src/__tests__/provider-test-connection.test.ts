@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent, jsonFromResponse, ADMIN_USER } from "./helpers/mock-request";
 import { stubAssistantMessage } from "./helpers/mock-pi-ai";
 
@@ -21,10 +21,6 @@ const mockResolveModel = mock(() => ({
   maxTokens: 16384,
 }));
 const mockComplete = mock(async () => stubAssistantMessage("ok"));
-
-mock.module("../auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-}));
 
 mock.module("../providers/credentials", () => ({
   getCredential: mockGetCredential,
@@ -58,10 +54,18 @@ mock.module("../db/queries/settings", () => ({
 // Register $server aliases
 mockServerAlias();
 
-// Map $server aliases to the mock implementations directly
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: mockRequireAuth,
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+
+// Map remaining $server aliases to the mock implementations directly
 mock.module("$server/providers/credentials", () => ({
   getCredential: mockGetCredential,
   getApiKey: mock(async () => "test-key"),
@@ -80,7 +84,21 @@ mock.module("../../web/src/routes/api/providers/[provider]/test/$types", () => (
 
 import { POST } from "../../web/src/routes/api/providers/[provider]/test/+server";
 
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+  }));
+  mock.module("../auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: mockRequireAuth,
+  }));
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("../auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   mockRequireAuth.mockClear();

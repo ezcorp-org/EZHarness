@@ -28,19 +28,7 @@ export type {
   ToolDefinition,
 } from "@ezcorp/sdk";
 
-/** Host-only MCP launch metadata. It is never author-written. */
-export interface McpServerStdio extends AuthorMcpServerStdio {
-  seccompFd?: number | null;
-  onChildSpawned?: (pid: number, writeByte: (b: number) => Promise<void>) => Promise<void>;
-  _internal_vethSetup?: {
-    slot: number;
-    vethId: string;
-    hostSideName: string;
-    nsSideName: string;
-    vethIpv4: string;
-  } | null;
-}
-
+export type McpServerStdio = AuthorMcpServerStdio;
 export type McpServerHttp = AuthorMcpServerHttp;
 export type McpServerSse = AuthorMcpServerSse;
 export type McpServerDefinition = McpServerStdio | McpServerHttp | McpServerSse;

@@ -1,0 +1,53 @@
+# excerpt of `gh run view 38026634201 --log-failed` (integrator-5, push-log-excerpt.py)
+# full log: /tmp/factory-platform-evidence/w00/wave4i-3/push5/ci-38026634201/all-failed.log sha256 1557d2e6d620fd9598ae77c8533e7e65c723b0543e5fd1e6c27ebeb3838f31ba bytes 8084 lines 48
+
+## Factory runner readiness precheck (26 lines; 26 kept)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	﻿2026-10-10T05:11:09.8864370Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.8864762Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9133407Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9133676Z env:
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9133893Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9134164Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9134399Z   FACTORY_RUNNER_READ_TOKEN: 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9134612Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9134812Z ##[endgroup]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9271059Z 124 |   inspect?: typeof inspectFactoryRunners;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9271557Z 125 |   log?: Pick<Console, "log">;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9271887Z 126 | } = {}): Promise<number> {
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9272253Z 127 |   const env = options.env ?? process.env;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9272658Z 128 |   const token = env.FACTORY_RUNNER_READ_TOKEN;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9273528Z 129 |   if (!token) throw new Error("FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners");
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9274338Z                               ^
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9274879Z error: FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9275791Z       at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9276621Z       at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9277025Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9295250Z ##[error]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9301341Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9301480Z Bun v1.4.2 (Linux x64)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-10T05:11:09.9305249Z ##[error]Process completed with exit code 1.
+
+## Gate integrity (22 lines; 21 kept)
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2653527Z ^[[36;1mbun scripts/gate-integrity.ts^[[0m
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2720546Z shell: /usr/bin/bash -e {0}
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2720818Z env:
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2721066Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2721409Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2721703Z   BASE_REF: origin/main
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2721945Z   GATE_CHANGE_APPROVED: 
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2722379Z   NODE_PATH: /home/runner/work/EZHarness/EZHarness/.github/gate-integrity-deps/node_modules
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:15.2722855Z ##[endgroup]
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8320877Z Gate integrity FAILED (8 finding(s)):
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8322074Z   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8324339Z   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8327285Z   coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8329654Z   coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8332017Z   coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8333463Z   coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8334705Z   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8336784Z   coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8337386Z 
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8337742Z If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+Gate integrity	Gate-integrity meta-check	2026-10-10T05:11:21.8491243Z ##[error]Process completed with exit code 1.

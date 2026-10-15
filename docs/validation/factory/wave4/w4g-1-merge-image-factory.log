@@ -1,0 +1,388 @@
+context = git archive 4ae2f1658c47f1afefce922da7f507a174eb3cf2: 13142 files; dist dirs under packages: 0
+[1/3] STEP 1/1: FROM docker.io/library/node:24.14.1-bookworm-slim@sha256:e484ae3f1e3c378021c967fd42254f343c302a9263e412280eac32bf5bca7008 AS node
+--> 506a373d9c33
+[2/3] STEP 1/9: FROM docker.io/oven/bun:1.4.2@sha256:296a79bbc988bb0a91ef11099af70a78a8cba98b73fd53f7b2a7715b7c86ced2 AS builder
+[2/3] STEP 2/9: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+--> Using cache e6a2e766964ad2b6907d8ee5c0c89851f1ac8332404ee5529a76eb7ec0989e59
+--> e6a2e766964a
+[2/3] STEP 3/9: WORKDIR /app
+--> Using cache d582beb51c46f3a47a0d5910f2d18d631ab8b184136b766f983adfc52774da57
+--> d582beb51c46
+[2/3] STEP 4/9: COPY . .
+--> 30d842f5366b
+[2/3] STEP 5/9: RUN bun install --frozen-lockfile --ignore-scripts   && (cd web && bun install --frozen-lockfile --ignore-scripts)
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [16]
+
++ @biomejs/biome@2.5.14
++ @types/bun@1.4.2
++ @types/js-yaml@4.0.9
++ @types/node@26.6.1 (v26.6.4 available)
++ drizzle-kit@0.31.10
++ @aws-sdk/client-kms@3.1131.0
++ @aws-sdk/client-s3@3.1131.0
++ @balena/dockerignore@1.0.2
++ @earendil-works/pi-agent-core@0.85.1
++ @earendil-works/pi-ai@0.85.1
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.30.0 (v1.32.0 available)
++ @zxing/library@0.23.0
++ drizzle-orm@0.45.2
++ exceljs@4.4.0
++ fast-png@8.0.0
++ file-type@22.1.0
++ jpeg-js@0.4.4
++ pdf-parse@2.4.5
++ yaml@2.9.1
++ typescript@5.9.3 (v7.0.2 available)
+
+510 packages installed [118.34s]
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
++ @axe-core/playwright@4.13.0
++ @playwright/test@1.63.0
++ @stryker-mutator/core@10.0.0
++ @stryker-mutator/vitest-runner@10.0.0
++ @sveltejs/kit@2.70.3
++ @sveltejs/vite-plugin-svelte@7.3.0
++ @tailwindcss/vite@4.3.3
++ @testing-library/jest-dom@7.0.1
++ @testing-library/svelte@5.4.2
++ @types/jsdom@30.0.0
++ @typescript/native@7.0.2
++ @vitest/coverage-v8@5.0.0
++ ast-v8-to-istanbul@1.0.6
++ istanbul-lib-coverage@3.2.2
++ jsdom@30.0.1
++ rollup-plugin-visualizer@7.1.1
++ svelte@5.57.0
++ svelte-check@4.7.6
++ tailwindcss@4.3.3
++ typescript@6.0.3
++ vite@8.3.0
++ vitest@5.0.0
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @xyflow/svelte@1.6.6
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ elkjs@0.12.0
++ highlight.js@11.12.0
++ isomorphic-dompurify@4.2.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.13
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.6.5
+
+483 packages installed [360.37s]
+--> 1c38cf2147d6
+[2/3] STEP 6/9: RUN bun run build:packages
+$ bun scripts/build-workspace-packages.ts
+build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+$ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+$ bunx tsc -b tsconfig.build.json
+--> 65c57f5b4e50
+[2/3] STEP 7/9: RUN cd web && bun run build
+$ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building ssr environment for production...
+transforming...
+✓ 5730 modules transformed.
+rendering chunks...
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 5001 modules transformed.
+rendering chunks...
+computing gzip size...
+.svelte-kit/output/client/_app/version.json                                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/workers/agent-fuzzy-search-worker-DWj5ig5-.js                  0.97 kB
+.svelte-kit/output/client/_app/immutable/workers/kokoro-tts-worker-DpBKgRHa.js                          2.43 kB
+.svelte-kit/output/client/.vite/manifest.json                                                          50.30 kB │ gzip:     5.63 kB
+.svelte-kit/output/client/stats.html                                                                1,952.82 kB │ gzip:   199.21 kB
+.svelte-kit/output/client/_app/immutable/workers/chunks/AJgC_YiK.js                                 2,214.84 kB
+.svelte-kit/output/client/_app/immutable/workers/assets/ort-wasm-simd-threaded.jsep-B0T3yYHD.wasm  21,596.01 kB │ gzip: 5,168.67 kB
+.svelte-kit/output/client/_app/immutable/assets/60.CpWWpKq2.css                                         0.06 kB │ gzip:     0.08 kB
+.svelte-kit/output/client/_app/immutable/assets/49.BJ_rxuiq.css                                         0.14 kB │ gzip:     0.11 kB
+.svelte-kit/output/client/_app/immutable/assets/snippet-sanitize.CZpbsZcQ.css                           0.71 kB │ gzip:     0.37 kB
+.svelte-kit/output/client/_app/immutable/assets/65.D3lIwtzx.css                                         0.85 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/assets/32.BtoN0ODj.css                                         0.86 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/assets/47.xIn2njHJ.css                                         2.77 kB │ gzip:     0.87 kB
+.svelte-kit/output/client/_app/immutable/assets/51.CBRCCQ4C.css                                         3.00 kB │ gzip:     0.88 kB
+.svelte-kit/output/client/_app/immutable/assets/28.CSjS6bQF.css                                         4.78 kB │ gzip:     1.22 kB
+.svelte-kit/output/client/_app/immutable/assets/last-model.DDSXdu-h.css                                 4.87 kB │ gzip:     1.34 kB
+.svelte-kit/output/client/_app/immutable/assets/48.BfuJXbYY.css                                         6.25 kB │ gzip:     1.51 kB
+.svelte-kit/output/client/_app/immutable/assets/MarkdownRenderer.C22SqRtT.css                           6.73 kB │ gzip:     1.31 kB
+.svelte-kit/output/client/_app/immutable/assets/27.iEdWJZEq.css                                         7.99 kB │ gzip:     1.63 kB
+.svelte-kit/output/client/_app/immutable/assets/3.D2ixIGvf.css                                         10.83 kB │ gzip:     2.50 kB
+.svelte-kit/output/client/_app/immutable/assets/FactoryGraph.thq89YzB.css                              19.35 kB │ gzip:     3.43 kB
+.svelte-kit/output/client/_app/immutable/assets/57.DWHY8c2l.css                                        20.42 kB │ gzip:     3.46 kB
+.svelte-kit/output/client/_app/immutable/assets/filter-empty-turns.vu8AWntT.css                        34.34 kB │ gzip:     6.05 kB
+.svelte-kit/output/client/_app/immutable/assets/34.DRTI37MV.css                                        65.54 kB │ gzip:     9.38 kB
+.svelte-kit/output/client/_app/immutable/assets/0.C3t8NFZX.css                                        135.37 kB │ gzip:    22.47 kB
+.svelte-kit/output/client/_app/immutable/chunks/BvRk9kiK.js                                             0.00 kB │ gzip:     0.02 kB
+.svelte-kit/output/client/_app/immutable/chunks/CYB68K7S.js                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dn41rqip.js                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/DVrADooe.js                                             0.03 kB │ gzip:     0.05 kB
+.svelte-kit/output/client/_app/immutable/chunks/xihTtKlq.js                                             0.06 kB │ gzip:     0.08 kB
+.svelte-kit/output/client/_app/immutable/entry/start.Bl1QHMow.js                                        0.08 kB │ gzip:     0.09 kB
+.svelte-kit/output/client/_app/immutable/chunks/BDZAYHJ3.js                                             0.08 kB │ gzip:     0.10 kB
+.svelte-kit/output/client/_app/immutable/chunks/BhEPmCXu.js                                             0.14 kB │ gzip:     0.13 kB
+.svelte-kit/output/client/_app/immutable/chunks/0CdjsEMm.js                                             0.17 kB │ gzip:     0.14 kB
+.svelte-kit/output/client/_app/immutable/nodes/2.CnV1VlVD.js                                            0.17 kB │ gzip:     0.15 kB
+.svelte-kit/output/client/_app/immutable/chunks/WChNvy45.js                                             0.19 kB │ gzip:     0.17 kB
+.svelte-kit/output/client/_app/immutable/chunks/Qa4ValTG.js                                             0.20 kB │ gzip:     0.15 kB
+.svelte-kit/output/client/_app/immutable/nodes/55.phr3DTQj.js                                           0.22 kB │ gzip:     0.19 kB
+.svelte-kit/output/client/_app/immutable/chunks/DrLkVPxj.js                                             0.24 kB │ gzip:     0.17 kB
+.svelte-kit/output/client/_app/immutable/chunks/xU1DEtSP.js                                             0.25 kB │ gzip:     0.16 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dew5tT4T.js                                             0.26 kB │ gzip:     0.20 kB
+.svelte-kit/output/client/_app/immutable/chunks/DQGCql-i.js                                             0.29 kB │ gzip:     0.16 kB
+.svelte-kit/output/client/_app/immutable/chunks/PB-P8Zwe.js                                             0.31 kB │ gzip:     0.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/ByZMzorw.js                                             0.45 kB │ gzip:     0.28 kB
+.svelte-kit/output/client/_app/immutable/chunks/Cxq7ySr5.js                                             0.48 kB │ gzip:     0.30 kB
+.svelte-kit/output/client/_app/immutable/chunks/DU4kI8En.js                                             0.49 kB │ gzip:     0.23 kB
+.svelte-kit/output/client/_app/immutable/nodes/37.C6n-zfSb.js                                           0.50 kB │ gzip:     0.33 kB
+.svelte-kit/output/client/_app/immutable/chunks/VaBb-J56.js                                             0.51 kB │ gzip:     0.36 kB
+.svelte-kit/output/client/_app/immutable/nodes/54.715c7gfs.js                                           0.52 kB │ gzip:     0.29 kB
+.svelte-kit/output/client/_app/immutable/chunks/FNLNZDjo.js                                             0.56 kB │ gzip:     0.35 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dt-HX3Vu.js                                             0.62 kB │ gzip:     0.38 kB
+.svelte-kit/output/client/_app/immutable/nodes/62.L9ZIP5QE.js                                           0.63 kB │ gzip:     0.32 kB
+.svelte-kit/output/client/_app/immutable/chunks/jWRyahnJ.js                                             0.63 kB │ gzip:     0.32 kB
+.svelte-kit/output/client/_app/immutable/nodes/6.CQ4B-RyL.js                                            0.64 kB │ gzip:     0.41 kB
+.svelte-kit/output/client/_app/immutable/chunks/JYbIKlwc.js                                             0.66 kB │ gzip:     0.43 kB
+.svelte-kit/output/client/_app/immutable/nodes/7.aVXg-kK_.js                                            0.67 kB │ gzip:     0.42 kB
+.svelte-kit/output/client/_app/immutable/chunks/ZXovPA1C.js                                             0.68 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/chunks/FZzh2b5t.js                                             0.76 kB │ gzip:     0.43 kB
+.svelte-kit/output/client/_app/immutable/chunks/BkWNs1ZY.js                                             0.76 kB │ gzip:     0.39 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dr5-Iwmh.js                                             0.83 kB │ gzip:     0.44 kB
+.svelte-kit/output/client/_app/immutable/chunks/BEQdcZAU.js                                             0.88 kB │ gzip:     0.42 kB
+.svelte-kit/output/client/_app/immutable/chunks/BaL_Naf-.js                         ✓ built in 6.84s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+[33m[PLUGIN_TIMINGS] [0mYour build spent 87% of 6.8s inside plugin hooks (5.9s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - vite:worker-import-meta-url transform (75%, 5.1s, 2 calls)
+  - vite-plugin-svelte:compile transform (35%, 2.4s, 2021 calls)
+Those rows are 100% of the build; the rest of the 87% is below.
+Not measurable — 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - vite-plugin-sveltekit-guard resolveId (18428 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 4 modules transformed.
+rendering chunks...
+computing gzip size...
+.svelte-kit/output/client/service-worker.js  8.98 kB │ gzip: 2.58 kB
+
+✓ built in 6ms
+computing gzip size...
+.svelte-kit/output/server/.vite/manifest.json                                                                                                                  310.50 kB │ gzip:  27.89 kB
+.svelte-kit/output/server/stats.html                                                                                                                         2,319.29 kB │ gzip: 251.27 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.CpWWpKq2.css                                                                                               0.06 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BJ_rxuiq.css                                                                                               0.14 kB │ gzip:   0.11 kB
+.svelte-kit/output/server/_app/immutable/assets/snippet-sanitize.CZpbsZcQ.css                                                                                    0.71 kB │ gzip:   0.37 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.D3lIwtzx.css                                                                                               0.85 kB │ gzip:   0.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BtoN0ODj.css                                                                                               0.86 kB │ gzip:   0.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.xIn2njHJ.css                                                                                               2.77 kB │ gzip:   0.87 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.y4_E3Ofs.css                                                                                               2.97 kB │ gzip:   0.87 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.CSjS6bQF.css                                                                                               4.78 kB │ gzip:   1.22 kB
+.svelte-kit/output/server/_app/immutable/assets/last-model.682O9D96.css                                                                                          4.84 kB │ gzip:   1.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BfuJXbYY.css                                                                                               6.25 kB │ gzip:   1.51 kB
+.svelte-kit/output/server/_app/immutable/assets/MarkdownRenderer.C22SqRtT.css                                                                                    6.73 kB │ gzip:   1.31 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.iEdWJZEq.css                                                                                               7.99 kB │ gzip:   1.63 kB
+.svelte-kit/output/server/_app/immutable/assets/_layout.DYMmpVTA.css                                                                                            10.79 kB │ gzip:   2.50 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BhMyK-mL.css                                                                                              20.40 kB │ gzip:   3.46 kB
+.svelte-kit/output/server/_app/immutable/assets/filter-empty-turns.DfdaWX13.css                                                                                 34.30 kB │ gzip:   6.05 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.DpRy1QSu.css                                                                                              57.60 kB │ gzip:   8.33 kB
+.svelte-kit/output/server/_app/immutable/assets/_layout.DVHs39Tt.css                                                                                           134.86 kB │ gzip:  22.43 kB
+.svelte-kit/output/server/chunks/index-server.js                                                                                                                 0.03 kB │ gzip:   0.05 kB
+.svelte-kit/output/server/chunks/navigation.js                                                                                                                   0.03 kB │ gzip:   0.05 kB
+.svelte-kit/output/server/chunks/types4.js                                                                                                                       0.06 kB │ gzip:   0.07 kB
+.svelte-kit/output/server/chunks/toast.svelte.js                                                                                                                 0.07 kB │ gzip:   0.07 kB
+.svelte-kit/output/server/chunks/registry3.js                                                                                                                    0.07 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/content-builder2.js                                                                                                             0.09 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/modes.js                                                                                                                        0.09 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/retrieval.js                                                                                                                    0.09 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/mode-tool-scope.js                                                                                                              0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/application2.js                                                                                                                 0.10 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/host-maintenance-daemon2.js                                                                                                     0.10 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/agent-config.js                                                                                                                 0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/features.js                                                                                                                     0.10 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/router2.js                                                                                                                      0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/extensions3.js                                                                                                                  0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/host-stop-client2.js                                                                                                            0.11 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/completion-intents.js                                                                                                           0.11 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/file-organizer-state.js                                                                                                         0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/preview-sessions.js                                                                                                             0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/secrets-store.js                                                                                                                0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/page-cache.js                                                                                                                   0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/error-logs.js                                                                                                                   0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/release-composition2.js                                                                                                         0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/entries/endpoints/api/tool-invoke/_server.ts.js                                                                                        0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/api.js                          [33m[INEFFECTIVE_DYNAMIC_IMPORT] [0m../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/sandbox/provider-invoker.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ..., dynamic import will not move module into another chunk.
+
+✓ built in 15.55s
+
+Run npm run preview to preview your production build locally.
+
+> Using svelte-adapter-bun
+.svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m7 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249mt[0m[38;5;249mr[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249mo[0m[38;5;249mA[0m[38;5;249mr[0m[38;5;249mr[0m[38;5;249ma[0m[38;5;249my[0m[38;5;249mB[0m[38;5;249mu[0m[38;5;249mf[0m[38;5;249mf[0m[38;5;249me[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+ [38;5;240m  │[0m                                                     ────┬────  
+ [38;5;240m  │[0m                                                         ╰────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+.svelte-kit/adapter-bun/chunks/startup.js (21:32) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/startup.js
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/startup.js:21:33 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m21 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+ [38;5;240m   │[0m                                 ────┬────  
+ [38;5;240m   │[0m                                     ╰────── Module not found, treating it as an external dependency
+[38;5;246m────╯[0m
+
+../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js:1:21 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mS[0m[38;5;249mQ[0m[38;5;249mL[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun"[38;5;249m;[0m
+ [38;5;240m  │[0m                     ──┬──  
+ [38;5;240m  │[0m                       ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mp[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'child_process'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                    ───────┬───────  
+ [38;5;240m  │[0m                           ╰───────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                    ──┬─  
+ [38;5;240m  │[0m                      ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m5 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+  ✔ done
+[33m[PLUGIN_TIMINGS] [0mYour build spent 100% of 15.5s inside plugin hooks (40.0s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - vite-plugin-sveltekit-compile closeBundle (100%, 25.2s, 1 call)
+  - vite-plugin-sveltekit-compile writeBundle (59%, 9.1s, 1 call)
+  - vite-plugin-svelte:compile transform (16%, 2.5s, 2021 calls)
+  - visualizer generateBundle (10%, 1.5s, 1 call)
+Those rows are 100% of the build; the rest of the 100% is below.
+Not measurable — 2 hooks whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - vite-plugin-sveltekit-guard resolveId (19714 calls)
+  - @tailwindcss/vite:generate:build transform (66 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+--> 13437bd766a5
+[2/3] STEP 8/9: RUN rm -rf web/.svelte-kit/output/client/_app/immutable/*.map coverage .git
+--> cc53e0c5b748
+[2/3] STEP 9/9: RUN chmod -R a+rX,go-w /app
+--> 59a6d230fc0f
+[3/3] STEP 1/9: FROM docker.io/oven/bun:1.4.2-slim@sha256:debbe76858f2e398d2937c1eceeb82c571ac1fcd78aadf00e9634578ac2b5ef7
+[3/3] STEP 2/9: ARG REVISION=unknown
+--> c368ff25117b
+[3/3] STEP 3/9: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0     BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1     NODE_ENV=production     EZCORP_IMAGE_SHA=${REVISION}
+--> 8c91d956d3d5
+[3/3] STEP 4/9: LABEL org.opencontainers.image.title="ezcorp-factory"       org.opencontainers.image.revision=${REVISION}
+--> 08be5c918120
+[3/3] STEP 5/9: COPY --from=node /usr/local/bin/node /usr/local/bin/node
+--> 9010946dd46f
+[3/3] STEP 6/9: COPY --from=builder /app /app
+--> f240ebeebb45
+[3/3] STEP 7/9: WORKDIR /app
+--> 28cb7548af56
+[3/3] STEP 8/9: USER 65534:65534
+--> 8fab959c9427
+[3/3] STEP 9/9: CMD ["bun", "web/build/index.js"]
+[3/3] COMMIT localhost/integrator3-img-factory:4ae2f1658c47
+--> 52c877d309f1
+Successfully tagged localhost/integrator3-img-factory:4ae2f1658c47
+52c877d309f1a21d5476dd8bca7afcb8b82b1d78cfed8e8e1320c6e96f57cde6
+image localhost/integrator3-img-factory:4ae2f1658c47 id 52c877d309f1a21d5476dd8bca7afcb8b82b1d78cfed8e8e1320c6e96f57cde6 digest sha256:8f8712c995647987c128149a0130f9b416676c8933d4992f9b5f00bb8f215849

@@ -1,0 +1,4 @@
+scripts/gate-integrity-deps-registration.test.ts
+scripts/lib/ci-registration.test.ts
+scripts/python-quality-registration.test.ts
+scripts/uv-toolchain-registration.test.ts

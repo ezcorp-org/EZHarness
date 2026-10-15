@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# wave4i combined run at the FINAL head of integ/w00 (staged by integrator-3, 2026-10-05; start only on the lead's word).
+# Same shape as wave4h run 3: RUN=wave4i through w00/wave4f/run.sh (one driver, no copy):
+#   the combined runner (full pool, PostgreSQL suites, podman; it takes the heavy lock itself, so NO outer flock here),
+#   after-runner.sh through gated-flock (guard set, runbook mock pass, W09e console spec, W03f journey, the browser part),
+#   final-merge-gates.sh (merge-lcov, global floor, per-file, new-file and patch vs origin/main, CRAP --changed vs origin/main,
+#   gate-integrity vs origin/main and each base).
+# Added around it: config check at start and end; prune scan over the wave's added lines; gate-before-the-lock with the start
+# margin (disk >= 104 GB, swap free >= 2.5 GiB, memory >= 6 GiB) waited OUTSIDE any lock before the runner starts; the
+# after-runner hold writes its exit file (GATED_FLOCK_EXIT_FILE is inherited by run.sh's gated-flock call).
+# Pipelining flag: bun-pin.sh exports BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 (printed in the driver's pin line).
+# DRY=1: config check, prune scan, the driver's plan and its DRY listing only (no lock, no test run).
+set -u
+E=/tmp/factory-platform-evidence; W0=$E/w00; RUN=${WAVE_RUN:-wave4i}; O=$W0/$RUN; mkdir -p $O   # WAVE_RUN=wave4i-2 for the run after the W4H-10 main sync (lead 2026-10-05)
+S=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+PREV=${PREV_COMBINED_HEAD:-1992630f3}   # the head of the last combined run (wave4h run 3); the prune scan judges lines added since
+. $W0/lock-veto.sh; lock_veto integrator-2
+. $W0/resource-gate.sh
+cd $S || exit 2
+[ -z "$(git status --porcelain)" ] && [ "$(git branch --show-current)" = integ/w00 ] || { echo "staging not clean or not on integ/w00" | tee -a $O/wrapper.log; exit 3; }
+# Preflight (lead 2026-10-05, after the Temporal test server vanished mid-wave4i-2): the pinned Temporal test server must exist, be
+# executable and match the sha256 recorded at its restore from the ci.yml pin, or the run stops by name before any leg (minute 1, not 50).
+TTS=/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+TTS_SHA=$(cat $W0/temporal-test-server.sha256 2>/dev/null)
+[ -n "$TTS_SHA" ] && [ -f "$TTS" ] && [ -x "$TTS" ] && [ "$(sha256sum "$TTS" | cut -d' ' -f1)" = "$TTS_SHA" ] \
+  || { echo "STOP: preflight: Temporal test server missing, not executable or sha256 mismatch ($TTS; recorded ${TTS_SHA:-none})" | tee -a $O/wrapper.log; exit 6; }
+H=$(git rev-parse HEAD); echo "$RUN wrapper start $(date -u +%FT%TZ) head $H prev-combined $PREV dry=${DRY:-0}" | tee -a $O/wrapper.log
+python3 $W0/config-check.py --accept-note $O/config-note.txt >> $O/wrapper.log 2>&1 || { echo "STOP: config check at start" | tee -a $O/wrapper.log; exit 1; }
+mkdir -p $O/prune; bash $W0/prune-scan.sh $O/prune $PREV > /dev/null 2>&1; ps_rc=$?
+echo "prune scan vs $PREV: exit $ps_rc ($(tail -1 $O/prune/prune-scan.txt 2>/dev/null))" | tee -a $O/wrapper.log
+[ "$ps_rc" = 0 ] || { echo "STOP: prune scan (prune/prune-scan.txt); report to the lead" | tee -a $O/wrapper.log; exit 1; }
+if [ "${DRY:-0}" != 1 ]; then
+  # Start margin, outside any lock (the floors stay inside the runner and the holds).
+  until RESOURCE_GATE_DISK_GB=104 RESOURCE_GATE_SWAP_KIB=2621440 RESOURCE_GATE_MAX_WAIT_S=600 resource_gate $RUN-start $O/wrapper.log; do sleep 120; done
+fi
+GATED_FLOCK_EXIT_FILE=$O/after.exit DRY=${DRY:-0} RUN=$RUN bash $W0/wave4f/run.sh; rc=$?
+echo "driver exit=$rc $(date -u +%FT%TZ)" | tee -a $O/wrapper.log
+python3 $W0/config-check.py --accept-note $O/config-note.txt >> $O/wrapper.log 2>&1 || { echo "STOP: config check at end" | tee -a $O/wrapper.log; exit 1; }
+echo "$RUN wrapper end $(date -u +%FT%TZ) head $(git rev-parse HEAD) (start head $H) dirty=$(git status --porcelain | wc -l)" | tee -a $O/wrapper.log
+exit $rc

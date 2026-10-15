@@ -1,0 +1,37 @@
+Checked 5 files in 7ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: Broken pipe
+/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/lib/hook-lib.sh: line 220: printf: write error: Broken pipe
+  bun: scripts/gate-integrity-deps-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 5 expect() calls
+Ran 3 tests across 1 file. [489.00ms]
+  bun: scripts/lib/ci-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 25 expect() calls
+Ran 13 tests across 1 file. [505.00ms]
+  bun: scripts/python-quality-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 45 expect() calls
+Ran 9 tests across 1 file. [484.00ms]
+  bun: scripts/uv-toolchain-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 24 expect() calls
+Ran 4 tests across 1 file. [755.00ms]
+[detached HEAD 66decce3e] merge: wp/w4h-2 069fb8248 into integ/w00 (W4H-2 pinned uv for the hosted test jobs through one shared action)

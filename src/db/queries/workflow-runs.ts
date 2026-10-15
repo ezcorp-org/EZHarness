@@ -11,7 +11,7 @@
  * hand. Workflows ship with both from day one:
  *   • {@link finalizeWorkflowRunRow} — idempotent CAS on the live statuses
  *     (`running`, `suspended`)
- *   • {@link terminalizeOrphanedWorkflowRuns} — boot sweep
+ *   • {@link terminalizeOrphanedWorkflowRuns} — boot and periodic orphan sweep
  */
 import { and, desc, eq, gte, inArray, isNull, lt, lte, or, sql, type SQL } from "drizzle-orm";
 import { getDb } from "../connection";
@@ -22,7 +22,7 @@ import {
   type DelegationOwnerKind,
   type TruncatedStepOutput,
 } from "../schema";
-import type { AgentResult, WorkflowCursor, WorkflowRunStatus, WorkflowStepRun } from "../../types";
+import type { AgentResult, WorkflowCursor, WorkflowRunResult, WorkflowRunStatus, WorkflowStepRun } from "../../types";
 import {
   isTruncatedStepOutput,
   MAX_STEP_OUTPUT_BYTES,
@@ -193,12 +193,26 @@ export async function insertWorkflowRun(row: NewWorkflowRunInput): Promise<void>
 export async function findWorkflowRunByIdempotencyKey(
   workflowName: string,
   idempotencyKey: string,
-): Promise<{ id: string; status: WorkflowRunStatus; result: AgentResult | null } | undefined> {
+): Promise<{
+  id: string;
+  status: WorkflowRunStatus;
+  result: WorkflowRunResult | null;
+  input: Record<string, unknown> | null;
+  projectId: string | null;
+  userId: string | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+} | undefined> {
   const rows = await getDb()
     .select({
       id: workflowRuns.id,
       status: workflowRuns.status,
       result: workflowRuns.result,
+      input: workflowRuns.input,
+      projectId: workflowRuns.projectId,
+      userId: workflowRuns.userId,
+      startedAt: workflowRuns.startedAt,
+      finishedAt: workflowRuns.finishedAt,
     })
     .from(workflowRuns)
     .where(

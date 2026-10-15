@@ -1,0 +1,68 @@
+W4H-7 verdict, validator-5 (lock-veto lane validator-2), 2026-10-05T02:10Z
+
+VERDICT: ACCEPT wp/w4h-7b at b4ec15e5c, base integ/w00 6ac2458c7 (W4H-6 merged at 463837a12, W4H-8 at 5b8d5556f, W4H-9 on top).
+Scope: evidence and gates only, by the coordinator's ruling. The R8 "lost update" is the worker-channel stall that W4H-6 fixed; no
+product or test change.
+
+1. Diff and scope
+   `git diff --name-only 6ac2458c7 b4ec15e5c`:
+     tasks/factory/w4h-7-GATES.md
+     tasks/lessons.md
+     tasks/todo.md
+   2 commits, both docs-only: 2e529f1bb (gates, lessons, todo) and b4ec15e5c (G4b and G5 closed, regression pins, an index.ts line
+   correction). tasks/lessons.md and tasks/todo.md only grow at their end: 0 removed lines; the base content is an exact prefix.
+   The hook mapped 0 suites on each commit. Identity: 2 of 2 archy <281643943+EZArchy@users.noreply.github.com> as author and committer.
+   I measured at 2e529f1bb (tree 61c0bc712); b4ec15e5c changes only the gates doc and todo.md over it, so the measurements carry
+   (docs-only rule). Prune scan and identity reran at b4ec15e5c.
+
+2. The cause claim, read in the code at the head
+   - task_add (docs/extensions/examples/task-tracking/index.ts:748 saveSnapshot) runs inside serialized() = withLock("task-tracking:
+     snapshot") for every tool (index.ts:1343-1366).
+   - withLock in a v4 worker takes a host-held lock (packages/@ezcorp/sdk/src/runtime/lock.ts:46-68; host side
+     src/extensions/runtime-locks.ts:57-81, a row in extension_runtime_locks inside a transaction).
+   - The host write locks the conversation row (FOR UPDATE) and checks the expected revision in the same transaction
+     (src/runtime/task-tracking-host.ts:154-163).
+   The write path is serialised; the brief's read-modify-write guess does not hold. The unit pin of the cause is W4H-6's
+   channel-pool test "two live workers still exchange frames and report their exits when the file-system pool has two threads"
+   (packages/@ezcorp/extension-runner/tests/channel-pool.test.ts:113), present at the head.
+
+3. Unit lane, runner-shaped container (my own image localhost/v5-runner:24.04, id edfec932598342fa, built from the W4H-6/W4H-7
+   Containerfile sha256 8cd78a22a2fc1872; Ubuntu 24.04, uid 1001, 4 CPUs, 16 GiB; the owner's job-setup steps; clean git archive
+   snapshots; the unchanged src/__tests__/task-state-isolated.integration.test.ts with coverage, taskset 0-3; gated-flock, lock_veto
+   validator-2 first, load < 10; ctr/hold.log sha256 14f900a9d4e0457301102e098f370ae7b3fbd74da70c635e0e6783c5642dd965)
+     base 52d8ba079 (tree 47f9186cf): red at run 1, "Expected length: 3 / Received length: 2" (the hosted signature;
+       run-1.log sha256 35846107701143c11cad7fa25006df10960113f0bd9b0afe844a2594f1e0f171)
+     head 2e529f1bb (tree 61c0bc712): 20 of 20 passed
+
+4. Regression pair, host (the unchanged suite with UV_THREADPOOL_SIZE=2, taskset 0-3, coverage on; host/hold.log sha256
+   fc111865b5ee89485b333c498227f15901a7677b0c57675e0e1dfe155bb5c8ca)
+     base 52d8ba079: red at run 1, "fresh isolated task workers serialize host-locked snapshots without lost updates" failed with
+       "RunnerError: Worker closed" after 32.6 s (the invocation deadline ending the stalled worker; the stall itself, not the 3/2
+       assertion; log sha256 84d62a4f2713099f7b9fbeb29db5d65dc54eeb7c5224971ed6dcc97b2a46e3cb)
+     head 2e529f1bb: 10 of 10 passed
+
+5. E2E real-auth lane, web/e2e/real-auth/task-panel-durability.spec.ts (unchanged since 52d8ba079), its own fixtures, port 4917,
+   taskset 0-3, browser build first, same lock as section 4
+     base 52d8ba079: 1 passed, 1 failed, 1 did not run; the failure is :107 "concurrent task_add calls all survive — no lost
+       updates", "Test timeout of 60000ms exceeded" (the hosted failure; log sha256 e7680f375584a7c8b428a44dd641b20321e70ed5ac0cbe754488cd50de8536f0)
+     head 2e529f1bb: 2 of 2 runs, 3 passed each (logs b6b28b7933b62aa2eb20cb42b06b2082227d0b51ade119da8a3134edd347639d,
+       cdd2c4e2c896ec1c10368d62ff10951bab79dcec9fc5bb547f3ca7ef34864b79). This also covers W4H-9's service.ts change in the base.
+   My results agree with the owner's G1-G4b.
+
+6. Lock-free phase at 2e529f1bb (hold-2e529f1bb/hold.log, sha256 de8dc9c04783825012d16818226c8f682f813a2259d2286797c9e1b27252bf96)
+   - typecheck 0, lint 0, both boundary checks 0. Gate-integrity base leg PASSED; origin/main findings set equal to the 8.
+   - Guard set 477 pass, 0 fail, 39 files (2 conditional skips in unchanged base files).
+   - New-file and patch gates PASSED (no source file in the diff). gitleaks 0.
+   - Prune scan at 2e529f1bb and at b4ec15e5c: "prune scan: clean (0 hit(s))", w00/prune-scan.sh sha256
+     a4a59601cec26963ba26d47a62b833c27f8bc5d30fa542a71006b33d30029a02.
+   - Config check: exit 0 at every start and end, lock-free and in all three locks, and at 02:03Z (888c78b9e94ea660 = accepted baseline).
+
+7. Observation, not a finding: the new lessons.md entry "Gate before the lock" says the same as integrator-3's wave4i draft lesson
+   (docs-draft.md, Integrator, second bullet). When the wave4i docs commit lands, one of the two can go (DRY).
+
+8. Disclosures (mine)
+   - My first container try failed at start: the W4H-6 runner image tag no longer exists (its owner removed it). I built my own tag
+     from the same Containerfile inside the lock. No test ran in that try.
+   - Snapshots now live outside the evidence tree (/tmp/v5-snaps, lib.sh); all W4H-7 snapshots are removed.
+
+Evidence dir: /tmp/factory-platform-evidence/w4g-validation/v5-w4h7/

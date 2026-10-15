@@ -1,5 +1,5 @@
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { mockServerAlias, createMockEvent } from "./helpers/mock-request";
 import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,15 +12,30 @@ mock.module("../../web/src/routes/api/ext-files/[name]/[...path]/$types", () => 
 
 // Stub auth helpers — the route's security model is tested via the
 // `name` allowlist + path traversal, not the cookie flow.
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => {
-    if (!locals?.user) {
-      const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-      throw res;
-    }
-  },
-}));
-mock.module("$lib/server/security/api-keys", () => ({
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever registration is active when a shared-process run resolves the
+// alias wins for every OTHER file too. beforeAll (test-execution time) plus
+// a complete serverModule() factory make THIS file's own values active for
+// THIS file's own tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => {
+      if (!locals?.user) {
+        const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        throw res;
+      }
+    },
+  }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 
@@ -32,11 +47,13 @@ afterAll(() => {
 
 let cwd = "";
 const EXT = "openai-image-gen-2";
-// Stable location to chdir back to in teardown so sibling test files
-// running after this one don't find process.cwd() pointing at a deleted
-// tmp dir (the failure mode is node crashing inside any subsequent
-// `process.cwd()` or relative-path resolve).
-const SAFE_CWD = tmpdir();
+// The directory the process started in, restored in teardown so sibling test
+// files running after this one neither find process.cwd() pointing at a
+// deleted tmp dir (node crashing inside any later `process.cwd()` or relative
+// resolve) nor inherit the tmp dir as their project root (factory-boot,
+// import-parity and friends resolve paths from cwd; integration fix at the
+// W18a-3 merge, 2026-09-25).
+const ORIGINAL_CWD = process.cwd();
 
 beforeEach(() => {
   cwd = mkdtempSync(join(tmpdir(), "extfiles-"));
@@ -48,7 +65,7 @@ beforeEach(() => {
 });
 
 afterAll(() => {
-  process.chdir(SAFE_CWD);
+  process.chdir(ORIGINAL_CWD);
   if (cwd) {
     try { rmSync(cwd, { recursive: true, force: true }); } catch {}
   }

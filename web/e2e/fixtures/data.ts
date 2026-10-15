@@ -375,6 +375,7 @@ export interface ExtensionData {
 			command?: string;
 			args?: string[];
 			url?: string;
+			headers?: Record<string, string>;
 		}>;
 		acceptsCallerCaps?: boolean;
 		/**

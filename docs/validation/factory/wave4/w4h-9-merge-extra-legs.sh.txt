@@ -1,0 +1,2 @@
+# W4H-9: the extension-runner package tests as the package runs them (package.json "test": "bun test", cwd = the package), as for W4H-6.
+leg extension-runner-pkg bash -c "cd packages/@ezcorp/extension-runner && bun test"

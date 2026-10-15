@@ -1,0 +1,40 @@
+[
+ {
+  "head": "1c84df6d5d5aba0703ee433ae711450728d16d66",
+  "dirty": false,
+  "name": "manifest-cov-shard",
+  "exitCode": 0,
+  "testsRan": 30068,
+  "gate": "resource-gate 2026-10-05T15:04:19Z manifest-cov-shard disk=243G memAvailable=15GiB swapFreeKiB=2908392/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB",
+  "outsideGateAtStart": "resource-gate 2026-10-05T15:04:19Z manifest-cov-shard outside-lock disk=243G memAvailable=15GiB swapFreeKiB=2908328/17173956 floors disk>=104G swap>=2621440KiB mem>=15GiB",
+  "start": "2026-10-05T15:04:19Z",
+  "end": "2026-10-05T15:20:16Z",
+  "command": [
+   "bash",
+   "-c",
+   "SHARD_INDEX=0 SHARD_TOTAL=1 COV_OUT=/tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage bash scripts/test-coverage.sh"
+  ],
+  "heavyExit": 0,
+  "log": "/tmp/factory-platform-evidence/w00/wave4i-2/producers/manifest-cov-shard/heavy-manifest-cov-shard.log",
+  "runBy": "w00/wave4i-2/producers/producer-leg.sh through w00/gated-flock.sh (GATED_FLOCK_START_MEM_GIB=15; inner gate 15 GiB / 120 GB)"
+ },
+ {
+  "head": "1c84df6d5d5aba0703ee433ae711450728d16d66",
+  "dirty": false,
+  "name": "manifest-cov-extras",
+  "exitCode": 0,
+  "testsRan": 1454,
+  "gate": "resource-gate 2026-10-05T18:32:18Z manifest-cov-extras disk=241G memAvailable=15GiB swapFreeKiB=5307436/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB",
+  "outsideGateAtStart": "resource-gate 2026-10-05T18:32:18Z manifest-cov-extras outside-lock disk=241G memAvailable=15GiB swapFreeKiB=5307372/17173956 floors disk>=104G swap>=2621440KiB mem>=15GiB",
+  "start": "2026-10-05T18:32:18Z",
+  "end": "2026-10-05T18:32:37Z",
+  "command": [
+   "bash",
+   "-c",
+   "COVERAGE_LEGS_ONLY=1 EZCORP_RUN_PODMAN_TESTS=1 COV_OUT=/tmp/factory-platform-evidence/wave4i-2-manifest-cov-extras-coverage bash scripts/test-coverage.sh"
+  ],
+  "heavyExit": 0,
+  "log": "/tmp/factory-platform-evidence/w00/wave4i-2/producers/manifest-cov-extras/heavy-manifest-cov-extras.log",
+  "runBy": "w00/wave4i-2/producers/producer-leg.sh through w00/gated-flock.sh (GATED_FLOCK_START_MEM_GIB=15; inner gate 15 GiB / 120 GB)"
+ }
+]

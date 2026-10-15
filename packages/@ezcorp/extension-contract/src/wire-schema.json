@@ -2240,6 +2240,14 @@
       ],
       "type": "object"
     },
+    "ProcessSpawnPolicy": {
+      "description": "The process-creation policy of one worker start.",
+      "enum": [
+        "allow",
+        "deny"
+      ],
+      "type": "string"
+    },
     "ProviderCall": {
       "additionalProperties": false,
       "properties": {
@@ -7067,8 +7075,23 @@
         "context": {
           "$ref": "#/definitions/InvocationContext"
         },
+        "devices": {
+          "description": "Exactly the devices this start may use. Absent means none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "limits": {
           "$ref": "#/definitions/ResourceLimits"
+        },
+        "materials": {
+          "description": "A host-owned per-attempt directory, bind-mounted read-write at `/materials`. Absent means no mount, which is every existing caller.\n\nIt exists because the control channel is not a data path: a guest may emit at most `min(limits.outputBytes, 1 MiB)` over its whole life, and a domain pack's real output is larger than that. The guest writes ordinary files here; the host reads them back afterwards and must do so only through the runner's own material reader, because a guest can plant a symbolic link in its own directory. No credential and no network reach the guest either way.",
+          "type": "string"
+        },
+        "processSpawn": {
+          "$ref": "#/definitions/ProcessSpawnPolicy",
+          "description": "Whether the worker may start other processes after it starts. Absent means \"deny\": a runner that enforces the policy blocks process creation in the worker and still lets it create threads. The host sends \"allow\" only for a worker whose release holds the shell grant, for a release that is only the sealed SDK MCP bridge with a stdio server, and for factory guests."
         },
         "workerId": {
           "type": "string"

@@ -1,0 +1,238 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
+import { join } from "node:path";
+import { sql } from "drizzle-orm";
+import type { TransactionalDb } from "../../db/migrations/types";
+import { releaseRows as rows } from "../../db/queries/extension-releases";
+import { configureFactoryApplication, createFactoryApplication, type FactoryApplication } from "../../factory/application";
+import { FactoryRecords } from "../../factory/records";
+import { digestBytes } from "../../extensions/v4/blobs";
+import { FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT, FactoryInstallationBootstrap, factoryBootstrapHost } from "../../factory/provisioning/bootstrap";
+import type { FactoryBootstrapInvitation } from "../../factory/provisioning/invitation";
+import type { FactoryInstallationContext } from "../../factory/provisioning/installation";
+import { FACTORY_PURGE_ACKNOWLEDGEMENT, FACTORY_PURGE_APPROVAL_LIFETIME_MS, factoryDatabasePurgeApprovals, issueFactoryPurgeApproval } from "../../factory/provisioning/purge-approval";
+import { factoryRejection, makeFactoryPrivateRoot, removeFactoryPrivateRoot, writeModeFile } from "./factory-private-root";
+
+/**
+ * C01/C12 step 7 conformance: redeeming the invitation is identity, the
+ * administrator's explicit consent is authority, and consent commits with its
+ * grants and its audit entry or not at all. The purge approval is the other
+ * human act the provisioner depends on; it commits with its audit entry.
+ *
+ * `realVerify` runs the provisioner's own approval query against this
+ * database, which needs a real PostgreSQL URL (`databaseUrl`).
+ */
+export function factoryInstallationBootstrapConformance(create: () => Promise<{ db: TransactionalDb; close(): Promise<void>; databaseUrl?: string }>, options: { readonly realVerify?: boolean } = {}): void {
+  let fixture: Awaited<ReturnType<typeof create>>;
+  let application: FactoryApplication;
+  let createProject: typeof import("../../db/queries/projects").createProject;
+  let root: string;
+  const tenantId = "bootstrap-tenant";
+  const installationId = "bootstrap-installation";
+  const admin = { kind: "user", id: "bootstrap-admin", authentication: "session" } as const;
+  const other = { kind: "user", id: "bootstrap-other-admin", authentication: "session" } as const;
+  const invitation: FactoryBootstrapInvitation = { schemaVersion: "factory.bootstrap-invitation.v1", installationId, tenantId, invitationId: "invitation-1", administratorEmail: "first@example.test", tokenDigest: `sha256:${"a".repeat(64)}`, expiresAtMs: Number.MAX_SAFE_INTEGER };
+  let projectId: string;
+
+  beforeAll(async () => {
+    fixture = await create();
+    root = await makeFactoryPrivateRoot();
+    createProject = (await import("../../db/queries/projects")).createProject;
+    await new FactoryRecords(fixture.db, tenantId).bindInstallation();
+    for (const [id, email] of [[admin.id, "first@example.test"], [other.id, "second@example.test"]]) {
+      await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES (${id}, ${email}, 'not-a-login', ${id}, 'admin')`);
+    }
+    application = createFactoryApplication({ database: fixture.db, tenantId, blobs: { put: async bytes => digestBytes(bytes), get: async () => { throw new Error("no artifact reads in bootstrap"); } }, availableResourceClasses: [], runOptions: { interpreterBuild: "test-build", interpreterCompatibility: "test", limits: { maxCostMicros: "1", maxTokens: 1, maxComputeMs: 1 }, resolveParameters: async () => ({}) } });
+    configureFactoryApplication(application);
+    projectId = (await createProject({ name: "Bootstrap project", path: "/tmp/bootstrap-project" }, admin.id)).id;
+  });
+  afterAll(async () => { configureFactoryApplication(null); await removeFactoryPrivateRoot(root); await fixture?.close(); });
+
+  const bootstrap = (id = installationId) => new FactoryInstallationBootstrap(fixture.db, id, tenantId);
+
+  test("redemption binds exactly one administrator to the invitation and is audited", async () => {
+    expect(await bootstrap().status()).toEqual({ state: "invited", invitationId: null });
+    await bootstrap().recordRedeemed(invitation, admin.id);
+    await bootstrap().recordRedeemed(invitation, admin.id);
+    expect(await bootstrap().status()).toEqual({ state: "redeemed", invitationId: "invitation-1" });
+    expect((await factoryRejection(bootstrap().recordRedeemed(invitation, other.id))).message).toBe("bootstrap_not_administrator");
+    expect((await factoryRejection(bootstrap().recordRedeemed({ ...invitation, invitationId: "invitation-2" }, admin.id))).message).toBe("bootstrap_not_administrator");
+    expect(rows(await fixture.db.execute(sql`SELECT action FROM audit_log WHERE action='factory.bootstrap.redeemed' AND target=${installationId}`))).toHaveLength(1);
+  });
+
+  test("redemption alone grants no consent authority", async () => {
+    for (const action of ["factory.approve", "factory.trust", "factory.release"] as const) await expect(application.grants.authorize(admin, projectId, action)).rejects.toMatchObject({ code: "factory_forbidden" });
+  });
+
+  test("consent is refused to a non-session principal, a paraphrased acknowledgement, another administrator, and an unknown project", async () => {
+    expect((await factoryRejection(bootstrap().consent({ ...admin, authentication: "api-key" }, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_human_required");
+    expect((await factoryRejection(bootstrap().consent({ kind: "service", id: "svc", authentication: "service" }, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_human_required");
+    expect((await factoryRejection(bootstrap().consent(admin, { projectId, acknowledgement: "yes" }))).message).toBe("bootstrap_acknowledgement_required");
+    expect((await factoryRejection(bootstrap().consent(admin, { projectId: "", acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_project_invalid");
+    expect((await factoryRejection(bootstrap().consent(other, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_not_administrator");
+    expect((await factoryRejection(bootstrap().consent(admin, { projectId: "no-such-project", acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_project_invalid");
+    expect((await factoryRejection(bootstrap("never-redeemed").consent(admin, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }))).message).toBe("bootstrap_not_redeemed");
+  });
+
+  test("a failed audit write rolls back the consent and every grant it would have issued", async () => {
+    await fixture.db.execute(sql.raw(`CREATE OR REPLACE FUNCTION w16_refuse_consent_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = 'factory.bootstrap.consent' THEN RAISE EXCEPTION 'audit store refused'; END IF; RETURN NEW; END $$`));
+    await fixture.db.execute(sql.raw("CREATE TRIGGER w16_refuse_consent_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION w16_refuse_consent_audit()"));
+    try {
+      await expect(bootstrap().consent(admin, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT })).rejects.toThrow();
+    } finally {
+      await fixture.db.execute(sql.raw("DROP TRIGGER w16_refuse_consent_audit ON audit_log"));
+      await fixture.db.execute(sql.raw("DROP FUNCTION w16_refuse_consent_audit()"));
+    }
+    expect((await bootstrap().status()).state).toBe("redeemed");
+    expect(rows(await fixture.db.execute(sql`SELECT action FROM factory_grants WHERE tenant_id=${tenantId} AND project_id=${projectId} AND action IN ('factory.approve','factory.trust','factory.release')`))).toEqual([]);
+  });
+
+  test("two concurrent consents commit exactly once; the grants, the record, and the audit agree", async () => {
+    const attempts = await Promise.allSettled([
+      bootstrap().consent(admin, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }),
+      bootstrap().consent(admin, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }),
+    ]);
+    const won = attempts.filter((attempt) => attempt.status === "fulfilled");
+    expect(won).toHaveLength(1);
+    expect(attempts.filter((attempt) => attempt.status === "rejected").map((attempt) => ((attempt as PromiseRejectedResult).reason as Error).message)).toEqual(["bootstrap_already_consented"]);
+    const consent = (won[0] as PromiseFulfilledResult<{ consentDigest: string; grants: Readonly<Record<string, number>> }>).value;
+    expect(consent.grants).toEqual({ "factory.approve": 1, "factory.trust": 1, "factory.release": 1 });
+    expect(consent.consentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+    for (const action of ["factory.approve", "factory.trust", "factory.release"] as const) expect((await application.grants.authorize(admin, projectId, action)).revision).toBe(1);
+    expect(rows(await fixture.db.execute(sql`SELECT state, project_id, consent_digest FROM factory_installation_bootstrap WHERE installation_id=${installationId}`))).toEqual([{ state: "consented", project_id: projectId, consent_digest: consent.consentDigest }]);
+    const audit = rows<{ metadata: { consentDigest?: string } }>(await fixture.db.execute(sql`SELECT metadata FROM audit_log WHERE action='factory.bootstrap.consent' AND target=${installationId}`));
+    expect(audit.map((entry) => entry.metadata.consentDigest)).toEqual([consent.consentDigest]);
+    expect(await bootstrap().status()).toEqual({ state: "consented", invitationId: "invitation-1" });
+  });
+
+  test("the schema refuses a consented row without its project, digest, and time", async () => {
+    // `execute` hands back a thenable; `Promise.resolve` adopts it so the rejection is observed.
+    expect(await factoryRejection(Promise.resolve(fixture.db.execute(sql`INSERT INTO factory_installation_bootstrap (installation_id, tenant_id, invitation_id, admin_user_id, state) VALUES ('bad-row', ${tenantId}, 'i', ${admin.id}, 'consented')`)))).toBeInstanceOf(Error);
+    expect(await factoryRejection(Promise.resolve(fixture.db.execute(sql`INSERT INTO factory_installation_bootstrap (installation_id, tenant_id, invitation_id, admin_user_id, state) VALUES ('bad-user', ${tenantId}, 'i', 'no-such-user', 'redeemed')`)))).toBeInstanceOf(Error);
+    expect(rows(await fixture.db.execute(sql`SELECT installation_id FROM factory_installation_bootstrap WHERE installation_id IN ('bad-row', 'bad-user')`))).toEqual([]);
+  });
+
+  test("the host reads a declared invitation privately, fails closed when it is unreadable, and is absent when none is declared", async () => {
+    expect(await factoryBootstrapHost({}, () => { throw new Error("not a provisioned installation: the database is never touched"); })).toBeNull();
+    const path = await writeModeFile(join(root, "bootstrap-invitation.json"), JSON.stringify(invitation));
+    const host = await factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: installationId }, () => fixture.db);
+    expect(host?.invitation).toEqual(invitation);
+    expect(host?.bootstrap.tenantId).toBe(tenantId);
+    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: path, EZCORP_INSTALLATION_ID: "another-installation" }, () => fixture.db))).message).toBe("bootstrap_invitation_unavailable");
+    expect((await factoryRejection(factoryBootstrapHost({ EZCORP_FACTORY_BOOTSTRAP_INVITATION: join(root, "missing.json") }, () => fixture.db))).message).toBe("bootstrap_invitation_unavailable");
+  });
+
+  /** Refuse one audit action inside the database, run the work, and always remove the refusal. */
+  const withRefusedAudit = async (action: string, work: () => Promise<unknown>) => {
+    await fixture.db.execute(sql.raw(`CREATE OR REPLACE FUNCTION w16_refuse_audit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.action = '${action}' THEN RAISE EXCEPTION 'audit store refused'; END IF; RETURN NEW; END $$`));
+    await fixture.db.execute(sql.raw("CREATE TRIGGER w16_refuse_audit BEFORE INSERT ON audit_log FOR EACH ROW EXECUTE FUNCTION w16_refuse_audit()"));
+    try { await expect(work()).rejects.toThrow(); }
+    finally {
+      await fixture.db.execute(sql.raw("DROP TRIGGER w16_refuse_audit ON audit_log"));
+      await fixture.db.execute(sql.raw("DROP FUNCTION w16_refuse_audit()"));
+    }
+  };
+
+  describe("a setup whose redemption row never committed", () => {
+    const orphanInstallation = "orphan-installation";
+    const orphanInvitation: FactoryBootstrapInvitation = { ...invitation, installationId: orphanInstallation, invitationId: "orphan-invitation" };
+    const consent = (actor: typeof admin | typeof other, orphan?: { invitation: FactoryBootstrapInvitation; nowMs: number }) => bootstrap(orphanInstallation).consent(actor, { projectId, acknowledgement: FACTORY_BOOTSTRAP_ACKNOWLEDGEMENT }, orphan);
+    const orphanRows = async () => rows(await fixture.db.execute(sql`SELECT state FROM factory_installation_bootstrap WHERE installation_id=${orphanInstallation}`));
+
+    test("is not adopted without the invitation, nor while the installation has more than one user", async () => {
+      expect((await factoryRejection(consent(admin))).message).toBe("bootstrap_not_redeemed");
+      expect((await factoryRejection(consent(admin, { invitation: orphanInvitation, nowMs: 0 }))).message).toBe("bootstrap_not_redeemed");
+      expect(await orphanRows()).toEqual([]);
+    });
+
+    test("with one user, is not adopted for another installation's invitation, an expired one, another email, or a non-administrator", async () => {
+      await fixture.db.execute(sql`DELETE FROM users WHERE id=${other.id}`);
+      expect((await factoryRejection(consent(admin, { invitation: { ...orphanInvitation, installationId: installationId }, nowMs: 0 }))).message).toBe("bootstrap_not_redeemed");
+      expect((await factoryRejection(consent(admin, { invitation: { ...orphanInvitation, expiresAtMs: 1_000 }, nowMs: 1_000 }))).message).toBe("bootstrap_not_redeemed");
+      expect((await factoryRejection(consent(admin, { invitation: { ...orphanInvitation, administratorEmail: "someone@example.test" }, nowMs: 0 }))).message).toBe("bootstrap_not_redeemed");
+      expect((await factoryRejection(consent(other, { invitation: orphanInvitation, nowMs: 0 }))).message).toBe("bootstrap_not_redeemed");
+      await fixture.db.execute(sql`UPDATE users SET role='member' WHERE id=${admin.id}`);
+      try { expect((await factoryRejection(consent(admin, { invitation: orphanInvitation, nowMs: 0 }))).message).toBe("bootstrap_not_redeemed"); }
+      finally { await fixture.db.execute(sql`UPDATE users SET role='admin' WHERE id=${admin.id}`); }
+      expect(await orphanRows()).toEqual([]);
+    });
+
+    test("a failed consent audit rolls back the adopted redemption too", async () => {
+      await withRefusedAudit("factory.bootstrap.consent", () => consent(admin, { invitation: orphanInvitation, nowMs: 0 }));
+      expect(await orphanRows()).toEqual([]);
+      expect(rows(await fixture.db.execute(sql`SELECT action FROM audit_log WHERE action='factory.bootstrap.redeemed' AND target=${orphanInstallation}`))).toEqual([]);
+    });
+
+    test("the sole administrator with the invited email adopts it and consents in one transaction, audited as adopted", async () => {
+      const outcome = await consent(admin, { invitation: { ...orphanInvitation, administratorEmail: "FIRST@example.test" }, nowMs: 0 });
+      expect(outcome.consentDigest).toMatch(/^sha256:[a-f0-9]{64}$/);
+      expect(rows(await fixture.db.execute(sql`SELECT state, invitation_id, admin_user_id FROM factory_installation_bootstrap WHERE installation_id=${orphanInstallation}`))).toEqual([{ state: "consented", invitation_id: "orphan-invitation", admin_user_id: admin.id }]);
+      const redeemed = rows<{ metadata: { adopted?: boolean; invitationId?: string } }>(await fixture.db.execute(sql`SELECT metadata FROM audit_log WHERE action='factory.bootstrap.redeemed' AND target=${orphanInstallation}`));
+      expect(redeemed.map((entry) => [entry.metadata.adopted, entry.metadata.invitationId])).toEqual([[true, "orphan-invitation"]]);
+      expect((await factoryRejection(consent(admin, { invitation: orphanInvitation, nowMs: 0 }))).message).toBe("bootstrap_already_consented");
+    });
+  });
+
+  describe("purge approval", () => {
+    const approvalInstallation = "approval-installation";
+    const issue = (actor: { kind: "user" | "service"; id: string; authentication: "session" | "api-key" | "service" }, input: { acknowledgement: unknown; reason: unknown }, nowMs = Date.now()) => issueFactoryPurgeApproval(fixture.db, approvalInstallation, actor as never, input, nowMs);
+    const valid = { acknowledgement: FACTORY_PURGE_ACKNOWLEDGEMENT, reason: "retention elapsed" };
+    const approvals = async () => rows<{ approval_id: string; reason: string }>(await fixture.db.execute(sql`SELECT approval_id, reason FROM factory_installation_purge_approvals WHERE installation_id=${approvalInstallation} ORDER BY approved_at`));
+
+    test("only a human session, the exact acknowledgement, and a bounded reason are accepted", async () => {
+      expect((await factoryRejection(issue({ ...admin, authentication: "api-key" }, valid))).message).toBe("purge_approval_human_required");
+      expect((await factoryRejection(issue({ kind: "service", id: "svc", authentication: "service" }, valid))).message).toBe("purge_approval_human_required");
+      for (const acknowledgement of [undefined, "yes", `${FACTORY_PURGE_ACKNOWLEDGEMENT} `]) expect((await factoryRejection(issue(admin, { ...valid, acknowledgement }))).message).toBe("purge_approval_acknowledgement_required");
+      for (const reason of [undefined, 7, "", "   ", "x".repeat(257)]) expect((await factoryRejection(issue(admin, { ...valid, reason }))).message).toBe("purge_approval_reason_invalid");
+      expect(await approvals()).toEqual([]);
+    });
+
+    test("only an active administrator may approve", async () => {
+      await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role) VALUES ('approval-member', 'member@example.test', 'not-a-login', 'member', 'member')`);
+      await fixture.db.execute(sql`INSERT INTO users(id,email,password_hash,name,role,status) VALUES ('approval-inactive', 'inactive@example.test', 'not-a-login', 'inactive', 'admin', 'inactive')`);
+      for (const id of ["approval-member", "approval-inactive", "no-such-user"]) expect((await factoryRejection(issue({ ...admin, id }, valid))).message).toBe("purge_approval_not_administrator");
+      expect(await approvals()).toEqual([]);
+    });
+
+    test("a failed audit write leaves no approval", async () => {
+      await withRefusedAudit("factory.installation.purge_approved", () => issue(admin, valid));
+      expect(await approvals()).toEqual([]);
+    });
+
+    test("an administrator's approval is recorded with its audit entry and expires in seven days", async () => {
+      const nowMs = Date.UTC(2026, 8, 22, 12);
+      const approval = await issue(admin, { ...valid, reason: "  retention elapsed  " }, nowMs);
+      expect(approval.approvalId).toMatch(/^[0-9a-f-]{36}$/);
+      expect(approval.expiresAtMs).toBe(nowMs + FACTORY_PURGE_APPROVAL_LIFETIME_MS);
+      expect(FACTORY_PURGE_APPROVAL_LIFETIME_MS).toBe(7 * 24 * 60 * 60 * 1000);
+      expect(await approvals()).toEqual([{ approval_id: approval.approvalId, reason: "retention elapsed" }]);
+      const stored = rows<{ approved_by_user_id: string; expires_at: Date | string }>(await fixture.db.execute(sql`SELECT approved_by_user_id, expires_at FROM factory_installation_purge_approvals WHERE approval_id=${approval.approvalId}`))[0]!;
+      expect(stored.approved_by_user_id).toBe(admin.id);
+      expect(new Date(stored.expires_at).getTime()).toBe(approval.expiresAtMs);
+      const audit = rows<{ user_id: string; metadata: { approvalId?: string } }>(await fixture.db.execute(sql`SELECT user_id, metadata FROM audit_log WHERE action='factory.installation.purge_approved' AND target=${approvalInstallation}`));
+      expect(audit.map((entry) => [entry.user_id, entry.metadata.approvalId])).toEqual([[admin.id, approval.approvalId]]);
+    });
+
+    test("the schema refuses an approval that expires before it was given, or names no real user", async () => {
+      expect(await factoryRejection(Promise.resolve(fixture.db.execute(sql`INSERT INTO factory_installation_purge_approvals (approval_id, installation_id, approved_by_user_id, reason, approved_at, expires_at) VALUES ('bad-expiry', ${approvalInstallation}, ${admin.id}, 'x', NOW(), NOW() - INTERVAL '1 second')`)))).toBeInstanceOf(Error);
+      expect(await factoryRejection(Promise.resolve(fixture.db.execute(sql`INSERT INTO factory_installation_purge_approvals (approval_id, installation_id, approved_by_user_id, reason, expires_at) VALUES ('bad-user', ${approvalInstallation}, 'no-such-user', 'x', NOW() + INTERVAL '1 day')`)))).toBeInstanceOf(Error);
+      expect(await factoryRejection(Promise.resolve(fixture.db.execute(sql`INSERT INTO factory_installation_purge_approvals (approval_id, installation_id, approved_by_user_id, reason, expires_at) VALUES ('bad-reason', ${approvalInstallation}, ${admin.id}, '', NOW() + INTERVAL '1 day')`)))).toBeInstanceOf(Error);
+    });
+
+    if (options.realVerify) {
+      test("the provisioner's query accepts exactly an unexpired approval of this installation by an active administrator", async () => {
+        const url = fixture.databaseUrl!;
+        const installation = { installationId: approvalInstallation, productDatabase: new URL(url).pathname.slice(1) } as FactoryInstallationContext;
+        const verifier = factoryDatabasePurgeApprovals(url);
+        const approval = await issue(admin, valid);
+        expect(await verifier.verify(installation, approval.approvalId)).toEqual({ approvedBy: "admin:first@example.test" });
+        expect((await factoryRejection(verifier.verify({ ...installation, installationId: "another-installation" }, approval.approvalId))).code).toBe("purge_approval_invalid");
+        const expired = await issue(admin, valid, Date.now() - FACTORY_PURGE_APPROVAL_LIFETIME_MS - 1_000);
+        expect((await factoryRejection(verifier.verify(installation, expired.approvalId))).code).toBe("purge_approval_invalid");
+        await fixture.db.execute(sql`UPDATE users SET status='inactive' WHERE id=${admin.id}`);
+        try { expect((await factoryRejection(verifier.verify(installation, approval.approvalId))).code).toBe("purge_approval_invalid"); }
+        finally { await fixture.db.execute(sql`UPDATE users SET status='active' WHERE id=${admin.id}`); }
+        expect((await factoryRejection(verifier.verify(installation, "0f8b2f7a-1c1d-4a4e-9a0b-6d1f2e3c4b5a"))).code).toBe("purge_approval_invalid");
+      });
+    }
+  });
+}

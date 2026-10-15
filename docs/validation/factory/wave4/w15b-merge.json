@@ -1,0 +1,373 @@
+{
+ "package": "w15b",
+ "branch": "wp/w15b-runtime-kms",
+ "head": "6964484900fa429eed02a1d8d000f0b7a76ffba1",
+ "sourceHead": "9f1391d18",
+ "branchBase": "6c8ec29c5",
+ "validatorVerdict": "round 3 FINAL ACCEPT at 696448490 by validator-2 (earlier ACCEPT with low notes at c39c039b9); verdict copied as w15b-validation.txt",
+ "mergeSha": "e416615cb51144032f311a35ee54539057f0666a",
+ "tree": "292c173d0b37a6dfaba677b80fbc73834706d0bf",
+ "parents": [
+  "27d9575311e3626b0ca004b577c9f3a0600d52cf",
+  "6964484900fa429eed02a1d8d000f0b7a76ffba1"
+ ],
+ "conflicts": {
+  "src/factory/startup-config.ts": "1 hunk, imports only (w15b-merge-conflict-hunks.txt)",
+  "tasks": "no conflict"
+ },
+ "integrationFix": [
+  {
+   "id": "startup-config-imports",
+   "what": "union of both import sets: HEAD's (W19a) FactoryModelPin type, factoryModelSamplingOptions from ./model-configuration and factoryModelPinMatchesRunner from ./native-runner-policy, plus W15b's wellFormedFactoryKeyManagement and type FactoryKeyManagement from ./key-composition; W01g's checkGuestBroker stays defined and registered after checkHostLaunch",
+   "proof": "typecheck 0, lint 0 (no unused import)",
+   "ruling": "coordinator approved"
+  }
+ ],
+ "rulings": {
+  "W15c": "W15b merges after W15c; its duplicate import walker was dropped in favour of W15c's gate (one C12 block, one leaf module after both)",
+  "disclosedFollowUps": {
+   "N2": "owner W15: the checkpoint manifest's keys.service only echoes the configuration; wrapVersion, masterKeyId and wrappedDigest are null, so the manifest does not tie the checkpoint to its wrap; proof of kind = orchestrator call counts",
+   "N3": "hygiene: the retention kind constraint is dropped and re-added on every boot under the advisory lock; skip when the pg_constraint definition matches",
+   "N4": "defence in depth: the tamper check cannot catch an edit that also rewrites report_digest; needs a keyed digest"
+  },
+  "N1": "closed: G2 records 2 transit:decrypt",
+  "N5": "closed: an aborted restore stops (signal into reconcilePool, throwIfAborted in the three catch blocks); PostgreSQL restore 17/0 at the merge"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T06:55:13Z",
+   "end": "2026-09-25T06:55:14Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "8f3b561c552b1ffcc10c5e445f6ffedaa1ef9be886271753dbe22faf26454393"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T06:55:14Z",
+   "end": "2026-09-25T06:55:59Z",
+   "command": "bun run typecheck",
+   "logSha256": "341f9b8f48cf584e9bc15929a3e702a9f22a9e1e83e880637afceb6820671892"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T06:55:59Z",
+   "end": "2026-09-25T06:56:00Z",
+   "command": "bun run lint",
+   "logSha256": "d606083d509b822ce1b5c15b3eff4296f410dbee6908140bcf566579a8df5daf"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:00Z",
+   "end": "2026-09-25T06:56:03Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:03Z",
+   "end": "2026-09-25T06:56:03Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:03Z",
+   "end": "2026-09-25T06:56:08Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-docs-extensions-examples-file-organizer-lib-quarantine-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:08Z",
+   "end": "2026-09-25T06:56:08Z",
+   "command": "bun test --timeout 60000 ./docs/extensions/examples/file-organizer/lib/quarantine.test.ts",
+   "logSha256": "767061c4f8eb5ee3662ab2f992203970c307c36015139ae83d4185a3db7b43a4"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:08Z",
+   "end": "2026-09-25T06:56:10Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "4eb382a2a20fa5294e659531f7c6c16310be179f3c53838952a280c06a087dd2"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-recovery-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:10Z",
+   "end": "2026-09-25T06:56:13Z",
+   "command": "bun test --timeout 60000 ./src/db/migrations/add-factory-recovery.test.ts",
+   "logSha256": "2dd2b818d370b19dcb0dd1f292402a4c3de3ce151d198f9e67455dd738f097cb"
+  },
+  {
+   "name": "focused-src-factory-attempt-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:13Z",
+   "end": "2026-09-25T06:56:17Z",
+   "command": "bun test --timeout 60000 ./src/factory/attempt-composition.test.ts",
+   "logSha256": "84bb326766d5e421ab8bee94d8121de1b73438016afeb04a18372e1dfd91fd38"
+  },
+  {
+   "name": "focused-src-factory-checkpoint-barrier-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:17Z",
+   "end": "2026-09-25T06:56:18Z",
+   "command": "bun test --timeout 60000 ./src/factory/checkpoint-barrier.test.ts",
+   "logSha256": "2c7c65e28f11c216c0344068cd0a7d061949f5e5510362026ba05b6b9909dafd"
+  },
+  {
+   "name": "focused-src-factory-dispatch-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:18Z",
+   "end": "2026-09-25T06:56:20Z",
+   "command": "bun test --timeout 60000 ./src/factory/dispatch-composition.test.ts",
+   "logSha256": "c5f8eafc91ccd0f935d4bf8451954defe08cf34a0eab7e1c0f1b608d421b5f4a"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-definition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:20Z",
+   "end": "2026-09-25T06:56:20Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-definition.test.ts",
+   "logSha256": "a0a59fd3e0528fdb94441e3f16a2df9ee57676fb371a7553147c32c6751d336d"
+  },
+  {
+   "name": "focused-src-factory-installation-startup-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:20Z",
+   "end": "2026-09-25T06:56:27Z",
+   "command": "bun test --timeout 60000 ./src/factory/installation-startup.test.ts",
+   "logSha256": "f4c05d828a20251d46b4e3999f0d9c3fe06f42f5659e878d4765c1c177008578"
+  },
+  {
+   "name": "focused-src-factory-key-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:27Z",
+   "end": "2026-09-25T06:56:27Z",
+   "command": "bun test --timeout 60000 ./src/factory/key-composition.test.ts",
+   "logSha256": "f8c4ff61f38cbf03f56b324228b68443beee507599c56576906fc3ed85e348f0"
+  },
+  {
+   "name": "focused-src-factory-key-management-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:27Z",
+   "end": "2026-09-25T06:56:28Z",
+   "command": "bun test --timeout 60000 ./src/factory/key-management.test.ts",
+   "logSha256": "1b323e2973c52342d4900a27c321d7706e9a2163db982dd7896127e11391a14c"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:28Z",
+   "end": "2026-09-25T06:56:32Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-service-composition.test.ts",
+   "logSha256": "71d5237ee3990e15488cca24cabd6d12fc9e5c7f38e07879f71a8617e12831fe"
+  },
+  {
+   "name": "focused-src-factory-recovery-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:32Z",
+   "end": "2026-09-25T06:56:32Z",
+   "command": "bun test --timeout 60000 ./src/factory/recovery-composition.test.ts",
+   "logSha256": "dea4dfe66f5b8f606fe3615c7fd598a4749af26ae4360f145decc6e00866f194"
+  },
+  {
+   "name": "focused-src-factory-release-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:32Z",
+   "end": "2026-09-25T06:56:33Z",
+   "command": "bun test --timeout 60000 ./src/factory/release-composition.test.ts",
+   "logSha256": "c7a7a9268bdfd79fdeec3299b652df6c3f2cf2ba077022c75bb2fd2fdbdb3ed6"
+  },
+  {
+   "name": "focused-src-factory-release-declaration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:33Z",
+   "end": "2026-09-25T06:56:33Z",
+   "command": "bun test --timeout 60000 ./src/factory/release-declaration.test.ts",
+   "logSha256": "cf9ec77c128c2e3f3344e6da843e061b2ae310eeee50e97bd47b3b873d4f25a8"
+  },
+  {
+   "name": "focused-src-factory-restore-command-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:33Z",
+   "end": "2026-09-25T06:56:34Z",
+   "command": "bun test --timeout 60000 ./src/factory/restore-command.test.ts",
+   "logSha256": "5a47e6d9c80709459101a29e122837b6204c9d2dd54a6d6b1a56870740425fed"
+  },
+  {
+   "name": "focused-src-factory-restore-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:34Z",
+   "end": "2026-09-25T06:56:35Z",
+   "command": "bun test --timeout 60000 ./src/factory/restore-composition.test.ts",
+   "logSha256": "736426b403242b00b2619438da674ff7c7be4877df91cac6ac543292786200df"
+  },
+  {
+   "name": "focused-src-factory-runtime-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:35Z",
+   "end": "2026-09-25T06:56:36Z",
+   "command": "bun test --timeout 60000 ./src/factory/runtime-composition.test.ts",
+   "logSha256": "4fd90130707527350c5e73dd06a67bcaf9d3fdd3999fa4c14f75e9832893da37"
+  },
+  {
+   "name": "focused-src-factory-runtime-workers-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:36Z",
+   "end": "2026-09-25T06:56:36Z",
+   "command": "bun test --timeout 60000 ./src/factory/runtime-workers.test.ts",
+   "logSha256": "476b37e71975ac546de0bc83dca78c0a00a6a022da0cc16b5fc6d01aed97e393"
+  },
+  {
+   "name": "focused-src-factory-startup-config-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:36Z",
+   "end": "2026-09-25T06:56:37Z",
+   "command": "bun test --timeout 60000 ./src/factory/startup-config.test.ts",
+   "logSha256": "6568736664c4e120d601e898357e85923732ab4fd5eea5eddf119e3d8ff454fa"
+  },
+  {
+   "name": "focused-src-factory-validator-declaration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:37Z",
+   "end": "2026-09-25T06:56:37Z",
+   "command": "bun test --timeout 60000 ./src/factory/validator-declaration.test.ts",
+   "logSha256": "f162ba8fe55c90084701e0c90247a4e00fab4105b533d8beffe592974ab841a3"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:37Z",
+   "end": "2026-09-25T06:56:41Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "4f77e55f539e0c67c868c3ff1e5f74e8c55621c92570d0ff095874ed07980ba9"
+  },
+  {
+   "name": "focused-src-__tests__-factory-retention-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T06:56:41Z",
+   "end": "2026-09-25T06:56:43Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-retention.test.ts",
+   "logSha256": "65fd857c7c4fd187fcdb26b2149f7f8e059c5b29aad8565f3bae1357f7b8ac85"
+  },
+  {
+   "name": "pool service node bundle",
+   "exitCode": 0,
+   "bunImports": 0,
+   "command": "bun build src/factory/pool/service-server.ts --target node --format esm --outfile=<tmp>/server.mjs",
+   "logSha256": "eff8d8bc77d711bc0e856e111b78d73eb7626e77bbe33b985dccc571fc4e32c6"
+  },
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh ... orchestrator,pool",
+  "summary": [
+   "=== heavy batch 2026-09-25T07:13:17Z",
+   "HEAD 27d9575311e3626b0ca004b577c9f3a0600d52cf MERGE_HEAD 6964484900fa429eed02a1d8d000f0b7a76ffba1 index-tree 292c173d0b37a6dfaba677b80fbc73834706d0bf umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  126G  93% /",
+   "--- START pg-factory-checkpoint 2026-09-25T07:13:17Z",
+   "--- END   pg-factory-checkpoint 2026-09-25T07:13:53Z exit=0  12 pass 0 fail ",
+   "--- START pg-factory-executions 2026-09-25T07:13:53Z",
+   "--- END   pg-factory-executions 2026-09-25T07:13:58Z exit=0  7 pass 0 fail ",
+   "--- START pg-factory-key-rotation 2026-09-25T07:13:58Z",
+   "--- END   pg-factory-key-rotation 2026-09-25T07:14:03Z exit=0  1 pass 0 fail ",
+   "--- START pg-factory-pool-checkpoint 2026-09-25T07:14:03Z",
+   "--- END   pg-factory-pool-checkpoint 2026-09-25T07:14:04Z exit=0  6 pass 0 fail ",
+   "--- START pg-factory-restore 2026-09-25T07:14:04Z",
+   "--- END   pg-factory-restore 2026-09-25T07:14:34Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-retention 2026-09-25T07:14:34Z",
+   "--- END   pg-factory-retention 2026-09-25T07:14:41Z exit=0  14 pass 0 fail ",
+   "--- START podman-guest.podman.integration 2026-09-25T07:14:41Z",
+   "--- END   podman-guest.podman.integration 2026-09-25T07:14:51Z exit=0  1 pass 0 fail ",
+   "--- START podman-attempt-runtime.integration 2026-09-25T07:14:51Z",
+   "--- END   podman-attempt-runtime.integration 2026-09-25T07:15:06Z exit=0  7 pass 0 fail ",
+   "--- START podman-guest-broker-transport.integration 2026-09-25T07:15:06Z",
+   "--- END   podman-guest-broker-transport.integration 2026-09-25T07:15:20Z exit=0  12 pass 0 fail ",
+   "--- START podman-guest-model.podman.integration 2026-09-25T07:15:20Z",
+   "--- END   podman-guest-model.podman.integration 2026-09-25T07:15:27Z exit=0  1 pass 0 fail ",
+   "--- START podman-validator-guest.podman.integration 2026-09-25T07:15:27Z",
+   "--- END   podman-validator-guest.podman.integration 2026-09-25T07:15:34Z exit=0  1 pass 0 fail ",
+   "--- START orchestrator-test 2026-09-25T07:15:34Z",
+   "--- END   orchestrator-test 2026-09-25T07:17:14Z exit=0 ",
+   "--- START pool-coverage 2026-09-25T07:17:14Z",
+   "--- END   pool-coverage 2026-09-25T07:17:31Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-25T07:17:31Z"
+  ]
+ },
+ "fullStack": {
+  "why": "the merged tree differs from 696448490 in files the full stack loads (W19a's startup-config and private-service-composition), so the three key kinds ran on the staged tree",
+  "harness": "copy of validator-2's w15b-r3 harness (w00/w15b-merge/fullstack, paths repointed), fresh web build at the staged tree, df gate before each kind",
+  "summary": [
+   "lock 2026-09-25T07:48:20Z HEAD 27d9575311e3626b0ca004b577c9f3a0600d52cf MERGE_HEAD 6964484900fa429eed02a1d8d000f0b7a76ffba1 index-tree 292c173d0b37a6dfaba677b80fbc73834706d0bf free 126G",
+   "web build exit=0",
+   "operator-master-key start 2026-09-25T07:48:59Z end 2026-09-25T07:49:41+00:00 free 126G outcome passed failure None manifestService operator-master-key orchestratorCalls 0",
+   "cloud-kms start 2026-09-25T07:49:41Z end 2026-09-25T07:50:22+00:00 free 126G outcome passed failure None manifestService cloud-kms orchestratorCalls 2",
+   "transit start 2026-09-25T07:50:22Z end 2026-09-25T07:51:05+00:00 free 126G outcome passed failure None manifestService transit orchestratorCalls 2",
+   "DONE status=0 dirty=0"
+  ],
+  "kinds": [
+   {
+    "kind": "operator-master-key",
+    "outcome": "passed",
+    "failure": null,
+    "manifestKeysService": "operator-master-key",
+    "keyServiceCalls": 0,
+    "record": "w15b-merge-full-stack-operator-master-key.json"
+   },
+   {
+    "kind": "cloud-kms",
+    "outcome": "passed",
+    "failure": null,
+    "manifestKeysService": "cloud-kms",
+    "keyServiceCalls": 2,
+    "record": "w15b-merge-full-stack-cloud-kms.json"
+   },
+   {
+    "kind": "transit",
+    "outcome": "passed",
+    "failure": null,
+    "manifestKeysService": "transit",
+    "keyServiceCalls": 2,
+    "record": "w15b-merge-full-stack-transit.json"
+   }
+  ]
+ },
+ "coverage": {
+  "proofCommit": "proof/w15b-merge-staged bba86677bb585349dcb0540300b726fc0fe67142 (tree 292c173d0 = the merge tree, parents 27d957531 and 696448490)",
+  "baseRef": "27d957531",
+  "newFile": "PASSED: 1 new source file gated",
+  "patch": "PASSED: all changed executable lines covered, 14 files",
+  "producers": [
+   {
+    "producer": "focused (22 suites)",
+    "result": "386/0",
+    "why": "the fast set"
+   },
+   {
+    "producer": "node leg scripts/factory-orchestrator-coverage.sh (staging, identical tree)",
+    "result": "exit 0",
+    "why": "first patch run: file-key-wraps.ts and orchestration-process.ts had no lcov (they are measured only by the node leg's --test-coverage-include)"
+   },
+   {
+    "producer": "PostgreSQL restore + checkpoint with --coverage (staging, identical tree)",
+    "result": "29/0",
+    "why": "first patch run: restore.ts 17 lines and checkpoint-barrier.ts:437 uncovered by the PGlite focused set"
+   }
+  ],
+  "noExclusion": "no file excluded, no threshold lowered",
+  "round1": "w15b-merge-patch-coverage-round1.log"
+ },
+ "commitHook": "the pre-commit hook skipped its staged tests (14 test files map to the commit, above its cap of 12); the checks above cover them",
+ "standingSteps": "df 128G at merge start and before the heavy step, 126G during, 151G at commit"
+}

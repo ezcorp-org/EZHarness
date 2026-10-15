@@ -1,0 +1,9 @@
+CRAP: --changed against e777ceb0966659364cf0867801d810bcf5dfeaff → 1 measured file(s) in diff
+
+CRAP: 2 functions in 1 files (max 30, warn 15)
+
+Worst 2:
+     13.0  cc= 13 cov=100%  src/factory/private-files.ts:47 privateDirectory
+      8.0  cc=  8 cov=100%  src/factory/private-files.ts:25 privateComponentVerdict
+
+✓ no touched function exceeds CRAP 30

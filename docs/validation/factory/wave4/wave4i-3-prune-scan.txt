@@ -1,0 +1,14 @@
+no dir /tmp/factory-platform-evidence/prune
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): docs/validation/factory/wave4/w4h-10-merge-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): docs/validation/factory/wave4/w4h-10-merge-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): docs/validation/factory/wave4/w4h-10-merge-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local
+candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-prune-scan.txt: candidate (test file): validator reads: scripts/factory-graph-pr
+candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-prune-scan.txt: candidate (doc file): validator reads: tasks/factory/w10c-GATES.
+candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-prune-scan.txt: candidate (doc file): validator reads: tasks/factory/w10c-GATES.
+candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-prune-scan.txt: candidate (doc file): validator reads: tasks/factory/w10c-GATES.
+candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate (receipt file): validator reads: docs/validation/factory/wave4/wave4i-prune-scan.txt: candidate (doc file): validator reads: tasks/lessons.md: - Never
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: this.prune();
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: this.prune();
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-prune-scan.txt: candidate only (no prune subcommand): src/runtime/sandbox/local-podman/exports.ts: private prune(): void {
+candidate only (no prune subcommand): docs/validation/factory/wave4/wave4i-2-summary.log: guards (join focused): ["./docs/extensions/examples/claude-design/index.coverage.test.ts", "./docs/extensions/examples/file-refactor/index.test.ts", "./docs/ext
+prune scan: clean (12 hit(s))

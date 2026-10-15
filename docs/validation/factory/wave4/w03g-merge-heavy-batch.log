@@ -1,0 +1,32 @@
+=== heavy 2026-09-29T02:04:04Z
+HEAD ae3240dd71a2d255e1502cf8c123d9cb56fa2aeb MERGE_HEAD  index-tree ee107e7603de524ddef80f7de27f63a20884f876
+resource-gate 2026-09-29T02:04:04Z bun-scripts-check-patch-coverage-attestation-test-ts disk=153G memAvailable=16GiB swapFreeKiB=6083096/17173956
+--- START bun-scripts-check-patch-coverage-attestation-test-ts 2026-09-29T02:04:04Z
+--- END   bun-scripts-check-patch-coverage-attestation-test-ts 2026-09-29T02:04:06Z exit=0  26 pass 0 fail 
+resource-gate 2026-09-29T02:04:06Z bun-scripts-check-patch-coverage-typeonly-test-ts disk=153G memAvailable=16GiB swapFreeKiB=6083096/17173956
+--- START bun-scripts-check-patch-coverage-typeonly-test-ts 2026-09-29T02:04:06Z
+--- END   bun-scripts-check-patch-coverage-typeonly-test-ts 2026-09-29T02:04:09Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-29T02:04:09Z bun-scripts-gate-integrity-rule11-test-ts disk=153G memAvailable=16GiB swapFreeKiB=6083096/17173956
+--- START bun-scripts-gate-integrity-rule11-test-ts 2026-09-29T02:04:09Z
+--- END   bun-scripts-gate-integrity-rule11-test-ts 2026-09-29T02:04:11Z exit=0  12 pass 0 fail 
+resource-gate 2026-09-29T02:04:11Z bun-src-__tests__-gate-scripts-test-ts disk=153G memAvailable=16GiB swapFreeKiB=6083112/17173956
+--- START bun-src-__tests__-gate-scripts-test-ts 2026-09-29T02:04:11Z
+--- END   bun-src-__tests__-gate-scripts-test-ts 2026-09-29T02:04:18Z exit=0  248 pass 0 fail 
+resource-gate 2026-09-29T02:04:18Z web-server-lcov disk=153G memAvailable=16GiB swapFreeKiB=6083284/17173956
+--- START web-server-lcov 2026-09-29T02:04:18Z
+--- END   web-server-lcov 2026-09-29T02:04:38Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-09-29T02:04:38Z coverage-merge disk=153G memAvailable=16GiB swapFreeKiB=6083696/17173956
+--- START coverage-merge 2026-09-29T02:04:38Z
+--- END   coverage-merge 2026-09-29T02:04:39Z exit=0 
+resource-gate 2026-09-29T02:04:39Z web-build disk=153G memAvailable=16GiB swapFreeKiB=6083700/17173956
+--- START web-build 2026-09-29T02:04:39Z
+--- END   web-build 2026-09-29T02:05:19Z exit=0 
+resource-gate 2026-09-29T02:05:19Z graph-mock-pass disk=153G memAvailable=15GiB swapFreeKiB=6084204/17173956
+--- START graph-mock-pass 2026-09-29T02:05:19Z
+--- END   graph-mock-pass 2026-09-29T02:06:07Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w03g-merge/graph/w03g-merge-mock.json; nothing to dump
+mock pass w03g-merge-mock outcome: passed
+resource-gate 2026-09-29T02:06:07Z merge-commit-gates disk=153G memAvailable=16GiB swapFreeKiB=6065648/17173956
+--- START merge-commit-gates 2026-09-29T02:06:07Z
+--- END   merge-commit-gates 2026-09-29T02:06:13Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-09-29T02:06:13Z

@@ -1,0 +1,106 @@
+W15b report, round 2: pool bundle regression and gate integrity
+
+Branch wp/w15b-runtime-kms, head c39c039b9 (tree clean). Source head 5f341bf01; c39c039b9 adds only tasks/.
+Base: merged integ/w00 at 6c8ec29c5 (W15 landed). Coverage and gate base: BASE_REF=integ/w00.
+Gate file: tasks/factory/w15b-GATES.md (G1-G8). Receipts: /tmp/factory-platform-evidence/w15b/receipts/.
+Round 1 report: report-r1.txt. Round 1 receipts and logs (source 13bd5aeaf): receipts-r1-13bd5aeaf/, logs-r1-13bd5aeaf/.
+
+COMMITS
+  2ba2c70e6 fix(factory): the pool bundles for Node again; the key service stays in key-composition
+  5f341bf01 fix(factory): the Node launcher test loads the key service from key-composition
+  c39c039b9 docs(tasks): W15b round 2 gates, review, and lessons
+
+TASK 1  Pool bundle regression (validator-2 F2)
+  Cause: pool/checkpoint.ts imported FACTORY_CHECKPOINT_LIMITS from checkpoint-barrier.ts (W15). The barrier
+  imports db/queries/extension-releases, whose dynamic import of db/connection links drizzle-orm/bun-sql, so
+  `bun build src/factory/pool/service-server.ts --target node` failed ("Browser build cannot import Bun builtin").
+  Fix: the limits and the three pool-facing types (pool snapshot, pool source, slot source) move into a leaf,
+  src/factory/checkpoint-limits.ts (imports only the migration's max-age constant). The barrier imports and
+  re-exports them, so its public surface is unchanged; only the pool imports the leaf. Behavior unchanged.
+  Test: src/__tests__/factory-process-boundaries.test.ts, block "C12 the pool service process runs on Node":
+  Bun.build of service-server for target node succeeds, and the pool closure holds checkpoint-limits.ts and no
+  checkpoint-barrier.ts, db/connection.ts, or db/queries/*. Red before the fix (both tests fail with the Bun
+  builtin error when the pool imports the barrier again), green after.
+  Proof: pool-node-build exit 0; pg-pool-mtls (tests/postgres/factory-pool-mtls.test.ts) 1/0; pg-pool-checkpoint 6/0.
+
+TASK 2  Gate-integrity failure (round 1 final run, receipts-r1-13bd5aeaf/static-gate-integrity.json, exit 1)
+  Cause: against integ/w00, round 1 had deleted src/factory/key-composition.ts, its test, and its coverage key
+  (the selection code moved into key-management.ts). The gate reads that as removed gates.
+  Fix: the key-service selection (composeFactoryDataKeyWrapper, FactoryKeyManagement, its validator, the AWS
+  client factory) lives in key-composition.ts again; the KMS adapters stay in key-management.ts as at the base.
+  key-service.test.ts became key-composition.test.ts. Threshold key restored; checkpoint-limits.ts added at 100.
+  Two dynamic imports still named key-management (the Node launcher test and repro/full-stack-proof.ts); the
+  first rerun at 2ba2c70e6 caught them (logs/batch-r2-2ba2c70e6-stopped.log) and 5f341bf01 fixes them.
+
+FINAL RUN  commit 5f341bf01, clean, BASE_REF=integ/w00, under flock --close, logs/batch-r3.log
+  Batch: BASE_REF=integ/w00 flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash bin/batch.sh
+  static-typecheck        bun run typecheck                                        0
+  static-lint             bun run lint                                             0
+  static-boundaries       bun scripts/check-factory-boundaries.ts                  0
+  static-gate-integrity   bun scripts/gate-integrity.ts                            0
+  static-schema-drift     bun scripts/check-schema-generate-drift.ts               0
+  static-suite-registration  suite-registration + c13-inventory tests              0  (18/0)
+  unit                    bun test --coverage (16 files)                           0  (236/0)
+  node-orchestrator       bash scripts/factory-orchestrator-coverage.sh            0
+  pg-retention/checkpoint/restore/rotation  tests/postgres/... under PostgreSQL    0  (14/12/14/1, 0 fail)
+  pg-pool-checkpoint      tests/postgres/factory-pool-checkpoint.test.ts           0  (6/0)
+  pg-pool-mtls            tests/postgres/factory-pool-mtls.test.ts                 0  (1/0)
+  pool-node-build         bun build src/factory/pool/service-server.ts --target node --format esm   0
+  merge-lcov              bun scripts/merge-lcov.ts                                0
+  new-file-coverage       BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts   0
+  patch-coverage          BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts      0
+  web-build               bun run build                                            0
+  full-stack-{operator-master-key,cloud-kms,transit}  W15B_KEY_KIND=<k> repro/one-run.sh  0 (outcome passed;
+                          recovery.archivedCheckpoint.keys.service = the kind in each)
+  backend-pool            bun run test (clean env)                                 0  (28268 pass / 0 fail, 1913 files)
+  postgres-storage-step   bun test <storage-step files>                            0  (317/0)
+  Batch exit 0, 2026-09-24T15:23:20Z to 16:06:03Z. No receipt holds the PostgreSQL password (checked).
+
+R1-R4 status unchanged from round 1 (report-r1.txt): R1, R2, R3 done and proven; R4 unchanged by design.
+OPEN: none. Interface notice from round 1 stands: the orchestrator config's codec section may carry keyManagement.
+
+ROUND 3 (post-W15c), 2026-09-24
+Head 696448490 (tree clean). Source head 9f1391d18; 696448490 adds only tasks/. Branch base for the merge json: 6c8ec29c5.
+Merged integ/w00 b9de6910c (W15c merge 943501e4e) at 4e2fdaf26. Gate/coverage base BASE_REF=b9de6910c.
+Round-2 receipts, logs, full-stack records: receipts-r2-5f341bf01/, logs-r2-5f341bf01/, full-stack-r2-5f341bf01/.
+
+COMMITS
+  4e2fdaf26 Merge commit 'b9de6910c' into wp/w15b-runtime-kms   (no conflict)
+  389c46d75 chore(factory): drop the W15b copies the W15c merge duplicated
+  9f1391d18 fix(factory): an abort during a restore pool call stops the restore instead of recording a refusal
+  696448490 docs(tasks): W15b round 3 gates (post-W15c merge, N1, N5) and the N2-N4 follow-ups
+
+HUNKS TOUCHED AFTER THE MERGE (389c46d75)
+  src/__tests__/factory-process-boundaries.test.ts: the auto-merge kept two C12 blocks. Removed the second (W15c's
+    header, POOL_SERVICE_ENTRY constant, and its one build test, identical to W15b's). Kept W15b's block: the Node
+    build test and the closure case (pool closure holds checkpoint-limits.ts, no barrier, no src/db). The walker was
+    already gone (W15c side); the test imports runtimeImportClosure from scripts/check-factory-boundaries.ts.
+  scripts/coverage-thresholds.json: two "src/factory/checkpoint-limits.ts": 100 keys; removed W15b's, kept the
+    integ/w00 line. Diff against the base is now one line: "src/factory/startup-values.ts": 100.
+  tasks/lessons.md: removed W15b's Node-service lesson; W15c's on the base says the same.
+  Not touched: checkpoint-limits.ts, pool/checkpoint.ts, checkpoint-barrier.ts, check-factory-boundaries.ts (all equal
+    to the base's W15c versions).
+
+N1  tasks/factory/w15b-GATES.md G2: the transit run made 2 transit:decrypt calls, not 3.
+N5  restore.ts: reconcilePool, the liveRows read, and the revoke catch each call signal?.throwIfAborted() before
+    recording pool_refused / post_checkpoint_worker_unrevoked; reconcilePool now receives the signal.
+    Test (tests/postgres/factory-restore.test.ts, one case per call): begin rejects with the abort reason, no pool
+    finding, no report digest. Red on the old restore.ts 0/3 (logs/n5-red-per-case.log); green 17/0.
+N2-N4  disclosed follow-ups in tasks/factory/w15b-GATES.md and tasks/todo.md.
+
+COMMANDS AND EXIT CODES (commit 9f1391d18, clean, logs/batch-r5.log)
+  BASE_REF=b9de6910c flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash bin/batch.sh
+  static-typecheck 0 | static-lint 0 | static-boundaries 0 | static-gate-integrity 0 | static-schema-drift 0
+  static-suite-registration 0 (18/0)
+  unit (17 files incl. factory-process-boundaries and check-factory-boundaries tests, with coverage) 0 (273/0)
+  node-orchestrator (scripts/factory-orchestrator-coverage.sh) 0
+  pg-retention 0 (14/0) | pg-checkpoint 0 (12/0) | pg-restore 0 (17/0) | pg-rotation 0 (1/0) | pg-pool-checkpoint 0 (6/0)
+  pool-producer (scripts/factory-pool-coverage.sh) 0 (86/0 over nine runs)
+  pool-node-build 0 | merge-lcov 0 | new-file-coverage 0 | patch-coverage 0
+  full-stack-operator-master-key 0 | full-stack-cloud-kms 0 | full-stack-transit 0 (outcome passed; keys.service = kind)
+  df before each heavy step: 129-131 GB free.
+  A first run (logs/batch-r4-stale-builds.log) failed typecheck, node-orchestrator, and patch coverage: the workspace
+  packages were built before the merge (extension-contract, factory-sdk exports). bun install plus a rebuild of every
+  workspace package (logs/rebuild-r3.log) fixed it; the rerun above is the record.
+  Not rerun in round 3 (not in the lead's list): backend pool, web build, storage step. Round-2 receipts moved to
+  receipts-r2-stale/ so receipts/ holds round 3 only.

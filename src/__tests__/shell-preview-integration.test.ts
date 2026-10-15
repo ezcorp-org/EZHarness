@@ -11,6 +11,9 @@
  * execution is untouched.
  */
 import { test, expect, describe } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createShellTool, type ShellPreviewWiring } from "../runtime/tools/shell";
 
 function fakeProc(pid = 4242) {
@@ -98,7 +101,53 @@ describe("shell tool — preview spawn trigger", () => {
     const res = await tool.execute("tc4", { command: "serve" });
     expect(calls).toHaveLength(1); // launch WAS attempted (serve is recognized)
     const details = res.details as { preview?: unknown; exitCode: number };
-    expect(details.preview).toBeUndefined(); // did NOT short-circuit on success
+    // Ran the normal path (not the preview success payload), and says why.
+    expect(details.exitCode).not.toBe(0);
+    expect(details.preview).toEqual({ launched: false, reason: "preview uid pool exhausted" });
+  });
+
+  test("a refused launch tells the user no preview link will appear, and why", async () => {
+    const { wiring: w } = wiring({
+      launch: () => ({ ok: false, reason: "uid-mode previews unavailable (mode=static)" }),
+    });
+    const tool = createShellTool(process.cwd(), w);
+    const res = await tool.execute("tc6", { command: "serve" });
+    const text = (res.content[0] as { text: string }).text;
+    expect(text).toContain(
+      "No preview link: secure previews are unavailable here (uid-mode previews unavailable (mode=static)). " +
+        "The command ran as a normal shell command.",
+    );
+  });
+
+  test("a refused dev server that keeps running hits the timeout, and the note is still there", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shell-preview-timeout-"));
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { dev: "sleep 3" } }));
+      const { wiring: w } = wiring({ launch: () => ({ ok: false, reason: "preview uid pool exhausted" }) });
+      const tool = createShellTool(dir, w);
+      const res = await tool.execute("tc7", { command: "bun run dev", timeout: 1000 });
+      expect(res.details).toMatchObject({ timeout: true, preview: { launched: false, reason: "preview uid pool exhausted" } });
+      expect((res.content[0] as { text: string }).text).toContain("No preview link:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("a refused dev server that the user cancels reports the abort and the note", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "shell-preview-abort-"));
+    try {
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ scripts: { dev: "sleep 3" } }));
+      const { wiring: w } = wiring({ launch: () => ({ ok: false, reason: "preview uid pool exhausted" }) });
+      const tool = createShellTool(dir, w);
+      const cancelled = new AbortController();
+      cancelled.abort();
+      const res = await tool.execute("tc8", { command: "bun run dev" }, cancelled.signal);
+      expect(res.details).toMatchObject({ aborted: true, preview: { launched: false, reason: "preview uid pool exhausted" } });
+      expect((res.content[0] as { text: string }).text).toStartWith("Command aborted\n");
+      expect((res.content[0] as { text: string }).text).toContain("No preview link:");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   test("no preview wiring at all → normal execution (back-compat)", async () => {

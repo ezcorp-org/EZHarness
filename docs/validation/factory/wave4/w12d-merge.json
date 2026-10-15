@@ -1,0 +1,161 @@
+{
+ "package": "w12d",
+ "branch": "wp/w12d-reproducible-image",
+ "head": "e8207518c12d06d1b737dc04ea2a9cb5cb661349",
+ "acceptedAt": "c0da6425c (code 0c62f68e8)",
+ "branchBase": "2b2e12550",
+ "validatorVerdict": "ACCEPT at c0da6425c by validator-3 (review of code, receipts and logs), carried to e8207518c (one message string + gates file) by the coordinator; copied as w12d-validation.txt",
+ "mergeSha": "832f8f4d0acbc495f0d98ea393b4bc56a7d6c3e0",
+ "tree": "30c84dd12310d51ce55600fb7780faa246b7d546",
+ "parents": [
+  "f519f602ba1373e629c8c7b4e52682d3283ff179",
+  "e8207518c12d06d1b737dc04ea2a9cb5cb661349"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "tasks/lessons.md": "union"
+ },
+ "integrationFix": [],
+ "keptFromIntegration": "reference-data/guest.ts keeps factory_materials.py in SHARED_GUEST_MODULES and guest.test.ts keeps the sealed-import guard (from the W01g merge)",
+ "reproducedDigest": "sha256:f9cc747722e79b54e59fafd32d29da39f5352ffca3a835d31fcac982bc9d9e8c (both check-mode builds at the merged tree reproduced the committed pin, exit 0)",
+ "heavy": {
+  "where": "proof/w12d-merge-staged 65f015347ceaa61f4a2bd7236e5aa07fb7add211 (tree 30c84dd12 = the merge tree) in a temporary worktree for the builds and the control; the guest suites in staging",
+  "summary": [
+   "lock 2026-09-25T09:49:34Z free 151G proof-commit 65f015347ceaa61f4a2bd7236e5aa07fb7add211 tree 30c84dd12310d51ce55600fb7780faa246b7d546",
+   "check-build-1 start=2026-09-25T09:49:34Z end=2026-09-25T09:49:42Z exit=0",
+   "control start=2026-09-25T09:49:42Z end=2026-09-25T09:50:00Z exit=0",
+   "check-build-2 start=2026-09-25T09:50:00Z end=2026-09-25T09:50:09Z exit=0",
+   "guest suites exit=0",
+   "DONE status=0"
+  ],
+  "control": {
+   "script": "copy of /tmp/factory-platform-evidence/w12d/control.sh with W repointed at the proof worktree (git archive HEAD = the merged tree)",
+   "pass": 12,
+   "fail": 0,
+   "log": "w12d-merge-control.log"
+  },
+  "guestSuites": [
+   "=== heavy batch 2026-09-25T09:50:09Z",
+   "HEAD f519f602ba1373e629c8c7b4e52682d3283ff179 MERGE_HEAD e8207518c12d06d1b737dc04ea2a9cb5cb661349 index-tree 30c84dd12310d51ce55600fb7780faa246b7d546 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  151G  92% /",
+   "--- START podman-journey.integration 2026-09-25T09:50:09Z",
+   "--- END   podman-journey.integration 2026-09-25T09:51:04Z exit=0  11 pass 0 fail ",
+   "--- START podman-applied-controls.integration 2026-09-25T09:51:04Z",
+   "--- END   podman-applied-controls.integration 2026-09-25T09:51:19Z exit=0  5 pass 0 fail ",
+   "--- START podman-python-guest.integration 2026-09-25T09:51:19Z",
+   "--- END   podman-python-guest.integration 2026-09-25T09:52:14Z exit=0  12 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-25T09:52:14Z"
+  ],
+  "images": {
+   "before": [
+    "localhost/ezcorp-factory-python-data:a8034aa9676cedc3706aefa3ef4e7939 sha256:1bf456b746c349c960a1abc43fd69c66ab990c6a46dc2125f32defc1b6da1cee",
+    "localhost/ezcorp-factory-python-data:5f02158652f81805fc6b0e7fb74bb317 sha256:f9cc747722e79b54e59fafd32d29da39f5352ffca3a835d31fcac982bc9d9e8c"
+   ],
+   "after": [
+    "localhost/ezcorp-factory-python-data:a8034aa9676cedc3706aefa3ef4e7939 sha256:1bf456b746c349c960a1abc43fd69c66ab990c6a46dc2125f32defc1b6da1cee",
+    "localhost/ezcorp-factory-python-data:5f02158652f81805fc6b0e7fb74bb317 sha256:f9cc747722e79b54e59fafd32d29da39f5352ffca3a835d31fcac982bc9d9e8c"
+   ],
+   "note": "unchanged; no tagged image removed; no candidate tag left"
+  }
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:07Z",
+   "end": "2026-09-25T09:10:08Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "5579336e7974b2ec0ebd60715192dab27083494b10c1a99a9c68edc9ea57c8ce"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:08Z",
+   "end": "2026-09-25T09:10:49Z",
+   "command": "bun run typecheck",
+   "logSha256": "34f8bb6d83274d77e6ab71e88b4f202ddbd681d35ed52298c3d9c096f84ce34d"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:49Z",
+   "end": "2026-09-25T09:10:50Z",
+   "command": "bun run lint",
+   "logSha256": "98134a44a4e52ce116b614d1b3494f770673b5820db8a3ac1cb8d6f0bdf97c05"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:50Z",
+   "end": "2026-09-25T09:10:53Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:53Z",
+   "end": "2026-09-25T09:10:54Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:54Z",
+   "end": "2026-09-25T09:10:58Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-reference-data-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:58Z",
+   "end": "2026-09-25T09:10:59Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-data/guest.test.ts",
+   "logSha256": "c1e1f7b15a8b2a9d46d4c268d4c1f730de3f9e9137591745298982cdcfbd2ed2"
+  },
+  {
+   "name": "focused-src-factory-runner-python-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:59Z",
+   "end": "2026-09-25T09:10:59Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/python-guest.test.ts",
+   "logSha256": "d4a138cff116f6bb506e393cb21ccc0d08c6fdaaf24ec83cfcdb9d71ac6cc3ad"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:10:59Z",
+   "end": "2026-09-25T09:11:03Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "7baf12f1fcd835ee4b88689c8eac0a2036de97188f24a8ca32f4c0ffc9334306"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:11:03Z",
+   "end": "2026-09-25T09:11:05Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "efb23ca50e4c42512f29bc4627474fa0acd798c1cec6fc24534f86b12fdedea9"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-process-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T09:11:05Z",
+   "end": "2026-09-25T09:11:06Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts",
+   "logSha256": "7de448351bc91943250ad46e612ec718118aa31290d9fad044b44f61904bbcaa"
+  }
+ ],
+ "coverage": {
+  "proofCommit": "proof/w12d-merge-staged 65f015347",
+  "baseRef": "f519f602b",
+  "producer": "reference-data guest.test.ts with coverage 7/0",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (1 file)"
+ },
+ "disclosed": "reproduces on the same toolchain (Podman 5.8.2); across Podman versions not proven (worker's own statement, in the gates file and guest.ts)",
+ "commitHook": "the hook ran its staged suites (7/0); no skip",
+ "standingSteps": "df 151G at merge start and at the lock, 150G at commit"
+}

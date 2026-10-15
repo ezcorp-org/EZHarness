@@ -1,5 +1,5 @@
 /**
- * ExtensionProcess install-path spawn pre-check (src/extensions/subprocess.ts):
+ * HostExtensionProcess install-path spawn pre-check (src/extensions/subprocess.ts):
  *
  *   - an unresolvable install path (entrypoint file missing on disk) THROWS
  *     the actionable, environment-shaped message BEFORE `Bun.spawn` — no
@@ -57,7 +57,7 @@ mock.module("../extensions/registry", () => ({
 
 afterAll(() => restoreModuleMocks());
 
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 
 const crashPath = join(import.meta.dir, "helpers", "crash-extension.ts");
 const missingPath = join(
@@ -77,9 +77,9 @@ beforeEach(() => {
   reloadCalled = false;
 });
 
-describe("ExtensionProcess install-path spawn pre-check", () => {
+describe("HostExtensionProcess install-path spawn pre-check", () => {
   test("an unresolvable install path throws BEFORE spawning and never runs", () => {
-    const ep = new ExtensionProcess("env-mismatch", missingPath, allowedEnv);
+    const ep = new HostExtensionProcess("env-mismatch", missingPath, allowedEnv);
     expect(() => ep.ensureRunning()).toThrow(/install path could not be resolved/);
     expect(() => ep.ensureRunning()).toThrow(missingPath);
     // No spawn happened → isRunning stays false.
@@ -87,19 +87,19 @@ describe("ExtensionProcess install-path spawn pre-check", () => {
   });
 
   test("the pre-check error names the extension when extensionName is provided", () => {
-    const ep = new ExtensionProcess("0000-uuid-like-id", missingPath, allowedEnv, {
+    const ep = new HostExtensionProcess("0000-uuid-like-id", missingPath, allowedEnv, {
       extensionName: "web-search",
     });
     expect(() => ep.ensureRunning()).toThrow(/Extension "web-search" install path/);
   });
 
   test("falls back to the extension id when no name is provided", () => {
-    const ep = new ExtensionProcess("raw-id-123", missingPath, allowedEnv);
+    const ep = new HostExtensionProcess("raw-id-123", missingPath, allowedEnv);
     expect(() => ep.ensureRunning()).toThrow(/Extension "raw-id-123" install path/);
   });
 
   test("names it as an environment problem, distinct from a spawn crash message", () => {
-    const ep = new ExtensionProcess("env-mismatch-2", missingPath, allowedEnv);
+    const ep = new HostExtensionProcess("env-mismatch-2", missingPath, allowedEnv);
     expect(() => ep.ensureRunning()).toThrow(/environment problem/);
     // Distinct from the language a real crash gets (subprocess-npm-deps.test.ts
     // and the "auto-disable" test below): never "auto-disabled", never
@@ -108,7 +108,7 @@ describe("ExtensionProcess install-path spawn pre-check", () => {
   });
 
   test("call() surfaces the pre-check failure without incrementing failures", async () => {
-    const ep = new ExtensionProcess("env-mismatch-3", missingPath, allowedEnv);
+    const ep = new HostExtensionProcess("env-mismatch-3", missingPath, allowedEnv);
     await expect(ep.call("tools/call", { name: "x", arguments: {} })).rejects.toThrow(
       /install path could not be resolved/,
     );
@@ -123,7 +123,7 @@ describe("ExtensionProcess install-path spawn pre-check", () => {
     // The exact contract the incident violated: a persistently-unresolvable
     // path must never accumulate toward AUTO_DISABLE_THRESHOLD (3), however
     // many times it is called.
-    const ep = new ExtensionProcess("env-mismatch-persistent", missingPath, allowedEnv);
+    const ep = new HostExtensionProcess("env-mismatch-persistent", missingPath, allowedEnv);
     for (let i = 0; i < 5; i++) {
       await expect(ep.call("tools/call", { name: "x", arguments: {} })).rejects.toThrow(
         /install path could not be resolved/,
@@ -138,7 +138,7 @@ describe("ExtensionProcess install-path spawn pre-check", () => {
     // crash-extension.ts exists on disk — proves the new check does not
     // false-positive on a real, present entrypoint (the actual crash is
     // asserted separately, below, and in subprocess-npm-deps.test.ts).
-    const ep = new ExtensionProcess("resolvable", crashPath, allowedEnv);
+    const ep = new HostExtensionProcess("resolvable", crashPath, allowedEnv);
     let caught: Error | null = null;
     try {
       await ep.callTool("boom", {});
@@ -158,7 +158,7 @@ describe("ExtensionProcess install-path spawn pre-check", () => {
     // hit AUTO_DISABLE_THRESHOLD and disable the extension, exactly as
     // subprocess-npm-deps.test.ts already proves for the npm-dep pre-check.
     failureCount = 2; // the next crash increments to 3 === AUTO_DISABLE_THRESHOLD
-    const ep = new ExtensionProcess("genuine-crash-loop", crashPath, allowedEnv);
+    const ep = new HostExtensionProcess("genuine-crash-loop", crashPath, allowedEnv);
     try {
       await ep.callTool("boom", {}).catch(() => {});
       await new Promise((r) => setTimeout(r, 800));

@@ -1,0 +1,125 @@
+W03e — settle a stopped attempt that has no usage operations. Final report.
+
+Branch wp/w03e-usage-settle. Head 83509f50a (clean). Code head 7ad032681; 83509f50a changes only the gate file. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w03e-usage-settle.
+Base integ/w00 39a7189e0; integ/w00 d5ee52309 merged at 9f331af30 (W18a-2's task-stops refactor; the
+certainty read was moved into readSealed during that merge).
+Gate file tasks/factory/w03e-GATES.md. Todo section with review: tasks/todo.md. Lessons: tasks/lessons.md.
+
+COMMITS
+8a9a5c134 fix(factory): settle a stopped attempt with no operations as a typed zero
+f46c8f266 docs(tasks): W03e plan
+145a02f17 test(factory): read settlement revisions the same way on PGlite and PostgreSQL
+bed6b930d docs(lessons): W03e usage-settlement lessons
+9f331af30 Merge branch 'integ/w00' into wp/w03e-usage-settle
+439676d8d docs(factory): W03e gate file and review
+7ad032681 feat(factory): name the no-operations settlement basis on the record
+83509f50a docs(factory): W03e basis gate and disclosed gaps with owners
+
+REPRODUCTION (real application, W02c's harness at W02c's head daf5203cc)
+proof/receipt-base-v2.json (and receipt-base.json, same result):
+- Run O: the operator cancelled a live attempt through POST .../runs/{id}/control. The guest stopped
+  through W03's stop path, and no operation was journaled.
+- Run A: the package was quarantined while its guest ran, and the server was SIGKILLed mid-stop. The
+  run was cancelled once with factory_package_quarantined and is in W02c's affected-run record.
+- Both runs stayed "cancelling". Both reservations stayed "uncertain" with no settlement. The server
+  logged "factory_usage_hold_unresolved: no-operation-receipt" on every pass.
+- The inbox shows attempt-stopped uncertain:true twice: the real stop first timed out, then confirmed.
+The first attempt hit the ordinary-store outage (Exited 137) and is kept as proof/readiness-failure-base.json.
+
+ROOT CAUSE
+1. FactoryTaskStops.finalize treated "no terminal usage" as "unknown usage" without consulting the
+   journal, so a stop before the first operation always left an uncertain hold. Reconciliation can
+   only resolve a hold from an operation's provider receipt, and there was none.
+2. The kernel folds a later certain attempt-stopped into an attempt it holds as stopped-and-uncertain
+   only when the event says uncertain:false explicitly. No product path emitted that, so even a late
+   stop receipt never cleared the attempt.
+
+FIX
+- confirm() reads the journal through its public API before the finalize transaction. The set is
+  final: the sealed stop exists, so cancellation was accepted, and prepare() refuses any attempt that is
+  not admitted or running.
+- If there is no terminal usage and the journal is empty, finalize settles in the same transaction:
+  - a settlement with source "no-operations", knownCostMicros "0", and the signed stopReceiptDigest;
+  - exactly one usage-settled event;
+  - FactoryBudgets.settleWithoutOperationsInTransaction: zero cost and zero tokens, with compute
+    charged at the reserved bound because a killed process reports no measured compute;
+  - a certain stop event.
+- Any journaled operation, even one only prepared, keeps the uncertain-hold path.
+- A certain stop after a stop-uncertain event carries uncertain:false. The stored event's certainty is
+  re-derived from the typed settlement.
+- Migration add-factory-usage-no-operations: adds the source value and a stop_receipt_digest column.
+  Its CHECKs allow a stop receipt on that source only, and only as a known zero with nothing held and
+  no provider receipt. It has a schema mirror, a restart case, and coverage threshold 100.
+
+THE PASSES (real server, three passes, each 10 of 10)
+proof/receipt-final-pass-{1,2,3}.json at 6d027172f = 9f331af30 + wp/w02c-quarantine c17ea2aa9 (scratch
+merge in .worktrees/w03e-proof, because the fence is not in integ/w00).
+- Run O reached "cancelled".
+- Run A reached "cancelled" with factory_package_quarantined, after the mid-stop SIGKILL.
+- Each run settled exactly once as a typed no-operations zero, with one usage-settled event and a
+  settled reservation (actual costMicros 0, tokens 0, computeMs 600000 = the reserved bound).
+- The stop path was uncertain then cleared.
+Earlier sets:
+- receipt-v2-pass-{1,2,3}.json at e37b3e928 all passed.
+- The harness-v1 set is kept (*-harness-v1.json). One v1 pass was scored failed by a harness check that
+  demanded uncertain:false after a stop that was never uncertain. That run reached "cancelled" with one
+  zero settlement, and the check was corrected before any rerun.
+
+WHAT IS GREEN (merged head 9f331af30; the final commit changes only tasks/)
+| Leg | Result |
+| --- | --- |
+| Stop suite, PGlite | 24/0; 7 new-behaviour tests fail on the unfixed store (logs/mutant-task-stops.log) |
+| PostgreSQL task-stops / restart / schema | 24/0, 16/0, 2/0 |
+| Backend pool | 28195 pass, 0 fail, 1901 files |
+| typecheck, lint, check-boundaries, factory-boundaries, gate-integrity | exit 0 |
+| New-file coverage | 1 new source file at 100% |
+| Patch coverage | 6 files, all changed lines covered |
+| crap-score --changed | no touched function above CRAP 30 |
+Tests cover: success with a fold through the real kernel to "cancelled", a prepared operation staying
+uncertain, concurrent stops, a lost receipt (timeout then a late receipt), crash and restart (a lost
+settlement transaction after the pool released), stale epoch, cross-tenant denial, corrupt certainty,
+settlement validation, and the migration.
+
+OPEN
+1. A hold that reconciliation later resolves from a provider receipt settles usage but never clears the
+   kernel's uncertain attempt, so that run also stays cancelling. Exact change: after
+   FactoryUsageReconciliation.reconcile settles, enqueue the sealed stop's attempt-stopped with
+   uncertain:false. This belongs to the W03 surface and needs its own real proof.
+2. A reservation with zero reserved cost is never listed by listUncertainWithCostInTransaction, so it
+   could never be reconciled. New stops no longer reach it for the no-operations case.
+3. Rows already stopped-uncertain by pre-fix code are not back-filled. The platform is unreleased, so
+   none are expected.
+
+RULING APPLIED (lead, 2026-09-24)
+Compute for a no-operations stop is confirmed at its reserved bound. The settlement record now names the
+basis "no-operations: compute at reserved bound" (7ad032681): it is derived from the source, sealed in the
+settlement digest, and stored in a `basis` column with a CHECK. Re-run at 7ad032681 under the heavy lock:
+PostgreSQL stops 24/0, restart 16/0, schema 2/0; pool 28195/0; both coverage gates and CRAP --changed pass
+(receipts/basis-*.json). The gate file records the two open items as disclosed gaps: the reconciliation
+clearing gap is owned by W05/W09 as a follow-up package, and the zero-cost listing gap stays with W03.
+
+INTERFACE QUESTIONS
+1. The frozen FactoryUsageSettlementSource gains "no-operations", and FactoryUsageSettlement gains
+   stopReceiptDigest (freeze section 4). W14's cost views consume this type. Please update the freeze
+   text.
+2. Compute for a no-operations stop is charged at its reserved bound, never zero. Please confirm this
+   policy, or name a measured source.
+3. The merge with W02c conflicts in factory-task-stops-suite.ts (keep the FactoryBudgets type import;
+   drop FactoryCommandAuthority), factory-migration-restart-suite.ts (keep both new cases), lessons and
+   todo (keep both). The resolved merge passes: stop suite 24/0, restart 17/0, fence 17/0, typecheck 0.
+
+NOT TOUCHED
+The journal (executions.ts) and the kernel are consumed unchanged. No in-flight package file was
+edited.
+
+UPDATE 2026-09-24: HEAD c6dbc321c (clean)
+- 33ef581f2 fix(factory): keep stops sealed before W03e readable. This answers the validator's finding. A
+  measured stop sealed after stop-uncertain by pre-W03e code stored no `uncertain` field and now
+  re-derives cleanly. Any other stored shape is still corrupt. The new test seals the old shape, replays
+  it, and refuses a forged shape; it fails on 83509f50a's task-stops.ts (logs/mutant-legacy-read.log).
+- c6dbc321c docs: G9, the dated interface-freeze disclosure (2026-09-24), the rulings, the W05/W09
+  follow-up package with its exact change, and the W03 zero-cost gap, in the gate file and tasks/todo.md.
+Receipts at c6dbc321c, clean tree:
+  PostgreSQL stops 25/0, restart 16/0 (receipts/legacy-pg-*.json, under the heavy lock)
+  PGlite stops 25/0, restart 16/0; typecheck, lint, check-boundaries, factory-boundaries, gate-integrity
+  exit 0 (receipts/legacy-*.json)

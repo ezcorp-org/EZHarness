@@ -23,7 +23,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import {
   mockServerAlias,
   createMockEvent,
@@ -46,7 +46,7 @@ mock.module("$server/db/queries/projects", () =>
 mock.module("$server/runtime/scan/feature-scan", () =>
   require("../runtime/scan/feature-scan"),
 );
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null, // open scope — auth is checked separately by requireAuth
 }));
 mock.module("$lib/server/security/validation", () =>

@@ -1,0 +1,13 @@
+temp root: /tmp/w4h-13-r1.HAPiGZ  ref: integ/w00 (1bc5f63c7)
+bun 1.4.2 (pin of integ/w00)
+BEFORE sha256[0:16]=4977e193d57b4ec9 core.bare=false
+commit exit=0
+  bun: src/repro.test.ts
+staged test saw GIT_* = []
+ 1 pass
+ 0 fail
+Ran 1 test across 1 file. [195.00ms]
+AFTER  sha256[0:16]=4977e193d57b4ec9 core.bare=false
+config diff (before -> after):
+VERDICT: GREEN (shared config byte-equal)
+removed /tmp/w4h-13-r1.HAPiGZ

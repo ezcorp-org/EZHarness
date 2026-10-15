@@ -128,6 +128,23 @@ function isJsonRpcResponse(r: FsRpcResponse): r is JsonRpcResponse {
   return (r as { streamed?: boolean }).streamed !== true;
 }
 
+/** Reassemble chunked frames like the SDK channel does (atob per chunk, then JSON.parse). */
+function reassembleFrames(frames: readonly string[]): JsonRpcResponse {
+  const announce = frames[0]!.slice(1).split(":");
+  expect(Number(announce[1])).toBe(frames.length - 1);
+  let assembled = "";
+  for (let i = 1; i < frames.length; i++) {
+    const f = frames[i]!;
+    expect(f.startsWith("\x01")).toBe(true);
+    const body = f.slice(1, f.length - 1); // strip sentinel + trailing \n
+    const colon1 = body.indexOf(":");
+    const colon2 = body.indexOf(":", colon1 + 1);
+    expect(Number(body.slice(colon1 + 1, colon2))).toBe(i - 1);
+    assembled += atob(body.slice(colon2 + 1));
+  }
+  return JSON.parse(assembled) as JsonRpcResponse;
+}
+
 beforeEach(() => {
   workDir = mkdtempSync(join(tmpdir(), "ezcorp-fs-handler-"));
   installDir = join(workDir, "install");
@@ -257,27 +274,25 @@ describe("fs-handler — read", () => {
     expect(frames[0]!.startsWith("\x02")).toBe(true);
     expect(frames[0]!).toContain("7:"); // id=7
 
-    // Reassemble like the SDK channel will.
-    const announce = frames[0]!.slice(1).split(":");
-    expect(Number(announce[1])).toBe(frames.length - 1);
-    let assembled = "";
-    for (let i = 1; i < frames.length; i++) {
-      const f = frames[i]!;
-      expect(f.startsWith("\x01")).toBe(true);
-      const body = f.slice(1, f.length - 1); // strip sentinel + trailing \n
-      const colon1 = body.indexOf(":");
-      const colon2 = body.indexOf(":", colon1 + 1);
-      const seq = Number(body.slice(colon1 + 1, colon2));
-      expect(seq).toBe(i - 1);
-      assembled += atob(body.slice(colon2 + 1));
-    }
-    const parsed = JSON.parse(assembled) as JsonRpcResponse;
+    const parsed = reassembleFrames(frames);
     expect(parsed.id).toBe(7);
     const result = parsed.result as { body: string; bytes: number };
     expect(result.bytes).toBe(size);
     const decoded = Buffer.from(result.body, "base64");
     expect(decoded.length).toBe(size);
     expect(decoded[0]).toBe(0x41);
+  });
+
+  test("(e2) streamed response keeps a non-Latin-1 resolvedPath intact", async () => {
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const target = join(grantedDir, "日本-文件-😀.bin");
+    writeFileSync(target, Buffer.alloc(STREAM_THRESHOLD + 1, 0x41));
+
+    const r = await handleFsReadRpc(makeRequest("ezcorp/fs.read", { path: target }, 8), ctx);
+
+    expect((r as { streamed?: boolean }).streamed).toBe(true);
+    const parsed = reassembleFrames((r as unknown as { frames: readonly string[] }).frames);
+    expect((parsed.result as { resolvedPath: string }).resolvedPath).toBe(target);
   });
 
   test("(f) explicit binary encoding round-trips arbitrary bytes", async () => {
@@ -687,5 +702,109 @@ describe("fs-handler — unlink", () => {
     } finally {
       rmSync(outsideDir, { recursive: true, force: true });
     }
+  });
+});
+
+// ════════════════════════════════════════════════════════════════════
+// Per-tool filesystem mode narrowing (`capabilities.filesystem.mode`)
+// ════════════════════════════════════════════════════════════════════
+
+describe("fs-handler — per-tool mode narrowing", () => {
+  /** A ctx whose manifest declares one read-only tool and one write-only tool. */
+  function narrowedCtx(): FsHandlerContext {
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const manifest = {
+      tools: [
+        { name: "reader", capabilities: { filesystem: { paths: [grantedDir], mode: ["read"] } } },
+        { name: "writer", capabilities: { filesystem: { paths: [grantedDir], mode: ["write"] } } },
+        { name: "plain" },
+      ],
+    };
+    return { ...ctx, registry: { ...ctx.registry, getManifest: () => manifest } as unknown as FsHandlerContext["registry"] };
+  }
+
+  const READ_OPS = [
+    ["read", handleFsReadRpc],
+    ["list", handleFsListRpc],
+    ["stat", handleFsStatRpc],
+    ["exists", handleFsExistsRpc],
+  ] as const;
+  const WRITE_OPS = [
+    ["mkdir", handleFsMkdirRpc],
+    ["unlink", handleFsUnlinkRpc],
+  ] as const;
+
+  test.each(READ_OPS)("a write-only tool cannot %s", async (op, handler) => {
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: grantedDir, _toolName: "writer" }), narrowedCtx())) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toBe('Filesystem access denied: tool "writer" capabilities.filesystem.mode does not include "read"');
+  });
+
+  test.each(WRITE_OPS)("a read-only tool cannot %s, and nothing changes on disk", async (op, handler) => {
+    const target = join(grantedDir, "keep.txt");
+    writeFileSync(target, "x");
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: target, _toolName: "reader" }), narrowedCtx())) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toContain('does not include "write"');
+    expect(readFileSync(target, "utf-8")).toBe("x");
+  });
+
+  test("a tool without a filesystem declaration, or an unknown tool, uses the extension grant", async () => {
+    for (const toolName of ["plain", "no-such-tool"]) {
+      const r = (await handleFsStatRpc(makeRequest("ezcorp/fs.stat", { path: grantedDir, _toolName: toolName }), narrowedCtx())) as JsonRpcResponse;
+      expect(r.error).toBeUndefined();
+    }
+  });
+});
+
+describe("fs-handler — unlink refusals", () => {
+  test("an extension the registry no longer knows cannot unlink", async () => {
+    const target = join(grantedDir, "orphan.txt");
+    writeFileSync(target, "x");
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const unknown = { ...ctx, extensionId: "ext-gone" };
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: target }), unknown)) as JsonRpcResponse;
+    expect(r.error).toMatchObject({ code: -32603, message: "Extension not found in registry" });
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("a policy deny keeps the file", async () => {
+    const target = join(grantedDir, "guarded.txt");
+    writeFileSync(target, "x");
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), engine: createStubPermissionEngine("deny-all") };
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: target }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.error?.message).toStartWith("Filesystem access denied:");
+    expect(existsSync(target)).toBe(true);
+  });
+
+  test("unlinking a directory reports the OS error code", async () => {
+    const dir = join(grantedDir, "subdir");
+    mkdirSync(dir);
+    const ctx = makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } });
+    const r = (await handleFsUnlinkRpc(makeRequest("ezcorp/fs.unlink", { path: dir }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32000);
+    expect(r.error?.message).toMatch(/^E(ISDIR|PERM): unlink failed: /);
+    expect(existsSync(dir)).toBe(true);
+  });
+});
+
+describe("fs-handler — write and exists refusals", () => {
+  test.each([
+    ["write", handleFsWriteRpc, { content: "x" }],
+    ["exists", handleFsExistsRpc, {}],
+  ] as const)("an extension the registry no longer knows cannot %s", async (op, handler, extra) => {
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), extensionId: "ext-gone" };
+    const r = (await handler(makeRequest(`ezcorp/fs.${op}`, { path: join(grantedDir, "new.txt"), ...extra }), ctx)) as JsonRpcResponse;
+    expect(r.error).toMatchObject({ code: -32603, message: "Extension not found in registry" });
+    expect(existsSync(join(grantedDir, "new.txt"))).toBe(false);
+  });
+
+  test("a policy deny hides whether a path exists", async () => {
+    writeFileSync(join(grantedDir, "secret.txt"), "x");
+    const ctx = { ...makeCtx({ granted: { filesystem: [grantedDir], grantedAt: {} } }), engine: createStubPermissionEngine("deny-all") };
+    const r = (await handleFsExistsRpc(makeRequest("ezcorp/fs.exists", { path: join(grantedDir, "secret.txt") }), ctx)) as JsonRpcResponse;
+    expect(r.error?.code).toBe(-32001);
+    expect(r.result).toBeUndefined();
   });
 });

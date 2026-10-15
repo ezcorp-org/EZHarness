@@ -1,0 +1,48 @@
+VERDICT (validator-6) — W4H-1 at d341d8690 (wp/w4h-1, owner w4h-1), base integ/w00 52d8ba079: ACCEPT for the lock-free phase; two items OPEN (below)
+
+5 commits, all archy noreply as author and committer: 2f2d689d7 (fix), 8f8c88a44 (gates), 1d243fb1c (gates), ef7391fc5 (ai-kit
+test type annotations), d341d8690 (gates). Files: packages/@ezcorp/ai-kit/src/cli/install.ts, its test/unit/cli-install.test.ts,
+test/unit/client.test.ts, test/e2e/quickstart.test.ts, manifest.lock.json, tasks/factory/w4h-1-GATES.md, tasks/todo.md.
+Where: a clean snapshot (validator-5/lib.sh v5_snapshot) after wait_gate (the first two waits, 01:19-02:11Z and 02:12-06:10Z,
+never met the gate: disk 61-98 GB, swap 0-2 GiB; exit 96 both, nothing created; the third started 14:31Z with disk 113 GB).
+Shared config (config-check.py --check-only): start and end exit 1, "cecabf1f5b05be37 -> 888c78b9e94ea660 only in branch/remote
+sections" (benign, recorded, not a stop). Hold record: w4g-validation/w4h1/hold-d341d8690/results.jsonl.
+
+(1) CAUSE: the pinned runner image DEFAULT_IMAGE (packages/@ezcorp/extension-runner/src/podman.ts:45,
+  docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895), run once with --network=none and
+  the entrypoint sh: `command -v git` → "git: none"; `command -v bun` → /usr/local/bin/bun. At the base the installer spawned
+  `git rev-parse --show-toplevel` (gitProjectRoot) and the test used gitInDirectory (`git init`); both need git.
+(2) FIX: install.ts imports findProjectRoot from @ezcorp/sdk/runtime and calls it (lines 8, 137); no copy of the walk, no
+  Bun.spawn of git, no .git probe of its own (the only Bun.spawn left is the existing `bun <postinstall>`, line 245). The tests use
+  markGitRepository; a worktree `.git` file case and a bun-only-PATH case are added; the "no root" test drops its existsSync stub
+  and asserts nothing is created.
+  - cli-install.test.ts at the head: 30 pass, 0 fail.
+  - The head's tests against the base installer (install.ts from 52d8ba079): RED 27 pass, 3 fail, by assertion: "resolves the
+    enclosing git repository from a nested cwd" and "a worktree's .git file anchors the project root" ("Could not find a project
+    root": git cannot read the marker repository), and "finds the project root with no git executable on PATH" with
+    `Executable not found in $PATH: "git"` (ENOENT).
+(3) MANIFEST LOCK: `bun scripts/regenerate-manifest-lock.ts --check` exit 0; regenerating it from the clean snapshot leaves
+  manifest.lock.json byte-identical (git diff --exit-code 0). The ai-kit entry moved twice: 2f2d689d7 (bytes 400556 -> 401476)
+  and ef7391fc5 (401476 -> 401485, digest 07a45a3c…), because the test files are part of the bundle.
+(4) TYPECHECK: ef7391fc5 changes two test annotations (quickstart.test.ts `input: string | URL | Request`; client.test.ts
+  `input: unknown`) and the lock entry; nothing else. ai-kit `bun run typecheck`: 0 at the head; with the two test files of
+  1d243fb1c: exit 2 (TS2552 'RequestInfo' in quickstart.test.ts:19; TS7006 implicit any in client.test.ts:35). Root typecheck,
+  lint, check-factory-boundaries, check-boundaries: 0.
+(5) TESTS AND GATES: packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts is the opt-in live e2e (describe.skipIf without
+  E2E_BASE_URL and E2E_API_KEY): run alone, 0 pass, 3 skip = VOID by rule, excluded from the set. Hook set cli-install.test.ts and
+  client.test.ts (each nonzero): unit leg with lcov 57 pass, 0 fail, no skip. SDK 246/0. New-file gate PASSED (no new source
+  file); patch gate PASSED (1 file: install.ts, every changed executable line covered). CRAP: installEzcorp 6.0 and
+  enclosingProjectRoot 2.0, both at 100 percent. Guard set 468 pass, 2 skip (BPF), 0 fail. gate-integrity: base leg clean against
+  52d8ba079; origin/main leg equals the 8 paths. Prune scan (w00/prune-scan.sh sha256 b0c947773ae51234): "prune scan: clean (0
+  hit(s))".
+(6) IDENTITY: 5/5 archy noreply.
+(7) GATE FILE (tasks/factory/w4h-1-GATES.md at d341d8690): the starved runtime-resources attempts in a table with start times,
+  1-minute load at start and during, memory and swap, and results (green, green2, green3: deadline reached with 5-17 of 28
+  verified, no failed build); the lead's ruling that the hosted rerun of "Production proof (resources)" is the proof of record;
+  the disclosure that green and green2 started under a load of 10 or more with timeout 9000; legacy-adoption's direct docker
+  call (scripts/verify-legacy-adoption.sh:78-94) as a leftover item; 28 installations (27 + ai-kit), not 74.
+
+OPEN (not mine yet, by the coordinator's order): the production-image proofs (delivery 28/28 and runtime 28/28 are the owner's
+local results; runtime-resources was starved three times and its proof of record is the hosted rerun) and side finding 2 (the
+recovery historical-upgrade "operation_failed" seed failure; the owner's probe waits for a quiet host). An addendum follows.
+The snapshot is removed after this verdict.

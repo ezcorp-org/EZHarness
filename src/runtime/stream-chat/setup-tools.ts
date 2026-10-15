@@ -33,6 +33,7 @@ import { getProject } from "../../db/queries/projects";
 import { getPermissionMode, type PermissionMode } from "../tools/permissions";
 import { withPermissionGate, type PermissionWrapDeps } from "../tools/permission-wrap";
 import { getCredential } from "../../providers/credentials";
+import { assertFactoryExecutionContext, type FactoryExecutionContext } from "../factory-execution";
 import { extensionToAgentTool, ToolExecutor, type ArgsResolver } from "../../extensions/tool-executor";
 import { ExtensionRegistry } from "../../extensions/registry";
 import type { AgentRun, TeamMember, TeamMemberOverrides, TeamToolScope } from "../../types";
@@ -87,6 +88,8 @@ export type OrchestratedRun = AgentRun & RunOrchestrationMeta;
 
 /** Subset of streamChat's options the setup-tools phase reads. */
 export interface SetupToolsOptions {
+  /** Gateway-bound attempt: model and authority arrive from the factory, never host credentials. */
+  factoryExecution?: FactoryExecutionContext;
   projectId?: string;
   /** Authenticated host run-start identity; never a model parameter. */
   workspacePrincipal?: import("../workspaces/target").SandboxWorkspacePrincipal;
@@ -816,6 +819,19 @@ export async function resolveModelTierAndCredential(
   turnContext?: TurnRoutingContext,
   routingDeps?: TurnRoutingDeps,
 ): Promise<SetupToolsResult> {
+  if (options.factoryExecution) {
+    const factory = options.factoryExecution;
+    assertFactoryExecutionContext(factory);
+    run.provider = factory.model.provider;
+    run.model = factory.model.id;
+    return {
+      resolved: { provider: factory.model.provider, model: factory.model.id, piModel: factory.model },
+      // buildPiAgent never reads this value for a factory transport. Keep the
+      // existing SetupToolsResult shape so ordinary chat and attempts share it.
+      initialCred: { type: "apikey", token: "" } as Awaited<ReturnType<typeof getCredential>>,
+      effectiveTier: "balanced",
+    };
+  }
   let routedTier: RoutingTier | undefined;
   let routingSignals: RoutingSignals | undefined;
   // WS7 inference seam, shipped UNUSED: no scorer is injected below, so this
@@ -963,6 +979,22 @@ export async function resolveModelTierAndCredential(
     ...(routingSignals ? { routingSignals } : {}),
     ...(routingConfig ? { routingConfig } : {}),
   };
+}
+
+/** A team config's own tool scope, or undefined when it restricts nothing
+ *  (no allowed and no denied tools). */
+export function configuredTeamToolScope(scope: TeamToolScope | undefined): TeamToolScope | undefined {
+  if (!scope) return undefined;
+  return (scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0 ? scope : undefined;
+}
+
+/** The team tool scope every sub-agent member invoked this turn runs under:
+ *  a team mentioned in the message wins over the agent config's own scope. */
+export function turnTeamToolScope(
+  mentioned: TeamToolScope | undefined,
+  configured: TeamToolScope | undefined,
+): TeamToolScope | undefined {
+  return mentioned ?? configured;
 }
 
 /**
@@ -1781,10 +1813,8 @@ export async function setupTools(
                 }
               }
               // Team-level tool scope (overrides per-member tool lists)
-              const scope = refs?.teamToolScope;
-              if (scope && ((scope.allowedTools?.length ?? 0) > 0 || (scope.deniedTools?.length ?? 0) > 0)) {
-                orchRun._teamToolScope = scope;
-              }
+              const scope = configuredTeamToolScope(refs?.teamToolScope);
+              if (scope) orchRun._teamToolScope = scope;
             } catch { /* Agent config ref wiring failure is non-fatal */ }
           }
           }
@@ -1808,9 +1838,10 @@ export async function setupTools(
             // Team-level tool scope — from team-mention (depth 0) or from team config refs.
             // Cascades to all invoked sub-members, overriding any per-member tool lists.
             const firstMentionedTeam = mentionedTeams[0];
-            const resolvedTeamToolScope =
-              firstMentionedTeam?.team.teamToolScope
-              ?? orchRun._teamToolScope;
+            const resolvedTeamToolScope = turnTeamToolScope(
+              firstMentionedTeam?.team.teamToolScope,
+              orchRun._teamToolScope,
+            );
 
             // Orchestration extension (Phase 4 commit-5): wire-on-first-use for
             // invoke_agent. The legacy built-in was deleted; the same tool

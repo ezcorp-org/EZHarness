@@ -1,0 +1,215 @@
+{
+  "run": "wave4i-2",
+  "head": "1c84df6d5d5aba0703ee433ae711450728d16d66",
+  "start": "start 2026-10-05T08:55:03Z head 1c84df6d5d5aba0703ee433ae711450728d16d66",
+  "pinLine": "head 1c84df6d5d5aba0703ee433ae711450728d16d66 bun 1.4.2 bunx 1.4.2 flag=1",
+  "summaryEnds": [
+    "combined exit=1 end 2026-10-05T10:44:57Z",
+    "after-runner exit=1 end 2026-10-05T11:36:32Z (legs in /tmp/factory-platform-evidence/w00/wave4i-2/after/heavy-batch.log)",
+    "final-merge-gates exit=1 end 2026-10-05T11:36:32Z (AUTHORITATIVE gates: /tmp/factory-platform-evidence/w00/wave4i-2/final/gates.txt; runner coverage-results INTERIM)"
+  ],
+  "plan": {
+    "file": "wave4i-2-plan.txt",
+    "lines": 1494,
+    "sha256": "d13f4c48d8702b50db0026b254ff4b0880603ad5df883476a22277896ff9cf06",
+    "summary": [
+      "plan: /tmp/factory-platform-evidence/w00/wave4i-2/plan.txt (1494 lines, sha256 d13f4c48d8702b50)",
+      "autoExtra (own legs, one bun process per file): 368 files",
+      "autoExtraChunks: 10",
+      "autoExtraExcludedNodeRunner (node --test packages, covered by the node-coverage leg): [\"./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/validation.test.ts\"]",
+      "pgSteps (own postgres-<name> legs): [\"./tests/postgres/pool-one.test.ts\", \"./tests/postgres/bun-sql-pool-replacement.test.ts\", \"./tests/postgres/bun-sql-request-queue.test.ts\", \"./tests/postgres/factory-assurance.test.ts\"]"
+    ]
+  },
+  "drivers": {
+    "run.sh (as run)": "c9d89941d1499ac6dae0486523c08ba547ce339de8871b800ec76bf5d16ccb1d",
+    "after-runner.sh": "996f3a48b5237d49cb6941d7695757c738d9973bde4a0717aaaac115f18e79b9",
+    "final-merge-gates.sh": "c038e3b6098d82a101d1837b3a4522cf148eb041458509ad9f4a24f055369297",
+    "driver-guards.txt": "cbcb3c92d2760b1d4ed683c2bec1918b178bc9500aeb9f188d0fd7383d01a810",
+    "legs-from-manifest.py": "8a8933fd107d4509e7dbf59cdeeeb7d0c6b80bc205c52441471cea7bba09b653",
+    "combined-integration.py (runner)": "542ce669f11d59f0995a25ecc762c01b2dc3e12227468c8426320e74164b8eec",
+    "browser-part.sh": "c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+    "heavy-lib.sh": "f5689e5fae60bff1bd511c83a10626540e076c630dd38063d47a3ca01c66befb"
+  },
+  "runner": {
+    "legs": 39,
+    "exitCodes": {
+      "sdk-build": 0,
+      "transport-build": 0,
+      "sdk-tests": 0,
+      "focused": 0,
+      "web-coverage": 0,
+      "web-bun-coverage": 0,
+      "postgres": 0,
+      "postgres-pool-one": 0,
+      "postgres-bun-sql-pool-replacement": 0,
+      "postgres-bun-sql-request-queue": 0,
+      "postgres-factory-assurance": 0,
+      "types": 0,
+      "lint": 0,
+      "gate-integrity": 1,
+      "boundaries": 0,
+      "orchestrator-build": 0,
+      "node-coverage": 0,
+      "pool-coverage": 0,
+      "compute-coverage": 0,
+      "provisioning-coverage": 0,
+      "python-coverage": 0,
+      "auto-extra-0": 0,
+      "auto-extra-1": 0,
+      "auto-extra-2": 0,
+      "auto-extra-3": 0,
+      "auto-extra-4": 0,
+      "auto-extra-5": 0,
+      "auto-extra-6": 0,
+      "auto-extra-7": 0,
+      "auto-extra-8": 0,
+      "auto-extra-9": 0,
+      "podman-podman": 0,
+      "podman-attempt-runtime": 0,
+      "podman-supervisor": 0,
+      "podman-package-preparation": 0,
+      "manifest-cov-shard": 0,
+      "manifest-cov-extras": 0,
+      "manifest-web-security-coverage": 0,
+      "manifest-factory-reference-data": 0
+    },
+    "testsRanTotal": 49393,
+    "dirty": [
+      "False"
+    ],
+    "coverageResults": "INTERIM (wave4i-2-coverage-results-interim.json); the final gates are authoritative"
+  },
+  "afterRunner": {
+    "legs": {
+      "guard-set": {
+        "exit": 0,
+        "tail": "500 pass 0 fail"
+      },
+      "web-build": {
+        "exit": 0,
+        "tail": ""
+      },
+      "graph-mock-pass": {
+        "exit": 0,
+        "tail": ""
+      },
+      "w09e-e2e-console": {
+        "exit": 0,
+        "tail": "22 passed (playwright)"
+      },
+      "w03f-reference-data-journey": {
+        "exit": 0,
+        "tail": "11 pass 0 fail"
+      },
+      "browser-part": {
+        "exit": 0,
+        "tail": ""
+      }
+    },
+    "mockPass": [
+      "mock pass wave4i-2-mock outcome: passed"
+    ]
+  },
+  "browser": {
+    "steps": [
+      {
+        "name": "build",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-roundtrip",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-check",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "mock-gate",
+        "exit": 0,
+        "passed": 283
+      },
+      {
+        "name": "mock-full",
+        "exit": 0,
+        "passed": 1466
+      },
+      {
+        "name": "evidence",
+        "exit": 0,
+        "passed": 394
+      },
+      {
+        "name": "fresh-setup",
+        "exit": 0,
+        "passed": 7
+      },
+      {
+        "name": "real-auth",
+        "exit": 0,
+        "passed": 108
+      },
+      {
+        "name": "merge",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "factory-services",
+        "exit": 0,
+        "passed": 13
+      }
+    ],
+    "head": "1c84df6d5d5aba0703ee433ae711450728d16d66"
+  },
+  "finalGates": {
+    "originMain": "final/gates.txt 5546a3218bef5bf1 22:19:22-22:19:43Z at MemAvailable 10 GiB: 394 runner + 1 browser inputs; merge 0 (2383 files; merged lcov f73fe033c1d5cee4); global floor 0 (margin 8.08); per-file 0 (2232 files); new-file 0 (460 new files); patch 0 (517 files); CRAP --changed 0; gate-integrity origin/main exit 1 = the 8 (findings-match.py de57fcec5cdcef56: PASS; record 66386f4d4639ace0; expected file 9ec5cdcbce67c7ac)",
+    "base1992630f3": "final-1992630f3/gates.txt 14d9cb03a1819cda 22:20:07-22:20:25Z: same merged lcov; global floor 0; per-file 0; new-file 0 (35 new files); patch 0 (75 files); gate-integrity vs 1992630f3 0 (PASSED); gate-integrity origin/main 1 = the 8 (findings-match PASS); CRAP 0"
+  },
+  "configHash": {
+    "before": "44962525f1ca1a8b",
+    "after": "888c78b9e94ea660"
+  },
+  "receiptsBy": "integrator-4",
+  "runOfRecord": "wave4i-2 at 1c84df6d5 (integ/w00 after the W4H-10 main sync; origin/main beaff68c8 is its ancestor): runner legs green except the two coverage producers the runner's own 15 GiB gate never started; both producers run alone afterwards under the heavy lock; the runner's merge redone with --merge-only; the after-runner re-run WHOLE (after-2) after the Temporal CLI restore; final gates green; the origin/main gate-integrity leg equals the 8 expected lines",
+  "bindingJudgement": "final-merge-gates.sh with BASES=origin/main at head 1c84df6d5d5aba0703ee433ae711450728d16d66 vs beaff68c8 (the merge base with origin/main): new-file, patch, CRAP, global floor, per-file thresholds; gate-integrity origin/main = the 8 standing findings. This is the coverage judgement the W4H-10 verdict (validator-5, 6c93600351782b0c) left open for integration",
+  "history": [
+    "07:55Z wave4i-2 started at 1c84df6d5 (wrapper w00/wave4i/run.sh, WAVE_RUN=wave4i-2, PREV_COMBINED_HEAD=98c59f562)",
+    "07:55:39Z systemd-tmpfiles-clean.service ran (6 s after the start; 8.2 GB peak): the 13.8 GiB web-coverage gate miss of attempt 1",
+    "08:50Z attempt 1 STOPPED by integrator-3 (its own process): node-coverage red, gateway-activities.test.ts:137 'ephemeral server executable does not exist' (the Temporal test server was gone); kept as w00/wave4i-2-stopped-1/ (receipts: wave4i-2-attempt1-VOID-*)",
+    "08:55:03Z attempt 2 = run of record started (preflight OK; start gate 249G / 14 GiB / 3.0 GiB swap); combined exit=1 10:44:57Z: mergeBlockedBy [manifest-cov-shard, manifest-cov-extras] (each 'GATE TIMEOUT after 1200 s' at 14.1/14.2 GiB vs 15; exit 96), redLegsNotBlockingMerge [gate-integrity]; after-runner exit=1 11:36:32Z (try 1 released at 10:46:49Z on a red swap gate, exit 75; try 2: graph-mock-pass and the factory-services lane failed: ENOENT /tmp/factory-tools/temporal-cli/temporal); final-merge-gates NOT RUN ('runner inputs MISSING', kept as final-attempt1-notrun/)",
+    "10:13Z integrator-3 hit the weekly limit; integrator-4 took over (lead 14:01Z)",
+    "15:04:19-15:20:16Z manifest-cov-shard alone; 18:32:18-18:32:37Z manifest-cov-extras alone; 18:32:57-19:22:12Z after-2; 22:17Z --merge-only; 22:19Z final gates vs origin/main; 22:20Z final gates vs 1992630f3"
+  ],
+  "rootCause": "systemd-tmpfiles-clean.service, host rule 'q /tmp 1777 root root 10d' (/etc/tmpfiles.d/tmp.conf): deletes anything under /tmp whose atime, mtime and ctime are all older than 10 days; next run 2026-10-06 07:55Z. Lost: /tmp/factory-tools/temporal-test-server, /tmp/factory-tools/temporal-cli, /tmp/factory-platform-evidence/postgres.env, w01h/graph/dump-and-drop.sh. User item: tmpfiles exclusions 'x /tmp/factory-platform-evidence' and 'x /tmp/factory-tools' (root)",
+  "toolRestores": {
+    "record": "w00/wave4i-2/tool-restore.txt sha256 a7a1d9c947715d31 (receipt wave4i-2-tool-restore.txt)",
+    "temporalTestServer": "restored by integrator-3 08:50Z from the ci.yml pin (tarball sha checked before extract); binary sha256 in w00/temporal-test-server.sha256 = daa58458d32f6254a901085c27ad1c19a64a4e171679ed08b5b92c298baba6ce",
+    "temporalCli": "restored by integrator-4 14:11Z from the temporalio/cli v1.9.1 GitHub release: release checksums.txt line 09a0326a51db84d02735e53542b9ebd8c4758daf47482a9ab0abce15844e60d5 temporal_cli_1.9.1_linux_amd64.tar.gz, sha256sum -c OK before extract; 'temporal version 1.9.1 (Server 1.32.0, UI 2.54.1)'; binary sha256 in w00/temporal-cli.sha256 = 712217694cac9f786a72d4b6c876cd15f3dcf1bf31434d9fed6af25242a327a0",
+    "preflight": "w00/wave4i/run.sh 84a30d25a16d865b (was d125ffc234dd5fcc as run): one loop checks both Temporal binaries (present, executable, sha256 = the recorded file) or 'STOP: preflight: <tool> ...' exit 6; tested both ways (real hashes pass; a wrong CLI sha and a missing test-server sha file stop by name)"
+  },
+  "postgresEnv": "/tmp/factory-platform-evidence/postgres.env was lost to the same tmpfiles run and recreated by integrator-3 (08:5xZ) from the proof container's own environment (podman inspect factory-platform-proof-postgres: POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB; mode 600); no value printed or recorded",
+  "lostHelper": "w01h/graph/dump-and-drop.sh (lost to the tmpfiles run; not recreated by ruling). Its only effect: heavy-lib.sh mock_pass logs 'bash: /tmp/factory-platform-evidence/w01h/graph/dump-and-drop.sh: No such file or directory'; graph-mock-pass in after-2 passed (exit 0, outcome passed)",
+  "retainedDatabases": "two product databases retained by after-runner try 2 (both failed on the missing Temporal CLI): dumped and dropped by the coordinator on the user's instruction, inside the proof container, no credential printed. w00/wave4i-2/retained-dbs/w19a_product_1791197436481_7a469b.sql (641687 bytes, sha256 a4c1d439867c75c4), factory_services_product_1791200183100_7ee193.sql (695 bytes, sha256 a616d22125d2ae82); both DROP DATABASE succeeded. The dumps hold table data and stay out of the repository (hashes only). An earlier dump-and-drop tool by integrator-4 was refused by the permission classifier and not retried",
+  "standaloneProducers": {
+    "how": "w00/wave4i-2/producers/producer-leg.sh ba2891f753fa7062 through w00/gated-flock.sh 0fa5256a2e87cb40 with GATED_FLOCK_START_MEM_GIB=15 (outside wait) and the runner's own gate inside (RESOURCE_GATE_MEM_GIB=15, RESOURCE_GATE_DISK_GB=120; red = exit 75); heavy-lib.sh f5689e5fae60bff1 (veto, pin + flag, zero-test guard); the leg command read from wave4i-2-plan.json (no copy); COV_OUT = the runner's paths; FACTORY_TEST_POSTGRES_URL inside pg(), DATABASE_URL absent; bound 7200 s",
+    "manifest-cov-shard": "hold start 15:04:19Z at MemAvailable 15 GiB, swap 2.8 GiB free, disk 243G; 15:04:19-15:20:16Z exit 0; 30068 pass / 0 fail, 2020 files (shard 0/1); lcov_shard_0.info",
+    "manifest-cov-extras": "waited outside the lock 15:20:16-18:32:18Z (180 checks: 11 GiB x13, 12 x82, 13 x18, 14 x46, 15 x9, 16 x11, 17 x1; every 15-17 GiB moment came with swap free 0.2-1.9 GiB, under the 2.5 GiB start margin, right after the shard); hold start 18:32:18Z at 15 GiB, swap 5.1 GiB free; 18:32:18-18:32:37Z (19 s; legs-only mode runs its legs in parallel) exit 0; 1454 pass / 0 fail; 9 lcov files",
+    "records": "w00/wave4i-2/standalone-records.json 79747496239d2706 by standalone-records.py d6ce73b3f0452fe4"
+  },
+  "mergeOnly": {
+    "runner": "w00/combined-integration.py 542ce669f11d59f0 adds --merge-only (as run for the legs: f4a81b8b97940edc): runs no leg; the plan of the same arguments must equal <prefix>-plan.json (39/39 checks equal); <prefix>-results.json must hold every planned leg in order at HEAD; standalone records replace legs by name (marked, old values under 'replaces'); refuses an unknown name, a missing exit, zero tests, a wrong head; then the EXISTING merge block unchanged",
+    "selfTest": "w00/wave4i-2/merge-only-selftest.sh 563576382b5972cf on the scratch prefix mo-selftest: 5/5 PASS (three refusals; blocked state reproduced; merge block ran over 384 inputs with the two producers failing by name as missing)",
+    "caller": "w00/wave4i-2/merge-only.sh 537e73ae6655d098 (the runner arguments as wave4f/run.sh builds them; resource gate before the lock)",
+    "blockedCopies": "wave4i-2-results-blocked.json 2a3c531b6135f028, wave4i-2-coverage-results-blocked.json 0d307819ff17bcce",
+    "result": "22:17:05-22:17:18Z at MemAvailable 10 GiB: mergeBlockedBy [], no producer missing, 394 inputs, merge exit 0 (2297 files, wave4i-2-merged-lcov.info 0ab908e0f9d79cde); interim new-file vs origin/main 1, patch 0, global-floor 0, crap 0; exit 1",
+    "ruling": "the exit 1 is the KNOWN INTERIM SHAPE, not a red (lead 2026-10-05; precedent W18c and wave4i): the runner merges before the browser part, so the 5 BROWSER_CANONICAL_SOURCES .svelte files (FactoryConsole, FactoryGraph, FactoryGraphBoundary, FactoryNode, routes/(app)/factories/+page) have no measured coverage there, and failed=True also carries the expected gate-integrity leg; final-merge-gates.sh is authoritative"
+  },
+  "afterRunner2": "the after-runner re-run WHOLE into w00/wave4i-2/after-2 (gated-flock, exit file after-2.exit = 0), 18:32:57-19:22:12Z, HEAVY DONE status=0 dirty=0: guard set, web build, graph-mock-pass passed, W09e console, W03f journey 11/0, browser part: mock-gate 283, mock-full 1466, evidence 394, fresh-setup 7, real-auth 108, factory-services 13; browser merge exit 0; personal-github-* (main's new specs) 24 passed / 0 failed in mock-gate (import 2, pr 7, settings 15). Started by w00/wave4i-2/producers/after2-trigger.sh f87aba9b5b3d1c30 on extras exit 0 only (stage2.sh ed6cf31c24934372). The first after-runner (after/, both tries) is VOID for the missing Temporal CLI: receipts wave4i-2-after-attempt1-VOID-*",
+  "memoryAtStarts": "attempt 2 08:55:03Z 14 GiB (start gate); shard 15:04:19Z 15 GiB; extras 18:32:18Z 15 GiB; after-2 18:32:57Z 15.3 GiB; merge-only 22:17:05Z 10 GiB; final passes 22:19:21Z and 22:20:07Z 10 GiB",
+  "missedReport": "no report came after after-2: the trigger's background job ended at 18:32:57Z when it handed after-2 to a detached stage2; the owner meant to put a pid waiter on stage2 at that wake, but the notification arrived only with the lead's next message. Lesson: a waiter blocks until the last step it starts has ended; never end a waiter by handing work to a detached child",
+  "wrapper": "w00/wave4i/run.sh as run d125ffc234dd5fcc over the driver w00/wave4f/run.sh c9d89941d1499ac6 (RUN=wave4i-2); config check start and end 888c78b9e94ea660 (accepted baseline; again at the receipts); prune scan vs 98c59f562 with prune-scan.sh a4a59601cec26963: exit 0, 25 hits, 0 STOP; resource-gate.sh 530b792cc01e4ed4 (RESOURCE_GATE_MEM_GIB), gated-flock.sh with GATED_FLOCK_START_MEM_GIB"
+}

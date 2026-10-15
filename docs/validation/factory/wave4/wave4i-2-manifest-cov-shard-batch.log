@@ -1,0 +1,10 @@
+=== heavy 2026-10-05T15:04:19Z
+HEAD 1c84df6d5d5aba0703ee433ae711450728d16d66 MERGE_HEAD  index-tree e468b389727bb228cb455000b820e18c467688c8
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T15:04:19Z hold-start disk=243G memAvailable=15GiB swapFreeKiB=2908392/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB
+leg manifest-cov-shard command: SHARD_INDEX=0 SHARD_TOTAL=1 COV_OUT=/tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage bash scripts/test-coverage.sh
+resource-gate 2026-10-05T15:04:19Z manifest-cov-shard disk=243G memAvailable=15GiB swapFreeKiB=2908392/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB
+--- START manifest-cov-shard 2026-10-05T15:04:19Z
+--- END   manifest-cov-shard 2026-10-05T15:20:16Z exit=0 
+lcov under /tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage: 1 file(s)
+HEAVY DONE status=0 dirty=0 2026-10-05T15:20:16Z

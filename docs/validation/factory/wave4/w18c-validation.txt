@@ -1,0 +1,77 @@
+W18c (wp/w18c-mainline-gates): ACCEPT at f3027d991 (code head 82ddcc147; f3027d991 changes tasks/factory/w18c-GATES.md only).
+validator-5, 2026-09-28. Base d65886b9a. No finding above low remains open. The gate-change findings below are the ones the
+user approved (one-commit approval, 2026-09-28T06:45Z).
+Receipts: /tmp/factory-platform-evidence/w18c-validation/hold-f3027d991/ (results.jsonl, logs/, tree-review.tsv), prep-f3027d991.out,
+heavy-f3027d991.out, lane-f3027d991.out, hold-c93a71e89/diff/ (differential), and g4-receipts.py for the owner's measurement.
+
+CLOSED FINDINGS (raised in my rehearsals):
+- F1: typecheck red (e2e-lanes.test.ts:401 TEST_WORKER_INDEX). Closed by e2e87cb2b; typecheck is 0 at the head.
+- F2: the catch-credit block check was untested, and it changes 4 real records. Closed by 833e682a6: gate-scripts is red with
+  `!closes` removed ("a catch whose block holds no DA line keeps 0, whatever runs after its brace").
+
+VERIFIED at f3027d991:
+- Identity: all 63 commits in d65886b9a..f3027d991 are archy <281643943+EZArchy@users.noreply.github.com>, as author and as
+  committer.
+- The shared .git/config sha256 was 44962525f1ca1a8b at the start and end of every phase. The tree was clean after each
+  phase. bun and bunx were asserted at 1.3.14 from the tree's .bun-version. A gate ran before every leg.
+- Static checks, all exit 0: typecheck, lint, check-factory-boundaries, check-boundaries, and gitleaks (digest pinned) on the
+  changed files.
+- gate-integrity:
+  - Head's script against d65886b9a: exactly four findings, matched by a parser: the R097 rename of
+    web/e2e/real-auth/factory-authoring-flow.spec.ts, and scripts/merge-lcov.ts, scripts/check-coverage.ts and
+    scripts/check-new-file-coverage.ts as coverage gate tools. This is the approved set.
+  - Base's script against d65886b9a: the rename only.
+  - Against origin/main: the head's script reports check 11's feature-wide coverage-tool findings, and the base's script
+    passes.
+  - The two earlier gate changes do exactly what the gates doc says. check-coverage.ts exempts an exact-file key for a
+    type-only file with no lcov record. check-new-file-coverage.ts passes a new type-only file with no measured lines. Both
+    use the shared isDeclarationOnlyTypeScript.
+- Check 11, red-first:
+  - The watched-set test is 233/0 at the head, and red with 36fcf0fcc^'s gate-integrity.ts.
+  - End to end, on scratch commits (write-tree/commit-tree, proof/v5-* refs): a planted edit to scripts/merge-lcov.ts or to
+    scripts/browser-coverage-to-lcov.ts is a finding with the head's script. The same edits are unseen with the scripts
+    before check 11 (920d128b9^) and before the converter watch (36fcf0fcc^). An unrelated README.md edit is clean.
+- Coverage tooling, red-first. gate-scripts is 233/0 and goes red with each of:
+  - merge-lcov.ts reverted to 77a925423^
+  - the catch credit off
+  - the FN-header credit off
+  - the block check off
+  - a credit for a zero body
+- Whole-lcov differential (lock-free, a worktree at dc3b64234, the 23 saved inputs):
+  - 90 DA records change, and my own record check finds 0 violations. Each change was 0, is a bare catch clause, and takes
+    its body's first count.
+  - No DA line set, FN, FNDA, BRDA or LF changes, and LH moves by the changed count.
+  - Only the patch gate against origin/main flips (exit 1 to exit 0).
+  - merge-lcov.ts is unchanged from 77a925423 to f3027d991.
+- Other fixes, red-first:
+  - test-totals 3/0, red with the producer scripts from f77a3c112^
+  - e2e-lanes 31/0, red with the lane Bun guard from c93a71e89^
+  - the fs-stub pair (auto-note, then docs-updater's index.integration) 124/0, and 122/2 with cd5b68139^'s helper
+  - filesystem-harness 9/0, red
+  - compose masks with a planted web/e2e/.factory-services-auth.json 13/0, and 11/2 with a9b8aa779^'s docker-compose.yml
+  - fbf979d11 e2e-lanes 31/0, red
+  - 82ddcc147 e2e-lanes 31/0, red
+- Heavy legs under flock --close with lock_veto validator-2 first, 19:49:33Z to 19:56:39Z; the lane rerun ran 21:38:13Z to
+  21:42:19Z after a web build. Each count is nonzero:
+  - changed bun suites, 15 files, 448 with lcov
+  - @ezcorp/sdk suite 1029 with lcov; factory-sdk suite 233 with lcov
+  - guest-broker-transport integration 13
+  - changed web vitest, 8 files, 95 with lcov
+  - python-quality (ruff, mypy strict, coverage.py) 872
+  - standing guard set 60
+  - factory-services lane 13 passed
+  - after the lane, no new ignored file under web/e2e (git ls-files --others --ignored, before and after)
+  - graph-proof runbook, mock mode, with the web built first: outcome passed
+  - merge-lcov over 1254 source files. New-file coverage PASSED and patch coverage PASSED (3 files), both against d65886b9a.
+  - The first lane run in the heavy phase failed from a fault in my hold: no web build yet, so "the product never bound its
+    private service". It is not W18c's. The scratch database it left was dumped, then dropped, on the lead's word.
+- G4, the owner's measurement, checked by g4-receipts.py with FINAL_DIR=heavy/final-gates-82ddcc147: ACCEPTED at the code head
+  82ddcc147.
+  - The runner w18c-final3 ran 38 legs and 46961 tests. Its only red leg is gate-integrity (approved). Its only interim
+    gate red is new-file against origin/main, for the five browser-canonical files.
+  - Those five files (FactoryConsole, FactoryGraph, FactoryGraphBoundary, FactoryNode, the factories page) are in
+    BROWSER_CANONICAL_SOURCES (scripts/coverage-config.ts, already on the base and on origin/main), and
+    filter-web-vitest-lcov.ts drops them on purpose. Each is measured in the final merge.
+  - Browser part: 10 legs, and all 13 lane servers name bun and bunx 1.3.14.
+  - The final merge holds all 411 runner inputs byte for byte plus the browser input. merge, global floor, per-file,
+    absolute-SF, new-file and patch against d65886b9a and origin/main, and CRAP against origin/main are all exit 0.

@@ -10,6 +10,7 @@ import { isServiceInvocation } from "./service-invocation";
 import { assertSandboxPresetReleaseQualification } from "./v4/sandbox-preset-qualification";
 import { INCUS_PROVIDER_PREFLIGHT_METHOD, INCUS_PROVIDER_TRANSPORT_RPC, type PreparedIncusAction, type PreparedIncusProbe, type ProviderRpcBroker } from "../infrastructure/provider-rpc-broker";
 import type { SandboxProtocolOperation } from "@ezcorp/extension-contract";
+import { releaseProcessSpawn, SHELL_GRANT } from "./process-spawn-policy";
 
 export interface ActiveExtensionRelease {
   release: ReleaseRecord;
@@ -62,7 +63,7 @@ export class ReleaseProcess extends ExtensionProcess {
   private releaseNotification?: (notification: JsonRpcNotification) => void;
 
   constructor(extensionId: string, private readonly runtime: ReleaseRuntimeDependencies | undefined = dependencies) {
-    super(extensionId, "", {});
+    super(extensionId);
   }
 
   override ensureRunning(): void {
@@ -71,8 +72,6 @@ export class ReleaseProcess extends ExtensionProcess {
     this.releaseReady = true;
   }
 
-  override getSpawnArgs(): string[] { throw new ContractError("NO_HOST_EXECUTION", "Extension code runs only through the release runner"); }
-  override getSpawnCwd(): undefined { return undefined; }
   override get isRunning(): boolean { return this.releaseReady && !this.releaseClosed; }
   override get inFlightCallCount(): number { return this.releaseCalls.size; }
   override async whenCallsSettled(): Promise<void> { await Promise.allSettled(this.releaseCalls.values()); }
@@ -274,7 +273,9 @@ export class ReleaseProcess extends ExtensionProcess {
     try {
       if (invocationGuard) await invocationGuard();
       checkCancellation();
-      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits }, handleWorkerRpc);
+      const processSpawn = await releaseProcessSpawn(runner, snapshot.release, snapshot.installation.grants.includes(SHELL_GRANT));
+      checkCancellation();
+      worker = await runner.start({ workerId, artifactDigest: snapshot.release.artifactDigest, context, limits: snapshot.limits, processSpawn }, handleWorkerRpc);
       this.releaseWorkers.set(workerId, worker);
       checkCancellation();
       if (this.releaseClosed) throw new ContractError("CLOSED", "Runtime closed during startup");

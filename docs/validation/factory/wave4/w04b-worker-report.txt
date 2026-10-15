@@ -1,0 +1,54 @@
+W04b — re-grant after revoke, and grantee display names. Final report.
+
+Branch wp/w04b-regrant, head 122fed3f9, clean tree.
+Base integ/w00 d5ee52309, which had not moved at the time of the sweep.
+Gate file: tasks/factory/w04b-GATES.md. Todo section and review: tasks/todo.md.
+
+COMMITS
+- b5a5780b0 fix(factory): a revoked artifact share can be granted again
+- 20b79baa9 feat(factory): grant records name the grantee
+- 122fed3f9 docs(factory): W04b gate file and review
+
+REPRODUCTION (base d5ee52309)
+Receipt: logs/repro-base.log.
+- The sequence grant, revoke, grant again fails with factory_artifact_grant_conflict at artifact-access.ts:168.
+- Cause: factory_artifact_read_grants was keyed by the share itself, so a revoked row held the key forever.
+
+DEFECT 1: RE-GRANT AFTER REVOKE
+Each grant is now its own row, numbered by grant_revision.
+- The primary key includes grant_revision.
+- A partial unique index, idx_factory_artifact_read_grants_active (WHERE revoked_at IS NULL), allows one active grant per target.
+- A revoked row stays for audit. A new grant is a new row with the next number, never a reactivation.
+- A still-active grant conflicts. A revoke reaches only the active row. A repeated revoke writes nothing.
+- A first grant seals exactly as before, so existing rows still verify. Later grants also seal their number, so their audit ids never collide.
+- Racing re-grants serialize on the revoked row. A racing first grant loses by name, through ON CONFLICT DO NOTHING.
+- Migration allow-factory-artifact-regrant is appended to migrate(). Its test builds the old shape and holds a revoked row there. The upgrade keeps that row as grant 1, and a second run leaves every constraint oid unchanged. The restart suite has a case, and PostgreSQL schema parity checks the partial index.
+
+DEFECT 2: DISPLAY NAMES
+Grant records and the grant API resource carry displayName.
+- It is the user's name or the service account's name, trimmed and cut at 256 characters.
+- A blank name, a missing record, or a name equal to the id shows the stated placeholder "Unnamed principal", never the raw id.
+- Only the name column is read.
+- The list, read, set and revoke responses all carry it. FactoryGrants.displayNameOf serves the two mutations.
+- The authorization path is unchanged.
+- The SDK type FactoryGrantResource.displayName is required and 1 to 256 characters, and the response schema was regenerated.
+
+SWEEP
+At 20b79baa9, clean tree, every leg passed. Receipts are in sweep-final/receipts/.
+| Leg | Pass | Fail |
+| --- | --- | --- |
+| Focused suites | 51 | 0 |
+| Real PostgreSQL | 31 | 0 |
+| PostgreSQL with S3 | 2 | 0 |
+| Web Vitest | 7521 | 0 |
+| Backend pool | 28191 | 0 |
+Typecheck, lint, boundaries and gate integrity pass. The new-file coverage gate covers 1 new file, and the patch coverage gate covers all changed executable lines in 7 files.
+
+DISCLOSED FILES OWNED BY OTHERS
+- W04: artifact-access.ts.
+- Coordinator: migrate.ts, schema.ts, the restart suite, and the factory-schema parity test.
+- Sol controls: the SDK types.ts and the generated response schema. grants.ts gains the name lookup.
+- W14 (in flight): web/src/routes/api/factories/_shared.ts, which gains displayName in all three grant resources, and its route test. W14 restructured _shared.ts on its branch, so expect a small textual conflict at merge. Keep both sides.
+
+OPEN
+- Web consumption by W14 is later, as planned.

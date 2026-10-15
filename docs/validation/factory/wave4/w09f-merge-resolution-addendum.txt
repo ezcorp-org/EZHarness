@@ -1,0 +1,11 @@
+W09f merge (5bf3bff80) addendum: check of w01g-fix's rehearsal resolutions (w01i/merge-rehearsal-9da0ed9ec/w09f/), lead-approved 2026-09-27.
+
+Each resolution diff was applied to its conflicted file and compared with the file committed in 5bf3bff80:
+- src/__tests__/cov-fix-connection-postgres.test.ts: byte-identical (blob ee7eda5ab both ways).
+- web/src/lib/server/factory-boot.ts: differs only in field order inside FactoryHostBootDependencies. The rehearsal
+  lists integ's bootBoundMs and exit before W09f's recoverDatabase; the committed file (blob 133c59039, the
+  worker's rehearsal on 0dc73b54a) lists recoverDatabase first. Same fields, same types, same comments.
+Proving counts at the W09f merge (w09f-merge-heavy-batch.log, w09f-merge-commit-hook.log): cov-fix-connection-postgres
+alone 10/0; web factory-boot.server with context-initialization, context-register-preview-bus and
+context-state-mediator-wiring 22/22 under Vitest; the unit leg with installation-startup and runtime-composition 222/0;
+the hook's src/__tests__/factory-boot.test.ts green.

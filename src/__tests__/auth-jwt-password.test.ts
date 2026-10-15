@@ -6,11 +6,12 @@
  */
 
 import { test, expect, describe } from "bun:test";
-import { signJWT, verifyJWT } from "../auth/jwt";
+import { configuredInstallationId, signInstallationToken, signJWT, verifyJWT } from "../auth/jwt";
 import { hashPassword, verifyPassword } from "../auth/password";
 import type { AuthUser } from "../auth/types";
 
 const SECRET = "test-secret-please-do-not-use-in-prod-aaaaaaaa";
+const FOREIGN_SECRET = "other-installation-secret-please-do-not-use-in-prod";
 
 const SAMPLE_USER: AuthUser = {
 	id: "u-1",
@@ -18,6 +19,24 @@ const SAMPLE_USER: AuthUser = {
 	name: "Tester",
 	role: "member",
 };
+
+function base64UrlEncode(value: string | Uint8Array): string {
+	const binary = typeof value === "string" ? value : String.fromCharCode(...value);
+	return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function decodePayload(token: string): Record<string, unknown> {
+	const encoded = token.split(".")[1]!;
+	return JSON.parse(atob(encoded.replace(/-/g, "+").replace(/_/g, "/"))) as Record<string, unknown>;
+}
+
+async function signPayload(header: string, payload: Record<string, unknown>): Promise<string> {
+	const body = base64UrlEncode(JSON.stringify(payload));
+	const input = `${header}.${body}`;
+	const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+	const bytes = new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(input)));
+	return `${input}.${base64UrlEncode(bytes)}`;
+}
 
 describe("signJWT / verifyJWT round-trip", () => {
 	test("verify recovers the same payload signJWT signed", async () => {
@@ -36,6 +55,55 @@ describe("signJWT / verifyJWT round-trip", () => {
 	test("verify with the wrong secret returns null", async () => {
 		const token = await signJWT(SAMPLE_USER, SECRET);
 		expect(await verifyJWT(token, SECRET + "wrong")).toBeNull();
+	});
+
+	test("two installation secrets cannot verify each other's tokens", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET);
+		expect(await verifyJWT(token, FOREIGN_SECRET)).toBeNull();
+		expect(await verifyJWT(await signJWT(SAMPLE_USER, FOREIGN_SECRET), FOREIGN_SECRET)).not.toBeNull();
+	});
+
+	test("rejects a token with foreign issuer and audience even when its signature is valid", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		expect(await verifyJWT(token, SECRET, "installation-b")).toBeNull();
+	});
+
+	test("rejects signed tokens with missing, foreign, or invalid required claims", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		const [header] = token.split(".") as [string, string, string];
+		const payload = decodePayload(token);
+		for (const missing of ["iss", "aud", "iat", "exp"]) {
+			const candidate = { ...payload };
+			delete candidate[missing];
+			expect(await verifyJWT(await signPayload(header, candidate), SECRET, "installation-a")).toBeNull();
+		}
+		for (const candidate of [
+			{ ...payload, iss: "foreign-installation" },
+			{ ...payload, aud: "foreign-installation" },
+			{ ...payload, iat: "not-a-number" },
+			{ ...payload, exp: 1.5 },
+		]) {
+			expect(await verifyJWT(await signPayload(header, candidate), SECRET, "installation-a")).toBeNull();
+		}
+	});
+
+	test("accepts legacy user sessions without jti and rejects non-user or extra claims", async () => {
+		const now = Math.floor(Date.now() / 1_000);
+		const legacy = await signInstallationToken({ ...SAMPLE_USER, iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(legacy, SECRET, "installation-a")).toMatchObject(SAMPLE_USER);
+		const extra = await signInstallationToken({ ...SAMPLE_USER, tokenUse: "factory-service", iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(extra, SECRET, "installation-a")).toBeNull();
+		const missing = await signInstallationToken({ id: SAMPLE_USER.id, email: SAMPLE_USER.email, name: SAMPLE_USER.name, iat: now, exp: now + 60 }, SECRET, "installation-a");
+		expect(await verifyJWT(missing, SECRET, "installation-a")).toBeNull();
+	});
+
+	test("requires the exact HS256 JWT header", async () => {
+		const token = await signJWT(SAMPLE_USER, SECRET, 60, "installation-a");
+		const payload = decodePayload(token);
+		for (const header of [{ alg: "none", typ: "JWT" }, { alg: "HS256", typ: "JWT", kid: "extra" }, { alg: "HS256", typ: "wrong" }]) {
+			const encodedHeader = base64UrlEncode(JSON.stringify(header));
+			expect(await verifyJWT(await signPayload(encodedHeader, payload), SECRET, "installation-a")).toBeNull();
+		}
 	});
 
 	test("verify with a tampered payload returns null", async () => {
@@ -87,6 +155,30 @@ describe("signJWT / verifyJWT round-trip", () => {
 		expect(d1?.jti).toBeString();
 		expect(d2?.jti).toBeString();
 		expect(d1?.jti).not.toBe(d2?.jti);
+	});
+});
+
+// The boot-frozen factory policy decides the installation id in-process;
+// factory-boot.test.ts keeps the child-process proof of the frozen import.
+describe("configuredInstallationId", () => {
+	const FACTORY = { enabled: true } as const;
+	const SELF_HOSTED = { enabled: false } as const;
+
+	test("a configured id wins whatever the factory policy", () => {
+		expect(configuredInstallationId(FACTORY, "inst-1")).toBe("inst-1");
+		expect(configuredInstallationId(SELF_HOSTED, "inst-1")).toBe("inst-1");
+	});
+
+	test("a factory boot without an id refuses with the variable name", () => {
+		const refusal = "Factory JWT requires EZCORP_INSTALLATION_ID.";
+		expect(() => configuredInstallationId(FACTORY, undefined)).toThrow(refusal);
+		expect(() => configuredInstallationId(FACTORY, "")).toThrow(refusal);
+		expect(() => configuredInstallationId(FACTORY, "  \t")).toThrow(refusal);
+	});
+
+	test("a self-hosted boot without an id gets no id, so the caller derives the local one", () => {
+		expect(configuredInstallationId(SELF_HOSTED, undefined)).toBeUndefined();
+		expect(configuredInstallationId(SELF_HOSTED, " ")).toBeUndefined();
 	});
 });
 

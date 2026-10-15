@@ -30,6 +30,7 @@ import { test, expect, describe } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, copyFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { scratchGitEnv } from "./helpers/scratch-git";
 
 const REPO_ROOT = join(import.meta.dir, "..", "..");
 
@@ -48,7 +49,7 @@ async function lintInSimulatedAgentWorktree(): Promise<{ exitCode: number; outpu
     // without them biome exits on a config error unrelated to what we're
     // asserting. Empty .gitignore = ignore nothing, so the probe file is
     // reachable and the includes globs are the only thing under test.
-    Bun.spawnSync(["git", "init", "-q"], { cwd: worktree });
+    Bun.spawnSync(["git", "init", "-q"], { cwd: worktree, env: scratchGitEnv(join(worktree, ".git-scratch-home")) });
     writeFileSync(join(worktree, ".gitignore"), "");
     writeFileSync(join(worktree, "probe.ts"), "export const probe = 1;\n");
 

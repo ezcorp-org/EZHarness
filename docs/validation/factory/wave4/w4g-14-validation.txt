@@ -1,0 +1,33 @@
+VERDICT (validator-6) — W4G-14 at e28f29a01 (wp/w4g-14, owner w16-2), base a6bc6eeab: ACCEPT
+
+1 commit, archy noreply as author and committer. Files changed: src/__tests__/file-organizer-applier-reserved-dirs.test.ts,
+src/__tests__/web-mock-pair-pollution.test.ts, tasks/factory/w4g-14-GATES.md. No product file changes; the cache reset it calls,
+__resetProjectRootCacheForTests, exists at the base (src/extensions/project-root.ts:121). Config hash 44962525f1ca1a8b at the
+start and end of both phases. Bun 1.4.2 with the flag.
+
+REVIEW
+  - Cause: getProjectRoot() caches its answer for the process. An earlier file in the same process fills the cache with the real
+    repository root, so this file's EZCORP_PROJECT_ROOT pin was ignored and 3 tests failed in the focused leg.
+  - Fix: the file keeps the earlier EZCORP_PROJECT_ROOT, clears the cache after its pin, and in afterAll puts the earlier value
+    back and clears the cache again, so its pin does not reach later files.
+  - The pollution test gains the pair (executions.integration, then this file) at the repository root; its child environment drops
+    EZCORP_DB_PATH and EZCORP_TEST_DB_TEMP_ROOT, so each child mints its own database settings as a real pool process does.
+
+FOCUSED LEG, mine (w4g-validation/repro-w4g14.sh): the wave4h run 2 focused command exactly (w4g-validation/
+  focused-command-wave4h-run2.json, from wave4h-plan.json sha256 fb7f8187d442e4fa: bun test --timeout 30000 --coverage with the
+  103 files in plan order), ONE process, from a git-archive snapshot made into a repository whose index is exactly the tracked
+  files of the revision.
+  - At a6bc6eeab, RED: 1668 pass, 2 skip, 3 fail: the three touchesProtectedDir cases of this file.
+  - At e28f29a01, GREEN: 1671 pass, 2 skip, 0 fail. The 2 skips are mcp-seccomp-profile's BPF cases (skipIf(!BPF_PRESENT)).
+  - My first runs of this leg were not of record: a plain git-archive snapshot is not a repository, so two tests that read tracked
+    files failed at both revisions; a repository built with `git add -A` lacked the force-tracked .env.example, so the mask test
+    failed at both. The leg of record builds the index from `git ls-tree` of the revision.
+PER FILE, mine (validator-6/per-file.sh, at e28f29a01, the same 103 files, one process each): 103 PASS, none VOID, none failing;
+  1671 pass, 0 fail, 2 skip in sum.
+
+RERUN RESULTS (hold-v6-w4g14-e28f29a01/results.jsonl)
+  Static: frozen installs and builds 0; identity 1/1; receipts 25 scanned, 0 missing; typecheck, lint, both boundary checks 0;
+    gate-integrity: the base leg against a6bc6eeab is clean, the origin/main leg equals the 8-path set; gitleaks 0.
+  Heavy, under the lock: void check 2 files, none VOID; unit leg 12/0; SDK 246/0; guard set (w00/guard-suites.sh, 36 files) 468
+    pass, 2 skip (the BPF cases), 0 fail; lcov merge 0; the new-file and patch gates against a6bc6eeab pass. The hold's own repro
+    step ran the snapshot without a repository (above) and is replaced by the focused leg of record.

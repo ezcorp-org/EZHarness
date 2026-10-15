@@ -1,0 +1,82 @@
+W15 ROUND-2 VALIDATION: head ef958511b (source 34f282f8a; integ/w00 578692e8a merged)
+Validator run 2026-09-23. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w15-retention.
+Data: results.json, logs/, evidence/, repro/ in this directory. Round 1: ../report.txt.
+
+VERDICT: ACCEPT
+Every fix I required in round 1 (H1, H2, H3b) is in the code and has a test. H3a and M1 are fixed too.
+All 27 reruns exit 0 at ef958511b on a clean tree. One residual (R1) and some low items are follow-ups.
+
+TREE
+- git status clean before and after. HEAD ef958511b during every run.
+- integ/w00 has moved on (873b04759 and later). It is not merged, as the lead instructed. The coverage gates
+  use the merge base 578692e8a.
+
+FIXES READ AGAINST THE HUNKS
+H1 FIXED. With no policy row, factory_effect_claims_closed_reason now uses enforce=TRUE and 900 s
+   (add-factory-recovery.ts, "IF NOT FOUND THEN v_enforce := TRUE"). A held checkpoint-barrier role reports
+   "degraded" with reason factory-checkpoint-barrier-held (runtime-composition.ts). No production path writes
+   enforce_freshness=FALSE. Only the test helper openFactoryEffectClaimsForTest writes it.
+   Tests: add-factory-recovery.test.ts:51-60 (no row -> checkpoint_stale); runtime-composition.test.ts:261;
+   factory-checkpoint.test.ts:200 (enforces explicitly, then proves stale and reopen).
+H2 FIXED. latest() returns a count of unreadable objects. A listed operation with no readable intent records a
+   "check" finding (release_intent_unreadable / _missing), which blocks the tenant. An unreadable receipt blocks
+   that release and its run and never falls through to proveNoEffect (restore.ts).
+   Test: factory-restore.test.ts:417.
+H3 FIXED. (a) The barrier composes FactoryTemporalHttpPositions from temporalHttp in the startup document. With
+   no endpoint, the role holds, and claims stay closed (recovery-composition.ts). My full-stack manifest shows
+   temporal captured:true (namespace tenant-01.factory; 0 live workflows at the barrier).
+   (b) With no reader, or no captured positions, restore blocks in both modes (temporal_unverified /
+   temporal_not_captured). Tests: recovery-composition.test.ts:141, :149; factory-checkpoint.test.ts:263.
+M1 FIXED. factory_pool_checkpoint_slots has 16 rows in the pool database with a CHECK on the slot range.
+   Acquire uses UPDATE ... FOR UPDATE SKIP LOCKED with a 15 s hold. Release needs the tenant and token. The
+   routes /v1/pool/checkpoint-slot and /release take the tenant from the certificate. The barrier defers when
+   no slot is free and always releases its slot. The unused cycle helper is removed.
+   Tests: factory-pool-checkpoint.test.ts:98, :126; checkpoint-barrier.test.ts:15, :22. My 100-tenant run:
+   at most 16 slot rows held, 3351 deferrals, 100 sealed.
+M2 FIXED. accepted_evidence, approval, and receipt are enrolled per terminal run at 365 d, tombstoned, and never
+   deleted. Test: retention-suite:253. No factory table stores debug logs, so there is nothing to enroll.
+M3 MOSTLY FIXED. key-composition.ts selects the operator master key, cloud KMS, or transit from keyManagement,
+   and reads every secret by reference. restore-command.ts and scripts/factory-restore.ts give the operator
+   begin, verify, and status, built from the installation's own composition. The command never signs.
+   Tests: key-composition.test.ts, restore-command.test.ts, restore-composition.test.ts,
+   factory-restore.test.ts:448. See R1.
+L1 and M4 are corrected in the worker's report and gate file. The pool-failure receipt exists
+   (receipts/pool-failures-alone.json), and my backend pool is now fully green (below).
+L2 FIXED. retention.ts and restore.ts now use factoryArchiveClient.
+
+RERUNS AT ef958511b (clean)
+  static typecheck, lint, both boundary checks, gate-integrity, schema drift              exit 0
+  suite registration + C13 + boundaries tests                                              43 pass / 0 fail
+  unit suites with lcov (23 files)                                                         268 pass / 0 fail
+  PG retention / checkpoint / restore / rotation / pool-checkpoint / wal (shared stores)   13/12/13/1/6/1 pass, 0 fail
+  Node/V8 producer (scripts/factory-orchestrator-coverage.sh)                              exit 0
+  merge-lcov; BASE_REF=integ/w00 new-file coverage                                         PASS, 14 files
+  BASE_REF=integ/w00 patch coverage                                                        PASS, 31 files
+  WAL readiness on a fresh validator-only archiving PostgreSQL                             1 pass
+  PITR to the barrier LSN (same scratch)                                                   exit 0, 2522 ms, state = manifest, no post-barrier fact
+  Temporal (pinned CLI dev server)                                                         retention 2592000 s; archival unmet (dev server)
+  100-tenant cycle through the pool slot table                                             100 sealed, 16 max, cycle 1915 ms, p95 364 ms
+  web build; full stack (W15 harness)                                                      exit 0; outcome passed; seal = DB; ungated []; temporal captured
+  Podman guests (reference-code, guest-model, validator-guest; they now open claims)       3 pass / 0 fail
+  db-postgres.yml storage step (33 files)                                                  309 pass / 0 fail
+  backend pool (bun run test)                                                              28168 pass / 0 fail
+  Barrier clock: first barrier 87 ms; abort at a 300 ms maximum 308 ms, no seal; 20/20 sealed under 4 writers,
+  p95 1090 ms, write pause p95 77 ms. Restore recovery 148 ms (signed 126 ms).
+  Security: I read 22 credential values and searched all W15 and validation files for them: 0 files contain
+  one. My scratch container and its WAL data are removed.
+
+RESIDUAL (follow-ups, not blocking)
+R1 The running orchestration process still opens the data key only with the operator master key.
+   loadFactoryTemporalPayloadCodec (file-key-wraps.ts:99-107, called from orchestration-process.ts:12) ignores
+   keyManagement. The key-service choice reaches only the restore's key check (restore-composition.ts:71).
+   A startup document that selects cloud-kms or transit fails closed at runtime (factory_key_missing), so
+   hosted KMS wrapping is not usable in the running product yet. Owner: W15 or W16, for the coordinator to choose.
+R2 The kind CHECK on factory_retention_records sits inside CREATE TABLE IF NOT EXISTS
+   (add-factory-recovery.ts:82). A database migrated at round 1 keeps the old four-kind constraint, and
+   enrollment of the new kinds would fail there. Round 1 never shipped, so only W15 scratch databases are affected.
+R3 The comment in factory-effect-claims.ts says the recovery suites never call the opt-out. They do, through
+   factory-release-world.ts:75. The proofs still hold: the no-row path is proven in the migration test, and
+   the stale-claims test enables enforcement first.
+R4 Still open by design: ingress and credential fencing is an operator attestation file
+   (restore-composition.ts:96), not an enforced fence. The console signing surface is W14's. Real KMS,
+   Temporal archival, shared WAL archiving, and failure-domain independence are not proven on this host.

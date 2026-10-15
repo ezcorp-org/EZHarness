@@ -1,0 +1,5 @@
+Dependency audit — floor: high | roots: ., web
+  · .: 0 advisory/advisories
+  · web: 0 advisory/advisories
+
+✔ dependency audit clean at the high floor (0 allowlisted, 0 below floor).

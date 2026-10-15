@@ -51,7 +51,9 @@ describe("v4 protocol", () => {
   });
 
   test("the sensitive method cannot be declared or reached through ordinary contributions", async () => {
-    const reservedTool = { ...metadata.tools[0], name: "provider/credentials.resolve" };
+    const fixtureTool = metadata.tools[0];
+    if (!fixtureTool) throw new Error("Fixture echo tool is missing");
+    const reservedTool = { ...fixtureTool, name: "provider/credentials.resolve" };
     expect(() => defineExtension({ manifest: { ...metadata, tools: [reservedTool] }, tools: { "provider/credentials.resolve": () => "secret" } })).toThrow();
     const reservedMethod = { name: "provider/credentials.resolve", inputSchema: {}, outputSchema: {} };
     expect(() => defineExtension({ manifest: { ...metadata, tools: [], methods: [reservedMethod] }, methods: { "provider/credentials.resolve": { ...reservedMethod, handle: () => "secret" } } })).toThrow("ordinary contribution");

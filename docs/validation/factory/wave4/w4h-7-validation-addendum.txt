@@ -1,0 +1,31 @@
+W4H-7 verdict addendum, validator-5, 2026-10-05: the lead's list items (b), (d) and (e) at b4ec15e5c
+
+VERDICT unchanged: ACCEPT wp/w4h-7b at b4ec15e5c. Base verdict: verdict-validator-5-w4h7.txt, sha256
+61f8ad386ae0c08fe1f484877bd0a8c671cea9c3abb030ed4b72f101623460b3.
+
+(b) Cited hashes. Every 16-hex sha256 prefix in tasks/factory/w4h-7-GATES.md at b4ec15e5c (13) matches exactly one file under
+    /tmp/factory-platform-evidence/w4h-7/, and it is the file the doc names:
+      05d5b8fc2b08fe55 ctr-red-52d8-v3/run-1.log         "Expected length: 3 / Received length: 2"
+      e8b6c29fa29d1fbc ctr-green-fix-v3/summary.txt      20 of 20 passed
+      7792b4187b304bcd host-green-fix-v3/summary.txt     20 of 20 passed
+      43215a1861c928c2 host-merged-87e1/summary.txt      10 of 10 passed
+      d83ae4a8e7cde6a9 e2e-merged-87e1/run-1.log         3 passed
+      0857f496f9b2cc32 e2e-merged-87e1/run-2.log         3 passed
+      f1911c4b07974b44 e2e-red-base/run-1.log            "Test timeout of 60000ms exceeded"
+      dd5c0def82a6af08 e2e-green-fix-v2/run-1.log        3 passed
+      94b8c31328329744 e2e-green-fix-v2/run-2.log        3 passed
+      ee9d089ce1565145 e2e-head/run-1.log                3 passed
+      a796da9661c13b3f e2e-head/run-2.log                3 passed
+      4b414d82dca50d64 e2e-head/summary.txt              2 runs, exit 0, 3 passed each
+      f0e6db66f3cbde1a w4h6-runner-src.diff
+    The report-only hashes also match: 47ffe6b40235280d host-green-fix-probe-v2/summary.txt (10 of 10);
+    035f5e86b5732987 pool2-red-base/summary.txt (first failure at iteration 1, at 52d8ba079); 1773ed82ef378fc9
+    pool2-green-fix-v2/summary.txt (10 of 10).
+
+(d) My own runs at the head (base verdict sections 3-5), under gated-flock at load < 10, cover the owner's "host-merged" leg under
+    stricter conditions: the isolated suite on the host with UV_THREADPOOL_SIZE=2, 10 of 10 passed at 2e529f1bb; in the 4-CPU
+    container, 20 of 20; the E2E spec 2 of 2. b4ec15e5c changes only docs over 2e529f1bb.
+
+(e) proof/w4h-7-fix = 40875d887: its parent is 52d8ba079, and `git diff 52d8ba079 40875d887` equals
+    `git diff 52d8ba079 56c9579d7 -- packages/@ezcorp/extension-runner/src` byte for byte. 56c9579d7 is an ancestor of integ/w00, so
+    the merged code subsumes it. 40875d887 is not in the head; only proof/w4h-7-fix contains it. It stays as a receipt ref only.

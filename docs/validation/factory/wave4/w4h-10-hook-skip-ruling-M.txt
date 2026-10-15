@@ -1,0 +1,9 @@
+Hook-skip ruling, list-bound, ONE commit (coordinator, 2026-10-05 06:35Z)
+Package W4H-10 (main sync), branch wp/w4h-10-sync, the MERGE commit of origin/main beaff68c8 into integ/w00 1ef82e971 (staged tree c07cc61e0
+plus the two semantic-conflict fixes: browser-coverage-to-lcov route count 66; dependency-security pins devalue 5.9.4 / undici 8.11.2).
+The hook maps 57 suites (cap 12). Printed list: /tmp/factory-platform-evidence/w4h-10/hook-list-merge.txt sha256 45ba088481f9e09f (== hook-list-merge-2.txt).
+Evidence: all 57 ran green under the heavy lock (gated), one process each, 06:23–06:27Z, logs hook57-run.log and hook57/; the two reds
+(browser-coverage-to-lcov 66 routes; dependency-security exact pins) fixed at the root and green (15/0, 7/0, two-fixes-green.log).
+RULING: w4h-3 may commit this ONE merge commit with EZ_SKIP_HOOK_TESTS=1, if and only if the hook's printed list at commit time byte-equals the
+ruled list (sha 45ba088481f9e09f). Any other list voids this ruling. The next commit (the Pi 0.87.1 changes) runs the hook normally.
+The gates doc tasks/factory/w4h-10-GATES.md records this ruling, the list sha and the 57 results; validator-5 cites them.

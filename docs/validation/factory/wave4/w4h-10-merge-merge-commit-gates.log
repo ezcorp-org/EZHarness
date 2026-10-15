@@ -1,0 +1,8 @@
+pin: bun 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+gate-integrity-origin-main exit=1 (unapproved; judged by the expected set)
+origin-main-expected-match exit=0 origin/main leg: PASS (findings equal the expected integ set)
+gate-integrity-base exit=0 Gate integrity PASSED: no gate-weakening or test-cheating changes detected.
+new-file exit=1   web/src/routes/(app)/settings/github/+page.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+patch exit=1 Add tests covering the changed lines above, then re-run the coverage pipeline.
+new-file and patch: INFORMATIONAL (first-parent diff = main's 169 files; partial lcov; wave4i-2 final gates bind (lead ruling (a), W-SYNC 787f8676c precedent)); they do not set the status
+GATES at 198f5fcac base 1ef82e971fd101a566de62b89c08f2a025ad7838 status=0

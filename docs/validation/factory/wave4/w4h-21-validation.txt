@@ -1,0 +1,53 @@
+ACCEPT wp/w4h-21-orchestrator-fail-loud at b21eb4c57
+W4H-21 verdict (the factory Temporal coverage producer fails loudly), validator-8 (lane validator-8), 2026-10-10T02:2xZ
+
+VERDICT: ACCEPT wp/w4h-21-orchestrator-fail-loud at b21eb4c57. Every leg of the accepted plan and the scope ruling passes.
+Commits on base fe445d241 (archy noreply, 4 of 4): 6334954bd (totals "cancelled"), b6762be39 (the producer + the ci.yml upload),
+5efac62eb (registration test form), b21eb4c57 (gate file and todo). Owner report sha256 7b51b2fe0d5ac222.
+Every hold ran on a git-archive snapshot outside the evidence dir, removed after; scratch test files were untracked and removed by name.
+
+1. Scope: changed .github/workflows/ci.yml, scripts/factory-orchestrator-coverage.sh, scripts/factory-orchestrator-registration.test.ts,
+   scripts/lib/test-totals.sh, src/__tests__/test-totals.test.ts, the gate file and todo. Byte-unchanged: src/factory, packages,
+   test-file-sets.sh, the v8-to-lcov converter, thresholds, coverage config, biome.json. ci.yml: ONE hunk, 9 added lines, 0 removed —
+   exactly the upload step (if: always(), actions/upload-artifact pinned v7.0.1, name factory-temporal-test-progress, path
+   coverage-shard/test-progress.log, retention 3, if-no-files-found: warn); the job's timeout-minutes is 10 at base and head.
+   Identity 4/4; prune clean (0 hits); the only tree flag is ci.yml as gate tooling (read). Config baseline.
+2. Contract (read): --test-timeout=200000 ms with --test-force-exit; the spec reporter to stdout, tee'd into test-progress.log,
+   node_status=${PIPESTATUS[0]}; INNER_TIMEOUT_S=450 with --kill-after=30s, so the producer ends by 480 s, 120 s before the 600 s job
+   timeout (the setup steps took 28-33 s hosted); on a non-zero status the 60-line tail is printed, then the totals, then the same exit.
+   print_node_totals now also prints "ℹ cancelled N" (a timed-out test counts as cancelled, so a hang no longer reads "fail 0").
+3. Red at base: the head registration test against the base script and ci.yml fails exactly the five points (a)-(e) by assertion
+   (inner arithmetic; no per-test timeout and force-exit; no stdout reporter; no failure tail and totals; no always() upload). The head
+   totals test against the base lib is red. Head: registration 7/7, totals 3/3 (none VOID).
+4. Mutants, each RED by assertion: m1 "cancelled" dropped from the totals grep; m2 INNER_TIMEOUT_S back to 600; m3 --test-timeout and
+   --test-force-exit removed; m4 --test-force-exit removed; m5 the spec reporter back to the file; m6 the failure tail removed; m7 the
+   upload's if: always() removed.
+5. The injected per-test hang (a scratch test with an open interval that never resolves), the real producer, under the lock:
+   - head: the run names it on stdout "✖ v8 probe hangs forever with an open handle (200000.29 ms)", totals tests 94 / pass 93 / fail 0 /
+     cancelled 1, the "progress log ends" tail, exit 1 at 320 s (the other 92 tests take about 120 s);
+   - head with --test-force-exit removed (mutant m4 live): the open handle keeps the file alive until the inner timeout: exit 124 at 455 s.
+     So the force-exit flag is needed, as the owner states;
+   - base: 0 test lines on stdout in 300 s (my outer cap; the base inner timeout is 600 s): the hosted silence reproduced.
+   The load-time hang (a file whose top level awaits forever WITH an open interval), head: exit 124 at 454 s, the tail and totals printed
+   (tests 93, pass 92, fail 0, cancelled 1). (My first load-time probe without a handle was not a hang: node fails an unsettled top-level
+   await at once — exit 1 at 120 s; recorded, then re-run with the handle.)
+6. The force-exit judgement (the order asks): --test-force-exit does NOT hide a real failure: a failing assertion under it exits 1
+   (probe), the hang above exits 1, and the script propagates node's status through PIPESTATUS[0] and `exit "$node_status"`.
+   The owner's MaxListeners note is verified: a third reporter prints MaxListenersExceededWarning (probe count 1).
+7. The real producer, under the lock with the pinned Temporal test server and Node v24.14.1: head 92/92 in 120 s (cancelled 0); the base
+   script 92/92 in 120 s; the LCOV hit lines are equal file by file (head lcov sha ed1cd914062c7f1a). Slowest single test 60.03 s
+   ("continues only from a quiescent state and restores absolute timers"): margin 200/60.03 = 3.33x (>= 3x). The 109.86 s row,
+   "factory Temporal workflow", is a SUITE; a probe shows --test-timeout applies to single tests, not to suites (a 4 s suite of two 2 s
+   tests passes under a 3 s timeout), so the binding margin is the single test's.
+8. actionlint 1.7.7 with the labels config: 0 findings at base and at head (no new finding). gate-integrity base PASSED; main pinned at
+   e3309906d = exactly the 8. Lint 0; boundaries 0; gitleaks 0. Typecheck 0 in-lock at 18.7 GiB, pinned Node. Guard set 516 pass 0 fail.
+Evidence: /tmp/factory-platform-evidence/validator-8/ w4h-21-light/, w4h-21-heavy/, w4h-21-loadhang/; hold-w4h-21-{light,heavy,loadhang}.sh.
+ADDENDUM (team-lead's W4H-21 notes, answered from the runs above; no new run):
+- (1) The inner timeout 450 s + 30 s grace: accepted as ruled; ends 120 s before the job timeout (the registration test's margin).
+- (2) The two mutants the owner did not run are mine and RED: m7 (the upload's if: always() removed) fails registration point (e);
+  m1 ("cancelled" dropped from test-totals.sh) fails the totals test.
+- (3) test-totals.sh is bash (bun lcov cannot measure it): src/__tests__/test-totals.test.ts runs the real helper on a spec-reporter
+  file and asserts its exact output, red at base, green at head, and m1 shows the changed grep is the line under assertion. I judge
+  that test the coverage proof for the helper's changed line.
+- (4) --test-force-exit with a real failing test: the probe test "v8 probe fails" is named "✖ … " and the run exits 1; in the producer
+  the hang is named and the run exits 1, and the status reaches the job through PIPESTATUS[0] and exit "$node_status".

@@ -1,0 +1,50 @@
+name: "Setup the pinned Python toolchain"
+description: >
+  Put the pinned `uv` on PATH and warm the locked Python environment so a job
+  can run scripts/python-quality.sh. The uv version is SINGLE-SOURCED in the
+  top-level `.uv-version` file and the release archive is checksum-verified,
+  matching how ci.yml pins the Temporal test server and how actions are pinned
+  by SHA. The interpreter comes from `.python-version` and the dependencies
+  from `src/factory/runner/python/uv.lock`; this action installs neither by
+  itself, because `uv sync --locked` inside python-quality.sh is the one place
+  that resolves them and the one place that fails closed when they disagree.
+
+  Composite, not `astral-sh/setup-uv`: a third-party action would be a new
+  supply-chain edge for a single 15 MB download that this repository already
+  knows how to pin and verify.
+
+runs:
+  using: composite
+  steps:
+    - name: Install the pinned uv release
+      shell: bash
+      run: |
+        set -euo pipefail
+        version="$(tr -d '[:space:]' < .uv-version)"
+        [ -n "$version" ] || { echo "::error::.uv-version is empty"; exit 1; }
+        archive="uv-x86_64-unknown-linux-gnu.tar.gz"
+        base="https://github.com/astral-sh/uv/releases/download/$version"
+        curl --fail --location --retry 3 --output "/tmp/$archive" "$base/$archive"
+        curl --fail --location --retry 3 --output "/tmp/$archive.sha256" "$base/$archive.sha256"
+        # The published checksum file names the archive without a directory, so
+        # verify from /tmp where both now live.
+        (cd /tmp && sha256sum --check "$archive.sha256")
+        mkdir -p /tmp/uv-pinned
+        tar -xzf "/tmp/$archive" -C /tmp/uv-pinned --strip-components=1
+        chmod u+x /tmp/uv-pinned/uv /tmp/uv-pinned/uvx
+        echo "/tmp/uv-pinned" >> "$GITHUB_PATH"
+
+    - name: Cache the uv download cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.cache/uv
+        key: uv-${{ runner.os }}-${{ hashFiles('.uv-version', '.python-version', 'src/factory/runner/python/uv.lock') }}
+        restore-keys: |
+          uv-${{ runner.os }}-
+
+    - name: Report the resolved toolchain
+      shell: bash
+      run: |
+        set -euo pipefail
+        uv --version
+        echo "python pin: $(tr -d '[:space:]' < .python-version)"

@@ -1,0 +1,15 @@
+CRAP: --changed against 2737e385d14108170815e6c97a20752f7c1c11f8 → 2 measured file(s) in diff
+
+CRAP: 8 functions in 2 files (max 30, warn 15)
+
+Worst 8:
+     11.0  cc= 11 cov=100%  src/factory/reference-data/pack.ts:352 withDirectory() callback
+      6.0  cc=  6 cov=100%  src/factory/reference-data/pack.ts:416 withDirectory() callback
+      6.0  cc=  6 cov=100%  src/factory/runner/uv-command.ts:26 resolveUvBinary
+      4.0  cc=  4 cov=100%  src/factory/reference-data/pack.ts:326 withDirectory() callback
+      2.0  cc=  2 cov=100%  src/factory/reference-data/pack.ts:321 runReferenceDataJourney
+      1.0  cc=  1 cov=100%  src/factory/reference-data/pack.ts:385 withDirectory() callback
+      1.0  cc=  1 cov=100%  src/factory/reference-data/pack.ts:392 <anonymous@392>
+      1.0  cc=  1 cov=100%  src/factory/reference-data/pack.ts:464 withDirectory
+
+✓ no touched function exceeds CRAP 30

@@ -1,0 +1,6 @@
+VOID hold attempt 1 on merge 000f75d102ed31ec16bd07f125dcccfedbb6e3cc (03:41:49-03:44:02Z 2026-10-08, heavy.exit 1, HEAVY DONE status=1).
+Cause (environment): the shared proof PostgreSQL was dead (since 2026-10-06 17:46Z per the coordinator); graph-mock-pass: "harness error: PostgresError: Failed to connect".
+Probes 03:45Z (integrator-5, read-only): podman ps "Up 2 weeks 127.0.0.1:46343->5432"; inspect running pid 1893223; /proc/1893223 absent;
+pg_isready via podman exec: "crun: the container ... is not running"; TCP 127.0.0.1:46343 connection refused.
+Other 13 legs green (see heavy-batch.log). Repaired by the coordinator (stop -t 2, start, crash recovery, 193 DBs intact); re-hold ordered.
+Also: /tmp/factory-platform-evidence/w01h/graph/dump-and-drop.sh missing (tmpfiles); logged "No such file", no effect on the result.

@@ -1,0 +1,6 @@
+New-file coverage gate FAILED (5 file(s)):
+  web/src/lib/factory/FactoryConsole.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+  web/src/lib/factory/FactoryGraph.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+  web/src/lib/factory/FactoryGraphBoundary.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+  web/src/lib/factory/FactoryNode.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).
+  web/src/routes/(app)/factories/+page.svelte: new source file with no measured coverage — add a test that exercises it (or, if it genuinely can't be line-measured, add it to EXCLUDES in scripts/coverage-config.ts with justification).

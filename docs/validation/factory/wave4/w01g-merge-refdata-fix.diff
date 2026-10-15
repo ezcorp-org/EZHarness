@@ -1,0 +1,43 @@
+diff --git a/src/factory/reference-data/guest.test.ts b/src/factory/reference-data/guest.test.ts
+index 7a726a7f6..053db2bea 100644
+--- a/src/factory/reference-data/guest.test.ts
++++ b/src/factory/reference-data/guest.test.ts
+@@ -37,6 +37,7 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the
+     "factory-runner-request.schema.json",
+     "factory-runner-result.schema.json",
+     "factory_ijson.py",
++    "factory_materials.py",
+     "factory_schema.py",
+     "factory_validation.py",
+     "guest.py",
+@@ -55,6 +56,17 @@ test("the guest is exactly the committed modules, the reused C02 guest, and the
+   expect(await factoryReferenceDataGuestDigest()).toBe(filesDigest(files));
+ });
+ 
++test("every factory_* module a sealed Python file imports is sealed too", async () => {
++  // The shared list is explicit, so a new runner import must be added to it by
++  // hand; this names the omission here instead of in a Podman suite.
++  const files = await factoryReferenceDataGuestFiles();
++  const modules = Object.keys(files).filter((name) => name.endsWith(".py"));
++  const imported = new Set(modules.flatMap((name) =>
++    [...String(files[name]).matchAll(/^\s*(?:from|import)\s+(factory_\w+)/gmu)].map((match) => `${match[1]}.py`)));
++  expect(imported.size).toBeGreaterThan(0);
++  expect([...imported].filter((module) => !(module in files))).toEqual([]);
++});
++
+ test("at least one sealed test is staged, because a build with none is refused", async () => {
+   const files = await factoryReferenceDataGuestFiles();
+   const tests = Object.keys(files).filter(path => /(?:^|\/)test_[^/]+\.py$/.test(path));
+diff --git a/src/factory/reference-data/guest.ts b/src/factory/reference-data/guest.ts
+index a4531c0a2..33db60c84 100644
+--- a/src/factory/reference-data/guest.ts
++++ b/src/factory/reference-data/guest.ts
+@@ -82,7 +82,7 @@ export interface FactoryReferenceDataImageLock {
+ }
+ 
+ /** The one C02 guest this pack reuses rather than reimplementing its frame loop. */
+-const SHARED_GUEST_MODULES = Object.freeze(["guest.py", "factory_ijson.py", "factory_schema.py", "factory_validation.py"]);
++const SHARED_GUEST_MODULES = Object.freeze(["guest.py", "factory_ijson.py", "factory_materials.py", "factory_schema.py", "factory_validation.py"]);
+ /** This pack's own modules, named explicitly so the sealed guest is exactly these bytes. */
+ const PACK_MODULES = Object.freeze(["refdata/__init__.py", "refdata/rows.py", "refdata/parquet.py", "refdata/guest.py", "tests/__init__.py", "tests/test_refdata_sealed.py"]);
+ /** The generated schemas both runtimes read, so one contract serves both. */

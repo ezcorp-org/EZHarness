@@ -1,0 +1,14 @@
+=== heavy batch 2026-09-24T22:00:54Z
+HEAD bfa74c11fe275d00cf8c6f5b5f692362dad24c0d MERGE_HEAD 8112baaf15dd5fc0ea568a965f072a31331b9848 index-tree 150b39ee052c9f8b63507e9fece3bca7525b3862 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  141G  92% /
+--- START pg-factory-checkpoint 2026-09-24T22:00:54Z
+--- END   pg-factory-checkpoint 2026-09-24T22:01:30Z exit=0  12 pass 0 fail 
+--- START pg-factory-key-rotation 2026-09-24T22:01:30Z
+--- END   pg-factory-key-rotation 2026-09-24T22:01:35Z exit=0  1 pass 0 fail 
+--- START pg-factory-pool-checkpoint 2026-09-24T22:01:35Z
+--- END   pg-factory-pool-checkpoint 2026-09-24T22:01:36Z exit=0  6 pass 0 fail 
+--- START pg-factory-restore 2026-09-24T22:01:36Z
+--- END   pg-factory-restore 2026-09-24T22:02:02Z exit=0  13 pass 0 fail 
+--- START pool-coverage 2026-09-24T22:02:02Z
+--- END   pool-coverage 2026-09-24T22:02:21Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail 
+BATCH DONE status=0 2026-09-24T22:02:21Z

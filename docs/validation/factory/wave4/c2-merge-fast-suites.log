@@ -1,0 +1,105 @@
+=== guard-scripts-factory-attempt-queue-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [490.00ms]
+=== guard-scripts-factory-c13-inventory-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 13 pass
+ 0 fail
+ 226 expect() calls
+Ran 13 tests across 1 file. [709.00ms]
+=== guard-scripts-factory-compute-admissions-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [466.00ms]
+=== guard-scripts-factory-execution-admission-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [480.00ms]
+=== guard-scripts-factory-orchestrator-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 47 expect() calls
+Ran 2 tests across 1 file. [497.00ms]
+=== guard-scripts-factory-postgres-suite-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 6 pass
+ 0 fail
+ 18 expect() calls
+Ran 6 tests across 1 file. [504.00ms]
+=== guard-scripts-factory-protected-command-effects-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [496.00ms]
+=== guard-scripts-factory-provisioning-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [470.00ms]
+=== guard-scripts-factory-task-execution-admission-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 10 expect() calls
+Ran 2 tests across 1 file. [491.00ms]
+=== guard-scripts-factory-validator-materials-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [481.00ms]
+=== guard-scripts-python-quality-registration-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 8 pass
+ 0 fail
+ 37 expect() calls
+Ran 8 tests across 1 file. [472.00ms]
+=== guard-src-__tests__-ci-test-set-drift-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 17 pass
+ 0 fail
+ 172 expect() calls
+Ran 17 tests across 1 file. [1194.00ms]
+=== focused-scripts-check-factory-boundaries-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 31 pass
+ 0 fail
+ 39 expect() calls
+Ran 31 tests across 1 file. [1.86s]
+=== focused-src-__tests__-gate-scripts-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 248 pass
+ 0 fail
+ 623 expect() calls
+Ran 248 tests across 1 file. [6.33s]
+=== focused-src-__tests__-git-spawn-context-guard-test-ts
+bun test v1.3.14 (0d9b296a)
+
+ 19 pass
+ 0 fail
+ 66 expect() calls
+Ran 19 tests across 1 file. [561.00ms]

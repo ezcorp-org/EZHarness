@@ -1,0 +1,44 @@
+VERDICT (validator-6) — W4G-7 at 625a1c879 (wp/w4g-7, owner w12e-2), base 842ad9fe1: ACCEPT
+
+3 commits, all archy noreply as author and committer:
+  - 70877e6aa: the test-certificate helper signs leaves with `openssl ca` and -startdate/-enddate;
+  - b5e42fb5f: the private-https test sends its extra request after the handler starts, not 1 ms later (test only);
+  - 625a1c879: the gates doc.
+Files changed: src/__tests__/helpers/factory-certificates.ts, src/factory/private-https.integration.test.ts,
+tasks/factory/w4g-7-GATES.md. No product source changes. Config hash 44962525f1ca1a8b at the start and end of both phases.
+Bun and bunx 1.4.2, with the pipelining flag.
+
+REVIEW
+  - `x509 -req` takes explicit dates (-not_before/-not_after) only from OpenSSL 3.4; Ubuntu 24.04 ships 3.0.13. `openssl ca`
+    takes -days and -startdate/-enddate on every OpenSSL from 1.1.1. The helper writes a minimal ca.cnf (rand_serial,
+    unique_subject = no, commonName supplied) and an empty index per call.
+  - The flake fix waits on a promise that the handler resolves. Two requests that the server reads in one chunk meet the
+    pipelining refusal (400), which is a different case.
+  - The owner's list of 38 importers contains all 23 test files that import the helper directly; the other 15 are transitive
+    importers and PostgreSQL suites.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g7.sh): the owner's image localhost/w4g-runner:24.04-node (Ubuntu 24.04,
+  OpenSSL 3.0.13, CI's Node 24.14.1), a git-archive snapshot of each revision, my lane and output folder.
+  - At 842ad9fe1, RED: 8 pass, 2 fail. Both are the W01k cases, with "x509: Use -help for summary.", as in the hosted job.
+  - At 625a1c879, GREEN: 15 pass, 0 fail.
+
+FLAKE LEG, by me (w4g-validation/flake-w4g7.sh, under the lock, on this host): private-https.integration.test.ts 20 times at
+  70877e6aa (before the flake fix) and 20 times at 625a1c879: 20/20 passed runs at both. The flake did not show on this host in
+  20 runs, so my leg proves no regression only. The red for the flake is the owner's: with no gap between the two writes the
+  test fails 10/10 with the 400 refusal (w4g-7/flake/nogap-*.log); the fixed test passes 50/50 (flake/fixed-*.log); a product
+  mutant without the close-during-work branch fails it (logs/flakefix-mutant.log, 0 pass, 1 fail).
+
+RERUN RESULTS (hold-v6-w4g7-625a1c879/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 3/3; receipts 297 scanned, 0 missing;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against 842ad9fe1 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg (the owner's 38 importers without the PostgreSQL and podman suites, plus the changed test): 25 files, 551/0;
+    - SDK 246/0;
+    - pool producer (with the PostgreSQL importers) 107/0;
+    - guard set 60/0;
+    - lcov merge 0; the new-file and patch gates pass.

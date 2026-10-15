@@ -280,14 +280,16 @@ test("host 4.0 canonical schemas remain byte-identical to the frozen producer", 
 
 test("terminal lifecycle receipts require host 4.1 canonical schemas", () => {
   const manifest = protocolManifest();
-  manifest.sandboxProviders![0]!.minimumHostContract.minor = 1;
+  const provider = manifest.sandboxProviders?.[0];
+  if (!provider) throw new Error("Fixture sandbox provider is missing");
+  provider.minimumHostContract = { major: 4, minor: 1 };
   for (const operation of SANDBOX_PROVIDER_OPERATIONS) {
     Object.assign(manifest.methods!.find(method => method.name === methodName(operation))!, sandboxProviderMethodSchemas(operation, 1));
   }
-  expect(validateManifest(manifest).sandboxProviders?.[0]?.minimumHostContract.minor).toBe(1);
-  manifest.sandboxProviders![0]!.minimumHostContract.minor = 0;
+  expect<unknown>(validateManifest(manifest).sandboxProviders?.[0]?.minimumHostContract?.minor).toBe(1);
+  provider.minimumHostContract.minor = 0;
   expect(() => validateManifest(manifest)).toThrow("canonical wire schemas");
-  Object.assign(manifest.sandboxProviders![0]!.minimumHostContract, { minor: 2 });
+  Object.assign(provider.minimumHostContract, { minor: 2 });
   expect(() => validateManifest(manifest)).toThrow();
 });
 

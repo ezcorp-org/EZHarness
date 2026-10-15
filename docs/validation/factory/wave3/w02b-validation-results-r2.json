@@ -1,0 +1,49 @@
+{
+  "package": "w02b",
+  "round": 2,
+  "verdict": "ACCEPT",
+  "head": "c3c4fc2a8",
+  "headFull": "c3c4fc2a8149f6cfbfd960b73a1101e557625610",
+  "deltaFrom": "af725e53ab1dbca99f1975911e5c6b9b21bcb026",
+  "deltaCommits": [
+    { "sha": "d5cfd7e1bfb6b854ef821cf47602d85c9d3c556a", "subject": "fix(sdk): export manifestNameOf and make every name it derives legal" },
+    { "sha": "c3c4fc2a8149f6cfbfd960b73a1101e557625610", "subject": "docs(factory): correct the W02b fan-out count and record the head reruns" }
+  ],
+  "treeClean": true,
+  "round1Findings": [
+    {
+      "id": 1,
+      "severity": "moderate",
+      "title": "manifestNameOf not exported from the SDK barrel",
+      "status": "FIXED, verified",
+      "verification": "index.ts and dist/index.js/index.d.ts both export manifestNameOf; `import { manifestNameOf } from \"@ezcorp/factory-sdk\"` now resolves and runs. Also fixed a second, independently-discovered defect: the derivation could yield a name starting with a digit/dash (illegal per the v4 grammar); manifestNameOf now strips every leading non-letter and falls back to the constant \"runner\" when nothing legal remains. Verified with my own probe script: manifestNameOf(\"@x/9-leading-digit\") -> \"leading-digit\", isManifestName(...) === true."
+    },
+    {
+      "id": 2,
+      "severity": "low",
+      "title": "Gate file undercounted the mechanical fan-out (23+2 claimed vs 41 actual)",
+      "status": "FIXED, verified",
+      "verification": "Independently recomputed the full 58-file change list of c49d8e0fe from scratch. The gate file's new breakdown (4 SDK/product sources + 34 *.test.ts/*.spec.ts + 8 non-suffixed helper/fixture files + 1 web module = 47; the 43-file 'other packages' figure is 47 minus the 4 non-mechanical sources) matches exactly. The remaining 11 files (6 schema.json, index.ts, the c02-conformance.json fixture, 3 Python files) are the ones already disclosed under items 1 and 3 and correctly excluded from this count. 47 + 11 = 58, matching the commit's real file count."
+    }
+  ],
+  "newObservation": {
+    "severity": "cosmetic, not a finding",
+    "title": "Gate file's 'pre-existing coverage miss' note has a wrong line-shift number",
+    "detail": "tasks/factory/w02b-GATES.md says validateDurableInputPorts's line number 'shifts... by eight'; the real shift (verified: `continue;` at integ/w00:776 -> HEAD:792) is sixteen. The underlying claim -- that the function's content is byte-for-byte unchanged and the coverage gap is pre-existing, unrelated to this branch -- IS verified true (`diff` between the integ/w00 and HEAD versions of that function is empty). Does not affect any gate or the verdict."
+  },
+  "myReruns": [
+    { "label": "fix-sdk-suite", "command": "bun test --timeout 300000 --coverage ./packages/@ezcorp/factory-sdk/src", "exitCode": 0, "pass": 189, "fail": 0, "expect": 1393, "matchesWorkerReceipt": true },
+    { "label": "manifest-name.test.ts standalone", "command": "bun test --timeout 60000 ./packages/@ezcorp/factory-sdk/src/manifest-name.test.ts", "exitCode": 0, "pass": 5, "fail": 0, "expect": 49 },
+    { "label": "fix-focused-suites", "command": "bun test --timeout 300000 --coverage ... (same 14 targets as round 1)", "exitCode": 0, "pass": 307, "fail": 0, "expect": 2117, "note": "up from round 1's 302/2068 by exactly +5/+49, matching manifest-name.test.ts" },
+    { "label": "fix-typecheck", "command": "bun run typecheck", "exitCode": 0 },
+    { "label": "fix-lint", "command": "bun run lint", "exitCode": 0 },
+    { "label": "fix-boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0 },
+    { "label": "fix-gate-integrity", "command": "bun scripts/gate-integrity.ts", "exitCode": 0 },
+    { "label": "fix-new-file-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts (merged LCOV: fresh focused+sdk shard, reused prep-podman/postgres/python-guest/factory-podman/extension-runner-podman/python shards from round 1 since untouched by this delta, reused worker's checksum-verified web.lcov)", "exitCode": 0 },
+    { "label": "fix-patch-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts (same merge)", "exitCode": 0, "result": "all changed executable lines covered (6 file(s))" },
+    { "label": "dist export check", "command": "grep manifestNameOf packages/@ezcorp/factory-sdk/dist/index.{js,d.ts} packages/@ezcorp/factory-sdk/dist/references.{js,d.ts}", "result": "present in all four; SDK dist was rebuilt" }
+  ],
+  "scopeNote": "Nothing under Podman or PostgreSQL changed in this delta (d5cfd7e1b touches only factory-sdk/src/{index.ts,references.ts} and a new manifest-name.test.ts, plus the gate file; c3c4fc2a8 touches only the gate file and lessons.md). Confirmed via `git show --stat` on both commits. Reused round-1's heavy-producer LCOV shards (Podman package-preparation, PostgreSQL parity, Python guest under Podman, factory Podman suites, full extension-runner Podman suite) unchanged rather than re-running them, per the team lead's instruction.",
+  "gateIntegrity": "No .skip/.only/.todo, no EXCLUDES, no lowered thresholds in the delta. scripts/coverage-thresholds.json untouched.",
+  "conclusion": "Both round-1 findings are correctly and fully fixed, each verified at the code level (not just by re-reading the worker's prose). No new defects found. All 8 W02b gates plus the new B2a gate reproduce cleanly at head c3c4fc2a8."
+}

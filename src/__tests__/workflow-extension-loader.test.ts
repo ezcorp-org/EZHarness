@@ -130,7 +130,13 @@ describe("loadExtensionWorkflows — discovery", () => {
     expect(loaded).toEqual([]);
   });
 
-  describe("the NUL byte in a missing-installPath ENOENT (investigation — external bug, no code defect here)", () => {
+  describe("the NUL byte in a missing-installPath ENOENT (a Bun engine bug, fixed in Bun 1.4.2; no code defect here)", () => {
+    // FIXED UPSTREAM (W12e, 2026-10-01): on the pinned Bun 1.4.2 the Bun.Glob ENOENT message is clean, with the path
+    // intact and no NUL; Bun 1.3.14 still put a NUL before the closing quote (raw bytes on both:
+    // /tmp/factory-platform-evidence/w12e-2/nul/probe.out, hex tail "74 00 27" on 1.3.14, "74 27" on 1.4.2). The
+    // cases below assert the clean message on the pinned Bun and keep the product's handling of a missing installPath
+    // tested end to end. The history follows.
+    //
     // Incident evidence: scanning a missing installPath logged
     //   error=Error: ENOENT: no such file or directory, open '.../web-search '
     // — a stray byte rendered as a trailing space right before the closing
@@ -167,7 +173,7 @@ describe("loadExtensionWorkflows — discovery", () => {
     // `src/db/nul-column-patch.ts`).
     const NUL = String.fromCharCode(0);
 
-    test("Bun.Glob(...).scan() on a missing cwd embeds a literal NUL in its ENOENT message", async () => {
+    test("Bun.Glob(...).scan() on a missing cwd reports a clean ENOENT on the pinned Bun (1.3.14 embedded a NUL)", async () => {
       const glob = new Bun.Glob("*.workflow.yaml");
       const missing = join(root, "does-not-exist");
       let caught: unknown;
@@ -177,7 +183,9 @@ describe("loadExtensionWorkflows — discovery", () => {
         caught = err;
       }
       expect(caught).toBeInstanceOf(Error);
-      expect((caught as Error).message.includes(NUL)).toBe(true);
+      expect((caught as Error).message).toContain("ENOENT");
+      expect((caught as Error).message).toContain(`'${missing}'`);
+      expect((caught as Error).message.includes(NUL)).toBe(false);
     });
 
     test("node:fs readdir on the SAME missing path does NOT embed a NUL (isolates the bug to Bun.Glob)", async () => {
@@ -193,7 +201,7 @@ describe("loadExtensionWorkflows — discovery", () => {
       expect((caught as Error).message.includes(NUL)).toBe(false);
     });
 
-    test("end-to-end: the logged warning JSON-escapes the NUL (no raw byte on the wire) and round-trips it exactly", async () => {
+    test("end-to-end: a missing installPath yields nothing and logs the exact ENOENT, with no raw NUL on the wire", async () => {
       const stderrChunks: string[] = [];
       const origWrite = process.stderr.write.bind(process.stderr);
       (process.stderr as unknown as { write: (c: unknown) => boolean }).write = (chunk) => {
@@ -221,17 +229,17 @@ describe("loadExtensionWorkflows — discovery", () => {
         (process.stderr as unknown as { write: typeof origWrite }).write = origWrite;
       }
 
-      expect(thrownMessage.includes(NUL)).toBe(true); // sanity: the repro fired
+      // Sanity: the repro fired, and on the pinned Bun its message is clean (the path intact, no NUL).
+      expect(thrownMessage).toContain(`'${join(root, "does-not-exist")}'`);
+      expect(thrownMessage.includes(NUL)).toBe(false);
 
       const line = stderrChunks.find((l) => l.includes("Failed to scan extension workflows"));
       expect(line).toBeTruthy();
-      // The line on the wire is safe, valid JSON with no literal NUL byte…
+      // The line on the wire is valid JSON with no literal NUL byte…
       expect(line!.includes(NUL)).toBe(false);
-      // …and JSON.parse recovers the EXACT original error string, NUL
-      // included — nothing was substituted or dropped.
+      // …and JSON.parse recovers the EXACT original error string: nothing was substituted or dropped.
       const parsed = JSON.parse(line!) as { error?: string };
       expect(parsed.error).toBe(thrownMessage);
-      expect(parsed.error!.includes(NUL)).toBe(true);
     });
   });
 

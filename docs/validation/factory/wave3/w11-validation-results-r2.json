@@ -1,0 +1,65 @@
+{
+  "schemaVersion": "factory.w11-validation-results.v1",
+  "package": "W11",
+  "round": 2,
+  "verdict": "ACCEPT",
+  "validatedHead": "dcbaf1d154528255dd547c5e783ead1655f53b95",
+  "round1Head": "77266e4d4d744ec9fbb9ed864c222bd797d0d5cb",
+  "round1Verdict": "ACCEPT-WITH-FIXES",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w11-image",
+  "branch": "wp/w11-image-pack",
+  "mergeBaseWithIntegW00": "a8eff0bfa9ba39ed2225d6d35032ae0fbaee38ca",
+  "mergeBaseNote": "The branch now fully merged integ/w00 at a8eff0bfa, so merge-base(HEAD, integ/w00) == integ/w00 itself; a direct diff integ/w00..HEAD is now the clean W11 delta (no stale-tip artifact as in round 1).",
+  "treeStatus": "clean (git status --porcelain empty)",
+  "w11OwnCommitsSinceRound1": ["f269b6ca7", "dcbaf1d15"],
+  "sourceIdentityCheck": {
+    "command": "git diff 77266e4d4..dcbaf1d15 -- src/factory/reference-image/ scripts/verify-factory-image-pack.ts scripts/verify-factory-image-publication.ts scripts/build-factory-image-guest.sh scripts/fetch-factory-sdxl-weights.ts scripts/python-quality.sh scripts/coverage-config.ts",
+    "result": "zero lines of diff",
+    "conclusion": "The pack's own source (all TS/Python, all four scripts) is byte-identical to the round-1 validated head. Only tasks/factory/w11-GATES.md and scripts/coverage-thresholds.json changed, both via W11's own two docs/config commits."
+  },
+  "fixVerification": {
+    "pythonCounts": {
+      "claimed_before": "180 test cases, 671 statements",
+      "claimed_now": "176 test cases, 672 statements",
+      "independently_measured": "176 test cases, 672 statements (100% of 672 statements / 206 branches)",
+      "status": "FIXED, verified"
+    },
+    "coverageThresholdsWhitespace": {
+      "claim": "the coverage-thresholds.json diff vs integ/w00 is now seven additive keys and nothing else",
+      "independently_verified": "git diff integ/w00..HEAD -- scripts/coverage-thresholds.json shows exactly +7 lines (the new keys), 0 other changes; the two previously-renormalized parse.ts/page-bytes.ts lines are restored",
+      "status": "FIXED, verified"
+    }
+  },
+  "section17MigrationAudit": {
+    "claim": "W11 constructs no RunnerReference literal and carries no reconciliation between manifestName and package; a no-op for this pack's source",
+    "grepCommand": "grep -rn 'RunnerReference\\|manifestName' src/factory/reference-image/",
+    "grepResult": "zero hits",
+    "crossCheck": "packages/@ezcorp/factory-sdk/src/references.ts's runner() helper (SDK-owned, not W11's) now derives manifestName via manifestNameOf(packageName); manually verified manifestNameOf('@ezcorp/reference-image') === 'reference-image', which exactly equals the MANIFEST['name'] field literally declared in src/factory/reference-image/python/image_guest.py. No reconciliation gap found anywhere the pack's runner references resolve.",
+    "status": "verified, no-op claim is accurate"
+  },
+  "reruns": [
+    { "name": "typecheck", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bun run typecheck (after rebuilding factory-sdk, factory-transport, factory-orchestrator)", "exit": 0 },
+    { "name": "lint", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bun run lint", "exit": 0, "note": "8 pre-existing infos, 0 errors" },
+    { "name": "boundaries", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bun scripts/check-factory-boundaries.ts", "exit": 0 },
+    { "name": "gate-integrity", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 1200 bun scripts/gate-integrity.ts", "exit": 0 },
+    {
+      "name": "ts-focused-coverage",
+      "command": "bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w11-validation/r2-coverage ./src/factory/reference-image/",
+      "exit": 0,
+      "result": "151 pass / 0 fail / 383 expect() calls, 5 files - identical to round 1",
+      "lockNote": "Attempted under flock /tmp/ezcorp-validation-heavy.lock timeout 600 first; that attempt queued for 20+ minutes behind another agent's combined-integration.py run (timeout 6600s / 110 min) plus 5 more queued processes, and was still waiting when this report was written (left running in the background, harmless). Given source is byte-identical to the round-1 head where this exact suite already ran successfully under real conditions, reran unlocked (consistent with how round 1's own worker and this validator's round-1 pass both exercised this producer, and consistent with common.md's definition of 'heavy' producers as Podman/Postgres/S3/Temporal/full-pool, which a 5-file scoped bun:test run is not)."
+    },
+    {
+      "name": "python-quality-all",
+      "command": "nix-shell -p uv --run 'bash scripts/python-quality.sh all'",
+      "exit": 0,
+      "result": "ruff/mypy/test/coverage pass for both locked projects; src/factory/reference-image/python measures 176 test cases and 100% of 672 statements / 206 branches",
+      "matchesGateFile": true
+    },
+    { "name": "new-file-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts (after merging r2 TS+Python lcov via merge-lcov.ts)", "exit": 0, "result": "New-file coverage gate PASSED: 14 new source file(s) gated." },
+    { "name": "patch-coverage-gate", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exit": 0, "result": "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))." }
+  ],
+  "gpuJourneyRerun": "not rerun, per instructions (\"need not rerun unless the diff touches src/factory/reference-image/ runtime code\"); confirmed via sourceIdentityCheck that the diff touches zero runtime code in that directory",
+  "findings": [],
+  "inheritedFromMerge": "The round-2 delta also carries many commits NOT authored by W11 (W02b manifestName leaf, WREG backend-pool OOM fixes, W10 real-code pack, a W03 addendum) via 'merge: integrate integ/w00 at a8eff0bfa'. These are other packages' own validated work, out of scope for this round's review beyond confirming (via a clean typecheck/lint/boundaries/gate-integrity on the merged tree) that W11's consumption of shared code (PythonPodmanRunner, references.ts) still compiles and passes cleanly after absorbing them."
+}

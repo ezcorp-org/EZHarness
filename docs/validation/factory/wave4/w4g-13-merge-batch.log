@@ -1,0 +1,45 @@
+=== heavy 2026-10-03T12:47:22Z
+HEAD 8c7f7bc00bc977d970cbd10c9b2edc20bf405c1d MERGE_HEAD  index-tree a736531b274a980797e2bcc6e36cb9c21f048490
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+shared config hash at hold start: 44962525f1ca1a8b
+resource-gate 2026-10-03T12:47:22Z attestation-check disk=172G memAvailable=15GiB swapFreeKiB=4792308/17173956
+--- START attestation-check 2026-10-03T12:47:22Z
+--- END   attestation-check 2026-10-03T12:47:22Z exit=0 
+guard set: 36 files from guard-suites.sh
+resource-gate 2026-10-03T12:47:22Z guard-set disk=172G memAvailable=15GiB swapFreeKiB=4792308/17173956
+--- START guard-set 2026-10-03T12:47:22Z
+--- END   guard-set 2026-10-03T12:48:05Z exit=0  468 pass 0 fail 
+resource-gate 2026-10-03T12:48:05Z build-factory-sdk disk=172G memAvailable=15GiB swapFreeKiB=4793036/17173956
+--- START build-factory-sdk 2026-10-03T12:48:05Z
+--- END   build-factory-sdk 2026-10-03T12:48:05Z exit=0 
+resource-gate 2026-10-03T12:48:05Z build-factory-transport disk=172G memAvailable=15GiB swapFreeKiB=4793040/17173956
+--- START build-factory-transport 2026-10-03T12:48:05Z
+--- END   build-factory-transport 2026-10-03T12:48:05Z exit=0 
+resource-gate 2026-10-03T12:48:05Z build-factory-orchestrator disk=172G memAvailable=15GiB swapFreeKiB=4793040/17173956
+--- START build-factory-orchestrator 2026-10-03T12:48:05Z
+--- END   build-factory-orchestrator 2026-10-03T12:48:05Z exit=0 
+resource-gate 2026-10-03T12:48:05Z unit-src-__tests__-dev-image-ownership-test-ts disk=172G memAvailable=15GiB swapFreeKiB=4793040/17173956
+--- START unit-src-__tests__-dev-image-ownership-test-ts 2026-10-03T12:48:05Z
+--- END   unit-src-__tests__-dev-image-ownership-test-ts 2026-10-03T12:48:06Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-03T12:48:06Z web-server-lcov disk=172G memAvailable=15GiB swapFreeKiB=4793040/17173956
+--- START web-server-lcov 2026-10-03T12:48:06Z
+--- END   web-server-lcov 2026-10-03T12:48:25Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-03T12:48:26Z coverage-merge disk=172G memAvailable=15GiB swapFreeKiB=4793500/17173956
+--- START coverage-merge 2026-10-03T12:48:26Z
+--- END   coverage-merge 2026-10-03T12:48:26Z exit=0 
+resource-gate 2026-10-03T12:48:26Z web-build disk=172G memAvailable=15GiB swapFreeKiB=4793500/17173956
+--- START web-build 2026-10-03T12:48:26Z
+--- END   web-build 2026-10-03T12:49:06Z exit=0 
+resource-gate 2026-10-03T12:49:06Z graph-mock-pass disk=172G memAvailable=15GiB swapFreeKiB=4793772/17173956
+--- START graph-mock-pass 2026-10-03T12:49:06Z
+--- END   graph-mock-pass 2026-10-03T12:49:54Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-13/graph/w4g-13-mock.json; nothing to dump
+mock pass w4g-13-mock outcome: passed
+resource-gate 2026-10-03T12:49:54Z crap-changed-base disk=172G memAvailable=15GiB swapFreeKiB=4729964/17173956
+--- START crap-changed-base 2026-10-03T12:49:54Z
+--- END   crap-changed-base 2026-10-03T12:49:54Z exit=0 
+resource-gate 2026-10-03T12:49:54Z merge-commit-gates disk=172G memAvailable=15GiB swapFreeKiB=4729964/17173956
+--- START merge-commit-gates 2026-10-03T12:49:54Z
+--- END   merge-commit-gates 2026-10-03T12:49:59Z exit=0 
+shared config hash at hold end: 44962525f1ca1a8b
+HEAVY DONE status=0 dirty=0 2026-10-03T12:49:59Z

@@ -1,0 +1,3 @@
+installed the staged lockfile under bun 1.4.2 (root, web, gate-integrity-deps)
+restored installs for integ/w00 under bun 1.4.2
+installed the staged lockfile under bun 1.4.2 (root, web, gate-integrity-deps)

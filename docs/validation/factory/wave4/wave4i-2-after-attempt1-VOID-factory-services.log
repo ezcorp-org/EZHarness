@@ -1,0 +1,30 @@
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx)
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner node 24.21.0 (/nix/store/m0256z6rrjwmvxkbymm7a28n0nw2zll9-nodejs-slim-24.21.0/bin/node)
+[WebServer] lane Bun: the factory-services stack runs under bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun)
+[WebServer] [factory-services] the stack failed: 17 | 
+[WebServer] 18 | export class StackProcesses {
+[WebServer] 19 | 	readonly children: StackChild[] = [];
+[WebServer] 20 | 
+[WebServer] 21 | 	start(name: string, command: string, args: readonly string[], options: { cwd: string; env?: Record<string, string> }): StackChild {
+[WebServer] 22 | 		const child = spawn(command, [...args], { cwd: options.cwd, env: { ...process.env, ...options.env }, stdio: ["ignore", "pipe", "pipe"], detached: true });
+[WebServer]                      ^
+[WebServer] ENOENT: no such file or directory, posix_spawn '/tmp/factory-tools/temporal-cli/temporal'
+[WebServer]       path: "/tmp/factory-tools/temporal-cli/temporal",
+[WebServer]    syscall: "spawn /tmp/factory-tools/temporal-cli/temporal",
+[WebServer]      errno: -2,
+[WebServer]  spawnargs: [
+[WebServer]   "server", "start-dev", "--ip", "127.0.0.1", "--port", "44305", "--http-port", "43275", "--ui-port",
+[WebServer]   "35509", "--namespace", "tenant-01.factory", "--headless", "--db-filename", "/home/dev/.factory-services-ss09lK/temporal.sqlite"
+[WebServer] ],
+[WebServer]       code: "ENOENT"
+[WebServer] 
+[WebServer]       at spawn (node:child_process:721:35)
+[WebServer]       at spawn (node:child_process:22:39)
+[WebServer]       at start (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/e2e/factory-services/processes.ts:22:17)
+[WebServer]       at /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web/e2e/factory-services/stack.ts:291:11
+[WebServer] 
+[WebServer] [factory-services] stopping: failure
+[WebServer] [factory-services] kept product database factory_services_product_1791200183100_7ee193 for diagnosis
+[WebServer] [factory-services] removed 0 published object version(s) under this run's release prefix
+Error: Process from config.webServer was not able to start. Exit code: 1
+

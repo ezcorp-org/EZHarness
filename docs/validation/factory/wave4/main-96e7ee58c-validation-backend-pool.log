@@ -1,0 +1,39 @@
+head=b07a0b4d8c2d0fd87533b7fcb803aab7542804fb tree=e79654ea0588da18ac7d6fa112e03a8fce94a5f9 umask=0077
+$ bash scripts/test.sh
+--- FAIL: src/__tests__/bundled-source-lock.test.ts ---
+(fail) checked-in lock matches every source snapshot, not just executable metadata [156.45ms]
+
+--- FAIL: src/__tests__/dev-image-provenance.test.ts ---
+(fail) dev image provenance warns only when the image and bind-mounted checkout differ [64.30ms]
+
+--- FAIL: src/__tests__/local-sandbox-startup.test.ts ---
+(fail) loads only private operator configuration and available immutable artifacts [2.89ms]
+(fail) startup installs the controller and native dispatcher only after verification [1.26ms]
+
+--- FAIL: src/__tests__/podman-compose-wrapper.test.ts ---
+(fail) podman wrapper — the invocation it guarantees > provides checkout defaults without replacing explicit shell provenance [841.09ms]
+(fail) podman wrapper — the invocation it guarantees > the advertised Docker rebuild command renders complete clean provenance [912.84ms]
+(fail) podman wrapper — the invocation it guarantees > records tracked source changes in the Docker-context default [1631.71ms]
+(fail) podman wrapper — the invocation it guarantees > compares an assume-unchanged Docker input directly with HEAD [853.85ms]
+(fail) podman wrapper — the invocation it guarantees > compares present and sparse-absent skip-worktree inputs directly with HEAD [901.61ms]
+(fail) podman wrapper — the invocation it guarantees > ignores tracked changes that Docker excludes from the build context [798.02ms]
+(fail) podman wrapper — the invocation it guarantees > ignores hidden-index changes and absence when Docker excludes the path [833.08ms]
+(fail) podman wrapper — the invocation it guarantees > records an untracked Docker input and retains its warning after cleanup [1628.99ms]
+(fail) podman wrapper — the invocation it guarantees > records an included empty directory and ignores a Docker-excluded one [1710.78ms]
+(fail) podman wrapper — the invocation it guarantees > ignores untracked generated and Docker-excluded files [868.65ms]
+
+--- FAIL: src/__tests__/setup-podman.test.ts ---
+(fail) setup-podman.sh — the env file > refuses an existing env file with group or other access and changes nothing [333.42ms]
+
+
+================================
+  28769 pass | 15 fail | 1942 files
+================================
+
+Failed files:
+  - src/__tests__/bundled-source-lock.test.ts
+  - src/__tests__/dev-image-provenance.test.ts
+  - src/__tests__/local-sandbox-startup.test.ts
+  - src/__tests__/podman-compose-wrapper.test.ts
+  - src/__tests__/setup-podman.test.ts
+error: script "test" exited with code 1

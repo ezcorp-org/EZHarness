@@ -1,0 +1,47 @@
+W03g (wp/w03g-patch-gate-attestation): ACCEPT at 1c7c00c76, short hold after the fold. validator-5, 2026-09-29. Base integ/w00
+ad22592da (W09h landed). validator-2's READY ON DECISION A at dca1308c6 covers the rest of the package. Its gate findings are the
+two its decision file names, and nothing more. No finding above low.
+Receipts: /tmp/factory-platform-evidence/w03g-validation/hold-v5-1c7c00c76/ (results.jsonl, logs/, tree-review.tsv) and
+hold-1c7c00c76.out.
+
+- Identity: all 8 commits in ad22592da..1c7c00c76 are archy <281643943+EZArchy@users.noreply.github.com>, as author and as
+  committer.
+- The shared .git/config sha256 was 44962525f1ca1a8b at start and at end. The tree was clean. bun and bunx were asserted at
+  1.3.14, and the gate-integrity parser was installed from .github/gate-integrity-deps as CI does it.
+- Fold (b34d537dc):
+  - COVERAGE_GATE_TOOLS names scripts/coverage-attestations.json, and W03g's separate ATTESTATION_SURFACE, function and call
+    site are gone.
+  - Red-first, re-measured by me: rule11 plus gate-scripts is 260/0 at the head. With b34d537dc's gate-integrity.ts taken
+    from its parent (the union with check 12), it is 250/10, for example "gate-integrity check 11: the attestation surface
+    needs the label > the watched set holds the patch gate and the attestation file".
+  - End to end, on scratch commits: a planted edit to coverage-attestations.json is a finding with the head's gate-integrity,
+    and unseen with the base's (proof/v5-fold-attestation-edit-*).
+- The three W03g suites, each alone: check-patch-coverage-attestation 26/0, check-patch-coverage-typeonly 7/0,
+  gate-integrity-rule11 12/0. gate-scripts is 248/0.
+- The empty attestation file (1c7c00c76, a data commit):
+  - The file is exactly [] at the head.
+  - Red-first against origin/main: with the old entry from 1c7c00c76^, the patch gate reports "stale attestation
+    src/factory/task-stops.ts:370". With [] it gives no stale finding. The entry returns with W03f, as ruled.
+- gate-integrity, judged by the lead's set rule (w00/findings-match.py):
+  - Against ad22592da with the head's script: exactly {scripts/check-patch-coverage.ts (M), scripts/coverage-attestations.json
+    (A)}, which is W03g's decision-file set.
+  - Against origin/main with the head's script: exactly the seven in w00/expected-integ-findings-vs-main.txt plus
+    scripts/coverage-attestations.json.
+  - The base's own script, which does not watch the attestation file, gives {check-patch-coverage.ts} against the base and the
+    seven against origin/main. That is consistent: the fold is what adds the attestation file.
+- Static checks, all exit 0: typecheck, lint, check-factory-boundaries, check-boundaries, and gitleaks on the changed files.
+- Checks added by the lead's order:
+  - Merge 508cc28dd's skipped hook suites (w03g-fold/merge-suites-508cc28dd/, at 508cc28dd, a check the script asserts): 158
+    of the 159 listed suites ran green, each with a nonzero test count, 3115 tests in all.
+  - The 159th, the orchestrator package's bun run test (listed through packages/@ezcorp/factory-orchestrator/test/validation.test.ts),
+    first failed in the runner, not in the product. Its log path held spaces ("$log: ambiguous redirect"). The rerun
+    (merge-suites-508cc28dd-factory-orchestrator_/, head=508cc28dd, bun and bunx 1.3.14, config hash unchanged) gave exit 0
+    with 91 tests.
+  - The receipts carry no pass and fail fields, only exit and test counts. I read them in that form.
+  - The owner's w03g-fold/gate-integrity-1c7c00c76.txt agrees with my head-script sets: 2 findings against ad22592da, and 8
+    against origin/main. Its "script=base" lines read PASSED on both bases. Mine, with ad22592da's own gate-integrity.ts,
+    give {check-patch-coverage.ts} and the seven. That script has W18c's check 11, which watches check-patch-coverage.ts, so a
+    PASSED record points at an older script than the integ base's. This is a difference in a record, not in the package;
+    the owner should name which script its base lines used. RESOLVED (w18c-2): those lines ran origin/main's script
+    (31052930d). The record now names it, and adds ad22592da's script, whose results match mine exactly.
+- No heavy leg was needed: every suite in this hold runs alone, and none starts a service.

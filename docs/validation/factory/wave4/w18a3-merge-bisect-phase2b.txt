@@ -1,0 +1,2 @@
+5 ./src/__tests__/extensions-delete-route-policy.test.ts
+6 ./src/__tests__/extensions-patch-route.test.ts

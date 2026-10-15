@@ -1,0 +1,10 @@
+CRAP: --changed against 48239ead805449cdcba3383e4eb1fc5c2bdab162 → 1 measured file(s) in diff
+
+CRAP: 3 functions in 1 files (max 30, warn 15)
+
+Worst 3:
+      6.0  cc=  6 cov=100%  src/factory/runner/uv-command.ts:26 resolveUvBinary
+      2.0  cc=  2 cov=100%  src/factory/runner/uv-command.ts:20 probeCommand
+      1.0  cc=  1 cov=100%  src/factory/runner/uv-command.ts:43 uvCommand
+
+✓ no touched function exceeds CRAP 30

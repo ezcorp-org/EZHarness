@@ -1,0 +1,372 @@
+W07c independent validation — the release declare race (23505 on factory_release_operations_pkey)
+==================================================================================================
+
+VERDICT: ACCEPT-WITH-FIXES
+
+The production fix is correct, minimal, and proven. The safety argument holds under a complete
+enumeration of the arbiters. One medium finding sits in the NEW TEST, not in the fix: the producer
+flakes at about 15 percent under parallel execution because its barrier readiness counter reads a
+cluster-wide view. It is a false red, never a false green, so it cannot hide a regression.
+
+Validator: read-only with respect to source. Nothing in the worker's worktree was edited, committed
+or rebased; it is still clean at acb49f2b6. Files created only under
+/tmp/factory-platform-evidence/w07c-validation/ plus one scratch worktree
+./.worktrees/w07c-validate-base, detached at the merge base, removed after the run.
+
+
+1. TREE, HEAD, COMMITS, RECEIPTS
+--------------------------------
+git status --porcelain      empty, before and after every producer
+HEAD                        acb49f2b6b40158f61293d92d3523fc9bdf4f0ee  (matches the claim)
+branch                      wp/w07c-declare-race
+commits vs merge base       2, both present and on the branch
+  4c4727e6a  fix(factory): arbitrate every unique index when a release operation is declared
+  acb49f2b6  docs(factory): record the W07c gates, review, and lesson
+merge base                  bbcb2e34fc8e02579d59fac855f9abf599e83897
+diff                        6 files, +377 / -18, exactly as reported
+
+integ/w00 MOVED during this validation, from bbcb2e34f to 850ffaa54. Both coverage gates diff with
+`${BASE_REF}...HEAD` (three dots), so the diff base stayed the merge base bbcb2e34f and the gates
+are unaffected. Any two-dot `integ/w00..HEAD` diff run now reports other packages' work in reverse;
+every diff in this report uses bbcb2e34f explicitly.
+
+Receipt audit — every count the worker reported reconciles with the .exit and .log files:
+
+  dir                       runs  failed  pkey-signature logs
+  smoke                        1       1   1
+  before                      20       1   1
+  before-deterministic        10       9   9
+  before-deterministic-w1     10       8   8
+  before-pkonly                3       3   0   (received "unnamed", as reported)
+  red-check                    1       1   1   (2 pass, 1 fail)
+  after-declare-race           5       0   0   (20 assertions)
+  after-archive-writer50      50       0   0
+
+No receipt shows a failure the report calls a pass. The pre-fix evidence is genuine: 17 of the 18
+failing forced-race logs carry the primary-key signature, and the single log that also carries the
+barrier message carries the primary-key signature too.
+
+
+2. THE SAFETY ARGUMENT — SOUND
+------------------------------
+Enumerated from the LIVE database after the committed migrations ran, not from the source
+(evidence: probe-constraints.log; probe at tests/postgres/probe-constraints.ts in the scratch
+worktree, whose src/db/ is byte-identical to the branch head):
+
+  UNIQUE ARBITERS: exactly 2
+    factory_release_operations_pkey
+      PRIMARY KEY (tenant_id, project_id, operation_id)
+    factory_release_operations_tenant_id_project_id_run_id_node_key
+      UNIQUE (tenant_id, project_id, run_id, node_instance_id, candidate_generation, action,
+              destination_provider, destination_account, destination_object)
+  partial unique indexes: 0      exclusion constraints: 0      non-internal triggers: 0
+  CHECK constraints: 20          foreign keys: 2
+
+An untargeted ON CONFLICT DO NOTHING suppresses only unique and exclusion violations. The 20 CHECK
+constraints and 2 foreign keys still raise, so widening the arbiter cannot silence a malformed row,
+a bad state value, a bad digest shape, or a dangling decision or run reference.
+
+What a suppressed conflict on each arbiter means after the fix:
+
+  (a) the nine-column identity index, different operation id
+      The reread is keyed on (tenant_id, project_id, operation_id) with the CALLER'S id
+      (releases.ts:684, readInTransaction at :1154). No row comes back, so prepare raises
+      factory_release_conflict at :685. Identical to the behaviour before the fix, because the old
+      conflict target named exactly these nine columns and already suppressed here.
+
+  (b) the primary key
+      The reread returns the row stored at the caller's id. operationFromRow (:396) calls
+      assertOperation, which re-derives the identity from the ROW'S OWN columns and refuses:
+        operation.operationId !== `factory-release:${digestObject(identityFor(operation))}`
+          -> FactoryReleaseError("factory_release_corrupt")            (releases.ts:426)
+      A row that survives that check provably carries the caller's identity, under SHA-256
+      collision resistance. prepare then compares requestDigest, materialDigest, destinationDigest
+      and deadlineMs and raises factory_release_conflict on any mismatch (:685).
+
+CAN A GENUINELY DIFFERENT OPERATION (different identity, different id) BE SWALLOWED AND READ BACK
+AS THE CALLER'S?  NO. A different id is unreachable by a reread keyed on the caller's id, and a
+matching id is proved by :426 to carry a matching identity. There is no third arbiter and no
+partial index, so there is no other way for a row to be suppressed. No path returns the wrong row
+silently.
+
+The fix's ONLY behavioural delta: a pre-existing row at the caller's id whose columns do not match
+that id used to raise a raw 23505 and now yields the typed factory_release_corrupt. That is
+strictly better, and it is what test case 3 pins with no timing dependence.
+
+Newly reachable path, checked: the losing declaration now proceeds past the insert to
+insertTransactionalAuditEntry (src/db/queries/audit-log.ts:12), which is
+ON CONFLICT (id) DO NOTHING on the deterministic id `factory-release-prepared:${operationId}`, so
+convergence is idempotent there too. Both callers take FOR SHARE on the same row, which is
+compatible, so there is no deadlock.
+
+Observation, PRE-EXISTING and NOT introduced by this fix (finding 4): the reread's equality set
+omits estimatedSpendMicros and the profile digests, so two declarations identical in identity,
+request, material and deadline but differing in spend estimate converge on the first row. The old
+nine-column arbiter already suppressed that insert on the sequential path and the same reread
+returned the same row, so the base and the head behave identically. decisionId IS covered
+transitively: validateMaterial binds material.decisionId to input.decisionId, and materialDigest is
+hash(material). Out of W07c scope; raised for the record.
+
+
+3. REPRODUCTION — MY OWN RUNS, NOT THE WORKER'S
+-----------------------------------------------
+Base legs ran in ./.worktrees/w07c-validate-base, detached at bbcb2e34f with dependencies
+installed, with the worker's harness checked out from acb49f2b6
+(tests/postgres/factory-release-declare-race.test.ts and
+src/__tests__/helpers/factory-archive-writer-suite.ts) while src/factory/releases.ts stayed at the
+base version. Verified before running: the base declare statement still reads
+ON CONFLICT (tenant_id,project_id,run_id,...) DO NOTHING.
+
+  leg                                              code   width  runs  failed  signature
+  C04 ambient concurrency case (archive-writer)    base     4      20     1     23505 on pkey
+  C04 ambient concurrency case                     HEAD     5      50     0     none
+  forced interleaving, declare-race case 1         base     3      10     6     23505 on pkey, 6/6
+  forced interleaving, declare-race case 1         HEAD     1      20     0     none
+  forced interleaving, declare-race case 1         HEAD     3      20     3     finding 1, NOT 23505
+  primary-key collision, case 3, timing-free       base     1       3     3     "unnamed", not typed
+  primary-key collision, case 3, timing-free       HEAD     1       5     0     none
+  contract case 2 (identity shared, different id)  base     1       3     0     green UNFIXED
+  contract case 4 (id digests a superset)          base     1       3     0     green UNFIXED
+  whole declare-race file, 4 cases                 HEAD     1       5     0     20 assertions
+
+Confirmed as asked: red before and 50 of 50 green after on the C04 archive-writer concurrency case,
+under the heavy lock, against the real proof PostgreSQL and the real S3 stores. The ambient base
+rate reproduced at exactly 1 in 20, the rate the worker reported. The timing-free primary-key case
+is red 3 of 3 at base and green 5 of 5 at head, and it fails at base for the right reason:
+  Expected: "factory_release_corrupt"   Received: "unnamed"
+which is the raw driver error escaping the store, exactly as the worker described.
+
+Contract cases 2 and 4 pass against the UNFIXED code. That is the load-bearing evidence that the
+arbiter widened while what is accepted did not.
+
+My forced-race rate at base was 6 of 10, against the worker's 17 of 20. Wake order after a
+simultaneous release belongs to the host, so the rates differ by machine load; the worker already
+flagged this and does not rest the gate on it. The mechanism is not in doubt: all 6 failures carry
+23505 on factory_release_operations_pkey.
+
+Lock discipline: two peers held /tmp/ezcorp-validation-heavy.lock ahead of me. I waited about
+19 minutes with flock -w 7200 and never signalled a holder. All shared-store probes were read-only;
+nothing was created, restarted or reconfigured. Both SeaweedFS containers and the proof PostgreSQL
+were healthy before the heavy leg.
+
+
+4. GATE RERUNS AT acb49f2b6 — ALL GREEN
+---------------------------------------
+  bun run typecheck                                     exit 0  backend + web/e2e, plus 2 locked
+                                                                Python projects, mypy --strict,
+                                                                interpreter 3.13.12
+  bun run lint                                          exit 0  biome, 5325 files, no fixes
+  bun scripts/check-factory-boundaries.ts               exit 0  F07 and F13 passed
+  bun scripts/gate-integrity.ts                         exit 0  PASSED, no gate-weakening or
+                                                                test-cheating changes detected
+  bun scripts/check-schema-generate-drift.ts            exit 0  13 generated schemas byte for byte
+  nine PGlite release/archive files                     exit 0  96 pass / 0 fail / 824 assertions
+  four real-PostgreSQL release producers                exit 0  51 pass / 0 fail / 429 assertions
+    (tests/postgres/factory-release*.test.ts and factory-archive-writer.test.ts)
+  tests/postgres/factory-schema.test.ts                 exit 0  2 pass / 0 fail
+  BASE_REF=integ/w00 check-new-file-coverage.ts         exit 0  no new source files in this diff
+  BASE_REF=integ/w00 check-patch-coverage.ts            exit 0  all changed executable lines
+                                                                covered, 1 file
+
+Coverage was merged from my own lcov files with
+  bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w07c-validation/coverage/*.lcov' coverage/lcov.info
+(624 source files merged). src/factory/releases.ts reads LH 553 / LF 560, matching the report.
+Every number the worker reported for these gates matches what I measured.
+
+
+5. GATE INTEGRITY, DRY, INTERFACE
+---------------------------------
+Gate integrity: no lowered threshold, no EXCLUDES, no .skip/.only/.todo, no biome opt-out, no empty
+catch, no ts-ignore or ts-expect-error in any added line. scripts/, biome.json and
+coverage-thresholds.json are untouched. The only matches for "EXCLUDES" in the diff are the gate
+file's own prose stating there are none. Every one of the four new test cases carries assertions
+(11, 5, 3 and 2 expect calls). The single sleep is a bounded poll on an observed pg_locks condition
+that throws if the condition is never reached, not a fixed sleep used as proof. No wall-clock
+assertion.
+
+DRY / C13: no second queue, approval, blob or audit path. No shared module list changed, so
+REQUIRED_SHARED_IMPORTS and SHARED_REUSE_MODULES needed no new row and check-factory-boundaries is
+green. The new producer reuses the existing C04 world instead of building a second one: setup was
+hoisted out of the conformance closure to module scope as factoryArchiveWriterWorld(fixture), which
+now returns its temporary root. That is the right refactor rather than a copy. The conformance's
+behaviour is unchanged, proved by the archive-writer suites staying green in both the PGlite and
+the real-PostgreSQL legs. prepare gained an optional destination override defaulting to {}, which
+every existing call site ignores.
+
+Interface conformance: NO DEVIATION, and no assertion was weakened.
+  Freeze section 5, lines 846-849, binds two durable identity rules:
+    "The operation identity is unchanged and is re-derived on every read:
+     operationId === `factory-release:${digestObject(identityFor(operation))}`"
+      -> intact at releases.ts:426, untouched by the diff.
+    "Database uniqueness stays (tenant_id, project_id, run_id, node_instance_id,
+     candidate_generation, action, destination_provider, destination_account, destination_object)."
+      -> intact. Nothing was dropped or widened in the schema; the fix stopped NAMING that index as
+         the sole arbiter. Confirmed present in the live database.
+  Freeze section 11, lines 1900-1905, binds the id shape (factory-release: plus 64 lowercase hex,
+  79 characters, one colon) and the corrupt check. Both untouched.
+  FactoryReleases.prepare keeps its signature. Section 12 assigns src/factory/releases.ts to the
+  W07 owner, which this leaf is. src/__tests__/helpers/factory-archive-writer-suite.ts is not in
+  the ownership table.
+
+C04 conformance: "The database enforces one operation per run/release-node/candidate/action/
+destination" still holds, and the concurrency case that proves it is green 50 of 50.
+
+There is no W07c bullet in the plan's section 5; W07c is a remediation leaf for a pre-existing
+defect, and the W07 entry it must not break (archive-before-claim through the shared release store,
+line 250) is proved by the same C04 case.
+
+Security: zero files in either evidence tree contain the live password, and the committed diff
+contains it zero times. The only postgres:// strings anywhere are variable-reference templates and
+redaction patterns. No authority check was removed.
+
+
+6. FINDINGS
+-----------
+FINDING 1 (MEDIUM) — the new producer is flaky under parallel execution.
+  tests/postgres/factory-release-declare-race.test.ts:23 and :55-58
+  BARRIER_KEY is a module constant identical in every process, and parked() counts pg_locks rows
+  filtered on locktype, classid, objid, objsubid and granted but NOT on the database column.
+  pg_locks is cluster-wide, so two concurrent runs of this file each see the other's waiters;
+  awaitParked demands exact equality and throws
+      "the barrier never parked 2 declarations; observed 4".
+  The file's own comment at :22 claims the opposite: "every test owns a freshly created database,
+  so it cannot collide with a peer". The advisory LOCK is per-database and does not collide; only
+  the COUNT leaks, so the barrier still forces the race correctly and the fix's evidence stands.
+  Measured: HEAD width 3, 3 of 20 runs failed, all three with the barrier message and none with
+  23505. HEAD width 1, 0 of 20 failed. The worker never saw it because their post-fix runs were
+  width 1, and pre-fix it was masked by the 23505 failure.
+  Reproduce:
+    /tmp/factory-platform-evidence/w07c-validation/run-pg.sh \
+      /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w07c-declare-race \
+      20 3 /tmp/out ./tests/postgres/factory-release-declare-race.test.ts \
+      "two declarations of the same operation released together"
+  Fix: add
+      AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+  to the pg_locks predicate. Advisory locktags already carry MyDatabaseId, so the blocking set and
+  the counted set then agree. One line, and the stale comment at :22 becomes true.
+  This is a false red, never a false green: it cannot hide a regression, only make CI flaky.
+
+FINDING 2 (LOW) — two receipts were produced at an amended-away commit.
+  /tmp/factory-platform-evidence/w07c/heavy.log and sweep/pglite-suites.log record
+  HEAD=78923555c203e41edc7b06a3ab8f910b7bf5218e, while the report states every gate is green at
+  acb49f2b6. 78923555c is not an ancestor of HEAD; it shares parent 4c4727e6a with acb49f2b6 and
+  the two trees differ ONLY in tasks/factory/w07c-GATES.md. src, tests, scripts and packages are
+  byte-identical, so no producer input changed and the evidence is still valid for the head.
+  Reporting accuracy only. Every gate was rerun here at acb49f2b6 directly.
+
+FINDING 3 (LOW) — the identity index is named as an index that does not exist.
+  src/factory/releases.ts:675-682 (the new comment), tasks/factory/w07c-GATES.md, and the report
+  all call it idx_factory_release_operations_identity. That is the drizzle declaration name in
+  src/db/schema.ts:3247. The migration creates it as an inline UNIQUE table constraint
+  (src/db/migrations/add-factory-releases.ts:31), so PostgreSQL names it
+  factory_release_operations_tenant_id_project_id_run_id_node_key. Confirmed by the live probe.
+  Harmless to the code, which named columns rather than an index name, and
+  tests/postgres/factory-schema.test.ts does not assert that name, so there is no parity gap.
+  Documentation only.
+
+FINDING 4 (OBSERVATION, pre-existing) — see section 2. Not introduced by this fix, out of scope.
+
+Nothing the worker reported was overstated except the two accuracy items above. The worker's own
+deviation notes are accurate: the declare statement is at :675 at the base (:683 after the comment
+was added) and :771 is indeed the claim compare-and-swap raising factory_release_claim_lost.
+
+
+7. WHAT WOULD MAKE THIS A PLAIN ACCEPT
+--------------------------------------
+Finding 1 only: one line in tests/postgres/factory-release-declare-race.test.ts so the producer
+does not flake when it is run in parallel, plus the corrected comment at :22. Findings 2 and 3 are
+wording. The production change itself needs nothing.
+
+
+Evidence for this validation: /tmp/factory-platform-evidence/w07c-validation/
+  report.txt              this report
+  results.json            machine-readable results, every command and count
+  probe-constraints.log   the live arbiter enumeration
+  static.log              the five static gates
+  heavy.log               readiness, both ambient legs, both coverage-producing test legs
+  coverage-gates.log      the two coverage gates
+  run-pg.sh, heavy.sh, static.sh, probe.sh   runners; credentials assembled inside, never in argv
+  base-*/ head-*/ schema-parity/             per-run logs and exit codes, all redacted
+  coverage/                                  the lcov files merged for the coverage gates
+
+
+================================================================================================
+ROUND 2 — REVALIDATION AT dda157858 AFTER FINDINGS 1 TO 3 WERE APPLIED
+================================================================================================
+
+VERDICT: ACCEPT. All three findings are fixed. Nothing new was found.
+
+HEAD dda15785825bf87908bbec4c308c51a7adb9b1af, clean tree, four commits on wp/w07c-declare-race:
+  4c4727e6a  fix(factory): arbitrate every unique index when a release operation is declared
+  acb49f2b6  docs(factory): record the W07c gates, review, and lesson
+  f2ed5c118  fix(factory): count only this database's barrier waiters in the declare-race producer
+  dda157858  docs(factory): record the W07c validation fixes
+The two previously reported SHAs are untouched, so nothing was amended after being reported.
+Source last changed at f2ed5c118; f2ed5c118..dda157858 touches only tasks/, so a producer receipt
+at f2ed5c118 is valid for the head. Unlike the round-one finding 2, f2ed5c118 is a true ancestor of
+HEAD, not an amended-away sibling.
+
+FINDING 1 — FIXED, exactly as recommended.
+  tests/postgres/factory-release-declare-race.test.ts, parked():
+    AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+  The false comment at BARRIER_KEY ("every test owns a freshly created database, so it cannot
+  collide with a peer") is gone. It now states the real mechanism: the advisory lock carries
+  MyDatabaseId and is per-database, so concurrent runs never block each other, but pg_locks is
+  cluster-wide, so the readiness COUNT must filter by database. The parked() doc says the predicate
+  is load-bearing and why. Both comments are now accurate.
+  Regression gate, my own run, whole file, 20 runs at width 3 under `flock --close`:
+    20 runs, 0 failed, 80 pass / 0 fail
+    logs containing "barrier never parked": 0 of 20
+    logs containing 23505: 0 of 20      logs containing pkey: 0 of 20
+    no "error:" line in any of the twenty logs
+  Round one measured 3 of 20 failures at the same width. The flake is gone.
+
+FINDING 3 — FIXED. The production comment at src/factory/releases.ts and the test file header now
+name both the drizzle declaration name (idx_factory_release_operations_identity in
+src/db/schema.ts) and the name PostgreSQL actually creates
+(factory_release_operations_tenant_id_project_id_run_id_node_key, from the migration's inline
+UNIQUE). The production comment also now records that only unique and exclusion violations are
+suppressed, so the table's CHECK constraints and foreign keys still raise — the point my round-one
+safety argument rested on, now written where the next reader will find it.
+
+FINDING 2 — ADDRESSED by practice: both new receipts name commits genuinely on the branch
+(heavy2.log at f2ed5c118, sweep2/static.log at dda157858).
+
+THE FIX ITSELF IS UNCHANGED. src/factory/releases.ts changed by comment only; the statement is
+still ON CONFLICT DO NOTHING, now at line 688. I re-checked that no second untargeted conflict
+clause was introduced: the file has two, and the other one (factory_release_policies, line 728) was
+already untargeted at the merge base. The round-one safety argument therefore stands verbatim.
+
+MY GATE RERUNS AT dda157858, clean tree, all exit 0:
+  bun run typecheck                                     exit 0
+  bun run lint                                          exit 0  5325 files
+  bun scripts/check-factory-boundaries.ts               exit 0
+  bun scripts/gate-integrity.ts                         exit 0  PASSED
+  bun scripts/check-schema-generate-drift.ts            exit 0  13 schemas byte for byte
+  declare-race suite, 20 runs at width 3                exit 0  80 pass / 0 fail
+  four real-PostgreSQL release producers                exit 0  51 pass / 0 fail / 429 assertions
+  nine PGlite release/archive files                     exit 0  96 pass / 0 fail / 824 assertions
+  BASE_REF=integ/w00 check-new-file-coverage.ts         exit 0  no new source files
+  BASE_REF=integ/w00 check-patch-coverage.ts            exit 0  all changed lines covered, 1 file
+Coverage merged from my own round-two lcov (624 source files); src/factory/releases.ts LH 553 /
+LF 560. integ/w00 had advanced to 52fe9fc23 by then; the three-dot diff keeps the base at
+bbcb2e34f, so the gates are unaffected.
+
+WORKER RECEIPT AUDIT, ROUND 2 — every claim reconciles:
+  sweep2/f1-width3         20 runs, 0 failed, 80 pass, 0 barrier messages
+  sweep2/f1-width2         20 runs, 0 failed, 80 pass, 0 barrier messages
+  sweep2/archive-writer50  50 runs, 0 failed
+  heavy2.log               PGlite 96/0/824, producers 51/0/429, C04 x50 0 failures, exit 0
+  sweep2/static.log        every gate exit 0 at dda157858
+  Nit, not a finding: heavy2.log records "dirty=1" at f2ed5c118 without naming the dirty file; the
+  convention asks for the dirty/untracked hashes. My own run at dda157858 was dirty=0 and is the
+  authority for these numbers.
+
+Lock discipline: my round-two heavy leg ran under `flock --close -w 7200`. It waited behind the
+coordinator's combined-integration holder and then a peer, acquired the lock, and completed at
+2026-09-21T22:00:05. No holder was ever signalled. All store probes were read-only.
+
+FINDING 4 (observation) remains open by design: the reread omits estimatedSpendMicros and the
+profile digests. Pre-existing, identical at the merge base, out of W07c scope.
+
+Round-two evidence: heavy2.log, heavy2.sh, static2.log, r2-declare-w3/, coverage2/

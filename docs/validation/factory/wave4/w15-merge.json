@@ -1,0 +1,823 @@
+{
+ "package": "w15",
+ "branch": "wp/w15-retention",
+ "head": "ef958511b680337272925ce26fbdbf7d1066ff48",
+ "validatorVerdict": "ACCEPT (w15-validator round 2 at ef958511b; report copied as w15-validation.txt)",
+ "mergeSha": "dcb6001a7",
+ "parents": [
+  "d5ee523098efb921526ce079f5507ff08f8c14dc",
+  "ef958511b680337272925ce26fbdbf7d1066ff48"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "tasks/lessons.md": "union",
+  "code": "7 files, hunks in w15-merge-conflict-hunks.txt; resolved as proposed and approved by the coordinator (1-5): installation-startup keeps W09d acceptance plus W15 recovery; runtime-workers(+test)/runtime-composition.test keep all four roles (validator roles, then retention-gc, checkpoint-barrier); startup-config.test keeps both describe blocks; startup-config.ts keeps both type blocks and both known fields, record->isPlainRecord, recoverySectionProblems as step checkRecoverySections between checkReadinessRetry and checkPrivateServiceTokens (its original order)"
+ },
+ "integrationFix": [
+  {
+   "what": "one private reader: readPrivatePath kept (W09d/W01g), W15 readPrivateFileBounded removed",
+   "files": [
+    "src/factory/private-files.ts",
+    "src/factory/file-key-wraps.ts",
+    "src/factory/key-composition.ts",
+    "src/factory/key-management.ts",
+    "src/factory/recovery-composition.ts",
+    "src/factory/restore-composition.ts"
+   ],
+   "ruling": "coordinator, approved",
+   "followUp": "W15b (wp/w15b-runtime-kms, branched from ef958511b) is told to adopt the same reader"
+  },
+  {
+   "what": "join fix: W15's restore composition called installationReleases with 6 arguments; W09d added a 7th (the trusted validators). Restore now passes installationTrustedValidators(config, host.database, application, host.report).validators, the same gateway the main path composes",
+   "files": [
+    "src/factory/installation-startup.ts"
+   ],
+   "ruling": "coordinator, approved"
+  },
+  {
+   "what": "bun install --frozen-lockfile in staging for the new dependency @aws-sdk/client-kms 3.1131.0 (typecheck TS2307 before)",
+   "ruling": "coordinator, approved"
+  },
+  {
+   "what": "W09b's real-server harness declares the recovery sections exactly as W15's harness does (temporalHttp endpoint on the Temporal dev server's HTTP port; W15's harness has no builder, so the three startup-document hunks are applied byte for byte): w00/harness-w09b, patch w15-merge-w09b-harness-recovery-declaration.patch. The integrator's real-server-pass script now copies this one harness source per run.",
+   "reason": "an installation without recovery declarations never reports ready after W15, by design (held checkpoint-barrier -> /api/ready 503 degraded factory-checkpoint-barrier-held)",
+   "disclosedTo": "W09b",
+   "ruling": "coordinator ruling (a)"
+  }
+ ],
+ "rulings": {
+  "R1": "the runtime codec ignores keyManagement; fails closed with factory_key_missing; lands disclosed; owned by W15b (wp/w15b-runtime-kms)",
+  "R2": "kind CHECK inside CREATE TABLE IF NOT EXISTS: W15b",
+  "R3": "effect-claims comment: W15b",
+  "R4": "fencing is an operator attestation: stays by design",
+  "productRule": "Every startup document declares the recovery sections; an installation without them stays degraded (factory-checkpoint-barrier-held) and never reports ready. W15b names that case distinctly."
+ },
+ "checks": [
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:03Z",
+   "end": "2026-09-23T23:35:04Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-sdk build",
+   "logSha256": "b45bc93ca46f9d88aa890ffb956b5106e966d82d2a3ce6e3a50775fc223f0b8b"
+  },
+  {
+   "name": "build-factory-transport",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:04Z",
+   "end": "2026-09-23T23:35:04Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-transport build",
+   "logSha256": "0ca0f33c84124ee8935ec0326c190b61096e722a951e889b4e3b6af328452890"
+  },
+  {
+   "name": "build-extension-contract",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:04Z",
+   "end": "2026-09-23T23:35:04Z",
+   "command": "bun run --cwd packages/@ezcorp/extension-contract build",
+   "logSha256": "32823f5102f35463e2dbfed1f949a3a6ef6985b0ce148c3b68ffef911091b51a"
+  },
+  {
+   "name": "build-factory-orchestrator",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:04Z",
+   "end": "2026-09-23T23:35:04Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-orchestrator build",
+   "logSha256": "7e0308e4e708ca0d73ae0fc0f2313cd62d816e0cf850772af729afd03decf775"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:54Z",
+   "end": "2026-09-23T23:35:56Z",
+   "command": "bun run lint",
+   "logSha256": "81a15a5e7571698c41d454cc812df55cd141d113921d87c3b53dfe5b5ee7c378"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:56Z",
+   "end": "2026-09-23T23:35:58Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "c1c23a396686d7c600ab92fb88e1ca3ab797808d7b704d538fc7b762448d61db"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:58Z",
+   "end": "2026-09-23T23:35:59Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "d19556d899d2f086745dae358a08760d69523a6dafae69e08bf22bd29407dc56"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-23T23:35:59Z",
+   "end": "2026-09-23T23:36:03Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "d385c6fcfb6dc5fc7e87ee6e364aef21c092d1caa17ef995f962068a5ba1088c"
+  },
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-23T23:36:03Z",
+   "end": "2026-09-23T23:36:04Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "ff80b3a790ffca1a18010aab48cba518b57ba425f133ab859482f601e84c9bb9"
+  },
+  {
+   "name": "c13-inventory",
+   "exitCode": 0,
+   "start": "2026-09-23T23:36:04Z",
+   "end": "2026-09-23T23:36:05Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-c13-inventory.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "46bd801ec0e4fa1fa321063d88d31660ee515a472b3e352febf750dd4cbc44cd"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-23T23:36:55Z",
+   "end": "2026-09-23T23:38:06Z",
+   "command": "bun run typecheck",
+   "logSha256": "2f1cedcd4eaba049556f86dcba5cac83ae066fde26bdc79c87598be8127c86e7"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:06Z",
+   "end": "2026-09-23T23:38:08Z",
+   "command": "bun run lint",
+   "logSha256": "81a15a5e7571698c41d454cc812df55cd141d113921d87c3b53dfe5b5ee7c378"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:08Z",
+   "end": "2026-09-23T23:38:11Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "c1c23a396686d7c600ab92fb88e1ca3ab797808d7b704d538fc7b762448d61db"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:11Z",
+   "end": "2026-09-23T23:38:12Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "d19556d899d2f086745dae358a08760d69523a6dafae69e08bf22bd29407dc56"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-recovery",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:30Z",
+   "end": "2026-09-23T23:38:36Z",
+   "command": "bun test --timeout 120000 ./src/db/migrations/add-factory-recovery.test.ts",
+   "counts": {
+    "pass": 4,
+    "fail": 0
+   },
+   "logSha256": "bf920c33febded95da0433d1407e7f354c71976f651283cbfe945d4a59d0c7f4"
+  },
+  {
+   "name": "focused-src-__tests__-factory-retention",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:36Z",
+   "end": "2026-09-23T23:38:41Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-retention.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "e633b4da95f516609383c2bd59a0214e05073eaa40e1922d43b34caf96b58bbb"
+  },
+  {
+   "name": "focused-src-factory-recovery-archive",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:41Z",
+   "end": "2026-09-23T23:38:41Z",
+   "command": "bun test --timeout 120000 ./src/factory/recovery-archive.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "175a92b1f3b195b8174d5139e65c4c3f4b9f5e76bae01620c15db319f95a870d"
+  },
+  {
+   "name": "focused-src-factory-release-adapters",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:41Z",
+   "end": "2026-09-23T23:38:42Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-adapters.test.ts",
+   "counts": {
+    "pass": 4,
+    "fail": 0
+   },
+   "logSha256": "cb1af24d26615673a48e17a491182a68ceb5a43f25a50fce6660ea490461185a"
+  },
+  {
+   "name": "focused-src-factory-key-management",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:42Z",
+   "end": "2026-09-23T23:38:43Z",
+   "command": "bun test --timeout 120000 ./src/factory/key-management.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "fde17dce9ac748dd0c3ae8eb27bf3a116d265733bfc8fff4633502cfbb74e17e"
+  },
+  {
+   "name": "focused-src-factory-encryption",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:43Z",
+   "end": "2026-09-23T23:38:45Z",
+   "command": "bun test --timeout 120000 ./src/factory/encryption.test.ts",
+   "counts": {
+    "pass": 9,
+    "fail": 0
+   },
+   "logSha256": "7116e064bfbd251d3e41c0c9c175e6286144b1f480d6d8ac9d2a437350f12914"
+  },
+  {
+   "name": "focused-src-factory-temporal-retention",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:45Z",
+   "end": "2026-09-23T23:38:46Z",
+   "command": "bun test --timeout 120000 ./src/factory/temporal-retention.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "3546be765d593ef92c330f3b5b442a88576c28c7920972e6d5fc961115e7e9a6"
+  },
+  {
+   "name": "focused-src-factory-recovery-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:46Z",
+   "end": "2026-09-23T23:38:48Z",
+   "command": "bun test --timeout 120000 ./src/factory/recovery-composition.test.ts",
+   "counts": {
+    "pass": 10,
+    "fail": 0
+   },
+   "logSha256": "e6a45dbc3de1531bd762acbd776582e363bc44833b8770574998daad27d9b4d7"
+  },
+  {
+   "name": "focused-src-factory-checkpoint-barrier",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:48Z",
+   "end": "2026-09-23T23:38:50Z",
+   "command": "bun test --timeout 120000 ./src/factory/checkpoint-barrier.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "9107b77a8e530a217239342353ea1d372da718463a4ced2bf94c25d69fc0373d"
+  },
+  {
+   "name": "focused-src-factory-pool-checkpoint-routes",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:50Z",
+   "end": "2026-09-23T23:38:51Z",
+   "command": "bun test --timeout 120000 ./src/factory/pool/checkpoint-routes.test.ts",
+   "counts": {
+    "pass": 3,
+    "fail": 0
+   },
+   "logSha256": "18f6f056e8145f7f0f05f9a33f4ac422e78ede64992db019022bb1894ad2fc8b"
+  },
+  {
+   "name": "focused-src-factory-pool-checkpoint-client",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:51Z",
+   "end": "2026-09-23T23:38:53Z",
+   "command": "bun test --timeout 120000 ./src/factory/pool/checkpoint-client.test.ts",
+   "counts": {
+    "pass": 3,
+    "fail": 0
+   },
+   "logSha256": "5751f52d22b5a5908a9daf192323769ccc5ce34d16ddad14b94bb5e25a6c7902"
+  },
+  {
+   "name": "focused-src-factory-runtime-workers",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:53Z",
+   "end": "2026-09-23T23:38:55Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-workers.test.ts",
+   "counts": {
+    "pass": 22,
+    "fail": 0
+   },
+   "logSha256": "574c6c95e8d65a3fba7683955ff684d7ef03e97eca6913b2e5fcdf9e66da106d"
+  },
+  {
+   "name": "focused-src-__tests__-factory-records",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:55Z",
+   "end": "2026-09-23T23:38:59Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-records.test.ts",
+   "counts": {
+    "pass": 12,
+    "fail": 0
+   },
+   "logSha256": "ed53523f327442e83bf180fab4959eecf65467bb26d4ec89cc4f7238df83e5b9"
+  },
+  {
+   "name": "focused-src-factory-installation-startup",
+   "exitCode": 0,
+   "start": "2026-09-23T23:38:59Z",
+   "end": "2026-09-23T23:39:08Z",
+   "command": "bun test --timeout 120000 ./src/factory/installation-startup.test.ts",
+   "counts": {
+    "pass": 49,
+    "fail": 0
+   },
+   "logSha256": "714b20c431c9d6694670ee85c435f7234c541dcc9e852bfce32c17860bd2937d"
+  },
+  {
+   "name": "focused-src-factory-wal-backup",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:08Z",
+   "end": "2026-09-23T23:39:09Z",
+   "command": "bun test --timeout 120000 ./src/factory/wal-backup.test.ts",
+   "counts": {
+    "pass": 2,
+    "fail": 0
+   },
+   "logSha256": "5837b5e28b55ab3ea3004a3f866eaa84f212bd68557f2178a0a9e40eb89af7af"
+  },
+  {
+   "name": "focused-src-factory-key-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:09Z",
+   "end": "2026-09-23T23:39:10Z",
+   "command": "bun test --timeout 120000 ./src/factory/key-composition.test.ts",
+   "counts": {
+    "pass": 4,
+    "fail": 0
+   },
+   "logSha256": "ccd97b6ccec7cfc29f6f37513b2c5414d5f65aada15469f62df8614f894384b3"
+  },
+  {
+   "name": "focused-src-factory-restore-command",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:10Z",
+   "end": "2026-09-23T23:39:11Z",
+   "command": "bun test --timeout 120000 ./src/factory/restore-command.test.ts",
+   "counts": {
+    "pass": 5,
+    "fail": 0
+   },
+   "logSha256": "fcd97c874f0a8ba0852d443dcd264113478dca939a477855b8ba75371e0987db"
+  },
+  {
+   "name": "focused-src-factory-restore-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:11Z",
+   "end": "2026-09-23T23:39:13Z",
+   "command": "bun test --timeout 120000 ./src/factory/restore-composition.test.ts",
+   "counts": {
+    "pass": 3,
+    "fail": 0
+   },
+   "logSha256": "6b8a9af9f7db85889b1880e6df757d74277e7a4fcfe204ac26a45c53fa3076a9"
+  },
+  {
+   "name": "focused-src-factory-runtime-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:13Z",
+   "end": "2026-09-23T23:39:14Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-composition.test.ts",
+   "counts": {
+    "pass": 32,
+    "fail": 0
+   },
+   "logSha256": "48fbbba8243e12959e4b627d3394dc44c9dbde0604148666a0a1cc109ed47e96"
+  },
+  {
+   "name": "focused-src-factory-startup-config",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:14Z",
+   "end": "2026-09-23T23:39:15Z",
+   "command": "bun test --timeout 120000 ./src/factory/startup-config.test.ts",
+   "counts": {
+    "pass": 41,
+    "fail": 0
+   },
+   "logSha256": "15619b7344f3ddfaa1a0eafcb3d978eb01ef660a890baeae824e59e2e7a306e5"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:15Z",
+   "end": "2026-09-23T23:39:18Z",
+   "command": "bun test --timeout 120000 ./scripts/check-factory-boundaries.test.ts",
+   "counts": {
+    "pass": 25,
+    "fail": 0
+   },
+   "logSha256": "88d42eda2cd8897c9d79fe3f6dd2acada6cb46d28038333112ba118b3259449c"
+  },
+  {
+   "name": "focused-src-factory-private-files",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:18Z",
+   "end": "2026-09-23T23:39:19Z",
+   "command": "bun test --timeout 120000 ./src/factory/private-files.test.ts",
+   "counts": {
+    "pass": 18,
+    "fail": 0
+   },
+   "logSha256": "8729fccabf176e6b6575648621425b96e39fb6dc7eb4d61e7dcd7393e0d0d529"
+  },
+  {
+   "name": "focused-src-factory-validator-declaration",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:19Z",
+   "end": "2026-09-23T23:39:20Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-declaration.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "538182f58c81aa418aa1766c30f0456f1f8fa4e6456fccb1a53dcb3cd6e90fd5"
+  },
+  {
+   "name": "focused-src-factory-validator-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:20Z",
+   "end": "2026-09-23T23:39:21Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-composition.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "e0181654605839dc7305b4a3bdd5847eb2b1ef6beb0922e516f5d9145b2a339e"
+  },
+  {
+   "name": "focused-src-factory-validator-acceptance",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:21Z",
+   "end": "2026-09-23T23:39:21Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-acceptance.test.ts",
+   "counts": {
+    "pass": 19,
+    "fail": 0
+   },
+   "logSha256": "3e6bb17543c80af9ac948ae2e04a64a5f0424e6019027adbce4467181fb282bc"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:21Z",
+   "end": "2026-09-23T23:39:28Z",
+   "command": "bun test --timeout 120000 ./src/factory/private-service-composition.test.ts",
+   "counts": {
+    "pass": 19,
+    "fail": 0
+   },
+   "logSha256": "55c7979b70951da100d33b31cd699e0832fa980c29c89144544fa9a7d6fb80d9"
+  },
+  {
+   "name": "focused-src-factory-installation-stores",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:28Z",
+   "end": "2026-09-23T23:39:30Z",
+   "command": "bun test --timeout 120000 ./src/factory/installation-stores.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "56be8efbfedb00b14356cbce0058efe06ad46866ceb0a0381dd6dc7838674292"
+  },
+  {
+   "name": "focused-src-__tests__-factory-run-lifecycle",
+   "exitCode": 0,
+   "start": "2026-09-23T23:39:30Z",
+   "end": "2026-09-23T23:40:09Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts",
+   "counts": {
+    "pass": 66,
+    "fail": 0
+   },
+   "logSha256": "fc9830ba16b6b67e00ab81a7e7fcdc8240d0a8dd87f975f98c2c02992b56afd4"
+  }
+ ],
+ "heavy": {
+  "batch1": {
+   "lockAcquired": "2026-09-24T00:56:31Z",
+   "steps": [
+    {
+     "name": "pg-factory-retention",
+     "start": "2026-09-24T00:56:31Z",
+     "end": "2026-09-24T00:56:38Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 13,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-checkpoint",
+     "start": "2026-09-24T00:56:38Z",
+     "end": "2026-09-24T00:57:14Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 12,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-restore",
+     "start": "2026-09-24T00:57:14Z",
+     "end": "2026-09-24T00:57:41Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 13,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-key-rotation",
+     "start": "2026-09-24T00:57:41Z",
+     "end": "2026-09-24T00:57:46Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 1,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-pool-checkpoint",
+     "start": "2026-09-24T00:57:46Z",
+     "end": "2026-09-24T00:57:48Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 6,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-wal-backup",
+     "start": "2026-09-24T00:57:48Z",
+     "end": "2026-09-24T00:57:53Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 1,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-boot",
+     "start": "2026-09-24T00:57:53Z",
+     "end": "2026-09-24T00:57:58Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 1,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-schema",
+     "start": "2026-09-24T00:57:58Z",
+     "end": "2026-09-24T00:58:03Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 2,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-private-service",
+     "start": "2026-09-24T00:58:03Z",
+     "end": "2026-09-24T00:58:12Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 5,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-run-lifecycle",
+     "start": "2026-09-24T00:58:12Z",
+     "end": "2026-09-24T00:58:41Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 66,
+      "fail": 0
+     }
+    },
+    {
+     "name": "orchestrator-leg",
+     "start": "2026-09-24T00:58:41Z",
+     "end": "2026-09-24T01:00:48Z",
+     "exitCode": 0
+    },
+    {
+     "name": "podman-guests",
+     "start": "2026-09-24T01:00:48Z",
+     "end": "2026-09-24T01:01:12Z",
+     "exitCode": 0
+    },
+    {
+     "name": "real-server-pass",
+     "start": "2026-09-24T01:01:12Z",
+     "end": "2026-09-24T01:15:33Z",
+     "exitCode": 1
+    }
+   ],
+   "note": "the real-server-pass step here is the FAILED pass before the recovery declaration"
+  },
+  "batch2": {
+   "steps": [
+    {
+     "name": "pg-factory-run-lifecycle-s3",
+     "start": "2026-09-24T01:02:08Z",
+     "end": "2026-09-24T02:44:04Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 66,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-validator-materials",
+     "start": "2026-09-24T02:44:04Z",
+     "end": "2026-09-24T04:09:48Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 9,
+      "fail": 0
+     }
+    },
+    {
+     "name": "pg-factory-validator-multiclaim",
+     "start": "2026-09-24T04:09:48Z",
+     "end": "2026-09-24T05:06:48Z",
+     "exitCode": 0,
+     "counts": {
+      "pass": 3,
+      "fail": 0
+     }
+    }
+   ],
+   "note": "W09d PostgreSQL producers not in batch 1; START times include the lock wait"
+  },
+  "realServerPasses": {
+   "failedBeforeDeclaration": {
+    "outcome": "failed",
+    "failure": "the server never reported ready",
+    "exitCode": 1,
+    "recordFresh": true,
+    "readyStatus": null,
+    "rolesRunningCount": 0,
+    "rolesRunning": null,
+    "rolesHeld": null,
+    "orchestrationLifecycle": "ready",
+    "harness": null,
+    "recovery": null,
+    "recordSha256": "c1ab3e64a46b5ece736611b37576e81ddf56f8a66a1b1e94d297fbe7f17844db"
+   },
+   "w09bHarnessWithRecovery": {
+    "outcome": "passed",
+    "failure": null,
+    "exitCode": 0,
+    "recordFresh": true,
+    "readyStatus": 200,
+    "rolesRunningCount": 11,
+    "rolesRunning": [
+     "compute-admission-dispatch",
+     "compute-admission-poll",
+     "attempt-dispatch",
+     "run-projection",
+     "notification-inbox-delivery",
+     "child-settlement",
+     "release-outcome",
+     "usage-reconciliation",
+     "stop-settlement",
+     "retention-gc",
+     "checkpoint-barrier"
+    ],
+    "rolesHeld": [
+     {
+      "role": "notification-send",
+      "workPackage": "W17",
+      "reason": "a notification is not delivered until a sender confirms it left this host"
+     },
+     {
+      "role": "validator-material-registration",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+     },
+     {
+      "role": "validator-scheduling",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+     }
+    ],
+    "orchestrationLifecycle": "ready",
+    "harness": "/tmp/factory-platform-evidence/w00/harness-w09b",
+    "recovery": null,
+    "recordSha256": "5b01bebe524d5661b9727d582ee4f8b2bbffd005c879831d3543462e28a4ef25"
+   },
+   "w15Harness": {
+    "outcome": "passed",
+    "failure": null,
+    "exitCode": 0,
+    "recordFresh": true,
+    "readyStatus": 200,
+    "rolesRunningCount": 11,
+    "rolesRunning": [
+     "compute-admission-dispatch",
+     "compute-admission-poll",
+     "attempt-dispatch",
+     "run-projection",
+     "notification-inbox-delivery",
+     "child-settlement",
+     "release-outcome",
+     "usage-reconciliation",
+     "stop-settlement",
+     "retention-gc",
+     "checkpoint-barrier"
+    ],
+    "rolesHeld": [
+     {
+      "role": "notification-send",
+      "workPackage": "W17",
+      "reason": "a notification is not delivered until a sender confirms it left this host"
+     },
+     {
+      "role": "validator-material-registration",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+     },
+     {
+      "role": "validator-scheduling",
+      "workPackage": "W09d",
+      "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+     }
+    ],
+    "orchestrationLifecycle": "ready",
+    "harness": "/tmp/factory-platform-evidence/w15/repro",
+    "recovery": {
+     "sealedInDatabase": true,
+     "sealMatchesDatabase": true,
+     "ungatedTables": [],
+     "archivedCheckpoint": {
+      "checkpointId": "d74ad250-cdef-4ca0-806b-8c25f94076a7",
+      "sealedAtMs": 1790220046404,
+      "durationMs": 100,
+      "lsn": "17/F1ECDDC0",
+      "state": {
+       "attemptsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "holdsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "objectCount": 0,
+       "objectsDigest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+       "releasesDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "runCount": 0,
+       "runsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+       "stateDigest": "sha256:37e46d2b46075254382ee28065a27e20a9c2b1d85e9a541886bddf31238ea84f",
+       "stopsDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "liveRuns": 0,
+      "pool": {
+       "captured": true,
+       "rows": 0
+      },
+      "temporal": {
+       "captured": true,
+       "namespace": "tenant-01.factory",
+       "workflows": 0
+      },
+      "keys": {
+       "installationId": "installation-w09b",
+       "masterKeyId": null,
+       "wrapVersion": null,
+       "wrappedDigest": null
+      },
+      "fenced": {
+       "outbox": 0,
+       "releases": 0,
+       "attempts": 0
+      }
+     },
+     "error": null
+    },
+    "recordSha256": "f8b29cd1aaff4a81354e5125f601d84c80d5a4b27fc7a52fa1256eb7532a3f7f"
+   }
+  }
+ },
+ "commitHook": "the pre-commit hook skipped its staged tests (36 test files map to the commit, above its cap of 12); the checks above cover them",
+ "receiptsAdded": [
+  "incident line 2026-09-23T18:31:45Z (OOM) in wave3/shared-store-incidents.jsonl (merge commit)",
+  "backlog line (compose restart: on-failure) and product rule in tasks/todo.md (merge commit)"
+ ],
+ "standingSteps": "df 134G at start, 111-118G during, 112G at resume; touch 160190 and 196073 entries, 0 errors"
+}

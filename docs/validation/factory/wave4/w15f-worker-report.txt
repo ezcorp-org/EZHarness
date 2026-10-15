@@ -1,0 +1,80 @@
+W15f report: a hold a restore's execution epoch left behind (stale-epoch retry storm)
+
+Branch wp/w15f-stale-epoch from integ/w00 29f8f2d4b. Head c8506aa7c (tree clean). Source 6a160c81e; c8506aa7c adds
+only tasks/. Gate file tasks/factory/w15f-GATES.md. Evidence /tmp/factory-platform-evidence/w15f/.
+
+COMMITS
+  6a160c81e fix(factory): a hold a restore's epoch left behind is marked once, not retried every pass
+  c8506aa7c docs(tasks): W15f gates, review, and lesson
+
+REPRODUCTION (before any product change)
+  Lane: w01i/logs/lane2-processes/web.log, 15 x "usage-reconciliation:fault:factory-reservation:98ddd419..." with
+  "FactoryAttemptLivenessError: Factory run epoch is stale or unavailable.", after many transient reports of the same
+  hold; lane test 12 opened (and left unsigned) a restore, which moved the installation's execution epoch.
+  Suite src/__tests__/helpers/factory-usage-epoch-suite.ts (PGlite runner src/factory/usage-epoch.integration.test.ts,
+  PostgreSQL runner tests/postgres/factory-usage-epoch.test.ts): real journal, budgets scan, reconciler, role driver.
+  Red: 4 reports in 4 passes, the lane's role and error (logs/repro-red.log, logs/repro-errors.txt).
+
+FIX
+  lockRunFence raises FactoryRunEpochStaleError (a FactoryAttemptLivenessError, same code and message) with run,
+  attempt, and both epochs. The usage-reconciliation step marks the hold once in the new nullable
+  factory_budget_reservations.epoch_stale_json (migration add-factory-usage-epoch-stale, mirrored in factory-schema.ts)
+  and reports one FactoryUsageHoldEpochStaleError (factory_usage_hold_epoch_stale) naming reservation, run, attempt,
+  and both epochs. The uncertain-hold scan skips a hold marked at the current installation epoch (IS DISTINCT FROM,
+  so an unreadable mark is retried and reported). The hold stays uncertain. A hold settled before the mark is not
+  marked and its refusal is reported as it came. The mark is on the hold, not the run: a signed restore rebinds the
+  run into the new epoch; only the old attempt's authority is left behind.
+  Found on the way: the first commit attempt failed on real PostgreSQL only; a text parameter cast to jsonb arrived
+  as a JSON string, so the scan could not read the mark and hid the hold. Fixed (jsonb_build_object, typed values)
+  and pinned by a case that fails on the old comparison.
+  Shared test helper src/__tests__/helpers/factory-attempt-fixtures.ts (the journal suite now uses it).
+
+GATES (6a160c81e, clean, BASE_REF=29f8f2d4b, under the lock; logs/batch-1.log, receipts/)
+  typecheck 0, lint 0, boundaries 0, gate-integrity 0, schema drift 0, suite registration 5/0
+  PGlite: epoch suite + migration 5/0, dispatch composition 39/0, executions fence 2/0, budgets 13/0, task stops 29/0,
+    guest-model journal 4/0, schema + migrate 10/0
+  PostgreSQL: usage epoch 3/0, executions 7/0, budgets 13/0, task stops 29/0, compute admissions 2/0, restore 17/0,
+    checkpoint 12/0, schema parity 2/0, guest-model journal 2/0
+  new-file coverage 0, patch coverage 0
+  pre-commit hook: 6 mapped files, 0 fail (under the cap; no override)
+
+ROUND 2 (supersession, skip rule, W05b clear, W03f agreement): commits caa936ed7, 5afafa64b, c89ed5034; batch-3 at
+5afafa64b green (logs/batch-3.log). Gate file G4 to G8.
+
+G9 (coordinator ruling on the W03f point), commit 2a2d5ae58
+  readSupersededOperationsInTransaction(transaction, tenantId, reservationId) in src/factory/attempt-supersessions.ts:
+  requires a factory_attempt_supersessions row for the reservation and an execution still superseded at the epoch the
+  row records, else FactoryAttemptNotSupersededError (factory_attempt_not_superseded; no-supersession or
+  attempt-not-superseded). Returns attempt, superseded epoch, restore digest, operations, journal cursor. Writes
+  nothing; takes no epoch from the caller. The row mapping is readFactoryOperationEvidenceInTransaction in
+  executions.ts (the journal's scoped read delegates to it). Red first: logs/superseded-read-red.log (no export).
+  Focused legs at 2a2d5ae58, BASE_REF=29f8f2d4b (logs/batch-g9.log, receipts/g9-*.json):
+    lock-free: typecheck 0, lint 0, boundaries 0, gate-integrity 0, schema drift 0; PGlite epoch suite + migrations +
+      reader 12/0, executions fence 2/0, task stops 30/0, guest-model journal 4/0, dispatch composition 40/0
+    under the lock (host 122 GB, 15 GiB, 6.4 GiB swap): PostgreSQL usage epoch 6/0, executions 7/0, task stops 30/0,
+      guest-model journal 2/0; merge-lcov 0, new-file coverage 0, patch coverage 0
+  Order: W15f lands first; W03f then merges integ/w00 and adds the consumer in its bound path and the joint test.
+
+M1 (validator-4, tree review at c89ed5034), commit 5572295ab, on top of the G9 reader commit 2a2d5ae58
+  A stop accepted before a restore and never confirmed now ends with the attempt's supersession, by state: an accepted
+  or uncertain stop of a superseded attempt becomes 'superseded' with factory_task_stops.superseded_restore_id naming
+  the restore (in the signing transaction), so listStoppableInTransaction leaves it by state. The W05b clear falls back
+  to the supersession whenever the stop is not 'stopped'. Migration widens factory_task_stops_state_check in place and
+  adds factory_task_stops_superseded_check. Found while fixing: factory_task_stops_accepted_state_check would have
+  refused superseding a stop left 'accepted' and rolled back the signing transaction; it now admits a bare superseded
+  stop. Red first with the probe's steps (logs/m1-probe-red.log: the stop stayed uncertain).
+  Focused legs at 5572295ab, BASE_REF=29f8f2d4b (logs/batch-m1.log, receipts/m1-*.json):
+    lock-free: typecheck 0, lint 0, boundaries 0, gate-integrity 0, schema drift 0; PGlite epoch suite + migrations +
+      reader 12/0, executions fence 2/0, task stops 32/0, guest-model journal 4/0, dispatch composition 40/0
+    under the lock (host 121 GB, 16 GiB, 6.5 GiB swap): PostgreSQL usage epoch 6/0, executions 7/0, task stops 32/0,
+      guest-model journal 2/0, restore 17/0; merge-lcov 0, new-file coverage 0, patch coverage 0
+
+L1 (validator-4, re-diff of 2a2d5ae58), commit 930c90331
+  The epoch suite refuses a record whose superseded_epoch is not the superseded execution's own epoch
+  (attempt-not-superseded). Mutants of the reader, each with one guard removed, all fail the suite:
+  R2 no epoch check 5/1, R1 no status check 5/1, R0 no record check 5/1 (logs/mutant-*.log); unmutated 6/0.
+  The first red log (logs/superseded-read-red.log) is an import error only; the gate file says so.
+  Focused legs at 930c90331, BASE_REF=29f8f2d4b (logs/batch-l1.log, receipts/l1-*.json):
+    lock-free: static gates 0; PGlite epoch 12/0, fence 2/0, task stops 32/0, journal 4/0, dispatch 40/0
+    under the lock (host 120 GB, 16 GiB, 6.6 GiB swap): PostgreSQL usage epoch 6/0, executions 7/0, task stops 32/0,
+      journal 2/0, restore 17/0; merge-lcov 0, new-file coverage 0, patch coverage 0

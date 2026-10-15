@@ -170,6 +170,13 @@ describe("fsWrite", () => {
     expect(Array.from(decoded)).toEqual([0x01, 0x02, 0x03, 0xff]);
   });
 
+  test("content over 100 MB is refused before it is encoded or sent", async () => {
+    const { calls } = stubRequest(async () => ({ bytes: 0, resolvedPath: "/tmp/huge.bin" }));
+    const limit = 100 * 1024 * 1024;
+    await expect(fsWrite("/tmp/huge.bin", new Uint8Array(limit + 1))).rejects.toThrow(`[@ezcorp/sdk] fsWrite content exceeds 100MB limit (${limit + 1} bytes)`);
+    expect(calls).toEqual([]);
+  });
+
   test("large Uint8Array (>1MB) base64-encodes without stack overflow (regression)", async () => {
     // Pre-fix, fsWrite encoded via `String.fromCharCode.apply(null,
     // Array.from(content))` — spreading every byte as a positional

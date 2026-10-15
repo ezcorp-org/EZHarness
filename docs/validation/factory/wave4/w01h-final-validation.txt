@@ -1,0 +1,66 @@
+W01h — validator-2 verdict, filed by the coordinator from validator-2's message of 2026-09-27 ~08:52Z
+(validator-2's harness cannot write report files; the message is the verdict; record: /tmp/factory-platform-evidence/w01h-validation/ results.jsonl, logs/, graph/).
+
+Branch wp/w01h-runner-outcome, final head 34b3b0a74 (code head merge 6f3903666 of integ/w00 f7c1290a6).
+VERDICT: ACCEPT with one low finding.
+
+Identity and config: all 27 package commits (f7c1290a6..34b3b0a74) authored and committed as archy <281643943+EZArchy@users.noreply.github.com>.
+Shared .git/config sha256 44962525f1ca1a8b before and after; core.bare false. Skip commits a4dc40f3e, 030339f63, c9baf2f4c, 942a03dac each
+covered by a coordinator ruling (confirmed) and recorded in the gates file.
+
+Batch (fresh worktree .worktrees/val-w01h, real frozen installs, identity explicit, under the lock, gates logged per leg; BASE_REF=f7c1290a6):
+typecheck, lint, boundaries, gate-integrity 0; boundary suites 48/0; Bun coverage leg (38 files incl. SDK kernel) 520/0; Node/V8 orchestrator leg 0;
+new-file PASSED (1 file); patch PASSED (26 files, every changed line covered); PostgreSQL task-stops 25/0, compute-admissions 2/0, run-lifecycle 79/0;
+podman host-launch-e2e 1/0; remote-attempt-runtime 13/0 (three-lease-period completion + renewal stop; lease lapse → RUNNER_LEASE_LOST; deadline → RUNNER_TIMEOUT).
+
+Durable epoch in the transition's transaction: proven and red when reverted on PGlite AND PostgreSQL (disable the call at transition-artifacts.ts:147:
+factory-stop-epoch.test.ts 3/3 fail; tests/postgres/factory-run-lifecycle "a denied approval fails its run by name" 1/1 fail; restored 6/0 and 1/0). No medium finding.
+
+Code checks: one transport implementation (W19a deadline rejection on base; W01h adds abort, close-before-response, early close, oversize settling, both regression
+tests present). Defect 3: authorizeAttemptInTransaction relaxes only the attempt-deadline clause via expired:"allowed", reachable only through
+reportedRequestInTransaction from FactoryTaskOutcomes.recordInTransaction, which refuses status "completed"; a kernel-stopped attempt is factory_attempt_superseded.
+User cancel and kernel stop write the same stopped epoch through one function.
+
+70 s fault pass (own proof worktree, proof ref proof/w01h-val2-delay70 8548ee840 on 6f3903666; web build first): 08:16:04–08:17:41Z; harness exit 1 as required;
+guest stopped at its deadline 08:17:36.113Z; run failed 08:17:40.424Z (4.3 s later). Rows: launch terminal failed RUNNER_CONTAINER_EXIT, no operations;
+task outcome same; task stop source terminal-outcome, state stopped; usage settlement source no-operations, known_cost_micros 0, basis
+"no-operations: compute at reserved bound", stop receipt present; factory_run_lifecycle status failed, cancellation_epoch 1, FACTORY_RUN_FAILED/RUNNER_CONTAINER_EXIT;
+attempt queue delivered. Database dumped (graph/val2-delay70.rows.json) and dropped; images pruned.
+
+FINDINGS:
+L1 (low, docs-only): tasks/factory/w01h-GATES.md has no table of files owned by other packages. The diff changes packages/@ezcorp/factory-sdk/src/kernel.ts
+(defect 5, approval nodes settle their stop in place; in scope by ruling), src/factory/installation-startup.ts, the factory-orchestrator contracts, process and
+workflow, and extension-runner/podman.ts. Rulings are named in the gate text, not tabulated.
+Note: no PostgreSQL stop-epoch suite exists (factory-stop-epoch.test.ts is PGlite only); the PostgreSQL proof is the lifecycle denied-approval case above.
+
+Disk: validator-2 removed its val-w14, val-w14-mut and val-w01h worktrees.
+
+--- FIX ROUND — validator-2 verdict, filed by the coordinator from validator-2's message of 2026-09-27 ~12:05Z ---
+Head aefcf828f (code b254a1a56) over the accepted 34b3b0a74: ACCEPT, no findings.
+Identities: be1d4530c, b254a1a56, aefcf828f all archy <281643943+EZArchy@users.noreply.github.com>; no hook skip (be1d4530c's "skips" is prose). Shared .git/config sha256 44962525f1ca1a8b before and after.
+Batch (fresh worktree .worktrees/val-w01h2, frozen installs, explicit identity, under the lock, gates logged per leg; record /tmp/factory-platform-evidence/w01h-fix-validation/):
+typecheck, lint, boundaries, gate-integrity (BASE_REF 34b3b0a74) 0; factory-stop-after-loss 3/0; units 77/0 (dispatch-composition, add-factory-task-stop-reconciliation migration, remote-attempt-runtime, attempt-runtime, attempt-runtime.integration);
+PostgreSQL task-stops 25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0; podman lost-result 1/0; coverage leg 113/0; new-file PASSED (the migration); patch PASSED (8 files) vs 34b3b0a74.
+Negative controls (validator's own, tree clean after): stop check off → 1/2 red; mark removed (dispatch-composition.ts:118) → 38/2 red; scan lists marked stops (task-stops.ts:401 filter removed) → 39/1 red.
+Code read: recordLostTerminal takes the launch-row lock; with a stop sealed first it writes no terminal result and records factory.attempt.exit_after_stop (sealed reason, observed status and code); markForReconciliation marks only an open stop, once, with code, detail (≤1024 chars), both reasons when they conflict, markedAtMs; the scan skips marked stops.
+
+=== FINAL VERDICT, W01h fix round 2, filed by the coordinator on behalf of validator-2 (validator-2's harness cannot write files); text verbatim from validator-2's message of 2026-09-27 ~16:05Z ===
+W01h final verdict: ACCEPT at 5296c2ef0 (code 216868819). D1 is closed.
+Branch head observed now: wp/w01h-runner-outcome = 5296c2ef0. The verdict names the hash.
+- Commits over aefcf828f: 216868819, e676e6190 and 5296c2ef0. Author and committer are exactly archy noreply, with no hook skip. 5296c2ef0 changes only tests/postgres/factory-stop-lock-order.test.ts and tasks/factory/w01h-GATES.md over e676e6190.
+- Shared .git/config sha256 was 44962525f1ca1a8b before and after every leg (batch, ten runs, lane).
+LOCK ORDER (code read at 216868819):
+- FACTORY_STOP_LAUNCH_LOCK_ORDER in attempt-runtime.ts: the stop row, then the launch row. It is documented at the constant, recordLostTerminal, readFactoryAttemptLaunchFacts, sealAuthority, readLiveAuthority and readRow.
+- Only attempt-runtime.ts and task-stops.ts take row locks on factory_task_stops or factory_attempt_launches. checkpoint-barrier.ts, package-fence.ts, restore.ts and retention.ts only read.
+- Every settlement path follows the order. markUncertain and finalize go through readSealed: readRow FOR UPDATE on the stop, then readLiveAuthority on the launch FOR UPDATE, then an UPDATE of the stop row already held. accept takes the launch row in sealAuthority, then INSERTs the stop row. readSettlementScopeInTransaction locks stop rows only. recordLostTerminal locks the launch row only, and reads the stop row with a plain SELECT.
+- The unlocked read is sound under PostgreSQL's default READ COMMITTED isolation. A statement after the launch lock is granted sees a stop row that acceptance committed while holding that lock, and request_json (the sealed reason) is written only at INSERT.
+TEST (at 5296c2ef0): both earlier lows are closed.
+- It drives the real recordLostTerminal and the real FactoryTaskStops.stop. A gate connection holds the launch row. Each step waits until pg_stat_activity shows the expected number of backends waiting on a lock for factory_attempt_launches, and then the gate releases. So the lost result holds the launch row while the real settlement holds the stop row, which is the exact deadlock interleaving.
+- The poll is bounded at 10 s and throws "fewer than N transactions blocked on the launch row after 10 s", so it fails by name and never passes on timeout. The test also asserts that no terminal result is written and that the factory.attempt.exit_after_stop audit row exists.
+RUNS (worktree .worktrees/val-w01h3, under the lock, gated before each leg; lowest 122 GB disk, 16 GiB available, 6 GiB swap free):
+- Ten runs of tests/postgres/factory-stop-lock-order.test.ts alone on real PostgreSQL at 5296c2ef0, 14:38:01 to 14:38:56Z: each 1 pass, 0 fail.
+- Valid red at 5296c2ef0: only recordLostTerminal's stop-row read put back to FOR SHARE, so the test still imports. Result: 0 pass, 1 fail, with 2 "deadlock detected" lines (logs/ten-red.log). Then restored, tree clean.
+  - Note: the first red attempt in the earlier batch (aefcf828f's two source files with the new test) was void. The test imports FACTORY_STOP_LAUNCH_LOCK_ORDER, which the old code lacks, so it failed on the import, not on a deadlock. The worker's red proof (w01h/logs/fix6/lock-order-red.log, "deadlock detected" twice, 0 pass, 1 fail) is valid, and the one above confirms it.
+- Batch at e676e6190, the same code as 5296c2ef0: typecheck, lint, boundaries and gate-integrity (BASE aefcf828f) exit 0. Lock-order test (the older version) 1/0. Stop-after-loss plus attempt-runtime unit and integration 28/0. PostgreSQL task-stops 25/0, run-lifecycle 79/0, migration-restart 18/0, executions 7/0, host-launch 1/0. Podman lost-result 1/0. Coverage 54/0; new-file passes (no new file); patch passes with 2 files against aefcf828f.
+- Real application: the W01i lane at f1b71ac3c, which carries this exact W01h code, passed 12/12. The PostgreSQL server log for 14:41:24 to 14:45:38Z has 0 "deadlock detected" lines (w01i-validation/logs/postgres-lane2.log). The earlier 12:35:31Z deadlock does not recur.
+Records: /tmp/factory-platform-evidence/w01h-fix2-validation/ (batch.log, ten.log, results.jsonl, logs/).

@@ -1,0 +1,8 @@
+W4H-1 merge daf2aa776: validator-6's verdict file gained an addendum after the merge (ACCEPT at d341d8690 stands; no open item now).
+Addendum to w4h-1-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- w4h-1-merge.json's validatorVerdict cites the lock-free-phase verdict sha256 e266e517d7eb9c9c..., receipted as w4h-1-validation.txt.
+- The verdict file now carries an ADDENDUM (validator-6, 2026-10-05), sha256 49813b3b9dbc8293d98569e446ac04a2e5a1e205133a66af206d6062de649d02,
+  copied as w4h-1-validation-addendum.txt. Both OPEN items of the merge receipt are closed:
+  1. the recovery seed finding (side finding 2): closed by W4H-9 (merge 4550c2f66, receipts 2808ff324, amendments da78aab05, a5c5afebe);
+  2. the production-image proofs: runtime-resources green at d341d8690 and 28/28 verified (the addendum's item 2).
+The merge, its hold and the publish are unchanged.

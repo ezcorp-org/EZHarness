@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# W18a-3 final sweep (copy of w18a3/sweep.sh; own receipt folder per head): the combined runner (unchanged copy), then supplementary per-file coverage legs,
+# then one merged "fullest" lcov and the gates over it. Records every step in steps.jsonl.
+set -uo pipefail
+W=/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep; E=/tmp/factory-platform-evidence; P=w18a3-merge2; R=/tmp/factory-platform-evidence/w00/w18a3-merge/sweep2; mkdir -p $R
+. $E/w18a2/env.sh
+cd $W
+step() { local name=$1; shift; local s=$(date -Is); "$@" > $R/$name.log 2>&1; local rc=$?; printf '{"name":"%s","exitCode":%d,"start":"%s","end":"%s","head":"%s"}\n' "$name" $rc "$s" "$(date -Is)" "$(git rev-parse HEAD)" >> $R/steps.jsonl; return $rc; }
+: > $R/steps.jsonl
+exec 9>/tmp/ezcorp-validation-heavy.lock; flock 9
+EXTRA="./src/factory/temporal-retention.test.ts ./src/__tests__/scope-enforcement.test.ts ./src/__tests__/factory-boot.test.ts ./src/__tests__/factory-service-token.test.ts ./src/factory/private-files.test.ts ./src/factory/encryption.test.ts ./src/factory/pool/process.test.ts ./src/factory/startup-config.test.ts ./src/factory/installation-startup.test.ts ./src/factory/service-probes.test.ts ./src/__tests__/service-capabilities.test.ts ./src/__tests__/service-invocation.test.ts ./src/extensions/v4/deliveries.test.ts ./src/__tests__/runtime-tools-shell.test.ts ./src/__tests__/failover.test.ts ./src/__tests__/db-connection-real-init.test.ts ./src/__tests__/db-corruption-catch.unit.test.ts"
+rm -rf $R/extra-lcov; mkdir -p $R/extra-lcov
+for t in $EXTRA; do n=extra-$(basename $t .ts); step $n timeout 900 bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=$R/$n-coverage $t; cp $R/$n-coverage/lcov.info $R/extra-lcov/$n.lcov 2>/dev/null; done
+for t in src/__tests__/security/bearer-auth.test.ts src/__tests__/factory-boot.server.test.ts src/__tests__/mock-llm-store.test.ts; do n=web-$(basename $t .ts); (cd web && step $n timeout 900 bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=$R/$n-coverage ./$t); sed -E -e 's#^SF:\.\./#SF:#;t' -e 's#^SF:(src/)#SF:web/\1#' $R/$n-coverage/lcov.info > $R/extra-lcov/$n.lcov 2>/dev/null; done
+flock -u 9; exec 9>&-
+rm -rf $E/$P-lcov-inputs
+step runner timeout 30000 python3 $E/w18a3/combined-integration.py --repo $W --prefix $P --patch-bases $(git rev-parse integ/w00),$(git rev-parse origin/main) --quality-base origin/main --auto-extra-base c6ac529d2
+rm -rf $R/fullest-inputs; mkdir -p $R/fullest-inputs; cp $E/$P-lcov-inputs/*.lcov $R/fullest-inputs/ 2>/dev/null; cp $R/extra-lcov/*.lcov $R/fullest-inputs/
+step merge bun scripts/merge-lcov.ts "$R/fullest-inputs/*.lcov" coverage/lcov.info && cp coverage/lcov.info $R/fullest-lcov.info
+step gate-crap-changed env BASE_REF=origin/main bun scripts/crap-score.ts --changed
+step gate-new-file-origin-main env BASE_REF=origin/main bun scripts/check-new-file-coverage.ts
+step gate-new-file-integ env BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts
+step gate-patch-integ env BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts
+step gate-global-floor bun scripts/check-global-coverage.ts
+step gate-per-file-thresholds bun scripts/check-coverage.ts
+step gate-integrity bun scripts/gate-integrity.ts
+step boundaries bun scripts/check-factory-boundaries.ts
+echo done >> $R/steps.jsonl

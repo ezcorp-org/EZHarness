@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/lane-bun.sh"
+lane_bun_pin
 
 if [[ "${EZCORP_E2E_KOKORO_REAL:-}" != "1" ]]; then
   echo "Set EZCORP_E2E_KOKORO_REAL=1 to authorize the external Kokoro ONNX model download." >&2

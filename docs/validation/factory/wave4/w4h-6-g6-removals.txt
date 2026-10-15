@@ -1,0 +1,6 @@
+post-G6 removals 2026-10-04T21:37:18Z
+  container w4h-6-head (podman rm -f -v): 2.12 GB writable layer
+  volume w4h-6-storage-head: 674 MB
+  image localhost/w4h-6-runner:24.04 (rmi by name): 326 MB
+  snapshot snap-56c9579d7 (podman unshare rm -rf): 3378 MB
+  host free 158376 MB -> 164658 MB: freed 6282 MB

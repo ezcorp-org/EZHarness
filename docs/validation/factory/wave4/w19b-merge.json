@@ -1,0 +1,242 @@
+{
+ "package": "w19b",
+ "branch": "wp/w19b-harness-logs",
+ "head": "ac78946428a871087577d38139fddb8b67ae31aa",
+ "codeHead": "8be8ce5ce",
+ "branchBase": "27d957531",
+ "validatorVerdict": "ACCEPT at ce7f2a725 with low notes, fix round ACCEPT-WITH-FIXES at dc62b5fcc, second fix round ACCEPT at ac7894642 (validator-3); copied as w19b-validation.txt",
+ "mergeSha": "c9eafe6af0db38ba7ee939c0896af93f553b88b5",
+ "tree": "52a67d888e7c0a13ed68ad32cf6eda38d262b2ef",
+ "parents": [
+  "8aac1a78286ad80bacb7632a7b7793b88ef33ec0",
+  "ac78946428a871087577d38139fddb8b67ae31aa"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union"
+ },
+ "integrationFix": [],
+ "graphProof": {
+  "why": "the merged tree differs from ac7894642 in files the harness loads (92 files under src/web/packages since 27d957531: W15b, W18 hygiene A+B and D, W12d), so the proof ran; run.sh has no mock-only 'all', so the full run.sh all ran (it includes every mock pass and the forced-failure control)",
+  "gate": "inside the lock: 2026-09-25T10:46:37Z, 150G free",
+  "exit": 0,
+  "verdict": "passed",
+  "criteria": [
+   {
+    "criterion": "ollama: three of three passes passed",
+    "ok": true
+   },
+   {
+    "criterion": "ollama: prepare's staged output is byte-identical across passes",
+    "ok": true
+   },
+   {
+    "criterion": "ollama: combine's staged output is byte-identical across passes",
+    "ok": true
+   },
+   {
+    "criterion": "mock: three of three passes passed",
+    "ok": true
+   },
+   {
+    "criterion": "mock: prepare's staged output is byte-identical across passes",
+    "ok": true
+   },
+   {
+    "criterion": "mock: combine's staged output is byte-identical across passes",
+    "ok": true
+   },
+   {
+    "criterion": "mock: infer's answer is identical across passes",
+    "ok": true
+   },
+   {
+    "criterion": "control-no-pin: every refusal named",
+    "ok": true
+   },
+   {
+    "criterion": "control-missing-model: every refusal named",
+    "ok": true
+   },
+   {
+    "criterion": "control-forced-failure: the pass failed on purpose and left every process log and readiness file",
+    "ok": true
+   }
+  ],
+  "passes": [
+   {
+    "label": "control-forced-failure.diagnostics-check",
+    "mode": null,
+    "control": null,
+    "outcome": null,
+    "failure": null
+   },
+   {
+    "label": "control-forced-failure",
+    "mode": "mock",
+    "control": "forced-failure",
+    "outcome": "failed",
+    "failure": "checks failed: forced failure: the diagnostics control fails this pass on purpose"
+   },
+   {
+    "label": "control-missing-model",
+    "mode": "ollama",
+    "control": "missing-model",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "control-no-pin",
+    "mode": "mock",
+    "control": "no-pin",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "mock-1",
+    "mode": "mock",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "mock-2",
+    "mode": "mock",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "mock-3",
+    "mode": "mock",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "ollama-1",
+    "mode": "ollama",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "ollama-2",
+    "mode": "ollama",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   },
+   {
+    "label": "ollama-3",
+    "mode": "ollama",
+    "control": "none",
+    "outcome": "passed",
+    "failure": null
+   }
+  ],
+  "noUnknownOutcome": "no outcome_unknown in any pass record"
+ },
+ "credentialScan": {
+  "script": "copy of /tmp/factory-platform-evidence/w19b/credential-scan.sh (REPO = staging, EVIDENCE = this merge's proof output); values read inside the script, never printed",
+  "filesScanned": 12073,
+  "secretsChecked": 41,
+  "filesContainingAny": 0,
+  "clean": true
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T10:09:38Z",
+   "end": "2026-09-25T10:09:39Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "fc10dc6829b22798cabd9c0f8db289b7eb8c74096d443c13a28fb828d5fc8183"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T10:09:39Z",
+   "end": "2026-09-25T10:10:20Z",
+   "command": "bun run typecheck",
+   "logSha256": "5da41c0d32fdc1a27b15cdac2fb8ff56fd00baccb3aafa16bb79d5e764762458"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:20Z",
+   "end": "2026-09-25T10:10:22Z",
+   "command": "bun run lint",
+   "logSha256": "cb084a0d6f6830107c77c22d39de631c502917f5ed0da641af658a077e513954"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:22Z",
+   "end": "2026-09-25T10:10:25Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:25Z",
+   "end": "2026-09-25T10:10:26Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:26Z",
+   "end": "2026-09-25T10:10:30Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-diagnostics-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:30Z",
+   "end": "2026-09-25T10:10:30Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-diagnostics.test.ts",
+   "logSha256": "502fa2203ac97dc9bac2779d5e8d54421c092faf1ae3ddcf759ebf6ab7993ca1"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-definition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:30Z",
+   "end": "2026-09-25T10:10:31Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-definition.test.ts",
+   "logSha256": "3201ce1d053af0da66f564843b1bf361cca749332758dbfaf7bb012c42b15508"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:31Z",
+   "end": "2026-09-25T10:10:35Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "6c07b91ba0642bcfd224f834a88d9f4cc93c52240d95c7584c6fa08114753c95"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T10:10:35Z",
+   "end": "2026-09-25T10:10:36Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "becfd7833de4f8fbd5f9e69f55aba2d3faa0ebe13d4f3427b05b6bb11261e8fc"
+  }
+ ],
+ "coverage": {
+  "proofCommit": "proof/w19b-merge-staged 0fda90a43022c7bd7c2456a83dfc84e48d58e628 (tree 52a67d888 = the merge tree)",
+  "baseRef": "8aac1a782",
+  "newFile": "PASSED: no gated new source (scripts/ is not gated)",
+  "patch": "PASSED: 0 gated files",
+  "measuredAnyway": {
+   "scripts/factory-graph-proof/diagnostics.ts": "143/143 lines, 29/29 functions",
+   "scripts/factory-graph-proof/stack-documents.ts": "101/101 lines, 12/12 functions"
+  },
+  "producer": "graph-proof-diagnostics + graph-proof-definition with coverage, 22/0"
+ },
+ "disclosed": "worker's low residual: a JSON string built into a variable first (const doc = JSON.stringify({...}); privateWrite(..., doc)) passes the inline-document guard (identifier treated as plain text); the runtime rule is fail-closed, so only the walk test's completeness is affected; recorded for the next W19 harness touch (accept only builder calls and string literals)",
+ "commitHook": "the hook ran its staged suites (17/0); no skip",
+ "standingSteps": "df 150G at merge start, in the lock and at commit"
+}

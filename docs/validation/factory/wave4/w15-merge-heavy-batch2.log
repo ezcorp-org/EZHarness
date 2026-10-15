@@ -1,0 +1,6 @@
+--- START pg-factory-run-lifecycle-s3 2026-09-24T01:02:08Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-24T02:44:04Z exit=0
+--- START pg-factory-validator-materials 2026-09-24T02:44:04Z
+--- END   pg-factory-validator-materials 2026-09-24T04:09:48Z exit=0
+--- START pg-factory-validator-multiclaim 2026-09-24T04:09:48Z
+--- END   pg-factory-validator-multiclaim 2026-09-24T05:06:48Z exit=0

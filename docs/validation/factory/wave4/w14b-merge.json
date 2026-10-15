@@ -1,0 +1,204 @@
+{
+ "package": "w14b",
+ "branch": "wp/w14b-guest-closure",
+ "head": "f23ec14d2db525b04f339a23d55c8c225e744864",
+ "codeHead": "dadb54980",
+ "branchBase": "146a94829",
+ "validatorVerdict": "ACCEPT by validator-2 at f23ec14d2 with one low docs note; copied as w14b-validation.txt",
+ "workerReport": "no separate report file; the worker's gates file tasks/factory/w14b-GATES.md is in the merged tree",
+ "mergeSha": "40025abc444a18b8c5e97f02e6c12dad9fc1a6bf",
+ "tree": "f2aca5e363d3ef34b915e51bfbf09d662cee9ffb",
+ "parents": [
+  "29f8f2d4b16948e121e1635e033c820bf1008b21",
+  "f23ec14d2db525b04f339a23d55c8c225e744864"
+ ],
+ "conflicts": {},
+ "integrationFix": [
+  {
+   "file": "tasks/factory/w14b-GATES.md",
+   "kind": "docs-only",
+   "ruling": "lead 2026-09-27: validator-2's low note; the gate text now says check-schema-generate-drift.ts reads and restores its own generated schemas (it copies them to a backup folder and restores them), in place of reading the SDK tree only",
+   "diff": "w14b-merge-integration-fix.diff"
+  }
+ ],
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-27T12:31:24Z",
+   "end": "2026-09-27T12:31:25Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "a5a515638c08ffc5dc16d5698e7eea2d8ec770c2f11702f335fea18ece97a48d"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-27T12:31:25Z",
+   "end": "2026-09-27T12:32:07Z",
+   "command": "bun run typecheck",
+   "logSha256": "66a6c9414b70d37819cbfdd40d0fdd5abe3fcc3c18e24385d6cf7f88d33c7d4a"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:07Z",
+   "end": "2026-09-27T12:32:09Z",
+   "command": "bun run lint",
+   "logSha256": "d618acfd0234f0093d2e08a2f8a3bb71adb97dd9d68459fcd88683579413fc36"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:09Z",
+   "end": "2026-09-27T12:32:12Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:12Z",
+   "end": "2026-09-27T12:32:13Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:13Z",
+   "end": "2026-09-27T12:32:17Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-guest-sdk-closure-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:17Z",
+   "end": "2026-09-27T12:32:18Z",
+   "command": "bun test --timeout 60000 ./src/factory/guest-sdk-closure.test.ts",
+   "logSha256": "a57fc833783da46c441787f503ec7cf800db817a5192bc419e0c1b019325e8df"
+  },
+  {
+   "name": "focused-scripts-factory-graph-proof-guest-package-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:18Z",
+   "end": "2026-09-27T12:32:18Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-graph-proof/guest-package.test.ts",
+   "logSha256": "b832a95f8383630ce1199ecb247a0566f57f309688487ebf5974bae67bf42022"
+  },
+  {
+   "name": "focused-src-factory-reference-code-guest-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:18Z",
+   "end": "2026-09-27T12:32:19Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-code/guest.test.ts",
+   "logSha256": "1f376bdb0b55a029b0db8bc30c476c94a6fe85997495d3fe0f297f3eab4c778d"
+  },
+  {
+   "name": "focused-src-factory-reference-code-pack-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:19Z",
+   "end": "2026-09-27T12:32:20Z",
+   "command": "bun test --timeout 60000 ./src/factory/reference-code/pack.test.ts",
+   "logSha256": "13f3418342dcf30da9404cec638f4e9b3459e5ac428799cbd2c1edf0e1951723"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-definition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:20Z",
+   "end": "2026-09-27T12:32:20Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-definition.test.ts",
+   "logSha256": "0ce4a9939c71d8e365becbbcafe9a884e09693a1194cad8ab21aada83398f7a9"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-diagnostics-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:20Z",
+   "end": "2026-09-27T12:32:21Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-diagnostics.test.ts",
+   "logSha256": "6df7a61daa000daf4fcc76d4b2be82e6d7cd3e8812c6597211d86ef813c7c6c6"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:21Z",
+   "end": "2026-09-27T12:32:24Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "913c3fceb2a66e30f2590ef008a555536c801e6eee571d28653e2bfd1aef48a6"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:24Z",
+   "end": "2026-09-27T12:32:26Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "becfd7833de4f8fbd5f9e69f55aba2d3faa0ebe13d4f3427b05b6bb11261e8fc"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-27T12:32:26Z",
+   "end": "2026-09-27T12:32:34Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "fcef0d29e8e666629e10f68fd6f2aa9a87fe9e805260c137c4df7b96b2a7d7fa"
+  }
+ ],
+ "checkBoundaries": "scripts/check-boundaries.ts exit 0 (5803 source files, 0 violations)",
+ "heavy": {
+  "batch": [
+   "=== heavy 2026-09-27T12:43:57Z",
+   "HEAD 29f8f2d4b16948e121e1635e033c820bf1008b21 MERGE_HEAD f23ec14d2db525b04f339a23d55c8c225e744864 index-tree f2aca5e363d3ef34b915e51bfbf09d662cee9ffb",
+   "resource-gate 2026-09-27T12:43:57Z refcode-podman disk=123G memAvailable=19GiB swapFreeKiB=5331712/17173956",
+   "--- START refcode-podman 2026-09-27T12:43:57Z",
+   "--- END   refcode-podman 2026-09-27T12:44:09Z exit=0  1 pass 0 fail ",
+   "resource-gate 2026-09-27T12:44:09Z coverage-bun disk=123G memAvailable=18GiB swapFreeKiB=5353204/17173956",
+   "--- START coverage-bun 2026-09-27T12:44:09Z",
+   "--- END   coverage-bun 2026-09-27T12:44:17Z exit=0  108 pass 0 fail ",
+   "resource-gate 2026-09-27T12:44:17Z coverage-merge disk=123G memAvailable=19GiB swapFreeKiB=5405224/17173956",
+   "--- START coverage-merge 2026-09-27T12:44:17Z",
+   "--- END   coverage-merge 2026-09-27T12:44:17Z exit=0 ",
+   "resource-gate 2026-09-27T12:44:17Z sdk-build disk=123G memAvailable=19GiB swapFreeKiB=5405388/17173956",
+   "--- START sdk-build 2026-09-27T12:44:17Z",
+   "--- END   sdk-build 2026-09-27T12:44:17Z exit=0 ",
+   "resource-gate 2026-09-27T12:44:17Z web-build disk=123G memAvailable=19GiB swapFreeKiB=5405496/17173956",
+   "--- START web-build 2026-09-27T12:44:17Z",
+   "--- END   web-build 2026-09-27T12:44:56Z exit=0 ",
+   "resource-gate 2026-09-27T12:44:56Z graph-mock-pass disk=123G memAvailable=17GiB swapFreeKiB=5503896/17173956",
+   "--- START graph-mock-pass 2026-09-27T12:44:56Z",
+   "--- END   graph-mock-pass 2026-09-27T12:45:49Z exit=0 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/w14b-merge/graph/w14b-merge-mock.json; nothing to dump",
+   "mock pass w14b-merge-mock outcome: passed",
+   "HEAVY DONE status=0 dirty=0 2026-09-27T12:45:49Z"
+  ],
+  "legs": {
+   "referenceCodePodman": "guest.podman.integration 1/0 under the lock",
+   "coverageLeg": "guards (guest-sdk-closure, guest-package), reference-code guest and pack, graph-proof definition and diagnostics, boundary suites: 108/0 with lcov",
+   "sdkBuild": "exit 0",
+   "webBuild": "exit 0",
+   "zeroTestGuard": "every test leg asserted a nonzero count"
+  }
+ },
+ "graphMockPass": {
+  "label": "w14b-merge-mock",
+  "ranAt": "staged merge, index tree f2aca5e36",
+  "outcome": "passed",
+  "startedAt": "2026-09-27T12:44:56.943Z",
+  "retainedDatabase": "none",
+  "record": "w14b-merge-graph-mock.json"
+ },
+ "w16cDeferral": {
+  "cites": "docs/validation/factory/wave4/w16c-merge-deferral.txt (source /tmp/factory-platform-evidence/w00/addenda-0927/w16c-merge-deferral.txt, receipts commit 29f8f2d4b)",
+  "proven": "the runbook mock pass passed at the staged W14b merge, whose first parent 29f8f2d4b contains the W16c merge 6c1e94f67; the console-types guest build error is gone. W16c's deferred mock pass is closed by this leg."
+ },
+ "coverage": {
+  "where": "staging at the merge commit",
+  "baseRef": "29f8f2d4b",
+  "newFile": "PASSED: 1 new source file gated (src/factory/guest-sdk-closure.ts)",
+  "patch": "PASSED: all changed executable lines covered (2 files)",
+  "helper": "src/factory/guest-sdk-closure.ts 23/23 lines (100 percent)"
+ },
+ "commitHook": {
+  "result": "hook ran its 3 mapped suites itself (guest-package 1/0, guest-sdk-closure 8/0, reference-code guest 12/0); under the cap, no skip"
+ },
+ "standingSteps": "resource gate before every leg (disk 125G); config hash 44962525f1ca1a8b; no workspace package changed by the merge"
+}

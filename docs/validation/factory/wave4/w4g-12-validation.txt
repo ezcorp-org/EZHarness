@@ -1,0 +1,37 @@
+VERDICT (validator-6) — W4G-12 at c2d6ff90a (wp/w4g-12, owner w12e-2), base 4ae3dd6f7: ACCEPT
+
+2 commits, both archy noreply as author and committer: 9a1833f84 (test-only fix in src/factory/runner/supervisor-process.test.ts)
+and c2d6ff90a (tasks/factory/w4g-12-GATES.md). No product file changes. Config hash 44962525f1ca1a8b at the start and end of
+both phases. Bun 1.4.2 with the flag.
+
+REVIEW
+  - Cause: the fixture stopped after a heartbeat count that both loops share. The observer's first step is a real host-key read,
+    so on a loaded host the count ran out before the asserted record was published.
+  - Fix: the tests that assert on a published record stop on that record (stopOnPublished); the count stays only as a backstop
+    of 1,000 heartbeats, so a run that never publishes ends and fails by assertion. Those tests read the key through slowHostKey
+    (50 ms), so a stop condition that races the read fails on every run.
+
+DELAY PROBE, mine (w4g-validation/repro-w4g12.sh): a git-archive snapshot of each revision; the fixture's default host-key read
+  slowed by 20 ms; the test file 5 times.
+  - At 4ae3dd6f7, RED 5 of 5 runs: 41 pass, 3 fail each, by assertion: "bounds the probe and names a timeout as its own failure"
+    (line 274 in the base tree, the runner_probe_timeout assertion; the owner's line 275 counts its probe's inserted line),
+    "names which fact failed rather than simply not publishing" (line 302) and "a host that publishes no services stays ready on
+    its own two facts".
+  - At c2d6ff90a, GREEN 5 of 5 runs: 44 pass, 0 fail.
+
+LOAD, mine (w4g-validation/w4g12-legs.sh, under the lock): the test file 20 times per revision beside 32 busy processes
+  (load 33 to 38): 4ae3dd6f7 9 of 20 runs failed; c2d6ff90a 0 of 20. Every run had passing tests (none VOID).
+  The owner's host (40 runs: 23 → 0) and container (30 runs: 18 → 0) load legs agree in direction; I did not repeat them.
+
+MUTANTS, mine (at the head, restored after each; restored run 44/0):
+  - Count-only stop (stopOnPublished never stops; backstop 4): 39 pass, 5 fail (the owner saw 4).
+  - Product without the named timeout (supervisor-process.ts:523 publishes runner_unavailable instead of runner_probe_timeout):
+    43 pass, 1 fail by assertion ("bounds the probe and names a timeout as its own failure", expect(...).toBe), in 4 s: the
+    backstop ends the run; no hang.
+
+RERUN RESULTS (hold-v6-w4g12-c2d6ff90a/results.jsonl)
+  Static: frozen installs and builds 0; identity 2/2; receipts 108 scanned, 0 missing; typecheck, lint, both boundary checks 0;
+    gate-integrity: the base leg against 4ae3dd6f7 is clean, the origin/main leg equals the 8-path set; gitleaks 0.
+  Heavy, under the lock: the delay probe red and green as above; void check 1 file, not VOID; unit leg 44/0, no skip; SDK 246/0;
+    guard set 65/0; lcov merge 0; the new-file and patch gates pass. The owner's 36 of 36 changed lines hit (cov/lcov.info,
+    changed-hunks.txt) is for the test file; no source line changed.

@@ -1,0 +1,20 @@
+wave4i-3 wrapper start 2026-10-06T18:17:07Z head 0363f883a8553b938fec3d647e6ba34d06cbd277 prev-combined 1c84df6d5 dry=1
+shared .git/config 84a62279b327e90e -> cf1b8cbb79431693 accepted as the baseline by the lead's rule (2026-10-03): only branch/remote sections changed; added []; removed []; changed ['branch "fix/audit-mcp-sdk-sharp"']; no [user]; [core]/[extensions] unchanged
+prune scan vs 1c84df6d5: exit 0 (prune scan: clean (12 hit(s)))
+driver exit=0 2026-10-06T18:25:08Z
+config: cf1b8cbb79431693 = accepted baseline
+wave4i-3 wrapper end 2026-10-06T18:25:08Z head 0363f883a8553b938fec3d647e6ba34d06cbd277 (start head 0363f883a8553b938fec3d647e6ba34d06cbd277) dirty=0
+wave4i-3 wrapper start 2026-10-08T04:36:15Z head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 prev-combined 1c84df6d5 dry=1
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1c84df6d5: exit 0 (prune scan: clean (12 hit(s)))
+driver exit=0 2026-10-08T04:36:15Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i-3 wrapper end 2026-10-08T04:36:15Z head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 (start head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936) dirty=0
+wave4i-3 START WORD (lead) 2026-10-08T04:37:07Z: df -BG / 324G free; MemAvailable 17.9 GiB; SwapFree 3.0 GiB; 140 GiB start rule met; head 6b9ff91ac
+wave4i-3 wrapper start 2026-10-08T04:37:07Z head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 prev-combined 1c84df6d5 dry=0
+config: 888c78b9e94ea660 = accepted baseline
+prune scan vs 1c84df6d5: exit 0 (prune scan: clean (12 hit(s)))
+resource-gate 2026-10-08T04:37:07Z wave4i-3-start disk=324G memAvailable=17GiB swapFreeKiB=3180732/17173956 floors disk>=104G swap>=2621440KiB mem>=6GiB
+driver exit=0 2026-10-08T07:14:00Z
+config: 888c78b9e94ea660 = accepted baseline
+wave4i-3 wrapper end 2026-10-08T07:14:00Z head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 (start head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936) dirty=0

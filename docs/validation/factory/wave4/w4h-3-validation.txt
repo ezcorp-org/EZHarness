@@ -1,0 +1,94 @@
+W4H-3 (wp/w4h-3: the pinned Python base for the hosted shards; the data image stays lane-bound; a hook-lib pipe fix): ACCEPT at
+b6c7dd80b (code head 23bfc2c99; b6c7dd80b adds only the gate file). validator-5, 2026-10-03. Base integ/w00 52d8ba079. No finding above low. The journey test's lane binding is W4H-4's; on
+this branch it still fails "image not known", as expected.
+Receipts: /tmp/factory-platform-evidence/w4g-validation/v5-w4h3/:
+- hold-23bfc2c99/: results.jsonl, logs/, the hook comparison files hook-*-before.txt and hook-*-after.txt, hook-lib.before.sh and
+  hook-lib.after.sh, merged.lcov, prune/
+- hold-23bfc2c99.out, locked.out, red-52d8ba079.log (sha256 e45cc9da43e4…), green-23bfc2c99.log (sha256 188505d9da29…),
+  rmi-w4h3-runner.log
+- my scripts: hold.sh, locked.sh, in-runner.sh
+Clean snapshots only:
+- the hold: a git archive of the head made a private repository by alternates, status clean
+- the containers: a fresh git archive --prefix=EZHarness/ of each revision
+
+- Shared config (w00/config-check.py --check-only): exit 1 at hold start and at hold end: "config differs from the accepted
+  baseline 943cc5e58a5165a6 -> cecabf1f5b05be37 only in branch/remote sections". That is the user's other session; it was
+  recorded and not edited.
+- Prune scan (w00/prune-scan.sh sha256 b0c947773ae51234, run from the snapshot at the head): "prune scan: clean (0 hit(s))".
+- Identity: all 4 commits (c906e5cdf, 491b7cc22, 8c93335e5, 23bfc2c99) are archy <281643943+EZArchy@users.noreply.github.com>, as
+  author and as committer.
+
+(1) Red at 52d8ba079 under the heavy lock (lock_veto validator-2 first; gate 13 GiB available, 2 GiB swap, 113 GB).
+    The container: owner's runner image localhost/w4h3-runner:24.04 (88535109ab3d), whose Containerfile I read: Ubuntu 24.04 with
+    systemd, user runner uid 1001 with a 0755 home, no podman and no python before setup; --cpus 4 --memory 10g. The cov-shard
+    setup: bun install, then `bash scripts/setup-extension-runner-ci.sh --install`, which gave "podman version 4.9.3".
+    - applied-controls.integration: 0 pass, 1 fail, "RunnerError: Error:
+      docker.io/library/python@sha256:3121f8b0804aa3698ab750d9a39ea4a42657a385c9b133722b915e55c51551a6: image not known"
+    - python-guest.integration: 0 pass, 1 fail, the same error
+(2) Green at 23bfc2c99 in a fresh container of the same setup.
+    - The action's one step, read from .github/actions/factory-python-base/action.yml, is `bun scripts/setup-factory-python-base.ts`.
+      It pulled the base by digest ("Writing manifest to image destination", config 64f864dc81f0), then found it: "step exit 0,
+      wall 6s".
+    - applied-controls.integration 5 pass, 0 fail. python-guest.integration 12 pass, 0 fail.
+    - journey.integration still fails: "localhost/ezcorp-factory-python-data@sha256:f9cc7477…: image not known" (expected).
+(3) One pin source, DEFAULT_PYTHON_IMAGE in packages/@ezcorp/extension-runner/src/python.ts. The package exports src, so the test
+    reads the source value.
+    - scripts/setup-factory-python-base.test.ts is 9/0, and red under each of these:
+      - the digest changed in python.ts
+      - the data Containerfile's FROM changed
+      - pinned.json "base" changed
+      - the action naming an image itself
+      - a cov-shard step `run: podman pull docker.io/library/python@sha256:…` (8/1, "no workflow step restates a Python image
+        reference")
+      - the step moved before the podman setup
+    - In cov-shard the steps run in this order: "Verify rootless extension runner controls", then factory-python-base, then
+      "Run shard". The diff adds no uv install.
+(4) The data image on podman 4.9.3: scripts/build-factory-data-image.sh in the green container, twice.
+    - umask 0022: "factory data image: the build did not reproduce the committed pin: built
+      localhost/ezcorp-factory-python-data@sha256:e64f66dac88f901e9bd92c9fe0081a72acdeb554d509c0b463de9f14ca432620, pinned
+      localhost/…@sha256:f9cc7477…". Script exit 1, wall 20 s.
+    - umask 0077: the same e64f66dac88f… digest, refused, exit 1, wall 16 s.
+    The hosted podman cannot reproduce the pin, which justifies the lane move (amendment rule B).
+(5) The hook change 491b7cc22 changes behaviour only in the pipe handling.
+    - The only code change in scripts/lib/hook-lib.sh is `printf '%s\n' "$bunset" | grep -qxF -- "$t"` becoming
+      `grep -qxF -- "$t" <<<"$bunset"`, plus comment lines. .githooks is unchanged. No change to EZ_PRECOMMIT_TEST_MAX handling,
+      the skip flags or the lint step: those lines are byte-equal.
+    - run_staged_tests from both versions, with SIGPIPE ignored (as under git commit) and a fake bun/bunx, prints IDENTICAL
+      output (exit 0 each) for:
+      - one test file (src/__tests__/git-hooks.test.ts)
+      - a source file with a mapped test (scripts/lib/ci-registration.ts runs scripts/lib/ci-registration.test.ts)
+      - a docs-only set ("no test file maps to the staged changes — skipping")
+      - the first-sorted bun suite
+      - a 13-file over-cap set: the same "13 test files map to this commit (cap 12) — NOT running:" list, exit 1 both
+    - "Broken pipe" appears 2 times before and 0 after in each set that routes a suite.
+    - git-hooks.test.ts is 28/0, and red with 491b7cc22's hook-lib reverted.
+(6) scripts/setup-factory-python-base.ts lcov: LF 18, LH 18, FNF 2, FNH 2.
+    Gates from the snapshot at the head:
+    - typecheck, lint, check-factory-boundaries and check-boundaries: 0
+    - gate-integrity against 52d8ba079: PASSED. Against origin/main: equal to the 8-line expected file.
+    - The hook-mapped suites, recomputed per commit, each alone with lcov: 491b7cc22 runs git-hooks 28/0; 8c93335e5 runs
+      setup-factory-python-base 9/0; c906e5cdf and 23bfc2c99 map none.
+    - merge-lcov, then new-file, patch and CRAP --changed against 52d8ba079: PASSED
+    - guard set: 36 files 468/0, plus the 2 changed test files alone (9/0, 28/0), which is 38 files and 505 tests (the owner's count)
+    - actionlint 1.7.12 on ci.yml: the same findings at the head and at the base
+    - gitleaks: clean
+(7) Cleanup: I removed only the owner's tag, as instructed: `podman rmi localhost/w4h3-runner:24.04`. It printed "Untagged:
+    localhost/w4h3-runner:24.04" and "Deleted:" for that image (88535109ab3d) and the 6 build layers under it, which nothing else
+    referenced (rmi-w4h3-runner.log). My containers v5-w4h3-red and v5-w4h3-green were removed by name. No prune of any kind.
+
+Faults of my own, fixed:
+- My first "restates an image" mutant was only a YAML comment, which the test rightly ignores.
+- My first locked run was refused by my own memory gate.
+Every result above comes from the corrected runs.
+
+Head b6c7dd80b (the coordinator's order of 23:1xZ):
+- `git diff --name-only 23bfc2c99 b6c7dd80b` gives tasks/factory/w4h-3-GATES.md, and nothing else. b6c7dd80b descends from
+  23bfc2c99, so every measurement above, taken at 23bfc2c99, holds for b6c7dd80b.
+- Identity at b6c7dd80b: all 5 commits over 52d8ba079 are archy noreply, as author and as committer.
+- Hook at b6c7dd80b: its staged path maps to 0 suites (hook 0). The ACCEPT carries to b6c7dd80b under the docs-only rule.
+- Prune scan from a snapshot at b6c7dd80b (sha256 b0c947773ae51234): "prune scan: clean (0 hit(s))".
+- config-check --check-only: exit 1, branch/remote sections only (cecabf1f5b05be37), recorded.
+Accepted deviations, noted and not findings:
+- The step sits after the podman setup and before gate-integrity-deps, because the pull needs no uv.
+- The placement test uses its own step search, because w4h-2's shared helper (scripts/lib/ci-registration.ts) is not in its base.
+  A DRY follow-up commit is due after both merge.

@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+
+tests/postgres/factory-restore.test.ts:
+w15 restore storage cleanup {"ordinaryRemoved":0,"archiveRetained":39}
+
+ 17 pass
+ 0 fail
+ 97 expect() calls
+Ran 17 tests across 1 file. [55.40s]

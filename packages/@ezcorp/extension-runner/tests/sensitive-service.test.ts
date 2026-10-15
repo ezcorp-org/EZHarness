@@ -22,19 +22,24 @@ function rawRunnerCall(socketPath: string, path: string, authorization: string, 
   });
 }
 
+const unexpectedRunnerMethod = async (): Promise<never> => { throw new Error("Fixture attempted an unrelated runner method"); };
+const unusedRunnerMethods: Pick<Runner, "build" | "inspect" | "collectArtifacts"> = {
+  build: unexpectedRunnerMethod, inspect: unexpectedRunnerMethod, collectArtifacts: unexpectedRunnerMethod,
+};
+
 test("the remote service keeps sensitive bytes off ordinary JSON responses", async () => {
   const directory = await mkdtemp("/tmp/ez-sensitive-service-");
   const socketPath = join(directory, "runner.sock");
   const token = "sensitive-service-credential-32-bytes";
   const canary = "remote-sensitive-provider-canary";
   const sdk = new URL("../../sdk/src/v4/index.ts", import.meta.url).pathname;
-  const runner = {
+  const runner: Runner = { ...unusedRunnerMethods,
     start: async input => {
       const child = spawn(process.execPath, ["-e", `import { defineExtension, serve } from ${JSON.stringify(sdk)}; await serve(defineExtension({ manifest: { schemaVersion: 4, name: "provider", version: "1.0.0", description: "Provider", author: { name: "Test" }, permissions: {} }, providerCredentials: () => ${JSON.stringify(canary)} }));`], { stdio: ["pipe", "pipe", "pipe"] });
       return new FramedExecution(input.workerId, child, async () => null, async () => { child.kill("SIGKILL"); }, 64 * 1024, 1000, undefined, params => ({ ...(params as Record<string, unknown>), context: { ...input.context, invocationId: "provider-credential", deadline: Date.now() + 5000 } }));
     },
     cancel: async () => {},
-  } as unknown as Runner;
+  };
   const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
   try {
     const context = { workerId: "provider", invocationId: "invocation", releaseId: "release", principalId: "host", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
@@ -68,7 +73,7 @@ test("the sensitive service route redacts runner errors", async () => {
     onNotification(): () => void { return () => {}; }
     requestSensitiveProviderResult(): Promise<Uint8Array | null> { return Promise.reject(new RunnerError("provider_failed", canary)); }
   }
-  const runner = { start: async () => new ThrowingExecution(), cancel: async () => {} } as unknown as Runner;
+  const runner: Runner = { ...unusedRunnerMethods, start: async () => new ThrowingExecution(), cancel: async () => {} };
   const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
   try {
     const context = { workerId: "provider-error", invocationId: "invocation", releaseId: "release", principalId: "host", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
@@ -92,13 +97,13 @@ test("sensitive worker notifications cannot escape through the Unix service even
   const socketPath = join(directory, "runner.sock");
   const token = "sensitive-event-service-credential-32-bytes";
   const canary = "service-notification-secret-canary";
-  const runner = {
+  const runner: Runner = { ...unusedRunnerMethods,
     start: async (input, reverse) => {
       const child = spawn(process.execPath, ["-e", `process.stdin.on("data", chunk => { const request = JSON.parse(chunk); const notification = { jsonrpc: "2.0", method: "provider/log", params: ${JSON.stringify(canary)} }; process.stdout.write([notification, { jsonrpc: "2.0", id: request.id, sensitive: { kind: "provider-credential", encoding: "base64", data: Buffer.from(${JSON.stringify(canary)}).toString("base64") } }, notification].map(frame => JSON.stringify(frame) + "\\n").join("")); });`], { stdio: ["pipe", "pipe", "pipe"] });
       return new FramedExecution(input.workerId, child, reverse, async () => { child.kill("SIGKILL"); }, 64 * 1024, 1000);
     },
     cancel: async () => {},
-  } as Runner;
+  };
   const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
   const call = (path: string, params = {}) => rawRunnerCall(socketPath, path, `Bearer ${token}`, JSON.stringify({ workerId: "provider", ...params }));
   try {
@@ -131,6 +136,7 @@ test("the service independently fences ordinary events, reverse RPC, and concurr
   const finish = new Promise<void>(resolve => { finishOrdinary = resolve; });
   class ProviderExecution extends SensitiveRunnerExecution {
     readonly workerId = "provider";
+    readonly sensitiveBytes = new TextEncoder().encode(canary);
     listener?: (method: string, params: unknown) => void;
     async request(): Promise<unknown> { ordinaryStarted(); await finish; return "ordinary-complete"; }
     async close(): Promise<void> {}
@@ -138,11 +144,11 @@ test("the service independently fences ordinary events, reverse RPC, and concurr
     async requestSensitiveProviderResult(): Promise<Uint8Array | null> {
       this.listener?.("provider/log", canary);
       await expect(reverse("ezcorp/api.request", { secret: canary })).rejects.toMatchObject({ code: "sensitive_method" });
-      return new TextEncoder().encode(canary);
+      return this.sensitiveBytes;
     }
   }
   const execution = new ProviderExecution();
-  const runner = { start: async (_input, callback) => { reverse = callback; return execution; }, cancel: async () => {} } as Runner;
+  const runner: Runner = { ...unusedRunnerMethods, start: async (_input, callback) => { reverse = callback; return execution; }, cancel: async () => {} };
   const service = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
   const call = (path: string, params = {}) => rawRunnerCall(socketPath, path, `Bearer ${token}`, JSON.stringify({ workerId: "provider", ...params }));
   try {
@@ -162,6 +168,7 @@ test("the service independently fences ordinary events, reverse RPC, and concurr
 
     execution.listener?.("provider/log", "queued-before-classification");
     expect(await call("/v4/sensitive-request", { params: {} })).toBe(canary);
+    expect(execution.sensitiveBytes).toEqual(new Uint8Array(execution.sensitiveBytes.byteLength));
     execution.listener?.("provider/log", canary);
     await expect(reverse("ezcorp/api.request", { secret: canary })).rejects.toMatchObject({ code: "sensitive_method" });
     expect(await call("/v4/request", { method: "ordinary", params: {} })).toContain("Sensitive provider");

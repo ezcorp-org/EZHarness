@@ -1,0 +1,64 @@
+ACCEPT wp/w4h-17-import-outcome at bdafcbbfe
+W4H-17 verdict (the FactoryConsole import race in the browser coverage lane), validator-8 (lane validator-8), 2026-10-09T18:4xZ
+
+VERDICT: ACCEPT wp/w4h-17-import-outcome at bdafcbbfe. Every leg of the accepted plan passes.
+Commits on base 3897fe923 (archy noreply, author and committer, 2 of 2): 34461b806 (the spec fix), bdafcbbfe (gate file and todo, docs only).
+Owner report sha256 98054a36fb58c879; its 30 receipt hashes match; the gate file at bdafcbbfe matches the report (84a7ce84c052b6b4).
+Proof ref proof/w4h-17-r1 = 85bb920a (the base spec plus the held import). Every hold ran on a git-archive snapshot outside the evidence
+dir, removed after; the owner's files were only read.
+
+TOOL CHANGE (named per the order): validator-8/lcov-merge-repro.sh was hardened BEFORE the green leg. Every setup step now fails loudly
+with exit 3 (out dir removal, copy, chmod of the copies, the root rewrite verified with no hosted SF path left, the EXTRA copy).
+sha256 7a3571b755bced17 -> cc23ae46fda3da19. Tested both ways: an out dir that cannot be removed now stops with "SETUP FAILED"; a read-only
+artifact source gives writable copies and a verified rewrite. The owner's report of the old behaviour was correct.
+
+1. Scope (light hold w4h-17-light/)
+   - Changed paths: web/e2e/factory-authoring-console.spec.ts, tasks/factory/w4h-17-GATES.md, tasks/todo.md. Nothing else.
+   - Byte-unchanged vs 3897fe923: web/src (FactoryConsole.svelte included), scripts, web/e2e/lanes.json, .github, biome.json, playwright config.
+   - Identity 2/2; prune clean (0 hits); config the accepted baseline at the start and end of every hold.
+2. The fix (read): routeFactoryApi gains holdImport and releaseImport. The import response is held until the test releases it, and an
+   imported draft "catalog-import" is listed and served afterwards. The success case then asserts that the imported row is absent while
+   the response is held, releases it, and waits for the outcome: the row visible, the level-2 heading "catalog-import", the file input
+   cleared. The request assertions (count and body) stay. No sleep is added.
+3. Red first (hold w4h-17-red/, under the lock): at 85bb920a (old success case, import held and never released) the spec passes
+   3 x 14 = 42/42, and FactoryConsole.svelte reads DA:198,6 DA:199,0 DA:202,3 DA:204,3: the success import never settles inside its test.
+4. Green at the head (hold w4h-17-heavy/, heavy.exit of that hold 1 only because of my own check defects, item 9):
+   - The spec x5 under coverage: 70/70, FactoryConsole.svelte 333/333 DA lines hit, DA:199,5.
+   - The whole file x3 (the error-path case at :578 included, unchanged): 42/42.
+   - BINDING: the mock-full lane through scripts/collect-browser-route-coverage-lane.sh at the head, on the mapped build: 1466 passed;
+     FactoryConsole.svelte 333/333 DA lines hit (DA:199,1). Per-file comparison with the same lane at base 3897fe923 (1466 passed): 445
+     files on each side, 0 files where the head hits fewer lines than the base.
+   - Note: the base lane also hit line 199 locally. That is the race: it depends on timing (the hosted baseline run passed by the same luck).
+     The deterministic red is item 3.
+5. Hosted replay over run 37960843272's own 24 lcov-cov-* artifacts (downloaded by me, byte-equal to the owner's copy), with the HARDENED
+   script: BROWSER_LCOV = the hosted five-lane browser lcov, EXTRA_LCOV = my head lane lcov (its SF paths are my snapshot's root):
+   "Coverage gate PASSED: 2234 enforced file(s) at or above threshold". Control (the hosted browser lcov alone): FAILED on exactly one line,
+   "web/src/lib/factory/FactoryConsole.svelte: 99.70% < 100% — missed lines: 199".
+6. Mutants (scratch-only, each rebuilt when it touches the component; each judged from its Playwright log):
+   - m1 `await loadDrafts(projectId)` removed from importDraft: RED, 1 failed / 13 passed, the success case, "expect(locator).toBeVisible() failed".
+   - m2 `await openDraft(imported.factoryId)` removed: RED, the same case, the same assertion.
+   - m3 the wrong draft opened (factoryId + "-other"): RED, the same case, the same assertion.
+   - m5 releaseImport() removed from the spec: RED, the same case (the held import never settles).
+   - m4 the three outcome waits removed from the spec (measured): the spec passes 42/42 and DA:199,0 returns. The waits are what cover 199.
+7. gate-integrity: base leg PASSED; main leg pinned at e3309906d = exactly the 8 (findings-match PASS). Lint 0 errors (4 warnings, all in
+   files this package does not touch: scripts/lcov-artifact-names-registration.test.ts:126 and :136, scripts/setup-factory-python-base.test.ts:101,
+   tests/postgres/helpers/factory-recovery-databases.ts:50). Boundaries 0; gitleaks 0. Hook: 0 suites mapped on both commits (owner's log);
+   new-file and patch vs integ are vacuous (web/e2e is outside SOURCE_GLOBS).
+8. Typecheck (all programs, the e2e program included) 0 in-lock at 19.0 GiB (lowest 13.7), pinned Node v24.14.1; svelte-check 620 files
+   0 errors (follow-up hold; the first try found two foreign typecheck processes and did not run). Guard set 41 files 511 pass 0 fail.
+
+DISCLOSURES (validator-8's own process; no effect on any result)
+9. My first heavy hold judged badly in four places, all corrected from its own logs or by a re-run:
+   - The red kind of validator-5's step reads bun's fail format, not Playwright's "  1 failed"; m1, m2, m3, m5 read "SURVIVED" there.
+     Their logs show each failed exactly the success case by an expect() assertion with the other 13 passing (item 6). The helper now
+     judges Playwright runs itself.
+   - My hit check asked for DA:200, which the lcov does not list as a separate line; the check is now "every DA line hit" (333/333).
+   - My 100-percent check read LF/LH lines the converter does not write; recomputed from the DA lines.
+   - The first m4 run produced receipts with no records (result 0); re-run in the follow-up hold with the expected result (item 6).
+   - My browser helper filled a global array named R, which is validator-5's repository root; the base part of my second hold then
+     stopped ("unknown head"). The helper now uses a local array; the base lane ran in the follow-up hold.
+   - The follow-up hold was queued once with a 20-minute typecheck wait that would have waited inside the lock; I stopped it (and a
+     duplicate queued while stopping it) by explicit pids within a minute, before any typecheck leg, and re-queued it with no in-lock wait.
+     The stopped tries are kept as w4h-17-followup-void-stopped*/.
+Evidence: /tmp/factory-platform-evidence/validator-8/ w4h-17-light/, w4h-17-heavy/, w4h-17-red/, w4h-17-followup/, w4h-17-base/,
+w4h-17-lane-compare.txt; scripts hold-w4h-17-{light,heavy,base,followup}.sh, browser-lib.sh, lcov-merge-repro.sh.

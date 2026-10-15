@@ -1,0 +1,117 @@
+=== heavy 2026-10-02T02:03:55Z
+HEAD bcf15ced83bd4eb1b69368940f38772c241b9a9d MERGE_HEAD  index-tree 469adab669638344b7e77e388ce4a4c32e6b6435
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+shared config hash at hold start: 44962525f1ca1a8b
+resource-gate 2026-10-02T02:03:55Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2239920/17173956
+--- START attestation-check 2026-10-02T02:03:55Z
+--- END   attestation-check 2026-10-02T02:03:55Z exit=0 
+guard set: 13 files from guard-suites.sh
+resource-gate 2026-10-02T02:03:55Z guard-set disk=207G memAvailable=15GiB swapFreeKiB=2239920/17173956
+--- START guard-set 2026-10-02T02:03:55Z
+--- END   guard-set 2026-10-02T02:03:57Z exit=0  65 pass 0 fail 
+resource-gate 2026-10-02T02:03:57Z build-factory-sdk disk=207G memAvailable=15GiB swapFreeKiB=2239932/17173956
+--- START build-factory-sdk 2026-10-02T02:03:57Z
+--- END   build-factory-sdk 2026-10-02T02:03:57Z exit=0 
+resource-gate 2026-10-02T02:03:57Z build-factory-transport disk=207G memAvailable=15GiB swapFreeKiB=2239932/17173956
+--- START build-factory-transport 2026-10-02T02:03:57Z
+--- END   build-factory-transport 2026-10-02T02:03:57Z exit=0 
+resource-gate 2026-10-02T02:03:57Z build-factory-orchestrator disk=207G memAvailable=15GiB swapFreeKiB=2239932/17173956
+--- START build-factory-orchestrator 2026-10-02T02:03:57Z
+--- END   build-factory-orchestrator 2026-10-02T02:03:57Z exit=0 
+resource-gate 2026-10-02T02:03:57Z pg-lazy-input disk=207G memAvailable=15GiB swapFreeKiB=2239932/17173956
+--- START pg-lazy-input 2026-10-02T02:03:57Z
+--- END   pg-lazy-input 2026-10-02T02:04:00Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-02T02:04:00Z pg-factory-definitions disk=207G memAvailable=15GiB swapFreeKiB=2239948/17173956
+--- START pg-factory-definitions 2026-10-02T02:04:00Z
+--- END   pg-factory-definitions 2026-10-02T02:04:01Z exit=0  11 pass 0 fail 
+resource-gate 2026-10-02T02:04:01Z unit-docs-extensions-examples-substack-pilot-tests-mcp-real-spawn-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2239956/17173956
+--- START unit-docs-extensions-examples-substack-pilot-tests-mcp-real-spawn-test-ts 2026-10-02T02:04:01Z
+--- END   unit-docs-extensions-examples-substack-pilot-tests-mcp-real-spawn-test-ts 2026-10-02T02:04:02Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-02T02:04:02Z unit-docs-extensions-examples-substack-pilot-tests-mcp-sdk-resolution-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2239956/17173956
+--- START unit-docs-extensions-examples-substack-pilot-tests-mcp-sdk-resolution-test-ts 2026-10-02T02:04:02Z
+--- END   unit-docs-extensions-examples-substack-pilot-tests-mcp-sdk-resolution-test-ts 2026-10-02T02:04:03Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-02T02:04:03Z unit-packages--ezcorp-ai-kit-test-e2e-real-subprocess-obo-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2239956/17173956
+--- START unit-packages--ezcorp-ai-kit-test-e2e-real-subprocess-obo-test-ts 2026-10-02T02:04:03Z
+--- END   unit-packages--ezcorp-ai-kit-test-e2e-real-subprocess-obo-test-ts 2026-10-02T02:04:03Z exit=97  0 pass 0 fail 
+resource-gate 2026-10-02T02:04:03Z unit-packages--ezcorp-ai-kit-test-integration-on-behalf-of-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2239956/17173956
+--- START unit-packages--ezcorp-ai-kit-test-integration-on-behalf-of-test-ts 2026-10-02T02:04:03Z
+--- END   unit-packages--ezcorp-ai-kit-test-integration-on-behalf-of-test-ts 2026-10-02T02:04:04Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-02T02:04:04Z unit-packages--ezcorp-ai-kit-test-integration-tool-handlers-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2239956/17173956
+--- START unit-packages--ezcorp-ai-kit-test-integration-tool-handlers-test-ts 2026-10-02T02:04:04Z
+--- END   unit-packages--ezcorp-ai-kit-test-integration-tool-handlers-test-ts 2026-10-02T02:04:05Z exit=0  16 pass 0 fail 
+resource-gate 2026-10-02T02:04:05Z unit-packages--ezcorp-ai-kit-test-unit-mcp-server-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240036/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-mcp-server-test-ts 2026-10-02T02:04:05Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-mcp-server-test-ts 2026-10-02T02:04:05Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-02T02:04:05Z unit-packages--ezcorp-ai-kit-test-unit-tool-responses-links-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240036/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tool-responses-links-test-ts 2026-10-02T02:04:05Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tool-responses-links-test-ts 2026-10-02T02:04:06Z exit=0  14 pass 0 fail 
+resource-gate 2026-10-02T02:04:06Z unit-packages--ezcorp-ai-kit-test-unit-tools-agents-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240036/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tools-agents-test-ts 2026-10-02T02:04:06Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tools-agents-test-ts 2026-10-02T02:04:06Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-02T02:04:06Z unit-packages--ezcorp-ai-kit-test-unit-tools-chat-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240036/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tools-chat-test-ts 2026-10-02T02:04:06Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tools-chat-test-ts 2026-10-02T02:04:07Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-02T02:04:07Z unit-packages--ezcorp-ai-kit-test-unit-tools-discover-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240036/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tools-discover-test-ts 2026-10-02T02:04:07Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tools-discover-test-ts 2026-10-02T02:04:07Z exit=0  18 pass 0 fail 
+resource-gate 2026-10-02T02:04:07Z unit-packages--ezcorp-ai-kit-test-unit-tools-error-branches-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240052/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tools-error-branches-test-ts 2026-10-02T02:04:07Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tools-error-branches-test-ts 2026-10-02T02:04:08Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-02T02:04:08Z unit-packages--ezcorp-ai-kit-test-unit-tools-orchestrate-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240052/17173956
+--- START unit-packages--ezcorp-ai-kit-test-unit-tools-orchestrate-test-ts 2026-10-02T02:04:08Z
+--- END   unit-packages--ezcorp-ai-kit-test-unit-tools-orchestrate-test-ts 2026-10-02T02:04:08Z exit=0  8 pass 0 fail 
+resource-gate 2026-10-02T02:04:08Z unit-src-extensions-__tests__-mcp-control-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240052/17173956
+--- START unit-src-extensions-__tests__-mcp-control-test-ts 2026-10-02T02:04:08Z
+--- END   unit-src-extensions-__tests__-mcp-control-test-ts 2026-10-02T02:04:09Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-02T02:04:09Z unit-src-factory-lazy-input-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240060/17173956
+--- START unit-src-factory-lazy-input-test-ts 2026-10-02T02:04:09Z
+--- END   unit-src-factory-lazy-input-test-ts 2026-10-02T02:04:10Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-02T02:04:10Z unit-src-__tests__-factory-definitions-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240064/17173956
+--- START unit-src-__tests__-factory-definitions-test-ts 2026-10-02T02:04:10Z
+--- END   unit-src-__tests__-factory-definitions-test-ts 2026-10-02T02:04:12Z exit=0  11 pass 0 fail 
+resource-gate 2026-10-02T02:04:12Z unit-src-__tests__-mcp-api-routes-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240160/17173956
+--- START unit-src-__tests__-mcp-api-routes-test-ts 2026-10-02T02:04:12Z
+--- END   unit-src-__tests__-mcp-api-routes-test-ts 2026-10-02T02:04:13Z exit=0  15 pass 0 fail 
+resource-gate 2026-10-02T02:04:13Z unit-src-__tests__-mcp-hardening-composition-integration-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240164/17173956
+--- START unit-src-__tests__-mcp-hardening-composition-integration-test-ts 2026-10-02T02:04:13Z
+--- END   unit-src-__tests__-mcp-hardening-composition-integration-test-ts 2026-10-02T02:04:14Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-02T02:04:14Z unit-src-__tests__-mcp-redirect-guard-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240200/17173956
+--- START unit-src-__tests__-mcp-redirect-guard-test-ts 2026-10-02T02:04:14Z
+--- END   unit-src-__tests__-mcp-redirect-guard-test-ts 2026-10-02T02:04:15Z exit=0  25 pass 0 fail 
+resource-gate 2026-10-02T02:04:15Z unit-src-__tests__-npm-deps-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240200/17173956
+--- START unit-src-__tests__-npm-deps-test-ts 2026-10-02T02:04:15Z
+--- END   unit-src-__tests__-npm-deps-test-ts 2026-10-02T02:04:15Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-02T02:04:15Z unit-src-__tests__-scaffold-deterministic-gate-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2240200/17173956
+--- START unit-src-__tests__-scaffold-deterministic-gate-test-ts 2026-10-02T02:04:15Z
+--- END   unit-src-__tests__-scaffold-deterministic-gate-test-ts 2026-10-02T02:04:51Z exit=0  9 pass 0 fail 
+resource-gate 2026-10-02T02:04:51Z sdk-lcov disk=207G memAvailable=15GiB swapFreeKiB=2240700/17173956
+--- START sdk-lcov 2026-10-02T02:04:51Z
+--- END   sdk-lcov 2026-10-02T02:05:04Z exit=0  246 pass 0 fail 
+resource-gate 2026-10-02T02:05:04Z deps-audit disk=207G memAvailable=15GiB swapFreeKiB=2240860/17173956
+--- START deps-audit 2026-10-02T02:05:04Z
+--- END   deps-audit 2026-10-02T02:05:04Z exit=0 
+resource-gate 2026-10-02T02:05:04Z web-vitest-full disk=207G memAvailable=15GiB swapFreeKiB=2240860/17173956
+--- START web-vitest-full 2026-10-02T02:05:04Z
+--- END   web-vitest-full 2026-10-02T02:09:46Z exit=0  Tests 7843 passed (7843) 
+resource-gate 2026-10-02T02:09:46Z web-server-lcov disk=207G memAvailable=16GiB swapFreeKiB=2245264/17173956
+--- START web-server-lcov 2026-10-02T02:09:46Z
+--- END   web-server-lcov 2026-10-02T02:10:06Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-02T02:10:06Z coverage-merge disk=206G memAvailable=16GiB swapFreeKiB=2245756/17173956
+--- START coverage-merge 2026-10-02T02:10:06Z
+--- END   coverage-merge 2026-10-02T02:10:07Z exit=0 
+resource-gate 2026-10-02T02:10:07Z web-build disk=206G memAvailable=16GiB swapFreeKiB=2245756/17173956
+--- START web-build 2026-10-02T02:10:07Z
+--- END   web-build 2026-10-02T02:10:46Z exit=0 
+resource-gate 2026-10-02T02:10:46Z graph-mock-pass disk=206G memAvailable=16GiB swapFreeKiB=2246380/17173956
+--- START graph-mock-pass 2026-10-02T02:10:46Z
+--- END   graph-mock-pass 2026-10-02T02:11:34Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-9/graph/w4g-9-mock.json; nothing to dump
+mock pass w4g-9-mock outcome: passed
+resource-gate 2026-10-02T02:11:34Z crap-changed-base disk=206G memAvailable=15GiB swapFreeKiB=2246324/17173956
+--- START crap-changed-base 2026-10-02T02:11:34Z
+--- END   crap-changed-base 2026-10-02T02:11:35Z exit=0 
+resource-gate 2026-10-02T02:11:35Z merge-commit-gates disk=206G memAvailable=15GiB swapFreeKiB=2246324/17173956
+--- START merge-commit-gates 2026-10-02T02:11:35Z
+--- END   merge-commit-gates 2026-10-02T02:11:40Z exit=0 
+shared config hash at hold end: 44962525f1ca1a8b
+HEAVY DONE status=1 dirty=0 2026-10-02T02:11:40Z

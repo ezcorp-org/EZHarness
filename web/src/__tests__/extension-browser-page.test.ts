@@ -1,17 +1,27 @@
-import { afterAll, beforeEach, expect, mock, test } from "bun:test";
-import { restoreModuleMocks } from "../../../src/__tests__/helpers/mock-cleanup";
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
+import { restoreModuleMocks, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 
 let member = true;
 let scope = "global";
 let available = true;
 let created: unknown[] = [];
-mock.module("$server/auth/middleware", () => ({ requireSessionAuth: (locals: any) => locals.user ?? new Response("Denied", { status: 401 }), checkProjectRole: async () => member ? undefined : new Response("Denied", { status: 403 }) }));
+const realAuthMiddleware = serverModule("auth/middleware", {});
 mock.module("$lib/server/context", () => ({ ensureInitialized: async () => {} }));
 mock.module("$server/db/queries/projects", () => ({ listProjects: async () => [{ id: "project", name: "Project" }, { id: "other", name: "Other" }], getProject: async (id: string) => id === "project" ? { id } : undefined }));
 mock.module("$server/db/queries/conversations", () => ({ listRecentConversationsForUser: async () => [{ id: "owned", title: "Owned", projectId: "project" }, { id: "hidden", title: "Hidden", projectId: "outside" }], createConversation: async (...args: unknown[]) => { created.push(args); return { id: "created" }; } }));
 mock.module("$lib/server/extension-browser", () => ({ authorizeExtensionBrowser: async () => { if (!available) throw new Error("private"); return { extension: { name: "browser" }, active: { installation: { scope }, release: { artifactDigest: "digest" } }, binding: "a".repeat(64) }; }, extensionBrowserBundle: async () => ({ spec: { tools: ["tool"] } }) }));
 const { load, actions } = await import("../routes/(app)/extensions/[id]/preview/+page.server");
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireSessionAuth: (locals: any) => locals.user ?? new Response("Denied", { status: 401 }),
+    checkProjectRole: async () => member ? undefined : new Response("Denied", { status: 403 }),
+  }));
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 beforeEach(() => { member = true; scope = "global"; available = true; created = []; });
 
 function event(overrides: Record<string, unknown> = {}) {

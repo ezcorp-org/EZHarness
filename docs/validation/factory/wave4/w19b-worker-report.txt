@@ -1,0 +1,124 @@
+ACCEPTED: validator-3 accepted W19b at ac7894642; queued for merge by integrator-2. Branch held unchanged.
+Recorded residual (low, not blocking): a JSON string built into a variable passes the inline-document guard, because an identifier counts as a builder name. Fix when the harness is next touched: accept only builder calls and string literals, and flag everything else.
+
+W19b second fix round (validator-3 F1, F2, F3) — report
+Head: ac7894642 (docs-only over 8be8ce5ce). All receipts below were produced at 8be8ce5ce on a clean tree.
+
+VERDICT: passed. Fast legs only; F1-F3 do not change the forced-failure control's inputs.
+- F1: the guard reads each privateWrite(...) call whole across lines, marks anything but a named builder as "inline", and compares with toStrictEqual. Fixtures test it red and green: one line, split across lines, a member expression, and plain text. An inline write planted in stack.ts, on one line and split, failed the test each time. stack.ts was restored after each.
+- F2: receipt.sh names every log and receipt LABEL.attempt-N, so no attempt overwrites another. receipts/fix-heavy-attempt-1-no-storage-env.json now points at its preserved log copy (sha256 matches) and notes that the original path was overwritten.
+- F3: a URL's password is collected from every JSON string under secrets/, whatever its key. A test plants a credentialed baseUrl and sees the password refused in a stack file and redacted in a log.
+- Diagnostics tests 17/17 (37/37 in the coverage leg); diagnostics.ts and stack-documents.ts 100 percent lines and functions; gates vs 27d957531, boundaries, typecheck, lint, gate integrity exit 0; credential scan 41 values, none found.
+- Two w19a_* databases on the shared server at the end belong to a live run from .worktrees/w01h-proof-fix, not this branch; left alone.
+
+Receipts:
+- f-boundaries.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-boundaries.attempt-1.log sha256 a701e3a2106adf5e
+- f-cov-merge.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-cov-merge.attempt-1.log sha256 0ff6e25c89dc567e
+- f-cov.attempt-1.json: exit 0; pass 37; commit 8be8ce5ce; log f-cov.attempt-1.log sha256 e26ae7e6ab155939
+- f-credential-scan.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-credential-scan.attempt-1.log sha256 66b99bbf618deaa1
+- f-gate-integrity.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-gate-integrity.attempt-1.log sha256 b1a0297506aab4a1
+- f-gate-new-file-coverage.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-gate-new-file-coverage.attempt-1.log sha256 e28b0023d5751a32
+- f-gate-patch-coverage.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-gate-patch-coverage.attempt-1.log sha256 87af43374a7897e8
+- f-lint.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-lint.attempt-1.log sha256 3bbed022ad10fef2
+- f-typecheck.attempt-1.json: exit 0; pass 0; commit 8be8ce5ce; log f-typecheck.attempt-1.log sha256 7847df4208af970e
+
+==== previous round ====
+W19b fix round (validator-3 notes L1, L2, L3) — report
+Head: dc62b5fcc (docs-only over 080204bd3). All fix-round receipts were produced at 080204bd3 on a clean tree.
+
+VERDICT: passed.
+- L1: the secret rule fails closed. Every JSON string under secrets/ is a secret unless its key is in CONFIGURATION_KEYS or ends in Path/Paths. The documents come from stack-documents.ts. A test classifies every string leaf (mock, ollama, no-pin, plus the storage shape), and a source test fails on a new inline JSON document in stack.ts.
+- L2: a binary file under secrets/ gives hex, HEX, base64, unpadded base64 and base64url. Each form planted in a stack file is refused and redacted by the test.
+- L3: done in code, not only in the runbook. Log writes are synchronous appends, and redaction runs every 2 s during the pass and once more at stop. The runbook states the remaining window (up to 2 s, 0600 files) if the harness itself dies.
+- Heavy leg: mock forced-failure control only, flock + timeout 1800, df 151 GB free. The pass failed by its named check; verify-diagnostics ok=True.
+  Process logs (bytes, exit line): pool 324, supervisor 355, temporal 595, temporal-tls 358, gateway-stub 323, web 13467, orchestrator 1995
+  Stack copies: ['readiness/supervisor.json', 'readiness/orchestration.json', 'readiness/pool.json']; refused []; redactions {}; retained product database None.
+  A first attempt ran without the storage credential directory and refused to start. It is kept as receipts/fix-heavy-attempt-1-no-storage-env.json.
+- Fast legs: diagnostics tests 15/15 (35/35 in the coverage leg with graph-proof-definition and factory-process-boundaries); diagnostics.ts and stack-documents.ts 100 percent lines and functions; new-file and patch gates vs 27d957531 exit 0; factory boundaries, typecheck, lint, gate integrity exit 0.
+- Credential scan: 41 secret values over the tree and the evidence, none found.
+- No w19a_* database left; dangling images pruned.
+
+Receipts:
+- fix-boundaries.json: exit 0; log sha256 a701e3a2106adf5e; commit 080204bd3
+- fix-cov-merge.json: exit 0; log sha256 0ff6e25c89dc567e; commit 080204bd3
+- fix-cov.json: exit 0; log sha256 84b4d92b5acbb55f; commit 080204bd3
+- fix-credential-scan.json: exit 0; log sha256 b76bde0cabb8f40b; commit 080204bd3
+- fix-gate-integrity.json: exit 0; log sha256 b1a0297506aab4a1; commit 080204bd3
+- fix-gate-new-file-coverage.json: exit 0; log sha256 e28b0023d5751a32; commit 080204bd3
+- fix-gate-patch-coverage.json: exit 0; log sha256 87af43374a7897e8; commit 080204bd3
+- fix-heavy-attempt-1-no-storage-env.json: exit 1; log sha256 e202685d5c5623de; commit 080204bd3
+- fix-heavy-forced-failure.json: exit 0; log sha256 611d9445addb6aaf; commit 080204bd3
+- fix-lint.json: exit 0; log sha256 d5b5a7ca1f221337; commit 080204bd3
+- fix-typecheck.json: exit 0; log sha256 596d4b025ee7bf13; commit 080204bd3
+
+==== previous round ====
+W19b graph-proof harness keeps a failed pass's diagnostics — report
+Head: ce7f2a725f5d616c336bfe87e7b14134729b664c (branch wp/w19b-harness-logs), from integ/w00 27d957531.
+Campaign and coverage: aea3e3ea1, clean tree. Static sweep and credential scan: ce7f2a725, clean tree (docs-only after aea3e3ea1).
+
+VERDICT: passed.
+- Forced-failure control (mock mode): the pass failed by its named check; verify-diagnostics ok.
+  Process logs (bytes, each with its exit line): pool 324, supervisor 355, temporal 595, temporal-tls 358, gateway-stub 323, web 13467, orchestrator 1995.
+  Stack copies: readiness/pool.json 213, readiness/supervisor.json 264, readiness/orchestration.json 297. Copied ['readiness/supervisor.json', 'readiness/orchestration.json', 'readiness/pool.json']; refused []; redactions {}.
+  No product database retained for the forced failure.
+- Proof unchanged: ollama 3/3, mock 3/3, control-no-pin and control-missing-model passed; summary.json verdict passed.
+- Unit and boundary tests: graph-proof-diagnostics 8/8, graph-proof-definition 5/5 (13 at the final head); factory-process-boundaries 15/15; diagnostics.ts 100 percent lines and functions.
+- Coverage gates vs 27d957531: both exit 0. They gate no file: scripts/factory-graph-proof/ is outside the coverage source globs.
+- Typecheck, lint, factory boundaries, gate integrity: exit 0. Credential scan: 12154 files, no PostgreSQL password or storage key.
+- Disk 152 GB free; no w19a_* database left; dangling images pruned.
+
+Finding fixed on the way (campaign 1 at 69ec1817f, kept as proof-campaign-1-69ec1817f/): collecting every string in secrets/ as a secret
+refused every readiness file and redacted the Temporal namespace and a home path, because secrets/ also holds each process's configuration
+document. Only credentials count now (non-JSON files; JSON values under credential keys; URL passwords). Tested.
+
+Note: the pool and supervisor print almost nothing to stdout or stderr; the 0-byte tails in the W19a merge batch were that, plus the loss of
+the readiness files. Each streamed log now starts with a harness header and ends with an exit line, and the readiness files are kept on failure.
+
+Commits:
+ce7f2a725 docs(factory): W19b gates, todo, and review
+aea3e3ea1 fix(factory): the graph proof treats credentials as secrets, not every string in a config document
+69ec1817f feat(factory): the graph proof keeps a failed pass's diagnostics on disk, and nothing it keeps carries a secret
+
+Receipts (every command and exit code):
+- campaign-2: exit 0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:51:05-04:00 -> 2026-09-25T03:57:39-04:00; log sha256 65ec9f93aa550150
+    $ timeout 5400 scripts/factory-graph-proof/run.sh all
+    receipt /tmp/factory-platform-evidence/w19b/receipts/campaign-2.json  log /tmp/factory-platform-evidence/w19b/logs/campaign-2.log
+- cov-w19b: exit 0 pass=28 fail=0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:57:39-04:00 -> 2026-09-25T03:57:44-04:00; log sha256 88eab429d37459a6
+    $ bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir=coverage/w19b/unit ./src/factory/graph-proof-diagnostics.test.ts ./src/factory/graph-proof-definition.test.ts ./src/__tests__/factory-process-boundaries.test.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/cov-w19b.json  log /tmp/factory-platform-evidence/w19b/logs/cov-w19b.log
+- cov-merge: exit 0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:57:44-04:00 -> 2026-09-25T03:57:44-04:00; log sha256 a055685e7313d439
+    $ bun scripts/merge-lcov.ts coverage/w19b/*.lcov coverage/lcov.info
+    receipt /tmp/factory-platform-evidence/w19b/receipts/cov-merge.json  log /tmp/factory-platform-evidence/w19b/logs/cov-merge.log
+- gate-new-file-coverage: exit 0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:57:44-04:00 -> 2026-09-25T03:57:44-04:00; log sha256 e28b0023d5751a32
+    $ env BASE_REF=27d957531 bun scripts/check-new-file-coverage.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/gate-new-file-coverage.json  log /tmp/factory-platform-evidence/w19b/logs/gate-new-file-coverage.log
+- gate-patch-coverage: exit 0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:57:45-04:00 -> 2026-09-25T03:57:45-04:00; log sha256 87af43374a7897e8
+    $ env BASE_REF=27d957531 bun scripts/check-patch-coverage.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/gate-patch-coverage.json  log /tmp/factory-platform-evidence/w19b/logs/gate-patch-coverage.log
+- boundaries: exit 0; commit aea3e3ea1; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:57:45-04:00 -> 2026-09-25T03:57:46-04:00; log sha256 a701e3a2106adf5e
+    $ bun scripts/check-factory-boundaries.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/boundaries.json  log /tmp/factory-platform-evidence/w19b/logs/boundaries.log
+- final-typecheck: exit 0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:58:50-04:00 -> 2026-09-25T03:59:34-04:00; log sha256 eb3f0f331510fdb9
+    $ bun run typecheck
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-typecheck.json  log /tmp/factory-platform-evidence/w19b/logs/final-typecheck.log
+- final-lint: exit 0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:34-04:00 -> 2026-09-25T03:59:36-04:00; log sha256 b630dd1c0113bbc6
+    $ bun run lint
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-lint.json  log /tmp/factory-platform-evidence/w19b/logs/final-lint.log
+- final-boundaries: exit 0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:36-04:00 -> 2026-09-25T03:59:36-04:00; log sha256 a701e3a2106adf5e
+    $ bun scripts/check-factory-boundaries.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-boundaries.json  log /tmp/factory-platform-evidence/w19b/logs/final-boundaries.log
+- final-gate-integrity: exit 0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:36-04:00 -> 2026-09-25T03:59:37-04:00; log sha256 b1a0297506aab4a1
+    $ env BASE_REF=27d957531 bun scripts/gate-integrity.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-gate-integrity.json  log /tmp/factory-platform-evidence/w19b/logs/final-gate-integrity.log
+- final-process-boundaries: exit 0 pass=15 fail=0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:37-04:00 -> 2026-09-25T03:59:40-04:00; log sha256 68445292415ab48b
+    $ bun test --timeout 120000 ./src/__tests__/factory-process-boundaries.test.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-process-boundaries.json  log /tmp/factory-platform-evidence/w19b/logs/final-process-boundaries.log
+- final-diagnostics-tests: exit 0 pass=13 fail=0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:40-04:00 -> 2026-09-25T03:59:41-04:00; log sha256 5463c921128372ee
+    $ bun test --timeout 30000 ./src/factory/graph-proof-diagnostics.test.ts ./src/factory/graph-proof-definition.test.ts
+    receipt /tmp/factory-platform-evidence/w19b/receipts/final-diagnostics-tests.json  log /tmp/factory-platform-evidence/w19b/logs/final-diagnostics-tests.log
+- credential-scan: exit 0; commit ce7f2a725; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:59:41-04:00 -> 2026-09-25T03:59:43-04:00; log sha256 9ac95d1ebec3eaa7
+    $ bash /tmp/factory-platform-evidence/w19b/credential-scan.sh
+    receipt /tmp/factory-platform-evidence/w19b/receipts/credential-scan.json  log /tmp/factory-platform-evidence/w19b/logs/credential-scan.log
+- campaign-1: exit 1; commit 69ec1817f; dirty-at-start 0; dirty-at-end 0; 2026-09-25T03:20:40-04:00 -> 2026-09-25T03:26:36-04:00; log sha256 7e7a5a1859858c3e
+    $ timeout 5400 scripts/factory-graph-proof/run.sh all
+    receipt /tmp/factory-platform-evidence/w19b/receipts/campaign-1.json  log /tmp/factory-platform-evidence/w19b/logs/campaign-1.log

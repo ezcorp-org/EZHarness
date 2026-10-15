@@ -1,0 +1,2 @@
+per-file lcov proof: merge fa25ce42f vs base fdc1a2de9; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-21-orchestrator-fail-loud/merged.lcov
+TOTAL instrumented added lines 0, uncovered 0

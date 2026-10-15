@@ -1,0 +1,4 @@
+packages/@ezcorp/factory-sdk/src/kernel.test.ts
+src/factory/provisioning/control-plane.test.ts
+src/factory/provisioning/fleet-cli.test.ts
+src/factory/provisioning/fleet.test.ts

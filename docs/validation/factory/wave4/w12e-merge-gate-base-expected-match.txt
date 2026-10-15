@@ -1,0 +1,4 @@
+expected file /tmp/factory-platform-evidence/w00/w12e-merge/expected-base-findings.txt sha256 e3e4bf8db12f9d1982b88a8862f9ac196310bbc8e1b474c010a98ba07f12fdd5
+found:    scripts/coverage-attestations.json
+expected: scripts/coverage-attestations.json
+base leg: PASS (findings equal the expected integ set)

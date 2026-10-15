@@ -1,0 +1,12 @@
+=== W08b merge heavy producers ===
+lock acquired: 2026-09-22T16:07:43Z
+tree: 3f45fa4f01bb90b7dba0d692e03075d726ba06f0 + staged merge of 
+dirty: 3 path(s) (the staged merge)
+--- START factory-releases 2026-09-22T16:07:43Z
+--- END   factory-releases 2026-09-22T16:07:50Z exit=0 23pass 0fail
+--- START factory-release-authority 2026-09-22T16:07:50Z
+--- END   factory-release-authority 2026-09-22T16:07:55Z exit=0 14pass 0fail
+--- START factory-s3-publication 2026-09-22T16:07:55Z
+--- END   factory-s3-publication 2026-09-22T16:09:15Z exit=0 18pass 0fail
+CREDENTIAL SCAN: clean (no password byte sequence under /tmp/factory-platform-evidence/w00/w08b-merge)
+ALL DONE status=0 2026-09-22T16:09:15Z

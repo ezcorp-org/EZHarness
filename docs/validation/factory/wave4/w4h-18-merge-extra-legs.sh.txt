@@ -1,0 +1,13 @@
+# W4H-18 (integrator-5; lead's prep order 2026-10-09): the R4 runner-FD settle (scripts/lib/shipping-runtime-resource-accounting.ts,
+# scripts/verify-shipping-runtime-resources.ts, new scripts/verify-shipping-runtime-runner-fd-settle.test.ts). Sourced by hold-w4f.sh after the
+# unit legs (unit.txt: the hook-mapped new test + the accounting lib's other test importer, one lcov leg each).
+# No full combined run (lead's ruling); merge gates BIND (scripts/ is outside SOURCE_GLOBS: new-file and patch read vacuous; the per-file lcov
+# of the lib from the unit legs is the coverage proof, lcov-changed-lines.txt in the receipts).
+tc_leg typecheck-all bun run typecheck
+# The resources proof shard AS CI RUNS IT (production-proof-shard, EZ_SHIPPING_SHARD=resources, scripts/verify-shipping-production-suite.sh)
+# in the runner-shaped Podman container of W4H-11/W4H-18's harness (copied to harness/, own names, E/R/lane changed only): a clean
+# git-archive snapshot of the merge, the CI job's setup and the production candidate image build inside the container, then the shard.
+# NOTEST=1: the shard's result is its exit and its receipts (harness/merge/hold-*/), not a bun test count.
+NOTEST=1 leg resources-proof-shard bash $D/harness/heavy.sh "$M" merge resources
+NOTEST=1 leg resources-proof-result bash -c 'd=$(ls -d "$0"/merge/hold-* 2>/dev/null | sort | tail -1); echo "hold dir $d"; grep -hE "shard=resources exit=|heavy exit=|R4|runner FDs|did not return" "$d"/*.log 2>/dev/null | tail -12; grep -qE "shard=resources exit=0" "$d"/*.log' "$D/harness"
+NOTEST=1 leg runner-image-cleanup bash -c 'podman image exists localhost/i5-w4h18-runner:24.04 && podman rmi localhost/i5-w4h18-runner:24.04 || echo "no own runner image tag left"'

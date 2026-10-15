@@ -891,3 +891,87 @@ describe("CLI smoke — scripts/sweep-perm-expiry.ts", () => {
     expect(ev.data.scope).toBe("extensions-row");
   });
 });
+
+// ── applySweepResult — state that changed before the apply ──────────
+
+describe("applySweepResult — target changed between plan and apply", () => {
+  const AA_KEY = "ext:ext-aa-gone:user-1:forever:*:always_allow:shell";
+
+  async function planNetworkRevocation(id: string, NOW: number) {
+    await seedExtension({
+      id, name: id, enabled: true,
+      perms: { network: ["api.x"], grantedAt: { network: NOW - 91 * DAY_MS } },
+    });
+    const result = await runSweep({ db: getDb(), now: NOW });
+    expect(result.revocations).toHaveLength(1);
+    return result;
+  }
+
+  async function planAlwaysAllowRevocation(NOW: number) {
+    await seedExtension({ id: "ext-aa-gone", name: "aa-gone", enabled: true, perms: { grantedAt: {} } });
+    await seedSetting(AA_KEY, { allowed: true, grantedAt: NOW - 91 * DAY_MS });
+    const result = await runSweep({ db: getDb(), now: NOW, config: { foreverTtlMs: 90 * DAY_MS } });
+    expect(result.revocations).toHaveLength(1);
+    return result;
+  }
+
+  test("an extension uninstalled after the plan is skipped without error or audit", async () => {
+    const NOW = Date.now();
+    const result = await planNetworkRevocation("ext-uninstalled", NOW);
+    await getDb().delete(extensions).where(eq(extensions.id, "ext-uninstalled"));
+
+    const outcome = await applySweepResult(getDb(), result, NOW);
+
+    expect(outcome).toMatchObject({ applied: 0, skippedConcurrent: 1, errors: [] });
+    const audits = await listAuditLog({ action: "ext:permission-grant-expired" });
+    expect(audits.filter((r) => r.target === "ext-uninstalled")).toHaveLength(0);
+  });
+
+  test("a grant the user already revoked after the plan is skipped", async () => {
+    const NOW = Date.now();
+    const result = await planNetworkRevocation("ext-revoked", NOW);
+    await getDb()
+      .update(extensions)
+      .set({ grantedPermissions: sql`${JSON.stringify({ grantedAt: {} })}::jsonb` })
+      .where(eq(extensions.id, "ext-revoked"));
+
+    const outcome = await applySweepResult(getDb(), result, NOW);
+
+    expect(outcome).toMatchObject({ applied: 0, skippedConcurrent: 1, errors: [] });
+    expect((await readExtension("ext-revoked"))?.grantedPermissions).toEqual({ grantedAt: {} });
+  });
+
+  test("an always-allow row deleted after the plan is skipped", async () => {
+    const NOW = Date.now();
+    const result = await planAlwaysAllowRevocation(NOW);
+    await getDb().delete(settings).where(eq(settings.key, AA_KEY));
+
+    const outcome = await applySweepResult(getDb(), result, NOW);
+
+    expect(outcome).toMatchObject({ applied: 0, skippedConcurrent: 1, errors: [] });
+    expect(await readSetting(AA_KEY)).toBeUndefined();
+  });
+
+  test("an always-allow row rewritten to the legacy never-expires `true` is left as it is", async () => {
+    const NOW = Date.now();
+    const result = await planAlwaysAllowRevocation(NOW);
+    await getDb().update(settings).set({ value: sql`${JSON.stringify(true)}::jsonb` }).where(eq(settings.key, AA_KEY));
+
+    const outcome = await applySweepResult(getDb(), result, NOW);
+
+    expect(outcome).toMatchObject({ applied: 0, skippedConcurrent: 1, errors: [] });
+    expect(await readSetting(AA_KEY)).toBe(true);
+  });
+
+  test("an always-allow row the user already denied is left as it is", async () => {
+    const NOW = Date.now();
+    const result = await planAlwaysAllowRevocation(NOW);
+    const denied = { allowed: false, grantedAt: NOW - 91 * DAY_MS };
+    await getDb().update(settings).set({ value: sql`${JSON.stringify(denied)}::jsonb` }).where(eq(settings.key, AA_KEY));
+
+    const outcome = await applySweepResult(getDb(), result, NOW);
+
+    expect(outcome).toMatchObject({ applied: 0, skippedConcurrent: 1, errors: [] });
+    expect(await readSetting(AA_KEY)).toEqual(denied);
+  });
+});

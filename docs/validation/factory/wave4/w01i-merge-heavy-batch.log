@@ -1,0 +1,42 @@
+=== heavy 2026-09-27T16:32:02Z
+HEAD 326e5e725e6467a393fc4fcf7743212276d5863c MERGE_HEAD f1b71ac3cbd882d65e35c7eb1f873eee97b6db37 index-tree 2e7e22a9f21efdf412513c850c18ba0d9f73a94f
+resource-gate 2026-09-27T16:32:02Z transport-guest-broker-transport disk=120G memAvailable=16GiB swapFreeKiB=6875916/17173956
+--- START transport-guest-broker-transport 2026-09-27T16:32:02Z
+--- END   transport-guest-broker-transport 2026-09-27T16:32:17Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-27T16:32:17Z transport-host-launch-transport disk=120G memAvailable=16GiB swapFreeKiB=6876088/17173956
+--- START transport-host-launch-transport 2026-09-27T16:32:17Z
+--- END   transport-host-launch-transport 2026-09-27T16:32:27Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-27T16:32:27Z transport-host-stop-transport disk=120G memAvailable=16GiB swapFreeKiB=6876300/17173956
+--- START transport-host-stop-transport 2026-09-27T16:32:27Z
+--- END   transport-host-stop-transport 2026-09-27T16:32:28Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T16:32:28Z transport-host-launch-lost-result disk=120G memAvailable=16GiB swapFreeKiB=6876300/17173956
+--- START transport-host-launch-lost-result 2026-09-27T16:32:28Z
+--- END   transport-host-launch-lost-result 2026-09-27T16:32:38Z exit=0  4 pass 0 fail 
+resource-gate 2026-09-27T16:32:38Z coverage-bun disk=120G memAvailable=16GiB swapFreeKiB=6876364/17173956
+--- START coverage-bun 2026-09-27T16:32:38Z
+--- END   coverage-bun 2026-09-27T16:33:39Z exit=0  156 pass 0 fail 
+resource-gate 2026-09-27T16:33:39Z coverage-merge disk=120G memAvailable=16GiB swapFreeKiB=6876896/17173956
+--- START coverage-merge 2026-09-27T16:33:39Z
+--- END   coverage-merge 2026-09-27T16:33:39Z exit=0 
+resource-gate 2026-09-27T16:33:39Z pg-factory-host-launch disk=120G memAvailable=16GiB swapFreeKiB=6876896/17173956
+--- START pg-factory-host-launch 2026-09-27T16:33:39Z
+--- END   pg-factory-host-launch 2026-09-27T16:33:54Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:33:54Z podman-lost-result disk=120G memAvailable=16GiB swapFreeKiB=6877012/17173956
+--- START podman-lost-result 2026-09-27T16:33:54Z
+--- END   podman-lost-result 2026-09-27T16:34:16Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:34:16Z podman-e2e disk=120G memAvailable=16GiB swapFreeKiB=6877136/17173956
+--- START podman-e2e 2026-09-27T16:34:16Z
+--- END   podman-e2e 2026-09-27T16:34:28Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T16:34:28Z factory-services-lane disk=120G memAvailable=15GiB swapFreeKiB=6877208/17173956
+--- START factory-services-lane 2026-09-27T16:34:28Z
+--- END   factory-services-lane 2026-09-27T16:38:44Z exit=0 
+postgres log 2026-09-27T16:34:28Z..2026-09-27T16:38:44Z: deadlock lines=0
+resource-gate 2026-09-27T16:38:45Z web-build disk=120G memAvailable=16GiB swapFreeKiB=6836724/17173956
+--- START web-build 2026-09-27T16:38:45Z
+--- END   web-build 2026-09-27T16:39:22Z exit=0 
+resource-gate 2026-09-27T16:39:22Z graph-mock-pass disk=120G memAvailable=17GiB swapFreeKiB=6848072/17173956
+--- START graph-mock-pass 2026-09-27T16:39:22Z
+--- END   graph-mock-pass 2026-09-27T16:40:11Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w01i-merge/graph/w01i-merge-mock.json; nothing to dump
+mock pass w01i-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=0 2026-09-27T16:40:11Z

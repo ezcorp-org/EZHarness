@@ -1,0 +1,95 @@
+{
+  "package": "w18",
+  "verdict": "ACCEPT",
+  "validated_at": "2026-09-13T16:12:39-04:00",
+  "worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w18-ci",
+  "branch": "wp/w18-ci-coverage",
+  "head": "1eb4a0e9045c8ac6fd0723ab28b4bb9b8b96de40",
+  "base": "integ/w00 (c6ac529d2cb7f9e573c167637e04a169589e81d8)",
+  "commits_on_branch": 16,
+  "tree_clean_at_validation_start": true,
+  "tree_clean_after_all_reruns": true,
+  "reruns": [
+    { "check": "bun scripts/check-factory-boundaries.ts", "exit": 0, "result": "Factory boundary checks passed (F07, F13)", "matches_report": true, "log": "rerun-boundary.log" },
+    { "check": "bun scripts/check-factory-lanes.ts", "exit": 0, "result": "C11 lane inventory passed: 7 lanes", "matches_report": true, "log": "rerun-lanes.log" },
+    { "check": "bun test ./scripts/check-factory-lanes.test.ts", "exit": 0, "result": "20 pass / 0 fail", "matches_report": "count differs: GATES.md G2 claims 19 pass (as of bdb1cca4a); db1aaf982 added one more test afterward, bringing it to 20. Behavior unaffected.", "log": "rerun-lanes-test.log" },
+    { "check": "bun test ./scripts/factory-c13-inventory.test.ts ./scripts/check-factory-boundaries.test.ts", "exit": 0, "result": "37 pass / 0 fail", "matches_report": "count differs: GATES.md G10 claims 33 pass (as of 2fba1851b); 79c589dfd later added 4 recursion/closure tests. Behavior unaffected.", "log": "rerun-c13-boundary-test.log" },
+    { "check": "bun test ./scripts/factory-c13-inventory.test.ts (alone)", "exit": 0, "result": "13 pass / 0 fail, 123 expect() calls", "matches_report": true, "log": "rerun-c13-only.log" },
+    { "check": "BASE_REF=integ/w00 bun scripts/gate-integrity.ts", "exit": 0, "result": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected", "matches_report": true, "log": "rerun-gate-integrity.log" },
+    { "check": "bun run typecheck", "exit": 0, "result": "backend, web, tests/e2e, and locked Python distribution (mypy --strict) all pass", "matches_report": true, "log": "rerun-typecheck.log" },
+    { "check": "bun run lint", "exit": 0, "result": "4976 files, 8 infos (0 errors), all pre-existing in files W18 did not touch (verified via git diff)", "matches_report": true, "log": "rerun-lint.log" },
+    { "check": "nix-shell -p uv --run 'uv sync --locked --project src/factory/runner/python'", "exit": 0, "result": "Resolved 13 packages, checked 12", "matches_report": true, "log": "rerun-uv-sync.log" },
+    { "check": "nix-shell -p uv --run 'bash scripts/python-quality.sh all'", "exit": 0, "result": "ruff clean; mypy --strict clean; 15 tests pass; c02_runner.py 48/48 statements, 12/12 branches = 100%", "matches_report": true, "log": "rerun-python-all.log" },
+    { "check": "Python fail-closed probe: empty test discovery (isolated copy)", "exit": 1, "result": "'found ZERO tests' message, exact match to G6", "matches_report": true, "log": "rerun-python-probes.log" },
+    { "check": "Python fail-closed probe: absent uv.lock (isolated copy)", "exit": 1, "result": "'missing src/factory/runner/python/uv.lock'", "matches_report": true, "log": "rerun-python-probes.log" },
+    { "check": "Python fail-closed probe: absent pyproject.toml (isolated copy)", "exit": 1, "result": "'missing src/factory/runner/python/pyproject.toml'", "matches_report": true, "log": "rerun-python-probes.log" },
+    { "check": "Python fail-closed probe: .python-version skew (isolated copy)", "exit": 1, "result": "'Python pin skew: .python-version requires 3.12.0, the locked interpreter is 3.13.12'", "matches_report": true, "log": "rerun-python-probes.log" },
+    { "check": "Python fail-closed probe: unknown mode", "exit": 2, "result": "usage message", "matches_report": true, "log": "rerun-python-probes.log" },
+    { "check": "Python fail-closed probe: uv/nix unusable on PATH", "exit": 1, "result": "hard failure, not a skip (extra probe beyond G6's five)", "matches_report": "not separately claimed by worker; additional confirmation", "log": "rerun-python-probes.log" },
+    { "check": "bun test ./scripts/factory-postgres-suite-registration.test.ts", "exit": 0, "result": "5 pass / 0 fail, 17 expect() calls", "matches_report": true, "log": "rerun-pg-registration.log" },
+    { "check": "bun test ./scripts/check-schema-generate-drift.test.ts", "exit": 0, "result": "22 pass / 0 fail", "matches_report": "count differs: GATES.md G8 claims 14 pass (as of 8b60685a0); db1aaf982 later added 8 more. Behavior unaffected.", "log": "rerun-schema-drift-test.log" },
+    { "check": "bun scripts/check-schema-generate-drift.ts", "exit": 0, "result": "8 generated schema(s) match schema:generate byte for byte", "matches_report": true, "log": "rerun-schema-drift.log" },
+    { "check": "bun test ./src/__tests__/gate-scripts.test.ts", "exit": 0, "result": "204 pass / 0 fail, 487 expect() calls", "matches_report": true, "log": "rerun-gate-scripts-test.log" },
+    { "check": "bun test ./scripts/check-patch-coverage-typeonly.test.ts", "exit": 0, "result": "7 pass / 0 fail, 28 expect() calls; enum/const/class negative cases confirmed to FAIL with 'changed source file has NO lcov data' when unmeasured, and PASS once measured", "matches_report": true, "log": "rerun-patch-typeonly-test.log" },
+    { "check": "bun test ./src/__tests__/coverage-leg-lcov-guard.test.ts", "exit": 0, "result": "48 pass / 0 fail, 202 expect() calls", "matches_report": true, "log": "rerun-lcov-guard-test.log" },
+    { "check": "bun test ./src/__tests__/e2e-lanes.test.ts", "exit": 0, "result": "24 pass / 0 fail, 332 expect() calls; factory-services registration confirmed in manifest, LANE_NAMES, collector, merger, local driver, mock testIgnore, ci.yml job", "matches_report": true, "log": "rerun-e2e-lanes.log" },
+    { "check": "bun test ./scripts/lib/ci-registration.test.ts ./scripts/python-quality-registration.test.ts", "exit": 0, "result": "16 pass / 0 fail, 46 expect() calls", "matches_report": true, "log": "rerun-ci-registration.log" },
+    { "check": "bun scripts/verify-factory-storage.ts (under heavy lock)", "exit": 0, "result": "10 tenant identities across ordinary and archive storage", "matches_report": true, "log": "rerun-verify-storage.log" },
+    { "check": "bun test --timeout 180000 --coverage over the 5 registered PostgreSQL suites (factory-budgets, factory-encryption-s3, factory-inbox, factory-project-creation, factory-records), real FACTORY_TEST_POSTGRES_URL + EZCORP_FACTORY_STORAGE_SECRETS_DIR, under heavy lock", "exit": 0, "result": "40 pass / 0 fail / 269 expect() calls in 31.85s wall (worker reported 20.65s pure exec)", "matches_report": true, "log": "rerun-postgres-five.log" },
+    { "check": "bun test ./tests/postgres/factory-budgets.test.ts with FACTORY_TEST_POSTGRES_URL/DATABASE_URL unset", "exit": 1, "result": "'FACTORY_TEST_POSTGRES_URL is required for real PostgreSQL conformance' -- fails closed, no silent skip", "matches_report": "extra confirmation beyond worker's claims", "log": "rerun-pg-no-url.log" },
+    { "check": "bun scripts/check-factory-runners.ts with FACTORY_RUNNER_READ_TOKEN unset", "exit": 1, "result": "'FACTORY_RUNNER_READ_TOKEN is required' -- fails closed", "matches_report": true, "log": "rerun-runner-readiness.log" },
+    { "check": "bun scripts/check-required-checks.ts, live GH token (read-only GET)", "exit": 1, "result": "strict true; 10 existing / 21 desired / 11 missing / 0 unexpected -- identical to worker's receipt", "matches_report": true, "log": "rerun-required-checks.log" },
+    { "check": "bun scripts/check-factory-runners.ts, live GH token + FACTORY_TEST_TENANT_COUNT=10 (read-only GET)", "exit": 1, "result": "0 registered runners; missing factory-real and factory-gpu -- identical to worker's receipt", "matches_report": true, "log": "rerun-factory-runners.log" },
+    { "check": "gh api repos/ezcorp-org/EZHarness/actions/secrets (read-only, names only)", "exit": 0, "result": "{\"total_count\":0,\"secrets\":[]} -- matches RECEIPTS.md claim, though RECEIPTS.md has no saved log for this specific call (see finding)", "matches_report": "claim true; underlying receipt file missing" },
+    { "check": "bun test (12 focused W18 test files) --coverage --coverage-reporter=lcov, merged with the 5 real-Postgres suites' lcov and the Python lcov via scripts/merge-lcov.ts", "exit": 0, "result": "390 pass / 0 fail / 1372 expect() calls across the 12 files; merge produced 607 source records", "matches_report": true, "log": "rerun-focused-coverage.log" },
+    { "check": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts (independently merged LCOV)", "exit": 0, "result": "New-file coverage gate PASSED: 3 new source file(s) gated", "matches_report": true, "log": "rerun-branch-new-file.log" },
+    { "check": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts (independently merged LCOV)", "exit": 0, "result": "Patch coverage gate PASSED: all changed executable lines covered (5 file(s))", "matches_report": true, "log": "rerun-branch-patch.log" },
+    { "check": "git diff integ/w00..HEAD -- biome.json", "exit": 0, "result": "empty diff -- no biome.json opt-out", "matches_report": true },
+    { "check": "git diff integ/w00..HEAD -- scripts/coverage-thresholds.json", "exit": 0, "result": "only new keys added at 100, no existing value lowered", "matches_report": true },
+    { "check": "git diff integ/w00..HEAD -- scripts/coverage-config.ts (EXCLUDES review)", "exit": 0, "result": "no lines touching the EXCLUDES array; only new SOURCE_GLOBS/NON_SOURCE_GLOBS entries and new Python-aware helper functions added", "matches_report": true },
+    { "check": "sha256sum -c SHA256SUMS in worker's evidence dir", "exit": 0, "result": "all 44 listed files OK", "matches_report": true },
+    { "check": "backlog-final-new-file.log / backlog-final-patch.log content vs GATES.md itemised backlog", "exit": "n/a (log audit)", "result": "16 new-file and 12 patch violations, exact file lists match the GATES.md categorised breakdown one for one", "matches_report": true },
+    { "check": "Evidence timestamp ordering vs stated 13:38 EDT OOM and coordinator repair", "exit": "n/a (log audit)", "result": "FAILED-oom-window receipts (14:06-14:16 EDT) precede the successful reruns (postgres-five-suites.log 15:10, cov-host.log 15:23, backlog-final-*.log 15:32); ordering is internally consistent with the narrative", "matches_report": true }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "low",
+      "type": "documentation staleness",
+      "description": "tasks/factory/w18-GATES.md cites EXPECT pass-counts from the commit that introduced a test file rather than the final commit that last touched it, so three gates undercount by the tests a later commit added: G2 (check-factory-lanes.test.ts) says 19 pass, actual is 20 (db1aaf982 added one after bdb1cca4a); G8 (check-schema-generate-drift.test.ts) says 14 pass, actual is 22 (db1aaf982 added 8 after 8b60685a0); G10 (factory-c13-inventory.test.ts + check-factory-boundaries.test.ts) says 33 pass, actual is 37 (79c589dfd added 4 after 2fba1851b). In every case the direction is more tests added, not fewer, and all pass. No functional defect.",
+      "recommendation": "Update the three EXPECT lines to the final pass counts and cite the last commit that touched each file."
+    },
+    {
+      "id": "F2",
+      "severity": "low",
+      "type": "evidence hygiene",
+      "description": "RECEIPTS.md's 'Secret names' row (gh api .../actions/secrets, exit 0, result 'empty') has no corresponding saved log file under /tmp/factory-platform-evidence/w18/, unlike every other row in that table. I independently reran the equivalent read-only call live (gh api repos/ezcorp-org/EZHarness/actions/secrets) and got an identical result ({\"total_count\":0,\"secrets\":[]}), so the claim is accurate -- only the receipt artifact is missing.",
+      "recommendation": "Save the actual command output as a receipt file (e.g. gh-secrets.log) alongside gh-inspection.log."
+    }
+  ],
+  "plan_bullets": [
+    { "bullet": "Complete all seven exact C11 lanes", "status": "proven", "evidence": "check-factory-lanes.ts + check-factory-lanes.test.ts (20 pass, rerun); note: hosted execution of lanes 5-7 (factory-isolation, factory-product-e2e, factory-deployment-operations) and the Node-native/Temporal/image-build producers behind lanes 2-4 were NOT independently re-executed by the validator (out of wave-1 scope per the brief); only their registration/wiring was verified." },
+    { "bullet": "Wire strict Python lint/typecheck/tests/coverage, Node native coverage, Bun coverage, SDK/worker builds, image builds; register source, wildcards, floors, shard timings, producer tags", "status": "proven (Python lane); registration verified for the rest", "evidence": "python-quality.sh all rerun 100% match; coverage-config.ts/coverage-thresholds.json diffs; cov-legs2.log claim (1437 pass, Python leg absent from legs-only) audited via receipt, not independently re-executed by the validator (heavy, ~9 shards)." },
+    { "bullet": "Extend and prove the C13 import/duplicate-signature inventory with deliberate violations", "status": "proven", "evidence": "37 pass across factory-c13-inventory.test.ts + check-factory-boundaries.test.ts (rerun); 46 declared edges, 0 violations via check-factory-boundaries.ts." },
+    { "bullet": "100% new-file / all changed lines; no synthetic counters, reduced thresholds, exclusions, or green skips", "status": "proven", "evidence": "Independently merged LCOV from focused tests + real PostgreSQL + Python, then reran both BASE_REF=integ/w00 gates myself: 3 new files gated, 5 changed files fully covered -- exact match to worker's claim. gate-integrity.ts green; biome.json/EXCLUDES/thresholds diffs clean." },
+    { "bullet": "Integrate type-only LCOV correction + enum/runtime-bearing negative case; recheck entire feature diff against 2588c9f19", "status": "proven (correction+negative case); backlog-reproduction claim audited, not independently re-executed in full", "evidence": "check-patch-coverage-typeonly.test.ts (7 pass) proves enum/const/class all FAIL with no lcov and PASS once measured; gate-scripts.test.ts (204 pass). Full feature-diff backlog reproduction against the canonical pipeline was audited via receipt/log/timestamp consistency (matches GATES.md file-for-file) rather than re-executed end to end by the validator, given the ~30+ minute multi-legged cost and other agents sharing the host." },
+    { "bullet": "Add factory-services browser lane to every canonical consumer/manifest/evidence map, retaining existing lanes", "status": "proven", "evidence": "e2e-lanes.test.ts (24 pass, rerun) plus direct diff review of web/e2e/lanes.json and web/playwright.config.ts showing additive-only changes." },
+    { "bullet": "Refresh read-only GitHub inspection; prepare (not apply) runner labels/secret names/branch-protection", "status": "proven", "evidence": "Live-reran check-required-checks.ts and check-factory-runners.ts myself with a real gh token plus a live 'gh api .../actions/secrets' call; all three match the worker's receipts exactly. docs/validation/factory/stage-2b/ contains prepared files only; git log shows stage-1/stage-2a untouched." },
+    { "bullet": "Prove real/GPU runners available, no-runner precheck <5min, deliberate lane failure blocks then is removed retaining both results, CODEOWNER review", "status": "not claimed (deferred)", "evidence": "GATES.md G16/G17 explicitly marked unclaimed for this wave; consistent with the brief's 'final seven-lane enforcement gate runs after W13-W17' scoping. Correctly represented as open, not overstated." }
+  ],
+  "interface_conformance": {
+    "owned_surface_touched": ["scripts/coverage-thresholds.json (explicitly W18-owned per interfaces.md section 12)"],
+    "non_owned_surfaces_touched": [
+      {
+        "file": "scripts/check-factory-boundaries.ts",
+        "owner_of_record": "Coordinator (interfaces.md section 12: 'Every package appends its own rows; the coordinator merges')",
+        "assessment": "Not a deviation: common.md binds every worker to extend REQUIRED_SHARED_IMPORTS in this exact file, and the w18.md brief specifically assigns W18 the job of completing/auditing the accumulated C13 inventory across all packages. The diff is additive rows plus exporting one previously-private function (localImportClosure) for testability -- no change to the core violation-detection algorithm. Coordinator should be aware two packages appending rows concurrently could conflict on merge; inherent to the documented design, not a W18 defect."
+      }
+    ]
+  },
+  "security_posture": {
+    "credential_values_in_logs_or_receipts": "none found in worker's evidence or in git diff",
+    "authority_checks_removed": "none",
+    "note": "The validator itself briefly displayed part of the Postgres password in raw tool output while constructing FACTORY_TEST_POSTGRES_URL (a self-inflicted, non-worker-caused exposure, visible only in this session's tool transcript). Confirmed the value does not appear in any file under /tmp/factory-platform-evidence/w18/, w18-validation/report.md, results.json, or the git diff -- only in a private 0600 scratch file (w18-validation/.pgenv) created for this validation, which will be deleted at the end of the session."
+  }
+}

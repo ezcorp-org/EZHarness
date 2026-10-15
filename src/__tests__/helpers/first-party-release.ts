@@ -88,7 +88,7 @@ export async function buildIsolatedRelease(files: WorkspaceFiles, entrypoint: st
         let starts = 0;
         const failures: string[] = [];
         const isolatedRunner: Runner = {
-          build: runner.build.bind(runner), cancel: runner.cancel.bind(runner), inspect: runner.inspect.bind(runner), collectArtifacts: runner.collectArtifacts.bind(runner),
+          build: runner.build.bind(runner), cancel: runner.cancel.bind(runner), inspect: runner.inspect.bind(runner), collectArtifacts: runner.collectArtifacts.bind(runner), capabilities: async () => await runner.capabilities?.() ?? { processSpawnEnforcement: false },
           async start(input, reverse) { starts++; return runner.start(input, async (method, params) => { try { return await reverse(method, params); } catch (error) { failures.push(`${method}: ${error instanceof Error ? error.message : String(error)}`); throw error; } }); },
         };
         const runtime = { runner: async () => isolatedRunner, resolve: async (extensionId: string) => extensionId === id ? snapshot : null };

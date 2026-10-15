@@ -5,6 +5,7 @@ import { validateWire, type RunnerInspection } from "@ezcorp/extension-contract"
 import type { PGlite } from "@electric-sql/pglite";
 import { HarnessClient } from "@ezcorp/harness-client";
 import { APP_DATABASE } from "../../src/db/datadir-upgrade";
+import { waitForBuildVerified } from "./shipping-bootstrap-state";
 import type { InstallationRecord, InstallationState, LifecycleApproval, LifecycleOperation, WorkspaceRecord } from "../../src/extensions/v4/types";
 
 export function required(name: string): string {
@@ -38,8 +39,12 @@ export async function readSessionCookie(file: string): Promise<string> {
   return cookies.join("; ");
 }
 
-/** Inspect the launcher's real authenticated runner transport. */
-export async function inspectProductionRunner(operationId: string): Promise<RunnerInspection> {
+/**
+ * Inspect the launcher's real authenticated runner transport. `timeoutMs`
+ * bounds the wait for the answer; the launcher's readiness probe passes its
+ * whole readiness budget.
+ */
+export async function inspectProductionRunner(operationId: string, timeoutMs = 5_000): Promise<RunnerInspection> {
   const token = (await readFile(required("EZ_EXTENSION_RUNNER_TOKEN_FILE"), "utf8")).trim();
   assert(token, "The launcher must provide a runner credential");
   const response = await fetch("http://localhost/v4/inspect", {
@@ -47,7 +52,7 @@ export async function inspectProductionRunner(operationId: string): Promise<Runn
     method: "POST",
     headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
     body: JSON.stringify({ id: operationId }),
-    signal: AbortSignal.timeout(5_000),
+    signal: AbortSignal.timeout(timeoutMs),
   });
   const value: unknown = await response.json();
   if (!response.ok) throw new Error(`Runner inspection returned HTTP ${response.status}`);
@@ -100,19 +105,8 @@ export async function productionLifecycleClient() {
   async function inspect(installationId: string): Promise<InstallationState> {
     return client.extensionControl<InstallationState>("extensions_inspect", { installationId });
   }
-  async function waitVerified(installationId: string, operationId: string): Promise<InstallationState> {
-    const deadline = Date.now() + 360_000;
-    while (Date.now() < deadline) {
-      const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: 30_000 });
-      const operation = state.operations[operationId];
-      assert(operation, "The build operation disappeared");
-      if (["queued", "building", "verifying"].includes(operation.state)) continue;
-      assert.equal(operation.state, "verified", JSON.stringify(operation.diagnostics));
-      assert(operation.releaseId && state.releases[operation.releaseId], "Verified operation has no release");
-      return state;
-    }
-    throw new Error(`Build ${operationId} did not finish within six minutes`);
-  }
+  /** Ends on no progress of the shared build queue, not a flat wall clock (shipping-bootstrap-state.ts). */
+  const waitVerified = (installationId: string, operationId: string): Promise<InstallationState> => waitForBuildVerified(client, installationId, operationId);
   async function approveAndActivate(installationId: string, releaseId: string, expectedActiveReleaseId: string | null): Promise<InstallationState> {
     const { approval } = await client.extensionControl<{ approval: LifecycleApproval }>("extensions_release", { action: "requestApproval", installationId, releaseId, expectedActiveReleaseId });
     await sessionJson(`/api/extensions/releases/${installationId}/approve`, { body: { approvalId: approval.id, decision: true } });

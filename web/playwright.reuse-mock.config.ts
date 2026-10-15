@@ -10,6 +10,7 @@
 import { defineConfig } from "@playwright/test";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { pinnedWebServer } from "./playwright-lane-bun";
 import base from "./playwright.config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -44,9 +45,9 @@ export default defineConfig({
 		name,
 		use: browserProjects[name as keyof typeof browserProjects],
 	})),
-	webServer: {
+	webServer: pinnedWebServer({
 		...server,
 		command: `EZCORP_PREVIEW_APP_HOST=localhost PI_SKIP_INIT=1 PORT=${port} HOST=127.0.0.1 ORIGIN=${baseURL} bun build/index.js`,
 		cwd: __dirname,
-	},
+	}),
 });

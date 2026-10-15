@@ -1,0 +1,38 @@
+Checked 6 files in 16ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 19 expect() calls
+Ran 7 tests across 1 file. [25.38s]
+  bun: scripts/check-factory-lanes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 44 pass
+ 0 fail
+ 149 expect() calls
+Ran 44 tests across 1 file. [1332.00ms]
+  bun: src/__tests__/ci-test-set-drift.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 173 expect() calls
+Ran 17 tests across 1 file. [1476.00ms]
+  bun: src/__tests__/combined-runner-legs.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 92 expect() calls
+Ran 8 tests across 1 file. [778.00ms]
+  bun: src/__tests__/factory-ci-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 1032 expect() calls
+Ran 3 tests across 1 file. [552.00ms]
+[detached HEAD 20c3f0641] merge: wp/w4h-4 5bdbecd3c into integ/w00 (C11 lanes bind the device test and the reference-data journey to their self-hosted runners; the lane lookup runs the pinned Bun)

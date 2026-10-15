@@ -1,0 +1,61 @@
+ACCEPT wp/w4h-18-runner-fd-settle at 99c5bb9ab
+W4H-18 verdict (the runner-FD settle in the production resources proof), validator-8 (lane validator-8), 2026-10-09T22:1xZ
+
+VERDICT: ACCEPT wp/w4h-18-runner-fd-settle at 99c5bb9ab. Every leg of the accepted plan, the static call-site leg and the rulings pass.
+Commits on base 6df16debf (archy noreply, 2 of 2): dcc3212c4 (the fix), 99c5bb9ab (gate file and todo, docs only).
+Owner report sha256 11906a0ad08f622a; every receipt it lists matches (repo files at 99c5bb9ab, the R3 receipt 2e9524e57fbec978,
+mutants-summary, the brief b6f9644f5257ee97). Every hold ran on a git-archive snapshot outside the evidence dir, removed after.
+
+1. Scope: changed only scripts/verify-shipping-runtime-resources.ts, scripts/lib/shipping-runtime-resource-accounting.ts, the new
+   scripts/verify-shipping-runtime-runner-fd-settle.test.ts, the gate file and tasks/todo.md. Byte-unchanged: src, web, packages, .github,
+   verify-shipping-production-suite.sh, coverage thresholds and config, biome.json. Identity 2/2; prune clean (0 hits); config baseline.
+2. Static call-site leg (read from source at the head):
+   - settle at line 336 (`settleRunnerFds(() => runnerFdCount(runnerPid), baseline.runnerFds)`), the cycle sample at 337, and the
+     sample's receipt object carries runnerFdSettle at 338 (every cycle, success and failure);
+   - the runner's baseline descriptor snapshot at 239, right after the initial sample (237);
+   - the strict check at 343 keeps its message byte-equal to base
+     (`Cycle ${cycle} runner FDs ${after.runnerFds} did not return to baseline ${baseline.runnerFds}.`); on failure it now passes
+     runnerFdFailureEvidence(settle, baseline descriptors, the runner's descriptors re-read at the failure), spread into the receipt (303);
+   - the app-side checks are unchanged (waitForAppConnections 150, the TCP, relation and non-relation path checks: present once at base
+     and head); the moved identity function is byte-equal to the old OpenDescriptor branch, so the app failure evidence is unchanged.
+3. The contract (read and tested): settleRunnerFds polls until the count EQUALS the baseline, at most 150 reads 100 ms apart (about 15 s
+   per cycle; with #329's app settle about 30 s per cycle, about 300 s over 10 cycles, against the 75-min shard timeout); a count above
+   or below the baseline is returned as read and the strict check fails (the ruling: equality only). A bound of 0 is one strict read.
+4. Unit: the new suite 12/12 (the late close, the already settled count, the leak, below baseline, the oscillation 26/24/26/25, the
+   default bound and pause, bound 0, a refused negative or fractional bound, the leak failure with kinds, every non-baseline descriptor's
+   kind, a reused fd number with a new target and a missing descriptor). With the existing resource-accounting suite (4/4), the union is
+   16/16 and covers the lib 63/63 DA lines and 12/12 functions; the new suite alone covers all 33 changed executable lines of the lib.
+   CRAP of every lib function (the gate's scoreFile): worst 11.0 (relationDescriptorProblems, unchanged), settleRunnerFds 6.0.
+   new-file and patch are vacuous for scripts/ (outside SOURCE_GLOBS); the per-file lcov above is the proof.
+5. Red: the base behaviour as a mutant of the head lib (one strict read, m0) fails 7 of 12 by assertion, the late close among them.
+   The head test file against the BASE lib is a load error (settleRunnerFds does not exist there): recorded, not counted as red.
+6. Mutants on the lib, each RED by assertion: m1 default bound 0 (1 fail); m2 kinds omitted (3); m3 allowance below `<=` (2);
+   m4 allowance above `>=` (6); m5 no pause (2); m7 missing descriptors omitted (1); m8 bound 150 -> 15 (1). m6 (the poll counter never
+   incremented, an unbounded wait) fails "an already settled count needs exactly one poll" by assertion and then hangs in the leak case
+   until the 10-minute wrapper ends it: RED.
+7. The resources shard at the head, as CI runs it (my copy of the owner's runner-shaped harness: own image tag, own container, 4 CPUs,
+   16 GiB, the CI job's setup and candidate build, scripts/verify-shipping-production-suite.sh with shard resources), under the lock:
+   setup 21:46-21:52Z, proof 21:52:45-21:59:58Z, exit 0, host_oom 0. Receipt r4-resource-samples.json (sha 24d8cc589d9ce19f):
+   10/10 cycles, runner FDs 24 at baseline and every cycle, runnerFdSettle polls 1 in every cycle (baseline 24, remaining 24, maxPolls 150).
+   It agrees with the owner's R3 receipt (2e9524e57fbec978, polls 1 every cycle). The hosted red's receipt (run 37986983940) reads
+   baseline 25, cycle 1 at 26, no settle (the race this package closes).
+8. gate-integrity base PASSED; main pinned at e3309906d = exactly the 8. Lint 0 errors; boundaries 0; gitleaks 0. Typecheck (all programs)
+   and svelte-check 0, in-lock at 18.4 GiB, pinned Node. Guard set 41 files 511 pass 0 fail.
+
+JUDGEMENT on the disclosed gap (the order asks): the runner-failure branch never ran live. I judge the lib coverage plus the static read
+SUFFICIENT and a forced-failure run NOT needed for this package:
+- every function the branch calls is unit-tested at 100 percent (runnerFdFailureEvidence, multisetDelta, openDescriptorIdentity) with
+  failure cases (a leak, a reused fd number, a missing descriptor);
+- processFdSnapshot(runnerPid), the only live read the branch adds, runs live in every proof at the baseline (line 239), and did in both
+  shard runs;
+- failResourceCheck and writeReceipt run live in the hosted red (the same path with the receipt written); the new part is one optional
+  argument spread into the receipt object, and the typecheck covers its shape.
+- A note, not a finding: the failure evidence re-reads the runner's descriptors after the sample, so a descriptor closed between the
+  sample and the evidence read shows as no extra; the strict count still fails. A script-level test seam (the cycle body behind a
+  function with injectable readers) would let a later package run the failure branch without a container; a leftover candidate.
+DISCLOSURES (validator-8's own process): my first shard try stopped at setup (exit 4) because my copied harness files kept a 0600 mode
+the container user could not read; fixed to the owner's modes and re-run (try kept as w4h-18-harness/head-try1-perm/). My first CRAP
+step failed because crap-score loads coverage/lcov.info at import; re-run with it in place (w4h-18-cov/). My receipt checker first
+expected full hashes where the report lists 16-hex prefixes; the receipts were then checked by prefix and against git.
+Evidence: /tmp/factory-platform-evidence/validator-8/ w4h-18-light/, w4h-18-heavy/, w4h-18-cov/, w4h-18-harness/ (heavy.sh copy, job
+scripts, image Containerfile, copied-from-owner.sha256); hold-w4h-18-{light,heavy,cov}.sh.

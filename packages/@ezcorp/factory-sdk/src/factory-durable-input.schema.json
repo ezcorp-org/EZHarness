@@ -1,0 +1,114 @@
+{
+  "$id": "urn:ezcorp:factory:lazy-input:v1",
+  "$ref": "#/definitions/FactoryDurableInput",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryDurableInput": {
+      "additionalProperties": false,
+      "description": "Durable artifact descriptors stay out of kernel JSON state until a bounded host read.",
+      "properties": {
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryTransportValue"
+          },
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "factory.lazy-input.v1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "FactoryTransportValue": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/JsonValue"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "$ref": "#/definitions/FactoryArtifactReference"
+            },
+            "kind": {
+              "const": "artifact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

@@ -1,18 +1,30 @@
 import { afterAll, beforeAll, expect, mock, test } from "bun:test";
 import { eq, sql } from "drizzle-orm";
+import { serverModule } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
 import { closeTestDb, getTestDb, setupTestDb } from "../../../../../../../src/__tests__/helpers/test-pglite";
 import { projects, providerConnections, sandboxBindings, sandboxCleanupRecoveries, sandboxOperations } from "../../../../../../../src/db/schema";
 
+const realAuthMiddleware = serverModule("auth/middleware", {});
+const realLifecycleService = serverModule("extensions/extension-lifecycle-service", {});
+
 mock.module("$server/db/connection", () => ({ getDb: () => getTestDb() }));
-mock.module("$server/auth/middleware", () => ({ requireAdminSession: () => ({ id: "admin", role: "admin" }) }));
-mock.module("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => undefined }));
+
 mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: () => ({}), resolveActiveRelease: async () => ({
   installation: { generation: 1 }, release: { id: "release", manifest: { sandboxProviders: [{ id: "incus", kind: "sandbox", protocolMajor: 1,
     presets: [{ id: "compose", profile: "persistent-web-compose.v1" }] }] } },
 }) }));
 mock.module("$server/infrastructure/incus-qualification", () => ({ IncusQualificationStore: class { async load() { return null; } } }));
 const { GET } = await import("./+server");
-beforeAll(setupTestDb, 30_000);
+beforeAll(async () => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAdminSession: () => ({ id: "admin", role: "admin" }) }));
+  mock.module("$server/extensions/extension-lifecycle-service", () => ({ ...realLifecycleService, getExtensionLifecycle: async () => undefined }));
+  await setupTestDb();
+}, 30_000);
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/extensions/extension-lifecycle-service", () => realLifecycleService);
+});
+
 afterAll(closeTestDb);
 
 test("real migrated database lists user bindings and excludes fixture projects and sensitive columns", async () => {

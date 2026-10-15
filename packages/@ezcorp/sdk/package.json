@@ -65,6 +65,11 @@
       "bun": "./src/entities/index.ts",
       "types": "./dist/entities/index.d.ts",
       "import": "./dist/entities/index.js"
+    },
+    "./git": {
+      "bun": "./src/git/index.ts",
+      "types": "./dist/git/index.d.ts",
+      "import": "./dist/git/index.js"
     }
   },
   "scripts": {

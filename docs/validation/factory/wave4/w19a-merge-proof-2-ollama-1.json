@@ -1,0 +1,1142 @@
+{
+  "label": "ollama-1",
+  "mode": "ollama",
+  "control": "none",
+  "startedAt": "2026-09-25T06:11:33.401Z",
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal dev server; the orchestrator's own mutual TLS is unrelaxed",
+    "the runner package installation (bind, trust, prepare) through the product's own classes, because no product route owns it yet (W02)"
+  ],
+  "steps": [
+    {
+      "label": "auth.setup",
+      "status": 201,
+      "body": {
+        "user": {
+          "id": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+          "name": "W19a Proof",
+          "email": "w19a-proof@example.invalid",
+          "role": "admin"
+        }
+      }
+    },
+    {
+      "label": "projects.create",
+      "status": 201,
+      "body": {
+        "id": "bfca9fb6-7e27-42a2-b922-78b0b4481eb3",
+        "name": "w19a-proof",
+        "path": "/home/dev/.w19a-stack-m51bdP/project",
+        "icon": null,
+        "variables": {},
+        "createdAt": "2026-09-25T06:11:50.213Z",
+        "updatedAt": "2026-09-25T06:11:50.213Z"
+      }
+    },
+    {
+      "label": "auth.me",
+      "status": 200,
+      "body": {
+        "user": {
+          "id": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+          "email": "w19a-proof@example.invalid",
+          "name": "W19a Proof",
+          "role": "admin"
+        },
+        "extensionRunner": "isolated"
+      }
+    },
+    {
+      "label": "providers.local.models",
+      "status": 200,
+      "body": {
+        "models": [
+          {
+            "id": "qwen3.5-a7e:4b"
+          },
+          {
+            "id": "qwen3.5:4b"
+          },
+          {
+            "id": "qwen3:1.7b"
+          },
+          {
+            "id": "qwen3.6:35b"
+          },
+          {
+            "id": "gemma4:e2b"
+          },
+          {
+            "id": "gemma4:latest"
+          },
+          {
+            "id": "gemma4:31b"
+          }
+        ],
+        "endpointType": "openai-compatible"
+      }
+    },
+    {
+      "label": "settings.customModels",
+      "status": 200,
+      "body": {
+        "ok": true
+      }
+    },
+    {
+      "label": "factory.draft.create",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "draft.summary",
+        "resource": {
+          "factoryId": "w19a.graph.v1",
+          "revision": 1,
+          "archived": false,
+          "sourceDigest": "3eebefd7c8686388f2b965330b9eb63467355da68ab64c0cf539f6374f6e103a",
+          "updatedAtMs": 1790316714751,
+          "availability": "available"
+        }
+      }
+    },
+    {
+      "label": "factory.version.publish",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "version.summary",
+        "resource": {
+          "compiledBlobDigest": "e9ffa493af359006d2bbfa59d7e269fb49d55635f860c03b34aaac9122ef8730",
+          "compiledBytes": 6446,
+          "definitionDigest": "sha256:19748392a939acb6ac5b4b7e75002c2d9ca85f444dc4811f017f49017b150229",
+          "draftRevision": 1,
+          "factoryId": "w19a.graph.v1",
+          "publishedAtMs": 1790316714767,
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "label": "factory.grants.list",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "grant.page",
+        "page": {
+          "items": [
+            {
+              "principalKind": "user",
+              "principalId": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+              "action": "factory.author",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+              "action": "factory.operate",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+              "action": "factory.publish",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+              "action": "factory.run",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "cc0cc3dd-3025-4dda-a93b-f09c730e1951",
+              "action": "factory.trust",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "factory.run.start",
+      "status": 202,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "mutation.accepted",
+        "receipt": {
+          "commandId": "factory-command:f669be9e6b61b5f23fc62db50877b835514546339ade811b67e0b47e2b0a4648",
+          "resourceId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+          "statusUrl": "/api/factories/projects/bfca9fb6-7e27-42a2-b922-78b0b4481eb3/runs/b8cdcea6-0344-444e-8408-15e02bbd26ac/commands/factory-command%3Af669be9e6b61b5f23fc62db50877b835514546339ade811b67e0b47e2b0a4648"
+        }
+      }
+    }
+  ],
+  "pin": {
+    "provider": "ollama",
+    "model": "qwen3:1.7b",
+    "configuration": {
+      "temperature": 0,
+      "seed": 42,
+      "reasoningEffort": "none"
+    },
+    "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+    "policy": {
+      "tools": false
+    },
+    "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+  },
+  "installationModelProvider": {
+    "provider": "ollama",
+    "model": "qwen3:1.7b"
+  },
+  "sharedStores": [
+    {
+      "store": "ordinary",
+      "port": 18333,
+      "reachable": true,
+      "detail": "http 403"
+    },
+    {
+      "store": "archive",
+      "port": 18334,
+      "reachable": true,
+      "detail": "http 403"
+    }
+  ],
+  "databases": {
+    "pool": "w19a_pool_1790316693721_ff4ddc",
+    "product": "w19a_product_1790316693721_ff4ddc"
+  },
+  "guestBuild": {
+    "guest": {
+      "package": "@ezcorp/w19a-graph-guest",
+      "manifestName": "w19a-graph-guest",
+      "version": "1.0.0",
+      "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+    },
+    "sourceDigest": "8763abc9b388d502ce51ab26bcc3c006a557f0e85ee2c82264185d6a8520ddd7"
+  },
+  "startupDocument": {
+    "runnerProfiles": {
+      "brokerAudience": "factory-gateway",
+      "profiles": [
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "resourceClass": "cpu",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer",
+            "model": "qwen3:1.7b",
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+          },
+          "resourceClass": "cpu-infer",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": [],
+          "model": {
+            "provider": "ollama",
+            "model": "qwen3:1.7b",
+            "configuration": {
+              "temperature": 0,
+              "seed": 42,
+              "reasoningEffort": "none"
+            },
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+            "policy": {
+              "tools": false
+            },
+            "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+          }
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "resourceClass": "cpu-combine",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        }
+      ]
+    },
+    "modelProvider": {
+      "provider": "ollama",
+      "model": "qwen3:1.7b"
+    },
+    "guestBroker": {
+      "port": 39277,
+      "hosts": {
+        "supervisor-w19a": "host-w19a"
+      }
+    }
+  },
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "orchestration": "ready",
+  "ready": {
+    "method": "GET",
+    "path": "/api/ready",
+    "status": 200,
+    "body": {
+      "state": "ready",
+      "detail": {
+        "factory": {
+          "tenantId": "tenant-01",
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "usage-reconciliation",
+            "stop-settlement",
+            "retention-gc",
+            "checkpoint-barrier"
+          ],
+          "held": [
+            {
+              "role": "release-outcome",
+              "workPackage": "W07/W08",
+              "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+            },
+            {
+              "role": "notification-send",
+              "workPackage": "W17",
+              "reason": "a notification is not delivered until a sender confirms it left this host"
+            },
+            {
+              "role": "validator-material-registration",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            },
+            {
+              "role": "validator-scheduling",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            }
+          ],
+          "providerReadiness": {
+            "schemaVersion": "factory.provider-readiness.v1",
+            "provider": "ollama",
+            "model": "qwen3:1.7b",
+            "ready": false,
+            "credentialKind": null,
+            "failures": [
+              "model_not_available",
+              "provider_not_configured"
+            ],
+            "checkedAt": "2026-09-25T06:11:46.562Z"
+          },
+          "guestBroker": {
+            "state": "bound"
+          }
+        }
+      },
+      "since": "2026-09-25T06:11:48.619Z"
+    }
+  },
+  "ollamaListed": {
+    "models": [
+      {
+        "id": "qwen3.5-a7e:4b"
+      },
+      {
+        "id": "qwen3.5:4b"
+      },
+      {
+        "id": "qwen3:1.7b"
+      },
+      {
+        "id": "qwen3.6:35b"
+      },
+      {
+        "id": "gemma4:e2b"
+      },
+      {
+        "id": "gemma4:latest"
+      },
+      {
+        "id": "gemma4:31b"
+      }
+    ],
+    "endpointType": "openai-compatible"
+  },
+  "packageInstall": [
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "prepare"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:4a02744a647012c1a2af7c53cba36ac179ac9e002282ada41291bb5f72636771"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "infer",
+        "model": "qwen3:1.7b",
+        "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:d913a9f676e169af10fa03a289eb0b4c81c78e9054cd7fb936ae86d54145cd63"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "combine"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:9e632118dd84d007cae3bedffee128aa335e7a5592d2e90665dd8a4c017d0de1"
+    }
+  ],
+  "definition": {
+    "schemaVersion": "factory.v1",
+    "id": "w19a.graph.v1",
+    "version": "1.0.0",
+    "interpreterCompatibility": "factory-kernel.v1",
+    "inputPorts": {
+      "topic": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "outputPorts": {
+      "summary": {
+        "type": "string"
+      }
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "prepare",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "inputPorts": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "text": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "bindings": {
+            "topic": {
+              "kind": "ref",
+              "root": "input",
+              "name": "topic"
+            }
+          },
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu"
+          }
+        },
+        {
+          "id": "infer",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer",
+            "model": "qwen3:1.7b",
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+          },
+          "inputPorts": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "answer": {
+              "type": "string"
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "bindings": {
+            "text": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "text"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-infer"
+          }
+        },
+        {
+          "id": "combine",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "inputPorts": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "summary": {
+              "type": "string"
+            }
+          },
+          "bindings": {
+            "count": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "count"
+              ]
+            },
+            "answer": {
+              "kind": "ref",
+              "root": "node",
+              "name": "infer",
+              "path": [
+                "answer"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare",
+            "infer"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-combine"
+          }
+        }
+      ],
+      "outputs": {
+        "summary": {
+          "kind": "ref",
+          "root": "node",
+          "name": "combine",
+          "path": [
+            "summary"
+          ]
+        }
+      }
+    },
+    "acceptance": {
+      "id": "w19a.graph.v1.contract",
+      "version": "1",
+      "claims": [
+        {
+          "id": "claim",
+          "validator": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "required": true,
+          "protected": true
+        }
+      ]
+    },
+    "packages": [
+      {
+        "name": "@ezcorp/w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+      }
+    ],
+    "capabilities": [],
+    "effects": [
+      "none"
+    ],
+    "bounds": {
+      "maxExpandedNodes": 10,
+      "maxScopeDepth": 16,
+      "runDeadlineMs": 600000
+    }
+  },
+  "run": {
+    "runId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+    "timeline": [
+      "queued",
+      "running",
+      "succeeded"
+    ],
+    "terminal": "succeeded",
+    "heldBy": null,
+    "resource": {
+      "runId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+      "factoryId": "w19a.graph.v1",
+      "factoryVersion": "1.0.0",
+      "definitionDigest": "sha256:19748392a939acb6ac5b4b7e75002c2d9ca85f444dc4811f017f49017b150229",
+      "grantRevision": 1,
+      "revision": 1,
+      "status": "succeeded",
+      "createdAtMs": 1790316714805,
+      "updatedAtMs": 1790316729510,
+      "parameters": {
+        "topic": {
+          "kind": "inline",
+          "value": "the primary colours of light"
+        }
+      },
+      "output": {
+        "kind": "inline",
+        "value": {
+          "summary": "5 words in; the model said: The primary colors of light are red, blue, and yellow."
+        }
+      }
+    }
+  },
+  "evidence": {
+    "nodes": {
+      "prepare": {
+        "ran": true,
+        "attemptId": "b8cdcea6-0344-444e-8408-15e02bbd26ac:prepare:dispatch-node:4",
+        "nodeInstanceId": "prepare",
+        "executionStatus": "completed",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "prepare",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "topic": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "output": {
+            "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+            "artifactId": "factory-artifact-7b30f227-e66e-4e3a-afbd-95a6162c1ae5",
+            "encodedBytes": 49
+          },
+          "status": "completed",
+          "operations": [],
+          "resultDigest": "673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:08f960c7686687a02a0a6baad290bb56005711ca8d0c00d51d6254e0d1c139b4",
+            "artifactId": "factory-artifact-2938ddaf-47f4-455e-bde5-1b99e160c7db",
+            "encodedBytes": 613,
+            "journalCursor": -1
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-7b30f227-e66e-4e3a-afbd-95a6162c1ae5",
+          "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "encodedBytes": 49,
+          "runId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+          "candidateNodeInstanceId": "prepare",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "completionEventOutput": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "outcomeResult": null,
+        "operations": []
+      },
+      "infer": {
+        "ran": true,
+        "attemptId": "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:dispatch-node:7",
+        "nodeInstanceId": "infer",
+        "executionStatus": "completed",
+        "journalCursor": 0,
+        "runner": {
+          "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "infer",
+          "manifestName": "w19a-graph-guest",
+          "model": "qwen3:1.7b",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": {
+          "configuration": {
+            "reasoningEffort": "none",
+            "seed": 42,
+            "temperature": 0
+          },
+          "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+          "model": "qwen3:1.7b",
+          "policy": {
+            "tools": false
+          },
+          "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4",
+          "provider": "ollama"
+        },
+        "input": {
+          "kind": "inline",
+          "value": {
+            "text": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 2126,
+            "costMicros": "0",
+            "inputTokens": 32,
+            "outputTokens": 14
+          },
+          "output": {
+            "digest": "sha256:e5676b98e4f03c4bc01f9d6d7f91fe1e7620fa5a4c2cd6c43682469317d03bc5",
+            "artifactId": "factory-artifact-539ea145-ecad-48e2-bb5c-ae6b002d3cdc",
+            "encodedBytes": 112
+          },
+          "status": "completed",
+          "operations": [
+            {
+              "kind": "model",
+              "state": "completed",
+              "usage": {
+                "kind": "measured",
+                "computeMs": 2126,
+                "costMicros": "0",
+                "inputTokens": 32,
+                "outputTokens": 14
+              },
+              "operationId": "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:0:0",
+              "resultDigest": "045db160ddf0fc564f9670e585a95497e641e95cbf25d09376e61cc9f4ab6609",
+              "requestDigest": "73c1e34afc75b7ed724701d74deaf1c9b0cf3ce46561f7b8560cbbc81729e085",
+              "operationIndex": 0,
+              "workspaceCheckpoint": {
+                "digest": "sha256:e946a0454dcbe92cc5a4e4e068083b428d51bca479581286797d5998238960e0",
+                "artifactId": "factory-artifact-c5affef2-ba91-4624-9a8b-1f022e42f17a",
+                "encodedBytes": 615,
+                "journalCursor": 0
+              },
+              "providerReceiptDigest": "03a9d6cf7374b441bf51642db4f0b4a5d393fafbf316194f58ab8efd170c4bb3"
+            }
+          ],
+          "resultDigest": "e5676b98e4f03c4bc01f9d6d7f91fe1e7620fa5a4c2cd6c43682469317d03bc5",
+          "journalCursor": 0,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:e946a0454dcbe92cc5a4e4e068083b428d51bca479581286797d5998238960e0",
+            "artifactId": "factory-artifact-c5affef2-ba91-4624-9a8b-1f022e42f17a",
+            "encodedBytes": 615,
+            "journalCursor": 0
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-539ea145-ecad-48e2-bb5c-ae6b002d3cdc",
+          "digest": "sha256:e5676b98e4f03c4bc01f9d6d7f91fe1e7620fa5a4c2cd6c43682469317d03bc5",
+          "encodedBytes": 112,
+          "runId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+          "candidateNodeInstanceId": "infer",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "answer": "The primary colors of light are red, blue, and yellow.",
+          "usage": {
+            "inputTokens": 32,
+            "outputTokens": 14
+          }
+        },
+        "completionEventOutput": {
+          "answer": "The primary colors of light are red, blue, and yellow.",
+          "usage": {
+            "inputTokens": 32,
+            "outputTokens": 14
+          }
+        },
+        "outcomeResult": null,
+        "operations": [
+          {
+            "operationId": "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:0:0",
+            "operationIndex": 0,
+            "kind": "model",
+            "state": "completed",
+            "requestDigest": "73c1e34afc75b7ed724701d74deaf1c9b0cf3ce46561f7b8560cbbc81729e085",
+            "resultDigest": "045db160ddf0fc564f9670e585a95497e641e95cbf25d09376e61cc9f4ab6609",
+            "providerReceiptDigest": "03a9d6cf7374b441bf51642db4f0b4a5d393fafbf316194f58ab8efd170c4bb3",
+            "usage": {
+              "computeMs": 2126,
+              "costMicros": "0",
+              "inputTokens": 32,
+              "kind": "measured",
+              "outputTokens": 14
+            },
+            "result": {
+              "providerReceiptDigest": "03a9d6cf7374b441bf51642db4f0b4a5d393fafbf316194f58ab8efd170c4bb3",
+              "schemaVersion": "factory.guest-model-response.v1",
+              "status": "completed",
+              "text": "The primary colors of light are red, blue, and yellow.",
+              "usage": {
+                "computeMs": 2126,
+                "costMicros": "0",
+                "inputTokens": 32,
+                "kind": "measured",
+                "outputTokens": 14
+              }
+            }
+          }
+        ]
+      },
+      "combine": {
+        "ran": true,
+        "attemptId": "b8cdcea6-0344-444e-8408-15e02bbd26ac:combine:dispatch-node:10",
+        "nodeInstanceId": "combine",
+        "executionStatus": "completed",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "combine",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "answer": "The primary colors of light are red, blue, and yellow.",
+            "count": 5
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "output": {
+            "digest": "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+            "artifactId": "factory-artifact-5e9d680e-bb68-4832-9db8-57d96c053186",
+            "encodedBytes": 96
+          },
+          "status": "completed",
+          "operations": [],
+          "resultDigest": "cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:0f4b8ddb55fb74e0c61774482bd4a6343285614855adeeace5acc051e865fc56",
+            "artifactId": "factory-artifact-923633af-744b-430d-a212-6944f02137e4",
+            "encodedBytes": 614,
+            "journalCursor": -1
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-5e9d680e-bb68-4832-9db8-57d96c053186",
+          "digest": "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+          "encodedBytes": 96,
+          "runId": "b8cdcea6-0344-444e-8408-15e02bbd26ac",
+          "candidateNodeInstanceId": "combine",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "summary": "5 words in; the model said: The primary colors of light are red, blue, and yellow."
+        },
+        "completionEventOutput": {
+          "summary": "5 words in; the model said: The primary colors of light are red, blue, and yellow."
+        },
+        "outcomeResult": null,
+        "operations": []
+      }
+    },
+    "queue": [
+      {
+        "attempt_id": "b8cdcea6-0344-444e-8408-15e02bbd26ac:combine:dispatch-node:10",
+        "state": "delivered",
+        "failure_code": null
+      },
+      {
+        "attempt_id": "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:dispatch-node:7",
+        "state": "delivered",
+        "failure_code": null
+      },
+      {
+        "attempt_id": "b8cdcea6-0344-444e-8408-15e02bbd26ac:prepare:dispatch-node:4",
+        "state": "delivered",
+        "failure_code": null
+      }
+    ],
+    "commands": [
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:prepare:request-admission:2",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:prepare:start-timer:3",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:run:start-timer:1",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:prepare:dispatch-node:4",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:request-admission:5",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:start-timer:6",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:infer:dispatch-node:7",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:combine:request-admission:8",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:combine:start-timer:9",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:combine:dispatch-node:10",
+      "b8cdcea6-0344-444e-8408-15e02bbd26ac:run:complete-run:11"
+    ],
+    "projections": [
+      {
+        "consumer": "factory-run-status.v1",
+        "sequence": 7,
+        "payload": "{\"digest\":\"bf799cb7731a802e062d70d0a768f7afaaf2e4fd684f1c82260997f1c86f99a4\",\"sourceSequence\":7,\"status\":\"succeeded\"}"
+      }
+    ]
+  },
+  "readiness": {
+    "tenantId": "tenant-01",
+    "running": [
+      "compute-admission-dispatch",
+      "compute-admission-poll",
+      "attempt-dispatch",
+      "run-projection",
+      "notification-inbox-delivery",
+      "child-settlement",
+      "usage-reconciliation",
+      "stop-settlement",
+      "retention-gc",
+      "checkpoint-barrier"
+    ],
+    "held": [
+      {
+        "role": "release-outcome",
+        "workPackage": "W07/W08",
+        "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+      },
+      {
+        "role": "notification-send",
+        "workPackage": "W17",
+        "reason": "a notification is not delivered until a sender confirms it left this host"
+      },
+      {
+        "role": "validator-material-registration",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      },
+      {
+        "role": "validator-scheduling",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      }
+    ],
+    "providerReadiness": {
+      "schemaVersion": "factory.provider-readiness.v1",
+      "provider": "ollama",
+      "model": "qwen3:1.7b",
+      "ready": false,
+      "credentialKind": null,
+      "failures": [
+        "model_not_available",
+        "provider_not_configured"
+      ],
+      "checkedAt": "2026-09-25T06:11:46.562Z"
+    },
+    "guestBroker": {
+      "state": "bound"
+    }
+  },
+  "checks": [
+    {
+      "check": "the run projected succeeded",
+      "ok": true
+    },
+    {
+      "check": "every node ran once",
+      "ok": true
+    },
+    {
+      "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+      "ok": true
+    },
+    {
+      "check": "C was dispatched with exactly A.count and B.answer",
+      "ok": true
+    },
+    {
+      "check": "B was dispatched with exactly A.text",
+      "ok": true
+    },
+    {
+      "check": "each completion carried the bytes the store holds",
+      "ok": true
+    },
+    {
+      "check": "B's journal shows exactly one model operation, completed",
+      "ok": true
+    },
+    {
+      "check": "B's operation carries measured usage with tokens",
+      "ok": true
+    },
+    {
+      "check": "B ran under the pinned provider and model",
+      "ok": true
+    },
+    {
+      "check": "A and C settled no operation",
+      "ok": true
+    },
+    {
+      "check": "B's staged usage is the journal's usage",
+      "ok": true
+    }
+  ],
+  "outcome": "passed",
+  "finishedAt": "2026-09-25T06:12:09.993Z",
+  "processLogTails": {
+    "pool": "",
+    "supervisor": "",
+    "temporal": "Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)\n\nTemporal Server:      localhost:37025\nTemporal Persistence: /home/dev/.w19a-stack-m51bdP/temporal.sqlite\nTemporal HTTP:        localhost:36979\nTemporal Metrics:     http://localhost:41595/metrics\n",
+    "temporal-tls": "tls-terminator 42555 -> 37025\n",
+    "gateway-stub": "",
+    "web": "eued\"}\n{\"ts\":\"2026-09-25T06:11:49.633Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"openai-image-gen-2\",\"installationId\":\"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8\",\"operationId\":\"e5943e4d-81ee-4627-acd9-d552ca388c5f\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.703Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"claude-design\",\"installationId\":\"46b9981a-273a-47e0-a82d-dc7f38428960\",\"operationId\":\"5b12ca8b-2978-4637-bbc1-9e1bc7e5d8e8\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.748Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"price-chart\",\"installationId\":\"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad\",\"operationId\":\"fb438781-3b0f-4fe8-b975-197c43a22955\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.791Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"city-conditions\",\"installationId\":\"60002142-1cd1-468b-ad65-e4963f662643\",\"operationId\":\"4299b360-38b4-4dad-b445-b7c459350e71\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.830Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"kokoro-tts\",\"installationId\":\"3f53ff8c-3a6e-42e8-a320-124b495adb46\",\"operationId\":\"af886c0a-f65d-4342-b067-69f40612fe94\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.869Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"lessons-distiller\",\"installationId\":\"ab782f1b-b483-4084-af2d-da4d57bf3fad\",\"operationId\":\"9d99abc6-40c2-46da-8122-2ca83cf6866e\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.908Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"extension-author\",\"installationId\":\"90ff4c6c-0969-493f-a0a5-cf2ff7027865\",\"operationId\":\"41e5d896-9c4a-46dc-90e2-194bfc9ce790\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.948Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"memory-extractor\",\"installationId\":\"3627c60b-a1fa-417d-ab79-cc7ba39b2c42\",\"operationId\":\"d29d823d-722b-4c6b-9de0-c0711d77a50a\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:49.988Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-code\",\"installationId\":\"bf3fe48b-27cf-4fdc-ab38-9016f787e199\",\"operationId\":\"405425e6-fbf5-4598-b18f-5f4031454dbb\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:50.044Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"file-organizer\",\"installationId\":\"2ec94e2e-d284-4e96-a0e7-b45854c03857\",\"operationId\":\"59dbfc16-fe9a-47cb-a18d-ea0c9edb0157\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:50.082Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ping-loop\",\"installationId\":\"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe\",\"operationId\":\"4bee3ab8-f31d-4f71-83e3-b5d23f199445\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:50.125Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"github-projects\",\"installationId\":\"3ab35572-c66d-4523-a550-142f77d8f025\",\"operationId\":\"f3198263-d577-4fd0-9508-b6f5fd02fac7\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:11:50.207Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-factory\",\"installationId\":\"3952acdf-45d1-429a-aead-53266ad62993\",\"operationId\":\"b28296bd-cf4d-4b9a-9f8b-0b77c183ff57\",\"status\":\"queued\"}\n",
+    "orchestrator": "2026-09-25T06:11:47.728Z [INFO] asset workflow-bundle-24162560e90a75ad9354.js 2.59 MiB [emitted] [immutable] (name: main)\nruntime modules 883 bytes 4 modules\nmodules by path ./node_modules/.bun/ 463 KiB\n  modules by path ./node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporal...(truncated) 164 KiB 36 modules\n  modules by path ./node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@tempor...(truncated) 223 KiB 29 modules\n  modules by path ./node_modules/.bun/nexus-rpc@0.0.3/node_modules/nexus-rpc/lib/ 22.3 KiB 13 modules\n  ./node_modules/.bun/long@5.3.2/node_modules/long/umd/index.js 49.8 KiB [built] [code generated]\n  ./node_modules/.bun/ms@3.0.0-canary.1/node_modules/ms/dist/index.cjs 3.41 KiB [built] [code generated]\nmodules by path ./packages/@ezcorp/ 487 KiB\n  modules by path ./packages/@ezcorp/factory-sdk/dist/ 432 KiB 24 modules\n  modules by path ./packages/@ezcorp/factory-orchestrator/src/ 55.2 KiB\n    ./packages/@ezcorp/factory-orchestrator/src/workflow-autogenerated-...(truncated) 593 bytes [built] [code generated]\n    + 7 modules\noptional modules 30 bytes [optional]\n  __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]\n  __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]\nwebpack 5.111.1 compiled successfully in 378 ms\n2026-09-25T06:11:47.732Z [INFO] Workflow bundle created { size: '2.59MB' }\n2026-09-25T06:11:47.882Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'RUNNING'\n}\n2026-09-25T06:11:47.883Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }\n"
+  }
+}

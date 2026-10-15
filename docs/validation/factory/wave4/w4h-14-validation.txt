@@ -1,0 +1,104 @@
+ACCEPT wp/w4h-14-sync at 00c979687
+W4H-14 verdict (main sync W-SYNC-3: origin/main e3309906d into the wave), validator-8 (lane validator-8), 2026-10-08T04:2xZ
+
+VERDICT: ACCEPT wp/w4h-14-sync at 00c979687. Every leg of the accepted plan passes.
+TIP (00c979687, team-lead's head update): the commit is gate-file-only on 600685b24.
+- `git diff 600685b24 00c979687` names only tasks/factory/w4h-14-GATES.md.
+- The tree equals the merge de8fa57ec outside the gate file (tip hold, exit 0).
+- So the legs below, run on the 600685b24 tree, are the legs of the tip's code.
+Checks at the tip (hold w4h-14-tip/, 04:21Z):
+- Identity: 3 of 3 first-parent commits are archy noreply.
+- Prune scan: clean (1 candidate, the owner's guard-leg log line).
+- Config: 888c78b9e94ea660 at the start and the end.
+- The gate-file diff, read: it records the #329 ruling and the Node-pin rerun (the system-Node runs kept as VOID logs),
+  and it adds the sprintf-js leftover.
+- Owner final report sha256 24e09ceb1ee86d8c. It supersedes report-v1-before-rulings.txt, which is kept and disclosed.
+- logs.sha256: 18 of 18 files match.
+The verdict at 600685b24 is kept as verdict-w4h-14-at-600685b24.txt.
+The integrator merges the branch onto the current integ head 3c6e53340; that merge is not judged here.
+Commits (first parent): de8fa57ec = the merge (parents 000f75d10, e3309906d); 600685b24 = the gate file (docs only, 80 lines).
+Owner report sha256 65732b119fb0db2f (it matches the order). Owner logs.sha256: 18 of 18 files match.
+
+1. Merge structure. check-merge.py: PASS. Log w4h-14/logs/check-merge.log sha 16ba6fc19368db35.
+   - The parents are exactly 000f75d10 and e3309906d.
+   - The merge differs from the mechanical merge (merge-tree 4f9b778b4) only in the 5 conflict files. There is no other path.
+   - There is no conflict marker in any of the 5 files.
+   - Self-test of the checker on 000f75d10: the right parent order passes, the swapped order fails.
+2. Conflict resolutions (log w4h-14/logs/resolutions.log sha 48e0cdc8444f0f86).
+   - hook-lib.sh is byte-equal to 000f75d10 (OURS), and all of main's added lines are present (16 non-blank lines).
+   - git-hooks.test.ts is byte-equal to 000f75d10 (OURS), and all of main's added lines are present (80 non-blank lines).
+   - web/package.json is a 3-way union by key with 0 problems. Main changed overrides.sharp (0.35.5). The wave changed
+     @xyflow/svelte, elkjs and patchedDependencies (stryker vitest-runner). The merge keeps all of these.
+   - bun.lock: 29 entries differ from the wave parent. All 29 are main's bump family at main's versions
+     (sharp 0.35.5 and @img/*, libvips 1.3.4, MCP 1.31.0, proxy-addr 2.0.8). No other entry moved.
+   - web/bun.lock: 28 entries differ from the wave parent. All 28 are main's bump family at main's versions
+     (sharp and @img/*, source-map-js 1.2.2).
+   - manifest.lock.json: regenerated in the snapshot gives 0 diff, and --check exits 0.
+3. No pin lowered.
+   - check-pins.py on both lockfiles: no lowered version. Two main-only nested @types/node and undici-types keys are
+     hoisted at higher versions. The wave's kept versions are hono 4.13.12, ms 3.0.0-canary.1, protobufjs 8.8.0,
+     source-map 0.7.6, devalue 5.9.4 and undici 8.11.2.
+   - check-manifest-pins.py (sha 1f930eaac1a913f0; its test passes both ways, 5/0): 13 package.json and package-lock.json
+     files, all PASS. Logs w4h-14/logs/check-pins.log and check-manifest-pins.log.
+4. Installs and audit. The snapshot is git archive of 600685b24, outside the evidence dir, and was removed after use.
+   - Bun 1.4.2 and Node v24.14.1 (pinned) were used.
+   - Frozen installs with --ignore-scripts for root, web and gate-integrity deps: exit 0.
+   - Both lockfiles are byte-unchanged afterwards (git diff empty; hashes equal to HEAD's blobs).
+   - The 6 package builds: exit 0.
+   - audit-deps: clean at the high floor (1 moderate below the floor, sprintf-js).
+5. Tests. Heavy lock through gated-flock, lock_veto validator-8, GATE_TRIES=1 inside, heavy.exit 0. The hold ran 04:16-04:19Z.
+   - Each file ran alone first; none is VOID.
+   - With lcov, one process per file, 12 files, 132 pass and 0 fail:
+     git-hooks 29, bundled-bootstrap-progress 13, shipping-bootstrap-state 12, e2e-bundled-bootstrap-wait 6,
+     manifest-tamper 22, regenerate-manifest-lock 9, bundled-source-lock 3, dependency-denylist 10,
+     pi-package-pin-alignment 3, build-workspace-packages 6, typescript-tsgo-wiring 7, production-image-lifecycle-launch 6.
+   - The first 10 files reproduce the owner's 113/0 exactly.
+   - Guard set: 40 files, 507 pass, 2 skip, 0 fail.
+   - The hook maps 0 test files for the merge and for the docs commit (owner's printed lists).
+   - There is no PostgreSQL suite, so no DB leg ran.
+6. #329. scripts/verify-shipping-runtime-resources.ts at de8fa57ec and at 600685b24 is byte-equal to e3309906d.
+   The wave did not touch this file since beaff68c8. I read the diff:
+   - waitForAppConnections polls up to 150 x 100 ms before the R4 sample.
+   - The SSE-cleanup strict check (20 polls, then throw) is unchanged.
+   - It shares no file with W4H-11.
+   Its runtime proof is not run in this package (coordinator ruling 2026-10-08).
+   The gate file names the hosted "Production proof (resources)" shard on the next push.
+7. Gates.
+   - gate-integrity base leg (000f75d10): PASSED.
+   - gate-integrity main leg (BASE_REF=e3309906d): findings-match PASS, exactly the 8 standing lines, no new line.
+     The expected file sha256 starts 9ec5cdcbce67c7ac.
+   - Lint: 0 errors. There are 2 pre-existing warnings (W4H-11 finding F7: setup-factory-python-base.test.ts:101,
+     factory-recovery-databases.ts:50).
+   - check-boundaries and check-factory-boundaries: 0.
+   - gitleaks on the changed files: 0.
+   - Web build: 0.
+   - New-file and patch vs 000f75d10: PASSED (no source file in scope).
+   - New-file and patch vs e3309906d are INFORMATIONAL: both exit 1 across the whole wave (439 and 494 lines).
+     None of the merge's 13 changed files is named. These gates bind at wave4i-3.
+8. Typecheck (tc rule path a, in-lock, MemAvailable >= 12 GiB, no other typecheck, pinned Node v24.14.1).
+   - bun run typecheck, all programs including Python: exit 0. MemAvailable before 17.4 GiB, lowest 14.1 GiB,
+     tsgo VmHWM 3.4 GiB.
+   - svelte-check: 620 files, 0 errors, 0 warnings. MemAvailable lowest 14.8 GiB.
+   - No OOM kill in either window.
+9. Prune, config, identity.
+   - Prune scan (w00/prune-scan.sh a4a59601cec26963): clean, 1 candidate. The candidate is the owner's log line that
+     names a test file; it is not a prune command.
+   - Shared config 888c78b9e94ea660 = the accepted baseline at the start and the end of both holds.
+   - Identity: 2 of 2 first-parent commits are archy noreply as author and committer. Main's 4 commits keep their
+     upstream author, EZArchy noreply (the W-SYNC ruling).
+
+DISCLOSURE (validator-8's own tooling; no effect on the result).
+- My first heavy try (04:11-04:15Z) sent the typescript-tsgo-wiring TEST through the typecheck gate, because the
+  file name holds "tsgo".
+- That gate waits for a free heavy lock, so the leg waited about 3 minutes while my own hold held the lock.
+- I stopped my own processes. The lock was free at once, and I removed the snapshot.
+- The try is VOID and kept as w4h-14-heavy-void1-matcher/.
+- Fix: the matcher in validator-8/lib.sh now matches only a command token, never a path. Its test now gives
+  15 pass and 0 fail, with two new cases.
+- The heavy hold then ran once, green.
+Evidence: /tmp/factory-platform-evidence/validator-8/
+- w4h-14-light/ (results.jsonl sha 8eb5970fadf5ef89, hold.log)
+- w4h-14-heavy/ (results.jsonl sha 9e3afcf226100fb4, hold.log, heavy.exit 0, gated-flock.log)
+- w4h-14/logs/ (structure, resolutions, pins)
+- hold-w4h-14-light.sh, hold-w4h-14-heavy.sh, w4h-14-common.sh
+CARRY: 600685b24..00c979687 touches only tasks/factory/w4h-14-GATES.md; the ACCEPT carries to 00c979687

@@ -1,0 +1,208 @@
+{
+  "run": "wave4f",
+  "head": "baeade9767e431720be300c1953e6e2e9758cdfa",
+  "headNote": "baeade976 = W4F-3 receipts 1957da56d plus the docs-only W4F-3 verdict addendum; named the wave4f head by the lead",
+  "order": "lead 2026-10-01: RUN WAVE4F at baeade976 (after a DRY identical to the c5baeb96 plan)",
+  "start": "2026-10-01T07:42:08Z",
+  "runnerEnd": "2026-10-01T09:05:39Z",
+  "afterRunnerEnd": "2026-10-01T09:48:04Z",
+  "finalGatesEnd": "2026-10-01T09:48:26Z",
+  "plan": {
+    "file": "wave4f-plan.txt",
+    "lines": 1285,
+    "sha256": "c5baeb965cee3d83c478619e7b18cf5bf79092bc3201a090ead3cf72c9e968c5",
+    "autoExtraFiles": 313,
+    "autoExtraChunks": 8,
+    "focusedFiles": 80
+  },
+  "drivers": {
+    "run.sh": "1f972fd006dcf71a4dc391468bd6e1a9d3bbbf6270628184abd2e5f019d1deec",
+    "after-runner.sh": "d4304324eec6b9e1e68f8f2c01d0aad355df274ae4076cf012c58ded256fca27",
+    "final-merge-gates.sh": "c038e3b6098d82a101d1837b3a4522cf148eb041458509ad9f4a24f055369297",
+    "driver-guards.txt": "cbcb3c92d2760b1d4ed683c2bec1918b178bc9500aeb9f188d0fd7383d01a810",
+    "legs-from-manifest.py": "8a8933fd107d4509e7dbf59cdeeeb7d0c6b80bc205c52441471cea7bba09b653",
+    "combined-integration.py (runner)": "f4a81b8b97940edca26d1d834992559f7ae9a218abc17db7bf9508a908ef90a8",
+    "browser-part.sh": "c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+    "run.sh.pre-wave4f (kept, not run)": "98cf468a2402c08d57c174ea6dc98d0f3cead50c4142feb47dae63dbfb4781d7"
+  },
+  "runner": {
+    "legs": 37,
+    "exitCodes": {
+      "sdk-build": 0,
+      "transport-build": 0,
+      "sdk-tests": 0,
+      "focused": 0,
+      "web-coverage": 0,
+      "web-bun-coverage": 0,
+      "postgres": 0,
+      "postgres-pool-one": 0,
+      "postgres-bun-sql-pool-replacement": 0,
+      "postgres-bun-sql-request-queue": 0,
+      "postgres-factory-assurance": 0,
+      "types": 0,
+      "lint": 0,
+      "gate-integrity": 1,
+      "boundaries": 0,
+      "orchestrator-build": 0,
+      "node-coverage": 0,
+      "pool-coverage": 0,
+      "compute-coverage": 0,
+      "provisioning-coverage": 0,
+      "python-coverage": 0,
+      "auto-extra-0": 0,
+      "auto-extra-1": 0,
+      "auto-extra-2": 0,
+      "auto-extra-3": 0,
+      "auto-extra-4": 0,
+      "auto-extra-5": 0,
+      "auto-extra-6": 0,
+      "auto-extra-7": 0,
+      "podman-podman": 0,
+      "podman-attempt-runtime": 0,
+      "podman-supervisor": 0,
+      "podman-package-preparation": 0,
+      "manifest-cov-shard": 0,
+      "manifest-cov-extras": 0,
+      "manifest-web-security-coverage": 0,
+      "manifest-factory-reference-data": 0
+    },
+    "testsRanTotal": 47807,
+    "dirty": [
+      "False"
+    ],
+    "combinedExit": 1,
+    "mergeBlockedBy": [],
+    "redLegsNotBlockingMerge": [
+      "gate-integrity"
+    ],
+    "gateIntegrity": "raw exit 1; judged by the 8-line expected set (w00/expected-integ-findings-vs-main.txt sha256 9ec5cdcbce67c7ac): PASS",
+    "coverageResults": "INTERIM (wave4f-coverage-results.json); the final gates are authoritative"
+  },
+  "afterRunner": {
+    "exit": 0,
+    "lock": "flock 23400 s, lock_veto integrator-2 first",
+    "legs": {
+      "guard-set": {
+        "exit": 0,
+        "tests": "60 pass 0 fail"
+      },
+      "web-build": {
+        "exit": 0,
+        "tests": ""
+      },
+      "graph-mock-pass": {
+        "exit": 0,
+        "tests": ""
+      },
+      "w09e-e2e-console": {
+        "exit": 0,
+        "tests": "22 passed (playwright)"
+      },
+      "w03f-reference-data-journey": {
+        "exit": 0,
+        "tests": "11 pass 0 fail"
+      },
+      "browser-part": {
+        "exit": 0,
+        "tests": ""
+      }
+    },
+    "mockPass": "wave4f-mock outcome: passed"
+  },
+  "browser": {
+    "steps": [
+      {
+        "name": "build",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-roundtrip",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-check",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "mock-gate",
+        "exit": 0,
+        "passed": 259
+      },
+      {
+        "name": "mock-full",
+        "exit": 0,
+        "passed": 1449
+      },
+      {
+        "name": "evidence",
+        "exit": 0,
+        "passed": 393
+      },
+      {
+        "name": "fresh-setup",
+        "exit": 0,
+        "passed": 7
+      },
+      {
+        "name": "real-auth",
+        "exit": 0,
+        "passed": 107
+      },
+      {
+        "name": "merge",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "factory-services",
+        "exit": 0,
+        "passed": 13
+      }
+    ],
+    "head": "baeade9767e431720be300c1953e6e2e9758cdfa",
+    "worktree": "the integration worktree (browser lcov SF paths anchor there)"
+  },
+  "finalGates": {
+    "rows": [
+      "merge exit=0 | merged 2337 source files \u2192 coverage/lcov.info",
+      "global-floor exit=0 | \u2713 at or above the 90% floor (margin 8.05 points)",
+      "per-file-thresholds exit=0 | Coverage gate PASSED: 2191 enforced file(s) at or above threshold.",
+      "new-file-origin_main exit=0 | New-file coverage gate PASSED: 458 new source file(s) gated.",
+      "patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (513 file(s)).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "new-file-c1377122b exit=0 | New-file coverage gate PASSED: 192 new source file(s) gated.",
+      "patch-c1377122b exit=0 | Patch coverage gate PASSED: all changed executable lines covered (349 file(s)).",
+      "gate-integrity-c1377122b exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "crap-changed-origin_main exit=0 | \u2713 no touched function exceeds CRAP 30"
+    ],
+    "lcovSha256": "83f5ef0e9a6d8f4d (final/merged-lcov.info, not copied; inputs listed in wave4f-final-inputs.sha256)",
+    "gateIntegrityOriginMain": "raw exit 1 = exactly the 8-line expected set: findings-match PASS (wave4f-final-origin-main-expected-match.txt)",
+    "gateIntegrityC1377122b": "INFORMATIONAL: lists the wave's own 6 coverage-tool changes since c1377122b (wave4f-final-c1377122b-findings-info.txt); not judged against the origin/main set",
+    "crapChangedOriginMain": [
+      "CRAP: --changed against origin/main \u2192 485 measured file(s) in diff",
+      "CRAP: 6430 functions in 485 files (max 30, warn 15)",
+      "\u2713 no touched function exceeds CRAP 30"
+    ],
+    "status": "final-merge-gates exit 1 only from the two gate-integrity rows; every coverage and quality gate exit 0"
+  },
+  "crap": "origin/main CRAP over the full-pool lcov (the wave judgment): CRAP: --changed against origin/main \u2192 485 measured file(s) in diff / CRAP: 6430 functions in 485 files (max 30, warn 15) / \u2713 no touched function exceeds CRAP 30; the six functions over 30 at 8676d8757 are settled by W4F-2 and W4F-3",
+  "pinRecord": {
+    "fact": "the wave4f driver (run.sh) did not print the pin; the runner's results and plan do not record it either",
+    "evidence": [
+      "run.sh calls bun_pin on the integration worktree before the runner (bun-pin.sh asserts bun and bunx = .bun-version, else exit 95, and exports BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1 for 1.4.0-1.4.2); .bun-version at the head = 1.4.2",
+      "after-runner heavy-batch.log line 3: 'pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1'",
+      "final gates.txt: bun=1.4.2",
+      "browser summary: lane Bun 1.4.2"
+    ],
+    "verifier": "validator-6's verify-receipts.py check 'pin and flag named' FAILS on the driver log and plan for this reason; every other check PASSES; the gap is reported to the lead for a ruling, not patched"
+  },
+  "configHash": {
+    "before": "44962525f1ca1a8b",
+    "after": "44962525f1ca1a8b"
+  },
+  "receiptsBy": "integrator-3"
+}

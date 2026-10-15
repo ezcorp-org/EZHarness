@@ -3,7 +3,7 @@
  *   - permissions.ts: checkFilesystemPermission (realpath-based)
  *   - permissions.ts: diffPermissions shell branch, alwaysAllowKey format
  *   - checksum.ts: computePackageChecksums (dotfile inclusion/exclusion edge cases)
- *   - subprocess.ts: ExtensionProcess constructor options, getSpawnArgs with custom limits
+ *   - subprocess.ts: HostExtensionProcess constructor options, getSpawnArgs with custom limits
  *   - sdk/test-runner.ts: runExtensionTests (end-to-end with temp dir)
  *   - sdk/test-helpers.ts: createTestExtension, callTool wrapper
  */
@@ -37,7 +37,7 @@ afterAll(() => restoreModuleMocks());
 import { checkFilesystemPermission, diffPermissions } from "../extensions/permissions";
 import type { ExtensionPermissions } from "../extensions/types";
 import { computePackageChecksums, verifyPackageChecksums } from "../extensions/checksum";
-import { ExtensionProcess, DEFAULT_MEMORY_LIMIT_MB } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import { JsonRpcTransport } from "../extensions/json-rpc";
 import { runExtensionTests } from "../extensions/sdk/test-runner";
 import { createTestExtension, callTool } from "../extensions/sdk/test-helpers";
@@ -352,62 +352,15 @@ describe("verifyPackageChecksums additional edge cases", () => {
 });
 
 // ================================================================
-// 4. ExtensionProcess -- constructor options and getSpawnArgs
+// 4. HostExtensionProcess -- constructor options and getSpawnArgs
 // ================================================================
 
-describe("ExtensionProcess constructor and getSpawnArgs", () => {
-  test("default options without overrides", () => {
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {});
-    expect(ep.isRunning).toBe(false);
-    expect(ep.memoryLimitBytes).toBe(DEFAULT_MEMORY_LIMIT_MB * 1024 * 1024);
-    expect(ep.extensionId).toBe("test-id");
-  });
-
-  test("getSpawnArgs with default memory limit", () => {
-    // updated for sec-SB2/SB3: --preload slot moved AFTER `run` — Bun's CLI
-    // parser rejects `bun --preload <path> run <ext>` (prints help + exits).
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {});
-    const args = ep.getSpawnArgs();
-    expect(args[0]).toBe("prlimit");
-    expect(args[1]).toBe(`--rss=${DEFAULT_MEMORY_LIMIT_MB * 1024 * 1024}`);
-    expect(args[2]).toBe("bun");
-    expect(args[3]).toBe("run");
-    expect(args[4]).toBe("--preload");
-    // Absolute path to sandbox-preload.ts — blocks network/shell imports.
-    expect(args[5]).toMatch(/\/extensions\/runtime\/sandbox-preload\.ts$/);
-    expect(args[6]).toBe("/path/ext.ts");
-  });
-
-  test("getSpawnArgs with custom memory limit", () => {
-    const oneGB = 1024 * 1024 * 1024;
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {}, {
-      memoryLimitBytes: oneGB,
-    });
-    const args = ep.getSpawnArgs();
-    expect(args[1]).toBe(`--rss=${oneGB}`);
-  });
-
-  test("memory limit floor is enforced", () => {
-    const tinyLimit = 32 * 1024 * 1024; // 32MB
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {}, {
-      memoryLimitBytes: tinyLimit,
-    });
-    expect(ep.memoryLimitBytes).toBe(512 * 1024 * 1024); // MIN is 512MB
-  });
-
-  test("isRunning false before spawn and after kill without spawn", () => {
-    const ep = new ExtensionProcess("test-id", "/path/ext.ts", {});
-    expect(ep.isRunning).toBe(false);
-    ep.kill();
-    expect(ep.isRunning).toBe(false);
-  });
-});
 
 // ================================================================
-// 5. ExtensionProcess -- real subprocess tests with echo extension
+// 5. HostExtensionProcess -- real subprocess tests with echo extension
 // ================================================================
 
-describe("ExtensionProcess subprocess (echo extension)", () => {
+describe("HostExtensionProcess subprocess (echo extension)", () => {
   const echoPath = join(import.meta.dir, "helpers", "echo-extension.ts");
   const slowPath = join(import.meta.dir, "helpers", "slow-extension.ts");
   const allowedEnv: Record<string, string> = {
@@ -415,10 +368,10 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
     HOME: process.env.HOME ?? "",
   };
 
-  let ep: ExtensionProcess;
+  let ep: HostExtensionProcess;
 
   // Workaround for Bun JIT bug (same as subprocess.test.ts)
-  ExtensionProcess.prototype.ensureRunning = function (this: any) {
+  HostExtensionProcess.prototype.ensureRunning = function (this: any) {
     if (this.proc && !this.killed) return;
     this.killed = false;
     this.proc = Bun.spawn(["bun", "run", this.extensionPath], {
@@ -453,7 +406,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("multiple calls in sequence return correct responses", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
 
     const r1 = await ep.call("method-1", { key: "one" });
     expect(r1.result).toBeDefined();
@@ -470,7 +423,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("callTool returns ToolCallResult with isError=false", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     const result = await ep.callTool("test-tool", { arg: "val" });
     expect(result.isError).toBe(false);
     expect(result.content).toBeArray();
@@ -479,7 +432,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("kill stops process and isRunning transitions correctly", () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv);
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv);
     expect(ep.isRunning).toBe(false);
     ep.ensureRunning();
     expect(ep.isRunning).toBe(true);
@@ -488,7 +441,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("call timeout rejects and kills process", async () => {
-    ep = new ExtensionProcess("test-ext", slowPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", slowPath, allowedEnv, {
       callTimeoutMs: 100,
     });
 
@@ -497,7 +450,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("persistent=true prevents idle timeout", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv, {
       idleTimeoutMs: 100,
       persistent: true,
     });
@@ -509,7 +462,7 @@ describe("ExtensionProcess subprocess (echo extension)", () => {
   });
 
   test("non-persistent process gets killed after idle timeout", async () => {
-    ep = new ExtensionProcess("test-ext", echoPath, allowedEnv, {
+    ep = new HostExtensionProcess("test-ext", echoPath, allowedEnv, {
       idleTimeoutMs: 100,
       persistent: false,
     });
@@ -545,7 +498,7 @@ describe("retired directory-based SDK execution", () => {
 test("callTool wrapper delegates tool name and arguments unchanged", async () => {
   const calls: unknown[] = [];
   const result = { content: [{ type: "text" as const, text: "response" }], isError: false };
-  const process = { callTool: async (...args: unknown[]) => { calls.push(args); return result; } } as unknown as ExtensionProcess;
+  const process = { callTool: async (...args: unknown[]) => { calls.push(args); return result; } } as unknown as HostExtensionProcess;
   expect(await callTool(process, "my-tool", { arg: "value" })).toBe(result);
   expect(calls).toEqual([["my-tool", { arg: "value" }]]);
 });

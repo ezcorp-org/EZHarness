@@ -1,0 +1,29 @@
+resource-gate 2026-10-04T18:07:28Z w10c-hold outside-lock disk=103G memAvailable=14GiB swapFreeKiB=3671148/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-04T18:07:28Z
+gated-flock w10c-hold: gate red inside the lock, lock released, re-queue 2026-10-04T18:25:39Z
+resource-gate 2026-10-04T18:27:39Z w10c-hold outside-lock disk=98G memAvailable=11GiB swapFreeKiB=4080724/17173956
+resource-gate w10c-hold outside-lock STOP: disk 98G below the 100 GB floor
+resource-gate 2026-10-04T18:29:39Z w10c-hold outside-lock disk=100G memAvailable=4GiB swapFreeKiB=4196220/17173956
+resource-gate 2026-10-04T18:30:39Z w10c-hold outside-lock disk=101G memAvailable=8GiB swapFreeKiB=4190268/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 2) 2026-10-04T18:30:39Z
+gated-flock w10c-hold: command exit 1 2026-10-04T18:30:39Z
+resource-gate 2026-10-04T18:33:27Z w10c-hold outside-lock disk=100G memAvailable=10GiB swapFreeKiB=3971992/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-04T18:33:27Z
+gated-flock w10c-hold: gate red inside the lock, lock released, re-queue 2026-10-04T18:39:53Z
+resource-gate 2026-10-04T18:41:53Z w10c-hold outside-lock disk=99G memAvailable=14GiB swapFreeKiB=2463948/17173956
+resource-gate w10c-hold outside-lock STOP: disk 99G below the 100 GB floor
+resource-gate 2026-10-04T18:43:53Z w10c-hold outside-lock disk=100G memAvailable=13GiB swapFreeKiB=2814152/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 2) 2026-10-04T18:43:53Z
+gated-flock w10c-hold: gate red inside the lock, lock released, re-queue 2026-10-04T19:01:28Z
+resource-gate 2026-10-04T19:03:28Z w10c-hold outside-lock disk=98G memAvailable=13GiB swapFreeKiB=2223132/17173956
+resource-gate w10c-hold outside-lock STOP: disk 98G below the 100 GB floor
+resource-gate 2026-10-04T19:05:28Z w10c-hold outside-lock disk=101G memAvailable=11GiB swapFreeKiB=2254364/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 3) 2026-10-04T19:05:28Z
+gated-flock w10c-hold: gate red inside the lock, lock released, re-queue 2026-10-04T19:10:02Z
+resource-gate 2026-10-04T19:12:02Z w10c-hold outside-lock disk=99G memAvailable=10GiB swapFreeKiB=2497232/17173956
+resource-gate w10c-hold outside-lock STOP: disk 99G below the 100 GB floor
+resource-gate 2026-10-04T19:14:02Z w10c-hold outside-lock disk=99G memAvailable=11GiB swapFreeKiB=2553944/17173956
+resource-gate w10c-hold outside-lock STOP: disk 99G below the 100 GB floor
+resource-gate 2026-10-04T19:16:02Z w10c-hold outside-lock disk=100G memAvailable=9GiB swapFreeKiB=3041392/17173956
+gated-flock w10c-hold: gate green outside the lock, queue for the lock (try 4) 2026-10-04T19:16:02Z
+gated-flock w10c-hold: command exit 0 2026-10-04T19:19:47Z

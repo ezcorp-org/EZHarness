@@ -1,0 +1,186 @@
+W18a-2 independent validation report
+Package: second complexity pass, three coverage-key gaps, route kit
+Branch wp/w18a2-quality. Source validated at c2ef2fac3. Integrator head is 2cf473977.
+`git diff --stat c2ef2fac3 2cf473977` shows two docs files under docs/validation/factory/wave3/ and nothing else.
+`git diff --quiet c2ef2fac3 2cf473977 -- src web packages scripts tests` exits 0.
+Validator evidence: /tmp/factory-platform-evidence/w18a2-validation/
+
+VERDICT: ACCEPT (three low findings, two info notes; none blocks the merge of 2cf473977)
+
+1. TREE STATE AND COMMITS
+- The tree is clean (`git status --porcelain` is empty) at c2ef2fac3 and at 2cf473977.
+- All ten commits in the worker report plus c2ef2fac3 are on the branch, from 6c881d758 to c2ef2fac3.
+- integ/w00 is one docs commit ahead of the old merge base (6055bffc6). 2cf473977 merges it (docs only).
+
+2. RECEIPTS
+- The worker's receipt checksums match the files (fullest-lcov.info, gate-crap-changed.log, steps.jsonl,
+  runner.log, the three differential files, complexity.txt). steps.jsonl is now at run4-pre-kit/.
+- run4-pre-kit/gate-crap-changed.log: "no touched function exceeds CRAP 30". gate-new-file-integ and
+  gate-patch-integ exit 0. The worker records global-floor, per-file thresholds, and new-file vs origin/main as red.
+- OVERSTATEMENT (low): the report says "Combined runner at 868d8c853: every producer exit 0". That is true for
+  producers. But the runner itself ended "DONE failed=True", because new-file AND patch vs 197fb6c94 exited 1.
+  The report names the new-file failure against origin/main, but not the patch failure. That failure lists 36 files,
+  and none of them has a changed line from this package. src/db/connection.ts 822,830 are earlier feature lines.
+  Receipt: /tmp/factory-platform-evidence/w18a2-sweep-coverage-patch-197fb6c94.log
+- OVERSTATEMENT (low): the claim "dispatchFactoryRequest 43 to 7" predates the route-kit commit. At c2ef2fac3 it is 8,
+  because the kit adds one `??` step. It is still far below 30.
+- The route-kit commit has no worker receipt from the combined runner. Its receipts are kit-vitest.log (38 tests in 3 files),
+  lint-kit.log, typecheck-kit.log, gate-integrity-kit.log, and mapped-error-differential-route-kit.txt.
+  The validator reran everything below on the final source.
+
+3. BEHAVIOUR PRESERVATION (all seven splits, every hunk read)
+- mappedError -> route-kit mappedFactoryError: the ERROR_FAMILIES table matches the old if-chain line by line.
+  Status, message, retryable (status >= 500), and diagnostics only for factory_definition_invalid are the same.
+  The per-family 500 storage fallback is the same. FactoryRunControlError still rethrows an unknown code
+  (storage null), and a non-factory error still rethrows. All eleven error classes extend Error directly,
+  so the family order cannot change the match (grep of class declarations).
+- dispatchFactoryRequest: a mechanical comparison of the old switch with the six groups shows identical case lines
+  and 34 kinds, with no kind in two groups and none missing. No case can return null, so `??` cannot fall through.
+  unsupportedRequest is still the terminal step.
+- private-service handle: the auth check runs first, and a failure still gives 401 {error:"unauthorized"} from the
+  same try/catch. The version and content-type check and the health route still come before the body parse.
+  The route order is outbox, definitions, transitions, commands, then 404, which is the old order. The errorResponse
+  wrapper is unchanged, and `return await` keeps rejections inside the catch.
+- task-stops readSealed: the order is scope lock and run FOR UPDATE, row read, request checks, live authority
+  (journal, outcome, launch), event digest and state checks, event content checks, receipt. That is the old order,
+  in the same transaction, with the same FactoryTaskStopError codes. liveAuthority.authority is the same object
+  as the old local `authority`.
+- The two process-config parsers: pure boolean rewrites (`some(!f)` became `every(f)`, and optionals were De Morgan'd).
+  They throw the same Error message.
+- parseFactoryStartupConfig: the checks run in the old order, so the missing and invalid lists keep their order.
+  Bounds are still checked after the lists are empty. The config is still frozen.
+- connection.ts initPglite: setDatabaseReadiness() becomes setReadiness({state:"ready"}), which is origin/main's text.
+  This is safe: the only caller, init(), calls assertFactoryBootConfiguration(DATABASE_URL) first, and that throws
+  factory-pglite-unsupported when factories are on and no DATABASE_URL is set.
+- Differential reruns by the validator. The "before" copies come from integ/w00 via git show, with relative imports
+  made absolute, and live in the validator dir (no file was added to the worktree):
+    mapped error        840 cases, 0 differences (diff-run.ts; the pasted copies were checked line for line against
+                        the real old and new code, and differ only in the function names)
+    process parsers   10871 cases, 0 differences (parser-differential.txt)
+    startup config    11727 cases, 0 differences (startup-config-differential.txt)
+  Sensitivity: one planted mutation per old parser gives 155 and 11672 differences (mut/), so the harness detects change.
+
+4. TEST-FILE CHANGES (`git diff integ/w00...HEAD --stat -- '*.test.ts'`)
+- Only four files changed: private-files.test.ts (new, 18 tests), encryption.test.ts (+1 test, loadExisting),
+  route-kit.server.test.ts (new, 4 tests), and scope-enforcement.test.ts.
+- scope-enforcement.test.ts: NOT weakened. Both original assertions stay (requireScope(event.locals, options.scope)
+  and requireSessionAuth(event.locals)). They now read route-kit.ts, where that code moved. A third assertion
+  checks that _shared.ts calls resolveFactoryPrincipal(event, options), which closes the gap the move could open.
+- No .skip/.only/.todo, no empty catch, no sleeps, and no wall-clock checks in the new tests. private-files.test.ts
+  needs /run/user/<uid>, and CI creates it (.github/workflows/ci.yml:139).
+
+5. COMPLEXITY (repository scoreFile over the validator's merged lcov; crap-touched.txt, complexity.txt)
+  function                                   integ/w00  claimed  measured  cov
+  mappedError / mappedFactoryError                  92        6         6  100%
+  dispatchFactoryRequest                            43        7         8  100%
+  private-service handle                            59        3         3  100%
+  task-stops readSealed                             54        3         3  100%
+  parseFactoryOrchestratorProcessConfig             37        5         5  100%
+  parseFactoryPoolProcessConfig                     44        7         7  100%
+  parseFactoryStartupConfig                         65        5         5  100%
+  No function above 30 in _shared.ts, route-kit.ts, private-service.ts, task-stops.ts, orchestration-process.ts,
+  pool/process.ts, startup-config.ts, private-files.ts, or encryption.ts. The worst is wellFormed at 24 (untouched).
+- `BASE_REF=origin/main bun scripts/crap-score.ts --changed` over the validator's merge exits 1 on ONE function:
+  packages/@ezcorp/extension-runner/src/podman.ts:538 attach (cc 7, cov 7%, CRAP 46.8). This package does not touch
+  podman.ts, so it is a measurement gap only. The validator ran the Podman suites without coverage (they pass), and the
+  worker's fuller lcov loaded podman.integration.test.ts in the focused leg.
+  src/db/connection.ts has older functions above 30 at 29.7% file coverage in this merge. The gate does not judge
+  them, because the package's only code change there is now identical to origin/main.
+
+6. COVERAGE KEYS AND GATES (final-merged-lcov.info, 11 legs: runner legs + node rerun + the origin/main extra leg)
+  src/factory/private-files.ts                               79/79  100%  (key at 100)
+  src/db/migrations/add-factory-projection-attempts.ts        6/6   100%  (key at 100)
+  src/db/migrations/repair-transactional-audit-metadata.ts    4/4   100%  (key at 100)
+  web/src/lib/server/factory/route-kit.ts                    45/45  100%  (key at 100)
+  src/factory/boot.ts (assertFactoryBootConfiguration)       95/95  100%
+  src/auth/factory-service-token.ts (exactClaims)            80/80  100%
+  src/factory/encryption.ts                                 214/214 100%
+  BASE_REF=integ/w00 check-new-file-coverage.ts   exit 0 (1 new source file gated)
+  BASE_REF=integ/w00 check-patch-coverage.ts      exit 0 (8 files)
+  check-global-coverage.ts                         exit 1, 73.86% (a whole-repo floor, as the worker recorded 73.88%)
+- Thresholds diff: four keys added at 100, none removed or lowered, no EXCLUDES, and no biome change.
+
+7. ROUTE KIT SECURITY
+- registerFactoryDispatcher's dispatchers are called from exactly one place: dispatchFactoryRequest in _shared.ts.
+  That runs inside handleFactoryApi after (1) the factories-enabled check, (2) the application-ready check,
+  (3) resolveFactoryPrincipal (auth, route scope, admin role, service scope), (4) SDK schema validation,
+  and (5) the service-project confinement. Registered dispatchers run after the six built-in groups.
+- The SDK's generated request schema admits only the 34 kinds the built-in groups own. So today a registered
+  dispatcher is unreachable in production, and no production code registers one.
+- Validator scratch test scratch/route-kit-gate.scratch.test.ts: 13/13 pass (route-kit-scratch.log). The positive
+  control reaches the dispatcher for an API-key user and a service principal. Every refusal leaves the dispatcher
+  uncalled: anonymous 401, key without scope 403, key on a session route 403, member on an admin route 403,
+  admin key with member role 403, internal key 403 factory_principal_unsupported, service without scope 403,
+  service on an admin route 403, service on a session route 401, foreign project 403
+  factory_service_project_mismatch, disabled 404, not ready 503, and an unvalidated kind 400.
+- Judgment: the extension point cannot bypass principal resolution or scope enforcement.
+- Advisory (low): the registry is module-global with no production user. The kit's doc comment does not say that
+  a registered dispatcher must enforce project grants itself, as the built-in application services do.
+
+8. RERUN RESULTS (validator, Bun 1.3.14)
+  typecheck                                  exit 0       light-typecheck.log
+  lint                                       exit 0       light-lint.log
+  check-factory-boundaries                   exit 0       light-boundaries.log
+  check-boundaries (dependency)              exit 0       5544 files, 0 violations
+  gate-integrity                             exit 0       light-gate-integrity.log
+  web: bun run check                         exit 0       569 files, 0 errors, 0 warnings
+  focused bun (18 files, all touched areas)  exit 0       281 pass, 0 fail
+  focused vitest (route kit + factory routes) exit 0      30 pass
+  web bearer-auth (bun)                      exit 0       49 pass
+  combined runner producers                  sdk, focused, web, web-bun, postgres, types, lint, gate-integrity,
+                                             boundaries, pool, compute, provisioning, python: all exit 0
+  node-coverage leg                          run 1 exit 1: temporal-replay.test.ts:586 "target invalidation command was
+                                             not delivered" (a 19 s wait under load). The rerun passes 21/21 alone,
+                                             and the whole node leg passes 81/81 (run2-node-coverage).
+                                             The package touches nothing under packages/, so this is a timing flake.
+  Podman (flock --close, Bun 1.3.14, c2ef2fac3):
+    extension-runner podman.integration      exit 0   19 pass
+    package-preparation.podman               exit 0    1 pass
+    runner supervisor.podman                 exit 0    2 pass
+    runner supervisor-process.podman         exit 0    3 pass
+    runner sandbox-stop.podman               exit 0    1 pass
+    host-launch-e2e.podman                   exit 0    1 pass
+  full backend pool (bun run test)           exit 1: 28105 pass, 9 fail, 1893 files (r-pool.log, 2cf473977, Bun 1.3.14).
+                                             All 9 are outside this package. The package changes none of these paths
+                                             against its base 6055bffc6 (`git diff` is 0 lines), and the same four
+                                             non-Python files pass at integ/w00 ceb995563, which later fixed them:
+                                             - m4-hooks-cors-pi-session (2): the expired pi_session date bridge,
+                                               retired by da3b73c0c
+                                             - claude-design project, graded-card-scanner postinstall,
+                                               build-allowed-env-injection (3): findProjectRoot meets a stray /tmp/.git;
+                                               fb07605c1 anchors the root at a real git repository
+                                             - python-runner.integration (4): the .venv/bin script headers still name
+                                               the pre-move worktree path (environment)
+  origin/main extra coverage leg             256 files in one process, 2658 pass, 23 fail, 9 errors. This leg exists only
+                                             for coverage. The failures are harness artefacts: a node-only suite
+                                             (gateway-activities.test.ts, 81/81 under node) run under Bun fails on TLS, and
+                                             python-runner tests fail on a .venv whose shebang points at the old worktree path.
+
+9. ENVIRONMENT EVENTS DURING VALIDATION
+- Overnight the worktree moved to /home/dev/work/EZCorp/EZHarness/.worktrees/w18a2-quality. /tmp/factory-tools
+  (Bun 1.3.14, the Temporal test server) was missing until the coordinator restored it about 04:24-04:29.
+- The first pool attempt ran on Bun 1.4.2 and stopped at the version check with no tests run. It is discarded.
+- Legs that ran against the missing path are discarded. They were rerun from the new path at 2cf473977 (source-identical).
+- The combined runner crashes in its gate step when --patch-bases holds a ref with "/" (integ/w00): the log
+  filename takes the raw ref. The validator ran the gates directly (gates.sh). This is a runner defect to fix
+  for the coordinator.
+
+10. GATE INTEGRITY AND DRY
+- No lowered thresholds, no new EXCLUDES, no skips, and no biome opt-outs. gate-integrity is green.
+- The route kit is a move, not a copy. _shared.ts keeps no mapping, principal, or response helper.
+- No second implementation of any C13 concept.
+- Minor: hostList in pool/process.ts repeats the bounded-distinct-list shape that identityConfig inlines.
+  The integer bounds helpers stay per file, as before. Neither is a finding.
+
+FINDINGS (ranked)
+  1. low   The worker report says the runner had "every producer exit 0" without saying the runner itself failed. The patch
+           gate vs 197fb6c94 was red (36 files, none from this package). Receipt: w18a2-sweep-coverage-patch-197fb6c94.log
+  2. low   The dispatchFactoryRequest claim of 7 is 8 at c2ef2fac3 (still far below 30).
+  3. low   The route kit's doc comment should say that a registered dispatcher must enforce project grants itself.
+  4. info  Flake: packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts:586 timed out once under load.
+  5. info  Runner defect: combined-integration.py cannot take a slash ref in --patch-bases (log filename).
+  6. info  The pool's 9 failures are pre-existing at the branch base and fixed on current integ/w00. After the
+           integrator merges 2cf473977 into integ/w00, they should pass. The worktree's Python .venv needs a
+           rebuild after the move (`uv sync --locked` in src/factory/runner/python).
+
+DISK: coverage and lcov input directories removed after the final merge (15 MiB freed). final-merged-lcov.info is kept.

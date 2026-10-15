@@ -1,0 +1,23 @@
+STEP 1/7: FROM docker.io/library/ubuntu:24.04
+STEP 2/7: ENV DEBIAN_FRONTEND=noninteractive
+--> Using cache e1ec96a7594bf5f97a716703455dfaa9e7c790e7d7e772a64a905886bc693836
+--> e1ec96a7594b
+STEP 3/7: RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends systemd systemd-sysv dbus dbus-user-session sudo       podman uidmap slirp4netns fuse-overlayfs passt python3 util-linux ca-certificates curl git unzip procps       podman-docker docker-compose-v2 jq xz-utils >/dev/null     && rm -rf /var/lib/apt/lists/* && touch /etc/containers/nodocker
+--> Using cache da8d86152e1b59e177a1489b30bef32e0326a4e3f08ad86e86e6431b45d13bca
+--> da8d86152e1b
+STEP 4/7: RUN curl -fsSLo /tmp/node.tar.xz https://nodejs.org/dist/v24.14.1/node-v24.14.1-linux-x64.tar.xz     && echo "84d38715d449447117d05c3e71acd78daa49d5b1bfa8aacf610303920c3322be  /tmp/node.tar.xz" | sha256sum -c -     && tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 --exclude CHANGELOG.md --exclude LICENSE --exclude README.md     && rm /tmp/node.tar.xz && node --version
+--> Using cache 87606d0661ab663b7afccfee115c9dbcfa02a6e5bf7fb4d5b03cf59ed747ebdf
+--> 87606d0661ab
+STEP 5/7: RUN useradd --uid 1001 --create-home --home-dir /home/runner --shell /bin/bash runner && chmod 0755 /home/runner     && echo 'runner ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/runner && chmod 0440 /etc/sudoers.d/runner     && printf 'runner:2:999\nrunner:1002:64535\n' > /etc/subuid && cp /etc/subuid /etc/subgid     && mkdir -p /var/lib/systemd/linger && touch /var/lib/systemd/linger/runner     && systemctl mask getty@.service console-getty.service systemd-logind.service.d 2>/dev/null; true
+--> Using cache a848cf8bae6aa53e367b49be4f3fa3e50d7380faf5ccac020e0969c8031f4f18
+--> a848cf8bae6a
+STEP 6/7: STOPSIGNAL SIGRTMIN+3
+--> Using cache 14ad08e29aefef6146cf065ed2668f0cb592d770d6184d7c4ffcb1c97e02c986
+--> 14ad08e29aef
+STEP 7/7: CMD ["/sbin/init"]
+--> Using cache 018851857b666c16bf44cabbc2153ea481e6b3ad5bc83987f31a03c19ebd8fa1
+COMMIT localhost/i5-runner:24.04
+--> 018851857b66
+Successfully tagged localhost/i5-runner:24.04
+Successfully tagged localhost/validator-8-runner:24.04
+018851857b666c16bf44cabbc2153ea481e6b3ad5bc83987f31a03c19ebd8fa1

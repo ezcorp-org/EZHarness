@@ -1,0 +1,4 @@
+scripts/check-patch-coverage-attestation.test.ts
+scripts/check-patch-coverage-typeonly.test.ts
+scripts/gate-integrity-rule11.test.ts
+src/__tests__/gate-scripts.test.ts

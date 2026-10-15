@@ -1,0 +1,53 @@
+=== heavy 2026-09-27T18:49:49Z
+HEAD c3da32784bba5a99a8d4f3996c4be0e5ddb80914 MERGE_HEAD 930c903316c3ca23173ccc0dcae8d1766e176ea8 index-tree 96f781772e99b69a17069e1d1f2b9083c295350b
+resource-gate 2026-09-27T18:49:49Z pg-factory-usage-epoch disk=112G memAvailable=16GiB swapFreeKiB=6687500/17173956
+--- START pg-factory-usage-epoch 2026-09-27T18:49:49Z
+--- END   pg-factory-usage-epoch 2026-09-27T18:49:54Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-27T18:49:54Z pg-factory-executions disk=112G memAvailable=16GiB swapFreeKiB=6687524/17173956
+--- START pg-factory-executions 2026-09-27T18:49:54Z
+--- END   pg-factory-executions 2026-09-27T18:50:00Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-27T18:50:00Z pg-factory-budgets disk=112G memAvailable=17GiB swapFreeKiB=6687624/17173956
+--- START pg-factory-budgets 2026-09-27T18:50:00Z
+--- END   pg-factory-budgets 2026-09-27T18:50:05Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-27T18:50:05Z pg-factory-task-stops disk=112G memAvailable=17GiB swapFreeKiB=6687640/17173956
+--- START pg-factory-task-stops 2026-09-27T18:50:05Z
+--- END   pg-factory-task-stops 2026-09-27T18:50:18Z exit=0  32 pass 0 fail 
+resource-gate 2026-09-27T18:50:18Z pg-factory-compute-admissions disk=112G memAvailable=16GiB swapFreeKiB=6687772/17173956
+--- START pg-factory-compute-admissions 2026-09-27T18:50:18Z
+--- END   pg-factory-compute-admissions 2026-09-27T18:50:24Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T18:50:24Z pg-factory-restore disk=112G memAvailable=17GiB swapFreeKiB=6687848/17173956
+--- START pg-factory-restore 2026-09-27T18:50:24Z
+--- END   pg-factory-restore 2026-09-27T18:50:54Z exit=0  17 pass 0 fail 
+resource-gate 2026-09-27T18:50:54Z pg-factory-checkpoint disk=112G memAvailable=16GiB swapFreeKiB=6690100/17173956
+--- START pg-factory-checkpoint 2026-09-27T18:50:54Z
+--- END   pg-factory-checkpoint 2026-09-27T18:51:30Z exit=0  12 pass 0 fail 
+resource-gate 2026-09-27T18:51:30Z pg-factory-schema disk=112G memAvailable=16GiB swapFreeKiB=6691580/17173956
+--- START pg-factory-schema 2026-09-27T18:51:30Z
+--- END   pg-factory-schema 2026-09-27T18:51:35Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T18:51:35Z pg-factory-guest-model-journal disk=112G memAvailable=16GiB swapFreeKiB=6691580/17173956
+--- START pg-factory-guest-model-journal 2026-09-27T18:51:35Z
+--- END   pg-factory-guest-model-journal 2026-09-27T18:51:41Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T18:51:41Z pg-factory-migration-restart disk=112G memAvailable=16GiB swapFreeKiB=6691644/17173956
+--- START pg-factory-migration-restart 2026-09-27T18:51:41Z
+--- END   pg-factory-migration-restart 2026-09-27T18:52:00Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-27T18:52:00Z pg-factory-stop-lock-order disk=112G memAvailable=16GiB swapFreeKiB=6692032/17173956
+--- START pg-factory-stop-lock-order 2026-09-27T18:52:00Z
+--- END   pg-factory-stop-lock-order 2026-09-27T18:52:06Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T18:52:06Z unit-lcov disk=112G memAvailable=16GiB swapFreeKiB=6692048/17173956
+--- START unit-lcov 2026-09-27T18:52:06Z
+--- END   unit-lcov 2026-09-27T18:52:27Z exit=0  120 pass 0 fail 
+resource-gate 2026-09-27T18:52:27Z web-server-lcov disk=112G memAvailable=16GiB swapFreeKiB=6692324/17173956
+--- START web-server-lcov 2026-09-27T18:52:27Z
+--- END   web-server-lcov 2026-09-27T18:52:44Z exit=1  Tests 112 passed (112) 
+resource-gate 2026-09-27T18:52:44Z coverage-merge disk=112G memAvailable=17GiB swapFreeKiB=6692428/17173956
+--- START coverage-merge 2026-09-27T18:52:44Z
+--- END   coverage-merge 2026-09-27T18:52:45Z exit=0 
+resource-gate 2026-09-27T18:52:45Z web-build disk=112G memAvailable=17GiB swapFreeKiB=6692428/17173956
+--- START web-build 2026-09-27T18:52:45Z
+--- END   web-build 2026-09-27T18:53:23Z exit=0 
+resource-gate 2026-09-27T18:53:23Z graph-mock-pass disk=112G memAvailable=17GiB swapFreeKiB=6692684/17173956
+--- START graph-mock-pass 2026-09-27T18:53:23Z
+--- END   graph-mock-pass 2026-09-27T18:54:10Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w15f-merge/graph/w15f-merge-mock.json; nothing to dump
+mock pass w15f-merge-mock outcome: passed
+HEAVY DONE status=1 dirty=0 2026-09-27T18:54:10Z

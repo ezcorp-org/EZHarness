@@ -4,19 +4,10 @@
 // on every install/reload, but only creates dirs that don't yet exist.
 
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
+import { resolveProjectRoot } from "@ezcorp/sdk/runtime";
 
-function findProjectRoot(from: string = process.cwd()): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
-
-const projectRoot = findProjectRoot();
+const projectRoot = resolveProjectRoot();
 const dataDir = join(projectRoot, ".ezcorp", "extension-data", "claude-design");
 
 for (const sub of ["projects", "handoffs"]) {

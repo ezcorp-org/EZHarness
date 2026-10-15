@@ -1,0 +1,13 @@
+wave4h run 1 (head 341a6876d): withdrawn by the lead's ruling ("withdraw", 2026-10-03) after the runner step: 37 legs, 48153 tests,
+merge blocked by one red test (src/__tests__/dev-image-ownership.test.ts, the W4G-1 regression: passes at fda4108e8, fails at
+4ae2f1658), every other leg green, gate-integrity = the 8 lines. Nothing from run 1 is published.
+Withdrawal (integrator-3, own processes only, SIGTERM by pid or own process group): driver 105720 and its after-runner (which had
+taken the lock at about 10:06Z and was in graph-mock-pass). Orphaned mock-pass stack processes (ppid 1, started 10:06:42-10:06:50Z,
+tied to /home/dev/.w19a-stack-kAMCrA): 1029666 1029695 (pool, supervisor process.ts), 1029696 (temporal dev server :44065), 1029743
+(runner.lock flock), 1030219 (TLS proxy), 1030266 (gateway-listener.ts), 1030812 (orchestrator-runner.sh), 1030813
+(orchestration-process.ts); later, by the lead's /proc ruling: 1030267 (web `bun build/index.js`, cwd .../w00-integration/web,
+environ naming the stack/DBs). All exited.
+Proof PostgreSQL: w19a_pool_1791021995263_d21612 dropped (podman exec, password by variable name only); stack dir removed.
+w19a_product_1791021995263_d21612 LEFT IN PLACE by the lead's ruling: its drop failed with 20 sessions; the next step (listing them)
+was denied by the permission system ("Interfere With Workloads") and is not retried; the database joins the standing user item
+"scratch databases". The other three w19a databases belong to other runs and were not touched.

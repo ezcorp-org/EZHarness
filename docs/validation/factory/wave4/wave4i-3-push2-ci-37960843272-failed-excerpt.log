@@ -1,0 +1,45 @@
+# excerpt of `gh run view 37960843272 --log-failed` (integrator-5, push-log-excerpt.py)
+# full log: /tmp/factory-platform-evidence/w00/wave4i-3/push2/ci-37960843272/all-failed.log sha256 09d0fe9a1d45eaff5b0fa2bd5005fe7d9f56aaa1d03cab8b82ee4e3ba2ccf6b2 bytes 6206 lines 39
+
+## Factory runner readiness precheck (26 lines; 26 kept)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	﻿2026-10-09T16:40:58.7142154Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7142643Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7400900Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7401288Z env:
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7401636Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7402126Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7402544Z   FACTORY_RUNNER_READ_TOKEN: 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7402919Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7403283Z ##[endgroup]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7557810Z 124 |   inspect?: typeof inspectFactoryRunners;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7558911Z 125 |   log?: Pick<Console, "log">;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7559792Z 126 | } = {}): Promise<number> {
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7560534Z 127 |   const env = options.env ?? process.env;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7561357Z 128 |   const token = env.FACTORY_RUNNER_READ_TOKEN;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7562674Z 129 |   if (!token) throw new Error("FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners");
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7563886Z                               ^
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7564694Z error: FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7566195Z       at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7567412Z       at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7568035Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7589395Z ##[error]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7597534Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7597683Z Bun v1.4.2 (Linux x64)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-09T16:40:58.7601792Z ##[error]Process completed with exit code 1.
+
+## Per-file coverage gate (13 lines; 13 kept)
+Per-file coverage gate	Merge lcov + enforce thresholds	﻿2026-10-09T17:09:41.9010273Z ##[group]Run mkdir -p coverage
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9010709Z ^[[36;1mmkdir -p coverage^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9011185Z ^[[36;1mbun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9011668Z ^[[36;1mbun scripts/check-coverage.ts^[[0m
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9067572Z shell: /usr/bin/bash -e {0}
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9067933Z env:
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9068264Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9068672Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:41.9069047Z ##[endgroup]
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:43.3210594Z merged 2385 source files → coverage/lcov.info
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:43.5202069Z Coverage gate FAILED (1 file(s) below threshold):
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:43.5203201Z   web/src/lib/factory/FactoryConsole.svelte: 99.70% < 100% — missed lines: 199
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-09T17:09:43.5252872Z ##[error]Process completed with exit code 1.

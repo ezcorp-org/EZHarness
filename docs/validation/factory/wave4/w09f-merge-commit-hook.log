@@ -1,0 +1,75 @@
+Checked 16 files in 13ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/db/error-chain.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 9 pass
+ 0 fail
+ 18 expect() calls
+Ran 9 tests across 1 file. [608.00ms]
+  bun: src/db/swappable-bun-sql.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 4 pass
+ 0 fail
+ 19 expect() calls
+Ran 4 tests across 1 file. [677.00ms]
+  bun: src/__tests__/cov-fix-connection-postgres.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T16:11:17.002Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.003Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.004Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.004Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.004Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.004Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.004Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.005Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.005Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T16:11:17.005Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-09-27T16:11:17.005Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T16:11:17.005Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T16:11:17.005Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-09-27T16:11:17.005Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T16:11:17.005Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":3}
+
+ 10 pass
+ 0 fail
+ 48 expect() calls
+Ran 10 tests across 1 file. [574.00ms]
+  bun: src/__tests__/factory-boot.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 24 pass
+ 0 fail
+ 48 expect() calls
+Ran 24 tests across 1 file. [1047.00ms]
+  bun: src/__tests__/test-pglite-snapshot-guard.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 1 pass
+ 0 fail
+ 3 expect() calls
+Ran 1 test across 1 file. [2.37s]
+  bun: tests/postgres/bun-sql-pool-replacement.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 1 pass
+ 0 fail
+ 7 expect() calls
+Ran 1 test across 1 file. [6.83s]
+  vitest: src/__tests__/context-register-preview-bus.server.test.ts src/__tests__/context-state-mediator-wiring.server.test.ts src/__tests__/factory-boot.server.test.ts
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+{"ts":"2026-09-27T16:11:30.558Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-09-27T16:11:31.580Z","level":"error","msg":"Extension delivery drain failed","subsystem":"ext.delivery.runtime","code":"delivery_failed"}
+
+ Test Files  3 passed (3)
+      Tests  18 passed (18)
+   Start at  12:11:27
+   Duration  3.93s (tests 47%, transform 31%, environment 13%, import 4%, setup 4%)
+
+  Transform  transforming modules took 2.84s · 31% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

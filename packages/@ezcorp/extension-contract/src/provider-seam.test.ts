@@ -78,7 +78,7 @@ describe("sandbox provider contribution seam", () => {
       profiles: provider.profiles,
       presetIds: provider.presets.map(item => item.id),
     };
-    expect(validateSandboxProviderDescription(provider, described)).toEqual(described);
+    expect<unknown>(validateSandboxProviderDescription(provider, described)).toEqual(described);
     expect(() => validateSandboxProviderDescription(provider, { ...described, presetIds: ["unreviewed"] })).toThrow("does not match");
   });
 

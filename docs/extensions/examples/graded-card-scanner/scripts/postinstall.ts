@@ -3,19 +3,12 @@
 // extension-data dir so the platform's static-file route serves it at
 // /api/extensions/graded-card-scanner/data/app/index.html.
 
-import { cpSync, existsSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { cpSync, mkdirSync } from "node:fs";
+import { join } from "node:path";
+import { resolveProjectRoot } from "@ezcorp/sdk/runtime";
 
-/** Walk up from `from` to the nearest directory containing `.git`. */
-export function findProjectRoot(from: string = process.cwd()): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
+/** The nearest git repository root above `from`, or `from` itself. */
+export const findProjectRoot = resolveProjectRoot;
 
 /**
  * Copy the SPA from the extension package into the served data dir.

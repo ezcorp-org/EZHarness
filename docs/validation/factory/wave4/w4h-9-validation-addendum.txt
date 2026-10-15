@@ -1,0 +1,28 @@
+ADDENDUM (validator-6, 2026-10-05) — W4H-9 at c49f4b727 (wp/w4h-9, owner w4h-1), base integ/w00 104cb2237: ACCEPT; R3d (the full historical-upgrade lane) OPEN locally for load — the hosted lane after the push is its proof of record (not a fail)
+Carry-over instance W4H-9-pins (w00/ruling-proof-carry-over.txt): A = 138ace386 (my verdict verdict-validator-6-w4h9.138ace386.txt,
+sha256 57c8414c8b9119f3), B = c49f4b727.
+`git diff --name-only 138ace386 c49f4b727` = packages/@ezcorp/extension-runner/tests/service-detach.test.ts, tasks/factory/w4h-9-GATES.md.
+No source file changed (from 02c53fb7a the list adds only tasks/todo.md). Commits 17d1762fd (test file only: two pinned attach-rule
+cases) and c49f4b727 (gates doc), both archy noreply as author and committer.
+CARRIED FROM A, as ruled: the E2E semantic-only upgrade runs (base red from a BASE snapshot with the base candidate: exit 1,
+operation_failed; head green from the head snapshot with the head candidate: exit 0, UPGRADE_STATE_SEEDED), the clean podman rerun
+(main 1, podman 19, provision 3, host-launch-transport 6, supervisor.podman 2: 31/0), the mutants (start claim removed: 3 red;
+delivered filter removed: 1 red; release keeps `attached`: 9 red across the recovery suites; the collectEvents first-guard relaxation
+is an equivalent mutant, explained, not a finding) and the fixture check (the 3ec53eaa client verbatim except two import paths and a
+header comment).
+RERUN AT B (fresh snapshots outside the evidence dir, removed; records w4g-validation/w4h9/hold-c49f4b727/ and pin1-mutant-c49f4b727/):
+  - service-detach.test.ts at c49f4b727: 16 pass, 0 fail (both pinned cases green).
+  - The owner's mutation, the claim-clearing line on /v4/attach removed (`session.startClaim = false;` before `attachHost(session);`):
+    RED by assertion — "after the starter claims its worker, a second attach is refused" and the existing "a dropped connection
+    releases the attachment from the runtime's own signal, never from the lease". The other pinned case, "a released worker refuses
+    an event poll until a host attaches it again", is not guarded by that line (a release sets `attached` false, which the event poll
+    refuses on its own), so it stays green under it, as the owner's log also shows.
+  - Its own guard's mutation, a release that no longer clears `attached`: RED by assertion, 10 cases, among them "a released worker
+    refuses an event poll until a host attaches it again". So each pinned case fails when the line it pins is removed.
+  - typecheck, lint, check-factory-boundaries, check-boundaries 0; identity 5/5 archy noreply; gate-integrity base leg clean against
+    104cb2237, origin/main leg equals the 8 paths; guard set (39 files) 477 pass, 2 skip, 0 fail; SDK 246/0; new-file gate PASSED (no
+    new source file); patch gate PASSED (service.ts, all changed executable lines covered); CRAP: no touched function over 30; prune
+    scan (w00/prune-scan.sh efffa0178530c74a) "clean (0 hit(s))"; config-check --check-only exit 0 at every start and end
+    ("888c78b9e94ea660 = accepted baseline").
+  - Coverage note: with the hook-mapped suite alone, service.ts is LF 207 LH 198 and the origin/main patch output names service.ts
+    once; with the six recovery suites as well (the run at A, the same source), LH 207 and named 0 times.

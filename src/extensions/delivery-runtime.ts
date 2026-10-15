@@ -9,8 +9,16 @@ import { loopsKillSwitchEngaged } from "./loops-kill-switch";
 
 const log = extensionLogger("delivery", "runtime");
 let wireProcess: ((extensionId: string, process: ExtensionProcess) => void | Promise<void>) | undefined;
-let timer: ReturnType<typeof setInterval> | undefined;
+let stopTicker: (() => void) | undefined;
 let draining: Promise<void> | undefined;
+
+/** Calls `tick` on a schedule and returns the function that stops it. */
+export type DeliveryTicker = (tick: () => void) => () => void;
+const everySecond: DeliveryTicker = tick => {
+  const timer = setInterval(tick, 1000);
+  timer.unref();
+  return () => clearInterval(timer);
+};
 
 interface DeliveryInput { method: string; params: Record<string, unknown>; provenance: CallProvenance; origin?: "hub" }
 
@@ -44,16 +52,23 @@ async function resolveDeliveryProject(installationId: string, principalId: strin
   return context;
 }
 
-export function startExtensionDeliveryRuntime(wire: NonNullable<typeof wireProcess>): void {
+export function startExtensionDeliveryRuntime(wire: NonNullable<typeof wireProcess>, ticker: DeliveryTicker = everySecond): void {
   wireProcess = wire;
-  if (timer) clearInterval(timer);
-  timer = setInterval(() => { void drainExtensionDeliveries().catch((cause) => log.error("Extension delivery drain failed", { code: cause instanceof LifecycleError ? cause.code : "delivery_failed" })); }, 1000);
-  timer.unref();
+  stopTicker?.();
+  let ticking: Promise<void> | undefined;
+  stopTicker = ticker(() => {
+    // A tick that finds a drain in flight leaves it to whoever started it, so
+    // one failure is logged once, not once per waiting tick (W4H-8: 63 lines).
+    if (ticking || draining) return;
+    ticking = drainExtensionDeliveries()
+      .catch((cause) => log.error("Extension delivery drain failed", { code: cause instanceof LifecycleError ? cause.code : "delivery_failed" }))
+      .finally(() => { ticking = undefined; });
+  });
 }
 
 export async function stopExtensionDeliveryRuntime(): Promise<void> {
-  if (timer) clearInterval(timer);
-  timer = undefined;
+  stopTicker?.();
+  stopTicker = undefined;
   await draining;
   wireProcess = undefined;
 }

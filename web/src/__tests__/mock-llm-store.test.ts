@@ -16,6 +16,9 @@ import {
   buildMockTurnResponse,
   releaseMockHold,
   recordMockRequest,
+  isMockPromptDigestModel,
+  mockPromptDigestTurn,
+  MOCK_PROMPT_DIGEST_PREFIX,
 } from "$lib/server/mock-llm";
 
 afterEach(() => clearMockScripts());
@@ -223,5 +226,39 @@ describe("buildMockTurnResponse (dispatcher)", () => {
   test("matches buildMockStreamResponse for a non-fault turn", () => {
     expect(buildMockTurnResponse({ text: "x" }).headers.get("Content-Type"))
       .toBe(buildMockStreamResponse({ text: "x" }).headers.get("Content-Type"));
+  });
+});
+
+describe("prompt-digest mode", () => {
+  const messages = [
+    { role: "system", content: "Answer in one short sentence." },
+    { role: "user", content: [{ type: "text", text: "Name the primary colours of light." }] },
+  ];
+
+  test("selects only a named prompt-digest model", () => {
+    expect(MOCK_PROMPT_DIGEST_PREFIX).toBe("prompt-digest:");
+    expect(isMockPromptDigestModel("prompt-digest:w19a")).toBe(true);
+    for (const model of ["prompt-digest:", "mock:w19a", "qwen3:1.7b", undefined, 4]) expect(isMockPromptDigestModel(model)).toBe(false);
+  });
+
+  test("the same prompt always gets the same answer, with no seeding and no state", () => {
+    const first = mockPromptDigestTurn("prompt-digest:w19a", messages);
+    clearMockScripts();
+    expect(mockPromptDigestTurn("prompt-digest:w19a", structuredClone(messages))).toEqual(first);
+    expect(first.text).toMatch(/^prompt-digest answer [a-f0-9]{16}$/);
+    expect(first.finishReason).toBe("stop");
+  });
+
+  test("a different prompt or a different model name gets a different answer", () => {
+    const base = mockPromptDigestTurn("prompt-digest:w19a", messages).text;
+    expect(mockPromptDigestTurn("prompt-digest:w19a", [...messages, { role: "user", content: "again" }]).text).not.toBe(base);
+    expect(mockPromptDigestTurn("prompt-digest:other", messages).text).not.toBe(base);
+  });
+
+  test("usage counts the words it was sent and the words it answered", () => {
+    expect(mockPromptDigestTurn("prompt-digest:w19a", messages).usage).toEqual({ input: 11, output: 3 });
+    // Content it cannot read as text counts for nothing rather than failing.
+    expect(mockPromptDigestTurn("prompt-digest:w19a", [{ role: "user", content: [{ type: "image" }] }, null, { role: "user" }]).usage).toEqual({ input: 0, output: 3 });
+    expect(mockPromptDigestTurn("prompt-digest:w19a", "not a list").usage).toEqual({ input: 0, output: 3 });
   });
 });

@@ -1,0 +1,189 @@
+W01g round 4 re-check: guest material staging over the broker
+==============================================================
+
+Validated head  f0aafe3a0 on wp/w01g-staging. The tree was clean before and after.
+                The code is identical to a805171a5 (git diff --quiet, src packages
+                scripts web tests).
+Worktree        /home/dev/work/EZCorp/EZHarness/.worktrees/w01g-staging (not edited)
+Evidence        /tmp/factory-platform-evidence/w01g-validation/r4/
+                results.json, receipts/, logs/, proof-1..3.json, negative-control.json,
+                probe/refusal-probe.test.ts, flake/ (old and new fixture copies),
+                repro/ (my harness copy, heavy.sh, flake-loop.sh)
+
+VERDICT: ACCEPT
+
+All four round-3 findings I was asked to re-check are closed. My own three passes
+and the negative control are correct at f0aafe3a0. All gates are green. The
+supervisor flake fix holds under 12-way load. The coverage attribution fix
+corrects measurement and weakens no gate.
+
+
+1. ROUND-3 FINDINGS
+-------------------
+
+F1  CLOSED (82162aff4, 04911b7ce).
+    executions.ts now throws FactoryAttemptLivenessError with one of two codes:
+    factory_attempt_unknown or factory_attempt_not_live. One helper,
+    requireAttempt, serves both the write fence and the read fence. The broker
+    maps that error, the run-lifecycle codes and the grant codes by name. It maps
+    everything untyped to `unavailable`
+    (guest-material-broker.ts:147-155).
+    My round-3 probe, rerun unchanged at the new head:
+      never-admitted attempt -> unknown_attempt   (was stale_epoch)
+      object-store fault     -> unavailable       (was stale_epoch)
+    The suite now also shows that the same frames succeed on resend after the
+    store recovers (suite:433-458).
+
+F2  CLOSED. Gate G3 now names a real case for each refusal:
+      conflict and operation_full    suite:460-473, the 257th material in one operation
+      unknown_attempt                suite:419-431, a real journal, and also an unknown run
+      unavailable                    suite:433-458
+    I read each assertion. They check the refusal code by name.
+
+F3  CLOSED (12a1ad076). guest-broker-service.ts:71-86 checks three things:
+      - the mTLS peer must be in `hosts` (403 forbidden);
+      - the bearer token must verify, with sub equal to the peer and scope
+        factory:guest-broker (401);
+      - the attempt's launch record must name that host, or the route answers
+        403 forbidden_host.
+    The route reads the lease through readFactoryAttemptLaunchFacts
+    (guest-broker-composition.ts:88-89). It reuses factoryServiceTokenVerifier
+    from the private service, so there is one verifier, not two. My three passes
+    went through this check with hosts {supervisor-w09b: host-w09b} and a real
+    launch row.
+
+F5  RECORDED, as the coordinator ruled. native.ts is unchanged since f00605f72.
+    G6 records it as uncomposed, with the grep. The grep again finds only
+    native.ts as a non-test user.
+
+F6  (the harness observer's late query error) is closed. No receipt of mine has
+    an observer error. See N2 for the trade-off.
+
+
+2. MY RERUNS AT f0aafe3a0
+-------------------------
+
+  leg                         exit  counts
+  sdk-build                   0
+  typecheck                   0
+  lint                        0
+  boundaries                  0
+  gate-integrity              0
+  c13-inventory               0     13 pass
+  postgres-registration       0     5 pass
+  sdk-unit                    0     24 pass
+  schema-drift                0     15 of 15 identical, generated outside the tree
+  python-lint                 0
+  python-typecheck            0
+  python-test                 0     251 + 183 OK
+  python-parity-host          0     4 pass
+  coverage-sdk                0     36 pass
+  coverage-runner             0     337 pass
+  coverage-python             0
+  coverage-postgres           0     59 pass (real PostgreSQL + real S3, flock --close)
+  coverage-merge              0
+  new-file-coverage           0     7 new source files gated (BASE_REF=integ/w00)
+  patch-coverage              0     22 files, all changed lines covered (BASE_REF=integ/w00)
+  podman-python-guest         0     12 pass
+  podman-guest-model          0     1 pass
+  podman-attempt-runtime      0     7 pass
+  refusal-probe               0     unknown_attempt, unavailable
+
+Three passes and the control:
+
+  pass      database                    timeline                   result     output               readiness  restart
+  proof-1   w09b_product_1790210391660  queued running succeeded   completed  sha256:65943bac7c26  bound      succeeded
+  proof-2   w09b_product_1790210437310  queued running succeeded   completed  sha256:65943bac7c26  bound      succeeded
+  proof-3   w09b_product_1790210480174  queued running succeeded   completed  sha256:65943bac7c26  bound      succeeded
+  control   w09b_product_1790210523145  queued running failed      cancelled  none                 bound      failed
+
+Each pass read result.json (82 bytes) and workspace/attempt.json (50 bytes)
+through the scoped reader. Each loaded the candidate_output (node "work",
+generation 0) with the staged text. All four receipts show exit 0,
+recordFresh true, dirty 0, and no observer error. The harness binds nothing: the
+web server binds the route from its startup document.
+
+
+3. THE SUPERVISOR FLAKE FIX (a805171a5)
+---------------------------------------
+
+Method: I used W16's shape, scaled up. The loop ran 20 rounds of 12 concurrent
+processes. Each process ran the two bind tests of
+src/factory/runner/supervisor-process.test.ts (filtered with -t). I ran it three
+times: on the fixture before a805171a5, on the fixture after it, and on the
+in-tree file. The old and new copies came from git show, with their relative
+imports made absolute, and live in r4/flake/. Both copies pass all 38 tests
+alone. The loop ran under flock --close. Script: repro/flake-loop.sh.
+
+  fixture                  runs   red runs   failed tests
+  old (a805171a5^)         240    63         65
+  new (a805171a5)          240    0          0
+  in-tree (f0aafe3a0)      240    0          0
+
+Of the old failures, 57 were "a bind that fails degrades by name and is retried
+on the next heartbeat". Six were "binds once after the first good probe".
+Both are the tests the commit changed.
+
+The fix is sound. Each test now stops on the fact it asserts: the third ready
+record, or the first ready record after the retry. A heartbeat count shared
+with the file-I/O observer no longer decides when it stops. The 1,000-heartbeat
+cap is an upper bound only. If the asserted record never appears, the test
+still fails on its own expectations.
+
+
+4. THE COVERAGE "LINE-ATTRIBUTION GAP"
+--------------------------------------
+
+What changed: two test files were added to the measured legs.
+factory-run-lifecycle.test.ts joined the runner leg, and
+tests/postgres/factory-executions.test.ts joined the PostgreSQL leg. No gate
+script changed. W01g's only change under scripts/ against integ/w00 adds seven
+100 percent threshold keys. There are no ignore markers, no EXCLUDES, and no
+biome change.
+
+I reproduced the artifact directly. I measured
+executions.integration.test.ts and guest-material-broker.integration.test.ts
+with and without the lifecycle test:
+
+  executions.ts line             without   with
+  568 (fence UPDATE)             310       310
+  573 (requireAttempt call)      0         228
+  576-577 (lockTerminalCompletion)  0      76 / 98
+
+Line 573 is the requireAttempt call that every live fence passes through. The
+broker tests certainly execute it, yet Bun reports 0 until the adjacent
+lockTerminalCompletion runs. So the added test corrects what Bun reports; it
+does not buy coverage for untested code. The worker named line 568; the line in
+this head that shows the symptom is 573.
+
+Note: the shared merge-lcov.ts drops all-zero span-fill blocks. That rule
+predates W01g and does not touch W01g's changed lines.
+
+
+5. NEW NOTES (none blocks acceptance)
+-------------------------------------
+
+N1  NIT. src/factory/executions.ts:186. The class's doc comment ("Durable C02
+    journal; ...") now sits directly above the new type's doc comment, so it no
+    longer documents the class.
+
+N2  INFO. repro/guest-broker-observer.ts (harness only). After one good poll,
+    any later query failure stops polling silently. That removes the noise at
+    database drop. It could also hide a real mid-run query fault. The receipt's
+    own content check (a candidate_output with the staged text) would still
+    catch a missing output.
+
+N3  INFO. readFactoryAttemptLaunchFacts takes FOR UPDATE on the launch row for
+    every frame (attempt-runtime.ts:181). Each call is a short transaction, but
+    it contends with the dispatcher's writes to the same row. It also throws
+    launch_corrupt without a handler in the route, so a corrupt row returns the
+    transport's generic error, not a named status.
+
+
+6. SECURITY
+-----------
+
+The PostgreSQL password is not in my evidence. There are no private-key blocks
+and no JWT-shaped tokens. The harness mints the host token into the per-run
+secrets directory and records paths only. No authority check was removed. F3
+adds two checks.

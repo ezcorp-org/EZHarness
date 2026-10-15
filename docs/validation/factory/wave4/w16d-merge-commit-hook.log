@@ -1,0 +1,129 @@
+Checked 17 files in 26ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/db/swappable-bun-sql.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 5 pass
+ 0 fail
+ 23 expect() calls
+Ran 5 tests across 1 file. [573.00ms]
+  bun: src/factory/background-workers.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 23 pass
+ 0 fail
+ 74 expect() calls
+Ran 23 tests across 1 file. [613.00ms]
+  bun: src/factory/installation-startup.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 54 pass
+ 0 fail
+ 290 expect() calls
+Ran 54 tests across 1 file. [6.13s]
+  bun: src/factory/runtime-composition.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 33 pass
+ 0 fail
+ 114 expect() calls
+Ran 33 tests across 1 file. [986.00ms]
+  bun: src/shutdown-deadlines.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 5 pass
+ 0 fail
+ 5 expect() calls
+Ran 5 tests across 1 file. [650.00ms]
+  bun: src/__tests__/cov-fix-connection-postgres.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T19:36:46.350Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.352Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.352Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.352Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.352Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.352Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.353Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.353Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.353Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T19:36:46.353Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-09-27T19:36:46.353Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T19:36:46.354Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T19:36:46.354Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-09-27T19:36:46.354Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-09-27T19:36:46.354Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":3}
+{"ts":"2026-09-27T19:36:46.354Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+
+ 11 pass
+ 0 fail
+ 52 expect() calls
+Ran 11 tests across 1 file. [3.57s]
+  bun: src/__tests__/factory-boot.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 24 pass
+ 0 fail
+ 48 expect() calls
+Ran 24 tests across 1 file. [1056.00ms]
+  vitest: src/__tests__/factory-boot.server.test.ts src/__tests__/shutdown.server.test.ts
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+{"ts":"2026-09-27T19:36:52.807Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-27T19:36:52.808Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"c","ms":0}
+{"ts":"2026-09-27T19:36:52.808Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"b","ms":0}
+{"ts":"2026-09-27T19:36:52.808Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"a","ms":0}
+{"ts":"2026-09-27T19:36:52.808Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.809Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.809Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"dup","ms":0}
+{"ts":"2026-09-27T19:36:52.809Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.810Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"async","ms":1}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"decision-producer","ms":0}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"permission-audit-coalescer","ms":0}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"pglite-close","ms":0}
+{"ts":"2026-09-27T19:36:52.811Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"observe","ms":0}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":0}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"first","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"once","ms":0}
+{"ts":"2026-09-27T19:36:52.812Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"first"}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"second"}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":3}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"late","ms":0}
+{"ts":"2026-09-27T19:36:52.813Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"boom","error":"Error: kaboom"}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"db","ms":0}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.813Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"test","teardownCount":2}
+{"ts":"2026-09-27T19:36:52.814Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"ok","ms":0}
+{"ts":"2026-09-27T19:36:52.814Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"test"}
+{"ts":"2026-09-27T19:36:52.814Z","level":"error","msg":"teardown failed","subsystem":"shutdown","name":"reject","error":"Error: async-fail"}
+{"ts":"2026-09-27T19:36:52.814Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"deadline-test","teardownCount":2}
+{"ts":"2026-09-27T19:36:58.814Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"pglite-close","ms":0}
+{"ts":"2026-09-27T19:36:58.814Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"deadline-test"}
+{"ts":"2026-09-27T19:36:52.819Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"timeout-test","teardownCount":6}
+{"ts":"2026-09-27T19:37:17.820Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"hang-0","ms":1001}
+{"ts":"2026-09-27T19:37:17.820Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"done-first","ms":0}
+{"ts":"2026-09-27T19:37:17.820Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"timeout-test"}
+{"ts":"2026-09-27T19:36:52.822Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"SIGTERM","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.822Z","level":"info","msg":"shutdown already in progress — ignoring re-trigger","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-27T19:36:52.822Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-27T19:36:52.822Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"SIGTERM"}
+{"ts":"2026-09-27T19:36:52.952Z","level":"info","msg":"graceful shutdown begin","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy","teardownCount":1}
+{"ts":"2026-09-27T19:36:52.952Z","level":"info","msg":"teardown ok","subsystem":"shutdown","name":"t","ms":0}
+{"ts":"2026-09-27T19:36:52.952Z","level":"info","msg":"graceful shutdown complete","subsystem":"shutdown","reason":"sveltekit:shutdown:deploy"}
+
+ Test Files  2 passed (2)
+      Tests  33 passed (33)
+   Start at  15:36:50
+   Duration  2.17s (transform 68%, environment 19%, tests 7%, setup 6%)
+
+  Transform  transforming modules took 2.79s · 68% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

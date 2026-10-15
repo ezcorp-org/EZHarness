@@ -1,0 +1,11 @@
+./scripts/uv-toolchain-registration.test.ts
+./src/factory/reference-catalog/pack.test.ts
+./src/factory/reference-code/pack.test.ts
+./src/factory/reference-data/materials.test.ts
+./src/factory/reference-data/pack-journey.test.ts
+./src/factory/reference-data/pack.test.ts
+./src/factory/reference-data/publication.test.ts
+./src/factory/reference-data/reconcile.test.ts
+./src/factory/reference-image/materials.test.ts
+./src/factory/reference-image/publication.test.ts
+./src/factory/runner/uv-command.test.ts

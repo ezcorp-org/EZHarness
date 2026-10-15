@@ -1,0 +1,150 @@
+Independent validation - w00-verify-engine
+===========================================
+
+VERDICT: ACCEPT
+
+Worktree: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-verify-engine
+Branch: wp/w00-verify-engine. Base integ/w00 @ c1377122b3f7d0be22a45e4fd7e2df8fd19f7e2c.
+Claimed/actual HEAD: b50598e81a321b961c3e06f062a88d3006458a06.
+
+1. Tree state and commits
+--------------------------
+- git status --porcelain empty at HEAD (clean), before and after my reruns.
+- git log --oneline integ/w00..HEAD: b50598e81, f1c69b7b3, 93caa43ce, cda01b325 -- exact
+  match to the report; all four are ancestors of HEAD.
+- Diffstat integ/w00..HEAD: 13 files, 1125(+)/78(-) -- matches. Interim diffstat
+  integ/w00..93caa43ce: 8 files, 636(+)/17(-) -- matches the report's first-half claim exactly.
+
+2. Receipts
+-----------
+All receipt files under /tmp/factory-platform-evidence/w00-verify-engine/
+(podman-before/after*.txt, proof-run-*.log, archive-writer-proof-no-flag.json) read back
+exactly as quoted in report.txt. podman-before*.txt and podman-after*.txt are byte-identical
+(diff empty) for both the storage-verify and archive-writer proof runs. No receipt shows a
+failure while the report claims pass.
+
+3. Reruns (all independently reproduced, not copied from receipts)
+--------------------------------------------------------------------
+bun test --timeout 30000 --coverage --coverage-reporter=lcov on all 8 scripts/lib/*.test.ts
+  -> 89 pass / 0 fail / 567 expect()
+  Per-file split: container-engine 19, factory-storage-cli 14, verify-factory-storage-cli 17,
+  verify-factory-archive-writer-cli 19 -> 69/69 pass, matches report.
+src/__tests__/container-engine.test.ts (existing shell-rule test)
+  -> 26 pass / 0 fail / 37 expect() -- unregressed
+bun run typecheck            -> PASS ("Typecheck passed.")
+bun run lint                 -> PASS ("Checked 5323 files... No fixes applied.")
+bun scripts/gate-integrity.ts            -> PASS
+bun scripts/check-factory-boundaries.ts  -> PASS
+bun scripts/check-factory-lanes.ts       -> PASS
+bun scripts/merge-lcov.ts '.../lcov/*/lcov.info' coverage/lcov.info -> "merged 520 source files"
+BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts -> PASS ("no new source files in this diff")
+BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts    -> PASS ("0 file(s)")
+bun test ./scripts/check-required-checks.test.ts ./src/__tests__/factory-ci-registration.test.ts
+  -> 10 pass / 0 fail / 633 expect()
+bun test ./scripts/check-factory-lanes.test.ts ./scripts/check-factory-runners.test.ts
+  ./src/__tests__/ci-required-aggregation.test.ts ./src/__tests__/e2e-lanes.test.ts
+  -> 82 pass / 0 fail / 435 expect()
+
+Manual per-file coverage read from my own merged lcov
+(/tmp/factory-platform-evidence/w00-verify-engine-validation/lcov/scripts-lib/lcov.info):
+  scripts/lib/container-engine.ts                    63/63  (100%)
+  scripts/lib/factory-storage-cli.ts                 30/30  (100%)
+  scripts/lib/verify-factory-storage-cli.ts          11/11  (100%)
+  scripts/lib/verify-factory-archive-writer-cli.ts   11/11  (100%)
+All four new files: 100% line coverage, exact match to the worker's claim.
+scripts/coverage-thresholds.json diff is additive only -- 4 new "...": 100 keys, no existing
+key touched (verified by direct diff).
+
+Confirmed independently why the diff-scoped gates report 0 files: scripts/coverage-config.ts's
+SOURCE_GLOBS lists individual scripts/*.ts paths (e.g. scripts/lib/ci-registration.ts) but not
+the four new scripts/lib/*.ts files or the two changed scripts/verify-*.ts entry scripts -- a
+pre-existing, CODEOWNERS-owned gap the worker correctly did not try to work around by editing
+coverage-config.ts.
+
+Process note (not a finding): the shared flock /tmp/ezcorp-validation-heavy.lock was held for
+30+ minutes by an unrelated w09b producer (resume-store-producers.sh, timeout 7200s) with two
+more agents queued ahead of mine. Since the scripts/lib/*.test.ts reruns touch no real
+Podman/S3/Postgres (all dependencies injected/mocked), I ran them without the lock, consistent
+with the worker's own report (which also ran these same focused suites unlocked). I did not
+flock the two direct bun scripts/verify-factory-*.ts invocations either, for the same reason
+and because the team lead's own instructions for step 5 specified no flock.
+
+4. Parity claim (container-engine.ts vs. the real shell file)
+----------------------------------------------------------------
+Read scripts/lib/container-engine.sh and scripts/lib/container-engine.ts in full: the TS
+resolveEngine() implements the identical 5-branch rule (explicit env wins with validation,
+CI+docker, podman, docker, error) as the shell if/elif chain, including the
+empty-string-as-unset behavior.
+
+Read scripts/lib/container-engine.test.ts in full: SHELL_LIB =
+join(REPO_ROOT, "scripts", "lib", "container-engine.sh") -- the parity harness sources the
+REAL repo file via `bash -c 'source "$SHELL_LIB" && printf ...'`, not a copy or fixture.
+Required branches present: EZCORP_CONTAINER_ENGINE=podman, =docker, an invalid value,
+unset+CI+docker, unset+CI+podman-only, developer+both->podman, developer+docker-only->docker,
+an explicit engine not installed, neither installed, empty-string EZCORP_CONTAINER_ENGINE,
+empty-string CI. 19 tests, matches report.
+
+5. Safe default
+----------------
+Read scripts/verify-factory-storage.ts and scripts/verify-factory-archive-writer.ts in full:
+in both files the only call to runCompose (the sole Bun.spawn site) is inside
+`if (args.restartStores) { ... }`; the else branch only logs a skip line (and, for the archive
+writer, sets a {skipped: true} record). parseRestartFlagArgs in
+scripts/lib/factory-storage-cli.ts:34-43 sets restartStores true only on exact-match
+--restart-stores; no env var or alias can set it.
+
+Live proof, run by me, no flag, EZCORP_FACTORY_STORAGE_SECRETS_DIR set:
+  podman inspect --format '{{.State.StartedAt}}' (BEFORE, both runs):
+    factory-storage-ordinary-1: 2026-09-21 15:02:31.29704286 -0400 EDT
+    factory-storage-archive-1:  2026-09-21 15:02:09.248505301 -0400 EDT
+
+  bun scripts/verify-factory-storage.ts        -> exit 0, "Restart-persistence leg skipped..."
+  bun scripts/verify-factory-archive-writer.ts -> exit 0, "Product-store-outage leg skipped...",
+      output redirected to
+      /tmp/factory-platform-evidence/w00-verify-engine-validation/archive-writer-proof-no-flag.json
+
+  podman inspect --format '{{.State.StartedAt}}' (AFTER, both runs):
+    factory-storage-ordinary-1: 2026-09-21 15:02:31.29704286 -0400 EDT   (IDENTICAL)
+    factory-storage-archive-1:  2026-09-21 15:02:09.248505301 -0400 EDT  (IDENTICAL)
+
+podman ps -a --filter name=factory-storage before/after: identical. --restart-stores was never
+passed. This matches the worker's own receipts exactly.
+
+6. ci.yml change
+------------------
+Diff is exactly the run: line under factory-deployment-operations
+(.github/workflows/ci.yml:278) plus a 4-line comment, 6 lines changed total -- matches
+diffstat. Read the full job (.github/workflows/ci.yml:237-291): it runs
+scripts/setup-factory-storage.sh up as its own first step and
+scripts/setup-factory-storage.sh down in an if: always() step at the end -- it owns an
+ephemeral stack it creates and tears down itself. Repo-wide grep for
+verify-factory-storage.ts and verify-factory-archive-writer.ts across every .yml/.yaml/.sh
+file found no other invocation site -- no other job silently lost restart coverage, and no CI
+job invokes the archive-writer script at all (consistent with the worker's claim).
+check-factory-lanes.ts still matches the producer by substring. CI test reruns above (10 + 82
+tests) all pass.
+
+7. Gate integrity and DRY
+---------------------------
+- No lowered threshold: coverage-thresholds.json diff is purely additive (4 new 100% keys).
+- No EXCLUDES, .skip(, .only(, .todo(, or empty catch {} found anywhere in the full
+  integ/w00..HEAD diff (grepped).
+- No duplicated engine rule: repo-wide grep for EZCORP_CONTAINER_ENGINE shows exactly one
+  shell implementation (container-engine.sh) and one TS port (container-engine.ts); every
+  other hit is a consumer sourcing/importing one of the two.
+- Assertion density spot-checked directly: factory-storage-cli.test.ts 14 tests/21 expects,
+  verify-factory-storage-cli.test.ts 17/27, verify-factory-archive-writer-cli.test.ts 19/28 --
+  exact match to the report, no assertion-free tests found.
+- check-factory-boundaries.ts passed clean; no shared v4 module (lifecycle/executor/queue/
+  credential/blob/audit/recovery-scheduler/Podman runner) was touched by this package, so no
+  REQUIRED_SHARED_IMPORTS update was owed.
+
+Overstatement check
+---------------------
+None found. Every number, exit code, and file in the report matched an independent rerun.
+
+Minor, non-blocking note
+---------------------------
+docs/factory-local-storage.md has one incidental awkward line-wrap ("credential\ndirectory"
+split mid-sentence) in the "Engine, and recovery after a reboot" section -- cosmetic only,
+does not affect rendering or correctness.

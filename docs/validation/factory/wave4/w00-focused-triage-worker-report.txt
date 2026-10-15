@@ -1,0 +1,411 @@
+W00 FOCUSED-BATCH TRIAGE — wave4a cross-file interference
+=========================================================
+Branch:   wp/w00-focused-triage   (worktree .worktrees/w00-focused-triage, created from integ/w00 at c1377122b)
+Head:     c8020c44166b27a7ce1651d0b830d1c98ea2267d  (batch verified at 62f6826f5: 226 files,
+          2791 pass, 0 fail; the head commit is tasks/ docs only)
+Receipts: /tmp/factory-platform-evidence/w00-focused-triage/
+Tools:    <receipts>/tools/{build-batch-list.py,run-batch.sh,bisect.sh,verify-pairs.sh,verify-pairs2.sh,check-cov.py}
+          combined-integration.py was read only and never modified.
+
+
+0. RESULT
+---------
+The batch is GREEN in one process. It is 226 files at the final head, not the 222 I was given: four
+of the suites round 2 changed add themselves to the runner's `--diff-filter=AM` auto list, so the
+batch to beat grew under me. Section 6 is the round that cost.
+
+           tests   pass   fail   files   seconds   head
+baseline    2732   2723      9     222       599   c1377122b  (the run I was given)
+round 1     2747   2747      0     222       505   78c27fec0
+round 2     2791   2787      4     226       603   dc3eba210  (REJECTED by the validator)
+final       2791   2791      0     226       572   62f6826f5
+
+The pass total rises by 24 and the test total by 15 because one whole file,
+src/__tests__/installer-idempotent-local.test.ts, never linked in the baseline: its sixteen tests
+did not run at all and the batch counted the link error as one failure. Fixing the leak that broke
+it converts 1 counted failure into 16 running tests.
+
+  baseline: <receipts>/baseline-full.receipt.txt   (head c1377122b, exit 1)
+  final:    <receipts>/final-full.receipt.txt      (head 78c27fec0, exit 0)
+
+Command, identical for both, assembled inside tools/run-batch.sh (the PostgreSQL URL is built at run
+time from /tmp/factory-platform-evidence/postgres.env plus `podman port`, never in argv, never
+printed):
+
+  bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=<dir> <222 files in order>
+
+The file list is rebuilt by tools/build-batch-list.py, which copies combined-integration.py lines
+28-37 verbatim, with --auto-extra-base c6ac529d2 and the coordinator's six --focused-extra paths. It
+produces 222 files, 181 auto-added — the same count the coordinator's run reported.
+
+
+1. THE LEAKS
+------------
+Five files leave process-global state behind. Every one was reproduced in a TWO-file run — the named
+predecessor plus its victim — and every victim passes alone.
+Bisect evidence: <receipts>/bisect-steps.txt, verify-pairs.txt, verify-pairs2.txt.
+
+LEAK 1 — module mocks that were never restored
+  Leaker:  src/__tests__/bundled-v4-bootstrap.test.ts   (batch position 87)
+  Sets:    eight module-registry entries, at lines 28-37. The one that matters is line 29,
+           mock.module("../db/queries/extension-releases", …) whose stub DatabaseLifecycleRepository
+           records into a local Map and writes no database row.
+  Should restore at: line 41, which read `afterAll(() => mock.restore())`. mock.restore() undoes
+           spies only; bun has no unregister for mock.module, so all eight entries survived the file.
+           The helper's own header (src/__tests__/helpers/mock-cleanup.ts lines 5-6) states this.
+  Victim:  src/__tests__/bundled-wiring-activation.test.ts (position 88), 3 tests. Its `activate()`
+           persists an installation through DatabaseLifecycleRepository — the stub — and then calls
+           the REAL publishExtensionGeneration, which reads the row back and finds nothing, so
+           src/extensions/extension-lifecycle-service.ts:231 refuses with generation_superseded.
+           (Bun's partial-mock semantics are why only the repository was stubbed and the publish
+           function stayed real: a mock.module over an ALREADY-LOADED module overrides only the keys
+           its factory returns. preload's snapshotModules() loads every MODULE_PATHS entry, so both
+           modules were loaded before file 87 mocked them. Measured with a four-file probe.)
+  Fix:     afterAll(() => { mock.restore(); restoreModuleMocks(); }). All eight paths are already in
+           MODULE_PATHS, so the shared helper restores every one.
+  Proof:   fx-v88-after87 62 pass / 0 fail; fx-v87-alone 59 pass / 0 fail.
+
+LEAK 2 — the trusted-local runner's module state
+  Leaker:  src/__tests__/trusted-local-runner-in-process.integration.test.ts (position 125)
+  Sets:    `hooks` (src/extensions/trusted-local-runner.ts:49) via configureTrustedLocalRunner() in
+           its beforeAll, and `runner` (line 50), memoised by the first resolveTrustedLocalRunner().
+  Should restore at: its afterAll, which closed the runner and left both variables set.
+  Victim:  src/__tests__/trusted-local-runner-wiring.test.ts (position 126), 4 tests. Its first case
+           requires the unconfigured start a process gives it and got a resolved runner instead
+           ("Expected promise that rejects / Received promise that resolved"); the other three walk
+           forward from that state and saw zero constructions.
+  Fix:     resetTrustedLocalRunner() added beside configureTrustedLocalRunner (the same shape as
+           ExtensionRegistry.resetInstance(), which this repo already uses for process singletons in
+           tests). The integration suite calls it in afterAll; the wiring suite calls it once in its
+           own beforeAll, before the walk, so it no longer depends on who ran first.
+  Also:    the integration suite's last test used a `?fresh=<uuid>` module copy to get clean state.
+           With the reset available the copy is unnecessary, and it was costing the file its
+           coverage record — bun keeps ONE record per source path and the copy loaded LAST owns it.
+           Measured on this producer: 24.59% with the copy, 100.00% without.
+  Proof:   fx-v126-after125 9 pass / 0 fail; r5-trustedlocal-pair 9 pass / 0 fail and
+           src/extensions/trusted-local-runner.ts 44/44 lines.
+  Not the leaker: extension-lifecycle-service-trusted-local.test.ts (position 102) stubs the same
+           module but restores it; v126-after102 was already 10 pass / 0 fail.
+
+LEAK 3 — the process-wide SDK bundle cache (a wrong premise, not a leak to restore)
+  Warmers: packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts (45) and
+           podman.integration.test.ts (46), both through tests/helpers.ts:5, which calls
+           provisionToolchain({ sdkEntrypoint: process.env.EZ_RUNNER_SDK_ENTRY }). With that variable
+           unset the key is the default entrypoint — the same key the victim uses.
+  State:   `sdkBundles` (packages/@ezcorp/extension-runner/src/provision.ts:23), a deliberate
+           process-wide cache. Production is correct; the test's premise was not.
+  Victim:  provision.integration.test.ts (47), 1 test. Its comment said "this test owns the first
+           provision in its process, so the count is absolute", and expect(build.mock.calls.length)
+           .toBe(1) read 0.
+  Rejected fix: clearing the cache so the suite really owns the first build. I implemented it, and
+           it made things WORSE — two failures instead of one, with EISDIR on four packages
+           (@modelcontextprotocol/sdk, ajv, re2js). The hazard the module's own comment documents is
+           real on bun 1.3.14: a second Bun.build() in one process reuses the first build's file
+           descriptors. (A standalone two-build probe does NOT reproduce it, which is presumably how
+           it survived review; it needs the file traffic a podman suite generates in between.)
+           Evidence: verify-pairs.txt, steps fx-v47-after45 / fx-v47-after46 / fx-v47-runnerpkg.
+  Fix:     the suite settles the build the process still owes OUTSIDE the spy, then requires its
+           three toolchain roots to add exactly none: toBe(1) becomes toBe(0) over a warmed cache.
+           That is not weaker for the regression it guards — keying the bundle on the toolchain root
+           would read 2 either way — and it is now order-independent. The floor the old count also
+           carried is restored explicitly: every .js in sdkFiles is a Bun.build output, because the
+           two package trees copied in beside them are declaration-only, so the suite asserts that
+           set is not empty.
+  Proof:   r2-v47-alone 3 pass; r2-v47-after46 22 pass; r2-v47-runnerpkg (all six runner suites in
+           batch order) 40 pass / 0 fail, no EISDIR.
+
+LEAK 4 — a $server/* alias mock, which bun cannot unregister
+  Leaker:  src/__tests__/executor-slash-command-expansion-e2e.test.ts (position 99), line 60:
+           mock.module("$server/auth/middleware", () => ({ requireAuth: … })).
+  State:   two separate, permanent effects.
+           (a) Export set. A $server/* alias is never loaded before a test file mocks it, so the
+               factory DEFINES the alias's exports for the whole process and a partial factory
+               deletes the rest for good. No later registration can add one back; restoreModuleMocks
+               cannot restore an export the specifier never carried.
+           (b) Resolution. Once the literal specifier is registered, it stops resolving through the
+               importing module's own tsconfig. A web/ module that used to share one record with
+               ../../db/connection now reads a separate frozen one, so the suite's own
+               mockDbConnection() and spyOn no longer reach what the route under test uses.
+  Victim:  src/__tests__/installer-idempotent-local.test.ts (110). Effect (a) cost it the whole file:
+           "SyntaxError: Export named 'checkProjectRole' not found in module '$server/auth/middleware'",
+           counted as one unhandled error while sixteen tests silently did not run.
+  Fix:     three parts, each at its own root.
+           - The suite spreads the real middleware into its factory, so the export set stays whole,
+             and its one override reverts in afterAll (`stubRequireAuth = false`) because the
+             registration itself cannot be withdrawn. A frozen requireAuth answers for every later
+             file's routes; measured, it cost the victim three tests on its own.
+           - src/__tests__/helpers/mock-request.ts no longer registers $server/db/connection. Its
+             lazy factory first resolved at a LATER file's module-hoist moment, before that file's
+             own mockDbConnection() had run, and froze the alias on the real, uninitialised
+             connection: "Database not initialized — call initDb() first" from control-actor.ts.
+           - src/__tests__/helpers/mock-cleanup.ts no longer re-registers $server/* aliases in
+             restoreModuleMocks(). That block is its own worst case: a file whose ONLY act is
+             calling restoreModuleMocks() cost the victim three tests, because the author-page
+             loader then resolved a different instance of the lifecycle service than the suite was
+             driving. The file's own SERVER_ALIAS_PREFIXES comment already says the block was
+             retired as "ACTIVELY HARMFUL" and that the array is no longer consumed by restoration;
+             the code and that comment had drifted apart, on this branch and on origin/main. Both
+             constants are kept and now exported, as that comment says they should be, so the
+             mock-cleanup meta-test still parses them.
+  Proof:   r3-v110-after99 21 pass / 0 fail; r3-v99-alone 5 pass; r3-mockcleanup-meta (the helper's
+           own meta-test, src/__tests__/mock-cleanup-coverage.test.ts) 16 pass / 0 fail.
+
+LEAK 5 — the lifecycle services singleton (surfaced by repairing leak 1)
+  Leaker:  src/__tests__/bundled-wiring-activation.test.ts (88). Its beforeAll calls
+           getExtensionLifecycle(), which memoises `services`
+           (src/extensions/extension-lifecycle-service.ts:127) — a repository, delivery queue and
+           migrations all bound to THIS file's PGlite — and its afterAll closes that PGlite.
+  Why it was invisible: while file 87 still leaked a stub over getExtensionLifecycle, that call
+           never reached the real initialisation, so the singleton stayed empty. Repairing leak 1
+           exposed the dependency.
+  Victim:  src/__tests__/extension-lifecycle-service-trusted-local.test.ts (102), 4 tests: two on
+           "PGlite is closed" through createWorkspace, two because the trusted-local hooks it
+           asserts were never installed (initialize() does not re-run for a memoised singleton).
+  Fix:     resetExtensionServices() added beside getServices(); it drops the singleton, the recovery
+           capacity flag and any pending recovery timers, so a stale timer cannot fire at a closed
+           database either. The activation suite calls it in afterAll before closing its database;
+           the trusted-local service suite calls it in both hooks, so it owns the initialisation it
+           asserts whatever ran before it.
+  Proof:   r4-v102-after88 7 pass / 0 fail; r4-v102-alone 4 pass; r4-v88-alone 3 pass.
+
+
+2. COMMITS (wp/w00-focused-triage, in order)
+--------------------------------------------
+e54d5884b  test(extensions): restore the modules the bundled v4 bootstrap suite mocks
+df7039171  feat(extensions): let a suite hand back an unconfigured trusted-local runner
+6a310cf82  test(runner): measure the SDK builds this suite causes, not the process's first
+b16972230  test: stop a $server alias mock deciding what later files see
+99f52fbe1  feat(extensions): let a suite hand back uninitialised lifecycle services
+9a5b1b8ae  test(extensions): walk the canonical trusted-local module, not a coverage-losing copy
+78c27fec0  docs(tasks): record the wave4a focused-batch isolation triage
+698e9a2fb  docs(tasks): record the pool result this triage could not make green
+7f27a544f  test: stop four more suites hijacking $server/db/connection for the process
+dc3eba210  docs(tasks): record the $server/db/connection sweep and its victim proofs
+62f6826f5  test: make a claimed $server alias safe for the next file in the process
+c8020c441  docs(tasks): record the rejected sweep, the pair matrix, and the pre-existing pairs
+
+Nothing is skipped, no file order changed, no assertion weakened. Two source files gained a
+test-only reset each, both fully covered:
+  src/extensions/trusted-local-runner.ts          44/44 lines in the r5 pair producer
+  src/extensions/extension-lifecycle-service.ts   resetExtensionServices lines 204-208 hit
+                                                  11/23/36/49/24 times in the final batch lcov
+  (<receipts>/touched-source-coverage.txt; both files keep their 100 threshold key.)
+
+
+3. DOES MAIN'S CI PUT THESE FILES IN ONE PROCESS?
+-------------------------------------------------
+No — not today.
+
+  scripts/test.sh:143-147  "Run each file in its own process, up to PARALLEL at a time", and the
+                           loop body is ez_watchdog_run_file "$f", one file per bun process. This
+                           is what `bun run test` runs (package.json:25).
+  scripts/test-coverage.sh:218  the coverage HOST pool is likewise one file per process:
+                           bun test … --coverage-dir="$covdir" "./$f".
+  CLAUDE.md, Testing       states the same contract: "one isolated bun process PER FILE", and warns
+                           that a bare repo-root bun test deadlocks on cross-file mock.module
+                           contamination.
+
+The only places CI puts several files in ONE bun process are four package legs in test-coverage.sh —
+sdk (line 311, ./packages/@ezcorp/sdk/…), harness-client (327, ./packages/@ezcorp/harness-client/),
+composer-suggest (351, src/suggest/**) and ai-kit (375) — plus three explicit lists in the
+workflows: ci.yml:115-117 (two src/factory/runner files), ci.yml:182-186 (podman.integration.test.ts
+with three src/factory/runner podman suites) and release-image.yml:60 (five src/__tests__ files:
+db-backup, readiness, update-check, db-migrate-idempotent, encryption). None of those groups
+contains both halves of any of the five pairs, so none of these leaks can bite in CI as it stands.
+
+Two consequences worth the coordinator's attention. First, the repair is for the combined
+integration runner, which is the only thing that puts 222 files in one process — it is not fixing a
+live CI failure. Second, the hazard is one edit away from CI: ci.yml:182 already groups
+podman.integration.test.ts with three other files in one process, and adding
+provision.integration.test.ts to that list would have failed before this branch and passes after it.
+The per-file pool is also why the mock-cleanup alias block could sit on main unnoticed: main never
+runs two of these files together.
+
+
+4. VERIFICATION
+---------------
+  full batch, one process   <receipts>/final-full.receipt.txt        2747 pass, 0 fail, exit 0
+  batch before the fix      <receipts>/baseline-full.receipt.txt     2723 pass, 9 fail, exit 1
+  each leak, two files      <receipts>/bisect-steps.txt              every leak reproduced
+  each fix, two files       <receipts>/verify-pairs.txt, verify-pairs2.txt, r3-*.log, r4-*.log
+  every changed file alone  fx-v87-alone, fx-v88-alone (r4-v88-alone), r2-v47-alone, r3-v99-alone,
+                            fx-v110-alone, fx-v125-alone, fx-v126-alone, r4-v102-alone — all 0 fail
+  helper meta-test          <receipts>/r3-mockcleanup-meta.log       16 pass, 0 fail
+  typecheck / lint /
+  gate-integrity /
+  factory boundaries        <receipts>/static-checks.log             all pass
+  per-file pool, run 1      <receipts>/pool-test.log     27575 pass, 1 fail, 1860 files
+  per-file pool, run 2      <receipts>/pool-test-2.log   27573 pass, 3 fail, 1860 files
+
+THE PER-FILE POOL IS NOT GREEN ON THIS HOST, and neither failure belongs to this branch. Stated
+plainly rather than retried away:
+
+  run 1  docs/extensions/examples/sample-loop/index.integration.test.ts      1 test
+  run 2  src/__tests__/production-image-lifecycle-launch.integration.test.ts 3 tests
+
+A DIFFERENT file failed each time, both untouched by this branch (`git log c1377122b..HEAD --` on
+both paths is empty), and both are real-subprocess or real-container suites. Each passes alone at
+the same host load: sample-loop 4 runs for 4, and 12 concurrent copies of it all green
+(<receipts>/sample-loop-contention.txt); production-image-lifecycle-launch 4 pass / 0 fail at load
+35.59 (<receipts>/pool-failure-isolation.txt). Both runs shared the box with several other agents'
+full pools — load average 21 during run 1 and 36 during run 2 — which is the condition CLAUDE.md
+names for exactly these suites. I did not "repair" them; raising a timeout to make a saturated
+machine green is the gate-weakening that file warns against.
+
+What the pool does establish for this branch: 1860 files, 27575 and 27573 passes, and no failure in
+any file this branch changed. The structural argument is stronger than the count, because the pool
+runs one file per process: the only way a change here could reach an untouched file is through the
+two source files, and those changed by ADDITION ONLY — 31 lines, two exported functions, no
+existing line modified, nothing in production calling either (<receipts>/source-change-stat.txt,
+source-change-hunks.txt). Both are in sample-loop's static import graph of 2001 sources; neither is
+called from it, and none of the six changed TEST files or two changed helpers is in that graph at
+all (<receipts>/sample-loop-import-graph.txt).
+
+Nine failures named in the brief, all now passing:
+  provision.integration            "toolchainRoot names the tree …"                        leak 3
+  bundled-wiring-activation        three "activation reconciles bundled conversation wiring" leak 1
+  trusted-local-runner-wiring      four "resolveTrustedLocalRunner, walked in a process's order" leak 2
+  installer-idempotent-local       the ninth, an unhandled SyntaxError between tests        leak 4
+
+
+5. THE SWEEP (added on the coordinator's instruction, same branch)
+------------------------------------------------------------------
+The four suites that register $server/db/connection themselves, fixed the same way and proved the
+same way: each paired with src/__tests__/installer-idempotent-local.test.ts, which imports the
+author page loader and so reaches the alias through a web/ route.
+
+  BEFORE (<receipts>/sweep-before.txt)          AFTER (<receipts>/sweep-after-pairs.txt)
+  phase-2b-e2e               22 pass  2 fail    alone  8 pass 0 fail   + victim 24 pass 0 fail
+  mentions-search-workflow…  18 pass  1 fail    alone 18 pass 0 fail   + victim 34 pass 0 fail
+  mentions-search-symlink…   13 pass  1 fail    alone 13 pass 0 fail   + victim 29 pass 0 fail
+  scratchpad-e2e             21 pass  0 fail    alone  5 pass 0 fail   + victim 21 pass 0 fail
+
+phase-2b-e2e cost the victim two tests with "Database not initialized — call initDb() first". The
+two mentions suites cost it its WHOLE FILE — one unhandled SyntaxError, sixteen tests never run —
+twice over: first on checkProjectRole missing from $server/auth/middleware, and once that was
+repaired, on listProjects missing from $server/db/queries/projects. Each repair exposed the next
+partial alias in the same registration block, so the pair was re-measured after every one.
+
+scratchpad-e2e did NOT break this victim, and is still changed. Its shim froze on the test-pglite
+closure, which happens to track a later suite's database; the export set is frozen at getDb
+regardless, so a later file needing rawQuery or getPglite through the alias could not link. The
+hazard is removed, the suite's behaviour is not.
+
+Two shapes, two fixes:
+  - Pure pass-throughs (phase-2b-e2e:7, scratchpad-e2e:16) forwarded to the very module each file
+    had already mocked with mockDbConnection(). Deleted. Native resolution carries a web/ route's
+    $server/db/connection to that same src/db/connection record, which is what they wanted; the
+    registration only added the freeze. This also retires the async-factory exit hang that
+    SKIP_SERVER_ALIAS_RESTORE in mock-cleanup.ts was written for.
+  - Genuine stubs (the two mentions suites) moved OFF the alias onto the relative path:
+    ../db/connection, ../db/queries/projects and ../db/schema, all three in MODULE_PATHS, so
+    restoreModuleMocks() — now called in both afterAll hooks — puts them back. Over an
+    already-loaded module a partial factory overrides only the keys it names and leaves the rest
+    real, which is exactly what these DB-free route tests need. $server/auth/middleware cannot move
+    (the real middleware is what the route resolves), so it takes the executor-slash-command
+    pattern: spread the real module, revert the one requireAuth override in afterAll.
+
+No assertion changed in any of the four; every suite's own test count is unchanged.
+
+  batch after the sweep: <receipts>/sweep-full.receipt.txt
+  static gates:          <receipts>/static-checks-sweep.log  (typecheck, lint, gate-integrity,
+                         factory boundaries — all pass)
+  commit:                7f27a544f  test: stop four more suites hijacking $server/db/connection
+                                    for the process
+
+
+6. ROUND 3 — THE SWEEP WAS REJECTED, AND WHY THAT WAS RIGHT
+------------------------------------------------------------
+The validator accepted 698e9a2fb and rejected dc3eba210. It was correct, and the fault was my
+verification method as much as my fix: I proved each swept file against ONE named victim and never
+against the other files it shares a process with. Reproduced its findings before changing anything —
+226 files (the four swept suites pull themselves into the auto list), 2787 pass / 4 fail, and both
+minimal repros: executor-slash-command-expansion-e2e + mentions-search-symlink-integration =
+17 pass / 1 fail; executor + mentions-search-workflow-branch + scratchpad-e2e = 25 pass / 3 fail
+(<receipts>/repro1-before.log, repro2-before.log).
+
+WHAT I GOT WRONG. Round 2 moved three stubs off `$server/*` aliases onto relative paths, reasoning
+that native resolution carries a relative mock to the route. It does — but ONLY while no file has
+registered the alias, and a dozen suites in this pool register `$server/db/queries/projects`,
+`mockServerAlias()` among them. Once any file registers a `$server/*` specifier it is served from
+that registration for the rest of the process, so the route kept calling the real `getProject` and
+the suite's stub never reached it. The rule is narrower than I wrote it:
+
+  a relative-path mock is right ONLY for an alias nothing in the pool claims;
+  for an alias the pool DOES claim, the suite must claim it too — completely (spread the real
+  module, so no export is deleted) and reversibly (re-register the real module in afterAll).
+
+`$server/db/connection` is the one alias no suite claims any more, so its relative mock stays.
+
+FIXED THIS ROUND (test-only, no assertion changed, no suite's own count changed):
+  - Both mentions suites claim `$server/db/queries/projects` again, spread and reverted.
+  - Both DROP their `$server/db/schema` stub entirely. Reverting it is not enough and cannot be:
+    the route module is linked ONCE per process, so whichever suite imports it first binds its
+    `extensions`, and re-registering an alias cannot rebind an import already resolved. An empty
+    table then reaches a later suite's real drizzle query as `Object.entries(undefined)` inside
+    `orderSelectedFields` — failure 2's exact signature. The stub was never load-bearing: the fake
+    `getDb()` ignores whatever table it is handed.
+  - `serverContextStub()` in helpers/mock-request.ts — every export of web's server context, inert,
+    with the suite's overrides spread on top. Three suites stubbed that alias partially and so
+    DELETED `getGoalHost` for the process, after which executor-slash-command-expansion-e2e could
+    not link. The real module cannot be loaded from a bun test (its whole import graph is
+    `$server/*` and `$lib/*`), so completeness has to come from a shared list kept beside it.
+  - `$server/runtime/ez-actions/registry` spread in the workflow-branch suite; it had deleted
+    `getEzAction`.
+  - executor-slash-command-expansion-e2e no longer repeats `$server/db/queries/projects`.
+    Stated plainly: deleting that line does NOT lift the freeze — `mockServerAlias()` on the line
+    above and ten other suites still claim that alias, which is exactly why claim-and-revert, not
+    relative paths, is the only composable pattern for an alias a route resolves.
+
+PROOF — EVERY ORDERED PAIR, NOT ONE VICTIM EACH (<receipts>/pair-matrix-2.txt)
+  12 files (both rounds' touched suites, the two e2e files, the installer victim, the runner suite),
+  132 ordered pairs, each compared against the sum of its two files alone:
+      132 pairs, 129 green, 3 red.
+  All 12 green alone, counts unchanged — the two mentions suites still 18 and 13.
+
+THE THREE RED PAIRS ARE PRE-EXISTING AND I DID NOT FIX THEM. Measured at the merge base c1377122b
+in a separate worktree (<receipts>/badpairs-at-base.txt), identical numbers there:
+
+  pair                                                       at c1377122b     at my head
+  trusted-local-runner-wiring -> …-in-process.integration     8 pass  1 fail   8 pass  1 fail
+  scratchpad-e2e -> mentions-search-workflow-branch           5 pass 18 fail   5 pass 18 fail
+  scratchpad-e2e -> mentions-search-symlink-integration      12 pass  6 fail  12 pass  6 fail
+
+None is an alias-hygiene problem. All three are the same shape: a module is linked ONCE per process
+and the suite that loads it first decides what its imports bind to. scratchpad-e2e imports the
+mentions route at module scope, so a mentions suite loading after it inherits those bindings and its
+own stubs arrive too late; the wiring suite replaces the whole `@ezcorp/extension-runner` package,
+which the in-process integration then needs for real. Either direction needs a suite redesigned — a
+private route instance (the documented coverage trap, and the workflow-branch suite exists ONLY to
+produce coverage for that route) or the suites merged. That is its own package, and I did not reach
+for the copy that would cost the route its coverage.
+
+The batch never takes those three directions: in-process is 129 and wiring 130; the mentions suites
+are 118 and 119 and scratchpad-e2e is 125. Every direction the runner's order uses is green.
+
+  final batch:  <receipts>/batch226-final.receipt.txt
+  static gates: <receipts>/static-checks-round3.log
+  commit:       62f6826f5  test: make a claimed $server alias safe for the next file in the process
+
+
+5b. OPEN ITEMS AND ASSUMPTIONS
+------------------------------
+- Three ordered pairs stay red, all pre-existing at the merge base, all outside the alias-hygiene
+  family (section 6). They need a suite redesigned, and the runner's order does not reach them.
+- Seven other suites stub `$lib/server/context` partially and will delete an export for whoever
+  follows them. `serverContextStub()` now exists for them; converting them is a separate sweep, and
+  after this round I would want the whole-pair matrix run on it before it is believed.
+- Both mentions suites still mock the bare package `drizzle-orm` process-wide. That is not an
+  alias: bun merges a partial factory over the already-loaded package, so it shadows four operators
+  rather than deleting the package. Milder than an alias freeze, same family, and reshaping a
+  shared package mock is wider than this instruction covers. Flagged, not touched.
+- Other suites register partial $server/* and $lib/* factories that are never withdrawn. The four
+  named in the instruction are done; a general audit is its own package.
+- restoreModuleMocks() is used by the whole 1273-file backend pool, not just this batch. Its change
+  is behaviour-neutral for a one-file-per-process run (the aliases it re-registered were only ever
+  needed to undo another file's registration), which the pool run above is the evidence for.
+- The brief said nine tests failed; the batch counts nine failures, of which eight are named tests
+  and the ninth is the unhandled link error that hid sixteen more.
+- The shared heavy lock was held by W09b with two other agents queued behind it, and the brief said
+  not to take it for this work, so the pool run above ran unlocked at PARALLEL=3 rather than joining
+  that queue. Every other command here is a targeted bun test.

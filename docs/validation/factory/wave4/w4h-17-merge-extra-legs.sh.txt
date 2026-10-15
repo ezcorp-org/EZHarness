@@ -1,0 +1,33 @@
+# W4H-17 (integrator-5; lead's prep order 2026-10-09): spec-only change (web/e2e/factory-authoring-console.spec.ts). Sourced by hold-w4f.sh.
+# No full combined run (lead's ruling); merge gates BIND (web/e2e is outside SOURCE_GLOBS: new-file and patch read vacuous for the spec).
+tc_leg typecheck-all bun run typecheck      # svelte-check is not a separate leg: no .svelte file changed (web-check runs in the commit's fast checks)
+# (a) CI's browser producers on ONE fresh mapped build (w00/browser-part.sh, the after-runner's script: build, transfer checks, the five lanes,
+#     the route-coverage merge with its manifest check, factory-services); its real-auth lanes use the shared proof PostgreSQL as in every after-runner.
+BP=$D/browser; V=$REPO/tasks/testing-gaps/browser/v8-coverage
+# NOTEST=1 (lead's ruling 2026-10-09, after hold try 1): the after-runner's own form; Playwright prints "N passed", which the zero-test guard does
+# not read (try 1 read exit 97 while browser-part.sh itself ended rc 0). The lane counts are in browser/summary.txt.
+NOTEST=1 leg browser-part bash /tmp/factory-platform-evidence/w00/browser-part.sh "$REPO" "$BP"
+# (b) the changed spec alone, --repeat-each 3, under the lane env, on that build
+NOTEST=1 leg spec-repeat-each-3 bash $D/spec-repeat.sh "$REPO" /tmp/w4h17-spec-repeat
+# (a) binding browser checks: FactoryConsole 333/333 + DA:199 in the merged lcov; DA:199 from the mock-full lane alone; no file drops vs the hosted base
+NOTEST=1 leg browser-checks bash $D/browser-checks.sh "$REPO" "$BP" "$V/receipts/mock-full" /tmp/integrator-5-ci-artifacts/run-37960843272-browser/lcov.info /tmp/w4h17-browser-checks
+# (g) (lead's corrected form 2026-10-09) validator-8's lcov-merge-repro.sh cc23ae46fda3da19 (hardened; was 7a3571b755bced17) in head mode at the
+# merge over run 37960843272's 24 lcov-cov-* artifacts, REWRITE_ROOT=1, BROWSER_LCOV = that run's HOSTED browser lcov (five lanes), CHECK_COVERAGE=1:
+#  - control: the hosted browser lcov alone must FAIL on exactly FactoryConsole.svelte line 199 (one file below threshold);
+#  - hold: EXTRA_LCOV = the merged browser lcov from (a) (SF paths already under this merge's tree, the repro's <tree>) must PASS.
+# The artifacts are writable copies; a sha256 list taken before and checked after proves the legs changed none of them.
+ART=/tmp/integrator-5-ci-artifacts/run-37960843272-lcov; HB=/tmp/integrator-5-ci-artifacts/run-37960843272-browser/lcov.info; REPRO=/tmp/factory-platform-evidence/validator-8/lcov-merge-repro.sh
+NOTEST=1 leg repro-sha bash -c '[ "$(sha256sum "$0" | cut -c1-16)" = cc23ae46fda3da19 ] && echo "lcov-merge-repro.sh = cc23ae46fda3da19"' "$REPRO"
+chmod -R u+w "$ART" "$(dirname "$HB")"; ( cd /tmp/integrator-5-ci-artifacts && find run-37960843272-lcov run-37960843272-browser -type f -exec sha256sum {} + | sort -k2 ) > $D/artifacts-before.sha256
+NOTEST=1 leg hosted-shape-control env REWRITE_ROOT=1 BROWSER_LCOV=$HB CHECK_COVERAGE=1 bash $REPRO head "$REPO" "$M" "$ART" /tmp/w4h17-control-repro
+NOTEST=1 leg hosted-shape-control-result bash -c 'L=/tmp/w4h17-control-repro/check-coverage.log; tail -6 "$L";
+  grep -q "Coverage gate FAILED (1 file(s) below threshold)" "$L" && grep -qE "web/src/lib/factory/FactoryConsole\.svelte: [0-9.]+% < 100% — missed lines: 199$" "$L" && echo "control FAILS on exactly FactoryConsole.svelte:199 (as required)"'
+NOTEST=1 leg hosted-shape-check-coverage env REWRITE_ROOT=1 BROWSER_LCOV=$HB EXTRA_LCOV=$BP/browser-merged/lcov.info CHECK_COVERAGE=1 bash $REPRO head "$REPO" "$M" "$ART" /tmp/w4h17-hold-repro
+NOTEST=1 leg hosted-shape-check-coverage-result bash -c 'tail -6 /tmp/w4h17-hold-repro/check-coverage.log;
+  git diff --quiet HEAD^1 HEAD -- scripts/coverage-thresholds.json && git diff --quiet HEAD -- scripts/coverage-thresholds.json && echo "coverage-thresholds.json unchanged: first parent = merge = worktree" &&
+  grep -q "Coverage gate PASSED" /tmp/w4h17-hold-repro/check-coverage.log'
+# (g) form of the lead's 2026-10-09 ruling (1) (crossed with the corrected form above; both run, both bind): BROWSER_LCOV = the hold's OWN
+# five-lane merged browser lcov from (a), no EXTRA_LCOV; must report "Coverage gate PASSED" with the thresholds unchanged.
+NOTEST=1 leg hosted-shape-own-browser env REWRITE_ROOT=1 BROWSER_LCOV=$BP/browser-merged/lcov.info CHECK_COVERAGE=1 bash $REPRO head "$REPO" "$M" "$ART" /tmp/w4h17-own-repro
+NOTEST=1 leg hosted-shape-own-browser-result bash -c 'tail -6 /tmp/w4h17-own-repro/check-coverage.log; grep -q "Coverage gate PASSED" /tmp/w4h17-own-repro/check-coverage.log'
+NOTEST=1 leg artifacts-unchanged bash -c 'cd /tmp/integrator-5-ci-artifacts && find run-37960843272-lcov run-37960843272-browser -type f -exec sha256sum {} + | sort -k2 | cmp - "$0" && echo "artifacts unchanged: $(wc -l < "$0") files, hash list equal"' $D/artifacts-before.sha256

@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# wave4f legs outside the combined runner by design (validator-4's list; lead 2026-09-27). Run under
+# flock --close /tmp/ezcorp-validation-heavy.lock timeout 23400 by run.sh after the runner; heavy-lib.sh gives the
+# resource gate before every leg, the Bun/bunx pin assertion (exit 95) and the zero-test guard.
+#  1) the graph-proof runbook `pass mock none` at the run head (web built first; outcome recorded; DB dumped and dropped)
+#  2) W09e's e2e console spec, headless, under the pinned bunx, as its owner ran it: only if the spec is in the tree
+#  3) W03f's reference-data Podman journey: only if W03f is merged into this head (its integ merge commit is found);
+#     otherwise omitted by name
+#  4) the browser part (lead 2026-09-28): w00/browser-part.sh in THIS worktree (browser lcov SF paths are absolute
+#     under it): one fresh build, the transfer checks, the five ordinary lanes, merge-browser-route-coverage.sh into
+#     after/browser/browser-merged with head.txt, the factory-services lane pass/fail with its leftover-file check.
+#     Every lane must report a nonzero passed count.
+set -u
+D=${AFTER_OUT:-/tmp/factory-platform-evidence/w00/wave4f/after}   # run.sh passes its own output dir (RUN)
+mkdir -p "$D/graph"
+. /tmp/factory-platform-evidence/w00/heavy-lib.sh
+guard_leg   # the standing guard set as its own leg (lead 2026-09-30), besides the runner's focused guards
+mock_pass ${RUN:-wave4f}-mock
+if [ -f web/e2e/factory-live-console.spec.ts ]; then
+  leg w09e-e2e-console bash -c 'cd web && exec timeout 2400 bunx playwright test e2e/factory-live-console.spec.ts --reporter=line'
+else
+  echo "w09e-e2e-console: NOT RUN, web/e2e/factory-live-console.spec.ts is not in this tree (W09e not merged)" >> "$S"
+fi
+W03F_MERGE=$(git log --first-parent --format=%h -1 --grep='^merge: wp/w03f-provider-settle ' HEAD)
+if [ -n "$W03F_MERGE" ]; then
+  leg w03f-reference-data-journey bun test --timeout 900000 ./src/factory/reference-data/journey.integration.test.ts
+else
+  echo "w03f-reference-data-journey: OMITTED BY NAME, no W03f merge commit (merge: wp/w03f-provider-settle ...) on this head" >> "$S"
+fi
+# 4) browser part: the shared script (its exit is the leg's), then every lane must show a nonzero passed count.
+NOTEST=1 leg browser-part bash /tmp/factory-platform-evidence/w00/browser-part.sh "$REPO" "$D/browser"
+for l in mock-gate mock-full evidence fresh-setup real-auth factory-services; do
+  n=$(grep -E "^$l exit=" "$D/browser/summary.txt" 2>/dev/null | grep -oE '[0-9]+ passed' | head -1 | cut -d' ' -f1)
+  [ "${n:-0}" -gt 0 ] && echo "browser lane $l: $n passed" >> "$S" || { echo "browser lane $l: ZERO or missing passed count (red)" >> "$S"; st=1; }
+done
+heavy_done

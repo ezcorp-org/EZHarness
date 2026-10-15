@@ -24,7 +24,7 @@ mock.module("../../db/queries/settings", () => ({
 
 mockDbConnection();
 
-import { emitEnvKeyLeakWarnings } from "../clamp-permissions";
+import { detectEnvKeyLeaks, emitEnvKeyLeakWarnings } from "../clamp-permissions";
 import { extensions, auditLog } from "../../db/schema";
 import { eq } from "drizzle-orm";
 
@@ -73,5 +73,23 @@ describe("emitEnvKeyLeakWarnings — install-path integration", () => {
     await emitEnvKeyLeakWarnings(extId, ["PATH", "HOME", "USER"]);
     const audits = await getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:env-key-leak-warning"));
     expect(audits.length).toBe(0);
+  });
+
+  test("a benign-looking name with a credential-shaped value is classified and audited", async () => {
+    process.env.EXTENSION_ENV_VALUE_PROBE = "sk-proj-abcdefghijklmnopqrstuvwxyz123456";
+    try {
+      expect(detectEnvKeyLeaks(["EXTENSION_ENV_VALUE_PROBE"])).toEqual(["EXTENSION_ENV_VALUE_PROBE"]);
+      await emitEnvKeyLeakWarnings(extId, ["EXTENSION_ENV_VALUE_PROBE"]);
+      const audits = await getTestDb().select().from(auditLog).where(eq(auditLog.action, "ext:env-key-leak-warning"));
+      expect(audits).toHaveLength(1);
+      expect((audits[0]!.metadata as { newValue?: string }).newValue).toBe("EXTENSION_ENV_VALUE_PROBE");
+    } finally {
+      delete process.env.EXTENSION_ENV_VALUE_PROBE;
+    }
+  });
+
+  test("credential aliases are classified as sensitive environment names", () => {
+    expect(detectEnvKeyLeaks(["SERVICE_PASSWD", "providerApiKey", "SESSION_COOKIE", "PATH"]))
+      .toEqual(["SERVICE_PASSWD", "providerApiKey", "SESSION_COOKIE"]);
   });
 });

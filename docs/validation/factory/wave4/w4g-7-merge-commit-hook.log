@@ -1,0 +1,10 @@
+Checked 2 files in 8ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/private-https.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 75 expect() calls
+Ran 15 tests across 1 file. [1.67s]
+[detached HEAD 57453bb5e] merge: wp/w4g-7 625a1c879 into integ/w00 (W4G-7 test certificates signed with openssl ca; the extra request waits for the handler)

@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { join } from "node:path";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
@@ -43,7 +43,7 @@ mock.module("@ezcorp/extension-runner", () => ({
 
 const { getProjectRoot } = await import("../extensions/project-root");
 const { trustedLocalBunDigest } = await import("../extensions/runner-mode");
-const { configureTrustedLocalRunner, resolveTrustedLocalRunner, trustedLocalRoot, TRUSTED_LOCAL_ROOT } = await import("../extensions/trusted-local-runner");
+const { configureTrustedLocalRunner, resetTrustedLocalRunner, resolveTrustedLocalRunner, trustedLocalRoot, TRUSTED_LOCAL_ROOT } = await import("../extensions/trusted-local-runner");
 
 type ApprovalFor = (phase: string, digest: string) => Promise<unknown>;
 const hooks = {
@@ -74,6 +74,14 @@ describe("trustedLocalRoot", () => {
 });
 
 describe("resolveTrustedLocalRunner, walked in a process's order", () => {
+  // The walk below starts where a process starts — no hooks, no runner. The
+  // module is canonical and its state outlives a test file, so in a pooled
+  // run an earlier suite may already have configured it
+  // (`trusted-local-runner-in-process.integration.test.ts` wires the real
+  // one). Once, before the walk, not per test: the four cases build on each
+  // other's state on purpose.
+  beforeAll(() => resetTrustedLocalRunner());
+
   test("refuses with runner_unconfigured until the service installs hooks, and names the CLI case", async () => {
     await expect(resolveTrustedLocalRunner()).rejects.toMatchObject({ code: "runner_unconfigured", message: expect.stringContaining("CLI cannot build") });
     expect(constructed).toHaveLength(0);

@@ -1,0 +1,82 @@
+{
+ "head": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/w00-staging-sdk-coverage/lcov.info",
+   "head": "bd2cedcc95fc47813fef599a29a513964f6ca023",
+   "reused": true,
+   "sourceIdenticalTo": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+   "paths": [
+    "packages/@ezcorp/factory-sdk"
+   ]
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/w00-staging2-product-coverage/lcov.info",
+   "head": "d9eb440b6a0a48f20e6c7f6269563117e0349190",
+   "reused": true,
+   "sourceIdenticalTo": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+   "paths": [
+    "src",
+    "packages",
+    "scripts"
+   ]
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/w00-staging-postgres-coverage/lcov.info",
+   "head": "bd2cedcc95fc47813fef599a29a513964f6ca023",
+   "reused": true,
+   "sourceIdenticalTo": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+   "paths": [
+    "src",
+    "tests",
+    "packages"
+   ]
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/w00-staging-node-coverage/lcov.info",
+   "head": "bd2cedcc95fc47813fef599a29a513964f6ca023",
+   "reused": true,
+   "sourceIdenticalTo": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+   "paths": [
+    "packages/@ezcorp/factory-orchestrator",
+    "src/factory"
+   ]
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/w00-staging3-web-coverage/lcov.info",
+   "head": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+   "rerooted": true
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "644987ada",
+   "exitCode": 0
+  },
+  {
+   "name": "patch",
+   "base": "644987ada",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "2588c9f19edcae24273f4a2049eb3ac37bd6f920",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "2588c9f19edcae24273f4a2049eb3ac37bd6f920",
+   "exitCode": 1
+  }
+ ]
+}

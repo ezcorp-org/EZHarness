@@ -1,0 +1,9 @@
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T09:06:31.321Z","level":"info","msg":"refresh-columns: credential resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"1474078f-27eb-4c28-9c5a-e813f648f439","authMode":"pat","error":"no PAT stored for board or project"}
+{"ts":"2026-09-25T09:06:35.742Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"604bc8f6-1cd4-44fd-a259-77f97c20fea5","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":false,"uidQuarantined":false}
+{"ts":"2026-09-25T09:06:36.065Z","level":"error","msg":"clone failed","subsystem":"api.clone-turns","error":"database down"}
+
+ 692 pass
+ 0 fail
+ 1950 expect() calls
+Ran 692 tests across 37 files. [31.88s]

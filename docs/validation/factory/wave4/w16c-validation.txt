@@ -1,0 +1,67 @@
+2026-09-27 ~08:25Z validator-4 on W16c 24a13ebe2 (wp/w16c-boot-bounds; base integ/w00 f7c1290a6; code head ca68c6de5):
+ACCEPT WITH ONE LOW FINDING (L1, a test-quality fix; it does not block the merge).
+
+Identity: all three commits (4a1ca94db, ca68c6de5, 24a13ebe2) show author and committer archy with the noreply address.
+Shared .git/config sha256 prefix 44962525f1ca1a8b before and after.
+Scratch worktree .worktrees/val-w16c at 24a13ebe2: frozen installs at root and web/, packages built, core.bare false
+(worktree level), identity set explicitly, clean at start and after every leg; removed when done.
+24a13ebe2 differs from ca68c6de5 only in tasks/factory/w16c-GATES.md.
+
+Red first (mutants.json; one mutant per claimed behavior, each reverted after its run, tree clean after):
+  M1 probe deadline race removed -> service-probes 3 fail (never-answering, signal-honouring, storage abort)
+  M2 storage probe drops its signal -> storage-abort test fails
+  M3 S3 never passes abortSignal -> blobs-s3 file hangs (exit 124; see L1)
+  M4 S3 always passes options -> "without a signal, requests go out exactly as before" fails
+  M5 phase finish traced only on success -> "a phase that throws still reports that it finished" fails
+  M6 web boot bound not cleared -> vitest "a boot that composes clears its bound" fails
+  M7 blocking pg_advisory_lock -> db-connection 5 fail
+  M8 timed-out lock keeps its connection -> "the connection goes back" fails
+Boot composes with a timed-out probe (not covered by a branch test; validator scratch test, not committed;
+logs/scratch-boot-composes.log). An object store whose put never answers gives object_storage_probe_timeout at
+15.0 s with the put's signal aborted. The later probes ran (execution-gateway, host-supervisor, required-sandbox
+ready). The runtime phase finished, admission closed, readiness degraded (factory-services-unavailable,
+missing object-storage), with readinessRetry declared. Without a retry window, boot fails closed by design.
+Reading: initDb (the migrate lock, 120 s) runs before factory boot in web/src/lib/server/context.ts, so the 180 s
+boot bound and the migrate bound are separate, each bounded. Production's object store is S3BlobStore directly
+(installation-startup.ts productObjectStore), so the signal reaches the AWS client. FileBlobStore is unchanged.
+The BlobStore change is additive (optional options).
+
+Legs at 24a13ebe2 (receipts: commit, exit code, log sha256, dirty-at-start; no environment; no URL in argv):
+  hold (flock --close; gate before every leg: 14-16 GiB available, 5-6 GiB swap free, 120 GB disk):
+    pg: migrate-lock, factory-schema, factory-restore with lcov 20/0
+    focused-lcov: 7 files incl. scripts/factory-postgres-suite-registration.test.ts (CI test-set drift) 143/0
+    web-vitest-lcov: factory-boot.server.test.ts 13/13
+    merge-lcov 1281 files; new-file gate PASSED (no new source files); patch gate PASSED (7 files) BASE_REF=f7c1290a6
+  static (unlocked): boundary suites (factory-process-boundaries + check-factory-boundaries.test) 48/0;
+    check-factory-boundaries, gate-integrity, typecheck, lint exit 0
+Worker hold c1 (/tmp/factory-platform-evidence/w16c/receipts/c1/, 14 receipts): all name ca68c6de5, exit 0, clean
+at start, log sha256 match; my rerun of its PostgreSQL and focused legs above matches (20/0, 143/0).
+
+Finding L1 (low): src/extensions/v4/blobs-s3.test.ts, the HangingS3 fake, returns a never-settling promise when a
+request carries no abortSignal. With the regression "S3 never passes the signal" (M3), the file does not fail. It
+hangs: 300 s at --timeout 20000, 90 s at --timeout 5000, and Bun's per-test timeout never fired. CI would go red
+only at the job timeout and would not name the test. Fix: make the fake reject a request without an abortSignal
+with a named error. Evidence: logs/mutant-M3-s3-never-sends-signal.log, logs/mutant-M3-rerun.log.
+
+Receipts: /tmp/factory-platform-evidence/w16c-validation/receipts/{hold,static}/; mutants.json; hold-status.txt.
+
+FINAL (fix round), 2026-09-27 validator-4: ACCEPT at 61a0b88ffb8f9412a4e8b35c0787fb7badaeaf0c. L1 closed.
+Commits over 24a13ebe2: 887b41e55 (test: blobs-s3.test.ts, installation-startup.test.ts), 61a0b88ff (gates G7).
+Author and committer on both: archy with the noreply address. git diff 24a13ebe2 61a0b88ff outside those three files:
+empty (trees otherwise equal); no product file changed. Shared .git/config sha256 prefix 44962525f1ca1a8b unchanged.
+Fresh scratch worktree val-w16c-r2 at 61a0b88ff (frozen installs, packages built, clean before and after; removed).
+receipts/r2-checks.json:
+  three files together (blobs-s3, installation-startup, service-probes): 79/0
+  new test "a store that never answers its probe times out by name, and boot still composes with admission closed":
+    green at head (0.7 s; fake timers advance by the product's own FACTORY_PROBE_DEADLINE_MS)
+  M3 S3 never passes abortSignal: blobs-s3 fails in 0.35 ms by name
+    ("PutObjectCommand was sent without the caller's abort signal"). Before the fix it hung.
+  M1 no deadline race: new test fails (48 ms). M9 no deadline timer: new test fails (10 s test timeout).
+  tree clean after the mutants.
+receipts/r2-static: boundary suites 48/0; check-factory-boundaries, gate-integrity, typecheck, lint (biome) exit 0.
+Hold legs at 24a13ebe2 stand: no product file changed since, and the coverage gates cover product lines only.
+
+MERGE HEAD, 2026-09-27 validator-4: final ACCEPT restated at 0dbf591deb121b8efefbbbbcdf2019b9163f322d (branch tip).
+0dbf591de has one parent, 61a0b88ff. Author and committer: archy with the noreply address. It changes only
+tasks/factory/w16c-GATES.md (the defect paragraph no longer cites W01h's graph-proof pass as a second stall site).
+git diff 61a0b88ff 0dbf591de outside that file is empty, so every check recorded at 61a0b88ff and 24a13ebe2 applies.

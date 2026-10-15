@@ -1,0 +1,61 @@
+VERDICT (validator-6) — W4G-3 at 82453d321 (wp/w4g-3, owner w16-2), base 842ad9fe1: ACCEPT
+
+6 commits, all archy noreply:
+  - d01c26915 undici (web);
+  - 54cd91faf brace-expansion (web);
+  - d36b29195 devalue (web);
+  - aa564f4a6 brace-expansion (root, three versions);
+  - 4ded1fd9f fast-uri (root);
+  - 82453d321 the gate file.
+Files changed: bun.lock, web/bun.lock, tasks/factory/w4g-3-GATES.md. Config hash 44962525f1ca1a8b at start and end.
+Bun and bunx 1.4.2 with the flag.
+
+Reading (CONFIRMED by the lead, 2026-10-01; the stricter "bun audit clean" line is withdrawn): the package is judged by the
+hosted gate's own command, `bun scripts/audit-deps.ts` (deps-audit.yml:57; lockfile-only, both roots, high floor, allowlist with
+reason and expiry). It exits 0 at 82453d321.
+OUT OF SCOPE, recorded: raw `bun audit` exits 1 in both roots on 19 moderate and low advisories BELOW that floor:
+  - root: esbuild, hono, ip-address, qs, uuid, yaml;
+  - web: cookie, dompurify, a fast-uri moderate, qs.
+They are named in the gate file. The lead opens W4G-9 (w16-2) for them: in-range upgrades only, no allowlist, and anything
+needing a parent range change listed for the user.
+
+LOCKFILES (w4g-validation/lockfile-check-w4g3.py, against each commit's parent):
+  - no package.json and no scripts/audit-allowlist.json change in the range;
+  - each code commit changes only the package its subject names, in only its own lockfile;
+  - every changed entry satisfies the range its parent entry declares (Bun.semver.satisfies):
+      undici 8.11.2 (jsdom ^8.9.0);
+      brace-expansion 5.0.12 in web;
+      devalue 5.9.4 (2 parents);
+      brace-expansion at the root: 5.0.12, 2.1.7 (readdir-glob/minimatch), and 1.1.21 (archiver-utils/glob/minimatch,
+        zip-stream/archiver-utils/glob/minimatch, rimraf/glob/minimatch);
+      fast-uri 3.1.8.
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g3.sh): the hosted command on a git-archive snapshot of each revision, with
+  that revision's pinned Bun.
+  - At 842ad9fe1, RED: audit-deps exit 1, HIGH brace-expansion, devalue (3), undici (3), …; raw audit 8 high or critical lines
+    per root.
+  - At 82453d321, GREEN: "✔ dependency audit clean at the high floor (0 allowlisted, 19 below floor)", exit 0; raw audit 0 high or
+    critical lines in each root.
+RERUN RESULTS (hold-v6-w4g3-82453d321/results.jsonl)
+  Static:
+    frozen installs clean (root, web, gate-integrity deps); identity 6/6 archy;
+    typecheck (with web svelte-check), lint, both boundary checks 0;
+    gate-integrity: base leg against 842ad9fe1 clean; origin/main set = the 8 paths;
+    gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - repro red and green as above;
+    - root legs on the upgraded paths, 11 files, 136/0:
+        glob and minimatch via ts-json-schema-generator: the extension-contract network, provider-wire, providers and
+          workspace-files tests;
+        ajv and fast-uri: extension-contract validation;
+        archiver and readdir-glob: wal-backup;
+        exceljs: the Excel example's index and parser tests;
+        file-organizer rules; extension-dependency-audit; npm-deps; preprocess-manifest-validation;
+    - SDK 246/0;
+    - web vitest producer (scripts/web-vitest-coverage.sh) 7843 tests, exit 0;
+    - web build 0;
+    - guard set 60/0;
+    - merge 0; new-file and patch against 842ad9fe1 PASSED.
+  The owner's load-driven timeout in context-initialization.server.test.ts (single-process full run) did not occur in my web
+  producer run. It is not caused by these lockfile changes (the owner's bisect), and it stays a flake to fix under its owner.
+
+No findings.

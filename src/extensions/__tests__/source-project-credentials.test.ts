@@ -1,12 +1,15 @@
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { LifecycleActor } from "../v4/types";
 import * as egress from "../../search/egress";
 import { restoreModuleMocks } from "../../__tests__/helpers/mock-cleanup";
+import { scratchRepository } from "../../__tests__/helpers/scratch-git";
 
-const root = await mkdtemp(join(tmpdir(), "ez-private-source-"));
+const scratchRoot = join(tmpdir(), `ez-private-source-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+const scratch = scratchRepository(scratchRoot, { name: "Fixture", email: "test@example.invalid" });
+const root = scratch.dir;
 const actor: LifecycleActor = { principalId: "owner", scope: "global", kind: "human" };
 let active = true;
 let role = "admin";
@@ -27,12 +30,7 @@ mock.module("../extension-lifecycle-service", () => ({ getExtensionLifecycle: as
   build: async () => ({ id: "operation", state: "queued" }), runBuild: async () => {},
 }) }));
 const { importExtensionSource, resolveProjectSourceCredential } = await import("../source-import");
-async function git(...args: string[]) {
-  const child = Bun.spawn(["git", ...args], { cwd: root, stdout: "pipe", stderr: "pipe" });
-  const errors = await new Response(child.stderr).text();
-  if (await child.exited !== 0) throw new Error(errors);
-}
-beforeAll(async () => { await git("init"); await git("remote", "add", "origin", "https://github.com/owner/private.git"); });
+beforeAll(() => { scratch.git("remote", "add", "origin", "https://github.com/owner/private.git"); });
 beforeEach(() => {
   active = true; role = "admin"; member = true; projectExists = true; token = "private-source-fixture-token";
   staged.length = 0; requests.length = 0;
@@ -45,7 +43,7 @@ beforeEach(() => {
       : { encoding: "base64", content: Buffer.from("fixture").toString("base64") });
   }) as typeof fetch;
 });
-afterAll(async () => { globalThis.fetch = originalFetch; restoreModuleMocks(); mock.module("../../search/egress", () => originalEgress); await rm(root, { recursive: true, force: true }); });
+afterAll(async () => { globalThis.fetch = originalFetch; restoreModuleMocks(); mock.module("../../search/egress", () => originalEgress); await rm(scratchRoot, { recursive: true, force: true }); });
 
 test("a selected project credential imports private source without activating or exposing the token", async () => {
   const input = { kind: "github" as const, repository: "owner/private", projectId: "project" };

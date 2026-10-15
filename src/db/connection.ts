@@ -25,6 +25,11 @@ import { applyPgliteNulPatches, patchJsonColumns, patchTextColumns } from "./nul
 import { APP_DATABASE, CURRENT_PG_MAJOR, assertDatadirCompatible, clearStaleLockFiles } from "./datadir-upgrade";
 import { composePostgresHint } from "./compose-db-hint";
 import { embeddedDatabasePath } from "./data-path";
+import { errorChain, isDriverStatementDesync } from "./error-chain";
+import { swappableBunSql, type BunSqlLike, type SwappableBunSql } from "./swappable-bun-sql";
+import { DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS, DB_POOL_CLOSE_DEADLINE_MS, withinDeadline } from "../shutdown-deadlines";
+import { assertFactoryBootConfiguration, factoryBootConfig } from "../factory/boot";
+import { guardedBunSqlClass } from "./bun-sql-pipelining";
 const log = logger.child("db");
 
 const DB_PATH = embeddedDatabasePath();
@@ -84,6 +89,20 @@ export type DbTransaction = Database;
 let _db: Database = null;
 let _pglite: import("@electric-sql/pglite").PGlite | null = null;
 let _initPromise: Promise<void> | null = null;
+/** The external pool's swap point; null under PGlite and before initPostgres(). */
+let _externalPool: SwappableBunSql<BunSqlLike> | null = null;
+/** Opens a one-connection pool on the same database, for the side query a stuck close logs; null under PGlite. */
+let _openDiagnosticPool: (() => BunSqlLike) | null = null;
+/** When the external pool was last replaced after a desync, in epoch ms. */
+let _lastDesyncRecoveryMs = 0;
+/** A desync reported within this window of the last replacement is work that
+ *  was already queued on the old pool, not a new poisoning. */
+const DESYNC_RECOVERY_INTERVAL_MS = 10_000;
+/** How long a replaced pool may finish in-flight work before it is closed hard. */
+const REPLACED_POOL_DRAIN_SECONDS = 30;
+/** Opens one Bun.sql pool; null means the real driver. A seam so the unit
+ *  suite can hand out fake pools. */
+let openBunSqlPoolOverride: ((options: { url: string; max: number }) => BunSqlLike) | null = null;
 
 /** Register the just-opened PGlite instance in the process-local holder
  *  registry (globalThis-anchored) so a re-instantiated module — the vite
@@ -531,6 +550,61 @@ async function applyBunSqlJsonbFix(): Promise<void> {
 const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
 
 /**
+ * How long boot waits for another process's migrate lock before failing by
+ * name. A migrate over an existing schema takes seconds, and a concurrent
+ * peer's (a product process and its gateway booting together) finishes well
+ * inside this; two minutes stays inside the provisioner's ten-minute ready()
+ * wait, so a failed boot and its restart still fit. Waiting forever turned a
+ * held lock into a process that never logged again.
+ */
+export const MIGRATE_LOCK_WAIT_MS = 120_000;
+const MIGRATE_LOCK_POLL_MS = 1_000;
+
+/** Boot gave up waiting for the migrate lock. Carries the holder's backend pid when PostgreSQL named one. */
+export class MigrateLockTimeoutError extends Error {
+  readonly code = "migrate_lock_timeout";
+  readonly holderPid: number | null;
+  constructor(holderPid: number | null, waitedMs: number) {
+    super(`Gave up after ${waitedMs} ms waiting for the migrate lock held by pid ${holderPid ?? "unknown"}.`);
+    this.name = "MigrateLockTimeoutError";
+    this.holderPid = holderPid;
+  }
+}
+
+export interface MigrateLockWait {
+  readonly waitMs?: number;
+  readonly pollMs?: number;
+  readonly now?: () => number;
+  readonly sleep?: (milliseconds: number) => Promise<void>;
+}
+
+/**
+ * Take the migrate lock on `conn`, waiting a bounded time. Each time the
+ * holder changes the wait is logged with the holder's pid, so a boot that
+ * waits says on whom; past the deadline it throws MigrateLockTimeoutError.
+ */
+async function acquireMigrateLock(conn: (strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>, wait: MigrateLockWait = {}): Promise<void> {
+  const waitMs = wait.waitMs ?? MIGRATE_LOCK_WAIT_MS;
+  const now = wait.now ?? Date.now;
+  const sleep = wait.sleep ?? ((milliseconds: number) => new Promise<void>((settle) => setTimeout(settle, milliseconds)));
+  const deadline = now() + waitMs;
+  let reported: number | null | undefined;
+  for (;;) {
+    const [taken] = await conn`SELECT pg_try_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY}) AS locked` as Array<{ locked?: unknown }>;
+    if (taken?.locked === true) return;
+    // A single bigint key is stored as classid (high 32 bits) and objid (low 32 bits), objsubid 1.
+    const [holder] = await conn`SELECT pid FROM pg_locks WHERE locktype = 'advisory' AND objsubid = 1 AND objid::bigint = ${MIGRATE_ADVISORY_LOCK_KEY} AND granted AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) LIMIT 1` as Array<{ pid?: unknown }>;
+    const pid = typeof holder?.pid === "number" ? holder.pid : null;
+    if (pid !== reported) {
+      log.warn(`waiting for migrate lock held by pid ${pid ?? "unknown"}`, { holderPid: pid, waitMs });
+      reported = pid;
+    }
+    if (now() >= deadline) throw new MigrateLockTimeoutError(pid, waitMs);
+    await sleep(wait.pollMs ?? MIGRATE_LOCK_POLL_MS);
+  }
+}
+
+/**
  * Run `fn` (the migrate) while holding a cluster-wide advisory lock so two app
  * instances booting concurrently (rolling deploy / scaled replicas) can't
  * interleave migrate()'s non-idempotent statement pairs (DROP/CREATE TRIGGER,
@@ -541,14 +615,20 @@ const MIGRATE_ADVISORY_LOCK_KEY = 40_172_026;
  * equivalent, so this only runs on the external-Postgres path. Exposed via
  * `__test` for the ordering regression test.
  */
-async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>): Promise<T> {
+async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>, wait: MigrateLockWait = {}): Promise<T> {
   // `Database` is `any`, so `$client` — the Bun.sql instance, a callable
   // tagged template that also exposes reserve() — arrives untyped already and
   // the cast that used to be here was a no-op.
   const client = getDb().$client;
   const reserved = typeof client?.reserve === "function" ? await client.reserve() : null;
   const conn = reserved ?? client;
-  await conn`SELECT pg_advisory_lock(${MIGRATE_ADVISORY_LOCK_KEY})`;
+  try {
+    await acquireMigrateLock(conn, wait);
+  } catch (error) {
+    // Never acquired: give the reserved connection back and fail boot by name.
+    if (reserved && typeof reserved.release === "function") reserved.release();
+    throw error;
+  }
   try {
     if (!reserved) return await fn(getDb());
     // Reserving a pool connection removes it from the general pool. Running
@@ -581,7 +661,7 @@ async function withPostgresMigrateLock<T>(fn: (db: Database) => Promise<T>): Pro
  *  via `.close()` (alias `.end()`). Hoisted to a module-level type so the casts
  *  below stay single executable lines (no multi-line type-annotation
  *  continuation that coverage tooling attributes a spurious uncovered record). */
-type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void> };
+type BunSqlPoolClient = { close?: (options?: { timeout?: number }) => Promise<void>; end?: (options?: { timeout?: number }) => Promise<void> };
 
 /**
  * Drain a Bun.sql connection pool, tolerating a driver that exposes only one of
@@ -592,10 +672,10 @@ type BunSqlPoolClient = { close?: () => Promise<void>; end?: () => Promise<void>
  * Shared by `closeDb()` and the stale-pool reclaim in `initPostgres()` so the
  * two paths can never drift on which alias they try.
  */
-async function closeBunSqlPool(client: BunSqlPoolClient | undefined): Promise<void> {
+async function closeBunSqlPool(client: BunSqlPoolClient | undefined, options?: { timeout?: number }): Promise<void> {
   try {
-    if (typeof client?.close === "function") await client.close();
-    else if (typeof client?.end === "function") await client.end();
+    if (typeof client?.close === "function") await client.close(options);
+    else if (typeof client?.end === "function") await client.end(options);
   } catch (err) {
     log.warn("Bun.sql pool close failed", { error: String(err) });
   }
@@ -667,6 +747,20 @@ function applyExecuteNormalization(db: Database): void {
  */
 const EXTERNAL_PG_HOLDER_KEY = "external-postgres";
 
+/**
+ * The Bun SQL class, taken from the runtime (`Bun.SQL`), never from `import("bun")`.
+ * This module reaches the web tests through the factory server modules, and Vite's
+ * import analysis fails on a bare "bun" specifier in analysed source (W09g). Outside
+ * Bun it is refused by name, and only when an external pool actually opens.
+ */
+export function bunSqlClass(runtime: unknown = (globalThis as { Bun?: unknown }).Bun): typeof Bun.SQL {
+  const sqlClass = (runtime as { SQL?: unknown } | undefined)?.SQL;
+  if (typeof sqlClass !== "function") {
+    throw new Error("the external PostgreSQL pool needs the Bun runtime (Bun.SQL is unavailable)");
+  }
+  return sqlClass as typeof Bun.SQL;
+}
+
 async function initPostgres(): Promise<void> {
   const { drizzle } = await import("drizzle-orm/bun-sql");
   const { sql } = await import("drizzle-orm");
@@ -702,7 +796,21 @@ async function initPostgres(): Promise<void> {
   // stays at one pool rather than briefly two.
   await closeStaleProcessHolder(EXTERNAL_PG_HOLDER_KEY);
 
-  const db = drizzle({ connection: { url: DATABASE_URL!, max: poolMax }, schema });
+  // The pool sits behind a swap point so a desynchronized driver connection
+  // can be discarded without rebuilding every holder of `db` (W09f; see
+  // swappable-bun-sql.ts and recoverFromDriverDesync below).
+  // The class is resolved inside the default opener, so a test's pool override never needs the Bun runtime.
+  const poolOptions = { url: DATABASE_URL!, max: poolMax };
+  const openPool =
+    openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (guardedBunSqlClass(bunSqlClass()))(options) as unknown as BunSqlLike);
+  _openDiagnosticPool = () => openPool({ ...poolOptions, max: 1 });
+  const externalPool = swappableBunSql(() => openPool(poolOptions), {
+    drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
+    onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),
+  });
+  const db = drizzle({ client: externalPool.client as unknown as InstanceType<typeof Bun.SQL>, schema });
+  _externalPool = externalPool;
+  _lastDesyncRecoveryMs = 0;
   _pglite = null;
 
   // Publish the just-opened pool so the NEXT module instance can find and drain
@@ -733,7 +841,7 @@ async function initPostgres(): Promise<void> {
     throw err;
   }
   await repairDoubleEncodedJsonb(sql);
-  setReadiness({ state: "ready" });
+  setDatabaseReadiness();
 }
 
 /** Settings marker recording that the one-shot jsonb repair has completed, so
@@ -811,7 +919,22 @@ async function repairDoubleEncodedJsonb(sqlTag: typeof import("drizzle-orm")["sq
   }
 }
 
+/**
+ * Readiness after the external PostgreSQL driver opens. A factory install
+ * stays `booting` until its services are probed. The embedded PGlite path
+ * sets `ready` directly: `init()` refuses a factory boot without
+ * `DATABASE_URL` before any driver opens, so PGlite never runs with the
+ * factory flag on.
+ */
+function setDatabaseReadiness(): void {
+  setReadiness(factoryBootConfig.enabled ? { state: "booting", reason: "factory-services-pending" } : { state: "ready" });
+}
+
 async function init(): Promise<void> {
+  // The factory flag is captured by factory/boot at process startup. Check
+  // before opening either driver so a flag-on PGlite install cannot create or
+  // migrate a database and then silently run without factory dependencies.
+  assertFactoryBootConfiguration(DATABASE_URL);
   if (DATABASE_URL) {
     await initPostgres();
   } else {
@@ -876,7 +999,18 @@ export async function closeDb(): Promise<void> {
     // process don't leak a full pool each time (exhausting max_connections).
     // drizzle's bun-sql driver exposes the Bun SQL client as `$client`; Bun.SQL
     // closes via `.close()` (alias `.end()`).
-    await closeBunSqlPool((_db as { $client?: BunSqlPoolClient }).$client);
+    //
+    // Bounded (W16d): Bun 1.3.14 can leave a queued request unwritten, and a
+    // close that waits for it never returns, which held W16's harness stops to
+    // the shutdown hard timeout. Past the deadline the close is named, the
+    // connections still open are listed, and the pool is left to the exit.
+    const closing = closeBunSqlPool((_db as { $client?: BunSqlPoolClient }).$client, { timeout: DB_POOL_CLOSE_DEADLINE_MS / 1_000 });
+    if (!(await withinDeadline(closing, DB_POOL_CLOSE_DEADLINE_MS)).settled) {
+      log.error("Bun.sql pool close did not finish within its deadline; the pool is left to the process exit", {
+        timeoutMs: DB_POOL_CLOSE_DEADLINE_MS,
+        openConnections: await listOpenConnections(_openDiagnosticPool),
+      });
+    }
     // We just drained it ourselves, so drop the in-process claim WITHOUT
     // closing again — mirrors the PGlite branch's clearProcessHolder(). Leaving
     // it would hand the next initPostgres() a callback onto an already-dead
@@ -885,7 +1019,57 @@ export async function closeDb(): Promise<void> {
   }
   _pglite = null;
   _db = null;
+  _externalPool = null;
+  _openDiagnosticPool = null;
   _initPromise = null;
+}
+
+/**
+ * The connections this database user still has open, read on a fresh
+ * one-connection pool (the stuck pool cannot answer), for the log line a stuck
+ * close writes. Bounded; it never throws, and the side pool is closed without
+ * waiting.
+ */
+async function listOpenConnections(open: (() => BunSqlLike) | null): Promise<unknown> {
+  if (open === null) return "unavailable";
+  let probe: BunSqlLike | undefined;
+  try {
+    probe = open();
+    const rows = probe`SELECT pid, state, wait_event_type, wait_event, left(query, 200) AS query FROM pg_stat_activity WHERE datname = current_database() AND usename = current_user AND pid <> pg_backend_pid() ORDER BY pid` as Promise<unknown>;
+    const outcome = await withinDeadline(rows, DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS);
+    return outcome.settled ? outcome.value : `the listing did not answer within ${DB_OPEN_CONNECTIONS_QUERY_DEADLINE_MS} ms`;
+  } catch (error) {
+    return `the listing failed: ${String(error)}`;
+  } finally {
+    void probe?.close({ timeout: 0 }).catch(() => {});
+  }
+}
+
+/**
+ * Discard the external pool after a driver statement desync (W09f).
+ *
+ * Bun 1.3.14 can leave a pooled connection whose prepared-statement
+ * bookkeeping no longer matches the server; every request pipelined behind it
+ * then fails with the same 08P01. Retrying on that pool would keep landing on
+ * the poisoned connection, and Bun cannot evict one chosen connection, so the
+ * whole pool is replaced: new work goes to a fresh pool at once and the old one
+ * closes after its in-flight work drains.
+ *
+ * Returns true when it replaced the pool. Anything that is not a desync, a
+ * PGlite process, or a desync reported within DESYNC_RECOVERY_INTERVAL_MS of
+ * the last replacement (work that was already queued on the old pool) returns
+ * false and changes nothing. It never throws for the caller's error: that
+ * error stays the caller's to report.
+ */
+export async function recoverFromDriverDesync(error: unknown, now: () => number = Date.now): Promise<boolean> {
+  const pool = _externalPool;
+  if (!pool || !isDriverStatementDesync(error)) return false;
+  if (now() - _lastDesyncRecoveryMs < DESYNC_RECOVERY_INTERVAL_MS) return false;
+  _lastDesyncRecoveryMs = now();
+  log.warn("Bun.sql statement bookkeeping desynchronized; replacing the connection pool", { causes: errorChain(error) });
+  await pool.replace();
+  log.info("Bun.sql connection pool replaced", { generation: pool.generation });
+  return true;
 }
 
 // Exported for tests. Placed at the end of the module so its object literal
@@ -907,11 +1091,17 @@ export const __test = {
   applyBunSqlJsonbFix,
   repairDoubleEncodedJsonb,
   withPostgresMigrateLock,
+  // The module logger, so a test can read what the migrate-lock wait reported.
+  log,
   // The external-Postgres opener. `init()` only reaches it when the process
   // was booted with DATABASE_URL set (a module-load const), so the PGlite
   // coverage shards never do — exposed here so a unit test can drive the
   // Bun.sql branch directly with a mocked driver (no real server).
   initPostgres,
+  /** Hand out fake pools instead of opening Bun.sql ones. */
+  setBunSqlPoolOpener(open: ((options: { url: string; max: number }) => BunSqlLike) | null): void {
+    openBunSqlPoolOverride = open;
+  },
   recoverInterruptedRollback,
   registerProcessHolder,
   writeRollbackMarker,

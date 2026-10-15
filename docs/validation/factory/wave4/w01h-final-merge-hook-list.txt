@@ -1,0 +1,28 @@
+  23 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/factory-sdk/src/kernel-partitions.test.ts
+    packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts
+    packages/@ezcorp/factory-sdk/src/kernel.test.ts
+    src/db/migrations/add-factory-task-stop-reconciliation.test.ts
+    src/factory/attempt-composition.test.ts
+    src/factory/dispatch-composition.test.ts
+    src/factory/host-launch-client.test.ts
+    src/factory/host-launch-lost-result.integration.test.ts
+    src/factory/host-launch-lost-result.podman.integration.test.ts
+    src/factory/host-launch-transport.integration.test.ts
+    src/factory/installation-startup.test.ts
+    src/factory/runner/attempt-runtime.integration.test.ts
+    src/factory/runner/attempt-runtime.test.ts
+    src/factory/runner/host-launch-service.test.ts
+    src/factory/runner/host-launch-supervisor.test.ts
+    src/factory/runner/remote-attempt-runtime.test.ts
+    src/factory/runner/supervisor-services.test.ts
+    src/__tests__/factory-gateway-timeouts.test.ts
+    src/__tests__/factory-stop-after-loss.test.ts
+    src/__tests__/factory-stop-epoch.test.ts
+    src/__tests__/factory-transport-settle.test.ts
+    src/__tests__/migrate.test.ts
+    tests/postgres/factory-stop-lock-order.test.ts
+    packages/@ezcorp/factory-orchestrator (node: bun run test) — also withheld, blocked by the same cap
+  Above the 12-file cap a hook that ran them all would be slow enough to get bypassed,
+  and a bypassed hook checks nothing — so this blocks the commit instead of skipping silently.
+  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge

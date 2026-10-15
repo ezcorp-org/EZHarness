@@ -1,0 +1,759 @@
+{
+ "database": "w19a_product_1790526343277_0d7c48",
+ "dumpedAt": "2026-09-27T16:27:19.948801+00:00",
+ "run": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+ "tables": {
+  "factory_artifacts": [
+   {
+    "object_id": "factory-artifact-7be51c57-f8e9-489e-82b3-23c40a55d5be",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": null,
+    "kind": "definition_page",
+    "definition_digest": "sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284",
+    "source_sequence": null,
+    "page_index": 0,
+    "digest": "sha256:19f88c85eb1175da1bddf35111f027a497c18136a6867ab3900725b8133cb60a",
+    "blob_digest": "19f88c85eb1175da1bddf35111f027a497c18136a6867ab3900725b8133cb60a",
+    "storage_version": "6726c5c0d9170dc344bb4393b1b61d6e",
+    "encoded_bytes": 6462,
+    "created_at": "2026-09-27T16:26:09.781442+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-52eb75a4-ad37-4bf2-ae63-1481adc2d71c",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": null,
+    "kind": "definition_manifest",
+    "definition_digest": "sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284",
+    "source_sequence": null,
+    "page_index": 0,
+    "digest": "sha256:2d4c459c3c5179bcb3b66e22726907d748fc78287339cb0609e898b32cccff5f",
+    "blob_digest": "2d4c459c3c5179bcb3b66e22726907d748fc78287339cb0609e898b32cccff5f",
+    "storage_version": "6726c5c0d7253436d9ba805e076db29c",
+    "encoded_bytes": 359,
+    "created_at": "2026-09-27T16:26:09.781442+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-51afab08-72c1-4afd-b810-133901af2103",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_page",
+    "definition_digest": null,
+    "source_sequence": 1,
+    "page_index": 0,
+    "digest": "sha256:da60d20dd14a6f92174b90a93ab17ae63f8ef157a4e3dc7c4367df6e1976a616",
+    "blob_digest": "da60d20dd14a6f92174b90a93ab17ae63f8ef157a4e3dc7c4367df6e1976a616",
+    "storage_version": "6726c5c0ac6460a1c4a04c1d4b470821",
+    "encoded_bytes": 2360,
+    "created_at": "2026-09-27T16:26:10.514597+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-399ed11a-2a10-41f8-9b3b-179925faa31d",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_manifest",
+    "definition_digest": null,
+    "source_sequence": 1,
+    "page_index": null,
+    "digest": "sha256:e55919ea272b6edca7e367618286588a21f3aa1c433ca52a06095a1123eff4e5",
+    "blob_digest": "e55919ea272b6edca7e367618286588a21f3aa1c433ca52a06095a1123eff4e5",
+    "storage_version": "6726c5c0a06ef01bff984c6019227be7",
+    "encoded_bytes": 573,
+    "created_at": "2026-09-27T16:26:10.715831+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-79b5227b-8c5c-4251-ae66-21aa782d4fb9",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_page",
+    "definition_digest": null,
+    "source_sequence": 2,
+    "page_index": 0,
+    "digest": "sha256:4be89586cc7e21611bbd626bbf8441555f5bd5e4f1e1e156bed9d2962b354b94",
+    "blob_digest": "4be89586cc7e21611bbd626bbf8441555f5bd5e4f1e1e156bed9d2962b354b94",
+    "storage_version": "6726c5c031656d6d8547c625ce36d035",
+    "encoded_bytes": 2452,
+    "created_at": "2026-09-27T16:26:12.577821+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-8f11f39c-9131-4b7b-8017-bfce427f115a",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_manifest",
+    "definition_digest": null,
+    "source_sequence": 2,
+    "page_index": null,
+    "digest": "sha256:3bd39105820011619df76816fb6572bc119bd9609c4e47d41e35058180754490",
+    "blob_digest": "3bd39105820011619df76816fb6572bc119bd9609c4e47d41e35058180754490",
+    "storage_version": "6726c5c0255ce0979450bcc93227a5d2",
+    "encoded_bytes": 613,
+    "created_at": "2026-09-27T16:26:12.779873+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-a22b17a3-2397-4729-b837-530e5a68625a",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_page",
+    "definition_digest": null,
+    "source_sequence": 3,
+    "page_index": 0,
+    "digest": "sha256:c44450b73913cb15dcb27704235d1a84cdd8e364eb3a17d4bd98d4dbe1513265",
+    "blob_digest": "c44450b73913cb15dcb27704235d1a84cdd8e364eb3a17d4bd98d4dbe1513265",
+    "storage_version": "6726c5b14f852bbc90fa9bca46c8bde0",
+    "encoded_bytes": 2586,
+    "created_at": "2026-09-27T16:27:16.497146+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-b6462ecf-9e0d-4118-a86f-9d2543e58c31",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_manifest",
+    "definition_digest": null,
+    "source_sequence": 3,
+    "page_index": null,
+    "digest": "sha256:9fab0608ab6cd40b5e099432684578216c4730c12e3e520c912ffc1bb6e1f2f2",
+    "blob_digest": "9fab0608ab6cd40b5e099432684578216c4730c12e3e520c912ffc1bb6e1f2f2",
+    "storage_version": "6726c5b14392ded26fe6b6524008a8da",
+    "encoded_bytes": 598,
+    "created_at": "2026-09-27T16:27:16.698334+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-d00a2f60-fa33-4e6b-83b0-8a90c9dbd9a4",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_page",
+    "definition_digest": null,
+    "source_sequence": 4,
+    "page_index": 0,
+    "digest": "sha256:59e54950d89116b781e16bb11cd8c420abc8494c8476bd820369a1d920117692",
+    "blob_digest": "59e54950d89116b781e16bb11cd8c420abc8494c8476bd820369a1d920117692",
+    "storage_version": "6726c5b119eb7772388d7fa5739ee278",
+    "encoded_bytes": 2515,
+    "created_at": "2026-09-27T16:27:17.3965+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   },
+   {
+    "object_id": "factory-artifact-86bb598b-24e7-4185-8ad1-c047ac4de1ee",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "kind": "transition_manifest",
+    "definition_digest": null,
+    "source_sequence": 4,
+    "page_index": null,
+    "digest": "sha256:7777c45861fee05f1950ccc12548c79ba05766698cbb0320cec0569fe5e291f1",
+    "blob_digest": "7777c45861fee05f1950ccc12548c79ba05766698cbb0320cec0569fe5e291f1",
+    "storage_version": "6726c5b10d4eb87cb5df8a4b2a2d5b04",
+    "encoded_bytes": 597,
+    "created_at": "2026-09-27T16:27:17.60863+00:00",
+    "partition_id": null,
+    "candidate_node_instance_id": null,
+    "candidate_generation": null,
+    "material_key": null
+   }
+  ],
+  "factory_attempt_launches": [
+   {
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "request_digest": "0fa5dd9c5415924b90129015d8e3dc8bebd10b15340b95e1546fbfda4e46b49c",
+    "request_json": {
+     "input": {
+      "kind": "inline",
+      "value": {
+       "topic": "the primary colours of light"
+      }
+     },
+     "tools": [],
+     "broker": {
+      "audience": "factory-gateway"
+     },
+     "grants": [],
+     "runner": {
+      "digest": "sha256:4e3357385fbb41479c86b61125f123743e919f7e090ee498deb396b8f5b64c86",
+      "export": "prepare",
+      "package": "@ezcorp/w19a-graph-guest",
+      "version": "1.0.0",
+      "manifestName": "w19a-graph-guest"
+     },
+     "authority": {
+      "runId": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+      "tenantId": "tenant-01",
+      "attemptId": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+      "projectId": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+      "deadlineAtMs": 1790526969790,
+      "attemptNumber": 1,
+      "grantRevision": 1,
+      "executionEpoch": 1,
+      "nodeInstanceId": "prepare",
+      "cancellationEpoch": 0,
+      "nextOperationIndex": 0,
+      "candidateGeneration": 0,
+      "reservationGeneration": 1
+     },
+     "resources": {
+      "maxTokens": "[redacted in receipt]",
+      "memoryBytes": 1073741824,
+      "maxComputeMs": 600000,
+      "maxCostMicros": "1000000",
+      "resourceClass": "cpu"
+     },
+     "schemaVersion": "factory.runner.request.v1"
+    },
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "grant_revision": 1,
+    "allocation_generation": 1,
+    "holder_generation": 1,
+    "allocation_token": "[redacted in receipt]",
+    "host_id": "host-w19a",
+    "package_receipt_digest": "sha256:52c7fc63087ba2ad70baa6cad837ba31e22736e4638c105452444349cef52dd0",
+    "package_receipt_json": {
+     "projectId": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+     "reference": {
+      "digest": "sha256:4e3357385fbb41479c86b61125f123743e919f7e090ee498deb396b8f5b64c86",
+      "export": "prepare",
+      "package": "@ezcorp/w19a-graph-guest",
+      "version": "1.0.0",
+      "manifestName": "w19a-graph-guest"
+     },
+     "imageDigest": "docker.io/oven/bun@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4",
+     "sourceDigest": "fc4afbeaf75063b1f3de849fd317cfc099f29846ce3ab0e9c834b2766d50557f",
+     "buildIdentity": "factory-package-4f9086903a23b16d2acaff77702115cc7d1474d88e8626392cc697bd0e02df8e",
+     "receiptDigest": "sha256:52c7fc63087ba2ad70baa6cad837ba31e22736e4638c105452444349cef52dd0",
+     "releaseDigest": "771fe8178ff9ba47a759cfdc20c604a722be7be63eccb8e4cef288c051e7add2",
+     "trustRevision": 1,
+     "artifactDigest": "4e3357385fbb41479c86b61125f123743e919f7e090ee498deb396b8f5b64c86",
+     "evidenceDigest": "aa873e8bebb54e9c1380f107db1deaaf5cf70df2444172669514a1b409476340",
+     "manifestDigest": "71cffc1f1e3aa71bf7730e46bbd863d9093c4a18b6bc89d31b7439a74fbb7f7e",
+     "packageTrustDigest": "sha256:e2e2425f568f0b3ea8ecccb83be71c15bb156e87ce239d5333675b253a96a5c4"
+    },
+    "artifact_digest": "4e3357385fbb41479c86b61125f123743e919f7e090ee498deb396b8f5b64c86",
+    "worker_id": "factory_f59ec6230457e17ee525c8313779cd8ec48e1ce03e1c810b",
+    "invocation_id": "factory_f46ea93cbceb39f82df4599f7f3885e743a99e5fc536334a",
+    "device_grant_json": {
+     "devices": [],
+     "cdiDevices": [],
+     "capabilities": []
+    },
+    "device_grant_digest": "sha256:3ed343d0fd94f5ccaf026fcdf78eda7fa12a4663407f40f4ca53e2da4d175e69",
+    "terminal_result_json": {
+     "error": {
+      "code": "RUNNER_CONTAINER_EXIT",
+      "message": "Factory attempt ended without its guest's answer (container_exit): Worker closed; exit code unavailable; state cancelled; stopped at its deadline 2026-09-27T16:27:13.554Z",
+      "retryable": true
+     },
+     "status": "failed",
+     "operations": [],
+     "resultDigest": "67027d98597f988b52bfe690a7715879ab2789bad445cefba0d6c46cc2dd06c1",
+     "journalCursor": -1,
+     "schemaVersion": "factory.runner.result.v1"
+    },
+    "terminal_result_digest": "sha256:dc32ebb25058c66c2050aed486feac04d3d1187f39eae35b70179998286d58b8",
+    "state": "terminal",
+    "created_at": "2026-09-27T16:26:13.460318+00:00",
+    "updated_at": "2026-09-27T16:27:16.249965+00:00"
+   }
+  ],
+  "factory_attempt_queue": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "deduplication_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "input_hash": "sha256:48e09449ae0b95073bafcca29a181377acfab01b159c9d3f0d56dcfa81d227a4",
+    "state": "delivered",
+    "attempts": 1,
+    "max_attempts": 3,
+    "available_at": 1790526373239,
+    "lease_until": 0,
+    "lease_token": null,
+    "failure_code": null,
+    "reference_json": "{\"attemptId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"attemptNumber\": 1, \"cancellationEpoch\": 0, \"candidateGeneration\": 0, \"command\": {\"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"interpreterId\": \"root\", \"logicalRunId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"tenantId\": \"tenant-01\"}, \"deadlineAtMs\": 1790526969790, \"executionEpoch\": 1, \"grantRevision\": 1, \"nodeInstanceId\": \"prepare\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"requestDigest\": \"0fa5dd9c5415924b90129015d8e3dc8bebd10b15340b95e1546fbfda4e46b49c\", \"reservationGeneration\": 1, \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"runId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"tenantId\": \"tenant-01\"}",
+    "created_at": "2026-09-27T16:26:13.222247+00:00",
+    "updated_at": "2026-09-27T16:27:16.255065+00:00"
+   }
+  ],
+  "factory_audit_batches": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "source_sequence": 1,
+    "sequence": 1,
+    "predecessor_digest": null,
+    "digest": "71aecd9e23bcac6a04a658fa696a67ec5e3eeb3c4e05abc420fc3eee198db453",
+    "payload": "{\"artifactManifest\": {\"digest\": \"sha256:e55919ea272b6edca7e367618286588a21f3aa1c433ca52a06095a1123eff4e5\", \"encodedBytes\": 573, \"objectId\": \"factory-artifact-399ed11a-2a10-41f8-9b3b-179925faa31d\"}, \"eventHash\": \"sha256:dcef6f7c25a87b05f1ca9a46ca2e7d6286a3bbfb2c2edfb51a54c19d9a279544\", \"eventId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:start\", \"kind\": \"factory.transition\"}",
+    "created_at": "2026-09-27T16:26:10.93099+00:00"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "source_sequence": 2,
+    "sequence": 2,
+    "predecessor_digest": "71aecd9e23bcac6a04a658fa696a67ec5e3eeb3c4e05abc420fc3eee198db453",
+    "digest": "c1b0b8c23b7a23e1a1ebe1bbd35196dce4f4ef9cff3bcd90d77eee782b5d2883",
+    "payload": "{\"artifactManifest\": {\"digest\": \"sha256:3bd39105820011619df76816fb6572bc119bd9609c4e47d41e35058180754490\", \"encodedBytes\": 613, \"objectId\": \"factory-artifact-8f11f39c-9131-4b7b-8017-bfce427f115a\"}, \"eventHash\": \"sha256:a7e67e8f8262cada1952160ef42fb2c38072aed5b3bd9d6597d2aeaebc42b459\", \"eventId\": \"factory-admission:6373b389dabc0fefdd53a265fd131cd4190b2f547a7ecd99b0aee58b74ee04b4\", \"inboxSequence\": 1, \"kind\": \"factory.transition\"}",
+    "created_at": "2026-09-27T16:26:12.985955+00:00"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "source_sequence": 3,
+    "sequence": 3,
+    "predecessor_digest": "c1b0b8c23b7a23e1a1ebe1bbd35196dce4f4ef9cff3bcd90d77eee782b5d2883",
+    "digest": "a1304aae7b4ee1e82b18d729db7f2839e29710e0ca2b215e572393ff030a600c",
+    "payload": "{\"artifactManifest\": {\"digest\": \"sha256:9fab0608ab6cd40b5e099432684578216c4730c12e3e520c912ffc1bb6e1f2f2\", \"encodedBytes\": 598, \"objectId\": \"factory-artifact-b6462ecf-9e0d-4118-a86f-9d2543e58c31\"}, \"eventHash\": \"sha256:fc4743ee8f452dce8fb97a247a6117d44d09ee491447aad7008740f95837fc08\", \"eventId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4:failed\", \"inboxSequence\": 2, \"kind\": \"factory.transition\"}",
+    "created_at": "2026-09-27T16:27:16.903798+00:00"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "source_sequence": 4,
+    "sequence": 4,
+    "predecessor_digest": "a1304aae7b4ee1e82b18d729db7f2839e29710e0ca2b215e572393ff030a600c",
+    "digest": "4844d9eb511a78fce14f07d2decc61d1c5b538e28884eca3c6cb4f239ec95400",
+    "payload": "{\"artifactManifest\": {\"digest\": \"sha256:7777c45861fee05f1950ccc12548c79ba05766698cbb0320cec0569fe5e291f1\", \"encodedBytes\": 597, \"objectId\": \"factory-artifact-86bb598b-24e7-4185-8ad1-c047ac4de1ee\"}, \"eventHash\": \"sha256:5c0199390919165226f57904a536a0122cc0e85ac56adf1c2b3af4a221750fb7\", \"eventId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5:stopped\", \"kind\": \"factory.transition\"}",
+    "created_at": "2026-09-27T16:27:17.827248+00:00"
+   }
+  ],
+  "factory_budget_envelopes": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "envelope_id": "root",
+    "parent_id": null,
+    "request_digest": "8aed2d32a10761fe8cbd56331b8c094d39a4cd38b42dbaa03a08305f858e94c2",
+    "limits": "{\"computeMs\": \"3600000\", \"costMicros\": \"1000000\", \"tokens\": \"[redacted in receipt]\"}",
+    "allocated": "{\"computeMs\": \"0\", \"costMicros\": \"0\", \"tokens\": \"[redacted in receipt]\"}",
+    "spent": "{\"computeMs\": \"600000\", \"costMicros\": \"0\", \"tokens\": \"[redacted in receipt]\"}",
+    "deadline_ms": 1790526969790,
+    "state": "open",
+    "admission_blocked": false
+   }
+  ],
+  "factory_budget_reservations": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "envelope_id": "root",
+    "request_digest": "2cec006e92cd6fcfe3a49c8ef75fe05eda7b6195ca14dd2a121b3c4a3b1a9cf4",
+    "amount": "{\"computeMs\": \"600000\", \"costMicros\": \"1000000\", \"tokens\": \"[redacted in receipt]\"}",
+    "actual": "{\"computeMs\": \"600000\", \"costMicros\": \"0\", \"tokens\": \"[redacted in receipt]\"}",
+    "receipt_digest": "sha256:294441ce87858d8d134471a33443809ea1b00d551f4b691ea655ba5f717e354d",
+    "compute_allocation": "{\"allocationToken\": \"[redacted in receipt]\", \"reservationGeneration\": 1}",
+    "uncertainty": null,
+    "state": "settled",
+    "origin_kind": "dispatch-node"
+   }
+  ],
+  "factory_compute_admissions": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "request_digest": "sha256:59b29410ddbc7c8e4b275ca60278cd6b7834e88b16bb66c75676ed9bdb7745d7",
+    "request_json": "{\"budget\": {\"computeMs\": 600000, \"costMicros\": \"1000000\", \"tokens\": \"[redacted in receipt]\"}, \"fence\": {\"cancellationEpoch\": 0, \"deadlineAtMs\": 1790526969790, \"definitionDigest\": \"sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284\", \"executionEpoch\": 1, \"grantRevision\": 1, \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"runId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"tenantId\": \"tenant-01\"}, \"memoryBytes\": 1073741824, \"reference\": {\"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:request-admission:2\", \"interpreterId\": \"root\", \"logicalRunId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"tenantId\": \"tenant-01\"}, \"request\": {\"admissionDeadline\": \"2026-09-27T16:36:09.790Z\", \"grantRevision\": 1, \"grantScope\": \"tenant-01:factory\", \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"resources\": {\"cpu\": 1}}, \"schemaVersion\": \"factory.compute-admission.v1\"}",
+    "state": "admitted",
+    "next_poll_at": 0,
+    "remote_attempted": true,
+    "poll_lease_until": 0,
+    "poll_lease_token": null,
+    "response_digest": "sha256:5cecc21a8f6ae69b48abd107cd9df3e6b372939c37d625413551ce068eb62627",
+    "response_json": "{\"lease\": {\"allocationGeneration\": 1, \"allocationToken\": \"[redacted in receipt]\", \"deadlineAt\": \"2026-09-27T16:26:41.261Z\", \"fence\": \"22164a0d-0a7d-4a57-bd35-ebea2c6c973f\", \"grantRevision\": 1, \"holderGeneration\": 1, \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"resources\": {\"cpu\": 1}, \"tenantId\": \"tenant-01\"}, \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"status\": \"admitted\"}",
+    "event_digest": "sha256:a7e67e8f8262cada1952160ef42fb2c38072aed5b3bd9d6597d2aeaebc42b459",
+    "event_json": "{\"atMs\": 1790526372299, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:request-admission:2\", \"granted\": true, \"id\": \"factory-admission:6373b389dabc0fefdd53a265fd131cd4190b2f547a7ecd99b0aee58b74ee04b4\", \"kind\": \"admission-result\", \"nodeId\": \"prepare\"}",
+    "created_at": "2026-09-27T16:26:11.15596+00:00",
+    "updated_at": "2026-09-27T16:26:12.288264+00:00",
+    "origin_kind": "dispatch-node",
+    "origin_json": null,
+    "origin_digest": null
+   }
+  ],
+  "factory_execution_operation_cursors": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "node_instance_id": "prepare",
+    "candidate_generation": 0,
+    "next_operation_index": 0
+   }
+  ],
+  "factory_executions": [
+   {
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "node_instance_id": "prepare",
+    "candidate_generation": 0,
+    "attempt_number": 1,
+    "grant_revision": 1,
+    "reservation_generation": 1,
+    "execution_epoch": 1,
+    "cancellation_epoch": 0,
+    "deadline_at": "2026-09-27T16:36:09.79+00:00",
+    "request_hash": "0fa5dd9c5415924b90129015d8e3dc8bebd10b15340b95e1546fbfda4e46b49c",
+    "request_json": "{\"authority\": {\"attemptId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"attemptNumber\": 1, \"cancellationEpoch\": 0, \"candidateGeneration\": 0, \"deadlineAtMs\": 1790526969790, \"executionEpoch\": 1, \"grantRevision\": 1, \"nextOperationIndex\": 0, \"nodeInstanceId\": \"prepare\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"reservationGeneration\": 1, \"runId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"tenantId\": \"tenant-01\"}, \"broker\": {\"audience\": \"factory-gateway\"}, \"grants\": [], \"input\": {\"kind\": \"inline\", \"value\": {\"topic\": \"the primary colours of light\"}}, \"resources\": {\"maxComputeMs\": 600000, \"maxCostMicros\": \"1000000\", \"maxTokens\": \"[redacted in receipt]\", \"memoryBytes\": 1073741824, \"resourceClass\": \"cpu\"}, \"runner\": {\"digest\": \"sha256:4e3357385fbb41479c86b61125f123743e919f7e090ee498deb396b8f5b64c86\", \"export\": \"prepare\", \"manifestName\": \"w19a-graph-guest\", \"package\": \"@ezcorp/w19a-graph-guest\", \"version\": \"1.0.0\"}, \"schemaVersion\": \"factory.runner.request.v1\", \"tools\": []}",
+    "operation_initial_index": 0,
+    "status": "stopped",
+    "journal_cursor": -1,
+    "cancel_accepted_at": "2026-09-27T16:27:17.136332+00:00",
+    "stopped_at": "2026-09-27T16:27:17.172191+00:00",
+    "created_at": "2026-09-27T16:26:13.222247+00:00",
+    "updated_at": "2026-09-27T16:27:17.172191+00:00"
+   }
+  ],
+  "factory_inbox_cursors": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "next_sequence": 5
+   }
+  ],
+  "factory_inbox_events": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "sequence": 1,
+    "event_id": "factory-admission:6373b389dabc0fefdd53a265fd131cd4190b2f547a7ecd99b0aee58b74ee04b4",
+    "event_hash": "sha256:a7e67e8f8262cada1952160ef42fb2c38072aed5b3bd9d6597d2aeaebc42b459",
+    "kind": "decision",
+    "payload": "{\"atMs\": 1790526372299, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:request-admission:2\", \"granted\": true, \"id\": \"factory-admission:6373b389dabc0fefdd53a265fd131cd4190b2f547a7ecd99b0aee58b74ee04b4\", \"kind\": \"admission-result\", \"nodeId\": \"prepare\"}",
+    "applied_source_sequence": 2,
+    "applied_digest": "c1b0b8c23b7a23e1a1ebe1bbd35196dce4f4ef9cff3bcd90d77eee782b5d2883"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "sequence": 2,
+    "event_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4:failed",
+    "event_hash": "sha256:fc4743ee8f452dce8fb97a247a6117d44d09ee491447aad7008740f95837fc08",
+    "kind": "decision",
+    "payload": "{\"atMs\": 1790526436278, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"error\": \"RUNNER_CONTAINER_EXIT\", \"failureKind\": \"execution\", \"id\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4:failed\", \"kind\": \"node-failed\", \"nodeId\": \"prepare\"}",
+    "applied_source_sequence": 3,
+    "applied_digest": "a1304aae7b4ee1e82b18d729db7f2839e29710e0ca2b215e572393ff030a600c"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "sequence": 3,
+    "event_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7:usage:1",
+    "event_hash": "sha256:0d275472cc93bf41bb864a88175155b5c4f62d76c100b5e12c4fab2f78706d5d",
+    "kind": "decision",
+    "payload": "{\"atMs\": 1790526437183, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"id\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7:usage:1\", \"kind\": \"usage-settled\", \"knownCostMicros\": \"0\", \"nodeId\": \"prepare\", \"revision\": 1}",
+    "applied_source_sequence": null,
+    "applied_digest": null
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "sequence": 4,
+    "event_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5:stopped",
+    "event_hash": "sha256:5c0199390919165226f57904a536a0122cc0e85ac56adf1c2b3af4a221750fb7",
+    "kind": "decision",
+    "payload": "{\"atMs\": 1790526437188, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"id\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5:stopped\", \"kind\": \"attempt-stopped\", \"nodeId\": \"prepare\"}",
+    "applied_source_sequence": null,
+    "applied_digest": null
+   }
+  ],
+  "factory_retention_records": [
+   {
+    "tenant_id": "tenant-01",
+    "subject_kind": "receipt",
+    "subject_id": "[\"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\"]",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "retention_class": "receipt",
+    "anchored_at_ms": 1790526437996,
+    "retain_until_ms": 1822062437996,
+    "extension_reason": null,
+    "state": "retained",
+    "archive_json": null,
+    "archive_digest": null,
+    "archived_at_ms": null,
+    "tombstoned_at_ms": null,
+    "collected_at_ms": null,
+    "last_refusal": null,
+    "created_at": "2026-09-27T16:27:18.005772+00:00",
+    "updated_at": "2026-09-27T16:27:18.005772+00:00"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "subject_kind": "run_audit",
+    "subject_id": "[\"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\"]",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "retention_class": "canonical_audit",
+    "anchored_at_ms": 1790526437996,
+    "retain_until_ms": 1822062437996,
+    "extension_reason": null,
+    "state": "retained",
+    "archive_json": "{\"digest\": \"sha256:ead0324c5951b1a009598885069eabe813df040c80127911769de67c5b2e418c\", \"key\": \"archive/dGVuYW50LTAx/.recovery/audit/OGZmYzQ3ZWEtMzAzNy00YWQ3LWFhNzEtMDZiOTE2YzJlNGU3L2Y2Yjg3MmQ1LWNlN2UtNGRjMS05ZjY0LTc1M2U4ZWUxMWZjZg/ead0324c5951b1a009598885069eabe813df040c80127911769de67c5b2e418c\", \"versionId\": \"6726c5b0f4e5f290304c740a6dbe9a9a\"}",
+    "archive_digest": "sha256:ead0324c5951b1a009598885069eabe813df040c80127911769de67c5b2e418c",
+    "archived_at_ms": 1790526438023,
+    "tombstoned_at_ms": null,
+    "collected_at_ms": null,
+    "last_refusal": null,
+    "created_at": "2026-09-27T16:27:18.005772+00:00",
+    "updated_at": "2026-09-27T16:27:18.023415+00:00"
+   }
+  ],
+  "factory_run_lifecycle": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "factory_id": "w19a.graph.v1",
+    "factory_version": "1.0.0",
+    "definition_digest": "sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284",
+    "grant_revision": 1,
+    "revision": 1,
+    "cancellation_epoch": 1,
+    "status": "failed",
+    "deadline_ms": 1790526969790,
+    "parameters_json": "{\"topic\": {\"kind\": \"inline\", \"value\": \"the primary colours of light\"}}",
+    "parameters_digest": "168fc0cdc33b057deabaa82672114a19ef864425be54ead53ba13c6200446c18",
+    "output_json": null,
+    "error_json": "{\"code\": \"FACTORY_RUN_FAILED\", \"message\": \"RUNNER_CONTAINER_EXIT\"}",
+    "created_at": "2026-09-27T16:26:09.781442+00:00",
+    "updated_at": "2026-09-27T16:27:17.996362+00:00"
+   }
+  ],
+  "factory_run_projection_attempts": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "consumer_id": "factory-run-status.v1",
+    "attempt_count": 4,
+    "last_error_code": null,
+    "last_attempted_at": "2026-09-27T16:27:17.999979+00:00"
+   }
+  ],
+  "factory_run_projections": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "consumer_id": "factory-run-status.v1",
+    "sequence": 4,
+    "digest": "4844d9eb511a78fce14f07d2decc61d1c5b538e28884eca3c6cb4f239ec95400",
+    "payload": "{\"digest\": \"4844d9eb511a78fce14f07d2decc61d1c5b538e28884eca3c6cb4f239ec95400\", \"sourceSequence\": 4, \"status\": \"failed\"}",
+    "updated_at": "2026-09-27T16:27:17.996362+00:00"
+   }
+  ],
+  "factory_runs": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "definition_digest": "sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284",
+    "interpreter_build": "factory-interpreter-1",
+    "execution_epoch": 1,
+    "request_digest": "5f2004dcf9241da6c0c836fdcaa11b3140e70c941abd18de25bccb84fc9934ea",
+    "request_payload": "{\"definitionDigest\": \"sha256:a308e6dda401eaf4afd1ccce0e6d3f28b8b959cbdeac2012cc052efc7e59a284\", \"executionEpoch\": 1, \"input\": {\"topic\": \"the primary colours of light\"}, \"interpreterBuild\": \"factory-interpreter-1\", \"principalId\": \"4ad0fc95-1e91-4f54-acca-597eef6a05b4\", \"principalKind\": \"user\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"runId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\"}",
+    "next_sequence": 5,
+    "created_at": "2026-09-27T16:26:09.781442+00:00"
+   }
+  ],
+  "factory_task_outcomes": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "input_digest": "sha256:b0eb691b108fb45ba48d2cf05efa9adb527f5aa114dcd1a8016175e979ec4cd8",
+    "authority_json": "{\"attemptId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"attemptNumber\": 1, \"cancellationEpoch\": 0, \"candidateGeneration\": 0, \"deadlineAt\": 1790526969790, \"executionEpoch\": 1, \"grantRevision\": 1, \"nodeInstanceId\": \"prepare\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"requestDigest\": \"0fa5dd9c5415924b90129015d8e3dc8bebd10b15340b95e1546fbfda4e46b49c\", \"reservationGeneration\": 1, \"runId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"tenantId\": \"tenant-01\"}",
+    "result_json": "{\"error\": {\"code\": \"RUNNER_CONTAINER_EXIT\", \"message\": \"Factory attempt ended without its guest's answer (container_exit): Worker closed; exit code unavailable; state cancelled; stopped at its deadline 2026-09-27T16:27:13.554Z\", \"retryable\": true}, \"journalCursor\": -1, \"operations\": [], \"resultDigest\": \"67027d98597f988b52bfe690a7715879ab2789bad445cefba0d6c46cc2dd06c1\", \"schemaVersion\": \"factory.runner.result.v1\", \"status\": \"failed\"}",
+    "evidence_digest": "sha256:1317170648e05bf5f8877dd52e535e646941c87c94c9354cf93e9f19e4ac03ab",
+    "receipt_json": "{\"event\": {\"atMs\": 1790526436278, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"error\": \"RUNNER_CONTAINER_EXIT\", \"failureKind\": \"execution\", \"id\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4:failed\", \"kind\": \"node-failed\", \"nodeId\": \"prepare\"}, \"evidenceDigest\": \"sha256:1317170648e05bf5f8877dd52e535e646941c87c94c9354cf93e9f19e4ac03ab\", \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"resultStatus\": \"failed\", \"terminalResultDigest\": \"sha256:dc32ebb25058c66c2050aed486feac04d3d1187f39eae35b70179998286d58b8\", \"usageDisposition\": \"unknown_held\"}",
+    "receipt_digest": "sha256:472f2f557860fa1131c89087a26bef7b71e35cf373ffdc820dc84e0d5fff0638",
+    "created_at": "2026-09-27T16:27:16.255065+00:00"
+   }
+  ],
+  "factory_task_stops": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "cancel_command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5",
+    "attempt_command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "request_json": "{\"allocationGeneration\": 1, \"attemptId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"attemptReference\": {\"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"interpreterId\": \"root\", \"logicalRunId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"tenantId\": \"tenant-01\"}, \"cancelReference\": {\"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5\", \"interpreterId\": \"root\", \"logicalRunId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf\", \"projectId\": \"8ffc47ea-3037-4ad7-aa71-06b916c2e4e7\", \"tenantId\": \"tenant-01\"}, \"holderGeneration\": 1, \"hostId\": \"host-w19a\", \"reason\": \"failed\", \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"source\": \"terminal-outcome\", \"workerId\": \"factory_f59ec6230457e17ee525c8313779cd8ec48e1ce03e1c810b\"}",
+    "request_digest": "sha256:801ac0855174cadd2e4304c2a36c27c599f5a5080137eefb93052a9b20f4b21f",
+    "source": "terminal-outcome",
+    "state": "stopped",
+    "uncertain_event_json": null,
+    "uncertain_event_digest": null,
+    "stop_receipt_json": "{\"allocationGeneration\": 1, \"attemptId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"holderGeneration\": 1, \"hostId\": \"host-w19a\", \"hostKeyId\": \"host-key-1\", \"hostSignature\": \"F1UE83uO77WubghMqLBu09JOr-UC44zOcYR5CoZyeKXVmnGVzS64mVveT_1LcFghVs41_JGTxf7VKn1qQzNR_KDAhOT8QPeDK26eQOpIabK3dFtXIj4KX6AXZ2UjEHdbcO6yS1eARvSkKllUNzNNog9Va2UkHuiXJX8MzPC6HnC6yZgxYqlXnIKNC8U-MWzI2a9shZ7cRSZxrbsIwriaLuHRGe7xm5KyCeDcBDV3WGx_b1Uq00-1UywW82KgY1eSmoQDh-Pfg_fJzQUujdSZOy5iKdsDH_TymkSvziCH66yWf0FsFN0ij6InoCGz24gFvm3-O_gow52ctOuyNcWY-w\", \"processGroupAbsent\": true, \"reason\": \"failed\", \"receiptDigest\": \"sha256:294441ce87858d8d134471a33443809ea1b00d551f4b691ea655ba5f717e354d\", \"reservationId\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7\", \"schemaVersion\": \"factory.physical-stop.v1\", \"stoppedAtMs\": 1790526437153, \"workerId\": \"factory_f59ec6230457e17ee525c8313779cd8ec48e1ce03e1c810b\"}",
+    "stop_receipt_digest": "sha256:294441ce87858d8d134471a33443809ea1b00d551f4b691ea655ba5f717e354d",
+    "stopped_event_json": "{\"atMs\": 1790526437188, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"id\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5:stopped\", \"kind\": \"attempt-stopped\", \"nodeId\": \"prepare\"}",
+    "stopped_event_digest": "sha256:5c0199390919165226f57904a536a0122cc0e85ac56adf1c2b3af4a221750fb7",
+    "accepted_at_ms": 1790526437148,
+    "created_at": "2026-09-27T16:27:17.136332+00:00",
+    "updated_at": "2026-09-27T16:27:17.172191+00:00",
+    "reconcile_json": null
+   }
+  ],
+  "factory_transition_commands": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:run:start-timer:1",
+    "source_sequence": 1,
+    "command_digest": "sha256:8e96442d186f994a4eb6e0205cfbb739b63a7f098f84a32b9dc10de7542b01a5"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:request-admission:2",
+    "source_sequence": 1,
+    "command_digest": "sha256:0cc5f38b2aa69499954133cda40a7f573d5fc29520f46278d9ca9a86e6e6b372"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:start-timer:3",
+    "source_sequence": 1,
+    "command_digest": "sha256:7744640e9188d589826ee0531c3b9f2d1394324413e420600f4092ceae0bd82c"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "source_sequence": 2,
+    "command_digest": "sha256:22b9d378a6e00c26dec08dc820aefc2d7e615f8f972907a577d218efbaf0e156"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:cancel-node:5",
+    "source_sequence": 3,
+    "command_digest": "sha256:eda375caa653749abd364e295f7bb640a6cf29835cedbfcdc2a47b9f0db7c107"
+   },
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "interpreter_id": "root",
+    "command_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:run:fail-run:6",
+    "source_sequence": 4,
+    "command_digest": "sha256:fbc44f35e20d6d45596699fe96843da065b0370417da198d74cfec8abee14433"
+   }
+  ],
+  "factory_usage_settlements": [
+   {
+    "tenant_id": "tenant-01",
+    "project_id": "8ffc47ea-3037-4ad7-aa71-06b916c2e4e7",
+    "run_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf",
+    "reservation_id": "factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7",
+    "revision": 1,
+    "attempt_id": "f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4",
+    "source": "no-operations",
+    "known_cost_micros": "0",
+    "unknown_cost_micros": null,
+    "provider_receipt_digest": null,
+    "settled_at_ms": 1790526437183,
+    "settlement_digest": "sha256:2369adc5817af41192e65a71bb964a3a733242c151b0246e6fe00185f2dd166c",
+    "event_json": "{\"atMs\": 1790526437183, \"attempt\": 1, \"candidateGeneration\": 0, \"commandId\": \"f6b872d5-ce7e-4dc1-9f64-753e8ee11fcf:prepare:dispatch-node:4\", \"id\": \"factory-reservation:89cb77797700a3d25c009f7bc0dd37d544ce3a925001781193bdb14d7:usage:1\", \"kind\": \"usage-settled\", \"knownCostMicros\": \"0\", \"nodeId\": \"prepare\", \"revision\": 1}",
+    "event_digest": "sha256:0d275472cc93bf41bb864a88175155b5c4f62d76c100b5e12c4fab2f78706d5d",
+    "created_at": "2026-09-27T16:27:17.172191+00:00",
+    "stop_receipt_digest": "sha256:294441ce87858d8d134471a33443809ea1b00d551f4b691ea655ba5f717e354d",
+    "basis": "no-operations: compute at reserved bound"
+   }
+  ]
+ }
+}

@@ -1,5 +1,5 @@
 import { test, expect, describe } from "vitest";
-import { isChatDisabled, chatPlaceholder, shouldAutofocusComposer, setComposerDisplay } from "../lib/chat-input-logic";
+import { isChatDisabled, chatPlaceholder, isImeKeydown, isSubmitEnter, shouldAutofocusComposer, setComposerDisplay } from "../lib/chat-input-logic";
 
 describe("setComposerDisplay", () => {
 	test("commits text and selection before focusing the native textarea", () => {
@@ -97,5 +97,25 @@ describe("shouldAutofocusComposer integration with isChatDisabled", () => {
 		expect(
 			shouldAutofocusComposer({ loaded: true, messageCount: 3, disabled }),
 		).toBe(false);
+	});
+});
+
+describe("isSubmitEnter / isImeKeydown", () => {
+	const key = (init: KeyboardEventInit & { keyCode?: number }) => new KeyboardEvent("keydown", init);
+
+	test("plain Enter sends; Shift+Enter and other keys do not", () => {
+		expect(isSubmitEnter(key({ key: "Enter" }))).toBe(true);
+		expect(isSubmitEnter(key({ key: "Enter", shiftKey: true }))).toBe(false);
+		expect(isSubmitEnter(key({ key: "a" }))).toBe(false);
+	});
+
+	test("Enter that belongs to an IME composition does not send", () => {
+		const composing = key({ key: "Enter", isComposing: true });
+		const safari = key({ key: "Enter", keyCode: 229 });
+		expect(isImeKeydown(composing)).toBe(true);
+		expect(isImeKeydown(safari)).toBe(true);
+		expect(isSubmitEnter(composing)).toBe(false);
+		expect(isSubmitEnter(safari)).toBe(false);
+		expect(isImeKeydown(key({ key: "Enter" }))).toBe(false);
 	});
 });

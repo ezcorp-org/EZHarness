@@ -1,0 +1,7 @@
+== red: tests written, broker unchanged, head 7247f7e9a 2026-10-05T06:35:53Z
+(fail) the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c) > is ready on the stored OAuth credential, and names only its kind [34.28ms]
+(fail) the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c) > an API key alone cannot run the OAuth-only pin: refused by name, never sent [2.58ms]
+(fail) the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c) > an API key that replaces the login between readiness and the call is refused at call time, never sent [1.76ms]
+ 20 pass
+ 3 fail
+== exit 

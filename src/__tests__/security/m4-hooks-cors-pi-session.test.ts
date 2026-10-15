@@ -20,9 +20,12 @@
 //
 // (B) pi_session auto-promotion with no expiry. Pre-fix, an unbounded
 //     migration bridge copied any `pi_session` cookie into `ezcorp_session`
-//     with a fresh 30-day max-age, with no deadline. Fix: introduces
-//     PI_SESSION_MIGRATION_EXPIRES_AT (2026-06-01) and after that cutoff
-//     the legacy cookie is purged instead of promoted.
+//     with a fresh 30-day max-age, with no deadline. Fix: a hard expiry
+//     (2026-06-01) after which the legacy cookie was purged instead of
+//     promoted. That date has passed, so the bridge is now removed: the
+//     legacy cookie is always purged and never promoted, and no date in
+//     code decides it (a date in code changed what the server accepted on
+//     that day with no deploy).
 //
 // Because hooks.server.ts imports a tower of server-init dependencies
 // (ensureInitialized, runtime, DB, extension registry, …) a direct import
@@ -33,15 +36,16 @@
 //      direct regression gate. They flip between pre-fix and post-fix.
 //
 //   2. Standalone functional probes that replicate the *fixed* parser and
-//      header-builder and the migration-bridge decision logic, to prove the
-//      fix's mechanism actually does what the source assertions claim.
+//      header-builder, to prove the fix's mechanism actually does what the
+//      source assertions claim. The pi_session retirement is exercised on
+//      the real hook in
+//      web/src/__tests__/hooks-server-legacy-cookie-and-failsafes.server.test.ts.
 //
 // Tests fix(sec-M4): 6ae0370
 
 import { test, expect, describe } from "bun:test";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import ts from "typescript";
 
 const HOOKS_PATH = resolve(import.meta.dir, "../../../web/src/hooks.server.ts");
 const HOOKS_SRC = readFileSync(HOOKS_PATH, "utf8");
@@ -57,58 +61,11 @@ function extractCorsBlock(src: string): string {
 // Grab the migration-bridge region (the `if (!sessionToken)` block that
 // handles the legacy pi_session cookie).
 function extractPiSessionBlock(src: string): string {
-  const start = src.indexOf("Migration bridge");
+  const start = src.indexOf("function retireLegacySessionCookie(");
   expect(start).toBeGreaterThan(-1);
-  return src.slice(start, start + 2000);
-}
-
-const hooksAst = ts.createSourceFile(HOOKS_PATH, HOOKS_SRC, ts.ScriptTarget.Latest, true);
-
-/** Read the real expiry branch as syntax, so logging and indentation cannot change its meaning. */
-function migrationExpiryBranches(): { expired: ts.Statement; live: ts.Statement } {
-  const matches: ts.IfStatement[] = [];
-  const visit = (node: ts.Node): void => {
-    if (ts.isIfStatement(node) && ts.isBinaryExpression(node.expression)) {
-      const { left, operatorToken, right } = node.expression;
-      if (operatorToken.kind === ts.SyntaxKind.GreaterThanToken &&
-          ts.isCallExpression(left) && ts.isPropertyAccessExpression(left.expression) &&
-          ts.isIdentifier(left.expression.expression) && left.expression.expression.text === "Date" &&
-          left.expression.name.text === "now" && left.arguments.length === 0 &&
-          ts.isIdentifier(right) && right.text === "PI_SESSION_MIGRATION_EXPIRES_AT") {
-        matches.push(node);
-      }
-    }
-    ts.forEachChild(node, visit);
-  };
-  visit(hooksAst);
-  expect(matches).toHaveLength(1);
-  expect(matches[0]?.elseStatement).toBeDefined();
-  return { expired: matches[0]!.thenStatement, live: matches[0]!.elseStatement! };
-}
-
-function callsIn(node: ts.Node): ts.CallExpression[] {
-  const calls: ts.CallExpression[] = [];
-  const visit = (child: ts.Node): void => {
-    if (ts.isCallExpression(child)) calls.push(child);
-    ts.forEachChild(child, visit);
-  };
-  visit(node);
-  return calls;
-}
-
-function setsCookie(call: ts.CallExpression, name: string, value: string): boolean {
-  return ts.isPropertyAccessExpression(call.expression) &&
-    call.expression.getText(hooksAst) === "event.cookies.set" &&
-    call.arguments.length >= 2 && ts.isStringLiteral(call.arguments[0]!) &&
-    call.arguments[0].text === name && ts.isStringLiteral(call.arguments[1]!) &&
-    call.arguments[1].text === value;
-}
-
-function assignsLegacySession(node: ts.Node): boolean {
-  if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
-      ts.isIdentifier(node.left) && node.left.text === "sessionToken" &&
-      ts.isIdentifier(node.right) && node.right.text === "legacyToken") return true;
-  return ts.forEachChild(node, assignsLegacySession) ?? false;
+  const end = src.indexOf("\n}\n", start);
+  expect(end).toBeGreaterThan(start);
+  return src.slice(start, end);
 }
 
 // ── (A) CORS source-level regression gates ──────────────────────────────
@@ -233,142 +190,30 @@ describe("sec-M4: CORS allow-list parser and getCorsHeaders behavior (replicated
   });
 });
 
-// ── (B) pi_session migration source-level regression gates ─────────────
-describe("sec-M4: pi_session migration bridge has a hard expiry (source)", () => {
-  test("PI_SESSION_MIGRATION_EXPIRES_AT constant is defined", () => {
-    expect(HOOKS_SRC).toMatch(/PI_SESSION_MIGRATION_EXPIRES_AT\s*=\s*Date\.parse\(/);
-  });
-
-  test("migration bridge checks Date.now() against the expiry constant", () => {
+// ── (B) pi_session retirement source-level regression gates ────────────
+describe("sec-M4: the legacy pi_session cookie is retired, never promoted (source)", () => {
+  test("the retirement purges the legacy cookie", () => {
     const block = extractPiSessionBlock(HOOKS_SRC);
-    expect(block).toMatch(/Date\.now\(\)\s*>\s*PI_SESSION_MIGRATION_EXPIRES_AT/);
+    expect(block).toMatch(/cookies\.set\(\s*"pi_session"\s*,\s*""/);
   });
 
-  test("post-expiry branch does NOT set ezcorp_session from the legacy cookie", () => {
-    const { expired } = migrationExpiryBranches();
-    const calls = callsIn(expired);
-    expect(calls.filter((call) => setsCookie(call, "pi_session", ""))).toHaveLength(1);
-    expect(assignsLegacySession(expired)).toBe(false);
-    expect(calls.some((call) => ts.isIdentifier(call.expression) &&
-      call.expression.text === "setSessionCookie")).toBe(false);
-    expect(calls.some((call) => ts.isPropertyAccessExpression(call.expression) &&
-      call.expression.getText(hooksAst) === "event.cookies.set" &&
-      ts.isStringLiteral(call.arguments[0]) && call.arguments[0].text === "ezcorp_session")).toBe(false);
+  test("the retirement never issues a session from the legacy cookie", () => {
+    // The pre-fix bridge did `setSessionCookie(event.cookies, legacyToken)`
+    // and returned the legacy token as the request's session.
+    const block = extractPiSessionBlock(HOOKS_SRC);
+    expect(block).toMatch(/\):\s*void\s*\{/);
+    expect(block).not.toMatch(/setSessionCookie\(|ezcorp_session/);
   });
 
-  test("pre-expiry branch DOES promote legacy token to ezcorp_session", () => {
-    const { live } = migrationExpiryBranches();
-    expect(assignsLegacySession(live)).toBe(true);
-    expect(callsIn(live).some((call) => ts.isIdentifier(call.expression) &&
-      call.expression.text === "setSessionCookie" &&
-      call.arguments.map((arg) => arg.getText(hooksAst)).join(",") === "event.cookies,legacyToken")).toBe(true);
-  });
-});
+  // The removed bridge compared Date.now() with Date.parse("2026-06-01…"):
+  // on that date the server's behaviour changed with no deploy.
+  const CALENDAR_LITERAL = /(?:Date\.parse|new Date)\(\s*["'`]\d{4}-\d{2}-\d{2}/;
 
-// ── (B) pi_session migration behavioral replica ────────────────────────
-describe("sec-M4: pi_session migration bridge gate logic (replicated)", () => {
-  // Replicates the FIXED decision: given Date.now() and the expiry cutoff,
-  // decide whether to (purge-only) or (purge + promote). The source
-  // assertions above guarantee hooks.server.ts matches this shape.
-  type CookieOp =
-    | { op: "set"; name: string; value: string; maxAge: number }
-    | { op: "get"; name: string };
-
-  function runMigrationBridge(opts: {
-    now: number;
-    expiresAt: number;
-    ezcorpSession: string | undefined;
-    piSession: string | undefined;
-  }): { sessionToken: string | undefined; ops: CookieOp[] } {
-    const ops: CookieOp[] = [];
-    let sessionToken = opts.ezcorpSession;
-    if (!sessionToken) {
-      const legacyToken = opts.piSession;
-      if (legacyToken) {
-        if (opts.now > opts.expiresAt) {
-          ops.push({ op: "set", name: "pi_session", value: "", maxAge: 0 });
-        } else {
-          sessionToken = legacyToken;
-          ops.push({ op: "set", name: "pi_session", value: "", maxAge: 0 });
-          ops.push({
-            op: "set",
-            name: "ezcorp_session",
-            value: legacyToken,
-            maxAge: 30 * 24 * 3600,
-          });
-        }
-      }
-    }
-    return { sessionToken, ops };
-  }
-
-  const EXPIRES_AT = Date.parse("2026-06-01T00:00:00Z");
-
-  test("no cookies at all → nothing happens", () => {
-    const r = runMigrationBridge({
-      now: Date.parse("2026-05-01T00:00:00Z"),
-      expiresAt: EXPIRES_AT,
-      ezcorpSession: undefined,
-      piSession: undefined,
-    });
-    expect(r.sessionToken).toBeUndefined();
-    expect(r.ops).toEqual([]);
+  test("the calendar-literal pattern catches the removed expiry line (positive control)", () => {
+    expect('const PI_SESSION_MIGRATION_EXPIRES_AT = Date.parse("2026-06-01T00:00:00Z");').toMatch(CALENDAR_LITERAL);
   });
 
-  test("ezcorp_session already present → legacy cookie is ignored", () => {
-    const r = runMigrationBridge({
-      now: Date.parse("2026-05-01T00:00:00Z"),
-      expiresAt: EXPIRES_AT,
-      ezcorpSession: "new-token",
-      piSession: "legacy-token",
-    });
-    expect(r.sessionToken).toBe("new-token");
-    expect(r.ops).toEqual([]);
-  });
-
-  test("legacy cookie within expiry window → promoted once and cleared", () => {
-    const r = runMigrationBridge({
-      now: Date.parse("2026-05-15T00:00:00Z"),
-      expiresAt: EXPIRES_AT,
-      ezcorpSession: undefined,
-      piSession: "legacy-token",
-    });
-    expect(r.sessionToken).toBe("legacy-token");
-    // Two cookie operations: clear pi_session, set ezcorp_session.
-    expect(r.ops).toHaveLength(2);
-    expect(r.ops[0]).toEqual({ op: "set", name: "pi_session", value: "", maxAge: 0 });
-    expect(r.ops[1]).toEqual({
-      op: "set",
-      name: "ezcorp_session",
-      value: "legacy-token",
-      maxAge: 30 * 24 * 3600,
-    });
-  });
-
-  test("legacy cookie past expiry → rejected, purged, NOT promoted", () => {
-    const r = runMigrationBridge({
-      now: Date.parse("2026-07-01T00:00:00Z"),
-      expiresAt: EXPIRES_AT,
-      ezcorpSession: undefined,
-      piSession: "legacy-token",
-    });
-    // Crucially: sessionToken must NOT be set from the legacy cookie.
-    expect(r.sessionToken).toBeUndefined();
-    // Exactly one op: purge the stale cookie. No ezcorp_session set.
-    expect(r.ops).toHaveLength(1);
-    expect(r.ops[0]).toEqual({ op: "set", name: "pi_session", value: "", maxAge: 0 });
-    expect(r.ops.some(o => o.op === "set" && o.name === "ezcorp_session")).toBe(false);
-  });
-
-  test("legacy cookie exactly at the boundary → still promoted (strict >)", () => {
-    // The fixed guard is `Date.now() > PI_SESSION_MIGRATION_EXPIRES_AT`
-    // (strict). At exactly the cutoff ms the cookie is still promoted.
-    const r = runMigrationBridge({
-      now: EXPIRES_AT,
-      expiresAt: EXPIRES_AT,
-      ezcorpSession: undefined,
-      piSession: "legacy-token",
-    });
-    expect(r.sessionToken).toBe("legacy-token");
+  test("no calendar date in the hook decides what it accepts", () => {
+    expect(HOOKS_SRC).not.toMatch(CALENDAR_LITERAL);
   });
 });

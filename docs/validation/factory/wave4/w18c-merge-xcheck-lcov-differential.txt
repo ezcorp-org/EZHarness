@@ -1,0 +1,71 @@
+Accepted by the lead (2026-09-28): the binding rule is the shape: a bare catch clause or an FN header at 0 takes its body's first count, and 0 OTHER; W18c's documented lists were the lines its own inputs exposed, not an exhaustive set.
+
+catch-clause=51 fn-header=17 OTHER=0 undocumented=58
+catch-clause UNDOCUMENTED docs/extensions/examples/file-organizer/lib/proposals.ts:287 DA 0 -> 17
+catch-clause UNDOCUMENTED packages/@ezcorp/sdk/src/runtime/loop.ts:111 DA 0 -> 34
+catch-clause UNDOCUMENTED packages/@ezcorp/sdk/src/runtime/search.ts:88 DA 0 -> 510
+catch-clause UNDOCUMENTED src/db/connection.ts:138 DA 0 -> 1445
+catch-clause UNDOCUMENTED src/db/connection.ts:146 DA 0 -> 289
+catch-clause UNDOCUMENTED src/db/connection.ts:678 DA 0 -> 1139
+catch-clause UNDOCUMENTED src/db/connection.ts:916 DA 0 -> 1496
+catch-clause UNDOCUMENTED src/db/datadir-upgrade.ts:160 DA 0 -> 17
+catch-clause UNDOCUMENTED src/db/datadir-upgrade.ts:169 DA 0 -> 17
+catch-clause UNDOCUMENTED src/db/datadir-upgrade.ts:179 DA 0 -> 17
+catch-clause UNDOCUMENTED src/db/live-holder-guard.ts:50 DA 0 -> 17
+catch-clause UNDOCUMENTED src/db/live-holder-guard.ts:75 DA 0 -> 17
+catch-clause UNDOCUMENTED src/db/live-holder-guard.ts:85 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/credential-broker.ts:71 DA 0 -> 2686
+catch-clause UNDOCUMENTED src/extensions/file-organizer-daemon.ts:760 DA 0 -> 408
+catch-clause UNDOCUMENTED src/extensions/file-organizer-daemon.ts:775 DA 0 -> 374
+catch-clause src/extensions/fs-handler.ts:334 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/fs-handler.ts:363 DA 0 -> 17
+catch-clause src/extensions/fs-handler.ts:842 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/loop-events-handler.ts:119 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/mcp-audit.ts:92 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/npm-deps.ts:77 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/runner-connection.ts:46 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/capability-probe.ts:89 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/capability-probe.ts:167 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/capability-probe.ts:180 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/capability-probe.ts:192 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/capability-probe.ts:201 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/sandbox/landlock.ts:41 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/secrets-store.ts:167 DA 0 -> 17
+catch-clause UNDOCUMENTED src/extensions/webhook-delivery-daemon.ts:305 DA 0 -> 1309
+catch-clause UNDOCUMENTED src/extensions/webhook-delivery-daemon.ts:344 DA 0 -> 204
+catch-clause UNDOCUMENTED src/factory/boot.ts:180 DA 0 -> 289
+catch-clause UNDOCUMENTED src/factory/executions.ts:186 DA 0 -> 68
+catch-clause UNDOCUMENTED src/providers/credentials.ts:252 DA 0 -> 17
+catch-clause UNDOCUMENTED src/providers/kilo.ts:251 DA 0 -> 17
+catch-clause UNDOCUMENTED src/providers/kilo.ts:267 DA 0 -> 17
+catch-clause src/providers/kilo.ts:288 DA 0 -> 17
+catch-clause src/providers/kilo.ts:305 DA 0 -> 17
+catch-clause UNDOCUMENTED src/providers/kilo.ts:398 DA 0 -> 17
+catch-clause UNDOCUMENTED src/runtime/fs/scan-fs.ts:49 DA 0 -> 17
+catch-clause UNDOCUMENTED src/runtime/preview/preview-proxy.ts:80 DA 0 -> 1
+catch-clause UNDOCUMENTED src/runtime/workflow-executor.ts:2954 DA 0 -> 289
+catch-clause UNDOCUMENTED src/runtime/workflow-release-assets.ts:201 DA 0 -> 17
+catch-clause UNDOCUMENTED src/search/backend-config.ts:71 DA 0 -> 17
+catch-clause UNDOCUMENTED src/search/providers.ts:132 DA 0 -> 1105
+catch-clause UNDOCUMENTED src/search/providers.ts:150 DA 0 -> 272
+catch-clause UNDOCUMENTED src/search/search-quota.ts:72 DA 0 -> 17
+catch-clause UNDOCUMENTED src/ui/prompt.ts:32 DA 0 -> 17
+catch-clause UNDOCUMENTED web/src/hooks.server.ts:704 DA 0 -> 2
+catch-clause UNDOCUMENTED web/src/hooks.server.ts:946 DA 0 -> 2
+fn-header web/src/lib/server/context.ts:242 DA 0 -> 3
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:511 DA 0 -> 6
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:516 DA 0 -> 5
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:521 DA 0 -> 6
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:537 DA 0 -> 2
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:549 DA 0 -> 2
+fn-header UNDOCUMENTED web/src/lib/server/context.ts:589 DA 0 -> 4
+fn-header UNDOCUMENTED web/src/lib/server/extensions/control-errors.ts:3 DA 0 -> 2
+fn-header UNDOCUMENTED web/src/lib/server/extensions/legacy-endpoint.ts:3 DA 0 -> 14
+fn-header web/src/lib/server/factory/console-dispatch.ts:13 DA 0 -> 2
+fn-header web/src/lib/server/factory/console-dispatch.ts:18 DA 0 -> 6
+fn-header web/src/lib/server/factory/route-kit.ts:45 DA 0 -> 252
+fn-header web/src/lib/server/factory/route-kit.ts:108 DA 0 -> 62
+fn-header web/src/lib/server/factory/route-kit.ts:326 DA 0 -> 9
+fn-header UNDOCUMENTED web/src/lib/server/security/api-keys.ts:135 DA 0 -> 246
+fn-header UNDOCUMENTED web/src/lib/server/security/payload.ts:39 DA 0 -> 106
+fn-header UNDOCUMENTED web/src/lib/server/security/rate-limiter.ts:94 DA 0 -> 23

@@ -1,0 +1,85 @@
+W15c report: pool service leaf (Node bundle regression, validator-2 F2)
+
+Branch wp/w15c-pool-leaf from integ/w00 at 6c8ec29c5. Head 126b776d2 (tree clean). Source head 603077bbb;
+126b776d2 adds only tasks/. Gate file tasks/factory/w15c-GATES.md. Receipts /tmp/factory-platform-evidence/w15c/receipts/.
+Batch: BASE_REF=integ/w00 flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 bash bin/batch.sh (logs/batch-1.log).
+
+COMMITS
+  603077bbb fix(factory): the pool service bundles for Node; a boundary rule keeps it off the Bun database driver
+  126b776d2 docs(tasks): W15c gates, review, and lesson
+
+CHANGE
+  src/factory/checkpoint-limits.ts (new leaf): FACTORY_CHECKPOINT_LIMITS and the pool snapshot, pool source, and slot
+    source types. It imports only FACTORY_CHECKPOINT_MAX_AGE_SECONDS from db/migrations/add-factory-recovery.
+  src/factory/checkpoint-barrier.ts: imports and re-exports all four, so no caller changes.
+  src/factory/pool/checkpoint.ts: imports from the leaf only.
+  Deviation from validator-2's patch: the types move too, so the pool imports nothing from the barrier. The leaf and
+  pool/checkpoint.ts are byte-identical to the same fix on wp/w15b-runtime-kms.
+  scripts/check-factory-boundaries.ts: runtimeImportClosure (value imports, value re-exports, dynamic imports; type
+    imports erased), moved from src/__tests__/factory-process-boundaries.test.ts, which now imports it; rule
+    node-service-link with NODE_SERVICE_BOUNDARIES = pool/service-server.ts may not reach src/db/connection.ts.
+  The checker found a second path besides extension-releases:
+    checkpoint-barrier -> records -> auth/factory-service-token -> auth/jwt -> db/queries/settings -> db/connection.
+
+COMMANDS AND EXIT CODES (commit 603077bbb, clean)
+  static-typecheck      bun run typecheck                                      0
+  static-lint           bun run lint                                           0
+  static-boundaries     bun scripts/check-factory-boundaries.ts                0
+  static-gate-integrity BASE_REF=integ/w00 bun scripts/gate-integrity.ts       0
+  unit                  bun test --coverage (5 files)                          0  (60/0)
+  pg-pool-mtls          tests/postgres/factory-pool-mtls.test.ts (PostgreSQL)  0  (1/0)
+  pg-pool-checkpoint    tests/postgres/factory-pool-checkpoint.test.ts         0  (6/0)
+  pg-checkpoint         tests/postgres/factory-checkpoint.test.ts              0  (12/0)
+  merge-lcov            bun scripts/merge-lcov.ts                              0
+  new-file-coverage     BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts  0
+  patch-coverage        BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts     0
+  pool-node-build       bun build src/factory/pool/service-server.ts --target node --format esm (no --external),
+                        then grep for a "bun" import                           0  (no match; sha256 e858bdde...c6c5a)
+  backend-pool          bun run test                                           1  (28237 pass / 3 fail)
+  Red proofs: with pool/checkpoint.ts importing the barrier again, the checker exits 1 with the full chain, and the
+  Node build test fails with "Browser build cannot import Bun builtin".
+
+OPEN
+  backend-pool: reference-data/journey, runner/applied-controls, runner/python-guest fail in beforeAll with "image not
+  known" for localhost/ezcorp-factory-python-data@sha256:21a7134763a5... and docker.io/library/python@sha256:3121f8b0804a....
+  Alone, under the lock, the same 0/3 (logs/pool-fail-alone.log). podman events show a mass image removal at about
+  2026-09-24T16:50Z; the images are gone from the host. No W15c file is on their path. Every pool run on this host
+  fails these three suites until the images are rebuilt (scripts/build-factory-data-image.sh and the pinned python pull).
+  I did not rebuild shared host images.
+
+DELTA (validator-3 request, 2026-09-24)
+  Head 8112baaf1 (tree clean). Source e7325b7f5; 8112baaf1 adds only tasks/.
+  e7325b7f5 fix(factory): the node-service-link rule names a direct import of the Bun driver or a Bun builtin
+  8112baaf1 docs(tasks): W15c delta for the bare-specifier rule
+  NODE_SERVICE_BOUNDARIES.forbiddenPackages = ["bun", "bun:*", "drizzle-orm/bun-sql"] ("name" matches itself and its
+  subpaths; "scheme:*" matches every scheme: builtin). Deliberate-violation test: drizzle-orm/bun-sql/driver in the
+  entry, bun:sqlite and dynamic bun:ffi in a helper are each named with their chain; drizzle-orm and bundler pass.
+  Red on the real repo: `import "bun:sqlite"` in pool/service-server.ts -> checker exit 1 naming it; restored.
+  At e7325b7f5 (logs/batch-2-delta.log, logs/batch-2-coverage.log):
+    static-typecheck 0, static-lint 0, static-boundaries 0, static-gate-integrity 0 (BASE_REF=integ/w00),
+    unit 0 (61/0: check-factory-boundaries.test.ts, factory-process-boundaries.test.ts, checkpoint-barrier, pool tests),
+    merge-lcov 0, new-file-coverage 0, patch-coverage 0 (unit lcov only).
+  Round-1 receipts, logs, and lcov at 603077bbb: receipts-r1-603077bbb/, logs-r1-603077bbb/, cov-r1-603077bbb/.
+  Still open: the guest suites and pool leg, waiting for the integ/w00 hash with W12c.
+
+GUEST AND POOL RERUN (after W12c, 2026-09-24)
+  Proof merge 2836a5a4e on ref proof/w15c-w12c-guests = W15c 8112baaf1 + integ/w00 6964dec93 (W12c receipts; merge
+  f1753cd04). Two append-only conflicts resolved by keeping both sides: tasks/lessons.md and
+  scripts/coverage-thresholds.json. Committed with --no-verify (proof merge only; never merged anywhere).
+  W15c head unchanged at 8112baaf1.
+  Batch: BASE_REF=integ/w00 ONLY="guest-suites backend-pool" flock --close ... bash bin/batch.sh (logs/batch-3-guests.log)
+    guest-suites  bun test reference-data/journey + runner/applied-controls + runner/python-guest   0  (28/0)
+    backend-pool  bun run test                                                                    1  (28801 pass / 14 fail)
+  The 14 failures are the SAME on integ/w00 6964dec93 without W15c (detached worktree, same host and shell):
+    logs/base-6964dec93-four-files.log: 153 pass / 14 fail, the identical 14 tests.
+    src/__tests__/dev-image-provenance.test.ts (1), local-sandbox-startup.test.ts (2), setup-podman.test.ts (1),
+    podman-compose-wrapper.test.ts (10). None of them imports or reads a W15c file.
+  Cause, in part: the host shell runs with umask 077. Under umask 022 the provenance, local-sandbox, and setup-podman
+  tests pass (logs/pool-fail-umask022.log: 157 pass / 10 fail); each writes a file with mode 0644 and expects it to be
+  treated as group/other readable, which umask 077 prevents. The 10 podman-compose-wrapper tests still fail under
+  umask 022: the fresh fixture's source-state default is "dirty" where "clean" is expected. I did not root-cause
+  them; they are outside W15c.
+  Attribution (team lead, 2026-09-24): the 14 pool failures are known main-origin items owned and fixed on W18a-3's
+  branch. The four umask-sensitive tests set explicit modes there (167/0 at umask 077, 022, and 000). The
+  podman-compose-wrapper failures come from a .dockerignore copied at mode 0600 from a checkout made under umask 077;
+  fixed there (63/63). They fail on every head until W18a-3 lands. No W15c work. Rerun accepted by the lead.

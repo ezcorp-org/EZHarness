@@ -1,0 +1,283 @@
+{
+  "$id": "urn:ezcorp:factory:guest-material-response:v1",
+  "$ref": "#/definitions/FactoryGuestMaterialResponse",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryGuestMaterialRefusal": {
+      "description": "Why a staging frame was refused. A refusal is never a quiet substitution.\n\n`unknown_attempt`: no such attempt was admitted in this scope. `stale_epoch`: the attempt exists and its liveness fence moved — run epoch, execution epoch, cancellation epoch, reservation generation, grant revision, or a status that no longer admits effects. The journal checks them together, so the code does not say which one moved. Stop; the attempt is superseded. `unavailable`: a fault in the product's database or object store, not a decision about this attempt. Frames are idempotent, so resending the same frame is safe.",
+      "enum": [
+        "invalid_request",
+        "unknown_attempt",
+        "unknown_material",
+        "deadline_expired",
+        "stale_epoch",
+        "oversize",
+        "digest_mismatch",
+        "chunk_out_of_order",
+        "sealed",
+        "conflict",
+        "operation_full",
+        "output_not_canonical_json",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "FactoryGuestMaterialResponse": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "chunkCount": {
+              "type": "number"
+            },
+            "objectName": {
+              "description": "Author-chosen, stable within the operation.",
+              "type": "string"
+            },
+            "operationId": {
+              "description": "The journalled operation this material belongs to.",
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "begun",
+              "type": "string"
+            },
+            "totalBytes": {
+              "type": "number"
+            },
+            "version": {
+              "description": "Monotonic per (operation, objectName). Starts at 1.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "chunkCount",
+            "objectName",
+            "operationId",
+            "operationIndex",
+            "schemaVersion",
+            "status",
+            "totalBytes",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "digest": {
+              "type": "string"
+            },
+            "index": {
+              "type": "number"
+            },
+            "objectName": {
+              "description": "Author-chosen, stable within the operation.",
+              "type": "string"
+            },
+            "operationId": {
+              "description": "The journalled operation this material belongs to.",
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "stored",
+              "type": "string"
+            },
+            "version": {
+              "description": "Monotonic per (operation, objectName). Starts at 1.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "digest",
+            "index",
+            "objectName",
+            "operationId",
+            "operationIndex",
+            "schemaVersion",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "material": {
+              "$ref": "#/definitions/FactoryArtifactReference"
+            },
+            "objectName": {
+              "description": "Author-chosen, stable within the operation.",
+              "type": "string"
+            },
+            "operationId": {
+              "description": "The journalled operation this material belongs to.",
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "sealed",
+              "type": "string"
+            },
+            "version": {
+              "description": "Monotonic per (operation, objectName). Starts at 1.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "material",
+            "objectName",
+            "operationId",
+            "operationIndex",
+            "schemaVersion",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "objectName": {
+              "description": "Author-chosen, stable within the operation.",
+              "type": "string"
+            },
+            "operationId": {
+              "description": "The journalled operation this material belongs to.",
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "output": {
+              "$ref": "#/definitions/FactoryArtifactReference",
+              "description": "The candidate output a COMPLETED result names."
+            },
+            "resultDigest": {
+              "description": "The bare 64-hex digest the result's `resultDigest` must equal.",
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "output",
+              "type": "string"
+            },
+            "version": {
+              "description": "Monotonic per (operation, objectName). Starts at 1.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "objectName",
+            "operationId",
+            "operationIndex",
+            "output",
+            "resultDigest",
+            "schemaVersion",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "objectName": {
+              "description": "Author-chosen, stable within the operation.",
+              "type": "string"
+            },
+            "operationId": {
+              "description": "The journalled operation this material belongs to.",
+              "type": "string"
+            },
+            "operationIndex": {
+              "type": "number"
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "$ref": "#/definitions/FactoryGuestMaterialRefusal"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-material-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            },
+            "version": {
+              "description": "Monotonic per (operation, objectName). Starts at 1.",
+              "type": "number"
+            }
+          },
+          "required": [
+            "objectName",
+            "operationId",
+            "operationIndex",
+            "refusal",
+            "schemaVersion",
+            "status",
+            "version"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

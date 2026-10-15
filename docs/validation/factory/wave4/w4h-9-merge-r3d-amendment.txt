@@ -1,0 +1,9 @@
+W4H-9 merge 4550c2f66: R3d (the full historical-upgrade lane) is closed locally by validator-6.
+Addendum to w4h-9-merge.json and w4h-9-merge-verdict-amendment.txt (SHA256SUMS is append-only; no existing line is rewritten).
+- w4h-9-merge.json notes.r3d recorded the owner's run w4h-9/r3d-full-3 (exit 0; controller.log sha256 9d8deb15ce48f96c..., receipted as
+  w4h-9-r3d-full-3-controller.log and w4h-9-r3d-full-3-exit.txt) as not yet judged, with the hosted lane as proof of record.
+- validator-6 has now judged it: verdict-validator-6-w4h9-r3d.txt sha256 f54bdc118cdab08fb4fa1685f0d8aeea57185bc895b352d2b78cb6b75cca3623,
+  copied as w4h-9-validation-r3d.txt: CLOSED LOCALLY at c49f4b727 (read-only judgement, no rerun) — the full lane, the semantic stages
+  plus Phases 1-5, clean exit. The upgrade-full.sh header comment ("semantic-only") was stale during the run and was corrected afterwards
+  by the owner (the as-run script kept as w4h-9/upgrade-full.sh.as-run-5a7f3327781bb297; only the comment differs).
+The merge, its hold and the publish are unchanged.

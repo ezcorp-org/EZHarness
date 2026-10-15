@@ -82,7 +82,14 @@ vi.mock("$server/runtime/preview/preview-bus-registry", () => ({
 vi.mock("$server/env-validation", () => ({ validateEnv: vi.fn() }));
 vi.mock("$server/db/connection", () => ({
 	initDb: vi.fn(async () => undefined),
+	// The factory report hook discards a desynchronized pool (W09f).
+	recoverFromDriverDesync: vi.fn(async () => false),
 	closeDb: vi.fn(async () => undefined),
+	// `ensureInitialized` composes the factory after the database opens, so it
+	// reads the open handle and the data path. The factory flag is off in this
+	// suite, so nothing starts; the exports must still exist.
+	getDb: vi.fn(() => ({})),
+	getDbPath: vi.fn(() => "/tmp/ezcorp-test-data"),
 }));
 vi.mock("$server/infrastructure/incus-startup", () => ({
 	initializeIncusSandboxWorkspace: vi.fn(),
@@ -92,6 +99,7 @@ vi.mock("$server/infrastructure/incus-startup", () => ({
 vi.mock("$lib/server/shutdown", () => ({
 	installShutdownHandlers: vi.fn(),
 	registerTeardown: vi.fn(),
+	getShutdownSignal: vi.fn(() => new AbortController().signal),
 }));
 vi.mock("$server/db/backup", () => ({
 	startBackups: vi.fn(),
@@ -109,12 +117,6 @@ vi.mock("$server/extensions/tool-executor", () => ({
 vi.mock("$server/extensions/permission-engine", () => ({
 	getPermissionEngine: vi.fn(() => ({})),
 	flushPermissionAuditForShutdown: vi.fn(async () => undefined),
-}));
-vi.mock("$lib/server/security/bundled-creds", () => ({
-	bootstrapBundledCredentials: vi.fn(async () => undefined),
-}));
-vi.mock("$lib/server/security/openai-extension-creds", () => ({
-	wireOpenAIExtensionCredentials: vi.fn(),
 }));
 vi.mock("$server/extensions/lifecycle-dispatcher", () => ({
 	LifecycleHookDispatcher: class {

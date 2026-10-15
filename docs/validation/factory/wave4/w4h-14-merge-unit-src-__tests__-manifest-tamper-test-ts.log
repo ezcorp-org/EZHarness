@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-08T04:26:11.149Z","level":"warn","msg":"manifest.lock.json missing — fail-closed for bundled extensions","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-tlhCUy/manifest.lock.json"}
+{"ts":"2026-10-08T04:26:11.149Z","level":"warn","msg":"manifest.lock.json missing — fail-closed for bundled extensions","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-BZZhVA/manifest.lock.json"}
+{"ts":"2026-10-08T04:26:11.149Z","level":"error","msg":"manifest.lock.json is malformed JSON — fail-closed","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-31eDx9/manifest.lock.json","error":"SyntaxError: JSON Parse error: Unexpected identifier \"this\""}
+{"ts":"2026-10-08T04:26:11.149Z","level":"error","msg":"manifest.lock.json failed schema check — fail-closed","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-FgVHDN/manifest.lock.json"}
+{"ts":"2026-10-08T04:26:11.150Z","level":"error","msg":"manifest.lock.json failed schema check — fail-closed","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-Q4ZMrs/manifest.lock.json"}
+{"ts":"2026-10-08T04:26:11.150Z","level":"error","msg":"manifest.lock.json failed schema check — fail-closed","subsystem":"bundled-lock","path":"/tmp/manifest-tamper-test-lk6CH0/manifest.lock.json"}
+
+ 22 pass
+ 0 fail
+ 43 expect() calls
+Ran 22 tests across 1 file. [476.00ms]

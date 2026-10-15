@@ -1,0 +1,588 @@
+import { afterAll, describe, expect, test } from "bun:test";
+import { generateKeyPairSync } from "node:crypto";
+import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import type { Runner, RunnerInspection, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { FactoryPrivateRequest } from "../private-https";
+import { factoryAttemptLaunchIntentToWire, type FactoryAttemptLaunchIntent } from "./attempt-wire";
+import { factoryHostLaunchIntent } from "../../__tests__/helpers/factory-host-launch-intent";
+import { certificates } from "../../__tests__/helpers/factory-certificates";
+import { factoryLaunchCompletedResult } from "../../__tests__/helpers/factory-attempt-launch-fixture";
+import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
+import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
+import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
+import {
+  FactoryHostBrokerUnavailableError,
+  createFactoryHostServiceRouter,
+  factoryHostBrokerUnavailable,
+  factoryHostStopSupervisor,
+  startFactoryHostServices,
+} from "./supervisor-services";
+
+const directories: string[] = [];
+afterAll(async () => { await Promise.all(directories.splice(0).map((path) => rm(path, { recursive: true, force: true }))); });
+
+const hostId = "host-services";
+const peer = "tenant-a";
+
+async function keyMaterial(): Promise<{ privateKeyPath: string; keyIdPath: string; hostId: string }> {
+  const root = await mkdtemp(join(tmpdir(), "factory-host-services-"));
+  directories.push(root);
+  const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+  const privateKeyPath = join(root, "host.key");
+  const keyIdPath = join(root, "host.kid");
+  await writeFile(privateKeyPath, privateKey.export({ type: "pkcs8", format: "pem" }), { mode: 0o600 });
+  await writeFile(keyIdPath, "host-key-1\n", { mode: 0o600 });
+  await chmod(privateKeyPath, 0o600);
+  return { privateKeyPath, keyIdPath, hostId };
+}
+
+/** A container runner whose per-worker state the test drives directly. */
+function fakeRunner(states: Map<string, RunnerInspection["state"]>, options: { abortable?: boolean; onTerminate?: (id: string) => void } = {}): Runner {
+  const runner: Runner = {
+    async build() { throw new Error("unused"); },
+    async start() { throw new Error("unused"); },
+    async cancel(id: string) { options.onTerminate?.(id); },
+    async inspect(id: string): Promise<RunnerInspection> { return { id, state: states.get(id) ?? "unknown", diagnostics: [] }; },
+    async collectArtifacts(): Promise<WorkspaceFiles> { return {}; },
+  };
+  if (options.abortable !== false) return { ...runner, async abort(id: string) { states.set(id, "cancelled"); } };
+  return runner;
+}
+
+const command = {
+  attemptId: "attempt-1",
+  reservationId: "reservation-1",
+  workerId: "worker-1",
+  holderGeneration: 3,
+  allocationGeneration: 4,
+  hostId,
+  reason: "completed" as const,
+  // The product's stop client names the guest's tenant (W01i).
+  tenantId: peer,
+};
+
+const launchIntent = (devices?: Parameters<typeof factoryHostLaunchIntent>[1]): FactoryAttemptLaunchIntent => factoryHostLaunchIntent(hostId, devices);
+
+function request(overrides: Partial<FactoryPrivateRequest> = {}): FactoryPrivateRequest {
+  return {
+    peerIdentity: peer,
+    method: "POST",
+    path: FACTORY_HOST_LAUNCH_PATH,
+    headers: { "x-ezcorp-factory-version": "1", "content-type": "application/json" },
+    body: Buffer.from("{}"),
+    ...overrides,
+  };
+}
+
+function body(response: { body: Uint8Array }): Record<string, unknown> {
+  return JSON.parse(Buffer.from(response.body).toString("utf8")) as Record<string, unknown>;
+}
+
+describe("factoryHostBrokerUnavailable", () => {
+  test("refuses a guest broker call by name instead of answering plausibly", async () => {
+    const request = { schemaVersion: "factory.runner.request.v1" } as never;
+    await expect(factoryHostBrokerUnavailable.invoke(request, { kind: "model" })).rejects.toBeInstanceOf(FactoryHostBrokerUnavailableError);
+    await expect(factoryHostBrokerUnavailable.invoke(request, { kind: "model" })).rejects.toMatchObject({ code: "factory_host_broker_unavailable" });
+  });
+});
+
+describe("factoryHostStopSupervisor", () => {
+  test("returns the physical observation the runtime made, under the injected clock", async () => {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    const supervisor = factoryHostStopSupervisor(fakeRunner(states), () => 1_700_000_000_000, async () => {});
+    const receipt = await supervisor.stop(command, new AbortController().signal);
+    expect(receipt).toEqual({
+      schemaVersion: "factory.physical-stop.v1",
+      attemptId: "attempt-1",
+      reservationId: "reservation-1",
+      workerId: "worker-1",
+      holderGeneration: 3,
+      allocationGeneration: 4,
+      processGroupAbsent: true,
+      stoppedAtMs: 1_700_000_000_000,
+      reason: "completed",
+      hostId,
+    });
+    // The abort phase cleaned it up, so the kill phase never ran.
+    expect(states.get("worker-1")).toBe("cancelled");
+  });
+
+  test("kills and confirms when the guest ignores the cleanup signal", async () => {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    const terminated: string[] = [];
+    let clock = 0;
+    const runner: Runner = {
+      ...fakeRunner(states, { onTerminate: (id) => { terminated.push(id); states.set(id, "cancelled"); } }),
+      // Signals but never cleans up, so the grace budget is spent and the kill
+      // phase is what makes the process group absent.
+      async abort() {},
+    };
+    const receipt = await factoryHostStopSupervisor(runner, () => { clock += 4_000; return clock; }, async () => {}).stop(command, new AbortController().signal);
+    expect(terminated).toEqual(["worker-1"]);
+    expect(receipt.processGroupAbsent).toBe(true);
+  });
+
+  test("raises rather than signing a stop the runtime could not confirm", async () => {
+    // Every observation still finds the sandbox running, including the one
+    // after the kill, so absence is never established.
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    let clock = 0;
+    const runner: Runner = { ...fakeRunner(states), async abort() {} };
+    await expect(factoryHostStopSupervisor(runner, () => { clock += 4_000; return clock; }, async () => {}).stop(command, new AbortController().signal))
+      .rejects.toMatchObject({ code: "sandbox_stop_unconfirmed" });
+  });
+
+  test("a runner with no cleanup signal goes straight to the kill phase", async () => {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    const terminated: string[] = [];
+    const runner = fakeRunner(states, { abortable: false, onTerminate: (id) => { terminated.push(id); states.set(id, "cancelled"); } });
+    const receipt = await factoryHostStopSupervisor(runner, () => 5, async () => {}).stop(command, new AbortController().signal);
+    expect(terminated).toEqual(["worker-1"]);
+    expect(receipt.stoppedAtMs).toBe(5);
+  });
+
+  test("the default clock and wait are real, so a production supervisor needs no injection", async () => {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    const before = Date.now();
+    const receipt = await factoryHostStopSupervisor(fakeRunner(states)).stop(command, new AbortController().signal);
+    // Not a duration assertion: the instant is simply a real one this process
+    // produced rather than an injected constant.
+    expect(receipt.stoppedAtMs).toBeGreaterThanOrEqual(before);
+  });
+});
+
+describe("createFactoryHostServiceRouter", () => {
+  async function router(states = new Map<string, RunnerInspection["state"]>()) {
+    return createFactoryHostServiceRouter({
+      hostId,
+      peerTenants: { [peer]: peer },
+      runner: fakeRunner(states),
+      signingKey: await keyMaterial(),
+    });
+  }
+
+  test("an unauthorized peer is refused on both routes, and learns nothing else", async () => {
+    const handle = await router();
+    for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_STOP_PATH, "/v1/host/unknown"]) {
+      const response = await handle(request({ peerIdentity: "tenant-b", path }));
+      expect(response.status).toBe(401);
+      expect(body(response)).toEqual({ error: "unauthorized" });
+    }
+  });
+
+  test("the stop path reaches the stop handler, which parses its own command", async () => {
+    const handle = await router();
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...command, reason: "not-a-reason" })) }));
+    // `invalid_reason` proves the stop parser ran: the launch parser answers
+    // `invalid_intent` for the same body.
+    expect(response.status).toBe(400);
+    expect(body(response)).toEqual({ error: "invalid_reason" });
+  });
+
+  test("a stop for another host is refused before anything is signed", async () => {
+    const handle = await router();
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...command, hostId: "host-elsewhere" })) }));
+    expect(response.status).toBe(403);
+    expect(body(response)).toEqual({ error: "forbidden_host" });
+  });
+
+  test("a real stop crosses the router and comes back signed by this host", async () => {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    const handle = await router(states);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }));
+    expect(response.status).toBe(200);
+    const receipt = body(response);
+    expect(receipt).toMatchObject({ attemptId: "attempt-1", workerId: "worker-1", hostId, reason: "completed", processGroupAbsent: true, hostKeyId: "host-key-1" });
+    expect(typeof receipt.hostSignature).toBe("string");
+    expect(String(receipt.receiptDigest)).toMatch(/^sha256:[a-f0-9]{64}$/);
+  });
+
+  test("each launch path reaches the launch handler, which parses its own intent", async () => {
+    const handle = await router();
+    for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]) {
+      const response = await handle(request({ path, body: Buffer.from(JSON.stringify({ intent: { not: "an intent" } })) }));
+      expect(response.status).toBe(400);
+      expect(body(response)).toEqual({ error: "invalid_intent" });
+    }
+  });
+
+  test("an unknown path answers 404 to an authorized peer", async () => {
+    const handle = await router();
+    const response = await handle(request({ path: "/v1/host/unknown" }));
+    expect(response.status).toBe(404);
+    expect(body(response)).toEqual({ error: "not_found" });
+  });
+
+  test("an injected clock reaches the launch supervisor it was given to", async () => {
+    const handle = createFactoryHostServiceRouter({
+      hostId,
+      peerTenants: { [peer]: peer },
+      runner: fakeRunner(new Map()),
+      signingKey: await keyMaterial(),
+      now: () => 1_000,
+      broker: { async invoke() { return { answered: true }; } },
+    });
+    // The clock and the broker are only reachable through a live guest, so the
+    // assertion here is that supplying them composes a router at all, and that
+    // it still refuses an invalid intent.
+    expect((await handle(request({ body: Buffer.from(JSON.stringify({ intent: null })) }))).status).toBe(400);
+  });
+});
+
+describe("startFactoryHostServices", () => {
+  test("binds one listener for both routes and releases it on stop", async () => {
+    const certs = await certificates(directories, peer);
+    const listener = startFactoryHostServices({
+      hostId,
+      peerTenants: { [peer]: peer },
+      runner: fakeRunner(new Map()),
+      signingKey: await keyMaterial(),
+      tls: { ca: certs.ca, cert: certs.serverCert, key: certs.serverKey },
+      hostname: "127.0.0.1",
+      port: 0,
+    });
+    try {
+      expect(listener.url).toMatch(/^https:\/\/127\.0\.0\.1:\d+$/);
+      expect(Number(new URL(listener.url).port)).toBeGreaterThan(0);
+    } finally {
+      listener.stop();
+    }
+  });
+});
+
+describe("a guest this host ran to a result", () => {
+  test("is confirmed stopped without asking the runtime to prove an absence it cannot", async () => {
+    // `factoryRunnerSandboxControl.present` reads `unknown` as PRESENT, and it
+    // is right to: an inspect that cannot find a worker proves nothing about a
+    // worker this host never had. A guest that RETURNED is the other case
+    // entirely — this host invoked it and closed its execution itself.
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "unknown"]]);
+    const terminated: string[] = [];
+    const runner = fakeRunner(states, { onTerminate: (id) => terminated.push(id) });
+    const receipt = await factoryHostStopSupervisor(runner, () => 7, async () => {}, (workerId) => workerId === "worker-1")
+      .stop(command, new AbortController().signal);
+    expect(receipt).toMatchObject({ processGroupAbsent: true, workerId: "worker-1", stoppedAtMs: 7 });
+    // Nothing was signalled or killed, because there was nothing left to kill.
+    expect(terminated).toEqual([]);
+    expect(states.get("worker-1")).toBe("unknown");
+  });
+
+  test("a worker this host never finished still has to be proved absent", async () => {
+    // Same `unknown` observation, no first-hand finish: the three phases run
+    // and the confirmation fails rather than being assumed.
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "unknown"]]);
+    let clock = 0;
+    const runner: Runner = { ...fakeRunner(states), async abort() {} };
+    await expect(factoryHostStopSupervisor(runner, () => { clock += 4_000; return clock; }, async () => {}, () => false).stop(command, new AbortController().signal))
+      .rejects.toMatchObject({ code: "sandbox_stop_unconfirmed" });
+  });
+
+  test("a worker this host refused before any container existed is confirmed absent first-hand (W02d R4)", async () => {
+    // Measured on the real stack (W02d P1 at the head): the host refused a granted device it does not have (422
+    // device_unavailable), then its own stop of that worker answered 500 stop_failed, because an uninspectable worker
+    // reads as present. The lease, the hold and the run stayed open. This host created nothing, and it knows that.
+    const touched: string[] = [];
+    const states = new Map<string, RunnerInspection["state"]>();
+    const runner: Runner = {
+      ...fakeRunner(states),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) { touched.push(`start:${input.workerId}`); throw new Error("a refused worker is never started"); },
+    };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey: await keyMaterial(), devicePresent: async () => false });
+    const intent = launchIntent({ devices: ["/dev/dri/renderD200"], cdiDevices: [], gpuHosts: 1 });
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const refused = await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }));
+    expect({ status: refused.status, body: body(refused) }).toMatchObject({ status: 422, body: { error: "device_unavailable" } });
+    // The launch looked for an existing worker and started nothing.
+    expect(touched.filter((entry) => !entry.startsWith("inspect:"))).toEqual([]);
+    touched.length = 0;
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect(settled.status).toBe(200);
+    expect(body(settled)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" });
+    // The stop asked the runtime nothing: no inspect, signal or kill. The absence is this host's own refusal.
+    expect(touched).toEqual([]);
+    // A different worker this host never saw still has to be proved absent.
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...stop, workerId: "worker-never-seen" })) })))).toEqual({ error: "stop_failed" });
+  });
+
+  test("the router carries the finish from a guest this host closed to the stop route, and only that", async () => {
+    const touched: string[] = [];
+    const states = new Map<string, RunnerInspection["state"]>();
+    const runner: Runner = {
+      ...fakeRunner(states),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: states.get(id) ?? "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) {
+        states.set(input.workerId, "running");
+        return { workerId: input.workerId, request: async () => factoryLaunchCompletedResult("router"), close: async () => { states.set(input.workerId, "succeeded"); }, onNotification: () => () => {} };
+      },
+    };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey: await keyMaterial() });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+
+    // Before this host ran the worker it knows nothing about it, so the stop is
+    // an ordinary three-phase proof, and `unknown` defeats it.
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) })))).toEqual({ error: "stop_failed" });
+    // A result request for a worker this host never ran is refused, and it is
+    // not first-hand knowledge of anything: the stop still needs its proof.
+    expect(body(await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: wire })))).toEqual({ error: "attempt_uncertain" });
+    expect(body(await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) })))).toEqual({ error: "stop_failed" });
+
+    // This host runs the guest to its answer, which closes the execution.
+    expect((await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }))).status).toBe(200);
+    const collected = await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: wire }));
+    expect(collected.status).toBe(200);
+    expect(body(collected)).toEqual({ result: factoryLaunchCompletedResult("router") });
+
+    // Now the same stop is first-hand knowledge and comes back signed, without
+    // the runner being asked again.
+    touched.length = 0;
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect(settled.status).toBe(200);
+    expect(body(settled)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" });
+    expect(touched).toEqual([]);
+  });
+});
+
+describe("the pool hears about the stop before the caller does", () => {
+  /** A pool that records what it was told, and can refuse. */
+  function poolThat(refuse = false) {
+    const told: { reservationId: string; holderGeneration: number; hostId: string }[] = [];
+    return {
+      told,
+      client: {
+        async presentStopReceipt(receipt: { reservationId: string; holderGeneration: number; hostId: string }) {
+          if (refuse) throw new Error("the pool refused");
+          told.push({ reservationId: receipt.reservationId, holderGeneration: receipt.holderGeneration, hostId: receipt.hostId });
+          return { reservationId: receipt.reservationId, state: "settled", holderGeneration: receipt.holderGeneration };
+        },
+      },
+    };
+  }
+
+  async function router(pool?: { presentStopReceipt: (receipt: never) => Promise<unknown> }) {
+    const states = new Map<string, RunnerInspection["state"]>([["worker-1", "running"]]);
+    return createFactoryHostServiceRouter({
+      hostId, peerTenants: { [peer]: peer }, runner: fakeRunner(states), signingKey: await keyMaterial(),
+      ...(pool === undefined ? {} : { pool: pool as never }),
+    });
+  }
+
+  test("a signed stop is presented to the pool, then answered", async () => {
+    // C03 releases a host's capacity only on a trusted supervisor's word, so a
+    // receipt that never leaves this process is one the product's own
+    // confirmation can never act on.
+    const pool = poolThat();
+    const handle = await router(pool.client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }));
+    expect(response.status).toBe(200);
+    expect(pool.told).toEqual([{ reservationId: "reservation-1", holderGeneration: 3, hostId }]);
+  });
+
+  test("a pool that would not take the receipt makes the stop a named failure, not a success", async () => {
+    // Answering 200 here would be a receipt the product cannot act on: it
+    // settles nothing, marks the stop uncertain, and retries in silence.
+    const handle = await router(poolThat(true).client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }));
+    expect(response.status).toBe(502);
+    expect(body(response)).toEqual({ error: "pool_unconfirmed" });
+  });
+
+  test("a host configured against no pool still signs, and tells it nothing", async () => {
+    const handle = await router();
+    expect((await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(command)) }))).status).toBe(200);
+  });
+
+  test("a refused stop is never presented, because there is no receipt to present", async () => {
+    const pool = poolThat();
+    const handle = await router(pool.client);
+    const response = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify({ ...command, hostId: "host-elsewhere" })) }));
+    expect(response.status).toBe(403);
+    expect(pool.told).toEqual([]);
+  });
+});
+
+describe("the two routes share which tenant each guest belongs to (W01i)", () => {
+  test("a guest launched for one tenant is stopped by that tenant's peer on the record alone, and never by another's", async () => {
+    const states = new Map<string, RunnerInspection["state"]>();
+    const runner: Runner = {
+      ...fakeRunner(states),
+      async start(input) {
+        states.set(input.workerId, "running");
+        return { workerId: input.workerId, request: async () => factoryLaunchCompletedResult("tenants"), close: async () => { states.set(input.workerId, "succeeded"); }, onNotification: () => () => {} };
+      },
+    };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer, "tenant-b": "tenant-b" }, runner, signingKey: await keyMaterial() });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    // tenant-b's peer cannot launch tenant-a's intent, and nothing starts for it.
+    const refused = await handle(request({ peerIdentity: "tenant-b", path: FACTORY_HOST_LAUNCH_PATH, body: wire }));
+    expect({ status: refused.status, body: body(refused) }).toEqual({ status: 403, body: { error: "forbidden_tenant" } });
+    expect(states.size).toBe(0);
+    expect((await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }))).status).toBe(200);
+    expect((await handle(request({ path: FACTORY_HOST_RESULT_PATH, body: wire }))).status).toBe(200);
+
+    const { tenantId: _named, ...unnamed } = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+    // tenant-b's peer, naming its own tenant, is refused by the launch record.
+    for (const stop of [unnamed, { ...unnamed, tenantId: "tenant-b" }]) {
+      const other = await handle(request({ peerIdentity: "tenant-b", path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+      expect({ status: other.status, body: body(other) }).toEqual({ status: 403, body: { error: "forbidden_tenant" } });
+    }
+    // The launching tenant's peer stops it with no tenant named: the record decides.
+    const own = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(unnamed)) }));
+    expect(own.status).toBe(200);
+    expect(body(own)).toMatchObject({ workerId: intent.workerId, processGroupAbsent: true, hostId });
+  });
+});
+
+/**
+ * A worker this host never saw (W02d R8 and R6's release; coordinator ruling (A), 2026-09-29). Measured live: a stop
+ * for a dispatch refused before launch, or a lease reclaimed before claim, named a worker this host never ran; the
+ * runtime showed no container, "unknown" read as present, and the stop answered 500 stop_failed forever, so the pool
+ * never released and the hold never settled. The host now tombstones such a worker durably, then signs its absence,
+ * and refuses it from then on.
+ */
+describe("a worker this host never saw", () => {
+  const neverSeen = () => {
+    const touched: string[] = [];
+    const runner: Runner = {
+      ...fakeRunner(new Map()),
+      async inspect(id): Promise<RunnerInspection> { touched.push(`inspect:${id}`); return { id, state: "unknown", diagnostics: [] }; },
+      async cancel(id) { touched.push(`cancel:${id}`); },
+      async abort(id) { touched.push(`abort:${id}`); },
+      async start(input) { touched.push(`start:${input.workerId}`); throw new Error("a tombstoned worker is never started"); },
+    };
+    return { runner, touched };
+  };
+
+  test("is tombstoned durably and signed absent, and a later launch or attach of it is refused worker_stopped (W02d R8)", async () => {
+    const { runner, touched } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const stop = { ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration };
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stop)) }));
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true, hostId, hostKeyId: "host-key-1" } });
+    // The runtime was asked once whether a container exists; nothing was signalled or killed.
+    expect(touched).toEqual([`inspect:${intent.workerId}`]);
+    // Written before the signature: the host's own durable record, beside its key.
+    const written = (await readFile(join(dirname(signingKey.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE), "utf8")).trim().split("\n").map((line) => JSON.parse(line) as Record<string, unknown>);
+    expect(written).toMatchObject([{ hostId, tenantId: peer, workerId: intent.workerId, attemptId: command.attemptId, reservationId: intent.lease.reservationId }]);
+    // From now on this worker is never started or attached here.
+    for (const path of [FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH]) {
+      const refused = await handle(request({ path, body: wire }));
+      expect({ path, status: refused.status, error: (body(refused) as { error?: string }).error }).toEqual({ path, status: 409, error: "worker_stopped" });
+    }
+    expect(touched.filter((entry) => !entry.startsWith("inspect:"))).toEqual([]);
+  });
+
+  /** The negative controls (ruling (A) iii): each stop below must leave no tombstone behind. */
+  const tombstoneWritten = (signingKey: { privateKeyPath: string }) => Bun.file(join(dirname(signingKey.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE)).exists();
+  const stopOf = (intent: FactoryAttemptLaunchIntent) => ({ ...command, workerId: intent.workerId, reservationId: intent.lease.reservationId, holderGeneration: intent.lease.holderGeneration, allocationGeneration: intent.lease.allocationGeneration });
+
+  test("a worker the runtime still shows is stopped through the runtime, never tombstoned", async () => {
+    const states = new Map<string, RunnerInspection["state"]>();
+    const intent = launchIntent();
+    states.set(intent.workerId, "running");
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: fakeRunner(states), signingKey, tombstones });
+    const settled = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    // The runtime proved it gone by stopping it; the host has no reason to refuse it later.
+    expect(states.get(intent.workerId)).toBe("cancelled");
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
+  test("a worker this host is starting or runs is never tombstoned, even when the runtime shows nothing yet", async () => {
+    const states = new Map<string, RunnerInspection["state"]>();
+    let admit!: () => void;
+    const admitted = new Promise<void>((resolve) => { admit = resolve; });
+    let entered!: () => void;
+    const starting = new Promise<void>((resolve) => { entered = resolve; });
+    // The runtime stops only a container that exists: a start still on its way leaves "unknown", which proves nothing.
+    const runner: Runner = {
+      ...fakeRunner(states, { abortable: false, onTerminate: (id) => { if (states.get(id) === "running") states.set(id, "cancelled"); } }),
+      async start(input) {
+        entered();
+        await admitted;
+        states.set(input.workerId, "running");
+        return { workerId: input.workerId, request: async () => factoryLaunchCompletedResult("live"), close: async () => { states.set(input.workerId, "succeeded"); }, onNotification: () => () => {} };
+      },
+    };
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const intent = launchIntent();
+    const wire = Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) }));
+    const stop = Buffer.from(JSON.stringify(stopOf(intent)));
+    // Starting: the runtime has no container yet ("unknown"), but the host holds the start, so absence is not signed.
+    const launching = handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: wire }));
+    await starting;
+    const duringStart = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: stop }));
+    expect({ status: duringStart.status, body: body(duringStart) }).toEqual({ status: 500, body: { error: "stop_failed" } });
+    expect(tombstones.stopped(peer, intent.workerId)).toBe(false);
+    admit();
+    const launched = await launching;
+    expect({ status: launched.status, error: (body(launched) as { error?: string }).error }).toEqual({ status: 200, error: undefined });
+    // Live: the stop goes through the runtime, and still writes nothing.
+    const live = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: stop }));
+    expect({ status: live.status, body: body(live) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
+  test("a launch that races the stop is refused from before the first await, so a worker is never both started and tombstoned", async () => {
+    const { runner, touched } = neverSeen();
+    let answer!: () => void;
+    const answered = new Promise<void>((resolve) => { answer = resolve; });
+    let asked!: () => void;
+    const inspecting = new Promise<void>((resolve) => { asked = resolve; });
+    // The runtime answers only after the launch has arrived.
+    const slow: Runner = { ...runner, async inspect(id) { asked(); await answered; return runner.inspect(id); } };
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: slow, signingKey, tombstones });
+    const intent = launchIntent();
+    const stopping = handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    await inspecting;
+    const raced = await handle(request({ path: FACTORY_HOST_LAUNCH_PATH, body: Buffer.from(JSON.stringify({ intent: factoryAttemptLaunchIntentToWire(intent) })) }));
+    expect({ status: raced.status, error: (body(raced) as { error?: string }).error }).toEqual({ status: 409, error: "worker_stopped" });
+    answer();
+    const settled = await stopping;
+    expect({ status: settled.status, body: body(settled) }).toMatchObject({ status: 200, body: { workerId: intent.workerId, processGroupAbsent: true } });
+    expect(touched.filter((entry) => entry.startsWith("start:"))).toEqual([]);
+  });
+
+  test("a runtime that cannot answer is never read as no container: no tombstone, no signature (C03)", async () => {
+    const { runner } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const failing: Runner = { ...runner, async inspect() { throw new Error("the runtime did not answer"); } };
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: failing, signingKey, tombstones });
+    const intent = launchIntent();
+    const refused = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(stopOf(intent))) }));
+    expect({ status: refused.status, body: body(refused) }).toEqual({ status: 500, body: { error: "stop_failed" } });
+    expect({ written: await tombstoneWritten(signingKey), stopped: tombstones.stopped(peer, intent.workerId) }).toEqual({ written: false, stopped: false });
+  });
+
+  test("a stop that names no tenant for a worker this host never saw is refused, and scopes no tombstone", async () => {
+    const { runner } = neverSeen();
+    const signingKey = await keyMaterial();
+    const tombstones = await FactoryHostTombstones.open(signingKey);
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner, signingKey, tombstones });
+    const { tenantId: _named, ...unnamed } = stopOf(launchIntent());
+    const refused = await handle(request({ path: FACTORY_HOST_STOP_PATH, body: Buffer.from(JSON.stringify(unnamed)) }));
+    expect({ status: refused.status, body: body(refused) }).toEqual({ status: 403, body: { error: "forbidden_tenant" } });
+    expect(await tombstoneWritten(signingKey)).toBe(false);
+  });
+});

@@ -1,0 +1,5 @@
+alone=0 after-ext-files=0 ./src/__tests__/installer-idempotent-local.test.ts
+alone=0 after-ext-files=0 ./src/__tests__/phase-2b-e2e.test.ts
+alone=0 after-ext-files=1 ./src/__tests__/quality-report-fail-closed.test.ts
+alone=0 after-ext-files=3 ./src/factory/legacy-workflow/import-parity.test.ts
+alone=0 after-ext-files=1 ./src/factory/pool/lazy-sql-assertions.test.ts

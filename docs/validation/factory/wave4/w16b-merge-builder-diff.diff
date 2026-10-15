@@ -1,0 +1,39 @@
+diff --git a/scripts/factory-graph-proof/stack-documents.ts b/scripts/factory-graph-proof/stack-documents.ts
+index 1e23977dd..9b607204a 100644
+--- a/scripts/factory-graph-proof/stack-documents.ts
++++ b/scripts/factory-graph-proof/stack-documents.ts
+@@ -6,6 +6,7 @@
+  * of every document here must be a known secret or on the diagnostics
+  * allowlist, and a new field fails that test until someone decides which.
+  */
++import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-broker-contract";
+ import { join } from "node:path";
+ import type { JsonValue } from "@ezcorp/factory-sdk";
+ 
+@@ -16,7 +17,6 @@ export const POOL_ID = "pool-w19a";
+ export const NAMESPACE = "tenant-01.factory";
+ export const SUPERVISOR_SUBJECT = "supervisor-w19a";
+ export const GUEST_BROKER_ISSUER = "w19a-proof";
+-export const GUEST_BROKER_AUDIENCE = "factory-guest-broker";
+ export const MASTER_KEY_ID = "master-1";
+ 
+ /** Where the stack lives and what it listens on. Everything a document names. */
+@@ -86,7 +86,8 @@ export function supervisorDocument(layout: StackLayout) {
+       hostname: "127.0.0.1", port: layout.ports.hostService, allowedPeers: ["tenant-a"], hostKeyIdPath: secretPath(layout, "host.kid"),
+       tls: tls(layout, "server"),
+       pool: { baseUrl: `https://127.0.0.1:${layout.ports.pool}`, serviceTokenPath: secretPath(layout, "supervisor.token"), tls: supervisorTls },
+-      guestBroker: { baseUrl: `https://127.0.0.1:${layout.ports.guestBroker}`, serviceTokenPath: secretPath(layout, "guest-broker-host.token"), tls: supervisorTls },
++      // One route per tenant; this stack runs one tenant.
++      guestBrokers: { [TENANT]: { baseUrl: `https://127.0.0.1:${layout.ports.guestBroker}`, serviceTokenPath: secretPath(layout, "guest-broker-host.token"), tls: supervisorTls } },
+     },
+   };
+ }
+@@ -119,7 +120,7 @@ export function startupDocument(layout: StackLayout) {
+     hostStopKeys: [{ hostId: HOST_ID, hostKeyId: "host-key-1", publicKeyPath: secretPath(layout, "host.pub") }],
+     guestBroker: {
+       hostname: "127.0.0.1", port: layout.ports.guestBroker, hosts: { [SUPERVISOR_SUBJECT]: HOST_ID }, tls: serverTls,
+-      tokens: { issuer: GUEST_BROKER_ISSUER, audience: GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: secretPath(layout, "guest-broker-host-token.pem") } },
++      tokens: { issuer: GUEST_BROKER_ISSUER, audience: FACTORY_GUEST_BROKER_AUDIENCE, publicKeyPaths: { w19a: secretPath(layout, "guest-broker-host-token.pem") } },
+     },
+     runnerProfiles: layout.runnerProfiles,
+     ...(layout.modelProvider === undefined ? {} : { modelProvider: layout.modelProvider }),

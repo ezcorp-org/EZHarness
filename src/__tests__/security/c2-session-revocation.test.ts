@@ -14,7 +14,7 @@
 process.env.PI_SKIP_INIT = "1";
 
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, contextModule } from "../helpers/mock-cleanup";
 
 // NOTE: we deliberately do NOT call mockServerAlias() here — that helper wires
 // $server/* aliases to the real modules, and the overrides below need to win.
@@ -36,12 +36,12 @@ let touchSessionCalls: string[] = [];
 // at BOTH the alias specifier AND the resolved relative specifier — otherwise
 // Bun may load the real module bypassing the mock. The relative paths below
 // are computed from this test file at src/__tests__/security/.
-const ctxMock = () => ({
+const ctxMock = contextModule({
   ensureInitialized: async () => {},
   getBus: () => ({ on: () => {}, off: () => {}, emit: () => {} }),
 });
-mock.module("$lib/server/context", ctxMock);
-mock.module("../../../web/src/lib/server/context", ctxMock);
+mock.module("$lib/server/context", () => ctxMock);
+mock.module("../../../web/src/lib/server/context", () => ctxMock);
 
 const jwtMock = () => ({
   getJwtSecret: async () => "test-hs256-secret",
@@ -82,12 +82,12 @@ const rateLimiterMock = () => ({
 mock.module("$lib/server/security/rate-limiter", rateLimiterMock);
 mock.module("../../../web/src/lib/server/security/rate-limiter", rateLimiterMock);
 
-const apiKeysMock = () => ({
+const apiKeysMock = webLibModule("server/security/api-keys", {
   verifyApiKey: async () => null,
   requireScope: () => null,
 });
-mock.module("$lib/server/security/api-keys", apiKeysMock);
-mock.module("../../../web/src/lib/server/security/api-keys", apiKeysMock);
+mock.module("$lib/server/security/api-keys", () => apiKeysMock);
+mock.module("../../../web/src/lib/server/security/api-keys", () => apiKeysMock);
 
 const payloadMock = () => ({
   admitRequestPayload: async (request: Request) => request,

@@ -1,0 +1,6 @@
+packages/@ezcorp/extension-runner/tests/core.test.ts
+packages/@ezcorp/extension-runner/tests/image-precondition.test.ts
+scripts/lib/ci-registration.test.ts
+scripts/podman-guest-job-registration.test.ts
+src/factory/host-launch-e2e.podman.integration.test.ts
+tests/postgres/factory-host-launch.test.ts

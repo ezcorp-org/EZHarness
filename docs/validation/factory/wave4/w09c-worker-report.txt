@@ -1,0 +1,257 @@
+W09c — compose the release profile set from the declaration
+=============================================================
+
+Branch   wp/w09c-profiles, cut from integ/w00 at 260855e57, merged with integ/w00
+         at 94fb95b6a before the final sweep.
+Head     ff5111bea  (clean tree; docs only after 9f09db074, where every
+         producer and the final sweep ran)
+Proof    .worktrees/w09c-proof at adc489aa2 = merge(wp/w09c-profiles 9f09db074,
+         wp/w01g-staging 70638290b), plus a todo.md conflict kept from W09c.
+Evidence /tmp/factory-platform-evidence/w09c/
+
+Commits
+  874b5f7d6  feat(factory): compose each declared release profile over its destination
+  472cde928  test(factory): remove what the publishing case wrote to a lent real store
+  a7457b671  docs(w09c): gate file and todo section for the declared release profiles
+  9f09db074  Merge branch 'integ/w00' into wp/w09c-profiles
+  ff5111bea  docs(w09c): record the three real-application passes and the final producers
+
+
+1. THE REPRODUCTION, FIRST
+--------------------------
+At 260855e57, only the new lifecycle cases were added and the source was not
+changed. The three publishing cases fail (0 pass, 3 fail). The declared S3
+profile composes to an empty set, and requestRelease refuses with
+factory_protected_effect_untrusted before any operation exists.
+  log  logs/reproduction-unit-at-base.log
+  diff of the test at the time, sha256 4b66e4708bbaffc7f057abc0c823b84c50f1884c9a3609da67ff6ec5db52b912
+
+The real application could not show this refusal, because a run there never
+reaches requestRelease. See section 4.
+
+
+2. WHAT CHANGED
+---------------
+src/factory/release-declaration.ts builds one trusted profile per declared
+profile, over the destination the profile names:
+  - s3: W08's S3FactoryManifestReleaseProfile over W08b's
+    FactoryVerifiedAttemptMaterials and the one FactoryS3PublicationProvenance
+    the archive already holds. The result is re-sealed at the declared
+    estimatedSpendMicros.
+  - github: factorySynchronousReleaseProfile over a build that validates the
+    accepted candidate with W07's assertFactoryGitHubPublicationRequest. It
+    names the one destination object FactoryGitHubReleaseProvider accepts
+    (pull-request/<base>/<commit>). Another repository is refused with
+    factory_github_foreign_target.
+  - Any other kind is refused with factory_release_profile_unbuildable.
+  - uncomposedProfiles is removed. Every declared profile is now composed or
+    refused.
+src/factory/installation-startup.ts passes the attempt-agnostic materials
+reader. The set already reached FactoryProtectedCommandEffects through
+composePrivateService, which W09b wrote.
+src/factory/private-service-composition.ts: a stale comment is corrected.
+
+
+3. TESTS AND GATES
+--------------------
+Unit and PGlite, at 9f09db074 (receipts/focused-suites.json):
+  release-declaration          13/0  (6 new profile cases)
+  factory-run-lifecycle        63/0  (3 new publishing cases)
+  installation-startup 44/0, private-service-composition 15/0,
+  dispatch-composition 32/0, protected-command-effects 3/0,
+  release-profile 6/0, release-s3-publication 18/0, startup-config 34/0
+
+Real PostgreSQL and the real ordinary SeaweedFS store, under flock --close
+(receipts/postgres-producers-874b5f7d6.json at a clean 874b5f7d6, and
+receipts/postgres-producers.json at 9f09db074, where the one dirty file was the
+gate file; the counts are the same in both runs):
+  factory-run-lifecycle-s3 63/0, factory-run-lifecycle 63/0,
+  factory-private-service 5/0, factory-boot 1/0, factory-s3-publication 18/0
+
+What the publishing case proves, on real PostgreSQL and real S3:
+  - requestRelease prepares a pending operation at the declared account,
+    object and cost (42).
+  - With no consent, the running release-outcome role reports
+    factory_release_consent_absent with reason no_consent.
+  - The consent is requestApproval plus decideApproval, which are W05's
+    production writers. The role then claims and dispatches through the
+    DECLARED provider, which it built from a private 0600 credential file.
+  - The operation is succeeded with outcome confirmed. Member bytes and the
+    manifest requestDigest read back exactly. A replay opens no second
+    operation.
+Negative controls:
+  - An account nobody declared is refused at prepare with
+    factory_s3_profile_invalid. No operation and no receipt are created.
+  - A revoked automatic policy fails the claim with reason policy_revoked.
+  - A rejected approval fails the claim with reason approval_not_approved.
+    The operation stays pending and no manifest exists.
+
+Final sweep at 9f09db074 (receipts/final-sweep.json):
+  typecheck 0, lint 0 (zero diagnostics), check-factory-boundaries 0,
+  gate-integrity 0, focused suites 0, merge-lcov 0,
+  check-new-file-coverage 0 (no new source file),
+  check-patch-coverage 0 ("all changed executable lines covered (3 file(s))").
+
+Shared-store hygiene: the first real-store run left three objects under the
+case's own prefix. cleanup-lifecycle-published.ts removed exactly those three
+(logs/cleanup-lifecycle-published.log). The suite now deletes what it
+publishes by exact version. After the final rerun, zero versions remain under
+ordinary/factory-lifecycle-published/ and ordinary/w09c-release/.
+
+
+4. THE THREE REAL-APPLICATION PASSES
+------------------------------------
+Harness: W09b's full-stack proof, via W01g's snapshot, copied to e2e/repro/.
+Changes to it:
+  - The definition is task -> acceptance -> release.
+  - The guest seals part-0.csv, part-1.csv and candidate.json, and returns an
+    S3 accepted publication that names them.
+  - The declared profile's adapter is the release node's adapter.
+  - A release leg records the acceptance command, every effect refusal, any
+    operation, and the sealed materials. When an operation exists, it consents
+    over HTTP and reads the manifest back.
+Receipts: e2e/proof-{1,2,3}.json, summary e2e/three-passes.json
+  (sha256 0de07e0fa48d5fb30c424df4af2620a90d73c2317c51dc85acf1769b1a6fb320).
+
+All three passes, each on a fresh product database, recordFresh true:
+  statusTimeline   queued -> running
+  runner result    completed; the W01g guest's staged output was promoted
+  sealed materials candidate.json, part-0.csv, part-1.csv, result.json,
+                   workspace/attempt.json (one operation per attempt)
+  acceptance       the kernel issued request-acceptance about 10 s in
+  refusal          FactoryReleaseAuthorityError: factory_release_trust_missing
+  operations       none
+
+So the pass criterion, a published release through the real application, is
+NOT met. The stop is upstream of this package: no release trust is published
+and no validator is composed. W09d now owns that. The harness is ready for it:
+once acceptance passes, the same release leg consents over HTTP, waits for the
+role to publish, and reads the manifest back.
+
+Trial history, kept as evidence in e2e/logs/:
+  - trial-1: the guest failed to build because my template had an escape
+    error. It was fixed and checked by parsing the generated source.
+  - trial-2: the host supervisor refused its configuration. wp/w01g-proof
+    reads a different broker file than the harness writes, so the proof
+    worktree was rebuilt on wp/w01g-staging, which the harness targets.
+  - trial-3: the same stop as the three passes.
+
+
+5. OPEN
+-------
+a. Acceptance in the started application: W09d, opened on my first report.
+b. A settled release is not delivered back to orchestration. A replay of
+   requestRelease returns null, and the workflow then waits for an inbox
+   event. Settlement enqueues only the human release_settled notification.
+   Plan W09 bullet "Deliver every durable ... release result back to
+   orchestration" is unchecked. I reported a proposed shape and asked for a
+   ruling. I have had no answer, so I did not touch protected-command-effects.ts.
+c. The profile set reaching the private service is proved by code path and by
+   the lifecycle suite. The startup suite does not observe the set inside
+   FactoryProtectedCommandEffects. The first real proof of it is a real run
+   that passes acceptance.
+
+
+6. INTERFACE NOTES
+------------------
+- factorySynchronousReleaseProfile cannot lift the S3 profile, because listing
+  sealed materials is I/O. The S3 profile keeps W08's resolve. The build that
+  FactoryReleaseCommandProfile requires refuses by name
+  (factory_release_profile_asynchronous). W05 says W07 and W08 implement only
+  resolve, so the frozen surface is used as written.
+- W09b's question to W04 and W08, how one S3 profile serves every attempt, is
+  answered by W08b's reader, which is used unchanged.
+- A merge of this branch with wp/w01g-staging conflicts only in tasks/todo.md.
+
+
+7. ROUND 3 (2026-09-23): DELIVERY AND THE RELEASE APPLICATION
+------------------------------------------------------------
+35691ee1e  feat(factory): deliver a settled release back to the run that asked for it
+3599bbc83  test(factory): the crash case records what it published so the suite removes it
+5c1c3e106  docs(w09c): record the 2026-09-23 rulings on delivery and the kernel finding
+7c6c786c3  feat(factory): compose the public release application over the installation's release store
+
+- Delivery: see gate file G8 to G10. The Temporal proof is
+  logs/temporal-release-outcome.log (1/0). Real PostgreSQL and S3:
+  receipts/postgres-producers-35691ee1e.json, and
+  logs/pg-lifecycle-s3-309ba12b7.log (66/0, store empty afterwards).
+- Release application: see gate file G11. The final sweep at 7c6c786c3 on a
+  clean tree is all green (receipts/final-sweep.json).
+- After integ/w00 brings in W09d's kernel fix e99533e4a, the lifecycle case
+  that pins "a failed Release node goes to stopping and emits cancel-node"
+  will need its assertion flipped. I will do that in the merge round.
+
+
+8. FINAL ROUND AFTER W09d (2026-09-23)
+--------------------------------------
+34b2ed825  Merge branch 'integ/w00' into wp/w09c-profiles  (integ 873b04759)
+Proof worktree 75495b8cb = merge(34b2ed825, wp/w01g-staging b6fee475a). Conflicts
+were resolved as the union of both sides in that throwaway tree only.
+Harness: /tmp/factory-platform-evidence/w09c/final/repro/, which is W09d's
+harness with the W09c release leg and W01g's current guest-broker configurator.
+
+Round 1: acceptance accepted, contract route 200, then requestRelease was
+  refused with factory_forbidden. The harness had not granted factory.release;
+  it now grants factory.release and factory.approve through the grant route.
+Round 2:
+  - requestRelease prepares the operation at the declared destination and
+    cost in all three proof passes.
+  - The archive step then fails with factory_archive_member_unavailable. The
+    operation never becomes archive_ready, the approval is refused with
+    factory_release_not_claimable, and the run fails.
+  - Undeclared-destination control: PASSED.
+  - Revoked-policy control: could not run, because nothing becomes claimable.
+Cause (interface conflict, reported): factoryArchiveMemberPlan reads every
+  member under the candidate attempt's single scope, but a real validator's
+  evidence artifact is sealed under the validator attempt.
+Kernel note: W09d's fail-in-place covers command-failed only, so the pinned
+  node-failed assertion stands after the merge.
+
+
+9. PUBLISHED THROUGH THE REAL APPLICATION (2026-09-23)
+-----------------------------------------------------
+06f886b61  fix(factory): read every archive member under the scope that sealed it
+a5a0069d5  docs(w09c): the published release through the real application ...
+
+Authority answers (gate file, "Authority model"):
+- Project creation grants author/publish/run/operate only (C01, line 33), so
+  factory.release and factory.approve are explicit operator grants.
+- There is no separation-of-duties rule for release approval (C01 line 28, C04
+  line 120; line 33 says "human control, not a promise of two-person review").
+
+Member-scope fix (G14; disclosed as additive to W04a's frozen surfaces):
+- Each evidence member is read under the scope that sealed it, authorized by
+  the candidate attempt or a validator assignment to this candidate.
+- A member with no sealing record: factory_archive_member_scope_missing.
+- A member whose sealing attempt is unbound: factory_archive_member_unbound.
+- A validator report is read through a new attempt-output reader.
+- W04a's suites are unchanged and green. With the fix turned off, four
+  lifecycle cases fail with factory_archive_member_unavailable.
+
+Round 3: proof worktree 0ee226cb7, fresh databases, all five passes pass
+  (final/three-passes.json; checksums in final/SHA256SUMS):
+  - proof-1, proof-2, proof-3: accepted -> contract 200 -> prepared at
+    tenant-01 / releases/pass-* / 1000 -> approval 200/200 -> the role
+    publishes -> succeeded/confirmed -> the manifest names both members with
+    the sealed bytes -> the release-outcome event is applied -> the run is
+    succeeded.
+  - undeclared-destination: factory_s3_profile_invalid at prepare, no
+    operation.
+  - revoked-policy: policy put 200 and revoke 200, the claim fails with
+    policy_revoked, the operation stays pending, no manifest.
+  - The 9 published objects were removed by exact version afterwards.
+Final producers at a5a0069d5, clean tree (final/logs/run-three-wrapper.log):
+  Temporal suite 27/0; lifecycle-s3 73/0, lifecycle 73/0, private-service 5/0,
+  boot 1/0, s3-publication 18/0 (receipts/postgres-producers-a5a0069d5.json).
+  The non-lock sweep at 06f886b61 is green (receipts/final-sweep.json). No
+  object remains under the test prefixes.
+
+
+10. PROOF COMMITS, KEPT BY REF (the proof worktree is removed)
+-------------------------------------------------------------
+0ee226cb7  proof/w09c-round3     the final five passes (round 3). Its ancestor
+                                 75495b8cb (rounds 1 and 2) is reachable from it.
+adc489aa2  proof/w09c-pre-w09d   the three passes before W09d (stopped at
+                                 factory_release_trust_missing)
+89b34cee6  proof/w09c-trial-3    e2e trial 3
+1f075d0af  proof/w09c-trial-1-2  e2e trials 1 and 2

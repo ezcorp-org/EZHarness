@@ -1,0 +1,4 @@
+per-file lcov proof: merge d12bcf8ee vs base 95bc71b20; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-18-runner-fd-settle/merged.lcov
+scripts/lib/shipping-runtime-resource-accounting.ts: file 63/63 lines hit; added lines 51, instrumented 33, uncovered 0
+scripts/verify-shipping-runtime-resources.ts: NO LCOV RECORD in this hold (17 added lines)
+TOTAL instrumented added lines 33, uncovered 0

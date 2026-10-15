@@ -1,0 +1,22 @@
+=== heavy batch 2026-09-24T17:55:37Z
+HEAD 7a87aed5ea8e898019d18bb80558deeafacbf6cf MERGE_HEAD 383bd60ffdf0cf8ef579a467284774996822583a index-tree 2a9506515e7963eb73158c5a57a5811ed8c6600b umask 0077
+df: /dev/nvme0n1p2  1.8T  1.5T  200G  89% /
+--- START pg-factory-package-fence 2026-09-24T17:55:37Z
+--- END   pg-factory-package-fence 2026-09-24T17:58:23Z exit=0  17 pass 0 fail 
+--- START pg-factory-schema 2026-09-24T17:58:23Z
+--- END   pg-factory-schema 2026-09-24T17:58:33Z exit=0  2 pass 0 fail 
+--- START pg-factory-migration-restart 2026-09-24T17:58:33Z
+--- END   pg-factory-migration-restart 2026-09-24T17:59:12Z exit=0  16 pass 0 fail 
+--- START pg-factory-package-preparation 2026-09-24T17:59:12Z
+--- END   pg-factory-package-preparation 2026-09-24T18:02:38Z exit=0  22 pass 0 fail 
+--- START pg-factory-run-lifecycle 2026-09-24T18:02:38Z
+--- END   pg-factory-run-lifecycle 2026-09-24T18:03:30Z exit=0  66 pass 0 fail 
+--- START pg-factory-run-lifecycle-s3 2026-09-24T18:03:30Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-24T18:04:37Z exit=0  66 pass 0 fail 
+--- START pg-factory-task-stops 2026-09-24T18:04:37Z
+--- END   pg-factory-task-stops 2026-09-24T18:05:00Z exit=0  18 pass 0 fail 
+--- START podman-package-preparation.podman.integration 2026-09-24T18:05:00Z
+--- END   podman-package-preparation.podman.integration 2026-09-24T18:05:22Z exit=0  1 pass 0 fail 
+--- START podman-attempt-runtime.integration 2026-09-24T18:05:22Z
+--- END   podman-attempt-runtime.integration 2026-09-24T18:05:43Z exit=0  7 pass 0 fail 
+BATCH DONE status=0 2026-09-24T18:05:43Z

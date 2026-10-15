@@ -15,10 +15,9 @@
  * These are two DIFFERENT egress directions and they get different
  * policies on purpose:
  *
- *   - `mcp-proxy.ts` governs an MCP *server's own* outbound traffic — an
- *     arbitrary third-party binary reaching out through the per-MCP
- *     forward proxy. Internal hosts are a HARD deny there, regardless of
- *     grant, because nothing the binary asks for is trusted.
+ *   - The extension runner's network brokers govern an MCP *server's own*
+ *     outbound traffic — an arbitrary third-party binary in a worker with
+ *     no network of its own — against its declared and granted destinations.
  *   - This module governs the platform reaching *in* to an
  *     admin-configured MCP endpoint. The target IS operator intent, and
  *     EZCorp is self-hosted — an MCP server on `127.0.0.1:3000` or on the

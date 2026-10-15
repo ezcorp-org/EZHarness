@@ -4,17 +4,20 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
-  "workspaces": ["packages/@ezcorp/*"],
+  "workspaces": [
+    "packages/@ezcorp/*"
+  ],
   "overrides": {
-    "@earendil-works/pi-ai": "0.87.1",
-    "@earendil-works/pi-telemetry": "0.87.1",
+    "@earendil-works/pi-ai": "0.99.2",
+    "@earendil-works/pi-telemetry": "0.99.2",
     "esbuild": "0.28.1",
     "zod": "4.5.4",
     "sharp": "0.35.5",
     "uuid": "11.1.1"
   },
   "scripts": {
-    "postinstall": "bun run --cwd packages/@ezcorp/sdk build && bash scripts/setup-git-hooks.sh",
+    "postinstall": "bun run build:packages && bash scripts/setup-git-hooks.sh",
+    "build:packages": "bun scripts/build-workspace-packages.ts",
     "start": "BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bun run index.ts",
     "dev": "cd web && bun run dev",
     "dev:stack": "DATABASE_URL=${DATABASE_URL:-postgres://ezcorp:ezcorp@127.0.0.1:5432/ezcorp} bun run dev",
@@ -60,14 +63,17 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
+    "@aws-sdk/client-kms": "3.1131.0",
+    "@aws-sdk/client-s3": "3.1131.0",
     "@balena/dockerignore": "1.0.2",
-    "@earendil-works/pi-agent-core": "0.87.1",
-    "@earendil-works/pi-ai": "0.87.1",
+    "@earendil-works/pi-agent-core": "0.99.2",
+    "@earendil-works/pi-ai": "0.99.2",
     "@electric-sql/pglite": "0.5.8",
     "@electric-sql/pglite-pgvector": "0.0.9",
     "@ezcorp/ai-kit": "workspace:*",
     "@ezcorp/extension-contract": "workspace:*",
     "@ezcorp/extension-runner": "workspace:*",
+    "@ezcorp/factory-sdk": "workspace:*",
     "@ezcorp/harness-client": "workspace:*",
     "@ezcorp/sdk": "workspace:*",
     "@huggingface/transformers": "^4.3.0",
@@ -79,6 +85,7 @@
     "file-type": "^22.1.1",
     "jpeg-js": "^0.4.4",
     "pdf-parse": "^2.4.5",
-    "yaml": "^2.9.1"
+    "yaml": "^2.9.1",
+    "@ezcorp/factory-transport": "workspace:*"
   }
 }

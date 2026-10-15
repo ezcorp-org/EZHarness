@@ -1,0 +1,14 @@
+pre-checks 2026-10-05T22:29:47Z
+status lines: 0
+branch: feat/composable-factory-platform
+From github.com:ezcorp-org/EZHarness
+ + 599482cab...bf06fae19 evidence/pr-303 -> origin/evidence/pr-303  (forced update)
+fetch exit=0
+HEAD 1ef82e971fd101a566de62b89c08f2a025ad7838 origin/feat 1ef82e971fd101a566de62b89c08f2a025ad7838
+HEAD ancestor of integ/w00: exit 0
+integ/w00 = 1bc5f63c7d782f409d007992ec5cb549e47cd631
+config: 888c78b9e94ea660 = accepted baseline
+config-check exit=0
+file:/home/dev/work/EZCorp/EZHarness/.git/config	false
+file:/home/dev/work/EZCorp/EZHarness/.git/worktrees/composable-factory-platform/config.worktree	false
+archy <281643943+EZArchy@users.noreply.github.com

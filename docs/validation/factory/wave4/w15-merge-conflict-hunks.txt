@@ -1,0 +1,288 @@
+===== src/factory/installation-startup.ts (2 hunks)
+@@ line 754
+<<<<<<< HEAD
+  // With no validator composed, acceptance refuses by name at once: nothing
+  // would ever produce its evidence, so a wait could only end at the deadline.
+  const acceptance = validation.composed?.acceptance.command ?? factoryValidatorAcceptanceRefusal(
+    validation.held === undefined ? "factory_validator_none_declared" : "factory_validator_unavailable",
+    validation.held ?? "the startup document declares no validator runtime under validators.runtimes");
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops, acceptance);
+=======
+  const privateService = await composePrivateService(config, host, stores, transitions, application, release, settlement?.stops);
+  const recovery = await composeFactoryRecoveryRoles({ config, database: host.database, report: host.report });
+>>>>>>> ef958511b
+
+@@ line 772
+<<<<<<< HEAD
+      ...(validation.composed === undefined ? {} : { validators: validation.composed.roles }),
+      ...(validation.held === undefined ? {} : { validatorsHeld: validation.held }),
+=======
+      recovery,
+>>>>>>> ef958511b
+
+===== src/factory/private-files.ts (1 hunks)
+@@ line 79
+<<<<<<< HEAD
+/** Reads one owned private file by path, opening its directory first. */
+export async function readPrivatePath(path: string, maximumLength: number): Promise<Uint8Array> {
+  const absolute = resolve(path);
+  const directory = await privateDirectory(dirname(absolute));
+  try {
+    return await readPrivateBounded(directory, basename(absolute), maximumLength);
+  } finally {
+    await directory.close();
+  }
+=======
+/** Reads one owned private regular file by path: its directory must be private too. */
+export async function readPrivateFileBounded(path: string, maximumLength: number): Promise<Uint8Array> {
+  const absolute = resolve(path);
+  const directory = await privateDirectory(dirname(absolute));
+  try { return await readPrivateBounded(directory, basename(absolute), maximumLength); }
+  finally { await directory.close(); }
+>>>>>>> ef958511b
+
+===== src/factory/runtime-composition.test.ts (1 hunks)
+@@ line 239
+<<<<<<< HEAD
+          { role: "notification-inbox-delivery", workPackage: "W07/W08", reason: expect.any(String) },
+          { role: "child-settlement", workPackage: "W06", reason: expect.any(String) },
+          { role: "release-outcome", workPackage: "W07/W08", reason: expect.any(String) },
+          { role: "usage-reconciliation", workPackage: "W03", reason: expect.any(String) },
+          { role: "notification-send", workPackage: "W17", reason: expect.any(String) },
+          { role: "stop-settlement", workPackage: "W03", reason: expect.any(String) },
+          // An installation with no declared validator cannot accept, and readiness says why.
+          { role: "validator-material-registration", workPackage: "W09d", reason: expect.stringContaining("`validators.runtimes`") },
+          { role: "validator-scheduling", workPackage: "W09d", reason: expect.stringContaining("no acceptance can pass") },
+=======
+          { role: "notification-inbox-delivery", workPackage: "W07/W08" },
+          { role: "child-settlement", workPackage: "W06" },
+          { role: "release-outcome", workPackage: "W07/W08" },
+          { role: "usage-reconciliation", workPackage: "W03" },
+          { role: "notification-send", workPackage: "W17" },
+          { role: "stop-settlement", workPackage: "W03" },
+          { role: "retention-gc", workPackage: "W15" },
+>>>>>>> ef958511b
+
+===== src/factory/runtime-workers.test.ts (2 hunks)
+@@ line 50
+<<<<<<< HEAD
+      "validator-material-registration:W09d",
+      "validator-scheduling:W09d",
+=======
+      "retention-gc:W15",
+      "checkpoint-barrier:W15",
+>>>>>>> ef958511b
+
+@@ line 260
+<<<<<<< HEAD
+      "validator-material-registration",
+      "validator-scheduling",
+=======
+      "retention-gc",
+      "checkpoint-barrier",
+>>>>>>> ef958511b
+
+===== src/factory/runtime-workers.ts (2 hunks)
+@@ line 115
+<<<<<<< HEAD
+  "validator-material-registration",
+  "validator-scheduling",
+=======
+  "retention-gc",
+  "checkpoint-barrier",
+>>>>>>> ef958511b
+
+@@ line 279
+<<<<<<< HEAD
+  // The two validator roles run together or hold together: registering a
+  // material nobody schedules against, or scheduling against materials nobody
+  // registers, would each be half a validator. Holding is the answer for an
+  // installation with no declared runtime, because it cannot judge a protected
+  // claim at all, and readiness says so rather than an acceptance failing later.
+  const validators = collaborators.validators;
+  const validatorsHeld = collaborators.validatorsHeld
+    ?? "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass";
+  role("validator-material-registration", validators && (async (signal) => progress(!(await validators.registration.step(signal)))),
+    "trusted-validators", "W09d", validatorsHeld);
+  role("validator-scheduling", validators && (async (signal) => progress(!(await validators.scheduling.step(signal)))),
+    "trusted-validators", "W09d", validatorsHeld);
+=======
+  // W15. Both compose from the archive credential set; the barrier also needs
+  // the pool's checkpoint client. `recovery-composition.ts` reports the cause
+  // of an absent role under its own name.
+  role("retention-gc", collaborators.recovery?.retention, "recovery-composition", "W15",
+    "the recovery archive or the ordinary store's credentials did not compose, so nothing can be archived before expiry and nothing is collected");
+  role("checkpoint-barrier", collaborators.recovery?.checkpoint, "recovery-composition", "W15",
+    "the recovery archive or the pool checkpoint client did not compose, so no compatible checkpoint is sealed and the freshness rule stays off");
+>>>>>>> ef958511b
+
+===== src/factory/startup-config.test.ts (1 hunks)
+@@ line 445
+<<<<<<< HEAD
+describe("the trusted validator runtimes this installation judges claims on", () => {
+  const runner = { package: "@ezcorp/validator", manifestName: "validator", version: "1.0.0", digest: `sha256:${"a".repeat(64)}`, export: "run", configurationDigest: `sha256:${"c".repeat(64)}` };
+  const runtime = { name: "claim-runtime", kind: "podman-guest" as const, runner, materialPath: "/secrets/validator.json", materialDigest: `sha256:${"d".repeat(64)}` };
+
+  test("accepts a declared runtime, one pinning a model, and an absent section", () => {
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime] } })).validators?.runtimes).toEqual([runtime]);
+    const pinned = { ...runtime, name: "model-runtime", runner: { ...runner, export: "judge", model: "model-1" } };
+    expect(parseFactoryStartupConfig(valid({ validators: { runtimes: [runtime, pinned] } })).validators?.runtimes).toHaveLength(2);
+    expect(parseFactoryStartupConfig(valid()).validators).toBeUndefined();
+  });
+
+  test("a present section declares at least one runtime and at most sixty-four", () => {
+    expect(reject(valid({ validators: {} })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: "runtime" } })).invalid).toContain("validators.runtimes");
+    const many = Array.from({ length: 65 }, (_, index) => ({ ...runtime, name: `runtime-${index}`, runner: { ...runner, export: `run-${index}` } }));
+    expect(reject(valid({ validators: { runtimes: many } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("names the exact runtime that is malformed, by index", () => {
+    const { configurationDigest: _unpinned, ...unpinnedRunner } = runner;
+    const broken = [
+      { ...runtime, kind: "native" },
+      { ...runtime, name: "has space" },
+      { ...runtime, runner: unpinnedRunner },
+      { ...runtime, runner: { ...runner, configurationDigest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, digest: "sha256:short" } },
+      { ...runtime, runner: { ...runner, extra: "field" } },
+      { ...runtime, runner: { ...runner, version: "" } },
+      { ...runtime, runner: "runner" },
+      { ...runtime, materialPath: "" },
+      { ...runtime, materialDigest: "digest" },
+      { ...runtime, materialDigest: 7 },
+      { ...runtime, extra: true },
+      "runtime",
+    ];
+    for (const entry of broken) {
+      expect(reject(valid({ validators: { runtimes: [runtime, entry] } })).invalid).toContain("validators.runtimes[1]");
+    }
+  });
+
+  test("a name or a runner declared twice would make which material governs depend on order", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, runner: { ...runner, export: "other" } }] } })).invalid).toContain("validators.runtimes");
+    expect(reject(valid({ validators: { runtimes: [runtime, { ...runtime, name: "second" }] } })).invalid).toContain("validators.runtimes");
+  });
+
+  test("an unknown field, or a section that is not an object, is named rather than ignored", () => {
+    expect(reject(valid({ validators: { runtimes: [runtime], extra: 1 } })).invalid).toContain("validators.extra");
+    const scalar = reject(valid({ validators: true }));
+    expect(scalar.invalid).toEqual(["validators"]);
+  });
+=======
+describe("the recovery sections: the Temporal HTTP API and the data-key wrapping service", () => {
+  const tls = { caPath: "/run/tls/temporal-ca.pem", certificatePath: "/run/tls/temporal.pem", privateKeyPath: "/run/tls/temporal.key" };
+
+  test("the Temporal endpoint is optional, and its client TLS is all three paths or none", () => {
+    expect(parseFactoryStartupConfig(valid()).temporalHttp).toBeUndefined();
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243" } })).temporalHttp).toEqual({ endpoint: "https://temporal.internal:7243" });
+    expect(parseFactoryStartupConfig(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls } })).temporalHttp?.tls).toEqual(tls);
+    expect(reject(valid({ temporalHttp: { endpoint: "https://temporal.internal:7243", tls: { caPath: tls.caPath } } })).missing).toEqual(["temporalHttp.tls.certificatePath", "temporalHttp.tls.privateKeyPath"]);
+    // TLS material for no endpoint names the endpoint as missing.
+    expect(reject(valid({ temporalHttp: { tls } })).missing).toEqual(["temporalHttp.endpoint"]);
+    expect(reject(valid({ temporalHttp: { endpoint: "ftp://temporal" } })).invalid).toEqual(["temporalHttp.endpoint"]);
+  });
+
+  test("each key-management kind carries only its own fields, by reference", () => {
+    const cloud = { kind: "cloud-kms", keyId: "arn:aws:kms:eu-west-1:111122223333:key/abc", region: "eu-west-1", credentialsPath: "/run/secrets/kms.json" };
+    const transit = { kind: "transit", endpoint: "https://vault.internal:8200", keyName: "factory-tenant-01", tokenPath: "/run/secrets/transit.token" };
+    for (const accepted of [{ kind: "operator-master-key" }, cloud, { ...cloud, endpoint: "https://kms.internal" }, transit, { ...transit, mount: "transit-2", caPath: "/run/tls/vault-ca.pem" }]) {
+      expect(parseFactoryStartupConfig(valid({ keyManagement: accepted })).keyManagement).toEqual(accepted as never);
+    }
+    for (const refused of [
+      "cloud-kms", { kind: "hsm" }, { kind: "operator-master-key", keyId: "x" },
+      { ...cloud, secretAccessKey: "inline" }, { ...cloud, endpoint: "ftp://kms" }, { ...cloud, region: "bad region" },
+      { ...transit, token: "inline" }, { ...transit, endpoint: "not a url" }, { ...transit, mount: "bad mount" }, { ...transit, caPath: "" },
+    ]) {
+      expect(reject(valid({ keyManagement: refused })).invalid).toEqual(["keyManagement"]);
+    }
+  });
+>>>>>>> ef958511b
+
+===== src/factory/startup-config.ts (4 hunks)
+@@ line 203
+<<<<<<< HEAD
+/** The runtime kinds a declared validator may name. */
+export const FACTORY_VALIDATOR_RUNTIME_KINDS = Object.freeze(["podman-guest"] as const);
+
+/**
+ * One trusted validator runtime, declared by reference.
+ *
+ * `runner` is the lock the runtime registers under: the exact runner reference
+ * a definition's claim must name, configuration digest included. The material
+ * file carries the rest of the runtime (resources, environment digest, broker
+ * audience, evidence age) and must repeat the same runner, so the document and
+ * the file cannot disagree about which judge they describe.
+ */
+export interface FactoryStartupValidatorRuntime {
+  /** This document's own handle for the runtime; it never reaches the wire. */
+  readonly name: string;
+  readonly kind: (typeof FACTORY_VALIDATOR_RUNTIME_KINDS)[number];
+  readonly runner: {
+    readonly package: string;
+    readonly manifestName: string;
+    readonly version: string;
+    readonly digest: string;
+    readonly export: string;
+    readonly configurationDigest: string;
+    readonly model?: string;
+  };
+  /** The runtime material file, by reference. Read privately, never logged. */
+  readonly materialPath: string;
+  /** `sha256:` over the material file's exact bytes. */
+  readonly materialDigest: string;
+}
+=======
+/** The data-key wrapping service: the operator's own master key file, a hosted cloud KMS key, or a self-hosted transit engine. */
+export type FactoryStartupKeyManagement =
+  | { readonly kind: "operator-master-key" }
+  | {
+      readonly kind: "cloud-kms";
+      /** The KMS key id or ARN new wraps use. */
+      readonly keyId: string;
+      readonly region: string;
+      /** A private JSON file with `accessKeyId` and `secretAccessKey`. */
+      readonly credentialsPath: string;
+      readonly endpoint?: string;
+    }
+  | {
+      readonly kind: "transit";
+      /** A Vault or OpenBao server. */
+      readonly endpoint: string;
+      readonly keyName: string;
+      /** A private file holding the transit token, read for every call. */
+      readonly tokenPath: string;
+      readonly mount?: string;
+      /** The server's CA certificate, when it is not publicly trusted. */
+      readonly caPath?: string;
+    };
+>>>>>>> ef958511b
+
+@@ line 642
+<<<<<<< HEAD
+  "release.destinations", "release.profiles", "validators.runtimes",
+=======
+  "release.destinations", "release.profiles", "keyManagement",
+>>>>>>> ef958511b
+
+@@ line 674
+<<<<<<< HEAD
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes") { found.push(field); continue; }
+    found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
+=======
+      || field === "release.destinations" || field === "release.profiles" || field === "keyManagement") { found.push(field); continue; }
+    found.push(...(record(nested) ? leaves(nested, field) : [field]));
+>>>>>>> ef958511b
+
+@@ line 751
+<<<<<<< HEAD
+// The private service's token verifier is all three fields or none: an issuer
+// with no keys verifies nothing, and a key map with no audience would accept
+// a token minted for another service.
+const checkPrivateServiceTokens: StartupCheck = (value, { missing, invalid }) => {
+=======
+  recoverySectionProblems(value, missing, invalid);
+
+>>>>>>> ef958511b
+

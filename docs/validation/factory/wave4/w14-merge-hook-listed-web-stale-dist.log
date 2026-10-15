@@ -1,0 +1,508 @@
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+ ❯ src/lib/factory/client-requests.unit.test.ts (46 tests | 18 failed) 29ms
+   ❯ every client request is exact (42)
+     × inspectRun 3ms
+     × inspectRun without a filter 1ms
+     × inspectRunSection 0ms
+     × artifactTicket 0ms
+     × shareArtifact 0ms
+     × listPackages 0ms
+     × listPackages without a next page 0ms
+     × installPackage 0ms
+     × packageImpact 0ms
+     × packageAffectedRuns 0ms
+     × packageAffectedRuns without a next page 0ms
+     × transitionPackage 0ms
+     × validatorMaterial by version 0ms
+     × validatorMaterial by lock 0ms
+     × listRestores 0ms
+     × signRestore 0ms
+     × purgePreview 0ms
+     × requestPurge 0ms
+ ❯ src/routes/api/factories/console.server.test.ts (16 tests | 12 failed) 36ms
+   ❯ console routes (8)
+     × inspection returns the snapshot, or one section page, for a read principal 11ms
+     × the validator material read names a version or a lock, and maps a bad query and an absent material 3ms
+     × restore reports and signatures are administrator-session only, and each refusal keeps its status 2ms
+     × the event stream reads its first batch before streaming, so refusals are statuses 1ms
+     × artifact tickets and downloads keep bytes out of the page and name the attachment safely 1ms
+     × sharing needs a human session and the target reads only the named bytes 3ms
+     × package administration: read to list and preview, a human tenant administrator to change 1ms
+     × the purge request is administrator-session only and records rather than deletes 1ms
+   ❯ console route kit (5)
+     × the flag, the application, and the principal each refuse before any service runs 1ms
+     × a service credential gets only its delegated scope, only its project, and never a session row 1ms
+     × every service failure maps to exactly one status 1ms
+     × the raw console routes refuse like every factory route, before any service runs 1ms
+
+⎯⎯⎯⎯⎯⎯ Failed Tests 30 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > inspectRun
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > inspectRun without a filter
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.inspectRun src/lib/factory/client.ts:326:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > inspectRunSection
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.inspectRunSection src/lib/factory/client.ts:331:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > artifactTicket
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.artifactTicket src/lib/factory/client.ts:345:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > shareArtifact
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.shareArtifact src/lib/factory/client.ts:360:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > listPackages
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > listPackages without a next page
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.listPackages src/lib/factory/client.ts:368:31
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > installPackage
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.installPackage src/lib/factory/client.ts:373:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > packageImpact
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.packageImpact src/lib/factory/client.ts:377:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > packageAffectedRuns
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > packageAffectedRuns without a next page
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.packageAffectedRuns src/lib/factory/client.ts:382:31
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > transitionPackage
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.transitionPackage src/lib/factory/client.ts:388:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[9/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > validatorMaterial by version
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > validatorMaterial by lock
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.validatorMaterial src/lib/factory/client.ts:417:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[10/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > listRestores
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.listRestores src/lib/factory/client.ts:426:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[11/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > signRestore
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.signRestore src/lib/factory/client.ts:432:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[12/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > purgePreview
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.purgePreview src/lib/factory/client.ts:421:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[13/30]⎯
+
+ FAIL  src/lib/factory/client-requests.unit.test.ts > every client request is exact > requestPurge
+FactoryApiClientError: Value does not match the generated FactoryApiResponse schema.
+ ❯ decodeResponse src/lib/factory/client.ts:101:9
+     99|  const validation = validateFactoryApiResponse(value);
+    100|  if (!validation.ok) {
+    101|   throw new FactoryApiClientError(response.status, "factory_invalid_re…
+       |         ^
+    102|  }
+    103|  const result = value as FactoryApiResponse;
+ ❯ FactoryApiClient.requestPurge src/lib/factory/client.ts:436:21
+ ❯ src/lib/factory/client-requests.unit.test.ts:111:19
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[14/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > inspection returns the snapshot, or one section page, for a read principal
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:108:26
+    106|   test("inspection returns the snapshot, or one section page, for a re…
+    107|     const whole = await inspection.GET(event("GET", `${base}/runs/run-…
+    108|     expect(whole.status).toBe(200);
+       |                          ^
+    109|     expect(await json(whole)).toMatchObject({ kind: "run.inspection", …
+    110|     expect(services.inspections.inspect).toHaveBeenLastCalledWith(sess…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[15/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > the validator material read names a version or a lock, and maps a bad query and an absent material
+AssertionError: expected { …(3) } to match object { kind: 'validator.material', …(1) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "kind": "validator.material",
+-   "resource": {
+-     "claimGroups": [],
+-     "contractDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-     "contractId": "contract",
+-     "contractVersion": "1",
+-     "definitionDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-     "factoryId": "factory-1",
+-     "factoryVersion": "1.0.0",
+-     "mandatoryClaims": [],
+-     "validatorLockDigest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-   },
++   "kind": "error",
+  }
+
+ ❯ src/routes/api/factories/console.server.test.ts:122:91
+    120|     services.inspections.material.mockResolvedValue(material);
+    121|     const read = (search: string) => materials.GET(event("GET", `${bas…
+    122|     expect(await json(await read("?factoryId=factory-1&factoryVersion=…
+       |                                                                                           ^
+    123|     expect(services.inspections.material).toHaveBeenLastCalledWith({ k…
+    124|     await read(`?validatorLockDigest=${encodeURIComponent(digest)}`);
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[16/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > restore reports and signatures are administrator-session only, and each refusal keeps its status
+AssertionError: expected 400 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:147:53
+    145|     // A session that is not a tenant administrator is refused by the …
+    146|     services.restores.list.mockRejectedValueOnce(new FactoryGrantError…
+    147|     expect((await list({ role: "member" })).status).toBe(403);
+       |                                                     ^
+    148|     expect(await json(await list())).toMatchObject({ kind: "restore.pa…
+    149|     expect(services.restores.list).toHaveBeenLastCalledWith(session, "…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[17/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > the event stream reads its first batch before streaming, so refusals are statuses
+AssertionError: expected 400 to be 410 // Object.is equality
+
+- Expected
++ Received
+
+- 410
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:166:28
+    164|     services.events.read.mockRejectedValueOnce(new FactoryConsoleError…
+    165|     const expired = await events.GET(event("GET", `${base}/runs/run-1/…
+    166|     expect(expired.status).toBe(410);
+       |                            ^
+    167|     expect((await json(expired)).error?.code).toBe("factory_cursor_exp…
+    168|     const timeout = vi.fn();
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[18/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > artifact tickets and downloads keep bytes out of the page and name the attachment safely
+AssertionError: expected { …(3) } to match object { kind: 'artifact.ticket', …(1) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "kind": "artifact.ticket",
+-   "ticket": {
+-     "mediaType": "application/octet-stream",
+-   },
++   "kind": "error",
+  }
+
+ ❯ src/routes/api/factories/console.server.test.ts:185:32
+    183|   test("artifact tickets and downloads keep bytes out of the page and …
+    184|     const minted = await ticket.POST(event("POST", `${base}/runs/run-1…
+    185|     expect(await json(minted)).toMatchObject({ kind: "artifact.ticket"…
+       |                                ^
+    186|     expect(services.tickets.issue).toHaveBeenLastCalledWith(session, r…
+    187|     const missing = await download.GET(event("GET", `${base}/runs/run-…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[19/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > sharing needs a human session and the target reads only the named bytes
+AssertionError: expected { …(3) } to match object { …(2) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "kind": "artifact.share.resource",
+-   "resource": {
+-     "artifactId": "artifact-1",
+-     "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-     "encodedBytes": 4,
+-     "mediaType": "text/plain",
+-     "revoked": false,
+-     "sourceProjectId": "project-1",
+-     "sourceRunId": "run-1",
+-     "targetProjectId": "project-2",
+-   },
++   "kind": "error",
+  }
+
+ ❯ src/routes/api/factories/console.server.test.ts:204:33
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[20/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > package administration: read to list and preview, a human tenant administrator to change
+AssertionError: expected { …(3) } to match object { kind: 'package.page', …(1) }
+(6 matching properties omitted from actual)
+
+- Expected
++ Received
+
+  {
+-   "kind": "package.page",
+-   "page": {
+-     "items": [
+-       {
+-         "boundAtMs": 1,
+-         "installationId": "installation-1",
+-         "reference": {
+-           "digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+-           "export": "run",
+-           "manifestName": "runner",
+-           "package": "@ezcorp/runner",
+-           "version": "1.0.0",
+-         },
+-         "referenceId": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+-         "releaseId": "release-1",
+-         "revision": 1,
+-         "state": "active",
+-       },
+-     ],
+-   },
++   "kind": "error",
+  }
+
+ ❯ src/routes/api/factories/console.server.test.ts:219:32
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[21/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console routes > the purge request is administrator-session only and records rather than deletes
+AssertionError: expected 400 to be 403 // Object.is equality
+
+- Expected
++ Received
+
+- 403
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:255:136
+    253|     expect((await purgePreview.GET(event("GET", "/api/factories/tenant…
+    254|     services.purge.preview.mockRejectedValueOnce(new FactoryGrantError…
+    255|     expect((await purgePreview.GET(event("GET", "/api/factories/tenant…
+       |                                                                                                                                        ^
+    256|     const previewed = await purgePreview.GET(event("GET", "/api/factor…
+    257|     expect(await json(previewed)).toMatchObject({ kind: "purge.preview…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[22/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console route kit > the flag, the application, and the principal each refuse before any service runs
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:283:82
+    281|     expect((await json(await readInspection({ auth: "internal" }))).er…
+    282|     expect(services.inspections.inspect).not.toHaveBeenCalled();
+    283|     expect((await readInspection({ auth: "api-key", scopes: ["read"] }…
+       |                                                                                  ^
+    284|     expect(services.inspections.inspect).toHaveBeenLastCalledWith({ ki…
+    285|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[23/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console route kit > a service credential gets only its delegated scope, only its project, and never a session row
+AssertionError: expected 400 to be 200 // Object.is equality
+
+- Expected
++ Received
+
+- 200
++ 400
+
+ ❯ src/routes/api/factories/console.server.test.ts:294:100
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console route kit > every service failure maps to exactly one status
+AssertionError: expected 'API_REQUEST_SCHEMA' to be 'factory_cursor_invalid' // Object.is equality
+
+Expected: "factory_cursor_invalid"
+Received: "API_REQUEST_SCHEMA"
+
+ ❯ src/routes/api/factories/console.server.test.ts:344:50
+    342|       const response = await readInspection();
+    343|       expect([code, response.status]).toEqual([code, status]);
+    344|       expect((await json(response)).error?.code).toBe(code);
+       |                                                  ^
+    345|     }
+    346|     services.inspections.inspect.mockRejectedValueOnce(new FactoryCons…
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/30]⎯
+
+ FAIL  src/routes/api/factories/console.server.test.ts > console route kit > the raw console routes refuse like every factory route, before any service runs
+AssertionError: expected 'API_REQUEST_SCHEMA' to be 'factory_service_project_mismatch' // Object.is equality
+
+Expected: "factory_service_project_mismatch"
+Received: "API_REQUEST_SCHEMA"
+
+ ❯ src/routes/api/factories/console.server.test.ts:369:74
+
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/30]⎯
+
+
+ Test Files  2 failed | 21 passed (23)
+      Tests  30 failed | 200 passed (230)
+   Start at  03:00:11
+   Duration  11.49s (transform 71%, environment 12%, import 9%, tests 4%, setup 4%)
+
+  Transform  transforming modules took 83.27s · 71% of tracked time, re-done on every run
+             persist transforms across runs with fsModuleCache: true
+             learn more: https://vitest.dev/guide/improving-performance#caching-between-reruns
+

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# W4H-15 hold leg (integrator-5): actionlint 1.7.7 (release checksum verified; w00/tools/actionlint-1.7.7) over the workflows at the merge's
+# first parent and at the merge, both WITHOUT the runner-labels config, so the pre-existing label findings show. Passes when the merge adds no
+# finding over the base (the label findings are known). The labelled run (0 errors) is hold-w4f.sh's standard actionlint leg.
+set -u
+M=${1:?merge sha}; T=$(mktemp -d /tmp/w4h15-actionlint.XXXXXX); trap 'rm -rf "$T"' EXIT
+AL=/tmp/factory-platform-evidence/w00/tools/actionlint-1.7.7/actionlint
+for r in "$M^1" "$M"; do d=$T/$(echo "$r" | tr '^' p); mkdir -p $d; git archive "$r" .github | tar -x -C $d
+  (cd $d && "$AL" -no-color -oneline .github/workflows/*.yml 2>&1) | sed "s#^#[$r] #" > $d.out; echo "$r: $(grep -c . $d.out) finding(s)"; done   # files passed directly: no repository, no git init
+B=$T/$(echo "$M^1" | tr '^' p).out; H=$T/$M.out
+sed 's/^\[[^]]*\] //; s/:[0-9]*:[0-9]*:/:/' $B | sort > $T/b; sed 's/^\[[^]]*\] //; s/:[0-9]*:[0-9]*:/:/' $H | sort > $T/h
+cat $B $H; NEW=$(comm -13 $T/b $T/h | grep -c .); echo "findings new at the merge (line numbers ignored): $NEW"; comm -13 $T/b $T/h
+[ "$NEW" = 0 ]

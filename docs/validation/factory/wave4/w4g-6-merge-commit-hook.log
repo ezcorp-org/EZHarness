@@ -1,0 +1,10 @@
+Checked 1 file in 22ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/gate-integrity-deps-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 5 expect() calls
+Ran 3 tests across 1 file. [386.00ms]
+[detached HEAD 218b98f09] merge: wp/w4g-6 8a542c173 into integ/w00 (W4G-6 the backend-suite jobs install the gate-integrity parser from one shared action)

@@ -1,0 +1,44 @@
+W01i — validator-2 verdict, filed by the coordinator from validator-2's message of 2026-09-27 ~12:50Z
+(validator-2's harness cannot write report files; records: /tmp/factory-platform-evidence/w01i-validation/ batch.log, results.jsonl, logs/, lane/).
+
+Branch wp/w01i-launch-tenant, head 89d5c11d8 (code 4d2b76a84; docs-only over it), stacked on W01h aefcf828f, merging integ/w00 d2bc674c7.
+VERDICT: ACCEPT for W01i's own changes. FINDING D1 (high) against W01h b254a1a56, carried by W01i through its merge of aefcf828f (see below).
+
+Identities: all W01i commits (03d577fe9, 95ebd50f4, 9737238ff, 87ca361a9, 88fedcf89, 2f1f2791e, 124f7043e, 7669dc051, dbc0bbcbe, b0152056b, 4d2b76a84, 89d5c11d8)
+archy <281643943+EZArchy@users.noreply.github.com>; skip text only in 03d577fe9 and 88fedcf89 (ruled). Shared .git/config sha256 44962525f1ca1a8b before and after.
+Re-merge b0152056b's tree byte-identical to `git merge-tree --write-tree dbc0bbcbe aefcf828f`; W01i's own files unchanged from dbc0bbcbe except three both sides touched (automatic merge).
+Code: launch/attach/result refuse another tenant's intent (403 forbidden_tenant) before the supervisor and record nothing; stop uses the launch-recorded tenant, else the named one, refusing
+contradiction/wrong/unknown before the supervisor; unknown peer 401; allowedPeers refused by name; broker refuses any aud list, foreign key stays unauthorized; post-result stop takes the tenant
+from the cancel command, else the expectation, else none.
+Batch (worktree .worktrees/val-w01i, under the lock, gates per leg; lowest 122 GB / 15 GiB / 5 GiB swap): at 4d2b76a84 typecheck, lint, boundaries, gate-integrity 0; boundary suites 48/0;
+units 131/0; transport guest-broker 13/0, host-launch 6/0, host-stop 2/0, lost-result 4/0; PostgreSQL host-launch 1/0; podman lost-result 1/0, e2e 1/0.
+Negative controls (each check removed and restored): launch tenant 15/3 (all three paths); stop tenant 2/3; named-vs-recorded 4/1; shared record 21/1; broker single-string 12/1;
+post-result stop on the 2f1f2791e client 1/1 with the lane's exact TypeError.
+Real lane (worker's driver steps, validator's paths): stack held with peerTenants 12:32:50Z; Playwright 12 passed (3.2 min); stack exit 0; 20 background-role lines: 16 release consent
+absent (baseline, W09e), 1 usage hold unresolved (baseline, W03f), 3 for attempt 72396ae2 (D1); no forbidden_tenant, no TypeError, no cancelReference line.
+Coverage: leg 1 at 9737238ff vs 03d577fe9 132/0, new-file PASSED (host-peer-tenants.ts), patch PASSED (7 files); leg 2 at 124f7043e vs 88fedcf89 53/0, patch PASSED (3 files).
+Renderer note matches W16's host.ts:371; admitted entries carry tenantId (host.ts:306, :349).
+
+D1 (HIGH, W01h b254a1a56): lock-order inversion, deadlock detected by PostgreSQL at 2026-09-27 12:35:31Z (log excerpt w01i-validation/logs/postgres-deadlock-12-35Z.log, no credential):
+process A: SELECT cancel_command_id,request_json FROM factory_task_stops WHERE attempt_id=$1 FOR SHARE; process B: SELECT * FROM factory_attempt_launches WHERE attempt_id=$1 FOR UPDATE; each blocked by the other.
+recordLostTerminal (attempt-runtime.ts) locks the launch row (:93) then factory_task_stops FOR SHARE (:164); the stop path holds its factory_task_stops row then takes the launch row FOR UPDATE
+(:115, :126 or :214, from task-stops.ts settlement). The fix's premise ("exactly one of the two writes first") does not hold under concurrency; no W01h test runs the two transactions concurrently.
+Effect in the lane: one side aborted; the lost result for attempt 72396ae2 was not recorded; the run ended anyway (12/12). Fix direction: one lock order for both paths + a concurrent real-PostgreSQL test red before.
+COORDINATOR RULING: W01h fix round 2 before W01h merges (aefcf828f's ACCEPT withdrawn for the code head); W01i re-merges the new head; validator-2 re-checks both.
+
+=== FINAL VERDICT, W01i at f1b71ac3c, filed by the coordinator on behalf of validator-2 (validator-2's harness cannot write files); text verbatim from validator-2's message of 2026-09-27 ~16:04Z ===
+W01i final verdict: ACCEPT at f1b71ac3c.
+Branch head observed now: wp/w01i-launch-tenant = f1b71ac3c. The verdict names the hash.
+- Commits over 89d5c11d8 (0f82ee10c, 9abaab082, f1b71ac3c): author and committer exactly archy noreply.
+- The W01h part, by tree:
+  - 9abaab082 (merge of 5296c2ef0) has exactly the tree of `git merge-tree --write-tree 0f82ee10c 5296c2ef0`.
+  - 0f82ee10c (merge of e676e6190) differs from git's automatic merge only in tasks/lessons.md, where the three conflict markers were removed (a union). src/factory/task-stops.ts auto-merged.
+  - Every file of the W01h delta aefcf828f..5296c2ef0 equals 5296c2ef0, except task-stops.ts and tasks/lessons.md. Those two are the clean merges of both sides' changes.
+- W01i's own code: `git diff 89d5c11d8 f1b71ac3c` touches nothing outside the W01h delta except tasks/factory/w01i-GATES.md. So W01i's own code is byte-identical to what was verified and accepted at 89d5c11d8 (code 4d2b76a84). That covers the tenant checks before the supervisor on launch, attach, result and stop; the six negative controls; transport 13/6/2/4; PostgreSQL and Podman; and coverage legs 132/0 and 53/0.
+- One more lane at f1b71ac3c (worktree .worktrees/val-w01i, under the lock, gated: 122 GB disk, 17 GiB available, 6 GiB swap free; workspace packages rebuilt; web build inside):
+  - The stack held with peerTenants. Playwright 12 passed (3.2 minutes); stack exit 0.
+  - PostgreSQL server log 14:41:24 to 14:45:38Z: 0 "deadlock detected" (logs/postgres-lane2.log).
+  - Product log: 21 "background role failed" entries, all ruled baseline or disclosed: 15 release-outcome factory_release_consent_absent (W09e); 2 usage-reconciliation factory_usage_hold_unresolved (W03f); 1 stop-settlement HTTP 500 stop_failed (disclosed, W02c, quarantine under a live attempt); 1 attempt-dispatch:outcome-unknown factory_run_stopped (the quarantined run stopped; the same line the worker's lane logged at 124f7043e).
+  - There is no factory_task_stops FOR SHARE failure, no deadlock, no forbidden_tenant, no TypeError and no cancelReference line.
+- Shared .git/config sha256 44962525f1ca1a8b before and after.
+- Records: /tmp/factory-platform-evidence/w01i-validation/ (lane2.log, lane2/, logs/postgres-lane2.log, plus the earlier batch).

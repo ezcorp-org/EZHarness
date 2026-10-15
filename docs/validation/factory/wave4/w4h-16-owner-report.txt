@@ -1,0 +1,85 @@
+W4H-16 report: hosted per-file coverage for pack.ts, materials.ts, publication.ts and uv-command.ts
+Branch wp/w4h-16-hosted-coverage-gaps, worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-16, from integ/w00 8ea96b0ed.
+Head f80fcda35. Tree clean. Every commit is archy <281643943+EZArchy@users.noreply.github.com>, as author and committer.
+config-check reports the accepted baseline. No merge, no rebase. FROZEN after this report.
+
+COMMITS
+  9c6f3818a test(factory): share the reference-data W04 world and a guest double across suites (W4H-16)      hook: 2 suites green
+  3ccde2451 fix(factory): a reference-data step removes its attempt directory on every refusal (W4H-16)     hook: 2 suites green
+  29ef4d085 test(factory): the publication and reconciliation hand-overs without the data image (W4H-16)     hook: 1 suite green
+  56114dd20 fix(factory): the uv probe runs the Nix binary which() found (W4H-16)                            hook: 1 suite green
+  f80fcda35 docs(factory): W4H-16 gates - hosted coverage for the four reference-data and uv files          hook: no test maps
+Gate file: tasks/factory/w4h-16-GATES.md, G1 to G11, all checked. It was force-added for the bare tasks rule at .gitignore:8.
+
+RESULT
+R3: the hosted gate's check-coverage over run 37743486763's artifacts plus this branch's lcov reads
+"Coverage gate PASSED: 2234 enforced file(s) at or above threshold". Before this branch it failed on 4 files.
+  pack.ts 263/263   materials.ts 145/145   publication.ts 42/42   uv-command.ts 23/23
+scripts/coverage-thresholds.json is unchanged against integ/w00, and no gate was lowered.
+
+RECEIPTS (all under /tmp/factory-platform-evidence/w4h-16/)
+  R1  r1-red.sh, merge-repro.sh, lcov-diff.py; logs/r1-red.log (eb04addf...), logs/r1-check-coverage.log (42a2d9f6...)
+  R2  logs/r2-leak-red.log (2a4d621e..., 6 fail, base pack.ts), logs/r2-leak-green.log (6f6eed46...), logs/commit-A..E.log
+      logs/sets-check.log (bf9d75b4...): pack-journey, publication and uv-command have coverage_host=y and lane_bound=n
+  R3  r3-proof.sh; logs/r3-proof.log (5096df5f...), logs/r3-check-coverage.log (dead8c96...), cov/w4h16-*.lcov
+  legs final-legs.sh; logs/final-legs.log (a45a3d45...) and logs/final-*.log
+      typecheck.sh; logs/typecheck.log (6573c038...)
+      heavy.sh under w00/gated-flock.sh; heavy/heavy-batch.log (f03018c7...), heavy/heavy.exit = 0, heavy/gated-flock.log
+      logs/uv-caller-python-runner.log
+LEG RESULTS
+  hook-mapped units (lcov): pack 12, reconcile 17, pack-journey 9, publication 7, uv-command 7. All pass, 0 fail.
+  new-file vs integ/w00: PASSED, no new source files. patch vs integ/w00: PASSED, every changed executable line covered (2 files).
+  CRAP (changed): max 11.0 at 100%, under 30. lint rc=0. boundaries, lanes and prune scan: all green and clean.
+  gate-integrity: the integ leg is rc=0. The main leg shows exactly the 8 known coverage-tool findings, the same lines as W4H-15's.
+  There is no new line.
+  typecheck: lock-free under the tc rule, 17 GiB available and no holder. rc=0; the lowest MemAvailable was 14 GiB.
+  guard set (under the lock): 40 files, 507 pass, 2 skip, 0 fail.
+  reference-data producer (under the lock, own pg15 container w4h-16-pg, removed after; shared S3 read only by its own tests):
+    units 91 pass, journey.integration 11 pass, tests/postgres/factory-reference-data 11 pass, 0 fail. Its lcov,
+    cov/heavy-reference-data-producer.lcov (8d3b3124...), has pack.ts 263/263, materials 145/145 and publication 42/42.
+  uv caller: python-runner.integration 4 pass, 0 fail.
+
+RULING CONDITIONS (coordinator ruling: both source fixes accepted)
+1. No behaviour change beyond the two fixes. pack.ts has 17 ReferenceDataPackError constructions at base and at head.
+   Codes and templates are equal. One template renames `snapshotAttempt.attempt.report.digest` to `attempt.report.digest`,
+   which is the same object, so the rendered bytes are equal. The six refusal paths, with code and message byte-equal to
+   8ea96b0ed, now also remove their attempt directory:
+     a. reference_data_guest_disagrees  "The snapshot guest measured <digest> and the sealed input is <digest>."
+     b. reference_data_report_invalid   "The parse step declared <n> partition(s)."
+     c. reference_data_report_invalid   "Partition <i> is not the declared shape."
+     d. reference_data_report_invalid   "The <export> guest left no <name>."
+        reference_data_guest_disagrees  "The <export> guest reported <d>/<b> for <name> and the bytes measure <d>/<b>."
+     e. reference_data_guest_disagrees  "<objectName> sealed as <digest> and measured <digest>."
+     f. reference_data_report_invalid   "The <step> report names no <key>." / "The <step> report's <key> is not {name,digest,encodedBytes}."
+   pack-journey.test.ts pins each code and message.
+   uv probe path: resolveUvBinary is called only by uvCommand. uvCommand is imported only by
+   src/factory/runner/python-runner.integration.test.ts and uv-command.test.ts, a set that
+   scripts/uv-toolchain-registration.test.ts pins. Behaviour change: the probe argv[0] is now the absolute path that
+   which() returned, where it used to be the bare name.
+2. Dispose exactly once. pack.ts has ONE dispose call site, :469, in withDirectory's finally. The golden test in
+   pack-journey.test.ts asserts an empty workRoot after a successful run. No test COUNTS dispose calls. A spy test would
+   need a commit that your condition 6 does not allow (open item O2).
+3. The real journey leg ran as above. Disclosed difference: COV_OUT=/tmp/w4h-16-refdata-cov instead of coverage-shard.
+   The script and its legs are the same; only the output folder differs. Pass counts and lcov are above.
+4. Typecheck: done once, under the rule.
+5. Thresholds unchanged. Hosted reach: sets-check sha256 bf9d75b4a7695b803b578e98f502e91e87bd265d42e9efb30ffba15f29674120.
+   Each new suite is in the hosted coverage set, the shard pool. Which of the 12 shards takes a file is decided by
+   shard-plan timings at run time.
+
+R3 METHOD NOTE: the hosted records of the two changed sources were measured on the old line numbering, so they were removed
+from the hosted inputs: pack.ts from lcov_shard_5, and uv-command.ts from lcov_shard_3 and lcov_shard_6. Those two files are
+judged on this tree's suites only. materials.ts and publication.ts are unchanged, and their hosted records stay in the merge.
+
+OPEN / DISCLOSED
+O1 The four commits were made before the coordinator's "pause, do not commit" message arrived. The checkpoint message
+   reported them. The lesson is in pending-lesson.md.
+O2 There is no dispose-counting test (see condition 2).
+O3 G3's red run (the stand-in nix-shell bypassed before the fix) was not saved to a log. It printed the host's real
+   nix-shell uv path where the stand-in's path was expected.
+O4 Lint shows 2 warnings that predate this branch, in files it does not touch:
+   scripts/setup-factory-python-base.test.ts:101 (noTemplateCurlyInString) and
+   tests/postgres/helpers/factory-recovery-databases.ts:50 (noCommaOperator). Fixing them belongs to those files' owners.
+O5 The local combined-runner leg factory-reference-data and its "CI GAP" stay as they are. The hosted gate no longer depends
+   on it for these four files, but the real-image journey is still hosted-blind until the data image is published by digest
+   (the user's standing decision).
+No interface or contract question.

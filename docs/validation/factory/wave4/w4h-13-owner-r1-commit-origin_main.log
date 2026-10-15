@@ -1,0 +1,15 @@
+Checked 1 file in 2ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/repro.test.ts
+bun test v1.3.14 (0d9b296a)
+
+src/repro.test.ts:
+staged test saw GIT_* = [GIT_AUTHOR_DATE,GIT_AUTHOR_EMAIL,GIT_AUTHOR_NAME,GIT_DIR,GIT_EDITOR,GIT_EXEC_PATH,GIT_INDEX_FILE,GIT_PREFIX]
+
+ 1 pass
+ 0 fail
+ 1 expect() calls
+Ran 1 test across 1 file. [206.00ms]
+[repro b318d79] repro: staged test runs git init
+ 1 file changed, 11 insertions(+)
+ create mode 100644 src/repro.test.ts

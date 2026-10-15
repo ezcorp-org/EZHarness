@@ -1,0 +1,4 @@
+expected file /tmp/factory-platform-evidence/w00/expected-integ-findings-vs-main.txt sha256 9ec5cdcbce67c7acd03f7e901e70e2159109054c95af706f4d0bc5c2c682c2cd
+found:    scripts/check-coverage.ts | scripts/check-new-file-coverage.ts | scripts/check-patch-coverage.ts | scripts/coverage-attestations.json | scripts/factory-orchestrator-v8-to-lcov.mjs | scripts/merge-browser-route-coverage.sh | scripts/merge-lcov.ts | scripts/node-v8-to-lcov.mjs
+expected: scripts/check-coverage.ts | scripts/check-new-file-coverage.ts | scripts/check-patch-coverage.ts | scripts/coverage-attestations.json | scripts/factory-orchestrator-v8-to-lcov.mjs | scripts/merge-browser-route-coverage.sh | scripts/merge-lcov.ts | scripts/node-v8-to-lcov.mjs
+origin/main leg: PASS (findings equal the expected integ set)

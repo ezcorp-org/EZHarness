@@ -1,0 +1,133 @@
+W18a-2 report — second complexity pass and the three coverage-key gaps
+Branch wp/w18a2-quality. Head 940ec43d3 (docs only). All producers ran on a clean tree at 868d8c853.
+868d8c853 is the last source commit merged with integ/w00 94fb95b6a. That merge brought docs only.
+
+COMMITS
+  6c881d758 refactor(factory-api): split the request dispatch by owner and map errors from one table
+  9b29c12b4 refactor(factory): split the private service handler into authentication and four route groups
+  ec80fad89 refactor(factory): split readSealed into scope, request, authority, and event checks
+  d49906b6d refactor(factory): split the orchestrator and pool config parsers by section
+  dc1ce0640 test(factory): gate private-files and two migrations at 100 and prove every private-file refusal
+  1da75298a refactor(factory): split the startup declaration parser into one check per section
+  b732eb0ab refactor(db): leave initPglite as origin/main has it; PGlite never boots with factories on
+  8b1830803 test(factory): prove read-only key recovery picks the newest usable wrap and never writes one
+  868d8c853 merge integ/w00 (docs only)
+  940ec43d3 docs(w18a2): gate file, todo review, and lessons for the second complexity pass
+
+PREDECESSOR'S UNCOMMITTED FILE
+  The predecessor had started to wrap the dispatch switch in a group chain in _shared.ts. I kept that approach
+  and finished it: the switch now has six owner groups, each returning null for a kind it does not own.
+
+COMPLEXITY, BEFORE -> AFTER (the rules of scripts/crap-score.ts; receipt complexity.txt)
+  web/src/routes/api/factories/_shared.ts   mappedError              92 -> 6   (a per-class answer table)
+  web/src/routes/api/factories/_shared.ts   dispatchFactoryRequest   43 -> 7   (worst group 15)
+  src/factory/private-service.ts            handle                   59 -> 3   (worst route 15)
+  src/factory/task-stops.ts                 readSealed               54 -> 3   (worst part 17)
+  src/factory/orchestration-process.ts      parseFactoryOrchestratorProcessConfig 37 -> 5
+  src/factory/pool/process.ts               parseFactoryPoolProcessConfig         44 -> 7  (37 at wave4c; W09b raised it)
+  src/factory/startup-config.ts             parseFactoryStartupConfig             65 -> 5  (not on the brief; new after W09b)
+  Worst function in the six files now: wellFormed 24 (untouched). No function above 30 in them.
+  Across the whole diff against origin/main, five functions are above 30. The diff touches none of them, so the gate
+  does not judge them (receipt diff-complexity-touched.txt).
+
+NO BEHAVIOUR CHANGE — PROOF
+  Existing suites, unchanged, all pass:
+    bun: 165 across 12 files (behavior-bun-1.log)
+    vitest: 34 (behavior-web-vitest-1.log)
+    PostgreSQL: tests/postgres/factory-task-stops 18 and factory-boot 1
+    node: process-launcher 5
+    startup-config consumers: 198 across 8 files
+    connection suites: 73
+  Combined runner at 868d8c853: every producer exit 0 (runner.log). This covers sdk, focused (266 files), web,
+  postgres, types, lint, gate-integrity, boundaries, node, pool, compute, provisioning, and python.
+  Old-versus-new differential runs, 0 differences each:
+    mappedError: 840 inputs (mapped-error-differential.txt)
+    the two process-config parsers: 10871 inputs (parser-differential.txt)
+    parseFactoryStartupConfig: 11727 inputs, exact missing/invalid lists included (startup-config-differential.txt)
+
+COVERAGE KEYS (scripts/coverage-thresholds.json, all at 100), measured on fullest-lcov.info
+  src/factory/private-files.ts                              100.00% (79/79)
+    Was 10.67%: the legs loaded it but ran almost none of it, so this was a real gap.
+    New suite src/factory/private-files.test.ts has 18 tests. Every refusal is asserted.
+  src/db/migrations/add-factory-projection-attempts.ts      100.00% (6/6)   It only lacked a key.
+  src/db/migrations/repair-transactional-audit-metadata.ts  100.00% (4/4)   It only lacked a key. The behaviour test is in factory-project-creation-suite.
+
+RE-MEASURE OF THE THREE NAMED FILES (per-leg lcov in fullest-inputs/)
+  private-files.ts: 100 in the runner's focused leg, through the new suite.
+  boot.ts (assertFactoryBootConfiguration): 100 in the focused leg, and 100 in src/__tests__/factory-boot.test.ts.
+  factory-service-token.ts (exactClaims): 100 only in src/__tests__/factory-service-token.test.ts. The runner lacks this leg.
+
+CRAP GATE: BASE_REF=origin/main bun scripts/crap-score.ts --changed
+  Over the fullest local lcov (the runner's legs plus 17 single-suite legs): EXIT 0.
+  "no touched function exceeds CRAP 30", 4504 functions in 319 files (gate-crap-changed.log).
+  Over the runner-only lcov, 6 remain (w18a2-sweep-quality-crap-changed.log). Each is a leg-list gap, covered 100 by:
+    assertServiceCapabilities (cc 21)                   src/__tests__/service-capabilities.test.ts
+    enqueueInTransaction (cc 13)                        src/extensions/v4/deliveries.test.ts
+    runWithFailover (cc 16)                             src/__tests__/failover.test.ts
+    exactClaims (cc 10), verifyFactoryServiceToken (cc 10)  src/__tests__/factory-service-token.test.ts
+    attachBearerAuth (cc 25)                            web/src/__tests__/security/bearer-auth.test.ts
+      This is a web bun suite. The runner's web leg runs Vitest only.
+  Two real gaps are fixed:
+    InstallationDataKey.loadExisting (10%): only file-key-wraps called it, in the Node leg, and that leg does not
+      measure encryption.ts. It now has a direct bun test, and encryption.ts is at 100.
+    initPglite (cc 20, 48%): the diff touched one line, setDatabaseReadiness(). init() refuses a factory boot without
+      DATABASE_URL before PGlite opens, so that line always set "ready". It is back to origin/main's text, and the
+      reason is on the helper. Its uncovered recovery branches run only in subprocess tests, which no coverage leg measures.
+
+OTHER GATES (steps.jsonl, at 868d8c853)
+  typecheck, lint, gate-integrity, boundaries: exit 0
+  new-file vs integ/w00: exit 0
+  patch vs integ/w00: exit 0 (7 files)
+  new-file vs origin/main: red on 24 files. 21 are web routes or Svelte components; the other three are
+    factory-sdk kernel-types.ts, scripts/check-factory-runners.ts, and scripts/check-required-checks.ts.
+    None is a file this package changed. My three files no longer appear.
+  global floor: 73.88% (runner-only 66.97%). This cannot be measured locally, as in wave4c.
+  per-file thresholds: 387 misses. All are on files the local legs measure in part or not at all, and none is a file this package changed.
+
+RECEIPT NOTE
+  The first gate pass over the fullest lcov carried a path bug. The web bun legs write root files as SF:../src/...,
+  and my rewrite did not map them. I fixed the rewrite and rebuilt the merge from the same raw lcovs, with no test
+  rerun. The pre-fix gate logs are kept in run3-pathbug/. Runs 1 and 2 (heads dc1ce0640 and 1da75298a) are kept as
+  steps-run1.jsonl and run2/.
+
+FOR THE COORDINATOR
+  Add these to the combined runner's leg list. Four are bun suites:
+    ./src/__tests__/factory-service-token.test.ts
+    ./src/__tests__/service-capabilities.test.ts
+    ./src/extensions/v4/deliveries.test.ts
+    ./src/__tests__/failover.test.ts
+  The fifth needs a web bun leg: web/src/__tests__/security/bearer-auth.test.ts, run from web/, with SF:../ mapped to
+  the root and SF:src/ mapped to web/src/.
+  Not run: the full backend pool and the four Podman suites (the runner was not given --podman). The Podman
+  supervisor suites can reach private-service and task-stops, so they are the open gap in this receipt. The
+  differential and unit proofs above cover the split functions directly.
+
+KEY CHECKSUMS (sha256, first 20 hex; after the regate)
+  c11781998eab37d7f9d7  fullest-lcov.info
+  75cce3068561a68926f1  gate-crap-changed.log
+  87b185c11720f3217498  steps.jsonl
+  79eebe5c4fb4296fd6b1  runner.log
+  991449f08df4e333e9db  mapped-error-differential.txt
+  e86103a9b6bab4654d7c  parser-differential.txt
+  1092a6e2686053de5072  startup-config-differential.txt
+  e988849697133260200b  complexity.txt
+
+ADDENDUM (2026-09-23): route-kit commit and the read-only rerun
+  c2ef2fac3 moves resolveFactoryPrincipal, mappedFactoryError, factoryErrorResponse, and factoryResponse into
+  web/src/lib/server/factory/route-kit.ts (threshold 100). It adds registerFactoryDispatcher as the extension point
+  after the built-in groups. The error mapping matches the old code on 840 inputs (mapped-error-differential-route-kit.txt).
+  The scope-enforcement suite now reads the same two gate assertions from the kit, and it checks that _shared.ts delegates to the kit.
+  The branch then gained 2cf473977, a merge of integ/w00 6055bffc6 (docs only). This happened before the freeze
+  message reached me, and I did not reset it. The source is identical to c2ef2fac3.
+  Rerun at 2cf473977 (steps.jsonl, from "# rerun"):
+    Every combined-runner producer exited 0.
+    Extra legs ran at c2ef2fac3.
+    CRAP --changed vs origin/main over the fullest lcov: exit 0.
+    New-file and patch gates vs integ/w00: exit 0.
+    gate-integrity and boundaries: exit 0.
+    route-kit.ts and _shared.ts: 100% each.
+    Global floor 73.85%. The origin/main new-file gate is red on the same 24 unmeasured files as before.
+  Earlier run records:
+    run4-pre-kit/: receipts at 868d8c853.
+    run5-runner-timeout/: a void run. The runner's 9000 s timeout counted its lock wait, so it was killed, and the
+    gates in that run read stale coverage inputs.

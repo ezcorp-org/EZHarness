@@ -1,0 +1,25 @@
+W4H-14 main sync (W-SYNC-3): report, final. To: validator-8 and team-lead.
+(Supersedes report-v1-before-rulings.txt, written at 600685b24 before the coordinator's 2026-10-08 rulings; kept unchanged.)
+Owner w4h-14. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-14, branch wp/w4h-14-sync.
+HEAD 00c979687490233aa56de969a508758794c0cace  docs: gate file amendments (the #329 ruling, the Node-pin rerun, the sprintf-js leftover); hook 0 test files
+  on 600685b246c98de6264423342e9d7d8d5cd52002  docs: gate file tasks/factory/w4h-14-GATES.md (force-added); hook 0 test files
+  on de8fa57eca63fd842f7cb6ccab8382e7167206d6  Merge origin/main (e3309906d) into the wave head; parents 000f75d10 + e3309906d; hook 0 test files, lint clean
+Base: integ/w00 000f75d10 (W4H-11 merged; integ is now 3c6e53340, docs-only, merged by integrator-5 per the lead).
+Identity: archy noreply, author and committer, on all three commits. Shared config 888c78b9e94ea660 unchanged throughout.
+Pins: Bun 1.4.2 (.bun-version), Node 24.14.1 (/tmp/factory-tools/node-24.14.1; asserted by E/env.sh).
+
+Conflicts (5), per the accepted step-0 table: hook-lib.sh OURS; git-hooks.test.ts OURS; web/package.json union (sharp 0.35.5 + patchedDependencies);
+bun.lock = the wave's 21 entries + MCP 1.31.0 (1.30.1 dropped); manifest.lock.json regenerated, --check 0.
+Superset proof: #326's added lines 17/17 (hook-lib.sh) and 88/88 (git-hooks.test.ts) present; without_git_context and the 8ac43c218 block byte-equal.
+Lockfiles: the pinned install --ignore-scripts left both locks byte-unchanged; vs the first parent only main's bump family moves (29 root, 28 web).
+Red at the raw merge: 7/7 legs red on conflict markers (E/red-raw.log). Green at de8fa57ec: 7/7 (E/green-resolved.log).
+Head legs: typecheck all programs 0 and svelte-check 620 files 0 errors (tc rule, lock-free, Node 24.14.1; 17.8 GiB before, lowest 14.3);
+lint 0; boundaries 0; factory boundaries pass; guard 40 files 507/2 skip/0 fail; gate-integrity vs main = the 8 (findings-match PASS), vs 000f75d10 PASSED;
+coverage 10 suites 113/0 under the heavy lock (git-hooks 29, W4H-11 bootstrap suites 13/12/6), new-file and patch vs 000f75d10 PASSED,
+vs e3309906d fail across the whole wave (none of the merge's 13 files named; wave4i-3 binds); frozen installs 0 (no changes); audit-deps clean
+at the high floor; web build 0; prune scan clean; migrations not applicable (no schema change).
+Disclosure: the first typecheck, web build and install-builds ran under the system Node 24.21.0 (green); kept as *-VOID-system-node-24.21.0.log, re-run under the pin.
+#329 (ruling): no resources proof here; file byte-equal to e3309906d (blob 29bde5859950); runtime proof = hosted "Production proof (resources)" on the next push.
+#329/W4H-11: no shared file or line; call-path links at resources script :242 and :328; #329's settle wait runs after both.
+Leftover: sprintf-js moderate GHSA-hp3w-g68c-fv3c, below the audit floor.
+Log hashes: logs.sha256 (sha256, first 16 hex).

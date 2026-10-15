@@ -1,0 +1,12 @@
+# W4H-22 (integrator-5; lead's prep order 2026-10-10): the refused-add toast case of web/e2e/file-organizer-real.spec.ts awaits its outcome.
+# Spec-only. No full combined run (lead's ruling); merge gates BIND (web/e2e is outside SOURCE_GLOBS: new-file and patch read vacuous).
+tc_leg typecheck-all bun run typecheck                    # includes the web-e2e program
+tc_leg web-check bash -c 'cd web && bun run check'        # svelte-check --tsgo
+# The CONTENT proof shard as CI runs it (production-proof-shard, EZ_SHIPPING_SHARD=content, scripts/verify-shipping-production-suite.sh: the
+# file-organizer real-backend browser spec and legacy adoption) in the runner-shaped Podman container: integrator-5/harness/heavy.sh, a copy of
+# w4h-11/heavy.sh (the full form: the legacy 537f074e and previous 3ec53eaa commits fetched into the snapshot from the local repository).
+NOTEST=1 leg content-proof-shard bash /tmp/factory-platform-evidence/integrator-5/harness/heavy.sh "$M" w4h22 content
+NOTEST=1 leg content-proof-result bash -c 'd=$(ls -d "$0"/w4h22/hold-* 2>/dev/null | sort | tail -1); L=$(ls "$d"/proof-content-*.log | head -1); echo "hold dir $d"
+  grep -E "shard=content exit=|file-organizer-real\.spec\.ts:516|[0-9]+ passed|failed|did not run|LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED" "$L" | tail -12
+  grep -q "shard=content exit=0" "$L" && grep -qE "^\s*13 passed" "$L" && grep -q LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED "$L"' /tmp/factory-platform-evidence/integrator-5/harness
+NOTEST=1 leg runner-image-cleanup bash -c 'podman image exists localhost/i5-runner:24.04 && podman rmi localhost/i5-runner:24.04 || echo "no own runner image tag left"'

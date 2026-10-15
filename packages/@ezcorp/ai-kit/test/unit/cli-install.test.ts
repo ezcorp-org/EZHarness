@@ -1,7 +1,8 @@
-import { test, expect, describe, beforeEach, afterEach, spyOn } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import * as nodePath from "node:path";
 import * as nodeFs from "node:fs";
 import * as nodeOs from "node:os";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { install } from "../../src/cli/install";
 
 // ── tmpdir helpers ────────────────────────────────────────────────────────────
@@ -243,7 +244,7 @@ describe("install ezcorp", () => {
     home = makeTmpDir();
     projectRoot = makeTmpDir();
     // Make it look like a git project root
-    nodeFs.mkdirSync(nodePath.join(projectRoot, ".git"), { recursive: true });
+    markGitRepository(projectRoot);
   });
   afterEach(() => { rmTmpDir(home); rmTmpDir(projectRoot); });
 
@@ -270,18 +271,81 @@ describe("install ezcorp", () => {
     expect(fileExists(linkPath)).toBe(false);
   });
 
+  test("resolves the enclosing git repository from a nested cwd", async () => {
+    const repo = makeTmpDir();
+    try {
+      markGitRepository(repo);
+      const nested = nodePath.join(repo, "src", "deep");
+      nodeFs.mkdirSync(nested, { recursive: true });
+      await install("ezcorp", { home, cwd: nested, dryRun: false });
+      const linkPath = nodePath.join(repo, ".ezcorp", "extensions", "ai-kit");
+      expect(nodeFs.lstatSync(linkPath).isSymbolicLink()).toBe(true);
+    } finally {
+      rmTmpDir(repo);
+    }
+  });
+
+  test("a stray empty .git directory above the cwd is not a project root", async () => {
+    // The host once carried an empty `/tmp/.git`; git does not treat it as a
+    // repository, so neither may the installer.
+    const isolated = makeTmpDir();
+    try {
+      nodeFs.mkdirSync(nodePath.join(isolated, ".git"));
+      const nested = nodePath.join(isolated, "sub");
+      nodeFs.mkdirSync(nested);
+      await expect(
+        install("ezcorp", { home, cwd: nested, dryRun: false }),
+      ).rejects.toThrow("Could not find a project root");
+      expect(fileExists(nodePath.join(isolated, ".ezcorp"))).toBe(false);
+    } finally {
+      rmTmpDir(isolated);
+    }
+  });
+
+  test("a worktree's .git file anchors the project root", async () => {
+    // A linked worktree or a submodule carries a `.git` FILE naming its gitdir.
+    const worktree = makeTmpDir();
+    try {
+      nodeFs.writeFileSync(nodePath.join(worktree, ".git"), "gitdir: /elsewhere/.git/worktrees/w\n");
+      const nested = nodePath.join(worktree, "pkg");
+      nodeFs.mkdirSync(nested);
+      await install("ezcorp", { home, cwd: nested, dryRun: false });
+      expect(nodeFs.lstatSync(nodePath.join(worktree, ".ezcorp", "extensions", "ai-kit")).isSymbolicLink()).toBe(true);
+    } finally {
+      rmTmpDir(worktree);
+    }
+  });
+
+  test("finds the project root with no git executable on PATH", async () => {
+    // The isolated extension build runs these tests in the pinned Bun runner
+    // image, which ships bun but no git (W4H-1). The installer must not need git.
+    const repo = makeTmpDir();
+    const bunOnlyBin = makeTmpDir();
+    const path = process.env.PATH;
+    try {
+      markGitRepository(repo);
+      const nested = nodePath.join(repo, "src");
+      nodeFs.mkdirSync(nested);
+      nodeFs.symlinkSync(process.execPath, nodePath.join(bunOnlyBin, "bun"));
+      process.env.PATH = bunOnlyBin;
+      expect(Bun.which("git", { PATH: bunOnlyBin })).toBeNull();
+      await install("ezcorp", { home, cwd: nested, dryRun: false });
+      expect(nodeFs.lstatSync(nodePath.join(repo, ".ezcorp", "extensions", "ai-kit")).isSymbolicLink()).toBe(true);
+    } finally {
+      process.env.PATH = path;
+      rmTmpDir(bunOnlyBin);
+      rmTmpDir(repo);
+    }
+  });
+
   test("throws when no git root found and no projectPath given", async () => {
     const isolated = makeTmpDir(); // no .git
-    const exists = nodeFs.existsSync;
-    const stub = spyOn(nodeFs, "existsSync").mockImplementation(path =>
-      String(path).endsWith("/.git") ? false : exists(path),
-    );
     try {
       await expect(
         install("ezcorp", { home, cwd: isolated, dryRun: false }),
       ).rejects.toThrow("Could not find a project root");
+      expect(fileExists(nodePath.join(isolated, ".ezcorp"))).toBe(false);
     } finally {
-      stub.mockRestore();
       rmTmpDir(isolated);
     }
   });

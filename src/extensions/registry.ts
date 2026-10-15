@@ -1,9 +1,9 @@
-import type { ExtensionProcess, ExtensionProcessOptions } from "./subprocess";
+import type { ExtensionProcess } from "./subprocess";
 import { ReleaseProcess } from "./release-process";
 import { ReleaseMcpClient } from "./release-mcp-client";
 import { validateManifest as validateReleaseManifest } from "@ezcorp/extension-contract";
 import type { ToolDefinition, ExtensionManifestV2, ExtensionPermissions } from "./types";
-import { migrateManifestV2ToV3, satisfiesRange } from "./manifest";
+import { satisfiesRange } from "./manifest";
 import { normalizeMcpManifest } from "./mcp-capabilities";
 import { formatNpmDepError, verifyNpmDependencies } from "./npm-deps";
 import { logger } from "../logger";
@@ -12,13 +12,10 @@ import { getDb } from "../db/connection";
 import { agentConfigs } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { tmpdir } from "node:os";
-import { mkdirSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { findProjectRoot } from "@ezcorp/sdk/runtime";
-import { getProjectRoot } from "./bundled";
 import { resolveInstallPath } from "./install-roots";
 import type { McpClient } from "../mcp/client";
-import type { McpProxyHandle } from "./mcp-proxy";
 import {
   buildEntityToolDefinitions,
   entityToolNames,
@@ -26,159 +23,6 @@ import {
 } from "@ezcorp/sdk/entities";
 
 const log = logger.child("extensions/registry");
-
-/** Async resolver that produces a fresh env map on each spawn — exported
- *  so callers can type their resolver fns consistently without pulling in
- *  the registry class shape. */
-export type InjectedEnvResolver = () => Promise<Readonly<Record<string, string>>>;
-
-// ── Env Building (exported for testability) ─────────────────────
-
-/**
- * Build the environment variables passed to an extension subprocess.
- * Only PATH, HOME, NODE_ENV, and a per-extension TMPDIR are included by default.
- * Manifest env vars are only added if they also appear in grantedPermissions.env.
- *
- * `injectedEnv` lets the caller (typically the web layer at startup) pass
- * bundled-extension credentials that were provisioned in-process — e.g. an
- * auto-minted loopback-only internal API key for ai-kit. Injected keys are
- * STILL gated by the manifest + granted-permissions check: an extension
- * that did not declare `EZCORP_API_KEY` in its manifest.permissions.env or
- * was not granted that env cannot receive it, even if the caller attempts
- * to inject. This preserves the manifest-declared trust boundary.
- */
-export function buildAllowedEnv(
-  manifest: ExtensionManifestV2,
-  grantedPerms: ExtensionPermissions,
-  extensionId: string,
-  injectedEnv?: Readonly<Record<string, string>>,
-): Record<string, string> {
-  const extTmpDir = join(tmpdir(), "ezcorp-ext", extensionId);
-  mkdirSync(extTmpDir, { recursive: true });
-
-  const allowedEnv: Record<string, string> = {
-    PATH: process.env.PATH ?? "",
-    HOME: process.env.HOME ?? "",
-    NODE_ENV: process.env.NODE_ENV ?? "production",
-    TMPDIR: extTmpDir,
-  };
-
-  // Only add env vars present in BOTH manifest.permissions.env AND
-  // grantedPermissions.env. Injected values (internal creds) take precedence
-  // over process.env — otherwise an operator accidentally setting
-  // EZCORP_API_KEY on the host process could override a freshly minted,
-  // properly scoped internal key with a long-lived admin key. Still subject
-  // to the manifest+granted gate; we never add an env var that the manifest
-  // didn't declare.
-  if (manifest.permissions.env && grantedPerms.env) {
-    for (const key of manifest.permissions.env) {
-      if (!grantedPerms.env.includes(key)) continue;
-      const injected = injectedEnv?.[key];
-      if (injected !== undefined && injected !== "") {
-        allowedEnv[key] = injected;
-      } else if (process.env[key]) {
-        allowedEnv[key] = process.env[key]!;
-      }
-    }
-  }
-
-  // EZCORP_PERMITTED_HOSTS — comma-joined granted network hostnames.
-  // Consumed by `@ezcorp/sdk/runtime` fetchPermitted as the pre-network
-  // allowlist. Only emitted when the manifest declared network permission
-  // AND the user granted at least one hostname at install time.
-  if (grantedPerms.network && grantedPerms.network.length > 0) {
-    allowedEnv.EZCORP_PERMITTED_HOSTS = grantedPerms.network.join(",");
-  }
-
-  // Phase 3: EZCORP_FS_ALLOWED is informational ONLY — the SDK's
-  // fs helpers (`@ezcorp/sdk/runtime/fs.fsRead/...`) read it to
-  // fast-fail with a clean "no filesystem grant" error before
-  // round-tripping to the host's `ezcorp/fs.*` reverse-RPC. The
-  // sandbox-preload deniers fire regardless of this flag — granted
-  // access does NOT unblock raw `Bun.file` / `node:fs` (see
-  // sandbox-preload.ts FS_MODULES block + plan pillar 6). Mirrors
-  // the existing `EZCORP_NETWORK_ALLOWED` / `EZCORP_SHELL_ALLOWED`
-  // pattern at `subprocess.ts:168-169`, but emitted here so the
-  // grant test (`grantedPerms.filesystem.length > 0`) lives next to
-  // the granted-network test for symmetry.
-  if (grantedPerms.filesystem && grantedPerms.filesystem.length > 0) {
-    allowedEnv.EZCORP_FS_ALLOWED = "1";
-  }
-
-  // Phase post-perm-cleanup: EZCORP_PROJECT_ROOT — the project root
-  // the host resolved at spawn time. Bundled extensions like
-  // `task-stack` need to compute their `.ezcorp/extension-data/<name>/`
-  // store path at module-load, but they run inside the Phase 3 sandbox
-  // where `node:fs` is poisoned — they cannot do their own `.git` walk.
-  // The host walks once and injects the answer. `findProjectRoot()`
-  // throws if no `.git` ancestor is found; we swallow that so test
-  // harnesses running outside a git tree don't crash on every spawn.
-  // Subprocesses missing this var fall back to a lazy
-  // `require("node:fs")` walk (only relevant outside the sandbox).
-  try {
-    allowedEnv.EZCORP_PROJECT_ROOT = findProjectRoot();
-  } catch {
-    // no .git ancestor — leave EZCORP_PROJECT_ROOT unset; the extension's
-    // fallback path (or test harness) handles it. (Single-line comment: a
-    // multi-line block comment here makes bun emit a phantom, never-hit DA
-    // record on the continuation line, which the per-file gate can't clear.)
-  }
-
-  // EZCORP_EXTENSION_DATA_ROOT — dedicated data-dir root for bundled
-  // extensions to compute their `.ezcorp/extension-data/<name>/` store
-  // path. DELIBERATELY separate from EZCORP_PROJECT_ROOT: the latter is
-  // consumed by `subprocess.ts`'s landlock-jail builder, and setting it
-  // when it's currently unset would mismatch the jail root against the
-  // subprocess cwd and crash every spawn with CouldntReadCurrentDirectory.
-  // `getProjectRoot()` never throws (env → import-meta → git-walk →
-  // cwd-fallback) and resolves the container root (`/app`) in dev and
-  // prod alike — unlike `process.cwd()`, which is `/app/web` under the
-  // vite-SSR dev server. This aligns the extension's data-dir reader with
-  // where the host events route writes config; the `$CWD` fs grant now
-  // also resolves to the project root (see `permissions.ts:grantCwdBase`)
-  // so the read of that dir is covered by the grant. Extensions that
-  // don't read this var ignore it; the sandbox never consults it.
-  allowedEnv.EZCORP_EXTENSION_DATA_ROOT = getProjectRoot();
-
-  // Phase 2: EZCORP_TOOL_NETWORK_CAPS — JSON-serialized
-  // `{toolName: string[]}` mapping, parsed by the in-sandbox fetch
-  // wrapper to enforce per-tool host allowlists narrower than the
-  // extension-wide ceiling. The active tool name is read via the SDK's
-  // `getToolContext()` (ALS).
-  //
-  // The wrapper uses this to intersect the request hostname against
-  // BOTH the extension-wide grant (PERMITTED_HOSTS) AND the per-tool
-  // declaration. A tool with no entry inherits the extension-wide
-  // ceiling without further narrowing.
-  //
-  // Migration: `buildAllowedEnv` is called on every spawn. v3 manifests
-  // pass through with their authored per-tool caps verbatim; v2 inputs
-  // need `migrateManifestV2ToV3` to synthesize per-tool caps from the
-  // extension-wide `permissions`. The migrator is idempotent on v3, but
-  // re-running it allocates a new `tools[]` array on each spawn — N1
-  // perf nit (validator nice-to-have). Short-circuit when the input is
-  // already v3 AND every tool already has an authored `capabilities`
-  // declaration: in that case the migration produces identical output.
-  // The registry's hot path (live spawns) hits this short-circuit;
-  // `mcp-sandbox.ts` / `test-helpers.ts` callers with raw v2 inputs
-  // still pay the migration cost.
-  const isFullyV3 =
-    manifest.schemaVersion === 3 &&
-    (manifest.tools ?? []).every((t) => t.capabilities !== undefined);
-  const migrated = isFullyV3 ? manifest : migrateManifestV2ToV3(manifest);
-  const toolCaps: Record<string, string[]> = {};
-  for (const tool of migrated.tools ?? []) {
-    const hosts = tool.capabilities?.network?.hosts;
-    if (hosts && hosts.length > 0) {
-      toolCaps[tool.name] = hosts.map((h) => h.toLowerCase());
-    }
-  }
-  if (Object.keys(toolCaps).length > 0) {
-    allowedEnv.EZCORP_TOOL_NETWORK_CAPS = JSON.stringify(toolCaps);
-  }
-
-  return allowedEnv;
-}
 
 /**
  * Remove the per-extension TMPDIR. Call during extension removal.
@@ -309,12 +153,6 @@ export class ExtensionRegistry {
   private processes = new Map<string, ExtensionProcess>();
   /** extension id -> McpClient (for kind:"mcp" extensions) */
   private mcpClients = new Map<string, McpClient>();
-  /** Phase 7: extension id -> per-MCP forward-proxy handle. Populated
-   *  in `getMcpClient` after `buildSandboxedMcpSpec` starts the proxy;
-   *  torn down in `killAll` and on `getMcpClient`'s connect-failure
-   *  branch. The proxy listens on the per-MCP UDS (Linux netns) or
-   *  loopback port (fallback) and gates outbound HTTPS via PDP. */
-  private mcpProxies = new Map<string, McpProxyHandle>();
   /** extension id -> the extension's ONE in-flight `tools/list_changed`
    *  refresh, plus its single coalesced re-run. See
    *  {@link onMcpToolListChanged}; entries clear themselves when the drain
@@ -334,54 +172,7 @@ export class ExtensionRegistry {
   private bundledFlags = new Map<string, boolean>();
   /** callerExtId -> depPackageName -> resolvedExtId */
   private depRoutes = new Map<string, Map<string, string>>();
-  /** Extensions verified this session (cleared on reload) */
-  /** extension-NAME (not id) -> env map to inject at spawn time. Populated
-   *  by the web layer for bundled extensions that need loopback-only
-   *  internal credentials (e.g. ai-kit's ezkint_ API key + EZCORP_BASE_URL).
-   *  Keyed by name because the id is DB-generated but the provisioning
-   *  layer only knows the well-known name. */
-  private injectedEnvByName = new Map<string, Readonly<Record<string, string>>>();
-  /** extension-NAME -> async resolver, invoked on each spawn to produce a
-   *  fresh env map. Used for credentials that can expire (OAuth tokens) —
-   *  the resolver is responsible for refreshing upstream and returning
-   *  the current token. Overrides the static map for the same name. */
-  private envResolversByName: Map<string, InjectedEnvResolver> = new Map();
-
   private constructor() {}
-
-  /** Register a set of env vars to inject into the named extension's
-   *  subprocess at spawn time. Intended for bundled-extension credentials
-   *  that are provisioned in the parent process and should never land in
-   *  the top-level process.env (which would leak them to every spawned
-   *  subprocess rather than just the target). Each key is still gated by
-   *  the manifest's declared env permissions — see buildAllowedEnv. */
-  setInjectedEnv(extensionName: string, env: Readonly<Record<string, string>>): void {
-    this.injectedEnvByName.set(extensionName, { ...env });
-  }
-
-  /** Register an async resolver that produces the env map on each spawn.
-   *  Use for credentials with short lifetimes (OAuth access tokens): the
-   *  resolver can hit the credentials layer to refresh before returning.
-   *  A resolver takes precedence over any static entry for the same name.
-   *  Resolver errors are swallowed — the extension is spawned with no
-   *  injected env and reports its own clean error. */
-  setInjectedEnvResolver(extensionName: string, resolver: InjectedEnvResolver): void {
-    this.envResolversByName.set(extensionName, resolver);
-  }
-
-  /** Clear any injected env for the named extension. Use on uninstall so a
-   *  stale credential isn't available to a re-registered extension. */
-  clearInjectedEnv(extensionName: string): boolean {
-    const a = this.injectedEnvByName.delete(extensionName);
-    const b = this.envResolversByName.delete(extensionName);
-    return a || b;
-  }
-
-  /** Test-only: wipe the injected-env registry. */
-  resetInjectedEnvForTests(): void {
-    this.injectedEnvByName.clear();
-    this.envResolversByName.clear();
-  }
 
   static getInstance(): ExtensionRegistry {
     if (!ExtensionRegistry.instance) {
@@ -685,7 +476,7 @@ export class ExtensionRegistry {
   }
 
   /** Get or create an ExtensionProcess for the given extension ID. */
-  async getProcess(extensionId: string, _options?: ExtensionProcessOptions): Promise<ExtensionProcess> {
+  async getProcess(extensionId: string): Promise<ExtensionProcess> {
     const manifest = this.manifests.get(extensionId);
     if (!manifest) throw new Error(`Extension ${extensionId} not found in registry`);
     if ((manifest?.schemaVersion as number | undefined) !== 4) {
@@ -852,8 +643,7 @@ export class ExtensionRegistry {
    */
   private retireProcess(extId: string, proc: ExtensionProcess): void {
     // `typeof` guard: test fixtures stub ExtensionProcess with bare
-    // `{ isRunning, kill }` objects. Same tolerance as `getMcpClient`'s
-    // `getChildProcess` probe.
+    // `{ isRunning, kill }` objects.
     const busy = typeof proc.inFlightCallCount === "number" && proc.inFlightCallCount > 0;
     if (!busy) {
       proc.kill();
@@ -875,13 +665,8 @@ export class ExtensionRegistry {
    *  against its pre-reload {@link runtimeSignature} and dropped when the
    *  extension was removed OR its runtime inputs moved. Without this an
    *  upgraded extension keeps serving the pre-upgrade code (the
-   *  time-now-ui incident) and an upgraded MCP extension keeps a forward
-   *  proxy + connected client built from the pre-upgrade transport config.
-   *
-   *  Phase 7 fix-pass C3: a previous version leaked the per-MCP forward
-   *  proxy on uninstall — `mcpProxies.clear()` only ran in `killAll()`,
-   *  so an uninstalled MCP extension kept a listener (and its bearer
-   *  token in memory) until process exit.
+   *  time-now-ui incident) and an upgraded MCP extension keeps a connected
+   *  client built from the pre-upgrade transport config.
    */
   async reload(): Promise<void> {
     const priorRuntimeSignatures = new Map<string, string>();
@@ -891,7 +676,6 @@ export class ExtensionRegistry {
       }
     };
     for (const extId of this.processes.keys()) trackSignature(extId);
-    for (const extId of this.mcpProxies.keys()) trackSignature(extId);
     for (const extId of this.mcpClients.keys()) trackSignature(extId);
 
     await this.loadFromDb();
@@ -907,11 +691,6 @@ export class ExtensionRegistry {
       if (!isStale(extId)) continue;
       this.processes.delete(extId);
       this.retireProcess(extId, proc);
-    }
-    for (const [extId, proxy] of this.mcpProxies) {
-      if (!isStale(extId)) continue;
-      void proxy.stop().catch(() => {});
-      this.mcpProxies.delete(extId);
     }
     for (const [extId, client] of this.mcpClients) {
       if (!isStale(extId)) continue;
@@ -942,13 +721,6 @@ export class ExtensionRegistry {
     // misses the cache we just cleared, and respawns the stdio child of a
     // server we deliberately closed.
     this.mcpToolRefreshes.clear();
-    // Phase 7: tear down every per-MCP forward proxy. Stopping the
-    // proxy unlinks its UDS (when applicable) so a subsequent boot or
-    // re-load doesn't trip EADDRINUSE.
-    for (const proxy of this.mcpProxies.values()) {
-      void proxy.stop().catch(() => {});
-    }
-    this.mcpProxies.clear();
   }
 
   /**

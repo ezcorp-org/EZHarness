@@ -1,0 +1,25 @@
+=== heavy 2026-10-05T02:44:05Z
+HEAD 20c3f06413f267ecf3647a9332672b70f3d4269e MERGE_HEAD  index-tree 21d5e78fa1315173fe3f62b49ed6b8ee020eda83
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T02:44:05Z hold-start disk=150G memAvailable=14GiB swapFreeKiB=2908448/17173956 floors disk>=100G swap>=2097152KiB
+--- RELEASE load1 17.09 >= 10: exit 75, re-queue
+=== heavy 2026-10-05T02:46:05Z
+HEAD 20c3f06413f267ecf3647a9332672b70f3d4269e MERGE_HEAD  index-tree 21d5e78fa1315173fe3f62b49ed6b8ee020eda83
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T02:46:05Z hold-start disk=150G memAvailable=10GiB swapFreeKiB=2873636/17173956 floors disk>=100G swap>=2097152KiB
+--- RELEASE load1 12.09 >= 10: exit 75, re-queue
+=== heavy 2026-10-05T02:48:05Z
+HEAD 20c3f06413f267ecf3647a9332672b70f3d4269e MERGE_HEAD  index-tree 21d5e78fa1315173fe3f62b49ed6b8ee020eda83
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T02:48:05Z hold-start disk=150G memAvailable=13GiB swapFreeKiB=2967100/17173956 floors disk>=100G swap>=2097152KiB
+GPU lock held, load1 5.35, data image present 2026-10-05T02:48:05Z
+resource-gate 2026-10-05T02:48:05Z device-test disk=150G memAvailable=13GiB swapFreeKiB=2967108/17173956 floors disk>=100G swap>=2097152KiB
+--- START device-test 2026-10-05T02:48:05Z
+--- END   device-test 2026-10-05T02:48:28Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-05T02:48:28Z lane-factory-isolation disk=150G memAvailable=13GiB swapFreeKiB=3101096/17173956 floors disk>=100G swap>=2097152KiB
+--- START lane-factory-isolation 2026-10-05T02:48:28Z
+--- END   lane-factory-isolation 2026-10-05T02:52:03Z exit=0  30 pass 0 fail 
+resource-gate 2026-10-05T02:52:03Z lane-factory-deployment-operations disk=150G memAvailable=12GiB swapFreeKiB=3223348/17173956 floors disk>=100G swap>=2097152KiB
+--- START lane-factory-deployment-operations 2026-10-05T02:52:03Z
+--- END   lane-factory-deployment-operations 2026-10-05T02:55:23Z exit=0  11 pass 0 fail 
+HEAVY DONE status=0 dirty=0 2026-10-05T02:55:23Z

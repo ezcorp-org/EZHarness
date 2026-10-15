@@ -3,6 +3,7 @@
  *
  * Thin layer over Bun.spawnSync for git commands used by the extension installer.
  */
+import { withoutGitContext } from "@ezcorp/sdk/git";
 
 export interface GitResult {
   ok: boolean;
@@ -23,7 +24,14 @@ export function gitExec(
     const result = Bun.spawnSync(["git", ...args], {
       cwd: opts?.cwd,
       timeout,
-      env: { ...process.env },
+      // Item C, W18 hygiene GC5: strip ambient GIT_* vars (GIT_DIR and
+      // friends), so an installer invocation that happens to inherit a git
+      // hook's context can never be silently redirected onto the hook's
+      // repository instead of `opts.cwd`. Deliberately narrow (see
+      // @ezcorp/sdk/git's docblock) — a configured credential helper or
+      // proxy in the host's global/system git config still applies, so an
+      // authenticated clone of a private extension source keeps working.
+      env: withoutGitContext(process.env),
     });
 
     return {

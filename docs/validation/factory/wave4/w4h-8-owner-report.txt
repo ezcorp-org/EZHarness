@@ -1,0 +1,38 @@
+W4H-8 report (delivery_lease_lost in the real-auth browser specs). Written 2026-10-04 after the merge, from the reports sent by message.
+Merged: wp/w4h-8 2aec44d68 -> integ/w00 5b8d5556f (integrator-3; receipts 9ede86fd1). Base 87e1e197c. Gates: tasks/factory/w4h-8-GATES.md.
+
+Root cause
+- Spec-level: the Podman runner read guest out/err FIFOs with FileHandle.createReadStream; each idle read held a Bun file-I/O pool
+  thread (pool = CPU count). Two live workers on 4 vCPUs froze every guest. Proof: probe1/lane.log, probe1-instrumentation.patch,
+  exp/fifo-pool.ts, exp/fifo-alt2.ts. Fixed by W4H-6 (merged). Independent second implementation kept only on
+  proof/w4h-8-dup-transport (b455014f4), not in the head.
+- W4H-8's defect: a delivery lease (60 s from claim) was never renewed while its handler ran, so a handler inside its own 60 s
+  invocation deadline (which starts later) settled after its lease -> delivery_lease_lost; and each 1 s tick waiting on one failed
+  drain logged it again (63 hosted lines = one failure).
+
+Commits (on 87e1e197c)
+- c18a31f27 (b) DurableDeliveryQueue.renew fenced like settle; dispatch heartbeat at lease/3, no overlap, stops on lost lease and
+  before any settle; extension deliveries opt in.
+- fb7fc8cf4 (c) delivery-runtime injectable ticker; a tick never attaches to a drain in flight.
+- a64f80cdb one ownership check behind settle and renew; renew on ExtensionDeliveryQueue, FactoryCommandOutbox,
+  FactoryReleases.renewNotification (w4h-8b's cases adopted).
+- baa11afc3 tests: heartbeat at lease/3.
+- 36bc7afb8 gates doc. d40da7a8b tests for F1/F2 (validator-5). 2aec44d68 docs, G4 corrected (F3).
+Rebase: patch-ids equal per commit (receipts/rebase-equivalence.txt). Hook counts 2, 1, 3, 2, 0, 2, 0.
+
+Red/green
+- Unit: b-red.log (handler past its claim lease -> delivery_lease_lost at base), c-red.log (one drain failure logged 6 times),
+  adopt-red.log and adopt-red-releases.log (w4h-8b's cases), f1f2/f1-red.log and f1f2/f2-red.log; green in the commit logs and
+  f1f2/green.log (39 pass, 0 fail).
+- Mutants: mutants.txt and f1f2/mutants-rerun.txt (renew without token fence, heartbeat at full and half lease, drain failure per
+  tick: all red); F1 and F2 mutants red in f1f2/.
+- Specs, 4 CPUs: red at 52d8ba079 (pre-W4H-6): red-full/ (103 passed, 3 failed, 1 did not run, 65 lease lines), dbg-two/ (2 failed,
+  46 lines). At 87e1e197c base and head both pass with 0 lines (validator-5); final-two/ at baa11afc3: 2 passed, 0 lines,
+  final.exit 0.
+- Consumers on PostgreSQL at baa11afc3: heavy-pg/summary.txt (45 pass; 65 pass integration/unit).
+- Lock-free at a64f80cdb: light/ (typecheck 0, lint 0, boundaries 0, gate-integrity the 8 standing label findings only),
+  guard.log (477 pass, 2 skip, 0 fail), cov-final.txt (new-file and patch coverage passed).
+
+Findings not changed here
+- FactoryCommandOutbox.renew and FactoryReleases.renewNotification have no production caller (heartbeat wired for extension
+  deliveries only).

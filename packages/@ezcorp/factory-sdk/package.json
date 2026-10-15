@@ -1,0 +1,91 @@
+{
+  "name": "@ezcorp/factory-sdk",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Authoring, validation, compilation, and deterministic execution contracts for EZCorp factories.",
+  "files": [
+    "dist",
+    "src",
+    "README.md"
+  ],
+  "exports": {
+    ".": {
+      "bun": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./validation": {
+      "bun": "./src/validation.ts",
+      "types": "./dist/validation.d.ts",
+      "import": "./dist/validation.js"
+    },
+    "./compiler": {
+      "bun": "./src/compiler.ts",
+      "types": "./dist/compiler.d.ts",
+      "import": "./dist/compiler.js"
+    },
+    "./schema": {
+      "bun": "./src/schema.ts",
+      "types": "./dist/schema.d.ts",
+      "import": "./dist/schema.js"
+    },
+    "./expressions": {
+      "bun": "./src/expressions.ts",
+      "types": "./dist/expressions.d.ts",
+      "import": "./dist/expressions.js"
+    },
+    "./canonical": {
+      "bun": "./src/canonical.ts",
+      "types": "./dist/canonical.d.ts",
+      "import": "./dist/canonical.js"
+    },
+    "./page-bytes": {
+      "bun": "./src/page-bytes.ts",
+      "types": "./dist/page-bytes.d.ts",
+      "import": "./dist/page-bytes.js"
+    },
+    "./guest-materials": {
+      "bun": "./src/guest-materials.ts",
+      "types": "./dist/guest-materials.d.ts",
+      "import": "./dist/guest-materials.js"
+    },
+    "./transport-types": {
+      "bun": "./src/transport-types.ts",
+      "types": "./dist/transport-types.d.ts",
+      "import": "./dist/transport-types.js"
+    },
+    "./types": {
+      "bun": "./src/types.ts",
+      "types": "./dist/types.d.ts",
+      "import": "./dist/types.js"
+    },
+    "./api": {
+      "bun": "./src/api.ts",
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
+    "./kernel": {
+      "bun": "./src/kernel.ts",
+      "types": "./dist/kernel.d.ts",
+      "import": "./dist/kernel.js"
+    },
+    "./kernel-types": {
+      "bun": "./src/kernel-types.ts",
+      "types": "./dist/kernel-types.d.ts",
+      "import": "./dist/kernel-types.js"
+    }
+  },
+  "scripts": {
+    "build": "bunx tsc -b tsconfig.build.json",
+    "test": "bun test ./src",
+    "schema:generate": "bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryDefinition --id urn:ezcorp:factory:definition:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-definition.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type CompiledFactory --id urn:ezcorp:factory:compiled:v1 --tsconfig tsconfig.build.json --no-type-check --out src/compiled-factory.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type CompiledExecutionManifest --id urn:ezcorp:factory:execution-manifest:v1 --tsconfig tsconfig.build.json --no-type-check --out src/compiled-execution-manifest.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type CompiledPartitionArtifact --id urn:ezcorp:factory:partition:v1 --tsconfig tsconfig.build.json --no-type-check --out src/compiled-partition-artifact.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryRunnerRequest --id urn:ezcorp:factory:runner-request:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-runner-request.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryRunnerResult --id urn:ezcorp:factory:runner-result:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-runner-result.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryApiRequest --id urn:ezcorp:factory:api-request:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-api-request.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryApiResponse --id urn:ezcorp:factory:api-response:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-api-response.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryValidatorClaimReport --id urn:ezcorp:factory:validator-claims:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-validator-claims.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryValidatorReport --id urn:ezcorp:factory:validator-report:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-validator-report.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryDurableInput --id urn:ezcorp:factory:lazy-input:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-durable-input.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryGuestModelRequest --id urn:ezcorp:factory:guest-model-request:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-guest-model-request.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryGuestModelResponse --id urn:ezcorp:factory:guest-model-response:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-guest-model-response.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryGuestMaterialRequest --id urn:ezcorp:factory:guest-material-request:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-guest-material-request.schema.json && bunx --bun ts-json-schema-generator --path src/types.ts --type FactoryGuestMaterialResponse --id urn:ezcorp:factory:guest-material-response:v1 --tsconfig tsconfig.build.json --no-type-check --out src/factory-guest-material-response.schema.json"
+  },
+  "devDependencies": {
+    "@types/bun": "1.4.2",
+    "ts-json-schema-generator": "2.4.0",
+    "typescript": "^5.9.3"
+  },
+  "dependencies": {
+    "yaml": "2.8.3"
+  }
+}

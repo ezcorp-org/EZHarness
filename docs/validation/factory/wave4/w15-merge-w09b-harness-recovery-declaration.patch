@@ -1,0 +1,10 @@
+404a405,406
+> // W15: the product's checkpoint barrier reads workflow positions through this HTTP API.
+> const temporalHttpPort = freePort();
+407c409
+<   "--http-port", String(freePort()), "--namespace", "tenant-01.factory", "--headless",
+---
+>   "--http-port", String(temporalHttpPort), "--namespace", "tenant-01.factory", "--headless",
+436a439,440
+>   // W15: every checkpoint records Temporal positions through the namespace's HTTP API.
+>   temporalHttp: { endpoint: `http://127.0.0.1:${temporalHttpPort}` },

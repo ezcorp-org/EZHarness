@@ -27,6 +27,7 @@ afterAll(() => restoreModuleMocks());
 // Import after mocks
 import {
   resolveModel,
+  resolvePinnedModel,
   suggestFallback,
   mergePreferenceOrder,
   getDefaultTier,
@@ -452,6 +453,61 @@ describe("resolveModel", () => {
       expect(result.model).toBe("some-model");
       // No custom models found, so baseUrl is undefined -> falls back to default
       expect(result.piModel.baseUrl).toBe("https://api.openai.com/v1");
+    });
+  });
+
+  describe("resolvePinnedModel names where a pin resolved", () => {
+    const registered = (rows: unknown, discovered?: unknown) => mockGetSetting.mockImplementation(((key: string) => {
+      if (key === "provider:customModels") return Promise.resolve(rows);
+      if (key === "provider:discoveredModels:ollama") return Promise.resolve(discovered);
+      return Promise.resolve(undefined);
+    }) as any);
+
+    test("an operator-registered local model resolves to its endpoint, as `custom`", async () => {
+      registered([{ modelId: "qwen3:1.7b", provider: "ollama", tier: "balanced", baseUrl: "http://127.0.0.1:11434" }]);
+      const pinned = await resolvePinnedModel("ollama", "qwen3:1.7b");
+      expect(pinned).toMatchObject({ provider: "ollama", model: "qwen3:1.7b", source: "custom" });
+      expect(pinned.piModel.baseUrl).toBe("http://127.0.0.1:11434/v1");
+      // The conversation path resolves the same pin to the same endpoint.
+      expect((await resolveModel("ollama", "qwen3:1.7b")).piModel.baseUrl).toBe("http://127.0.0.1:11434/v1");
+    });
+
+    test("a catalog model is `catalog`, and an id nothing serves is the synthesized `stand-in`", async () => {
+      registered(undefined);
+      expect((await resolvePinnedModel("anthropic", "claude-haiku-4-5-20251001")).source).toBe("catalog");
+      const unregistered = await resolvePinnedModel("ollama", "qwen3:1.7b");
+      expect(unregistered.source).toBe("stand-in");
+      expect(unregistered.piModel.baseUrl).toBe("https://api.openai.com/v1");
+      // A row with no endpoint registers nothing a factory may call.
+      registered([{ modelId: "qwen3:1.7b", provider: "ollama", tier: "balanced" }]);
+      expect((await resolvePinnedModel("ollama", "qwen3:1.7b")).source).toBe("stand-in");
+    });
+
+    test("a discovered model wins over a registration, as `discovered`", async () => {
+      const discovered = { id: "qwen3:1.7b", name: "qwen3", api: "openai-completions", provider: "ollama", baseUrl: "http://discovered:11434/v1" };
+      registered([{ modelId: "qwen3:1.7b", provider: "ollama", baseUrl: "http://127.0.0.1:11434" }], [discovered]);
+      const pinned = await resolvePinnedModel("ollama", "qwen3:1.7b");
+      expect(pinned.source).toBe("discovered");
+      expect(pinned.piModel).toEqual(discovered as never);
+    });
+
+    test("the test-surface mock resolves in-process only while the surface is open", async () => {
+      const keys = ["PI_E2E_REAL", "EZCORP_ALLOW_TEST_SURFACE", "NODE_ENV", "EZCORP_MOCK_LLM_BASE_URL"] as const;
+      const saved = Object.fromEntries(keys.map(key => [key, process.env[key]]));
+      try {
+        Object.assign(process.env, { PI_E2E_REAL: "1", EZCORP_ALLOW_TEST_SURFACE: "1", NODE_ENV: "test", EZCORP_MOCK_LLM_BASE_URL: "http://127.0.0.1:9/api/__test/mock-llm/v1" });
+        const open = await resolvePinnedModel("ezcorp-mock", "prompt-digest:w19a");
+        expect(open).toMatchObject({ provider: "ezcorp-mock", source: "mock" });
+        expect(open.piModel.baseUrl).toBe("http://127.0.0.1:9/api/__test/mock-llm/v1");
+        delete process.env.EZCORP_ALLOW_TEST_SURFACE;
+        registered(undefined);
+        expect((await resolvePinnedModel("ezcorp-mock", "prompt-digest:w19a")).source).toBe("stand-in");
+      } finally {
+        for (const key of keys) {
+          if (saved[key] === undefined) delete process.env[key];
+          else process.env[key] = saved[key];
+        }
+      }
     });
   });
 

@@ -1,0 +1,1794 @@
+{
+ "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0",
+ "producers": [
+  {
+   "producer": "sdk",
+   "input": "/tmp/factory-platform-evidence/wave4g-sdk-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "product",
+   "input": "/tmp/factory-platform-evidence/wave4g-product-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "postgres",
+   "input": "/tmp/factory-platform-evidence/wave4g-postgres-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "node",
+   "input": "/tmp/factory-platform-evidence/wave4g-node-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "pool",
+   "input": "/tmp/factory-platform-evidence/wave4g-pool-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "compute",
+   "input": "/tmp/factory-platform-evidence/wave4g-compute-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "provisioning",
+   "input": "/tmp/factory-platform-evidence/wave4g-provisioning-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "python",
+   "input": "/tmp/factory-platform-evidence/wave4g-python-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "web-vitest",
+   "input": "/tmp/factory-platform-evidence/wave4g-web-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0",
+   "rerooted": true
+  },
+  {
+   "producer": "web-bun",
+   "input": "/tmp/factory-platform-evidence/wave4g-web-bun-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0",
+   "rerooted": true
+  },
+  {
+   "producer": "auto-0-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-0-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/0-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-1-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/1-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-2-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/2-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-3-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/3-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-4-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/4-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-5-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/5-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-6-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/6-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-10",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-10/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-11",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-11/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-12",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-12/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-13",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-13/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-14",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-14/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-15",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-15/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-16",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-16/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-17",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-17/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-18",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-18/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-19",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-19/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-20",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-20/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-21",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-21/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-22",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-22/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-23",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-23/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-24",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-24/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-25",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-25/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-26",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-26/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-27",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-27/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-28",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-28/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-29",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-29/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-3",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-3/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-30",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-30/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-31",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-31/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-32",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-32/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-33",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-33/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-34",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-34/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-35",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-35/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-36",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-36/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-37",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-37/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-38",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-38/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-39",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-39/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-4",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-4/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-5",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-5/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-6",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-6/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-7",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-7/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-8",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-8/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-7-9",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/7-9/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-8-0",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/8-0/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-8-1",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/8-1/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "auto-8-2",
+   "input": "/tmp/factory-platform-evidence/wave4g-auto-coverage/8-2/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "postgres-pool-one",
+   "input": "/tmp/factory-platform-evidence/wave4g-postgres-pool-one-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "postgres-bun-sql-pool-replacement",
+   "input": "/tmp/factory-platform-evidence/wave4g-postgres-bun-sql-pool-replacement-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "postgres-bun-sql-request-queue",
+   "input": "/tmp/factory-platform-evidence/wave4g-postgres-bun-sql-request-queue-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "postgres-factory-assurance",
+   "input": "/tmp/factory-platform-evidence/wave4g-postgres-factory-assurance-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-shard",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-shard-coverage/lcov_shard_0.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_aikit.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_api_client.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_empty_node_shim.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_hc.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_providers.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_sdk.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_suggest.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_web_utility.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-cov-extras",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-cov-extras-coverage/lcov_x_cov_worker.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-web-security-coverage",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-web-security-coverage-coverage/lcov_security.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  },
+  {
+   "producer": "manifest-factory-reference-data",
+   "input": "/tmp/factory-platform-evidence/wave4g-manifest-factory-reference-data-coverage/lcov.info",
+   "head": "19dbd60fd7a958173035f43115710ad8bed3b7e0"
+  }
+ ],
+ "checks": [
+  {
+   "name": "merge",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "origin/main",
+   "exitCode": 1
+  },
+  {
+   "name": "patch",
+   "base": "origin/main",
+   "exitCode": 0
+  },
+  {
+   "name": "new-file",
+   "base": "c1377122b",
+   "exitCode": 0
+  },
+  {
+   "name": "patch",
+   "base": "c1377122b",
+   "exitCode": 1
+  },
+  {
+   "name": "global-floor",
+   "base": null,
+   "exitCode": 0,
+   "blocking": false
+  },
+  {
+   "name": "crap-changed",
+   "base": "origin/main",
+   "exitCode": 0,
+   "blocking": false
+  }
+ ],
+ "mergeBlockedBy": [],
+ "redLegsNotBlockingMerge": [
+  "gate-integrity"
+ ]
+}

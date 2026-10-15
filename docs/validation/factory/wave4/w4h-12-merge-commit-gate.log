@@ -1,0 +1,6 @@
+resource-gate 2026-10-06T15:51:23Z w4h-12-commit outside-lock disk=128G memAvailable=11GiB swapFreeKiB=3689176/17173956 floors disk>=104G swap>=2621440KiB mem>=6GiB
+gated-flock w4h-12-commit: gate green outside the lock, queue for the lock (try 1) 2026-10-06T15:51:23Z
+resource-gate 2026-10-06T16:21:11Z commit-start disk=137G memAvailable=12GiB swapFreeKiB=2503044/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+own-pg: w4h-12-commit-pg (docker.io/pgvector/pgvector:pg15 4b4956e2ab1f, server 15.19) on 127.0.0.1:34857
+commit.sh exit=0 2026-10-06T16:32:22Z
+gated-flock w4h-12-commit: command exit 0 2026-10-06T16:32:22Z

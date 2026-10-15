@@ -1,0 +1,17 @@
+Checked 4 files in 11ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/setup-factory-python-base.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 255 expect() calls
+Ran 9 tests across 1 file. [415.00ms]
+  bun: src/__tests__/git-hooks.test.ts
+bun test v1.4.2 (744846f84)
+
+ 28 pass
+ 0 fail
+ 236 expect() calls
+Ran 28 tests across 1 file. [3.52s]
+[detached HEAD 5f7722ae1] merge: wp/w4h-3 b6c7dd80b into integ/w00 (the coverage shards pull the pinned Python base; the hook routes staged suites without a broken pipe)

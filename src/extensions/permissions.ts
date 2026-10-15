@@ -2,7 +2,7 @@
  * Extension permission checking, runtime confirmation, and always-allow persistence.
  */
 
-import type { ExtensionPermissions, ExtensionManifest } from "./types";
+import type { ExtensionPermissions } from "./types";
 import { getSetting, upsertSetting } from "../db/queries/settings";
 import { getProjectRoot } from "./bundled";
 import { getDbMaskDirs } from "../db/connection";
@@ -202,9 +202,20 @@ export async function resolveGrantPrefixCanonical(
  */
 async function resolveReservedSensitiveDirs(): Promise<string[]> {
   const root = getProjectRoot();
+  const configuredSecretsDir = process.env.EZCORP_SECRETS_DIR;
+  const secretFiles = [
+    join(root, ".pi-secret"),
+    join(root, ".pi-salt"),
+    join(root, ".env"),
+    join(process.cwd(), ".pi-secret"),
+    join(process.cwd(), ".pi-salt"),
+    join(process.cwd(), ".env"),
+  ];
   const raw = [
     join(root, ".ezcorp", "data"),
     join(root, ".ezcorp", "backups"),
+    ...secretFiles,
+    ...(configuredSecretsDir ? [configuredSecretsDir] : []),
     ...getDbMaskDirs(),
   ];
   const resolved = await Promise.all(
@@ -423,49 +434,8 @@ export async function checkFilesystemPermission(
 }
 
 // ── Permission Display ──────────────────────────────────────────────
-
-export interface PermissionItem {
-  type: string;
-  value: string | boolean;
-  description: string;
-}
-
-const PERMISSION_DESCRIPTIONS: Record<string, (v: string | boolean) => string> = {
-  network: (v) => `Network access to ${v}`,
-  filesystem: (v) => `Filesystem access to ${v}`,
-  shell: () => "Execute shell commands",
-  env: (v) => `Read environment variable ${v}`,
-  storage: () => "Persistent key-value storage",
-};
-
-export function getRequiredPermissions(manifest: ExtensionManifest): PermissionItem[] {
-  const items: PermissionItem[] = [];
-  const perms = manifest.permissions;
-
-  if (perms.network) {
-    for (const domain of perms.network) {
-      items.push({ type: "network", value: domain, description: PERMISSION_DESCRIPTIONS.network!(domain) });
-    }
-  }
-  if (perms.filesystem) {
-    for (const path of perms.filesystem) {
-      items.push({ type: "filesystem", value: path, description: PERMISSION_DESCRIPTIONS.filesystem!(path) });
-    }
-  }
-  if (perms.shell) {
-    items.push({ type: "shell", value: true, description: PERMISSION_DESCRIPTIONS.shell!(true) });
-  }
-  if (perms.env) {
-    for (const varName of perms.env) {
-      items.push({ type: "env", value: varName, description: PERMISSION_DESCRIPTIONS.env!(varName) });
-    }
-  }
-  if (perms.storage) {
-    items.push({ type: "storage", value: true, description: PERMISSION_DESCRIPTIONS.storage!(true) });
-  }
-
-  return items;
-}
+// Browser-safe, so the author page shows the same text: see permission-text.ts.
+export { getRequiredPermissions, type PermissionItem } from "./permission-text";
 
 // ── Permission Diff ─────────────────────────────────────────────────
 
@@ -614,6 +584,9 @@ export interface AlwaysAllowRecord {
  */
 export function parseAlwaysAllowValue(
   value: unknown,
+  /** When given, a row whose materialized `expiresAt` is at or before
+   *  `now` reads as expired before the sweep has revoked it. */
+  now?: number,
 ): "allowed" | "needs_confirmation" {
   // Legacy boolean shape — pre-Phase-1 rows that haven't been rewritten.
   if (value === true) return "allowed";
@@ -629,7 +602,8 @@ export function parseAlwaysAllowValue(
   ) {
     const v = value as Record<string, unknown>;
     if (typeof v.allowed === "boolean" && typeof v.grantedAt === "number") {
-      return v.allowed ? "allowed" : "needs_confirmation";
+      const expired = now !== undefined && typeof v.expiresAt === "number" && v.expiresAt <= now;
+      return v.allowed && !expired ? "allowed" : "needs_confirmation";
     }
   }
 

@@ -32,7 +32,6 @@ import { logger } from "../../logger";
 import { getSetting, upsertSetting, deleteSetting } from "../../db/queries/settings";
 import { createPreviewSession } from "../../db/queries/preview-sessions";
 import { mintOneTimeCode } from "./preview-token";
-import { getPreviewNetns } from "./preview-netns";
 import type { PreviewDetectedEvent } from "./preview-port-watcher";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
@@ -132,7 +131,7 @@ export function buildConsentCardPayload(conversationId: string, port: number): C
 
 /**
  * Expose a detected port: create a `dynamic` preview_sessions row owned by
- * `userId` + scoped to the conversation's netns, then mint a one-time code
+ * `userId` + scoped to the conversation, then mint a one-time code
  * for the browser handoff. Returns the preview id, code, and subdomain
  * label; the host completes `<label>.preview.<host>` into the final URL
  * (the app host isn't known here).
@@ -160,10 +159,6 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
   if (!project) {
     throw new Error("exposeDetectedPort: project workspace is unavailable");
   }
-  // The conversation's netns id (if allocated) pins the dynamic preview to
-  // the right namespace. Null is acceptable — Phase 3 wires the live
-  // passthrough; the registry row + access gate are valid today.
-  const netns = getPreviewNetns(conversationId);
   const workspaceTarget = await resolveProjectWorkspaceTarget(project, "preview open").catch(error => {
     if (!project.path && error instanceof Error && error.message === "Project path is unavailable for preview open") {
       throw new Error("exposeDetectedPort: project workspace is unavailable");
@@ -175,7 +170,6 @@ export async function exposeDetectedPort(event: PreviewDetectedEvent): Promise<{
     conversationId,
     kind: "dynamic",
     targetPort: port,
-    netnsId: netns?.netnsId ?? null,
     workspaceTarget,
   });
   const code = mintOneTimeCode({ previewId: row.id, userId });

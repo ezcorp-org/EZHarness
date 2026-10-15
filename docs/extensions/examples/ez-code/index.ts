@@ -40,16 +40,16 @@ import {
   type ToolHandler,
 } from "@ezcorp/sdk/runtime";
 import { spawnAssignment, cancelRun } from "@ezcorp/sdk/runtime";
-// NOTE: this module loads inside the SANDBOXED subprocess (under
-// `src/extensions/runtime/sandbox-preload.ts`), which ALWAYS poisons
-// `node:fs` / `node:child_process` / Bun.spawn / Bun.file. A static import
+// NOTE: in production this module runs in an extension-runner worker with no
+// host filesystem. The test harness preload
+// (`src/__tests__/helpers/host-sandbox/sandbox-preload.ts`) poisons
+// `node:fs` / `node:child_process` / Bun.spawn / Bun.file, so a static import
 // of `node:fs` here throws "Extension sandbox: 'fs module' blocked" at
-// module-load time — crashing the FIRST spawn (the dashboard render → every
-// tool surfaces "Transport closed"). So open_pr's worktree file manipulation
-// is driven entirely by the SHELL via the unjailed host runner (subprocesses
-// run OUTSIDE the preload poisoning). `node:path` (join/dirname) and the host
-// `mktemp -d`/`rm -rf` shell commands replace all node:fs usage. See the
-// sandbox-preload FS_MODULES block + tasks/phase-3-filesystem-hardening.md.
+// module-load time in the harness. So open_pr's worktree file manipulation
+// is driven entirely by the SHELL via the host runner. `node:path`
+// (join/dirname) and the host `mktemp -d`/`rm -rf` shell commands replace all
+// node:fs usage. See the preload's FS_MODULES block +
+// tasks/phase-3-filesystem-hardening.md.
 // Seam B (ez-sandbox) — open_pr jails its git/gh subprocess via the host's
 // buildSandboxArgv so a run's shell can't read/write `.ezcorp/data` (the
 // PGlite DB + JWT secret).

@@ -1,0 +1,109 @@
+W4H-4 report 2 (final): device-bound and image-bound tests run only in the lane whose runner has their precondition
+
+Head: 32b7a3f99 on wp/w4h-4. Base: integ/w00 52d8ba079. Merges clean onto integ/w00 6ac2458c7 (merge-tree); not rebased.
+Identity: archy <281643943+EZArchy@users.noreply.github.com> on every commit. Pinned Bun 1.4.2.
+Validation: validator-6 ACCEPT at 32b7a3f99 (/tmp/factory-platform-evidence/w4g-validation/verdict-validator-6-w4h4.txt).
+
+Commits (hook-printed suites, all green):
+  8ee0a5c72  manifest and both selections (4: check-factory-lanes, ci-test-set-drift, combined-runner-legs, factory-ci-registration)
+  170c7dd18  journey binding taken out of the device work, per the coordinator split ruling (1)
+  e613a833f  journey bound to factory-deployment-operations, with the image-pin precondition (1, 41/0)
+  c5e527b1d  device test named precondition case; committed under the heavy lock and the local GPU lock (1, device test 7/0)
+  32b7a3f99  gate file tasks/factory/w4h-4-GATES.md (0)
+
+What changed:
+  - One manifest: FACTORY_LANES in scripts/check-factory-lanes.ts. Each lane has these fields:
+      tests           also run by the hosted shards
+      boundTests      only this lane's runner can satisfy them
+      boundImagePins  images the runner must hold, read from their pin files
+    Device test packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts: bound to factory-isolation (factory-gpu).
+    Journey src/factory/reference-data/journey.integration.test.ts: bound to factory-deployment-operations (factory-real).
+    Journey image pin: src/factory/reference-data/image/pinned.json.
+  - Lane selection: both jobs run bash scripts/run-factory-lane-tests.sh <job>. It reads --lane-tests and --lane-images.
+    A missing pinned image fails by name before any test starts. The lane gate requires this command.
+  - Hosted selection: scripts/lib/test-file-sets.sh lane_bound_test_files reads --bound-tests.
+    P and C subtract it. A manifest read failure fails the sets by name.
+  - The device test keeps its device behaviour and every assertion. It adds a named precondition case, plus a check
+    before the two cases that hand host devices to a guest. A host without the devices fails with
+    "Precondition failed: this host lacks ...". Never a skip.
+
+Proofs (evidence dir /tmp/factory-platform-evidence/w4h-4/):
+  - Hosted selection, runner-shaped container (Ubuntu 24.04, uid 1001, 0755 home, git archive, 4 CPU, 14 GB, no device):
+      red at 52d8ba079: shard 3/12 selects the device test; shard 1/12 selects the journey; both are in P and C.
+        File: red-selection-52d8ba079/selection.log
+      green at 8ee0a5c72: no shard, P, C or residual set selects either file. P 2043 to 2041, C 1999 to 1997.
+        File: green-selection-8ee0a5c72/selection.log
+  - Lanes on this host, at c5e527b1d:
+      factory-isolation              30 pass / 0 fail, 5 files   logs/lane-factory-isolation.log (sha256 6369bff087857a97...)
+      factory-deployment-operations  11 pass / 0 fail, journey   logs/lane-factory-deployment-operations.log (sha256 750c3ee2690c7676...)
+      device test in the commit hook  7 pass / 0 fail             logs/commit4.log (sha256 c7b929d964c3bb92...)
+  - Unit tests at c5e527b1d:
+      check-factory-lanes 41/0; ci-test-set-drift 17/0; combined-runner-legs 8/0; factory-ci-registration 3/0.
+      Against the base selection code, 9 of the new tests fail: logs/red-unit-base-selection.log
+  - Coverage: new-file and patch gates pass (BASE_REF=52d8ba079); scripts/check-factory-lanes.ts 301/301 lines.
+    The removal from the hosted shards drops no runner line.
+  - Static checks: typecheck, lint, lane gate and boundaries green.
+    Gate integrity shows only the 8 base findings that need the label; none is from this package.
+    Guard set green. actionlint clean.
+
+Red of record: hosted run 37138524741, shard 3: "RunnerError: Error: stat /dev/kfd: no such file or directory".
+  The journey red reproduced in the container exactly as CI: "image not known".
+Container limit: the nested podman runtime failed in beforeAll on three image variants, before any device step.
+  No device was passed and --privileged was never used.
+    1. "crun: setgroups: Invalid argument"
+    2. "crun: open /proc/sys/net/ipv4/ping_group_range: Read-only file system"
+    3. "crun: mount proc to proc: Operation not permitted"
+  The named precondition stands on code review, the green host runs, and validator-6's mutant.
+Disclosure: repro-test.sh first exited with the container's last echo (rc 0 beside a failed test). It now exits with
+  the highest test exit.
+
+List-7 decision (coordinator agreed): biome-ignores-worktrees and applied-controls are not bound. The hosted runner has
+  node, and W4H-3's action pulls the python digest. The shard-container shape fix is a leftover item for wave4i.
+Cleanup: both w4h4-runner images removed by name. No containers, no snapshots left. No prune was run.
+
+Container legs, by name (logs/, sha256 prefix), all exit 1 in beforeAll before any device step:
+  red-test-attempt1.log      d696a59a61b2418a  52d8ba079, image localhost/w4h4-runner:24.04 (inner ids 0-50000):
+                                               journey "image not known" (as CI); device test "setgroups: Invalid argument"
+  red-container.log          8d2e947bf4d6bf0e  52d8ba079, image :24.04 (inner ids 0-64534): "setgroups: Invalid argument"
+  container-green.log        df3eaf10bc6688f0  c5e527b1d, image :24.04: "setgroups: Invalid argument"
+  red-container-idmap.log    9d238a3e4067582e  52d8ba079, image :24.04-idmap (inner ids 0-65535): "/proc/sys/... Read-only file system"
+  green-container-idmap.log  b65ff9aac5396124  c5e527b1d, image :24.04-idmap: same
+  red-container-unmask.log   f5ef46ab57b0adf1  52d8ba079, :24.04-idmap with unmask=/proc/sys: "mount proc to proc: Operation not permitted"
+  green-container-unmask.log ffd279ff4896d1ec  c5e527b1d, same variant: same
+  chain.log                  99be3d8388cbc4d7  the hold that ran red-container, commit 4, both lane runs and container-green.
+                                               Its "done before, skipped" lines are the re-queue pass after one exit 75 in the
+                                               same hold, at the same head.
+Chain-script defect: chain.log printed "LEG container-green rc=0 ... 0 pass 1 fail". The container's last command was an
+  echo, so its exit ignored the test. repro-test.sh now exits with the highest test exit. The idmap and unmask legs ran after
+  the fix and exit 1.
+
+Closing:
+  Final head: 32b7a3f99 on wp/w4h-4. No commit after it, no rebase.
+  Images removed by name: localhost/w4h4-runner:24.04 and localhost/w4h4-runner:24.04-idmap. No containers or snapshots left.
+  Shared .git/config hash: 44962525... at setup; 943cc5e5... from 2026-10-03T17:43:44Z (another session's fix/pr308-*
+  branch tracking entries, no user.* section); 888c78b9... at the final check. This lane wrote no shared config; its
+  identity lives only in the worktree config.
+
+G7, merge-hold finding and fix (final head 5bdbecd3c; supersedes 32b7a3f99 as the package head):
+  Red: at merge commit f38f3db4e, src/__tests__/coverage-leg-lcov-guard.test.ts was 47/1 in the case "the real wrapper prints
+    the pooled failure before a clean retry". Its fake bun first on PATH answered the lane manifest lookup with nothing.
+    passfail_files failed in a subshell, and test-coverage.sh went on with an empty P.
+    Reproduced alone at 32b7a3f99: logs/red-lcov-guard-32b7a3f99.log. The new cases against the old library are 40/4:
+    logs/red-unit-abort-32b7a3f99.log.
+  Fix 5bdbecd3c (hook 1 suite, 44/0):
+    - pinned_bun_binary in scripts/lib/lane-bun.sh checks EZCORP_PINNED_BUN_DIR, then ~/.bun/bin, then each PATH entry,
+      takes the first bun whose version equals .bun-version, and leaves PATH unchanged.
+    - The lookup runs once, when scripts/lib/test-file-sets.sh is sourced, in the caller's shell. A failed or empty
+      lookup prints "test-file-sets: the lane manifest ... gave no list; stopping before any test set is built" and
+      stops the caller.
+    - coverage-leg-lcov-guard is unchanged.
+  Green: reader hold 02:08-02:16Z, logs/reader-hold.log (sha256 c18287fce152c9a6...).
+    - Trial merge with integ 6ac2458c7 (1b2118b17, proof/w4h-4-trial-merge-5bdbecd3c, fresh installs): 32/32 readers green.
+    - Head: 28/28 green.
+    - coverage-leg-lcov-guard 48/0. check-factory-lanes 44/0.
+    - GPU lock: device test 7/0, factory-isolation 30/0, factory-deployment-operations 11/0.
+  Validation: validator-6 ACCEPT at 5bdbecd3c (verdict sha256 e2e6678a4ef90ab6). Both mutants are caught: the lookup on
+    PATH's bun turns 3 tests red, and removing the stop turns 2 tests red.
+  Verdict history: validator-6 first gave ACCEPT at 32b7a3f99, then withdrew it and gave REJECT at 32b7a3f99 (verdict
+    sha256 9c3bce963a212a53, the coverage-leg-lcov-guard 47/1). It then gave ACCEPT at 5bdbecd3c (e2e6678a4ef90ab6).
+    The "Validation" line at the top of this file refers to the withdrawn first ACCEPT.

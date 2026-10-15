@@ -1,0 +1,73 @@
+=== heavy batch 2026-09-27T07:54:51Z
+HEAD d2bc674c71ee9574e6934f8f832ed9d5080d06db MERGE_HEAD 0910d514e6230f3cf97f70fabdf547da56466eca index-tree 588ddc3b94acb6b42d97efae92f7b7ccaeeadeef umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  122G  93% /
+resource-gate 2026-09-27T07:54:51Z pg-factory-storage-cleanup disk=122G memAvailable=17GiB swapFreeKiB=6109996/17173956
+--- START pg-factory-storage-cleanup 2026-09-27T07:54:51Z
+--- END   pg-factory-storage-cleanup 2026-09-27T07:54:52Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-27T07:54:52Z pg-factory-artifacts disk=122G memAvailable=17GiB swapFreeKiB=6118372/17173956
+--- START pg-factory-artifacts 2026-09-27T07:54:52Z
+--- END   pg-factory-artifacts 2026-09-27T07:55:26Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-27T07:55:26Z pg-factory-artifact-access disk=122G memAvailable=17GiB swapFreeKiB=6157832/17173956
+--- START pg-factory-artifact-access 2026-09-27T07:55:26Z
+--- END   pg-factory-artifact-access 2026-09-27T07:55:35Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T07:55:35Z pg-factory-lazy-input disk=122G memAvailable=17GiB swapFreeKiB=6159280/17173956
+--- START pg-factory-lazy-input 2026-09-27T07:55:35Z
+--- END   pg-factory-lazy-input 2026-09-27T07:55:40Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-27T07:55:40Z pg-factory-definitions disk=122G memAvailable=17GiB swapFreeKiB=6159384/17173956
+--- START pg-factory-definitions 2026-09-27T07:55:40Z
+--- END   pg-factory-definitions 2026-09-27T07:55:51Z exit=0  12 pass 0 fail 
+resource-gate 2026-09-27T07:55:51Z pg-factory-lazy-commands disk=122G memAvailable=17GiB swapFreeKiB=6168552/17173956
+--- START pg-factory-lazy-commands 2026-09-27T07:55:51Z
+--- END   pg-factory-lazy-commands 2026-09-27T07:56:25Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-27T07:56:25Z pg-factory-checkpoint disk=122G memAvailable=17GiB swapFreeKiB=6177164/17173956
+--- START pg-factory-checkpoint 2026-09-27T07:56:25Z
+--- END   pg-factory-checkpoint 2026-09-27T07:57:01Z exit=0  12 pass 0 fail 
+resource-gate 2026-09-27T07:57:01Z pg-factory-restore disk=122G memAvailable=17GiB swapFreeKiB=6210728/17173956
+--- START pg-factory-restore 2026-09-27T07:57:01Z
+--- END   pg-factory-restore 2026-09-27T07:57:32Z exit=0  17 pass 0 fail 
+resource-gate 2026-09-27T07:57:32Z pg-factory-retention disk=122G memAvailable=17GiB swapFreeKiB=6219932/17173956
+--- START pg-factory-retention 2026-09-27T07:57:32Z
+--- END   pg-factory-retention 2026-09-27T07:57:39Z exit=0  14 pass 0 fail 
+resource-gate 2026-09-27T07:57:39Z pg-factory-key-rotation disk=122G memAvailable=17GiB swapFreeKiB=6220752/17173956
+--- START pg-factory-key-rotation 2026-09-27T07:57:39Z
+--- END   pg-factory-key-rotation 2026-09-27T07:57:44Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-27T07:57:44Z pg-factory-archive-writer disk=122G memAvailable=17GiB swapFreeKiB=6237376/17173956
+--- START pg-factory-archive-writer 2026-09-27T07:57:44Z
+--- END   pg-factory-archive-writer 2026-09-27T07:58:32Z exit=0  10 pass 0 fail 
+resource-gate 2026-09-27T07:58:32Z pg-factory-artifact-materials disk=122G memAvailable=17GiB swapFreeKiB=6241016/17173956
+--- START pg-factory-artifact-materials 2026-09-27T07:58:32Z
+--- END   pg-factory-artifact-materials 2026-09-27T08:00:46Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-27T08:00:46Z pg-factory-child-artifacts disk=122G memAvailable=17GiB swapFreeKiB=6260340/17173956
+--- START pg-factory-child-artifacts 2026-09-27T08:00:46Z
+--- END   pg-factory-child-artifacts 2026-09-27T08:00:51Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-27T08:00:51Z pg-factory-encryption-s3 disk=122G memAvailable=17GiB swapFreeKiB=6260544/17173956
+--- START pg-factory-encryption-s3 2026-09-27T08:00:51Z
+--- END   pg-factory-encryption-s3 2026-09-27T08:00:56Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-27T08:00:56Z pg-factory-guest-material-broker disk=122G memAvailable=17GiB swapFreeKiB=6265720/17173956
+--- START pg-factory-guest-material-broker 2026-09-27T08:00:56Z
+--- END   pg-factory-guest-material-broker 2026-09-27T08:02:36Z exit=0  23 pass 0 fail 
+resource-gate 2026-09-27T08:02:36Z pg-factory-legacy-workflow disk=122G memAvailable=17GiB swapFreeKiB=6285304/17173956
+--- START pg-factory-legacy-workflow 2026-09-27T08:02:36Z
+--- END   pg-factory-legacy-workflow 2026-09-27T08:02:41Z exit=0  22 pass 0 fail 
+resource-gate 2026-09-27T08:02:41Z pg-factory-package-preparation disk=122G memAvailable=17GiB swapFreeKiB=6285348/17173956
+--- START pg-factory-package-preparation 2026-09-27T08:02:41Z
+--- END   pg-factory-package-preparation 2026-09-27T08:04:21Z exit=0  22 pass 0 fail 
+resource-gate 2026-09-27T08:04:21Z pg-factory-private-service disk=122G memAvailable=17GiB swapFreeKiB=6287444/17173956
+--- START pg-factory-private-service 2026-09-27T08:04:21Z
+--- END   pg-factory-private-service 2026-09-27T08:04:29Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-27T08:04:29Z pg-factory-reference-data disk=122G memAvailable=17GiB swapFreeKiB=6287816/17173956
+--- START pg-factory-reference-data 2026-09-27T08:04:29Z
+--- END   pg-factory-reference-data 2026-09-27T08:08:56Z exit=0  11 pass 0 fail 
+resource-gate 2026-09-27T08:08:56Z pg-factory-run-inputs disk=121G memAvailable=16GiB swapFreeKiB=5871832/17173956
+--- START pg-factory-run-inputs 2026-09-27T08:08:56Z
+--- END   pg-factory-run-inputs 2026-09-27T08:09:02Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-27T08:09:02Z pg-factory-run-lifecycle-s3 disk=121G memAvailable=16GiB swapFreeKiB=5873896/17173956
+--- START pg-factory-run-lifecycle-s3 2026-09-27T08:09:02Z
+--- END   pg-factory-run-lifecycle-s3 2026-09-27T08:09:41Z exit=0  74 pass 0 fail 
+resource-gate 2026-09-27T08:09:41Z pg-factory-s3-publication disk=121G memAvailable=16GiB swapFreeKiB=5983812/17173956
+--- START pg-factory-s3-publication 2026-09-27T08:09:41Z
+--- END   pg-factory-s3-publication 2026-09-27T08:11:09Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-27T08:11:09Z pg-factory-validator-materials disk=121G memAvailable=17GiB swapFreeKiB=5998976/17173956
+--- START pg-factory-validator-materials 2026-09-27T08:11:09Z
+--- END   pg-factory-validator-materials 2026-09-27T08:11:16Z exit=0  10 pass 0 fail 
+BATCH DONE status=0 2026-09-27T08:11:16Z

@@ -1,0 +1,97 @@
+W18 hygiene item C — validator-3 verdict
+Branch wp/w18-hygiene-3, head da41901185a91f0867b1d026a7024794ae1db28b, base integ/w00 6cea43e67.
+Validated 2026-09-27 in scratch worktrees .worktrees/val3-w18c (da4190118) and .worktrees/val3-w18c-base (6cea43e67),
+frozen installs at root and web/, core.bare false (worktree), archy noreply identity, GIT_* cleared, GIT_CONFIG_NOSYSTEM=1.
+Evidence: /tmp/factory-platform-evidence/w18-hygiene-validation/itemC/.
+Shared /home/dev/work/EZCorp/EZHarness/.git/config sha256 44962525f1ca1a8b before and after every run.
+
+VERDICT: ACCEPT-WITH-FIXES (F1 required before any push; F2 and F3 need a ruling; low items optional)
+
+VERIFIED
+- Focused producer, same 405 files and order as w18a3-merge/focused-command.json, one process, under the heavy lock
+  (gate: disk 124G, MemAvailable 17 GiB, swap free 6.2 GiB): exit 0, 5690 pass / 6 skip / 0 fail, 906.9 s;
+  0 "Unhandled error", 0 "Export named ... not found"; tree clean after (focused.log).
+- Pair matrix, both orders (batch-results.txt): patch-route x installer 27/27, patch-route x phase-2b 19/19,
+  delete-policy x installer 25/25, delete-policy x phase-2b 17/17; all four together 44/0; seeded 25-file
+  test-pglite sample (pglite-sample.txt) 311/0 alone, 355/0 with the four, 0 load errors in both.
+- Group 1: all 17 converted files alone 17/17, 212 tests (49+42+121 as claimed).
+- Poisoned-env proof over the 17 files, one per process, GIT_DIR/GIT_INDEX_FILE/GIT_WORK_TREE/GIT_COMMON_DIR/
+  GIT_OBJECT_DIRECTORY/HOME on a dummy repository: dummy snapshot byte-identical before and after; control leaks
+  (poison.sh, poison-results.txt).
+- Six GC10 offenders alone: 19, 27, 8, 13, 55, 44, all 0 fail. Neighbours green for extension-events-hub-branch,
+  hub-render-pull, phase-2b-e2e (focused and pool neighbours), extensions-events-route, and the "prev" side of
+  commit and extensions-api. Red: see F3.
+- Mock guard: PENDING_ELSEWHERE removed; mock-cleanup-coverage 34/34.
+- hook-lib: git-hooks 27/0, gate-scripts 210/0. Reverting each change red: count=0 fix (1 fail), over-cap
+  orchestrator line (1 fail), skip-branch orchestrator line (1 fail). See L1 for the fourth.
+- typecheck, lint, gate-integrity (BASE_REF=6cea43e67), check-boundaries (5727 files, 0 violations),
+  check-factory-boundaries: all 0.
+- Coverage of changed non-test lines: scratch-git.ts 31/31 lines, 4/4 functions; every executable changed line of
+  packages/@ezcorp/sdk/src/test/filesystem.ts (isolatedGitEnv, gitInDirectory) hit (cov-helpers/lcov.info,
+  gate-scripts + ai-kit cli-install 238/0). hook-lib.sh is shell (no lcov): proven by the revert probes above.
+- No commit message uses EZ_SKIP_HOOK_TESTS, EZ_SKIP_HOOKS or EZ_PRECOMMIT_TEST_MAX (mentions are descriptive).
+  da4190118 carries "(cherry picked from commit 226a3fadb...)".
+
+FINDINGS
+F1 (medium, required before push): 8 of 9 commits (d296f0b91..6ad8dcff4) are authored and committed with the
+   e-mail address configured in /home/dev/.config/git/local (copied into the worker's config.worktree), not the
+   handoff identity archy <281643943+EZArchy@users.noreply.github.com> (~/.gitconfig; used by da4190118).
+   Pushed to the public PR this would publish that address. Fix (ordered): re-author the eight with the noreply
+   identity, trees unchanged (per-commit tree equality recorded), and set the worker's config.worktree e-mail to
+   the noreply one. Heavy results at da4190118 carry over to the re-authored head for every commit whose tree is
+   equal.
+F2 (medium, disclosure): GC5 says 13 failures in 3 files under poison. My poison run: 7 of 17 files fail, 21 tests.
+   git-install (1) is a HOME/rootless-podman artifact ("image not known"), not git. The other six fail through
+   four production git call sites that inherit GIT_*: src/extensions/git.ts gitExec (env {...process.env});
+   scripts/unlanded-branches.ts (spawnSync with no env); docs/extensions/examples/docs-updater/index.ts
+   HERMETIC_GIT_ENV (only GIT_CONFIG_GLOBAL/SYSTEM; GC5 calls it "not triggered", but it fails 3 + 4 tests);
+   docs/extensions/examples/repo-activity-notify/index.ts readGitHead (...process.env; NOT disclosed; 1 test).
+   None wrote to the dummy. They belong with the ruling the lead already holds; GC5 should name all four and
+   state the poison recipe its count comes from.
+F3 (OPEN defect, pre-existing, owner W18 item C2; not a gap): two offender-neighbour pairs are red, identically at
+   base 6cea43e67 and head da4190118 (itemC/pairs2-results.txt, p2-*.log). Ruling: recorded OPEN, owned by C2
+   (wp/w18-hygiene-c2, the $server/auth/middleware scope conversion); C2's acceptance requires both pairs green in
+   both orders.
+   OPEN-1 polluter web/src/__tests__/extensions-api.test.ts -> victim web/src/__tests__/extension-settings-api.test.ts
+     failing: "extension settings API > F1 — settings/user writes require the 'extensions' scope > PUT with a
+     read-only key → 403, and no secret is stored" and "... > DELETE with a read-only key → 403, and nothing is
+     cleared": both get 200 instead of 403 (95 pass / 2 fail). Reverse order 97/0; victim alone 42/0.
+     Mock left registered: the ALIAS $lib/server/security/api-keys, registered via webLibModule("server/security/
+     api-keys", { requireScope: mockRequireScope }) (line 89-92); the file's afterAll restores only two spies
+     (reloadSpy, killAllSpy) and never calls restoreModuleMocks(), so the requireScope override stays active for
+     the next file in the process. It also registers $server/auth/middleware with an inline partial factory
+     (line 82), the C2 module.
+   OPEN-2 web/src/routes/api/import/__tests__/commit.test.ts <-> web/src/routes/api/import/__tests__/preview.test.ts
+     commit then preview: 20 pass / 4 fail, e.g. "preview — guards > unknown project → 404" (500), "... > a
+     traversal path is rejected as a StagingError" (500 instead of 400), "preview — directory upload > returns
+     discovered commands + skills and keeps staging" (500 instead of 200). Preview then commit: 15 pass / 9 fail.
+     Each alone green (preview 11/0).
+     Likely mechanism (read from the code, not bisected): both route handlers import the shared RELATIVE module
+     web/src/routes/api/import/common.ts, which imports getProject from the ALIAS $server/db/queries/projects. Both
+     test files register that alias with an inline partial factory whose getProject closes over each file's own
+     projectRoot temp directory; the file that loads common.ts first stays bound to its closure, so the second
+     file resolves projects against the first file's (removed) directory and its routes answer 500. Both files
+     call restoreModuleMocks() in afterAll, so the leak is the early binding of common.ts, not a missing restore.
+     Where to look: $server/db/queries/projects (convert to serverModule or reuse one fixture root), and
+     web/src/routes/api/import/common.ts's import binding.
+L1 (low): reverting the `[ "$count" -gt 0 ] &&` guard in hook-lib.sh leaves git-hooks 27/0; no test asserts the
+   skip list prints no blank line.
+L2 (low): gitInDirectory() defaults `home` to a new mkdtemp per call and never removes it (one empty temp folder
+   per call).
+L3 (low, evidence): GC9's "25-file sample plus all four: 353/0" versus "369/0 alone" hides load errors (files that
+   fail to link run no tests). My own seeded sample had none; the figure should not be read as green.
+
+FINAL (2026-09-27): ACCEPT at 5da8fffed (wp/w18-hygiene-3)
+- Re-authored history: 0ba15d1cd, 4bd5a51d0, 902c4725f, 673054571, 74626a072, 0622f4d88, 15b558e6f, b3c562acb,
+  a9f46fbb3 each have a tree and full message identical to d296f0b91..da4190118 in order (a9f46fbb3 keeps the
+  cherry-pick line), so every heavy result above at da4190118 carries over. All 11 commits over 6cea43e67
+  (the nine, ddc74597a, 5da8fffed): author and committer archy <281643943+EZArchy@users.noreply.github.com>. F1 closed.
+- ddc74597a: L1 git-hooks 27/0, removing the count guard red (26/1); L2 filesystem-harness 5/0, removing the
+  cleanup red (4/1), ai-kit cli-install 28/0; typecheck, lint, gate-integrity (BASE_REF=6cea43e67), both boundary
+  checks 0; shared config 44962525f1ca1a8b. L1, L2 closed.
+- 5da8fffed: docs only (tasks/factory/w18-hygiene-GATES.md, +44/-20). GC5 now names the four production sites with
+  per-file counts matching itemC/poison-results.txt (3+4, 5, 3+4, 1 = 20) plus git-install as the HOME artifact,
+  and gives the poison recipe. GC9 states 413 pass / 0 fail / 0 errors with its log
+  (/tmp/w18-hygiene-3-gc9-sample-rerun.log: 413/0 across 29 files, 0 load-error lines). F2, L3 closed.
+- OPEN, owned by item C2 (not item C's): OPEN-1 extensions-api -> extension-settings-api, OPEN-2 commit <-> preview,
+  as recorded under F3; C2's acceptance requires both pairs green in both orders.

@@ -1,0 +1,25 @@
+# git grep -lE "Dockerfile|Containerfile" c029df38e -- '*.test.ts'   (validator-6, 2026-10-03; 24 files)
+# 2026-10-03 (lead ruling): src/__tests__/preview-uid-keystone.docker.test.ts removed: opt-in via DOCKER_TEST=1 (describe.skipIf), 0 pass / 4 skip = VOID under the zero-test rule.
+docs/extensions/examples/claude-design/index.coverage.test.ts
+docs/extensions/examples/file-refactor/index.test.ts
+docs/extensions/examples/todo-tracker/index.test.ts
+scripts/check-factory-deployment-locks.test.ts
+scripts/container-workspace-registration.test.ts
+src/factory/reference-data/guest.test.ts
+src/__tests__/compose-podman-masks.test.ts
+src/__tests__/compose-podman-prod.test.ts
+src/__tests__/compose-projects-root.test.ts
+src/__tests__/dev-image-ownership.test.ts
+src/__tests__/dockerignore-heavy-excludes.test.ts
+src/__tests__/file-organizer-applier-reserved-dirs.test.ts
+src/__tests__/fs-reserved-carveout-not-a-violation.test.ts
+src/__tests__/gh-cli-in-images.test.ts
+src/__tests__/installer-core.test.ts
+src/__tests__/macos-local-dev.test.ts
+src/__tests__/mcp-seccomp-compile.test.ts
+src/__tests__/mcp-seccomp-profile.test.ts
+src/__tests__/podman-compose-wrapper.test.ts
+src/__tests__/preview-spawn.test.ts
+src/__tests__/prod-image-provenance.test.ts
+src/__tests__/prune-images.test.ts
+src/__tests__/test-image-ignorefile.test.ts

@@ -1,0 +1,225 @@
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner node 24.21.0 (/nix/store/m0256z6rrjwmvxkbymm7a28n0nw2zll9-nodejs-slim-24.21.0/bin/node)
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+[WebServer] [plugin builtin:vite-reporter] 
+[WebServer] (!) Some chunks are larger than 500 kB after minification. Consider:
+[WebServer] - Using dynamic import() to code-split the application
+[WebServer] - Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+[WebServer] - Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+[WebServer] [INEFFECTIVE_DYNAMIC_IMPORT] ../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/sandbox/provider-invoker.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ..., dynamic import will not move module into another chunk.
+[WebServer] 
+
+[WebServer] .svelte-kit/adapter-bun/chunks/startup.js (21:32) [UNRESOLVED_IMPORT] Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/startup.js
+[WebServer]     ╭─[ .svelte-kit/adapter-bun/chunks/startup.js:21:33 ]
+[WebServer]     │
+[WebServer]  21 │ import { FFIType, dlopen } from "bun:ffi";
+[WebServer]     │                                 ────┬────  
+[WebServer]     │                                     ╰────── Module not found, treating it as an external dependency
+[WebServer] ────╯
+[WebServer] 
+
+[WebServer] ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [UNRESOLVED_IMPORT] Could not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js
+[WebServer]    ╭─[ ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js:1:21 ]
+[WebServer]    │
+[WebServer]  1 │ import { SQL } from "bun";
+[WebServer]    │                     ──┬──  
+[WebServer]    │                       ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [UNRESOLVED_IMPORT] Could not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+[WebServer]    ╭─[ .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 ]
+[WebServer]    │
+[WebServer]  7 │ import { FFIType, dlopen, ptr, toArrayBuffer } from "bun:ffi";
+[WebServer]    │                                                     ────┬────  
+[WebServer]    │                                                         ╰────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const cp = require('child_process');
+[WebServer]    │                    ───────┬───────  
+[WebServer]    │                           ╰───────── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 ]
+[WebServer]    │
+[WebServer]  3 │ const path = require('path');
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+[WebServer]    ╭─[ ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 ]
+[WebServer]    │
+[WebServer]  3 │ const fs = require('fs');
+[WebServer]    │                    ──┬─  
+[WebServer]    │                      ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [UNRESOLVED_IMPORT] Could not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+[WebServer]    ╭─[ ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 ]
+[WebServer]    │
+[WebServer]  5 │ const path = require('path')
+[WebServer]    │                      ───┬──  
+[WebServer]    │                         ╰──── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 ]
+[WebServer]    │
+[WebServer]  1 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+[WebServer] ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [UNRESOLVED_IMPORT] Could not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+[WebServer]    ╭─[ ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 ]
+[WebServer]    │
+[WebServer]  4 │ var fs = require('fs')
+[WebServer]    │                  ──┬─  
+[WebServer]    │                    ╰─── Module not found, treating it as an external dependency
+[WebServer] ───╯
+[WebServer] 
+
+[WebServer] [PLUGIN_TIMINGS] Your build spent 100% of 14.7s inside plugin hooks (39.5s).
+[WebServer] Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+[WebServer]   - vite-plugin-sveltekit-compile closeBundle (100%, 25.5s, 1 call)
+[WebServer]   - vite-plugin-sveltekit-compile writeBundle (53%, 7.8s, 1 call)
+[WebServer]   - vite-plugin-svelte:compile transform (18%, 2.6s, 2021 calls)
+[WebServer]   - visualizer generateBundle (11%, 1.7s, 1 call)
+[WebServer] Those rows are 100% of the build; the rest of the 100% is below.
+[WebServer] Not measurable — 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+[WebServer]   - vite-plugin-sveltekit-guard resolveId (19717 calls)
+[WebServer] See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[WebServer] 
+
+[WebServer] $ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite preview --port "4173" --strictPort
+
+[WebServer] (!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+[WebServer]   - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+[WebServer] Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+
+
+Running 22 tests using 16 workers
+
+[1/22] [chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in light @evidence
+[2/22] [chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in dark @evidence
+[3/22] [chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in dark @evidence
+[4/22] [chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in light @evidence
+[5/22] [chromium] › e2e/factory-live-console.spec.ts:285:2 › factory live console › filters attempts on the server and walks into a nested run and back
+[chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in light @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[6/22] [chromium] › e2e/factory-live-console.spec.ts:395:2 › factory live console › is operable by keyboard alone, with reduced motion @evidence
+[chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[7/22] [chromium] › e2e/factory-live-console.spec.ts:253:2 › factory live console › a run stopped during its releases shows what each release did and its deadline @evidence
+[chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in light @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[8/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in dark @evidence
+[chromium] › e2e/factory-live-console.spec.ts:285:2 › factory live console › filters attempts on the server and walks into a nested run and back
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[9/22] [chromium] › e2e/factory-live-console.spec.ts:382:2 › factory live console › administration is readable and non-destructive at 390px in dark @evidence
+[chromium] › e2e/factory-live-console.spec.ts:395:2 › factory live console › is operable by keyboard alone, with reduced motion @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[10/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in dark @evidence
+[chromium] › e2e/factory-live-console.spec.ts:253:2 › factory live console › a run stopped during its releases shows what each release did and its deadline @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[11/22] [chromium] › e2e/factory-live-console.spec.ts:300:2 › factory live console › a revoked stream stops the view instead of showing stale status @evidence
+[mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[12/22] [chromium] › e2e/factory-live-console.spec.ts:314:2 › factory live console › previews hostile artifacts only as escaped text or a re-encoded image @evidence
+[13/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:253:2 › factory live console › a run stopped during its releases shows what each release did and its deadline @evidence
+[chromium] › e2e/factory-live-console.spec.ts:382:2 › factory live console › administration is readable and non-destructive at 390px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[14/22] [chromium] › e2e/factory-live-console.spec.ts:341:2 › factory live console › administers packages through an affected-run review and lists grants @evidence
+[15/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in light @evidence
+[mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[chromium] › e2e/factory-live-console.spec.ts:300:2 › factory live console › a revoked stream stops the view instead of showing stale status @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[chromium] › e2e/factory-live-console.spec.ts:314:2 › factory live console › previews hostile artifacts only as escaped text or a re-encoded image @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[16/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in light @evidence
+[mobile-chromium] › e2e/factory-live-console.spec.ts:253:2 › factory live console › a run stopped during its releases shows what each release did and its deadline @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[chromium] › e2e/factory-live-console.spec.ts:341:2 › factory live console › administers packages through an affected-run review and lists grants @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 390px in light @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[mobile-chromium] › e2e/factory-live-console.spec.ts:227:3 › factory live console › inspects a run with a large attempt map at 1440px in light @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[17/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:395:2 › factory live console › is operable by keyboard alone, with reduced motion @evidence
+[18/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:285:2 › factory live console › filters attempts on the server and walks into a nested run and back
+[mobile-chromium] › e2e/factory-live-console.spec.ts:285:2 › factory live console › filters attempts on the server and walks into a nested run and back
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[19/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:300:2 › factory live console › a revoked stream stops the view instead of showing stale status @evidence
+[mobile-chromium] › e2e/factory-live-console.spec.ts:300:2 › factory live console › a revoked stream stops the view instead of showing stale status @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[20/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:314:2 › factory live console › previews hostile artifacts only as escaped text or a re-encoded image @evidence
+[21/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:341:2 › factory live console › administers packages through an affected-run review and lists grants @evidence
+[22/22] [mobile-chromium] › e2e/factory-live-console.spec.ts:382:2 › factory live console › administration is readable and non-destructive at 390px in dark @evidence
+[mobile-chromium] › e2e/factory-live-console.spec.ts:314:2 › factory live console › previews hostile artifacts only as escaped text or a re-encoded image @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[mobile-chromium] › e2e/factory-live-console.spec.ts:341:2 › factory live console › administers packages through an affected-run review and lists grants @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+[mobile-chromium] › e2e/factory-live-console.spec.ts:382:2 › factory live console › administration is readable and non-destructive at 390px in dark @evidence
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+
+  22 passed (48.3s)

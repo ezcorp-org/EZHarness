@@ -22,25 +22,31 @@
  * endpoint.
  */
 
-import { test, expect, describe, beforeEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock, spyOn } from "bun:test";
+import { ExtensionRegistry } from "../../../src/extensions/registry";
+import { webLibModule, contextModule, serverModule } from "../../../src/__tests__/helpers/mock-cleanup";
 import { makeRequestEvent } from "./helpers/server-route-test-utils";
 
 // ── Mock auth + scope middleware ──────────────────────────────────
 
 let mockScopeResponse: Response | null = null;
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   requireScope: () => mockScopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
-mock.module("$server/auth/middleware", () => ({
-  checkProjectRole: async () => undefined,
-  requireAuth: () => ({
-    id: "user-1",
-    email: "t@t.com",
-    name: "T",
-    role: "member",
-  }),
-}));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). See extensions-api.test.ts's identical
+// comment: the $server/auth/middleware alias is claimed by dozens of files
+// repo-wide, and a raw object literal here both misses exports (checkAuth,
+// requireRole, checkRole, requireTeamRole) AND, since another file's own
+// override could differ in VALUE for a key both files supply (requireAuth),
+// risks this file's own tests reading someone else's canned user instead of
+// "user-1" if the shared alias is active when they run. beforeAll +
+// serverModule() make this file's own values active for this file's own
+// tests; afterAll hands the alias back to the real module.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+
 mock.module("$server/extensions/project-binding", () => ({ getExtensionProjectBinding: async () => null }));
 
 // ── Mock bus via $lib/server/context ───────────────────────────────
@@ -63,10 +69,11 @@ mock.module("$server/extensions/domain-event-outbox", () => ({
 // exercise the route's guarded executor-less catch (spawn path unwired).
 const fakeExecutor = { spawnQuota: {} } as unknown;
 let getExecutorImpl: () => unknown = () => fakeExecutor;
-mock.module("$lib/server/context", () => ({
+const contextExports = contextModule({
   getBus: () => mockBus,
   getExecutor: () => getExecutorImpl(),
-}));
+});
+mock.module("$lib/server/context", () => contextExports);
 
 // ── Mock errorJson + json (mirror ask-user-answer-route.test.ts) ──
 
@@ -83,11 +90,23 @@ mock.module("$lib/server/http-errors", () => ({
 // The route gates delivery on `isRegisteredExtensionEvent(fullName)`.
 // We drive the test by setting `mockRegisteredEvents` per-case.
 
+// Pre-existing partial mock fixed in passing (found while converting the
+// registry mock below, W18 hygiene item C): missing SCOPED_RUNTIME_EVENT_TYPES
+// (added to the real module after this test's own factory was written) broke
+// every import of $server/runtime/sse-conversation-filter with "Export named
+// 'SCOPED_RUNTIME_EVENT_TYPES' not found" — reproduced on the original,
+// unconverted file running alone, so this is unrelated to the registry leak.
 const mockRegisteredEvents = new Set<string>();
-mock.module("$server/runtime/sse-conversation-filter", () => ({
-  isRegisteredExtensionEvent: (eventType: string) =>
-    mockRegisteredEvents.has(eventType),
-}));
+// Precompute-once (the real+override merge, BEFORE the mock.module()
+// registration below): a lazy serverModule() call INSIDE this factory would
+// self-recurse, since $server/runtime/sse-conversation-filter resolves to
+// the same absolute module its own require() would reach — the module
+// resolver treats that require() as landing on this same in-progress mock
+// registration, returning only the override.
+const sseConversationFilterExports = serverModule("runtime/sse-conversation-filter", {
+  isRegisteredExtensionEvent: (eventType: string) => mockRegisteredEvents.has(eventType),
+});
+mock.module("$server/runtime/sse-conversation-filter", () => sseConversationFilterExports);
 
 // ── Mock conversation lookup ──────────────────────────────────────
 
@@ -129,14 +148,15 @@ let mockExt:
     }
   | null = null;
 const mockGetExtensionByName = mock(async (_name: string) => mockExt);
-mock.module("$server/db/queries/extensions", () => ({
+const dbExtensionsExports = serverModule("db/queries/extensions", {
   getExtensionByName: mockGetExtensionByName,
   // The registry (pulled in transitively via the route's imports) needs
   // these named exports; the mock must provide the full imported shape or
   // every import of the module fails with a missing-export error.
   listExtensions: mock(async () => []),
   updateExtension: mock(async () => {}),
-}));
+});
+mock.module("$server/db/queries/extensions", () => dbExtensionsExports);
 
 let mockWiredIds: string[] = [];
 const mockAddConvExt = mock(async (..._args: unknown[]) => {});
@@ -146,12 +166,36 @@ mock.module("$server/db/queries/conversation-extensions", () => ({
   getConversationExtensionIds: mockGetConvExtIds,
 }));
 
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it. spyOn() the real instance's getProcess() instead, fetched in
+// beforeAll (test-execution time), not at this file's own top level —
+// otherwise two files that both call getInstance() during the shared
+// loading phase would capture the SAME instance, and the first file's own
+// resetInstance() would leave the second file's spy on a stale, discarded
+// object.
 const mockGetProcess = mock(async (_extId: string) => ({}));
-mock.module("$server/extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({ getProcess: mockGetProcess }),
-  },
-}));
+let getProcessSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  getProcessSpy = spyOn(ExtensionRegistry.getInstance(), "getProcess").mockImplementation(mockGetProcess as never);
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    checkProjectRole: async () => undefined,
+    requireAuth: () => ({
+      id: "user-1",
+      email: "t@t.com",
+      name: "T",
+      role: "member",
+    }),
+  }));
+});
+afterAll(() => {
+  getProcessSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 // ToolExecutor is constructed by the route to wire reverse-RPC
 // handlers on the spawned subprocess (so a future :save callback

@@ -1,0 +1,70 @@
+bun test v1.4.2 (744846f84)
+
+scripts/check-factory-lanes.test.ts:
+462 |         cwd: REPO,
+463 |         env: { ...process.env, PATH: `${bin}:${process.env.PATH}` },
+464 |       });
+465 |       expect(result.exitCode).toBe(0);
+466 |       const lines = result.stdout.toString().trim().split("\n");
+467 |       expect(lines.slice(0, -1)).toEqual(laneBoundTestFiles());
+                                       ^
+error: expect(received).toEqual(expected)
+
+- [
+-   "packages/@ezcorp/extension-runner/tests/podman-devices.integration.test.ts",
+-   "src/factory/reference-data/journey.integration.test.ts",
+- ]
++ []
+
+- Expected  - 4
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4-red2/scripts/check-factory-lanes.test.ts:467:34)
+(fail) the manifest lookup runs the pinned Bun and stops its caller when it fails > a fake bun of another version first on PATH cannot answer the lookup [10.25ms]
+478 |       const bin = fakeBun(root, PINNED_VERSION, 3);
+479 |       const result = Bun.spawnSync(["bash", "-c", "set -e; source scripts/lib/test-file-sets.sh; echo REACHED; passfail_files"], {
+480 |         cwd: REPO,
+481 |         env: { ...process.env, EZCORP_PINNED_BUN_DIR: bin },
+482 |       });
+483 |       expect(result.exitCode).toBe(1);
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4-red2/scripts/check-factory-lanes.test.ts:483:31)
+(fail) the manifest lookup runs the pinned Bun and stops its caller when it fails > a failed lookup stops the sourcing shell by name, before any set function runs [36.11ms]
+497 |       writeFileSync(files, "scripts/check-factory-lanes.test.ts\n");
+498 |       const result = Bun.spawnSync(["timeout", "-k", "2", "60", "bash", "scripts/test-coverage.sh"], {
+499 |         cwd: REPO,
+500 |         env: { ...process.env, PATH: `${bin}:${process.env.PATH}`, EZCORP_PINNED_BUN_DIR: bin, CI: "", COVERAGE_LEGS_ONLY: "", COV_OUT: "", HOST_FILES_OVERRIDE: files, SHARD_INDEX: "0", SHARD_TOTAL: "1", PARALLEL: "1" },
+501 |       });
+502 |       expect(result.exitCode).toBe(1);
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4-red2/scripts/check-factory-lanes.test.ts:502:31)
+(fail) the manifest lookup runs the pinned Bun and stops its caller when it fails > the coverage wrapper exits with the named error and runs no test when the lookup fails [36.18ms]
+518 |       const tools = join(root, "tools");
+519 |       mkdirSync(tools);
+520 |       symlinkSync(Bun.which("bash")!, join(tools, "bash"));
+521 |       const resolve = (env: Record<string, string>) => Bun.spawnSync([join(tools, "bash"), "-c", "source scripts/lib/lane-bun.sh; pinned_bun_binary"], { cwd: REPO, env });
+522 |       const preferred = resolve({ ...process.env, EZCORP_PINNED_BUN_DIR: pinned } as Record<string, string>);
+523 |       expect(preferred.exitCode).toBe(0);
+                                       ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 127
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-4-red2/scripts/check-factory-lanes.test.ts:523:34)
+(fail) the manifest lookup runs the pinned Bun and stops its caller when it fails > the resolver prefers EZCORP_PINNED_BUN_DIR, skips other versions, and fails by name when nothing matches [2.59ms]
+
+ 40 pass
+ 4 fail
+ 136 expect() calls
+Ran 44 tests across 1 file. [1242.00ms]

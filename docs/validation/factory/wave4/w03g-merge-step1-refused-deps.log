@@ -1,0 +1,36 @@
+bun test v1.3.14 (0d9b296a)
+
+scripts/gate-integrity-rule11.test.ts:
+92 | }
+93 | 
+94 | describe("gate-integrity check 11 end to end", () => {
+95 |   test("without the label, a new attestation file fails the gate by name", () => {
+96 |     const result = gateAfterAttestationChange(false);
+97 |     expect(result.output).toContain(
+                               ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label"
+Received: "Gate integrity ERROR (fail-closed): TypeScript AST parser is unavailable; install the locked .github/gate-integrity-deps dependency before running this gate\n"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/gate-integrity-rule11.test.ts:97:27)
+(fail) gate-integrity check 11 end to end > without the label, a new attestation file fails the gate by name [28645.47ms]
+100 |     expect(result.exitCode, result.output).toBe(1);
+101 |   }, 60_000);
+102 | 
+103 |   test("with the label, the same change passes and is logged as bypassed", () => {
+104 |     const result = gateAfterAttestationChange(true);
+105 |     expect(result.output).toContain("(bypassed) coverage gate tool changed (A): scripts/coverage-attestations.json");
+                                ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "(bypassed) coverage gate tool changed (A): scripts/coverage-attestations.json"
+Received: "Gate integrity ERROR (fail-closed): TypeScript AST parser is unavailable; install the locked .github/gate-integrity-deps dependency before running this gate\n"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/scripts/gate-integrity-rule11.test.ts:105:27)
+(fail) gate-integrity check 11 end to end > with the label, the same change passes and is logged as bypassed [4942.20ms]
+
+ 10 pass
+ 2 fail
+ 13 expect() calls
+Ran 12 tests across 1 file. [34.22s]

@@ -1,0 +1,8 @@
+REFUSED: verdict first line does not name 787f8676c ACCEPT
+checks PASS 2026-10-01T17:56:23Z: M 787f8676c4f4dcc45093fe67af992f5e21ad4cf0 parents 6fe920150534ae106771ada3b319805407c8b5ca 31052930df81d03c2c57625e23f23d7fca49797d; verdict dd157b18dddeb18e; install-relevant changes: none
+DRY: stop before any ref change
+checks PASS 2026-10-01T17:57:23Z: M 787f8676c4f4dcc45093fe67af992f5e21ad4cf0 parents 6fe920150534ae106771ada3b319805407c8b5ca 31052930df81d03c2c57625e23f23d7fca49797d; verdict ffdd2e31a634869f; install-relevant changes: none
+DRY: stop before any ref change
+checks PASS 2026-10-01T17:57:23Z: M 787f8676c4f4dcc45093fe67af992f5e21ad4cf0 parents 6fe920150534ae106771ada3b319805407c8b5ca 31052930df81d03c2c57625e23f23d7fca49797d; verdict ffdd2e31a634869f; install-relevant changes: none
+published: integ/w00 787f8676c4f4dcc45093fe67af992f5e21ad4cf0 (was 6fe920150) 2026-10-01T17:57:23Z
+config hash before 44962525f1ca1a8b after 44962525f1ca1a8b

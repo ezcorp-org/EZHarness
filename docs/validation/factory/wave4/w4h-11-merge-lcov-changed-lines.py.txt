@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""lcov-changed-lines.py <repo> <base> <merge> <merged.lcov>: per-file coverage proof for a merge whose changed files sit outside the
+coverage gates' SOURCE_GLOBS (integrator-5, W4H-11 merge; lead ruling: per-file lcov is the binding evidence there).
+For every changed non-test .ts file: whole-file LF/LH from the lcov, and each ADDED line (diff base..merge, -U0) that the lcov
+instruments (has a DA record), with its hit count. A file without an lcov record is listed as such (not counted as covered)."""
+import re, subprocess, sys
+repo, base, merge, lcov = sys.argv[1:5]
+git = lambda *a: subprocess.check_output(["git", "-C", repo, *a], text=True)
+recs, cur = {}, None
+for l in open(lcov):
+    l = l.strip()
+    if l.startswith("SF:"): cur = recs.setdefault(l[3:], {})
+    elif l.startswith("DA:") and cur is not None:
+        n, h = l[3:].split(",")[:2]; cur[int(n)] = cur.get(int(n), 0) + int(h)
+files = [f for f in git("diff", "--name-only", "--diff-filter=AM", base, merge).split()
+         if f.endswith(".ts") and not re.search(r"\.test\.ts$", f)]
+tot_i = tot_u = 0
+print(f"per-file lcov proof: merge {merge[:9]} vs base {base[:9]}; lcov {lcov}")
+for f in files:
+    added = []
+    for h in re.finditer(r"^@@ -\S+ \+(\d+)(?:,(\d+))? @@", git("diff", "-U0", base, merge, "--", f), re.M):
+        s, n = int(h[1]), int(h[2] or 1); added += range(s, s + n)
+    if f not in recs:
+        print(f"{f}: NO LCOV RECORD in this hold ({len(added)} added lines)"); continue
+    da = recs[f]; lf = len(da); lh = sum(1 for v in da.values() if v > 0)
+    inst = [n for n in added if n in da]; unc = [n for n in inst if da[n] == 0]
+    tot_i += len(inst); tot_u += len(unc)
+    print(f"{f}: file {lh}/{lf} lines hit; added lines {len(added)}, instrumented {len(inst)}, uncovered {len(unc)}" + (f" -> {unc}" if unc else ""))
+print(f"TOTAL instrumented added lines {tot_i}, uncovered {tot_u}")

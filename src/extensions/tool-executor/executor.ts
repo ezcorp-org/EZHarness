@@ -14,7 +14,6 @@ import { getUserById } from "../../db/queries/users";
 import { getDb, type DbTransaction } from "../../db/connection";
 import type { StorageDatabase } from "../../db/queries/extension-storage";
 import { hasExtensionScope } from "../../auth/extension-rbac";
-import type { ScheduleDaemon } from "../schedule-daemon";
 import type { SpawnQuota } from "../spawn-quota";
 import { getConversation } from "../../db/queries/conversations";
 import { getProject } from "../../db/queries/projects";
@@ -22,7 +21,7 @@ import { emitPersistedDomainEvent, type DomainExtensionEvent } from "../domain-e
 import { persistToolCall } from "../../db/queries/tool-calls";
 import { resolveExtensionSettings } from "../../db/queries/extension-settings";
 import type { Decision, PermissionEngine } from "../permission-engine";
-import { capabilityDeclarationToSet, type Capability, type CapabilitySet } from "../capability-types";
+import { capabilityDeclarationToSet, type Capability, type CapabilitySet, type SensitiveCapabilityKind } from "../capability-types";
 import { getRuntimeToolContext, withRuntimeToolContext } from "../runtime-tool-context";
 import { isSealedServiceInvocation, type ServiceInvocation } from "../service-invocation";
 import {
@@ -38,10 +37,8 @@ import {
   registerCallProvenance,
   releaseCallProvenance,
 } from "../call-provenance";
-import {
-  denyUnsupportedSandboxHostAccess,
-  type WorkspaceTarget,
-} from "../../runtime/workspaces/target";
+
+import { denyUnsupportedSandboxHostAccess, type WorkspaceTarget } from "../../runtime/workspaces/target";
 
 // ── extracted sibling modules ──────────────────────────────────────────
 import {
@@ -100,6 +97,152 @@ import {
 
 const log = logger.child("ext.tool-executor");
 
+/** Per-call options of {@link ToolExecutor.executeToolCall}. */
+interface ExecuteToolCallOpts {
+  callerExtensionId?: string;
+  expectedReleaseBinding?: string;
+  signal?: AbortSignal;
+  invocationGuard?: InvocationGuard;
+  serviceInvocation?: ServiceInvocation;
+  _callDepth?: number;
+  metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
+  /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
+  capContext?: CapabilitySet;
+  /** Phase 1: parent audit row for the chain — set by `handlePiInvoke` etc. */
+  parentAuditId?: string;
+}
+
+/** What the PDP gate and the sensitive prompt need to know about one call. */
+interface SensitivePromptCall {
+  toolName: string;
+  originalName: string;
+  extensionId: string;
+  conversationId: string;
+  messageId: string | null;
+  input: Record<string, unknown>;
+  registered: NonNullable<ReturnType<ExtensionRegistry["getRegisteredTool"]>>;
+  meta: ExecuteToolCallOpts["metadata"];
+  signal: AbortSignal | undefined;
+  /** Idempotent `tool:start` emitter shared with the dispatch path. */
+  emitToolStart: (timestamp: number) => void;
+}
+
+type RegisteredTool = SensitivePromptCall["registered"];
+type ExtensionManifest = ReturnType<ExtensionRegistry["getManifest"]>;
+
+/** One authorized call, as the dispatch helpers of {@link ToolExecutor} see it. */
+interface DispatchCall {
+  toolName: string;
+  originalName: string;
+  extensionId: string;
+  conversationId: string;
+  messageId: string | null;
+  /** Post-resolver input: what the PDP checked and what is recorded. */
+  input: Record<string, unknown>;
+  registered: RegisteredTool;
+  meta: ExecuteToolCallOpts["metadata"];
+  opts: ExecuteToolCallOpts | undefined;
+  invocationGuard: InvocationGuard | undefined;
+  serviceInvocation: ServiceInvocation | undefined;
+  serviceTargetBinding: string | undefined;
+  invocationMetadata: Record<string, unknown> | undefined;
+  startTime: number;
+}
+
+/** Card and invocation fields shared by `tool:start` and the terminal tool event. */
+function toolEventTags(registered: RegisteredTool, meta: ExecuteToolCallOpts["metadata"]) {
+  return {
+    ...(registered.cardType && { cardType: registered.cardType }),
+    ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+    ...(meta?.source && { source: meta.source }),
+    ...(meta?.invocationId && { invocationId: meta.invocationId }),
+  };
+}
+
+/** Text of a thrown value, as the failed tool result shows it. */
+function toolErrorMessage(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  return typeof error === "string" ? error : JSON.stringify(error);
+}
+
+/** Tool arguments with the cross-extension call depth added when nested. */
+function withCallDepth(input: Record<string, unknown>, depth: number | undefined): Record<string, unknown> {
+  return depth != null && depth > 0 ? { ...input, _depth: depth } : input;
+}
+
+/**
+ * `_meta` fields for the conversation. Resolve the conversation's ACTIVE
+ * project root so filesystem-scoping extensions (ez-code-factory's gate)
+ * target the RIGHT project. A single persistent subprocess serves every
+ * conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env var only
+ * ever names ONE project — structurally wrong. The host owns the truth
+ * (`conversations.projectId` → `projects.path`), so we resolve it per-call
+ * and forward it on `_meta`. Best-effort: any failure leaves it undefined
+ * (the SDK/ext fall back to the env var) rather than failing the tool call.
+ */
+async function conversationMeta(conversationId: string): Promise<Record<string, unknown>> {
+  const meta: Record<string, unknown> = { ezConversationId: conversationId };
+  try {
+    const conv = await getConversation(conversationId);
+    const project = conv?.projectId ? await getProject(conv.projectId) : undefined;
+    if (project?.path) meta.ezProjectRoot = project.path;
+  } catch {
+    // leave meta.ezProjectRoot unset — resolve defensively
+  }
+  return meta;
+}
+
+/** Run and parent ids from the invocation metadata, for call provenance. */
+function provenanceLineage(metadata: Record<string, unknown> | undefined): { runId: string | null; parentCallId: string | null } {
+  const runId = metadata?.runId;
+  const parentCallId = metadata?.parentCallId;
+  return {
+    runId: typeof runId === "string" ? runId : null,
+    parentCallId: typeof parentCallId === "string" ? parentCallId : null,
+  };
+}
+
+/** Provenance fields of a sealed service invocation. */
+function serviceProvenance(serviceInvocation: ServiceInvocation, invocationGuard: InvocationGuard | undefined) {
+  return {
+    serviceInvocation,
+    invocationGuard,
+    runId: serviceInvocation.workflowRunId,
+    ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}),
+  };
+}
+
+/** Abort and guard controls forwarded to the tool call transport. */
+type ToolCallControl = { signal?: AbortSignal; invocationGuard?: InvocationGuard };
+
+/**
+ * Transport options for one tool call. Abort signal and invocation guard go
+ * to both transports; the subprocess also gets the timeout exemption. When
+ * there is nothing to set, `callOptions` stays undefined so the common case
+ * keeps the 3-arg call shape (tests assert with strict `toHaveBeenCalledWith`
+ * arity).
+ */
+function toolCallTransportOptions(
+  signal: AbortSignal | undefined,
+  invocationGuard: InvocationGuard | undefined,
+  skipTimeout: boolean,
+): { controlOptions?: ToolCallControl; callOptions?: ToolCallControl & { skipTimeout: boolean } } {
+  if (!signal && !invocationGuard) return skipTimeout ? { callOptions: { skipTimeout: true } } : {};
+  const controlOptions = { ...(signal ? { signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
+  return { controlOptions, callOptions: { skipTimeout, ...controlOptions } };
+}
+
+/** Count one tool call against the conversation's per-turn budget. */
+function chargeTurnToolCall(conversationId: string): void {
+  if (conversationId && conversationId !== "cross-ext") {
+    const next = (toolCallsThisTurn.get(conversationId) ?? 0) + 1;
+    if (next > MAX_TOOL_CALLS_PER_TURN) {
+      throw new MaxToolCallsExceededError(conversationId, next);
+    }
+    toolCallsThisTurn.set(conversationId, next);
+  }
+}
+
 export class ToolExecutor {
   private bus?: EventBus<AgentEvents>;
   private stateMediator?: ExtensionStateMediator;
@@ -122,7 +265,6 @@ export class ToolExecutor {
   private currentAgentConfigId?: string;
   private executor?: AgentExecutor;
   private spawnQuota?: SpawnQuota;
-  private scheduleDaemon?: ScheduleDaemon;
   private workspaceTarget?: WorkspaceTarget;
   private argsResolver?: ArgsResolver;
   // Watchdog visibility for the extension sensitive-cap PDP-prompt gate.
@@ -205,17 +347,7 @@ export class ToolExecutor {
   }
 
   /** Bind the exact host-selected target for this per-turn executor. */
-  setWorkspaceTarget(target: WorkspaceTarget | undefined): void {
-    this.workspaceTarget = target;
-  }
-
-  /** Wire the shared ScheduleDaemon so `ctx.schedule.fireNow()` can
-   *  share its quota counters + dispatch path. The daemon is owned by
-   *  `src/startup/background-timers.ts`; this setter lets the same
-   *  instance be threaded into every ToolExecutor in the process. */
-  setScheduleDaemon(daemon: ScheduleDaemon): void {
-    this.scheduleDaemon = daemon;
-  }
+  setWorkspaceTarget(target: WorkspaceTarget | undefined): void { this.workspaceTarget = target; }
 
   /** Register a pre-call transformer for tool args. Used to substitute
    *  symbolic references (e.g. `ez-attachment://<id>` handles) with their
@@ -241,6 +373,369 @@ export class ToolExecutor {
     this.deregisterPendingPermission = deregister;
   }
 
+  /** Service-invocation identity, abort and invocation-guard checks that
+   *  run before the tool is even looked up. */
+  private async assertCallPreconditions(
+    serviceInvocation: ServiceInvocation | undefined,
+    opts: ExecuteToolCallOpts | undefined,
+  ): Promise<void> {
+    if (serviceInvocation) {
+      if (!isSealedServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity or an unsealed host origin");
+      await serviceInvocation.assertActive();
+    }
+    opts?.signal?.throwIfAborted();
+    if (opts?.invocationGuard) await opts.invocationGuard();
+    opts?.signal?.throwIfAborted();
+  }
+
+  /** Service-capability or extension-RBAC gate (see the call site). Returns
+   *  the invocation guard the dispatch re-checks under its transaction and
+   *  the service target release binding. */
+  private async authorizeInvocationScope(a: {
+    serviceInvocation: ServiceInvocation | undefined;
+    extensionId: string;
+    toolName: string;
+    conversationId: string;
+    needed: Capability[];
+    requiredScope: string | undefined;
+    manifestName: string | undefined;
+    opts: ExecuteToolCallOpts | undefined;
+  }): Promise<{ invocationGuard: InvocationGuard | undefined; serviceTargetBinding: string | undefined }> {
+    const { serviceInvocation, extensionId, toolName, conversationId, needed, requiredScope, opts } = a;
+    let serviceTargetBinding: string | undefined;
+    if (serviceInvocation) {
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      serviceTargetBinding = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope });
+      if (opts?.expectedReleaseBinding !== undefined && opts.expectedReleaseBinding !== serviceTargetBinding) throw new Error("Service target does not match the expected release");
+    } else if (requiredScope) {
+      const scopeGranted = await this.resolveExtensionScopeGrant(
+        a.manifestName ?? extensionId,
+        requiredScope,
+        this.currentUserId ?? null,
+        conversationId ?? null,
+      );
+      if (!scopeGranted) {
+        throw new PermissionDeniedError(
+          extensionId,
+          toolName,
+          `requires extension RBAC scope '${requiredScope}'`,
+        );
+      }
+    }
+    const invocationGuard: InvocationGuard | undefined = serviceInvocation ? async database => {
+      await opts?.invocationGuard?.(database);
+      const { assertServiceCapabilities } = await import("../service-capabilities");
+      const current = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope, database });
+      if (current !== serviceTargetBinding) throw new Error("Service target release changed during invocation");
+    } : opts?.invocationGuard;
+    return { invocationGuard, serviceTargetBinding };
+  }
+
+  /** Inject the mandatory one-shot approval caps for the bundled
+   *  extension-author's install / modify tools. */
+  private addAuthorApprovalCaps(
+    needed: Capability[],
+    originalName: string,
+    manifestName: string | undefined,
+    extensionId: string,
+  ): void {
+    if (manifestName !== "extension-author" || this.registry.isBundled?.(extensionId) !== true) return;
+    // Mandatory in-chat approval for agent-driven extension install.
+    // The bundled `extension-author.install_draft` tool installs
+    // model-authored code that then runs with its declared
+    // permissions — the strongest trust boundary in the system. We
+    // inject the sensitive `ezcorp:extension:install` cap into the
+    // needed set HERE (rather than via the manifest CapabilityDeclaration
+    // machinery) so the existing watchdog-bounded sensitive-cap gate
+    // fires at tool-call start: the PDP subset check passes
+    // (extension-author is granted it via `custom.drafts.kinds`), it's
+    // sensitive + carved out of the bundled auto-allow + never
+    // persisted, so it ALWAYS prompts. Approve → tool body runs the
+    // `ezcorp/drafts.install` RPC; Deny → PermissionDeniedError, nothing
+    // installed. Scoped to the bundled extension-author so a
+    // user-installed look-alike can't reach this path.
+    if (originalName === "install_draft") {
+      // Boolean cap (no value) — like `shell`. The granted side
+      // (`grantsToCapabilitySet` from `custom.drafts.kinds`) is also
+      // valueless, so the subset check passes (a valued needed cap
+      // would FAIL `capabilityCovers` against the valueless grant).
+      // The specific draftId is already audited via the tool input.
+      needed.push({ kind: "ezcorp:extension:install" });
+    }
+
+    // Mandatory in-chat approval for agent-driven extension MODIFY.
+    // The bundled `extension-author.modify_extension` tool re-opens an
+    // installed extension for editing — the entry point to rewriting
+    // model-authored code. Same trust class and injection rationale as
+    // `install_draft` above: sensitive, carved out of the bundled
+    // auto-allow, never persisted → ALWAYS prompts. The host
+    // `ezcorp/drafts.reopen` action independently enforces owner +
+    // admin-`modifiable` + not-bundled authorization (defense in
+    // depth). Scoped to the bundled extension-author so a user-
+    // installed look-alike can't reach this path.
+    if (originalName === "modify_extension") {
+      needed.push({ kind: "ezcorp:extension:modify" });
+    }
+  }
+
+  /** Run the PDP, then ask the user for each sensitive cap it prompts
+   *  for, re-authorizing after every approval until it allows or denies. */
+  private async authorizeWithPrompts(
+    call: SensitivePromptCall,
+    needed: Capability[],
+    ctx: {
+      serviceInvocation: ServiceInvocation | undefined;
+      callerExtensionId: string | undefined;
+      capContext: CapabilitySet | undefined;
+      parentAuditId: string | undefined;
+    },
+  ): Promise<Decision> {
+    const { extensionId, toolName, originalName, conversationId } = call;
+    // Explicit `Decision` (not `typeof this.engine.authorize`): the
+    // `typeof this` type query is fragile under the backend-only tsc
+    // graph (a new drafts-handler→author-install→registry import edge
+    // exposed a resolution cycle that made `this` unresolvable here).
+    // `engine.authorize` returns `Promise<Decision>`, so this is
+    // semantically identical and graph-independent.
+    let decision: Decision;
+    // Re-authorize after each approved prompt: one call can need several
+    // sensitive caps, and approving one must never carry the others.
+    const promptApproved: Capability[] = [];
+    for (;;) {
+      try {
+        decision = await this.engine.authorize(
+          {
+            extensionId,
+            // Phase 6: null is the canonical "no user" signal — the
+            // PDP serializes it as JSON null in the audit row instead
+            // of the literal string "unknown".
+            userId: this.currentUserId ?? null,
+            serviceInvocation: ctx.serviceInvocation,
+            conversationId: conversationId ?? null,
+            toolName: originalName,
+            callerExtensionId: ctx.callerExtensionId,
+            capContext: ctx.capContext,
+            ...(ctx.parentAuditId !== undefined ? { parentAuditId: ctx.parentAuditId } : {}),
+            ...(promptApproved.length > 0 ? { promptApproved } : {}),
+          },
+          needed,
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new PermissionDeniedError(
+          extensionId,
+          toolName,
+          `engine error: ${msg}`,
+        );
+      }
+
+      if (decision.decision === "deny") {
+        throw new PermissionDeniedError(extensionId, toolName, decision.reason);
+      }
+      if (decision.decision !== "prompt") return decision;
+      await this.awaitSensitivePrompt(call, decision);
+      promptApproved.push(decision.sensitive);
+    }
+  }
+
+  /** The always-allow row key for the scope the user picked. */
+  private alwaysAllowScopeId(scope: string, conversationId: string): string {
+    // Project scopeId resolution is deferred — for a `project` scope we use
+    // the conversationId as a stable key for now; a future commit can map
+    // conversation→project when the PDP gains project-aware lookups (the
+    // cache key already accommodates it). Comment lifted out of the ternary
+    // branch below so bun doesn't emit a phantom, never-hit DA record on an
+    // in-ternary comment line (which the per-file gate can't clear).
+    return scope === "conversation"
+      ? conversationId
+      : scope === "session"
+        ? `session:${this.currentUserId ?? ""}`
+        : scope === "project"
+          ? conversationId
+          : "*";
+  }
+
+  /** Phase 6 sensitive-cap UI gate for one `prompt` decision: show the
+   *  card and the prompt, await the user, and persist an approval. Throws
+   *  PermissionDeniedError on decline or gate failure. */
+  private async awaitSensitivePrompt(
+    call: SensitivePromptCall,
+    decision: Extract<Decision, { decision: "prompt" }>,
+  ): Promise<void> {
+    const { toolName, originalName, extensionId, conversationId, messageId, input, registered, meta } = call;
+    // Phase 6 — sensitive-cap UI gate. The PDP returned a `prompt`
+    // decision (every needed cap is granted, but a sensitive cap
+    // — `shell` or `fs.write` — lacks an always-allow row for the
+    // (user, scope, scopeId, capability) tuple). We open an
+    // extension-scoped permission gate, emit `tool:permission_request`
+    // for the originating user's UI, and AWAIT the user's
+    // `{allowed, scope}` decision. The user's chosen scope is
+    // persisted via `setSensitiveAlwaysAllow` so the next call to
+    // the same sensitive cap inside the same scope auto-allows.
+    //
+    // The PDP path also wrote a `PERM_PROMPTED` audit row before
+    // returning; we don't write a second row here. On user decline
+    // we throw `PermissionDeniedError` to mirror the deny path.
+    const sensitive = decision.sensitive;
+    // The PDP prompts only for a SENSITIVE_KINDS cap. Name it as-is:
+    // the user must see an install, not a generic file write.
+    const capabilityKind = sensitive.kind as SensitiveCapabilityKind;
+
+    const promptStartedAt = Date.now();
+    // Terminalize the (now visible) tool card on any prompt-branch
+    // failure — deny, gate transport error, or resolvePrompt error.
+    // Without this the card we just rendered would hang forever even
+    // though the call rejects. Uses the same namespaced `toolName` as
+    // tool:start so the store correlates it to the same card.
+    const terminalizePromptCard = async (message: string): Promise<void> => {
+      const errorResult: ToolCallResult = {
+        content: [{ type: "text", text: message }],
+        isError: true,
+      };
+      const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
+        conversationId,
+        extensionId,
+        toolName,
+        error: message,
+        duration: Date.now() - promptStartedAt,
+        ...(registered.cardType && { cardType: registered.cardType }),
+        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
+        ...(meta?.source && { source: meta.source }),
+        ...(meta?.invocationId && { invocationId: meta.invocationId }),
+      } };
+      await this.recordToolCall(
+        conversationId,
+        messageId,
+        extensionId,
+        toolName,
+        input,
+        errorResult,
+        promptStartedAt,
+        registered.cardType,
+        registered.cardLayout,
+        toolEvent,
+      );
+      emitPersistedDomainEvent(this.bus, toolEvent);
+    };
+
+    // Emit tool:start FIRST so the card + tool_ref block exist before
+    // the prompt arrives. Same (namespaced) `toolName` the
+    // start/complete/error events use — previously this emitted
+    // `originalName`, which never matched the namespaced tool:start
+    // entry in the store, so even a rendered card wouldn't correlate.
+    call.emitToolStart(promptStartedAt);
+
+    // Surface the prompt to the originating user's UI session only.
+    // `userId` is the H7-scoped delivery key — the SSE filter at
+    // `sse-conversation-filter.ts:shouldDeliverEvent` enforces that
+    // only the matching subscriber sees the event.
+    this.bus?.emit("tool:permission_request", {
+      conversationId,
+      toolCallId: decision.promptId,
+      toolName,
+      input,
+      userId: this.currentUserId,
+      extensionId,
+      capabilityKind,
+      ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+      promptId: decision.promptId,
+    });
+
+    // Make this gate visible to the watchdog as a legitimate
+    // user-wait, exactly like the built-in tool path
+    // (setup-tools.ts). Keyed by `decision.promptId` — the same key
+    // `createExtensionPermissionGate` and the resolve route use, so
+    // register/deregister stay aligned with no toolCallId↔promptId
+    // skew. Without this the watchdog treats the wait as a hung
+    // in-flight tool and kills the run at the callTimeoutMs ceiling,
+    // tearing down the prompt before the user can answer it.
+    this.registerPendingPermission(decision.promptId, {
+      conversationId,
+      toolCallId: decision.promptId,
+      toolName: originalName,
+      input,
+      category: "extension-sensitive",
+    });
+
+    let resolution: ApprovalResolution;
+    try {
+      resolution = await createExtensionPermissionGate({
+        ...(call.signal ? { signal: call.signal } : {}),
+        promptId: decision.promptId,
+        conversationId,
+        userId: this.currentUserId ?? "",
+        extensionId,
+        toolName: originalName,
+        capabilityKind,
+        ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
+      });
+    } catch (err) {
+      // The gate's promise resolves with `{allowed: false}` on
+      // decline; reaching the catch arm means a transport-level
+      // failure (e.g. server restart). Treat as deny.
+      const msg = err instanceof Error ? err.message : String(err);
+      await terminalizePromptCard(`permission gate error: ${msg}`);
+      throw new PermissionDeniedError(
+        extensionId,
+        toolName,
+        `permission gate error: ${msg}`,
+      );
+    } finally {
+      // Runs on every exit — gate resolved (allow/deny), gate threw
+      // (catch above), or any unexpected throw. Race-safe: the key is
+      // the immutable `decision.promptId`. Symmetric with the
+      // built-in path's `finally` deregister (setup-tools.ts).
+      this.deregisterPendingPermission(decision.promptId);
+    }
+
+    if (!resolution.allowed) {
+      await terminalizePromptCard("User declined permission prompt");
+      throw new PermissionDeniedError(
+        extensionId,
+        toolName,
+        "User declined permission prompt",
+      );
+    }
+
+    // Persist always-allow at the user-chosen scope (default session
+    // — least surprise; the gate falls back to "session" when no
+    // scope is supplied, matching the spec's locked default).
+    //
+    // `engine.resolvePrompt` is the single source of truth: it writes
+    // the always-allow settings row AND updates the engine's in-memory
+    // allow cache so the next call to the same sensitive cap in the
+    // same scope auto-allows. A previous version of this code ALSO
+    // called `setSensitiveAlwaysAllow` directly here, which wrote a
+    // second row under a different key shape (kind-only vs kind+value)
+    // — the reader's lookup never found the legacy row, so users
+    // hitting Allow Forever still re-prompted on every subsequent
+    // call. Collapsed to one writer to make the asymmetry impossible.
+    const scope = resolution.scope ?? "session";
+    const scopeId = this.alwaysAllowScopeId(scope, conversationId);
+    // Phase 56: forward the picker's `ttlOverrideMs` (when supplied)
+    // so the engine persists the per-row override alongside the
+    // always-allow row. `undefined` here means the user hit Allow
+    // via a legacy path (pre-Phase-56 client) — engine falls back
+    // to the existing TTL_CONFIG[kind] / foreverTtlMs lookup.
+    const resolvePromptOptions =
+      resolution.ttlOverrideMs !== undefined
+        ? { ttlOverrideMs: resolution.ttlOverrideMs }
+        : undefined;
+    try {
+      await this.engine.resolvePrompt(
+        decision.promptId,
+        true,
+        scope,
+        scopeId,
+        resolvePromptOptions,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await terminalizePromptCard(`permission persist error: ${msg}`);
+      throw err;
+    }
+  }
+
   /** Execute a tool call through the extension subprocess.
    *
    *  `invocationMetadata` (Phase 4 §5.1a) is opaque per-turn data threaded
@@ -254,29 +749,14 @@ export class ToolExecutor {
     input: Record<string, unknown>,
     conversationId: string,
     messageId: string | null,
-    _opts?: {
-      callerExtensionId?: string;
-      expectedReleaseBinding?: string;
-      signal?: AbortSignal;
-      invocationGuard?: InvocationGuard;
-      serviceInvocation?: ServiceInvocation;
-      _callDepth?: number;
-      metadata?: { invocationId?: string; source?: "inline" | "agent-run" };
-      /** Phase 4: caller∩callee intersected cap set for cross-ext invokes. */
-      capContext?: CapabilitySet;
-      /** Phase 1: parent audit row for the chain — set by `handlePiInvoke` etc. */
-      parentAuditId?: string;
-    },
+    _opts?: ExecuteToolCallOpts,
     invocationMetadata?: Record<string, unknown>,
   ): Promise<ToolCallResult> {
     const serviceInvocation = _opts?.serviceInvocation ?? getRuntimeToolContext()?.serviceInvocation;
-    if (serviceInvocation) {
-      if (!isSealedServiceInvocation(serviceInvocation) || this.currentUserId) throw new Error("Service invocation cannot use a human identity or an unsealed host origin");
-      await serviceInvocation.assertActive();
-    }
-    _opts?.signal?.throwIfAborted();
-    if (_opts?.invocationGuard) await _opts.invocationGuard();
-    _opts?.signal?.throwIfAborted();
+    // Awaited only when there is something to check, so a plain call reaches
+    // the PDP in the same number of microtasks as before the split.
+    if (serviceInvocation || _opts?.invocationGuard) await this.assertCallPreconditions(serviceInvocation, _opts);
+    else _opts?.signal?.throwIfAborted();
     const registered = this.registry.getRegisteredTool(toolName);
     if (!registered) {
       return {
@@ -315,10 +795,7 @@ export class ToolExecutor {
         // unredacted resolved input.
         input: redactLargeDataUris(input),
         timestamp,
-        ...(registered.cardType && { cardType: registered.cardType }),
-        ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-        ...(meta?.source && { source: meta.source }),
-        ...(meta?.invocationId && { invocationId: meta.invocationId }),
+        ...toolEventTags(registered, meta),
       });
     };
 
@@ -332,13 +809,7 @@ export class ToolExecutor {
     // conversationId in the same Phase 6 commit, see M4) DON'T count
     // against the budget so their nested calls don't double-charge the
     // parent's quota.
-    if (conversationId && conversationId !== "cross-ext") {
-      const next = (toolCallsThisTurn.get(conversationId) ?? 0) + 1;
-      if (next > MAX_TOOL_CALLS_PER_TURN) {
-        throw new MaxToolCallsExceededError(conversationId, next);
-      }
-      toolCallsThisTurn.set(conversationId, next);
-    }
+    chargeTurnToolCall(conversationId);
 
     // Resolve symbolic arg references (e.g. attachment handles → data URIs)
     // BEFORE the PDP check. The post-resolved args are what the
@@ -365,100 +836,32 @@ export class ToolExecutor {
     //     registry normalizes them on read instead
     //     (`mcp-capabilities.ts:normalizeMcpManifest`), deriving each tool's
     //     declaration from the hosts the server definition names.
-    const resolveCapabilityBoundary = async () => {
-      const manifest = this.registry.getManifest(extensionId);
-      const tool = manifest?.tools?.find((t) => t.name === originalName);
-      const needed: Capability[] = [
-        ...capabilityDeclarationToSet(tool?.capabilities, input, this.currentUserId),
-      ];
+    const manifest = this.registry.getManifest(extensionId);
+    const tool = manifest?.tools?.find((t) => t.name === originalName);
+    const needed: Capability[] = [
+      ...capabilityDeclarationToSet(tool?.capabilities, input, this.currentUserId),
+    ];
 
-      // Extension-RBAC (user→extension) ENFORCEMENT gate. When the tool's
-      // manifest DECLARES an `rbacScope`, the acting user MUST hold it — the
-      // host resolves the grant and DENIES the call before the subprocess
-      // runs, regardless of whether the extension bothered to call the
-      // advisory `ctx.rbac.check`. This is what makes declared scopes real:
-      // an extension can no longer perform a denied action by ignoring the
-      // check result. Tools with NO declared scope skip this entirely
-      // (unchanged path). The grant coordinate is the manifest NAME (what
-      // `extension_rbac_grants` references), and the project is derived
-      // server-side from the conversation — identical semantics to the
-      // advisory `ctx.rbac.check` via the shared `resolveExtensionScopeGrant`.
-      const requiredScope = tool?.rbacScope;
-      let serviceTargetBinding: string | undefined;
-      if (serviceInvocation) {
-        const { assertServiceCapabilities } = await import("../service-capabilities");
-        serviceTargetBinding = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope });
-        if (_opts?.expectedReleaseBinding !== undefined && _opts.expectedReleaseBinding !== serviceTargetBinding) throw new Error("Service target does not match the expected release");
-      } else if (requiredScope) {
-        const scopeGranted = await this.resolveExtensionScopeGrant(
-          manifest?.name ?? extensionId,
-          requiredScope,
-          this.currentUserId ?? null,
-          conversationId ?? null,
-        );
-        if (!scopeGranted) {
-          throw new PermissionDeniedError(
-            extensionId,
-            toolName,
-            `requires extension RBAC scope '${requiredScope}'`,
-          );
-        }
-      }
-      const invocationGuard: InvocationGuard | undefined = serviceInvocation ? async database => {
-        await _opts?.invocationGuard?.(database);
-        const { assertServiceCapabilities } = await import("../service-capabilities");
-        const current = await assertServiceCapabilities(serviceInvocation, extensionId, needed, { toolName, rbacScope: requiredScope, database });
-        if (current !== serviceTargetBinding) throw new Error("Service target release changed during invocation");
-      } : _opts?.invocationGuard;
+    // Extension-RBAC (user→extension) ENFORCEMENT gate. When the tool's
+    // manifest DECLARES an `rbacScope`, the acting user MUST hold it — the
+    // host resolves the grant and DENIES the call before the subprocess
+    // runs, regardless of whether the extension bothered to call the
+    // advisory `ctx.rbac.check`. This is what makes declared scopes real:
+    // an extension can no longer perform a denied action by ignoring the
+    // check result. Tools with NO declared scope skip this entirely
+    // (unchanged path). The grant coordinate is the manifest NAME (what
+    // `extension_rbac_grants` references), and the project is derived
+    // server-side from the conversation — identical semantics to the
+    // advisory `ctx.rbac.check` via the shared `resolveExtensionScopeGrant`.
+    const requiredScope = tool?.rbacScope;
+    const { invocationGuard, serviceTargetBinding } = serviceInvocation || requiredScope
+      ? await this.authorizeInvocationScope({
+        serviceInvocation, extensionId, toolName, conversationId, needed, requiredScope,
+        manifestName: manifest?.name, opts: _opts,
+      })
+      : { invocationGuard: _opts?.invocationGuard, serviceTargetBinding: undefined };
 
-      // Mandatory in-chat approval for agent-driven extension install.
-      // The bundled `extension-author.install_draft` tool installs
-      // model-authored code that then runs with its declared
-      // permissions — the strongest trust boundary in the system. We
-      // inject the sensitive `ezcorp:extension:install` cap into the
-      // needed set HERE (rather than via the manifest CapabilityDeclaration
-      // machinery) so the existing watchdog-bounded sensitive-cap gate
-      // fires at tool-call start: the PDP subset check passes
-      // (extension-author is granted it via `custom.drafts.kinds`), it's
-      // sensitive + carved out of the bundled auto-allow + never
-      // persisted, so it ALWAYS prompts. Approve → tool body runs the
-      // `ezcorp/drafts.install` RPC; Deny → PermissionDeniedError, nothing
-      // installed. Scoped to the bundled extension-author so a
-      // user-installed look-alike can't reach this path.
-      if (
-        originalName === "install_draft" &&
-        manifest?.name === "extension-author" &&
-        this.registry.isBundled?.(extensionId) === true
-      ) {
-        // Boolean cap (no value) — like `shell`. The granted side
-        // (`grantsToCapabilitySet` from `custom.drafts.kinds`) is also
-        // valueless, so the subset check passes (a valued needed cap
-        // would FAIL `capabilityCovers` against the valueless grant).
-        // The specific draftId is already audited via the tool input.
-        needed.push({ kind: "ezcorp:extension:install" });
-      }
-
-      // Mandatory in-chat approval for agent-driven extension MODIFY.
-      // The bundled `extension-author.modify_extension` tool re-opens an
-      // installed extension for editing — the entry point to rewriting
-      // model-authored code. Same trust class and injection rationale as
-      // `install_draft` above: sensitive, carved out of the bundled
-      // auto-allow, never persisted → ALWAYS prompts. The host
-      // `ezcorp/drafts.reopen` action independently enforces owner +
-      // admin-`modifiable` + not-bundled authorization (defense in
-      // depth). Scoped to the bundled extension-author so a user-
-      // installed look-alike can't reach this path.
-      if (
-        originalName === "modify_extension" &&
-        manifest?.name === "extension-author" &&
-        this.registry.isBundled?.(extensionId) === true
-      ) {
-        needed.push({ kind: "ezcorp:extension:modify" });
-      }
-
-      return { needed, serviceTargetBinding, invocationGuard };
-    };
-    const { needed, serviceTargetBinding, invocationGuard } = await resolveCapabilityBoundary();
+    this.addAuthorApprovalCaps(needed, originalName, manifest?.name, extensionId);
 
     // Phase 1 PDP gate. Fail-closed if the engine isn't wired —
     // constructor already enforces that, but the typecheck here is
@@ -480,232 +883,16 @@ export class ToolExecutor {
     const inheritedParentAuditId =
       _opts?.parentAuditId ?? upstreamCtx?.currentAuditId;
 
-    // Explicit `Decision` (not `typeof this.engine.authorize`): the
-    // `typeof this` type query is fragile under the backend-only tsc
-    // graph (a new drafts-handler→author-install→registry import edge
-    // exposed a resolution cycle that made `this` unresolvable here).
-    // `engine.authorize` returns `Promise<Decision>`, so this is
-    // semantically identical and graph-independent.
-    let decision: Decision;
-    try {
-      decision = await this.engine.authorize(
-        {
-          extensionId,
-          // Phase 6: null is the canonical "no user" signal — the
-          // PDP serializes it as JSON null in the audit row instead
-          // of the literal string "unknown".
-          userId: this.currentUserId ?? null,
-          serviceInvocation,
-          conversationId: conversationId ?? null,
-          toolName: originalName,
-          callerExtensionId: _opts?.callerExtensionId,
-          capContext: _opts?.capContext,
-          ...(inheritedParentAuditId !== undefined ? { parentAuditId: inheritedParentAuditId } : {}),
-        },
-        needed,
-      );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      throw new PermissionDeniedError(
-        extensionId,
-        toolName,
-        `engine error: ${msg}`,
-      );
-    }
-
-    if (decision.decision === "deny") {
-      throw new PermissionDeniedError(extensionId, toolName, decision.reason);
-    }
-    if (decision.decision === "prompt") {
-      const promptDecision = decision;
-      const awaitSensitivePrompt = async (): Promise<void> => {
-        // Phase 6 — sensitive-cap UI gate. The PDP returned a `prompt`
-        // decision (every needed cap is granted, but a sensitive cap
-        // — `shell` or `fs.write` — lacks an always-allow row for the
-        // (user, scope, scopeId, capability) tuple). We open an
-        // extension-scoped permission gate, emit `tool:permission_request`
-        // for the originating user's UI, and AWAIT the user's
-        // `{allowed, scope}` promptDecision. The user's chosen scope is
-        // persisted via `setSensitiveAlwaysAllow` so the next call to
-        // the same sensitive cap inside the same scope auto-allows.
-        //
-        // The PDP path also wrote a `PERM_PROMPTED` audit row before
-        // returning; we don't write a second row here. On user decline
-        // we throw `PermissionDeniedError` to mirror the deny path.
-        const sensitive = promptDecision.sensitive;
-        const capabilityKind: "shell" | "fs.write" =
-          sensitive.kind === "shell" ? "shell" : "fs.write";
-
-        const promptStartedAt = Date.now();
-        // Terminalize the (now visible) tool card on any prompt-branch
-        // failure — deny, gate transport error, or resolvePrompt error.
-        // Without this the card we just rendered would hang forever even
-        // though the call rejects. Uses the same namespaced `toolName` as
-        // tool:start so the store correlates it to the same card.
-        const terminalizePromptCard = async (message: string): Promise<void> => {
-          const errorResult: ToolCallResult = {
-            content: [{ type: "text", text: message }],
-            isError: true,
-          };
-          const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
-            conversationId,
-            extensionId,
-            toolName,
-            error: message,
-            duration: Date.now() - promptStartedAt,
-            ...(registered.cardType && { cardType: registered.cardType }),
-            ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-            ...(meta?.source && { source: meta.source }),
-            ...(meta?.invocationId && { invocationId: meta.invocationId }),
-          } };
-          await this.recordToolCall(
-            conversationId,
-            messageId,
-            extensionId,
-            toolName,
-            input,
-            errorResult,
-            promptStartedAt,
-            registered.cardType,
-            registered.cardLayout,
-            toolEvent,
-          );
-          emitPersistedDomainEvent(this.bus, toolEvent);
-        };
-
-        // Emit tool:start FIRST so the card + tool_ref block exist before
-        // the prompt arrives. Same (namespaced) `toolName` the
-        // start/complete/error events use — previously this emitted
-        // `originalName`, which never matched the namespaced tool:start
-        // entry in the store, so even a rendered card wouldn't correlate.
-        emitToolStart(promptStartedAt);
-
-        // Surface the prompt to the originating user's UI session only.
-        // `userId` is the H7-scoped delivery key — the SSE filter at
-        // `sse-conversation-filter.ts:shouldDeliverEvent` enforces that
-        // only the matching subscriber sees the event.
-        this.bus?.emit("tool:permission_request", {
-          conversationId,
-          toolCallId: promptDecision.promptId,
-          toolName,
-          input,
-          userId: this.currentUserId,
-          extensionId,
-          capabilityKind,
-          ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
-          promptId: promptDecision.promptId,
-        });
-
-        // Make this gate visible to the watchdog as a legitimate
-        // user-wait, exactly like the built-in tool path
-        // (setup-tools.ts). Keyed by `promptDecision.promptId` — the same key
-        // `createExtensionPermissionGate` and the resolve route use, so
-        // register/deregister stay aligned with no toolCallId↔promptId
-        // skew. Without this the watchdog treats the wait as a hung
-        // in-flight tool and kills the run at the callTimeoutMs ceiling,
-        // tearing down the prompt before the user can answer it.
-        this.registerPendingPermission(promptDecision.promptId, {
-          conversationId,
-          toolCallId: promptDecision.promptId,
-          toolName: originalName,
-          input,
-          category: "extension-sensitive",
-        });
-
-        let resolution: ApprovalResolution;
-        try {
-          resolution = await createExtensionPermissionGate({
-            ...(_opts?.signal ? { signal: _opts.signal } : {}),
-            promptId: promptDecision.promptId,
-            conversationId,
-            userId: this.currentUserId ?? "",
-            extensionId,
-            toolName: originalName,
-            capabilityKind,
-            ...(sensitive.value !== undefined ? { capabilityValue: sensitive.value } : {}),
-          });
-        } catch (err) {
-          // The gate's promise resolves with `{allowed: false}` on
-          // decline; reaching the catch arm means a transport-level
-          // failure (e.g. server restart). Treat as deny.
-          const msg = err instanceof Error ? err.message : String(err);
-          await terminalizePromptCard(`permission gate error: ${msg}`);
-          throw new PermissionDeniedError(
-            extensionId,
-            toolName,
-            `permission gate error: ${msg}`,
-          );
-        } finally {
-          // Runs on every exit — gate resolved (allow/deny), gate threw
-          // (catch above), or any unexpected throw. Race-safe: the key is
-          // the immutable `promptDecision.promptId`. Symmetric with the
-          // built-in path's `finally` deregister (setup-tools.ts).
-          this.deregisterPendingPermission(promptDecision.promptId);
-        }
-
-        if (!resolution.allowed) {
-          await terminalizePromptCard("User declined permission prompt");
-          throw new PermissionDeniedError(
-            extensionId,
-            toolName,
-            "User declined permission prompt",
-          );
-        }
-
-        // Persist always-allow at the user-chosen scope (default session
-        // — least surprise; the gate falls back to "session" when no
-        // scope is supplied, matching the spec's locked default).
-        //
-        // `engine.resolvePrompt` is the single source of truth: it writes
-        // the always-allow settings row AND updates the engine's in-memory
-        // allow cache so the next call to the same sensitive cap in the
-        // same scope auto-allows. A previous version of this code ALSO
-        // called `setSensitiveAlwaysAllow` directly here, which wrote a
-        // second row under a different key shape (kind-only vs kind+value)
-        // — the reader's lookup never found the legacy row, so users
-        // hitting Allow Forever still re-prompted on every subsequent
-        // call. Collapsed to one writer to make the asymmetry impossible.
-        const scope = resolution.scope ?? "session";
-        // Project scopeId resolution is deferred — for a `project` scope we use
-        // the conversationId as a stable key for now; a future commit can map
-        // conversation→project when the PDP gains project-aware lookups (the
-        // cache key already accommodates it). Comment lifted out of the ternary
-        // branch below so bun doesn't emit a phantom, never-hit DA record on an
-        // in-ternary comment line (which the per-file gate can't clear).
-        const scopeId =
-          scope === "conversation"
-            ? conversationId
-            : scope === "session"
-              ? `session:${this.currentUserId ?? ""}`
-              : scope === "project"
-                ? conversationId
-                : "*";
-        // Phase 56: forward the picker's `ttlOverrideMs` (when supplied)
-        // so the engine persists the per-row override alongside the
-        // always-allow row. `undefined` here means the user hit Allow
-        // via a legacy path (pre-Phase-56 client) — engine falls back
-        // to the existing TTL_CONFIG[kind] / foreverTtlMs lookup.
-        const resolvePromptOptions =
-          resolution.ttlOverrideMs !== undefined
-            ? { ttlOverrideMs: resolution.ttlOverrideMs }
-            : undefined;
-        try {
-          await this.engine.resolvePrompt(
-            promptDecision.promptId,
-            true,
-            scope,
-            scopeId,
-            resolvePromptOptions,
-          );
-        } catch (err) {
-          const msg = err instanceof Error ? err.message : String(err);
-          await terminalizePromptCard(`permission persist error: ${msg}`);
-          throw err;
-        }
-        // Fall through to dispatch — the user authorized this call.
-      };
-      await awaitSensitivePrompt();
-    }
+    const decision = await this.authorizeWithPrompts(
+      { toolName, originalName, extensionId, conversationId, messageId, input, registered, meta, signal: _opts?.signal, emitToolStart },
+      needed,
+      {
+        serviceInvocation,
+        callerExtensionId: _opts?.callerExtensionId,
+        capContext: _opts?.capContext,
+        parentAuditId: inheritedParentAuditId,
+      },
+    );
 
     // Track current call context for reverse RPC handlers (e.g. ezcorp/storage)
     this.currentConversationId = conversationId;
@@ -729,319 +916,282 @@ export class ToolExecutor {
     // otherwise the normal pre-dispatch tool:start (unchanged behavior).
     emitToolStart(startTime);
 
-    return withRuntimeToolContext(runtimeCtxForCall, async () => {
-      const dispatchTool = async (): Promise<{ result: ToolCallResult; recorded: boolean }> => {
-        _opts?.signal?.throwIfAborted();
-        // Resolve shared variables (x-shared) before dispatching to either
-        // subprocess or MCP client.
-        const resolvedInput = resolveSharedVariables(
-          registered.inputSchema,
-          input,
-        );
+    const call: DispatchCall = {
+      toolName, originalName, extensionId, conversationId, messageId, input, registered, meta,
+      opts: _opts, invocationGuard, serviceInvocation, serviceTargetBinding, invocationMetadata, startTime,
+    };
+    return withRuntimeToolContext(runtimeCtxForCall, () => this.runDispatch(call));
+  }
 
-        const manifest = this.registry.getManifest(extensionId);
-        const isMcp = manifest?.kind === "mcp";
-        if (isMcp) {
-          denyUnsupportedSandboxHostAccess(this.workspaceTarget, "project MCP");
-        }
-
-        // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
-        // to the SDK's auto-generated handler (bypassing the subprocess
-        // and the MCP client entirely). The registry tagged these with
-        // `entityKind` + `entityType`; dispatch finds the declaration on
-        // the manifest, binds an EntityStoreLike to the acting scope, and
-        // returns the SDK's `ToolCallResult` directly. The audit log
-        // (`recordToolCall` below) still runs uniformly so SDK-served
-        // calls appear in the same row as subprocess-served ones — only
-        // the bytes between PDP and audit differ.
-        const dispatchEntityTool = async (): Promise<ToolCallResult | null> => {
-        if (registered.entityKind && registered.entityType && manifest) {
-          const decl = manifest.entities?.find(
-            (e) => e.type === registered.entityType,
-          );
-          if (!decl) {
-            throw new Error(
-              `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
-            );
-          }
-          const scope = decl.scope ?? "user";
-          // Bind the host store to the acting scope. For "user", we use
-          // the acting user (currentUserId). For "conversation", we use
-          // the conversation id. "project" maps onto conversation per the
-          // host-store adapter (v1 has no project tier).
-          const scopeId =
-            scope === "user"
-              ? (this.currentUserId ?? null)
-              : (conversationId ?? null);
-          if (!scopeId) {
-            throw new Error(
-              `Cannot dispatch entity tool ${toolName}: no ${scope}-scope id available`,
-            );
-          }
-          const executeEntity = async (database?: StorageDatabase) => {
-            _opts?.signal?.throwIfAborted();
-            const store = createHostEntityStore({ extensionId, scope, scopeId, ...(database ? { database } : {}) });
-            const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
-            const result = await handler(resolvedInput);
-            _opts?.signal?.throwIfAborted();
-            return result;
-          };
-          const entityResult = await getDb().transaction(async (transaction: DbTransaction) => {
-            await verifyInvocationLocks(transaction, invocationGuard);
-            const result = await executeEntity(transaction);
-            await verifyInvocationLocks(transaction, invocationGuard);
-            return result;
-          });
-          const duration = Date.now() - startTime;
-          const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
-            conversationId,
-            extensionId,
-            toolName,
-            output: entityResult,
-            duration,
-            success: !entityResult.isError,
-            ...(registered.cardType && { cardType: registered.cardType }),
-            ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-            ...(meta?.source && { source: meta.source }),
-            ...(meta?.invocationId && { invocationId: meta.invocationId }),
-          } };
-          await this.recordToolCall(
-            conversationId,
-            messageId,
-            extensionId,
-            toolName,
-            input,
-            entityResult,
-            startTime,
-            registered.cardType,
-            registered.cardLayout,
-            toolEvent,
-          );
-          emitPersistedDomainEvent(this.bus, toolEvent);
-          return entityResult;
-        }
-
-          return null;
-        };
-        const entityResult = await dispatchEntityTool();
-        if (entityResult) return { result: entityResult, recorded: true };
-
-        const dispatchExternalTool = async (): Promise<ToolCallResult> => {
-          const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(extensionId);
-
-          // Wire handlers if not already wired for this extension
-          if (proc) await this.ensureSubprocessRpcWired(extensionId, proc);
-
-          // Use originalName for RPC call to subprocess, not the namespaced name
-          const callArgs = _opts?._callDepth != null && _opts._callDepth > 0
-            ? { ...resolvedInput, _depth: _opts._callDepth }
-            : resolvedInput;
-          // Propagate the acting-user id through the JSON-RPC `_meta`
-          // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
-          // and bundled extensions (like ai-kit) forward it as the
-          // X-Ezcorp-On-Behalf-Of header on any outbound call back into
-          // this server. This is the ONLY path by which the conversation
-          // owner's id reaches a tool handler — it is never part of the
-          // LLM-visible arguments (see bearer-auth.ts for the reason).
-          const buildCallMeta = async () => {
-          const meta: Record<string, unknown> = {};
-          if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
-          if (conversationId) {
-            meta.ezConversationId = conversationId;
-            // Resolve the conversation's ACTIVE project root so filesystem-
-            // scoping extensions (ez-code-factory's gate) target the RIGHT
-            // project. A single persistent subprocess serves every
-            // conversation, so the subprocess-wide `EZCORP_PROJECT_ROOT` env
-            // var only ever names ONE project — structurally wrong. The host
-            // owns the truth (`conversations.projectId` → `projects.path`),
-            // so we resolve it per-call and forward it on `_meta`. Best-effort:
-            // any failure leaves it undefined (the SDK/ext fall back to the
-            // env var) rather than failing the tool call.
-            try {
-              const conv = await getConversation(conversationId);
-              if (conv?.projectId) {
-                const project = await getProject(conv.projectId);
-                if (project?.path) meta.ezProjectRoot = project.path;
-              }
-            } catch {
-              // leave meta.ezProjectRoot unset — resolve defensively
-            }
-          }
-          if (this.currentModel) meta.ezModel = this.currentModel;
-          if (this.currentProvider) meta.ezProvider = this.currentProvider;
-          // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
-          // use it to build clickable deep-links in tool responses. Safe
-          // to pass to every subprocess; non-URL-building tools ignore it.
-          const publicUrl = process.env.EZCORP_PUBLIC_URL;
-          if (publicUrl) meta.ezPublicUrl = publicUrl;
-          // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
-          // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
-          // surfaces it on the handler ctx.
-          //
-          // Per-extension user/global settings (lazy-foraging-hammock):
-          // when the manifest declares a `settings` schema, resolve the
-          // effective values for the acting user and merge them under
-          // `invocationMetadata.settings`. Caller-supplied settings win
-          // over resolved values (the host orchestrator may pre-bind
-          // overrides at wire time); resolved values fill the gaps.
-          let mergedInvocationMetadata = invocationMetadata;
-          if (manifest?.settings) {
-            // Pass the in-memory schema so the resolver skips the
-            // per-call `extensions.manifest` DB query — N+1 fix.
-            const resolved = await resolveExtensionSettings(
-              extensionId,
-              this.currentUserId ?? null,
-              manifest.settings,
-            );
-            const callerSettings = (invocationMetadata?.settings ?? undefined) as
-              | Record<string, unknown>
-              | undefined;
-            mergedInvocationMetadata = {
-              ...invocationMetadata,
-              settings: { ...resolved, ...(callerSettings ?? {}) },
-            };
-          }
-          if (mergedInvocationMetadata && Object.keys(mergedInvocationMetadata).length > 0) {
-            meta.invocationMetadata = mergedInvocationMetadata;
-          }
-            return { meta, mergedInvocationMetadata };
-          };
-          const { meta, mergedInvocationMetadata } = await buildCallMeta();
-          // Per-call reverse-RPC provenance. The subprocess echoes ONLY
-          // this opaque, host-issued token back on its capability calls;
-          // the host resolves the real {onBehalfOf, conversationId, runId,
-          // parentCallId} from the registry — never from mutable singleton
-          // state. The snapshot is taken from THIS call's values, so it
-          // stays correct under concurrency and for long-running tools.
-          const im = mergedInvocationMetadata as
-            | { runId?: unknown; parentCallId?: unknown }
-            | undefined;
-          const ezCallId = registerCallProvenance({
-            onBehalfOf: this.currentUserId ?? null,
-            conversationId: conversationId ?? null,
-            runId: typeof im?.runId === "string" ? im.runId : null,
-            parentCallId: typeof im?.parentCallId === "string" ? im.parentCallId : null,
-            actorExtensionId: extensionId,
-            kind: "tool",
-            ownerless: !this.currentUserId && !serviceInvocation,
-            ...(this.workspaceTarget ? { workspaceTarget: this.workspaceTarget } : {}),
-            ...(serviceInvocation ? { serviceInvocation, invocationGuard, runId: serviceInvocation.workflowRunId, ...(serviceInvocation.projectId ? { projectId: serviceInvocation.projectId } : {}) } : {}),
-          });
-          meta.ezCallId = ezCallId;
-          if (serviceTargetBinding !== undefined || _opts?.expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = serviceTargetBinding ?? _opts?.expectedReleaseBinding;
-          // Only pass the fourth `options` arg when there's something to set —
-          // keeps the 3-arg call shape for the common case (tests assert with
-          // strict `toHaveBeenCalledWith` arity). The token is released the
-          // moment the forward call returns — all reverse-RPCs for it have
-          // necessarily completed by then.
-          // Long-blocking exemption from the flat per-call subprocess RPC timeout
-          // (subprocess.ts kills the process on any call exceeding callTimeoutMs,
-          // default 30s). Two host-controlled cases opt out:
-          //   1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
-          //      user.
-          //   2. A BUNDLED orchestration tool that legitimately awaits async events
-          //      (invoke_agent / collect_agent_result — see
-          //      LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
-          //      the SHARED orchestration subprocess, dropping every backgroundSpawn
-          //      + in-flight invoke across all conversations.
-          // Gated on `registry.isBundled` so a third-party manifest cannot self-grant
-          // supervision evasion (the bare-name set is host-produced; see filter.ts).
-          // Unbounded here (not a raised finite cap) because the activity-sliding
-          // give-up deadline + configurable maxCycles exceed any fixed cap; the tool
-          // self-bounds via its own reap/gate, and the parent-run watchdog provides
-          // the run-level bound (bounded for collect; agent:* liveness for invoke).
-          const skipCallTimeout =
-            registered.requiresUserInput === true ||
-            (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(originalName) &&
-              this.registry.isBundled?.(extensionId) === true);
-          try {
-            _opts?.signal?.throwIfAborted();
-            if (invocationGuard) await invocationGuard();
-            _opts?.signal?.throwIfAborted();
-            const controlOptions = { ...(_opts?.signal ? { signal: _opts.signal } : {}), ...(invocationGuard ? { invocationGuard } : {}) };
-            const controlled = _opts?.signal || invocationGuard;
-            const callOptions = controlled ? { skipTimeout: skipCallTimeout, ...controlOptions } : skipCallTimeout ? { skipTimeout: true } : undefined;
-            const result = isMcp
-              ? await (await this.registry.getMcpClient(extensionId)).callTool(originalName, callArgs, meta, ...(controlled ? [controlOptions] : []))
-              : callOptions
-              ? await proc!.callTool(originalName, callArgs, meta, callOptions)
-              : await proc!.callTool(originalName, callArgs, meta);
-            return result;
-          } finally {
-            releaseCallProvenance(ezCallId);
-          }
-        };
-        return { result: await dispatchExternalTool(), recorded: false };
+  /** Dispatch an authorized call and record its outcome. A failure at any
+   *  step, including the record of a success, becomes a recorded error result. */
+  private async runDispatch(call: DispatchCall): Promise<ToolCallResult> {
+    try {
+      const result = await this.dispatchTool(call);
+      await this.recordToolOutcome(call, "tool:complete", result, { output: result, success: !result.isError });
+      return result;
+    } catch (error) {
+      const errorMsg = toolErrorMessage(error);
+      const errorResult: ToolCallResult = {
+        content: [{ type: "text", text: errorMsg }],
+        isError: true,
       };
-      try {
-        const { result, recorded } = await dispatchTool();
-        if (recorded) return result;
-        // Record to tool_calls table
-        const duration = Date.now() - startTime;
-        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:complete", conversationId, payload: {
-          conversationId,
-          extensionId,
-          toolName,
-          output: result,
-          duration,
-          success: !result.isError,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        } };
-        await this.recordToolCall(
-          conversationId,
-          messageId,
-          extensionId,
-          toolName,
-          input,
-          result,
-          startTime,
-          registered.cardType,
-          registered.cardLayout,
-          toolEvent,
-        );
-        emitPersistedDomainEvent(this.bus, toolEvent);
+      await this.recordToolOutcome(call, "tool:error", errorResult, { error: errorMsg });
+      return errorResult;
+    }
+  }
 
-        return result;
-      } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : (typeof error === 'string' ? error : JSON.stringify(error));
-        const errorResult: ToolCallResult = {
-          content: [{ type: "text", text: errorMsg }],
-          isError: true,
-        };
+  /** Write the tool_calls row and emit the terminal tool event. */
+  private async recordToolOutcome(
+    call: DispatchCall,
+    type: "tool:complete" | "tool:error",
+    result: ToolCallResult,
+    outcome: Record<string, unknown>,
+  ): Promise<void> {
+    const { conversationId, extensionId, toolName, registered } = call;
+    const duration = Date.now() - call.startTime;
+    const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type, conversationId, payload: {
+      conversationId,
+      extensionId,
+      toolName,
+      ...outcome,
+      duration,
+      ...toolEventTags(registered, call.meta),
+    } };
+    await this.recordToolCall(
+      conversationId,
+      call.messageId,
+      extensionId,
+      toolName,
+      call.input,
+      result,
+      call.startTime,
+      registered.cardType,
+      registered.cardLayout,
+      toolEvent,
+    );
+    emitPersistedDomainEvent(this.bus, toolEvent);
+  }
 
-        // Record error to tool_calls table
-        const duration = Date.now() - startTime;
-        const toolEvent: DomainExtensionEvent = { id: crypto.randomUUID(), type: "tool:error", conversationId, payload: {
-          conversationId,
-          extensionId,
-          toolName,
-          error: errorMsg,
-          duration,
-          ...(registered.cardType && { cardType: registered.cardType }),
-          ...(registered.cardLayout && { cardLayout: registered.cardLayout }),
-          ...(meta?.source && { source: meta.source }),
-          ...(meta?.invocationId && { invocationId: meta.invocationId }),
-        } };
-        await this.recordToolCall(
-          conversationId,
-          messageId,
-          extensionId,
-          toolName,
-          input,
-          errorResult,
-          startTime,
-          registered.cardType,
-          registered.cardLayout,
-          toolEvent,
-        );
-        emitPersistedDomainEvent(this.bus, toolEvent);
+  /** Route an authorized call to the SDK entity handler or the extension. */
+  private async dispatchTool(call: DispatchCall): Promise<ToolCallResult> {
+    call.opts?.signal?.throwIfAborted();
+    // Resolve shared variables (x-shared) before dispatching to either
+    // subprocess or MCP client.
+    const resolvedInput = resolveSharedVariables(call.registered.inputSchema, call.input);
+    const manifest = this.registry.getManifest(call.extensionId);
+    if (manifest?.kind === "mcp") {
+      denyUnsupportedSandboxHostAccess(this.workspaceTarget, "project MCP");
+    }
+    // Phase 3 SDK-served branch — entity CRUD tools dispatch directly
+    // to the SDK's auto-generated handler (bypassing the subprocess
+    // and the MCP client entirely). The registry tagged these with
+    // `entityKind` + `entityType`; dispatch finds the declaration on
+    // the manifest, binds an EntityStoreLike to the acting scope, and
+    // returns the SDK's `ToolCallResult` directly. The audit log
+    // (`recordToolOutcome`) still runs uniformly so SDK-served calls
+    // appear in the same row as subprocess-served ones — only the bytes
+    // between PDP and audit differ.
+    if (call.registered.entityKind && call.registered.entityType && manifest) {
+      return this.dispatchEntityTool(call, manifest, resolvedInput);
+    }
+    return this.dispatchExtensionTool(call, manifest, resolvedInput);
+  }
 
-        return errorResult;
-      }
+  /** Run an SDK entity CRUD handler inside one locked transaction. */
+  private async dispatchEntityTool(
+    call: DispatchCall,
+    manifest: NonNullable<ExtensionManifest>,
+    resolvedInput: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const { extensionId, registered, invocationGuard } = call;
+    const decl = manifest.entities?.find((e) => e.type === registered.entityType);
+    if (!decl) {
+      throw new Error(
+        `Entity declaration "${registered.entityType}" not found on manifest for extension ${extensionId}`,
+      );
+    }
+    const scope = decl.scope ?? "user";
+    const scopeId = this.entityScopeId(scope, call.conversationId);
+    if (!scopeId) {
+      throw new Error(
+        `Cannot dispatch entity tool ${call.toolName}: no ${scope}-scope id available`,
+      );
+    }
+    const signal = call.opts?.signal;
+    const executeEntity = async (database: StorageDatabase) => {
+      signal?.throwIfAborted();
+      const store = createHostEntityStore({ extensionId, scope, scopeId, database });
+      const handler = buildEntityToolHandlers(decl, store)[registered.entityKind!];
+      const result = await handler(resolvedInput);
+      signal?.throwIfAborted();
+      return result;
+    };
+    return getDb().transaction(async (transaction: DbTransaction) => {
+      await verifyInvocationLocks(transaction, invocationGuard);
+      const result = await executeEntity(transaction);
+      await verifyInvocationLocks(transaction, invocationGuard);
+      return result;
     });
+  }
+
+  /** Bind the host entity store to the acting scope. For "user", we use the
+   *  acting user (currentUserId). For "conversation", we use the conversation
+   *  id. "project" maps onto conversation per the host-store adapter (v1 has
+   *  no project tier). */
+  private entityScopeId(scope: string, conversationId: string): string | null {
+    return scope === "user" ? (this.currentUserId ?? null) : (conversationId ?? null);
+  }
+
+  /** Forward the call to the extension's subprocess or MCP client. */
+  private async dispatchExtensionTool(
+    call: DispatchCall,
+    manifest: ExtensionManifest,
+    resolvedInput: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const isMcp = manifest?.kind === "mcp";
+    const proc = isMcp && manifest?.mcpServers?.[0]?.transport !== "stdio" ? undefined : await this.registry.getProcess(call.extensionId);
+
+    // Wire handlers if not already wired for this extension
+    if (proc) await this.ensureSubprocessRpcWired(call.extensionId, proc);
+
+    // Use originalName for RPC call to subprocess, not the namespaced name
+    const callArgs = withCallDepth(resolvedInput, call.opts?._callDepth);
+    const rpcMeta = await this.buildToolCallMeta(call, manifest);
+    // The provenance token is released the moment the forward call
+    // returns — all reverse-RPCs for it have necessarily completed by then.
+    try {
+      return await this.sendToolCall(call, isMcp ? undefined : proc, callArgs, rpcMeta);
+    } finally {
+      releaseCallProvenance(rpcMeta.ezCallId as string);
+    }
+  }
+
+  /** JSON-RPC `_meta` for one tool call. Registers the call's provenance
+   *  token; the caller must release `ezCallId`. */
+  private async buildToolCallMeta(call: DispatchCall, manifest: ExtensionManifest): Promise<Record<string, unknown>> {
+    // Propagate the acting-user id through the JSON-RPC `_meta`
+    // side-channel. The subprocess sees it in `extra._meta.ezOnBehalfOf`
+    // and bundled extensions (like ai-kit) forward it as the
+    // X-Ezcorp-On-Behalf-Of header on any outbound call back into
+    // this server. This is the ONLY path by which the conversation
+    // owner's id reaches a tool handler — it is never part of the
+    // LLM-visible arguments (see bearer-auth.ts for the reason).
+    const meta: Record<string, unknown> = {};
+    if (this.currentUserId) meta.ezOnBehalfOf = this.currentUserId;
+    if (call.conversationId) Object.assign(meta, await conversationMeta(call.conversationId));
+    if (this.currentModel) meta.ezModel = this.currentModel;
+    if (this.currentProvider) meta.ezProvider = this.currentProvider;
+    // Public origin of the EZCorp UI — bundled MCP tools (ai-kit)
+    // use it to build clickable deep-links in tool responses. Safe
+    // to pass to every subprocess; non-URL-building tools ignore it.
+    const publicUrl = process.env.EZCORP_PUBLIC_URL;
+    if (publicUrl) meta.ezPublicUrl = publicUrl;
+    // Phase 4 §5.1a: opaque per-turn invocation metadata rides in
+    // `_meta.invocationMetadata`. The SDK's tools/call dispatcher
+    // surfaces it on the handler ctx.
+    const invocationMetadata = await this.withExtensionSettings(call, manifest);
+    if (invocationMetadata && Object.keys(invocationMetadata).length > 0) {
+      meta.invocationMetadata = invocationMetadata;
+    }
+    meta.ezCallId = this.registerToolCallProvenance(call, invocationMetadata);
+    const expectedReleaseBinding = call.serviceTargetBinding ?? call.opts?.expectedReleaseBinding;
+    if (expectedReleaseBinding !== undefined) meta.expectedReleaseBinding = expectedReleaseBinding;
+    return meta;
+  }
+
+  /** Per-extension user/global settings (lazy-foraging-hammock): when the
+   *  manifest declares a `settings` schema, resolve the effective values for
+   *  the acting user and merge them under `invocationMetadata.settings`.
+   *  Caller-supplied settings win over resolved values (the host
+   *  orchestrator may pre-bind overrides at wire time); resolved values fill
+   *  the gaps. */
+  private async withExtensionSettings(
+    call: DispatchCall,
+    manifest: ExtensionManifest,
+  ): Promise<Record<string, unknown> | undefined> {
+    const { invocationMetadata } = call;
+    if (!manifest?.settings) return invocationMetadata;
+    // Pass the in-memory schema so the resolver skips the
+    // per-call `extensions.manifest` DB query — N+1 fix.
+    const resolved = await resolveExtensionSettings(
+      call.extensionId,
+      this.currentUserId ?? null,
+      manifest.settings,
+    );
+    const callerSettings = invocationMetadata?.settings as Record<string, unknown> | undefined;
+    return {
+      ...invocationMetadata,
+      settings: { ...resolved, ...(callerSettings ?? {}) },
+    };
+  }
+
+  /** Per-call reverse-RPC provenance. The subprocess echoes ONLY this
+   *  opaque, host-issued token back on its capability calls; the host
+   *  resolves the real {onBehalfOf, conversationId, runId, parentCallId}
+   *  from the registry — never from mutable singleton state. The snapshot
+   *  is taken from THIS call's values, so it stays correct under
+   *  concurrency and for long-running tools. */
+  private registerToolCallProvenance(
+    call: DispatchCall,
+    invocationMetadata: Record<string, unknown> | undefined,
+  ): string {
+    const { serviceInvocation } = call;
+    return registerCallProvenance({
+      onBehalfOf: this.currentUserId ?? null,
+      conversationId: call.conversationId ?? null,
+      ...provenanceLineage(invocationMetadata),
+      actorExtensionId: call.extensionId,
+      kind: "tool",
+      ownerless: !this.currentUserId && !serviceInvocation,
+      ...(this.workspaceTarget ? { workspaceTarget: this.workspaceTarget } : {}),
+      ...(serviceInvocation ? serviceProvenance(serviceInvocation, call.invocationGuard) : {}),
+    });
+  }
+
+  /** Check abort and the invocation guard, then make the transport call.
+   *  `proc` is undefined for an MCP extension. */
+  private async sendToolCall(
+    call: DispatchCall,
+    proc: ExtensionProcess | undefined,
+    callArgs: Record<string, unknown>,
+    rpcMeta: Record<string, unknown>,
+  ): Promise<ToolCallResult> {
+    const { extensionId, originalName, invocationGuard } = call;
+    const signal = call.opts?.signal;
+    signal?.throwIfAborted();
+    if (invocationGuard) await invocationGuard();
+    signal?.throwIfAborted();
+    const { controlOptions, callOptions } = toolCallTransportOptions(signal, invocationGuard, this.skipsCallTimeout(call));
+    if (!proc) {
+      const client = await this.registry.getMcpClient(extensionId);
+      return client.callTool(originalName, callArgs, rpcMeta, ...(controlOptions ? [controlOptions] : []));
+    }
+    return callOptions
+      ? proc.callTool(originalName, callArgs, rpcMeta, callOptions)
+      : proc.callTool(originalName, callArgs, rpcMeta);
+  }
+
+  /** Long-blocking exemption from the flat per-call subprocess RPC timeout
+   *  (subprocess.ts kills the process on any call exceeding callTimeoutMs,
+   *  default 30s). Two host-controlled cases opt out:
+   *    1. `requiresUserInput` — human-in-the-loop (ask-user); bounded by the
+   *       user.
+   *    2. A BUNDLED orchestration tool that legitimately awaits async events
+   *       (invoke_agent / collect_agent_result — see
+   *       LONG_BLOCKING_ORCHESTRATION_TOOLS). Without this, a >30s wait kills
+   *       the SHARED orchestration subprocess, dropping every backgroundSpawn
+   *       + in-flight invoke across all conversations.
+   *  Gated on `registry.isBundled` so a third-party manifest cannot self-grant
+   *  supervision evasion (the bare-name set is host-produced; see filter.ts).
+   *  Unbounded here (not a raised finite cap) because the activity-sliding
+   *  give-up deadline + configurable maxCycles exceed any fixed cap; the tool
+   *  self-bounds via its own reap/gate, and the parent-run watchdog provides
+   *  the run-level bound (bounded for collect; agent:* liveness for invoke). */
+  private skipsCallTimeout(call: DispatchCall): boolean {
+    return call.registered.requiresUserInput === true ||
+      (LONG_BLOCKING_ORCHESTRATION_TOOLS.has(call.originalName) &&
+        this.registry.isBundled?.(call.extensionId) === true);
   }
 
   /** Legacy `ezcorp/fs` path-check shim — see {@link fsHandlePiFs}. */
@@ -1120,7 +1270,6 @@ export class ToolExecutor {
       bus: this.bus,
       executor: this.executor,
       spawnQuota: this.spawnQuota,
-      scheduleDaemon: this.scheduleDaemon,
       currentModel: this.currentModel,
       currentProvider: this.currentProvider,
       currentUserId: this.currentUserId,

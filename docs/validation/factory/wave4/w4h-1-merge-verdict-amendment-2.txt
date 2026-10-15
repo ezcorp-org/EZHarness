@@ -1,0 +1,13 @@
+W4H-1 merge daf2aa776: the verdict of record, the separate addendum file and the owner's runtime-resources evidence.
+Addendum to w4h-1-merge-verdict-amendment.txt (amendment 96c96029e). SHA256SUMS is append-only; no existing line is rewritten.
+- Verdict of record: validator-6's main verdict file with its appended addendum, sha256 49813b3b9dbc8293d98569e446ac04a2e5a1e205133a66af206d6062de649d02.
+  Its byte-equal copy is w4h-1-validation-addendum.txt (amendment 96c96029e; the name predates the lead's order to call it the verdict
+  of record; it is that file). History: e266e517d7eb9c9c..., receipted as w4h-1-validation.txt (receipts 36ece5b99).
+- The separate addendum file verdict-validator-6-w4h1-addendum.txt, sha256 9eb55979f08ed43831b3b4c81be7a449e9e6ea2e14e82350472b708246a97ff8,
+  copied as w4h-1-validation-addendum-file.txt: the same judgement with the log hashes and the 28 build names added.
+- Both open items are closed: the recovery-seed finding by W4H-9 (f419a60774769a4b; R3d f54bdc118cdab08f, receipt a5c5afebe); the
+  production-image proofs, read-only: runtime-resources exit 0 at d341d8690 from a clean archive, 28/28 verified, ai-kit verified within
+  the deadline; delivery and runtime 28/28 at code head 2f2d689d7. legacy-adoption was not run (docker-only; on the leftover list).
+- Owner evidence: w4h-1/rr4.log (sha256 80b76110339076a1519a64d0c02224594198a85e15de5cbf41d0d936d105383b, copied as w4h-1-rr4.log), w4h-1/rr/exit (0, copied as
+  w4h-1-rr-exit.txt), w4h-1/rr4/runtime-resources/controller.log (sha256 2fe708c0df94aa45c11dd569f584f3b81f5069f03cc6ce340867fc6118ba3587, copied as w4h-1-rr4-controller.log).
+W4H-1 is closed on all sides. The merge, its hold and the publish are unchanged.

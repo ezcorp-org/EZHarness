@@ -62,6 +62,7 @@ import {
 import { acquireLockfile, releaseLockfile, isProcessAlive } from "../startup/process-lockfile";
 import { sweepWorkflowDefinitionVersions } from "../db/queries/workflow-versions";
 import { listPinnedDelegationVersionIds } from "../db/queries/workflow-delegations";
+import { terminalizeOrphanedWorkflowRuns } from "../db/queries/workflow-runs";
 import {
   sweepExpiredWorkflowApprovals,
   type ApprovalTimeoutSweepResult,
@@ -200,6 +201,8 @@ export interface TickOutcome {
   /** What the dynamic-trigger orphan sub-tick did this pass. All zeroes
    *  when no registry was injected. */
   triggerSweep: SweepAllResult;
+  /** Legacy workflow runs resolved by the periodic orphan sub-tick. */
+  workflowOrphans: number;
 }
 
 /** Zeroed sub-tick result — the shape a tick that swept nothing reports. */
@@ -241,6 +244,7 @@ export class HostMaintenanceDaemon {
    * required (a fresh daemon is a fresh boot).
    */
   private tickCount = 0;
+  private readonly orphanStartedBefore: Date;
 
   constructor(options?: HostMaintenanceDaemonOptions) {
     // The env-var read here happens at construction time so that tests
@@ -248,10 +252,12 @@ export class HostMaintenanceDaemon {
     // (no override) gets the clamped env-var-resolved value. Either way,
     // the resolved value is clamped to MIN_WAKE_MS.
     const requested = options?.wakeIntervalMs ?? getSweepIntervalMs();
+    const now = options?.now ?? (() => Date.now());
+    this.orphanStartedBefore = new Date(now());
     this.opts = {
       ...(options?.getBus ? { getBus: options.getBus } : {}),
       wakeIntervalMs: Math.max(MIN_WAKE_MS, requested),
-      now: options?.now ?? (() => Date.now()),
+      now,
       skipLockfile: options?.skipLockfile ?? false,
       lockfilePath: options?.lockfilePath ?? DEFAULT_LOCKFILE_PATH,
       ...(options?.ttlConfig !== undefined ? { ttlConfig: options.ttlConfig } : {}),
@@ -340,6 +346,7 @@ export class HostMaintenanceDaemon {
       errors: [],
       approvalTimeouts: NO_APPROVAL_TIMEOUTS,
       triggerSweep: NO_TRIGGER_SWEEP,
+      workflowOrphans: 0,
     };
     try {
       const db = getDb();
@@ -381,6 +388,7 @@ export class HostMaintenanceDaemon {
           errors: applied.errors,
           approvalTimeouts: NO_APPROVAL_TIMEOUTS,
           triggerSweep: NO_TRIGGER_SWEEP,
+          workflowOrphans: 0,
         };
       }
 
@@ -501,6 +509,23 @@ export class HostMaintenanceDaemon {
         }
       }
 
+      // Sub-tick: resolve legacy workflow executions whose owner died.
+      // The construction-time cutoff retains the boot sweep's protection
+      // for active, lease-less synchronous runs. Expired leases still
+      // resolve on every tick, including failures after this host booted.
+      let workflowOrphans = 0;
+      try {
+        workflowOrphans = await terminalizeOrphanedWorkflowRuns(
+          this.orphanStartedBefore,
+          new Date(now),
+        );
+      } catch (err) {
+        log.warn("tick: workflow orphan sweep skipped", {
+          error: String((err as Error)?.message ?? err),
+          tickCount: this.tickCount,
+        });
+      }
+
       try {
         const { purgeExpiredEventReceipts } = await import("../db/queries/extension-event-receipts");
         await db.transaction((transaction: import("../db/migrations/types").MigrationDb) => purgeExpiredEventReceipts(transaction, now));
@@ -513,7 +538,7 @@ export class HostMaintenanceDaemon {
       } catch (cause) {
         log.warn("tick: task assignment reconciliation failed", { error: String(cause), tickCount: this.tickCount });
       }
-      return { ...outcome, approvalTimeouts, triggerSweep };
+      return { ...outcome, approvalTimeouts, triggerSweep, workflowOrphans };
     } catch (err) {
       log.warn("tick: sweep crashed — daemon continues", {
         error: String((err as Error)?.message ?? err),

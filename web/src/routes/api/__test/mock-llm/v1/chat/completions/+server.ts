@@ -10,13 +10,17 @@
  * boundary.
  *
  * It replays the next scripted turn for the key encoded in `model`
- * (`mock:<key>`) as a streaming OpenAI response. See `$lib/server/mock-llm`.
+ * (`mock:<key>`) as a streaming OpenAI response, or, for
+ * `prompt-digest:<label>`, the fixed answer for the prompt's digest. See
+ * `$lib/server/mock-llm`.
  */
 import { errorJson } from "$lib/server/http-errors";
 import { isTestSurfaceEnabled } from "$lib/server/test-surface";
 import {
   buildMockTurnResponse,
   dequeueMockTurn,
+  isMockPromptDigestModel,
+  mockPromptDigestTurn,
   mockScriptKeyFromModel,
   recordMockRequest,
 } from "$lib/server/mock-llm";
@@ -34,7 +38,7 @@ export const POST: RequestHandler = async ({ request }) => {
 
   const key = mockScriptKeyFromModel(body.model);
   recordMockRequest(key, { model: body.model, messages: body.messages });
-  const turn = dequeueMockTurn(key);
+  const turn = isMockPromptDigestModel(body.model) ? mockPromptDigestTurn(body.model as string, body.messages) : dequeueMockTurn(key);
   // A normal turn streams (pi-agent-core only uses the streaming path); a
   // fault turn replies with the simulated provider failure instead.
   return buildMockTurnResponse(turn);

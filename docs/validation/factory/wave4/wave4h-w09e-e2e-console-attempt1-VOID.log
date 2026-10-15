@@ -1,0 +1,4 @@
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner node 24.21.0 (/nix/store/m0256z6rrjwmvxkbymm7a28n0nw2zll9-nodejs-slim-24.21.0/bin/node)
+Error: http://localhost:4173 is already used, make sure that nothing is running on the port/url or set reuseExistingServer:true in config.webServer.
+
+ZERO TESTS RAN: this leg fails (exit 97 in place of 1)

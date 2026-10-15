@@ -1,0 +1,74 @@
+ACCEPT wp/w4h-15-coverage-artifact-names at f1774df59
+W4H-15 verdict (hosted per-file coverage gate: lcov-cov producers overwrote one another), validator-8 (lane validator-8), 2026-10-08T08:5xZ
+
+VERDICT: ACCEPT wp/w4h-15-coverage-artifact-names at f1774df59. Every leg of the accepted plan passes.
+Commits on base 1b96d2730: 28c04b874 (the fix) and f1774df59 (docs: gate file and todo).
+Owner report sha256 82ac7631fc3ff136 (it matches the order). All 42 receipt hashes listed in it match.
+
+1. Scope, identity, prune (light hold w4h-15-light/, snapshot of f1774df59, removed after use)
+   - Changed paths: ci.yml, db-postgres.yml, 4 registration tests (path needles only), the new
+     scripts/lcov-artifact-names-registration.test.ts, scripts/lib/ci-registration.ts, the gate file and tasks/todo.md.
+   - Nothing in src/ or packages/.
+   - ci-registration.ts is type-only: two interface lines and one JSDoc line (WorkflowStep.with, WorkflowJob.uses).
+   - Read: 7 rename steps (mv to lcov_factory_<producer>.info), each directly before its upload. Each has the same run
+     condition as its upload (no if: on either). The 7 upload paths match. The gate job is byte-unchanged.
+   - Identity: 2 of 2 commits are archy noreply as author and committer.
+   - Prune scan (w00/prune-scan.sh a4a59601cec26963): clean, 0 hits. The tree review flags only the two workflows as gate tooling.
+2. Owner's test (4 tests)
+   - Green at the head: 4/0. Each file ran alone first; none is VOID.
+   - Red with the base workflows: 1 pass, 3 fail, by assertion. The red names all seven: assurance-release,
+     compute-admissions, orchestrator, pool, provisioning, python and storage.
+3. Mutants (each in the snapshot; the owner's test must go red by assertion)
+   - m1, db-postgres storage back to lcov.info: RED (2 fail).
+   - m2, ci.yml python back to lcov.info: RED (2 fail).
+   - m3, provisioning given pool's new name: RED (2 fail).
+   - m4, cross-file collision (pool given python's name): RED (3 fail).
+   - m5, pool renamed into the lcov_web_vitest_* glob (measured): RED as well (2 fail), caught by the exact name table.
+4. Independent checks on the hosted run 37743486763's 24 real artifacts
+   - lcov-artifact-names.ts (sha 211f421b38a36620; tests 11/0): PASS at f1774df59. Every lcov-cov-* record reaches the merge.
+   - lcov-merge-repro.sh head mode: the merged LCOV with the head's names equals the unique-name control byte for byte
+     (sha 7027b0fa118539c8). Both lose the same 3 web records, which the merger drops by itself (hosted absolute paths).
+   - At base the same tool showed 38-41 of 2410 SF records lost.
+   - The script gained three optional steps for this leg, all default off: a root rewrite, the browser-route LCOV, and a
+     coverage check. Current sha 459e24c031f59aff.
+5. actionlint 1.7.7 with the labels config (w00/tools): 0 findings at the head and 0 at base.
+   (The owner's 1.7.12 run without a labels config shows the same 3 label findings at both.)
+6. gate-integrity
+   - Base leg (1b96d2730): PASSED.
+   - Main leg (BASE_REF=e3309906d): findings-match PASS, exactly the 8 standing lines, no new line.
+7. Tests, coverage and static checks
+   Heavy lock: gated-flock, lock_veto validator-8, GATE_TRIES=1 inside, heavy.exit 0.
+   - The commit's 6 hook-mapped suites, one process each with lcov: 28/0.
+     lcov-artifact-names 4, ci-registration 16, compute-admissions 2, protected-command-effects 2, provisioning 2,
+     validator-materials 2.
+   - New-file and patch vs 1b96d2730: PASSED. ci-registration.ts LH 46 of LF 46.
+   - The new test file's own lines (its helpers live in it; coverageSkipTestFiles=false, one file, under the lock):
+     LH 97 of LF 97, FNH 31 of FNF 31. That is 100 percent.
+   - Guard set: 41 files, 511 pass, 2 skip, 0 fail.
+   - Lint 0. check-boundaries and check-factory-boundaries 0. gitleaks on the changed files 0.
+   - Typecheck (all programs including Python) 0, and svelte-check 620 files 0 errors 0 warnings.
+     tc rule path a: in-lock, MemAvailable 15.3 GiB before, lowest 12.3 GiB, pinned Node v24.14.1, no OOM kill.
+8. Config: the shared .git/config equals the accepted baseline (w00/config-check.py, now 29e61b63b05624e9) at the start
+   and the end of every hold.
+
+Owner's 4-file finding (outside scope; a decision item for the coordinator and the user): VERIFIED.
+- With the head's names, the root rewrite and the browser-route LCOV, check-coverage on the merged result fails exactly on:
+  pack.ts 50.44%, materials.ts 99.31% (line 91), uv-command.ts 91.30% (lines 20-21), and publication.ts (no lcov data).
+- Their records come only from shard artifacts: pack.ts from shard-5, materials.ts from shards 4 and 5, uv-command.ts
+  from shards 3 and 6. Those artifacts always had unique names.
+- publication.ts is in no artifact.
+- So the collision and this fix do not cause them. The collision only hid them, because the gate failed before they
+  were reached.
+
+DISCLOSURES (validator-8's own process; no effect on the result)
+- The light hold's lock-free typecheck waited for MemAvailable 16 GiB, and the host had 15 GiB. I stopped my own hold at
+  that wait and moved the typecheck into the heavy hold (in-lock, at least 12 GiB). I did the light hold's end steps by
+  hand: config check, snapshot removed.
+- The test-file coverage run waited outside the lock at the swap start margin from 08:32 to 08:45Z. I replaced its first
+  waiter with a detached one; the first waiter's log is kept as w4h-15-testfile-try1-gate-wait/.
+- While replacing that waiter, a pkill pattern matched my own shell once. Only my own processes were affected.
+Evidence: /tmp/factory-platform-evidence/validator-8/
+- w4h-15-light/ (results.jsonl sha 2c05b56da2ebcf1d, repro/)
+- w4h-15-heavy/ (results.jsonl sha 17b7f39b82e7b2a3, heavy.exit 0)
+- w4h-15-testfile/ (summary.txt, heavy.exit 0)
+- hold-w4h-15-light.sh, hold-w4h-15-heavy.sh, hold-w4h-15-testfile.sh, pkg-common.sh

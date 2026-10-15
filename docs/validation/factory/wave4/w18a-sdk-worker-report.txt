@@ -1,0 +1,161 @@
+W18a-sdk — split the twenty high-complexity workspace functions
+================================================================
+
+Head: 9e7866e2bb4abd92bcda3fbf788a07b43219bb3a  (branch wp/w18a-sdk, clean tree)
+Base: integ/w00 at bf010dece; merged integ/w00 again at c1377122b (f2b88a3f9).
+Evidence: /tmp/factory-platform-evidence/w18a-sdk/
+
+COMMITS (oldest first)
+  fa97c942f  refactor(factory-sdk): split validation.ts into named per-responsibility validators
+  bf9b5730e  refactor(factory-sdk): split compiler.ts graph passes and compileFactory phases
+  2e5f1188b  refactor(factory-sdk): split the generated-schema matcher and the expression walkers
+  68263363c  refactor(factory-sdk): split kernel applyRepair and the advanceKernel event table
+  057357c4f  refactor(factory-orchestrator): split factoryWorkflow into named phases
+  bd59cb0d5  refactor(extension-runner): split the service dispatcher and the Podman build
+  e49f3d21b  refactor(factory-orchestrator): keep selectNextEvent's two arms on shared lines
+  f2b88a3f9  Merge branch 'integ/w00' into wp/w18a-sdk
+  3da743620  docs(factory): record the W18a-sdk complexity split, its gates, and its review
+  26a63cbbb  refactor(extension-runner): keep the events long poll inside the dispatch table
+  9e7866e2b  docs(factory): record the W18a-sdk gate results and the runner detach measurement gap
+
+COMPLEXITY, BEFORE AND AFTER  (scripts/crap-score.ts AST rules; ceiling 30)
+  validation.ts:474  validateCompiledFactory           86 -> 8
+  validation.ts:869  validateFactoryApiRequest         82 -> 11
+  validation.ts:101  validateSchemaNode                71 -> 9
+  validation.ts:400  validateNodeSemantics             69 -> 6
+  validation.ts:984  validateFactoryApiResponse        68 -> 10
+  validation.ts:251  contained                         50 -> 9
+  validation.ts:640  validateFactoryRunnerRequest      43 -> 8
+  validation.ts:189  validateValueNode                 39 -> 19
+  compiler.ts:400    <anonymous> graph pass one        86 -> 1   (declareGraphNode 7)
+  compiler.ts:476    <anonymous> graph pass two        51 -> 1   (checkGraphNode 1)
+  compiler.ts:689    compileFactory                    51 -> 9
+  compiler.ts:309    inferExpressionSchema             36 -> 13
+  schema.ts:56       validate                          52 -> 14
+  kernel.ts:538      applyRepair                       49 -> 20
+  kernel.ts:102      advanceKernel                     32 -> 17
+  expressions.ts:112 evaluate                          46 -> 9
+  expressions.ts:52  inspect                           31 -> 12
+  workflow.ts:145    factoryWorkflow                   47 -> 25
+  service.ts:40      handle                            34 -> 6
+  podman.ts:400      build                             33 -> 15
+
+  0 of 677 functions in the eight files exceed 30. The highest are kernel.ts
+  applyUsage and kernel.ts progressMap, both exactly 30 and both untouched.
+  Receipt: complexity-after.txt
+
+HOW EACH SPLIT WAS MADE
+  By responsibility, never by line count, and always preserving the order of
+  checks, the error codes, the messages, the paths, and the thrown types.
+    validation.ts   one validator per schema keyword family, per JSON value kind,
+                    per compiled node kind, per API resource family; compiled
+                    factory becomes six ordered phases.
+    compiler.ts     two named per-node passes behind the existing forEach
+                    callbacks; compileFactory becomes six phases; expression
+                    inference splits into logical and comparison families.
+    schema.ts       keyword matching, then one matcher per JSON value kind.
+    kernel.ts       applyRepair into admissibility, sealed revision, aggregate
+                    scopes, affected nodes, pending record, partition
+                    invalidations; advanceKernel's switch into applyEvent.
+    workflow.ts     five phases; nothing new imported, no call added or
+                    reordered, so the workflow stays deterministic.
+    service.ts      body reader, dispatch table, start and reply handlers.
+    podman.ts       input assertions, provisioned-path assertions,
+                    typecheck-and-compile, feature tests.
+
+  Two decisions worth naming:
+   - validateSchemaNode's $ref arm returns the referenced node's verdict to the
+     caller instead of returning outright, because a reference node still owes
+     its own $defs walk. Returning early would silently drop that validation.
+   - applyEvent is typed over DispatchedEvent, the event union minus the two
+     kinds advanceKernel answers before the table, so the switch stays
+     exhaustive without a default branch no run could reach and no test cover.
+
+WHAT IS GREEN  (all at 9e7866e2b, clean tree)
+  package builds (factory-sdk, factory-transport, extension-contract,
+    factory-orchestrator)                                         exit 0
+  bun run typecheck                                               exit 0
+  bun run lint                                                    exit 0
+  bun scripts/check-factory-boundaries.ts                         exit 0
+  bun scripts/gate-integrity.ts                                   exit 0
+  bun scripts/check-schema-generate-drift.ts                      exit 0  (13 schemas byte-identical)
+  factory-SDK suite                                196 pass, 0 fail, 1435 assertions, 29 files
+  factory-orchestrator Node suites                  48 pass, 0 fail
+  factory-orchestrator coverage leg (Temporal test server, temporal-replay)   exit 0
+  extension-runner + extension-contract, 23 files (incl. podman.integration)  every exit 0
+  src/factory producers: supervisor.podman.integration, sandbox-stop,
+    sandbox-stop.podman.integration, python-guest.integration,
+    python-runner.integration                                     every exit 0
+  BASE_REF=integ/w00 check-new-file-coverage.ts                   exit 0
+  BASE_REF=integ/w00 check-patch-coverage.ts                      exit 0
+    "all changed executable lines covered (8 file(s))"
+  BASE_REF=origin/main crap-score.ts --changed
+    70 violations over the whole feature diff, 0 inside the eight W18a-sdk files.
+
+  No test file was changed, added, or removed: the diff is 8 source files,
+  1167 insertions, 547 deletions, 0 test lines (test-diff.txt, diff-stat.txt).
+  No threshold lowered, no EXCLUDES entry, no skip/only/todo, no biome opt-out,
+  no new source file and therefore no new coverage-thresholds key.
+
+WHAT IS OPEN
+  1. The whole-diff CRAP gate still exits 1: 70 violations remain, all in files
+     this package does not own (W18a-app and W09b scope) and all measured
+     against a local merge that lacks their coverage legs. Nothing inside the
+     eight W18a-sdk files violates it.
+
+  2. Two functions in these files still read under 100 percent on this branch's
+     merged lcov. Neither line is in this diff, so patch coverage passes.
+       - validation.ts:1069 validateDurableInputPorts, line 1078 only. A leg
+         this branch does not merge. Untouched by this package.
+       - service.ts:127 detach (six lines) and the promise arrow that declares
+         it. This is a REAL, PRE-EXISTING measurement gap, not a regression:
+         measured on the merge-base under the same suites, service.ts is
+         163/169 with exactly those six detach lines uncovered, and 164/170
+         with the same six after the split. Under Bun's HTTP server neither
+         request.abort(), request.destroy(), socket.end() nor socket.destroy()
+         raises close on a parked response or aborted on its request, so no
+         test in this repository can execute the handler. I therefore kept the
+         /v4/events case inline in the dispatch table at its original
+         indentation, which keeps those six lines out of the diff entirely, and
+         I did not add an assertion the runtime cannot satisfy.
+
+     PRODUCT QUESTION FOR THE COORDINATOR: under Bun a host that drops its
+     event stream never releases the worker's attachment, so no replacement
+     client can reattach. I verified this directly against the running service
+     with four different client-side close forms. Fixing it would be a behavior
+     change and is out of this package's scope; it belongs to the runner's
+     owner. If the intent is that Bun should fire those handlers, the code
+     needs a different close signal, not a different gate.
+
+  3. No interface or contract question. Every exported signature is unchanged.
+
+COVERAGE LEGS BEHIND THESE NUMBERS
+  29 factory-SDK per-file bun legs, 23 extension-runner and extension-contract
+  per-file bun legs, the factory-orchestrator Node V8 leg, and five src/factory
+  producers. 629 source files merged into coverage/lcov.info.
+  sha256(merged-lcov.info) = 437120a0fbba8126d9e8403fb522d7c87c3ca2d11f98d14551dd806485e0862f
+
+RECEIPTS  (all under /tmp/factory-platform-evidence/w18a-sdk/)
+  receipts.txt              every command with commit, exit code, start and end
+  complexity-after.txt      the AST complexity sweep over the eight files
+  crap-after.txt            per-function CRAP over the merged lcov, eight files
+  crap.json                 the gate's own report
+  crap-score-changed.log    the gate run itself
+  patch-coverage.log        BASE_REF=integ/w00 patch coverage, exit 0
+  new-file-coverage.log     BASE_REF=integ/w00 new-file coverage, exit 0
+  merged-lcov.info          the merged lcov all coverage numbers come from
+  heavy-run.log             runner suite + orchestrator Temporal leg, under flock
+  heavy-run-2.log           supervisor.podman.integration leg
+  heavy-run-3.log           runner suite + supervisor re-run after the service.ts change
+  heavy-run-4.log           sandbox-stop and the two Python guest legs
+  heavy-run-5.log           sandbox-stop.podman.integration leg
+  heavy-run*.sh.txt         the exact scripts those logs came from
+  final-*.log               the final sweep at 9e7866e2b
+  sdk-coverage.log          the per-file SDK coverage run
+  test-diff.txt             proof no test file changed
+  diff-stat.txt             the whole diff
+  complexity-tool.ts.txt    the standalone AST reporter (mirrors crap-score.ts)
+  scope-crap-tool.ts.txt    the scoped CRAP reporter
+
+  Gate file: tasks/factory/w18a-sdk-GATES.md (G1-G10 all checked, with results).
+  Task record and review paragraph: tasks/todo.md, section "W18a-sdk".

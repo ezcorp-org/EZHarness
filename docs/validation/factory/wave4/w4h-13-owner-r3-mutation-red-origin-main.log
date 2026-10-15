@@ -1,0 +1,26 @@
+swapped in origin/main beaff68c8 hook-lib.sh: 12	81	scripts/lib/hook-lib.sh
+bun test v1.4.2 (744846f84)
+
+src/__tests__/git-hooks.test.ts:
+591 |     });
+592 | 
+593 |     expect(res.exitCode).toBe(0);
+594 |     expect(res.out).toContain(`bun: ${STAGED}`);
+595 |     expect(res.out).toMatch(/\b1 pass\b/);
+596 |     expect(readCfg(primary, "core.bare")).toBe("false");
+                                                ^
+error: expect(received).toBe(expected)
+
+Expected: "false"
+Received: "true"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-13/src/__tests__/git-hooks.test.ts:596:43)
+(fail) pre-commit hook > a staged suite that runs git > a staged test's bare `git init` leaves the shared config byte-equal [1011.98ms]
+
+ 0 pass
+ 28 filtered out
+ 1 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [1.59s]
+test exit=1
+restored: 0 diff lines

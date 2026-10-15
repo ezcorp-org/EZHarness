@@ -1,0 +1,22 @@
+CRAP: --changed against 104cb2237eb17a2f60915f07c9e1b84ec0bba394 → 3 measured file(s) in diff
+
+CRAP: 28 functions in 3 files (max 30, warn 15)
+
+Worst 15:
+      9.0  cc=  9 cov=100%  src/factory/runner/supervisor.ts:76 invoke
+      6.0  cc=  6 cov=100%  src/factory/runner/supervisor.ts:106 worker
+      3.0  cc=  3 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:451 finish
+      3.0  cc=  3 cov=100%  src/factory/reference-code/workspace.ts:53 killReferenceCodeProcessGroup
+      3.0  cc=  3 cov=100%  src/factory/reference-code/workspace.ts:72 <anonymous@72>
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:152 <anonymous@152>
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:179 settle
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:180 later
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:182 <anonymous@182>
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:182 <anonymous@182>
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:186 destroy
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:195 closeChannelStream
+      2.0  cc=  2 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:439 channelTransport
+      2.0  cc=  2 cov=100%  src/factory/reference-code/workspace.ts:68 run
+      1.0  cc=  1 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:149 channelReader
+
+✓ no touched function exceeds CRAP 30

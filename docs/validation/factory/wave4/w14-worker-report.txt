@@ -1,0 +1,84 @@
+W14 live console, scoped API, and browser journeys: report (after the coordinator's rulings)
+Branch wp/w14-console (.worktrees/w14-console). Base 260855e57. Merged: integ/w00 (3c4adb144, documents only)
+and the W18a-2 route kit c2ef2fac3 (fdbabc3a1). No W15 commits: the branch was rebuilt from a4d12a231 without
+the W15 merge; the earlier reported head 2a9164c57 is superseded. The restore prototype is kept at
+refs/w14/restore-prototype (parents a4d12a231 on this branch and W15 0fe67b822).
+Head: d6f143ccb (documents); code head 096fa0944 (clean). Gate file: tasks/factory/w14-GATES.md.
+
+REAL-STACK JOURNEYS (factory-services lane; committed launcher web/e2e/factory-services/stack.ts)
+journeys-7 at 096fa0944, clean: 7 passed, 0 failed. Receipts: logs/journeys-7-*, journeys-7.json.
+ 1 grant factory.trust in the console   2 bind and trust the built guest after a reach review
+ 3 import and publish                   4 save/publish race; replayed and reused idempotency keys
+ 5 run started from the version list, watched live to terminal; list row follows; 1440 and 390 px
+ 6 scoped API: tickets and headers, forged ticket 403, forged cursor 400, read-only key, service principal
+   403 for real and missing run until granted (no existence leak), exact reads, refusal after revocation,
+   named-byte share
+ 7 quarantine review; purge request deletes nothing
+Stated deployment fact: package preparation by the stack after the console trusts the package.
+
+RULINGS APPLIED
+1 route kit: console JSON kinds via handleFactoryApi and a registered dispatcher; registerFactoryErrorFamily
+  stays additive in route-kit.ts and refuses a class a built-in family owns (tested).
+2 raw routes: the scope scan names the call pair resolveFactoryPrincipal(event, { scope: "read" }) through
+  handleFactoryConsoleRaw(event,; a test pins exactly the events, download, and shared-artifact routes, that
+  each handler is only the wrapper, and that the principal and its refusal precede route.run.
+3 W15: not merged; restore signing waits for W15 in integ/w00.
+Also in: W09d O2 validator-material read (route, inspection, acceptance card) and O4 typed contract refusal.
+
+MUTATION (threshold 80)   before 79.74% at 260855e57   after 93.62% at 096fa0944 (sweep-5/mutation.log)
+
+FINAL SWEEP (sweep-5, all at 096fa0944, clean)
+Green: SDK build and tests; console suite PGlite and PostgreSQL; PostgreSQL validator materials and package
+preparation; run lifecycle; scope, session, docs, OpenAPI, route-contract, lanes, evidence tests; svelte-check;
+web Vitest pool 7654 pass; web Vitest coverage check; factory mock browser specs; real lane 7/7; lint;
+typecheck; boundaries; gate integrity; new-file coverage.
+Patch coverage (BASE_REF=integ/w00): 0 uncovered W14 lines; it flags 4 W18a-2 files from the route-kit merge
+whose producers are W18a-2's (sweep-5/patch-partition.txt).
+
+OPEN
+W15 restore signing (after W15 lands). No product route prepares a package. W02 has no quarantine fence.
+Purge preconditions exclude W15/W16. Two installations proven at service level only. FACTORY_TEMPORAL_CLI
+must be provisioned on the factory-real runner.
+
+==== ROUND 2 (2026-09-23) ====
+HEAD 28a720913 (on d6f143ccb), clean. Gate file: tasks/factory/w14-GATES.md ("Round 2 proof map").
+Review fixes: H1 921fbb971, M1 8e5088906, M2/L1 8dcea65a2, L2/L3 d89eda0a4, L5 6b3718e87, L7 7abdd0685.
+L4 and M3 apply to the restore routes after W15.
+REAL LANE journeys-11 at 28a720913: 11 passed, 0 failed (logs/journeys-11-*, journeys-11.json).
+Proof map: items 3,4,6,7,8,10,11,12 real; 2 partly real (approval blocker and mid-stream revocation);
+1 and 2's decision wait on W09c (web inbox 503) and W01g; 5 on PGlite and PostgreSQL (trigger fault);
+9 service level until W16; 13 waits on W15, W16, W02c.
+Validator items: explicit failed/RUNNER_CANCELLED terminal state (disclosed until W01g); preview bytes
+compared with ticketed bytes; 390 px tabs fixed and checked by the layout helper; clean-head receipts.
+Real captures found and fixed: tab rail clip, lone run card band, purge caption casing, unbounded
+evidence idle wait.
+MUTATION 95.60% at 28a720913 (before 79.74%).
+SWEEP sweep-8 at 28a720913, clean: lint, typecheck, boundaries, gate integrity, SDK, console suites
+PGlite 20 / PostgreSQL 20, definitions 11 / 12, svelte-check 0/0, web Vitest 7658 pass, mock browser
+specs 20 pass, new-file coverage pass, patch coverage 0 uncovered W14 lines (4 W18a-2 files, as before).
+Findings for others: no production path registers validator material; a revoked share cannot be
+granted again (W04); the web process composes no command approvals or release operations (W09c).
+Disk cleanup: about 81 MB freed (Playwright results and coverage; no Stryker sandboxes existed).
+
+==== ROUND 3, PART 1 (2026-09-24) ====
+HEAD 754d7b29b (code). Real lane journeys-13 at 754d7b29b, clean: 11/11. Sweep sweep-10: green; patch 0 W14 lines.
+F1 canvas theme and zoom: 281ba1dc6 + 754d7b29b; mock check fails 4/4 on the old graph, passes 4/4 with the fix.
+F2 todo unchecked: 62e2a3305. F3 run-format: 91.86% (19 killed, 60 timeout) -> 97.98% (97 killed, 0 timeout);
+gate 94.08%; run-stream.ts still 97 timeouts. F4 selected run scrolls into the strip: c0f087368.
+Restore proof (throwaway): branch proof/w14-restore-w15 at 5041313f9; real lane 12/12, PG 35/35 at 8a3763b0c.
+Leftover DB (drop refused by the permission layer): factory_services_product_1790204490942_e8f74f.
+
+==== ROUND 3, PART 2 (2026-09-25, worker w14-continue) ====
+HEAD db147d981 (documents); code head 4b96f6f77, clean. Gate file: tasks/factory/w14-GATES.md ("Round 3, part 2").
+Carried over: journeys-14 12/12 and sweep-11 all exit 0 at 46237000f.
+Author check: all branch commits archy; 754d7b29b -> 5ea00bea8 and ba47466e0 -> dabed0733 (04:02 reset-author rebase, identical trees).
+Merge: integ/w00 2b2e12550 as 2252e5a39 (hunks: SDK index exports, installation-startup application, evidence-covers, todo, package-preparation suite helper; W04b displayName fixtures).
+Items: W02c 89f1cb256 (createFactoryPackageTrusts, fence preview, affected-runs route and UI); W04b display names; W09c b89833ba8 (command approvals composed) and c5b14cb49 (release store lists approval-node requests; reproduced red in journeys-22); W01g/W09d lane (476f0538f and fixes): completed guest, declared validator, inbox consent, release-outcome publishes, run succeeded; quarantine under a live attempt with the fence record; run-stream strict harness 840e22248, 4b96f6f77.
+Final passes: final-13/ and receipts/ (57 JSON receipts) at 4b96f6f77, dirty 0: every leg exit 0; real lane journeys-26 12/12; patch and new-file coverage pass vs 2b2e12550; mutation 11.49% (tooling finding).
+Findings: Vitest 5 (96e7ee58c) broke Stryker (control run-format 97.98% -> 64.65%; gate 0.16 tests per mutant); denied approval run never leaves running (kernel stopping + cancel-node of a control node never settles; logs/kernel-definitions-check.log); quarantined live attempt stays cancelling (known).
+Open: W16 items; repair/replan and a real uncertain release (no fault hook). User: drop factory_services_product_1790204490942_e8f74f and factory_services_product_1790299766758_3b88ee (drop refused by the permission layer).
+
+==== FIX ROUND (2026-09-25, worker w14-continue) ====
+HEAD cdb1c5c37, clean; receipts at this head in receipts/ (57; previous sets archived as receipts-final-12-at-36f51afe4 and receipts-final-13-at-4b96f6f77). Sweep final-14/.
+Commits: 8d58bd690 fast tests for c5b14cb49 (startup composition check; lifecycle behavioural test; negative control 50/1 -> 51/0, fix-round/*-startup.log); d62556a02 W15 purge preconditions open-restore and unsealed-checkpoint via factory_effect_claims_closed_reason (three console cases; negative control 22/3 -> 25/0, fix-round/*-purge.log); cdb1c5c37 gate file (G-R3b-7, two stale entries corrected).
+Legs at cdb1c5c37, dirty 0, all exit 0: console PGlite 25 / PostgreSQL 25; startup 51; lifecycle PGlite 74 / PostgreSQL 74; process boundaries 15; boundaries test 31; lint; typecheck; web Vitest 7741; mock specs 24; real lane journeys-27 12/12; new-file and patch coverage vs 2b2e12550 pass; mutation 9.91% report-only (tooling finding, W18d).

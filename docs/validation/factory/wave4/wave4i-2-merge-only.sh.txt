@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# merge-only.sh <prefix> <standalone.json> [runner]: the combined runner's merge block alone (--merge-only), with the SAME
+# arguments wave4f/run.sh gave the run (integrator-4, lead ruling 2026-10-05). The runner takes the heavy lock itself (fcntl),
+# so no flock here; the resource gate runs before it, outside the lock. PLAN_ONLY=1 prints the plan (no lock) instead.
+set -u
+E=/tmp/factory-platform-evidence; SD=$E/w00/wave4f; P=${1:?prefix} J=${2:?standalone.json} R=${3:-$E/w00/combined-integration.py}
+S=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE DATABASE_URL FACTORY_TEST_POSTGRES_URL
+. $E/w00/bun-pin.sh; bun_pin "$S"
+EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(ls -d /run/user/1001/ezcorp-factory-storage.* | head -1); export EZCORP_FACTORY_STORAGE_SECRETS_DIR
+GUARDS=$(paste -sd, $SD/driver-guards.txt); MEXTRA=$(python3 $SD/legs-from-manifest.py $S focused-extra) || exit 4
+ARGS=(--repo $S --prefix "$P" --podman --auto-extra-base c1377122b --focused-extra "$GUARDS,$MEXTRA" --legs-manifest $S/scripts/combined-runner-legs.json --patch-bases "${PATCH_BASES-origin/main}" --quality-base origin/main)
+[ "${PLAN_ONLY:-0}" = 1 ] && exec python3 "$R" "${ARGS[@]}" --plan
+. $E/w00/resource-gate.sh; resource_gate "merge-only $P" "${GATE_LOG:-/dev/stdout}" || exit $?
+python3 "$R" "${ARGS[@]}" --merge-only "$J"

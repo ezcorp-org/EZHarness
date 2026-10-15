@@ -1,0 +1,13 @@
+COORDINATOR RULING (team-lead, 2026-09-28 20:1xZ) — W18c merge commit, list-bound hook skip
+
+Applies to: the merge of wp/w18c-mainline-gates f3027d991 into integ/w00 at base e92d34d45 (trial tree 3cc0e7134).
+The hook maps 25 suites at that tree (w18c-merge/hook-mapped-f3027d991.txt, sha256 ed45a856cd15831c), above the cap of 12.
+Ruling: EZ_SKIP_HOOK_TESTS=1 is permitted for THIS ONE COMMIT only, bound to that exact 25-file list. The ruling is VOID if the
+hook's mapping at commit time differs from that list in any file (the integrator re-derives the list at commit time and compares
+the sha256). Every one of the 25 suites runs outside the hook under the heavy lock, one per process for the 16 Bun files, the
+Podman file in its runner, the 8 web files under vitest, with receipts (exit code, nonzero count, log sha256) and the shared
+git config hash 44962525f1ca1a8b before and after. This ruling text goes verbatim into the merge commit message.
+Merge subject form: "merge: wp/w18c-mainline-gates f3027d991 into integ/w00 (W18c mainline gates)".
+Gate change: GATE_CHANGE_APPROVED=1 for this one commit under w18c-merge/gate-change-decision.txt (the user's decision of
+2026-09-28T0645Z; the four approved findings R097, scripts/merge-lcov.ts, scripts/check-coverage.ts, scripts/check-new-file-coverage.ts;
+the four inherited findings attributed to their owners, not W18c).

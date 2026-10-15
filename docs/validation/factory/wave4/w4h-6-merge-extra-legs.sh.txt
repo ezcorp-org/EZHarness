@@ -1,0 +1,3 @@
+# W4H-6 (lead GO): the extension-runner package tests as the package runs them (package.json "test": "bun test", cwd = the package; 20 files).
+# No lcov here: the hook-mapped legs carry the coverage of the changed lines; this leg is the package suite with a nonzero count.
+leg extension-runner-pkg bash -c "cd packages/@ezcorp/extension-runner && bun test"

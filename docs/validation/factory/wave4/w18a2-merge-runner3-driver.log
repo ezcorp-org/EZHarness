@@ -1,0 +1,15 @@
+focused files: 293 auto-added: 240
+{"name": "sdk-build", "exitCode": 0, "start": "2026-09-23T19:10:27", "end": "2026-09-23T19:10:27"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-09-23T19:10:27", "end": "2026-09-23T19:10:27"}
+{"name": "types", "exitCode": 0, "start": "2026-09-23T19:10:27", "end": "2026-09-23T19:11:27"}
+{"name": "lint", "exitCode": 0, "start": "2026-09-23T19:11:27", "end": "2026-09-23T19:11:29"}
+{"name": "gate-integrity", "exitCode": 0, "start": "2026-09-23T19:11:29", "end": "2026-09-23T19:11:32"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-09-23T19:11:32", "end": "2026-09-23T19:11:33"}
+{"name": "compute-coverage", "exitCode": 0, "start": "2026-09-23T19:11:33", "end": "2026-09-23T19:12:32"}
+{"name": "new-file", "base": "c6ac529d2", "exitCode": 0}
+{"name": "patch", "base": "c6ac529d2", "exitCode": 1}
+{"name": "new-file", "base": "bd6fd9714", "exitCode": 1}
+{"name": "patch", "base": "bd6fd9714", "exitCode": 1}
+{"name": "global-floor", "base": null, "exitCode": 1, "blocking": false}
+{"name": "crap-changed", "base": "origin/main", "exitCode": 1, "blocking": false}
+DONE failed=True

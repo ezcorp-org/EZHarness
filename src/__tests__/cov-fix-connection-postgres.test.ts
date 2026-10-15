@@ -34,7 +34,8 @@
  *   - `restoreModuleMocks()` (top + afterAll) keeps the real connection module
  *     bound and undoes any leaked mock either way.
  */
-import { test, expect, describe, afterAll, mock } from "bun:test";
+import { test, expect, describe, afterAll, mock, spyOn } from "bun:test";
+import { DB_POOL_CLOSE_DEADLINE_MS } from "../shutdown-deadlines";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 import { setReadiness } from "../readiness";
 // Capture the REAL modules BEFORE stubbing so afterAll can re-register them
@@ -76,16 +77,53 @@ function createFakeTx(): FakeTx {
 
 interface FakeSqlClient {
   (strings: TemplateStringsArray, ...v: unknown[]): Promise<unknown[]>;
-  close?: () => Promise<void>;
+  close?: (options?: { timeout?: number }) => Promise<void>;
   reserve?: () => Promise<FakeSqlClient>;
   release?: () => void;
+  /** How many times this client's pool was drained. */
+  closed?: number;
 }
+
+/** The row the fake server reports for the open-connection listing a stuck close logs. */
+const OPEN_CONNECTION = { pid: 4242, state: "idle", wait_event_type: "Client", wait_event: "ClientRead", query: "SELECT 1" };
+
+/** A fake driver's answer: the bounded migrate lock's try-lock takes the lock, the open-connection listing sees one; everything else returns no rows. */
+function grant(strings: TemplateStringsArray): Promise<unknown[]> {
+  const text = strings.join("");
+  if (text.includes("pg_try_advisory_lock")) return Promise.resolve([{ locked: true }]);
+  return Promise.resolve(text.includes("pg_stat_activity") ? [OPEN_CONNECTION] : []);
+}
+
+/**
+ * The Bun.sql pool the opener seam hands initPostgres. A callable tagged
+ * template (advisory lock/unlock) that also exposes .close() for the drain
+ * branch. No `reserve` → the lock is taken on this bare client (the
+ * reserve-absent fallback) unless a test installs one.
+ */
+function createFakeSqlClient(): FakeSqlClient {
+  const client: FakeSqlClient = Object.assign(
+    (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
+      sqlCalls.push(strings.join("?"));
+      return grant(strings);
+    },
+    {
+      closed: 0,
+      close: async (): Promise<void> => {
+        client.closed = (client.closed ?? 0) + 1;
+      },
+    },
+  );
+  return client;
+}
+
+/** Every Bun.sql pool the opener seam has handed out, in open order. */
+const openedClients: FakeSqlClient[] = [];
 
 function createReservedClient(events: string[]): FakeSqlClient {
   return Object.assign(
     (strings: TemplateStringsArray): Promise<unknown[]> => {
       events.push(strings.join("?"));
-      return Promise.resolve([]);
+      return grant(strings);
     },
     { release: () => { events.push("release"); } },
   );
@@ -95,21 +133,18 @@ interface FakePool {
   execute: (...a: unknown[]) => Promise<unknown[]>;
   transaction: (fn: (tx: FakeTx) => unknown, config?: unknown) => Promise<unknown>;
   $client: FakeSqlClient;
-  /** How many times THIS pool was drained. */
-  closed: number;
+  /** How many times THIS pool's current client was drained. */
+  readonly closed: number;
 }
 
 /**
- * A fresh fake pool per `drizzle()` call. Distinct instances (rather than one
- * shared singleton) are what make the stale-pool reclaim observable: the guard
- * must close the pool opened by the PREVIOUS boot, not the current one.
- *
- * `$client` is a callable tagged template (advisory lock/unlock) that also
- * exposes .close() for the pool-drain branch. No `reserve` → the lock is taken
- * on this bare client (the reserve-absent fallback).
+ * A fresh fake Drizzle handle per `drizzle()` call, around the client it was
+ * given. Distinct instances (rather than one shared singleton) are what make
+ * the stale-pool reclaim observable: the guard must close the pool opened by
+ * the PREVIOUS boot, not the current one.
  */
-function createFakePool(client?: FakeSqlClient): FakePool {
-  const pool: FakePool = {
+function createFakePool(client: FakeSqlClient): FakePool {
+  return {
     // Returns an array so initPostgres's execute() wrapper normalizes it to
     // { rows: [] } — enough for CREATE EXTENSION + repairDoubleEncodedJsonb's
     // marker/column scans to no-op.
@@ -118,20 +153,9 @@ function createFakePool(client?: FakeSqlClient): FakePool {
     // transaction object off the driver's class prototype), which is exactly
     // why `db.execute`'s own wrap never reached `tx.execute` before this fix.
     transaction: async (fn: (tx: FakeTx) => unknown, _config?: unknown) => fn(createFakeTx()),
-    $client: client ?? Object.assign(
-      (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
-        sqlCalls.push(strings.join("?"));
-        return Promise.resolve([]);
-      },
-      {
-        close: async (): Promise<void> => {
-          pool.closed += 1;
-        },
-      },
-    ),
-    closed: 0,
+    $client: client,
+    get closed() { return client.closed ?? 0; },
   };
-  return pool;
 }
 
 /** Every pool the driver has handed out, in open order. */
@@ -153,9 +177,12 @@ const origJsonMapper = (PgJson.prototype as any).mapToDriverValue;
 // loaded connection module's `./migrate` import and its lazy
 // `import("drizzle-orm/bun-sql")`.
 mock.module("drizzle-orm/bun-sql", () => ({
-  drizzle: (config?: { client?: FakeSqlClient }) => {
-    const pool = createFakePool(config?.client);
-    if (config?.client) {
+  // initPostgres always hands Drizzle a client now (its swap point); the
+  // migration handle is the one built around a RESERVED connection, which is
+  // the only client with `release`.
+  drizzle: (config: { client: FakeSqlClient }) => {
+    const pool = createFakePool(config.client);
+    if (typeof config.client.release === "function") {
       reservedMigrationPools.push(pool);
       return pool;
     }
@@ -176,6 +203,11 @@ mock.module("../db/migrate", () => ({
 }));
 
 const conn = await import("../db/connection");
+conn.__test.setBunSqlPoolOpener(() => {
+  const client = createFakeSqlClient();
+  openedClients.push(client);
+  return client as never;
+});
 
 afterAll(() => {
   // Restore the real driver + migrate for any later test file.
@@ -187,6 +219,7 @@ afterAll(() => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (PgJson.prototype as any).mapToDriverValue = origJsonMapper;
   conn.__test.setState(null, null);
+  conn.__test.setBunSqlPoolOpener(null);
   setReadiness({ state: "ready" });
   restoreModuleMocks();
 });
@@ -205,7 +238,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
     expect(migrateCalls).toBe(1);
 
     // The advisory lock bracketed the migrate on the Bun.sql client.
-    expect(sqlCalls.some((s) => s.includes("pg_advisory_lock"))).toBe(true);
+    expect(sqlCalls.some((s) => s.includes("pg_try_advisory_lock"))).toBe(true);
     expect(sqlCalls.some((s) => s.includes("pg_advisory_unlock"))).toBe(true);
 
     // applyBunSqlJsonbFix() swapped drizzle's jsonb mapper for identity.
@@ -243,7 +276,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
     // the main external handle, so migration callers keep the { rows } shape.
     const normalized = (await migrationDb.execute()) as unknown as { rows: unknown[] };
     expect(normalized).toEqual({ rows: [] });
-    expect(events[0]).toContain("pg_advisory_lock");
+    expect(events[0]).toContain("pg_try_advisory_lock");
     expect(events[1]).toContain("pg_advisory_unlock");
     expect(events[2]).toBe("release");
 
@@ -256,7 +289,7 @@ describe("withPostgresMigrateLock — reserved migration failure cleanup (unit, 
   test("unlocks and releases the reserved client when its callback throws", async () => {
     const events: string[] = [];
     const reserved = createReservedClient(events);
-    const primaryPool = createFakePool();
+    const primaryPool = createFakePool(createFakeSqlClient());
     primaryPool.$client.reserve = async () => reserved;
     conn.__test.setState(primaryPool, null);
 
@@ -267,7 +300,7 @@ describe("withPostgresMigrateLock — reserved migration failure cleanup (unit, 
         expect(migrationDb).toBe(reservedMigrationPools.at(-1));
         throw new Error("migration failed");
       })).rejects.toThrow("migration failed");
-      expect(events[0]).toContain("pg_advisory_lock");
+      expect(events[0]).toContain("pg_try_advisory_lock");
       expect(events[1]).toContain("pg_advisory_unlock");
       expect(events[2]).toBe("release");
     } finally {
@@ -378,4 +411,71 @@ describe("initPostgres — tx.execute() is normalized the same as db.execute()",
 
     await conn.closeDb();
   });
+});
+
+/**
+ * W09f: a Bun.sql connection whose prepared-statement bookkeeping has gone out
+ * of step with the server fails every request pipelined behind it with the
+ * same 08P01. Bun cannot evict one pooled connection, so the process replaces
+ * the pool behind Drizzle's client and keeps the same `db`.
+ */
+describe("recoverFromDriverDesync — the external pool is discarded after a statement desync", () => {
+  const desync = () => new Error("Failed query: SELECT audit.project_id", {
+    cause: Object.assign(new Error('bind message supplies 2 parameters, but prepared statement "Pselect $5" requires 1'), { errno: "08P01", routine: "exec_bind_message" }),
+  });
+
+  test("replaces the pool under the same Drizzle handle and drains the old one", async () => {
+    await conn.__test.initPostgres();
+    const db = conn.getDb();
+    const poisoned = openedClients.at(-1)!;
+    expect(await conn.recoverFromDriverDesync(desync(), () => 1_000_000)).toBe(true);
+    const fresh = openedClients.at(-1)!;
+    expect(fresh).not.toBe(poisoned);
+    expect(poisoned.closed).toBe(1);
+    // Same handle, new pool: new work reaches the fresh client.
+    expect(conn.getDb()).toBe(db);
+    expect((db.$client as FakeSqlClient).closed).toBe(0);
+    await conn.closeDb();
+    expect(fresh.closed).toBe(1);
+  });
+
+  test("leaves the pool alone for an ordinary failure, a repeat inside the interval, and no external pool", async () => {
+    await conn.__test.initPostgres();
+    const before = openedClients.length;
+    expect(await conn.recoverFromDriverDesync(new Error("duplicate", { cause: { errno: "23505" } }), () => 2_000_000)).toBe(false);
+    expect(await conn.recoverFromDriverDesync(desync(), () => 2_000_000)).toBe(true);
+    // Work already queued on the old pool reports the same desync; that is
+    // not a new poisoning, so it does not replace the fresh pool.
+    expect(await conn.recoverFromDriverDesync(desync(), () => 2_005_000)).toBe(false);
+    expect(await conn.recoverFromDriverDesync(desync(), () => 2_010_000)).toBe(true);
+    expect(openedClients.length).toBe(before + 2);
+    await conn.closeDb();
+    expect(await conn.recoverFromDriverDesync(desync(), () => 3_000_000)).toBe(false);
+  });
+});
+
+describe("closeDb — a pool close that never returns (W16d)", () => {
+  test("is named after its deadline with the connections still open listed, and the database state is cleared", async () => {
+    await conn.__test.initPostgres();
+    const stuck = openedClients.at(-1)!;
+    // Bun 1.3.14 can leave a queued request unwritten; a close that waits for it never returns.
+    stuck.close = () => new Promise<void>(() => {});
+    const errors: unknown[][] = [];
+    const spy = spyOn(conn.__test.log, "error").mockImplementation((...args: unknown[]) => { errors.push(args); });
+    try {
+      await conn.closeDb();
+    } finally {
+      spy.mockRestore();
+    }
+    expect(errors).toEqual([[
+      "Bun.sql pool close did not finish within its deadline; the pool is left to the process exit",
+      { timeoutMs: DB_POOL_CLOSE_DEADLINE_MS, openConnections: [OPEN_CONNECTION] },
+    ]]);
+    // The listing ran on its own one-connection pool, which is closed without waiting.
+    const listing = openedClients.at(-1)!;
+    expect(listing).not.toBe(stuck);
+    await Promise.resolve();
+    expect(listing.closed).toBe(1);
+    expect(() => conn.getDb()).toThrow("Database not initialized");
+  }, 10_000);
 });

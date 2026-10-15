@@ -1,0 +1,190 @@
+{
+ "package": "w09g",
+ "branch": "wp/w09g-vite-bun-import",
+ "head": "b40472cbf4f389635a08c0ce87242560250e60b0",
+ "validatorVerdict": "ACCEPT by validator-4 at b40472cbf, no findings; copied as w09g-validation.txt",
+ "workerReport": "w09g/report.txt (copied as w09g-worker-report.txt)",
+ "mergeSha": "b944553cd98a04b36c071b43fd0bbf4cc60fa219",
+ "tree": "d1b4fd6d66f8264380a48d0dbc0adcccdc1c6090",
+ "parents": [
+  "94edd1e307b12889a2fed4c7001331a703e70e2e",
+  "b40472cbf4f389635a08c0ce87242560250e60b0"
+ ],
+ "conflicts": {},
+ "integrationFix": [],
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-27T18:59:24Z",
+   "end": "2026-09-27T18:59:25Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "f3e074cc9a173bb7508641aff57fb2d881ca8ca0516c102a8367086f44f33b4b"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-27T18:59:25Z",
+   "end": "2026-09-27T19:00:10Z",
+   "command": "bun run typecheck",
+   "logSha256": "6f31e11e14405036f38b79e0d0a1195fbdb47ac20652cacd7810389c9fffdf36"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:10Z",
+   "end": "2026-09-27T19:00:12Z",
+   "command": "bun run lint",
+   "logSha256": "78f94aee1eb84da3d67c7f6ebf90a01de8d409542a65ebfb4cd989a27d14c567"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:12Z",
+   "end": "2026-09-27T19:00:15Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:15Z",
+   "end": "2026-09-27T19:00:16Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:16Z",
+   "end": "2026-09-27T19:00:20Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-db-connection-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:20Z",
+   "end": "2026-09-27T19:00:22Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/db-connection.test.ts",
+   "logSha256": "b672ac295118cdc646b6b0ed1e272ce337bf3a4d7e97f80ee483b6db90edc278"
+  },
+  {
+   "name": "focused-src-__tests__-cov-fix-connection-postgres-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:22Z",
+   "end": "2026-09-27T19:00:22Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/cov-fix-connection-postgres.test.ts",
+   "logSha256": "8c54a15cb5b41b06a0df3454498f0c5cc7fd3eb840e3037851304f778d07163d"
+  },
+  {
+   "name": "focused-src-db-swappable-bun-sql-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:22Z",
+   "end": "2026-09-27T19:00:23Z",
+   "command": "bun test --timeout 60000 ./src/db/swappable-bun-sql.test.ts",
+   "logSha256": "277e45ac58b2a577159655318aea34ad8bfaf8752abe8c22af9c6841417eef53"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:23Z",
+   "end": "2026-09-27T19:00:26Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "1edd445330b47a636a24b25da3aae1161d3b7766a3b64b9e474c2398ab35bf46"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:27Z",
+   "end": "2026-09-27T19:00:28Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "6c4499f8c8f6db6e60d2ffc8c2443b1c8537a55b392c41e4ba716e78dd1aeed2"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-27T19:00:28Z",
+   "end": "2026-09-27T19:00:36Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "3b14d32136a8f243e6e27a93b4b6c8f9f7ae6de2a5e1481a78497dc959343395"
+  }
+ ],
+ "heavy": {
+  "batch": [
+   "=== heavy 2026-09-27T19:19:08Z",
+   "HEAD 94edd1e307b12889a2fed4c7001331a703e70e2e MERGE_HEAD b40472cbf4f389635a08c0ce87242560250e60b0 index-tree d1b4fd6d66f8264380a48d0dbc0adcccdc1c6090",
+   "resource-gate 2026-09-27T19:19:08Z connection-bun-lcov disk=112G memAvailable=16GiB swapFreeKiB=6719792/17173956",
+   "--- START connection-bun-lcov 2026-09-27T19:19:08Z",
+   "--- END   connection-bun-lcov 2026-09-27T19:19:10Z exit=0  25 pass 0 fail ",
+   "resource-gate 2026-09-27T19:19:10Z connection-postgres-mock-alone-lcov disk=112G memAvailable=16GiB swapFreeKiB=6719792/17173956",
+   "--- START connection-postgres-mock-alone-lcov 2026-09-27T19:19:10Z",
+   "--- END   connection-postgres-mock-alone-lcov 2026-09-27T19:19:10Z exit=0  10 pass 0 fail ",
+   "resource-gate 2026-09-27T19:19:10Z pg-pool-replacement disk=112G memAvailable=16GiB swapFreeKiB=6719792/17173956",
+   "--- START pg-pool-replacement 2026-09-27T19:19:10Z",
+   "--- END   pg-pool-replacement 2026-09-27T19:19:15Z exit=0  1 pass 0 fail ",
+   "resource-gate 2026-09-27T19:19:15Z web-server-lcov disk=112G memAvailable=16GiB swapFreeKiB=6719808/17173956",
+   "--- START web-server-lcov 2026-09-27T19:19:16Z",
+   "--- END   web-server-lcov 2026-09-27T19:19:34Z exit=0  Tests 164 passed (164) ",
+   "resource-gate 2026-09-27T19:19:34Z coverage-merge disk=112G memAvailable=16GiB swapFreeKiB=6719956/17173956",
+   "--- START coverage-merge 2026-09-27T19:19:34Z",
+   "--- END   coverage-merge 2026-09-27T19:19:35Z exit=0 ",
+   "resource-gate 2026-09-27T19:19:35Z web-build disk=112G memAvailable=16GiB swapFreeKiB=6719956/17173956",
+   "--- START web-build 2026-09-27T19:19:35Z",
+   "--- END   web-build 2026-09-27T19:20:13Z exit=0 ",
+   "resource-gate 2026-09-27T19:20:13Z graph-mock-pass disk=112G memAvailable=16GiB swapFreeKiB=6720328/17173956",
+   "--- START graph-mock-pass 2026-09-27T19:20:13Z",
+   "--- END   graph-mock-pass 2026-09-27T19:21:04Z exit=0 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/w09g-merge/graph/w09g-merge-mock.json; nothing to dump",
+   "mock pass w09g-merge-mock outcome: passed",
+   "HEAVY DONE status=0 dirty=0 2026-09-27T19:21:04Z"
+  ],
+  "legs": {
+   "connectionBun": "db-connection and swappable-bun-sql 25/0 with lcov",
+   "connectionPostgresMockAlone": "cov-fix-connection-postgres alone 10/0",
+   "postgres": "bun-sql-pool-replacement 1/0 on real PostgreSQL",
+   "zeroTestGuard": "every test leg asserted a nonzero count"
+  },
+  "webServerLeg": {
+   "list": [
+    "src/lib/server/db-connection-load.server.test.ts",
+    "src/lib/server/factory/console-dispatch.server.test.ts",
+    "src/lib/server/factory/route-kit.server.test.ts",
+    "src/routes/api/factories/console.server.test.ts",
+    "src/routes/api/factories/factories.server.test.ts",
+    "src/__tests__/api-admin-embed-progress.server.test.ts",
+    "src/__tests__/api-extensions-id-reapprove-drift.server.test.ts",
+    "src/__tests__/api-mentions-search-coverage.server.test.ts",
+    "src/__tests__/api-mentions-search-EZ.server.test.ts",
+    "src/__tests__/api-mentions-search-workflow.server.test.ts",
+    "src/__tests__/api-tool-calls-id-output.server.test.ts",
+    "src/__tests__/context-initialization.server.test.ts",
+    "src/__tests__/context-register-preview-bus.server.test.ts",
+    "src/__tests__/context-state-mediator-wiring.server.test.ts",
+    "src/__tests__/factory-boot.server.test.ts",
+    "src/__tests__/mentions-search-ext-gate.unit.test.ts",
+    "src/__tests__/project-proposal-fixture.server.test.ts",
+    "src/__tests__/security-web-tool-call-output-idor.server.test.ts",
+    "src/__tests__/webhook-pipeline.server.test.ts"
+   ],
+   "result": "Test Files 19 passed (19); Tests 164 passed (164)",
+   "closesBaseline": "the four files red at c3da32784 and at the W15f merge (console-dispatch, route-kit, console, factories .server.test.ts; 'Failed to resolve import \"bun\" from ../src/db/connection.ts'; w00/web-baseline-c3da32784/, w15f-merge.json knownRedAtBase) are green here; the list gained W09g's own src/lib/server/db-connection-load.server.test.ts (19 files)"
+  }
+ },
+ "graphMockPass": {
+  "label": "w09g-merge-mock",
+  "outcome": "passed",
+  "ranAt": "staged tree d1b4fd6d6",
+  "retainedDatabase": "none"
+ },
+ "coverage": {
+  "where": "staging at the merge commit",
+  "baseRef": "94edd1e30",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (1 file: src/db/connection.ts)"
+ },
+ "commitHook": {
+  "result": "under the cap; the hook ran db-connection (21/0) and the web load test (vitest) itself, 0 fail; no skip"
+ },
+ "standingSteps": "resource gate before every leg; config hash 44962525f1ca1a8b; no workspace package changed"
+}

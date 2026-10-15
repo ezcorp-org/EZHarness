@@ -1,0 +1,37 @@
+1601a1602,1614
+> 
+> ## 2026-09-24 — An empty test list turns a targeted run into a root run (W16)
+> 
+> - Under zsh, an unmatched glob such as `--include=*.test.ts` fails the whole command substitution, so
+>   `bun test --timeout N $T` received no file and ran every test at the repo root. Build a test list in
+>   bash with `mapfile`, quote the pattern, and exit before `bun test` when the list is empty.
+> 
+> ## 2026-09-25 — Never pass --no-verify, not even in a scratch worktree (W16)
+> 
+> - A scratch merge was started with `git merge --no-verify`. It stopped on a conflict, so nothing was
+>   committed, but the rule is absolute: no `--no-verify` on any git command, in any worktree. If a hook
+>   is in the way, the scratch tree is the wrong tool; merge without the flag and resolve, or do the work
+>   on the real branch after the ruling that allows it.
+1635a1649,1652
+> - Cite only captures you have read. I named W01h's failed graph-proof pass as a second site of the boot stall from its symptom alone; its web process had exited 2 ms after start with "Module not found build/index.js", so no product code ran. Before calling another run the same defect, read its logs and find the same signature.
+> - In zsh, `echo ===` fails ("== not found") and aborts the rest of a `;` chain; `=word` expands to a command path. Quote separators: `echo '---'`.
+> - A deadline test must make the probe ignore its signal. A fake that honours the abort passes even with the deadline race removed, because the deadline also aborts the signal.
+> - Bun 1.3.14's `jest.useFakeTimers()` can leave the next test file in the same run hanging with no output, even after `useRealTimers()`. Run every test file combination in both orders before trusting a fake-timer test. Prefer an injected short deadline on real timers.
+1689a1707,1708
+> - Build the workspace packages before any suite in a hold, not in the late fast steps. After a merge, a suite that imports a package's built output reads the stale dist and fails for a reason that is not in the code (r4: client-requests.unit.test.ts, 18 tests).
+> - A suite that no hold of mine runs is still mine when my routes break it. The scope and route-contract scans had failed on W16's routes since the bootstrap work, and only a merge's hook list ran them.
+1703a1723,1736
+> ## 2026-09-28 — A stricter config parser breaks every writer of that config (W16)
+> 
+> - A harness document is a product input; parse it with the product parser in a test.
+> - When a change makes a parser refuse a key, find every writer of that schema (`git grep` its schema string) and
+>   change them in the same commit. W16 dropped the pool's installationId; the graph-proof stack and the
+>   factory-services e2e stack still wrote it, and only a live runbook pass showed it. Pin it with a test that parses
+>   each harness document with the parser of the process it starts.
+> - A process that fails to start prints why, by its generic message. The pool exited 1 with an empty log, and the
+>   cause had to be read from the harness instead.
+> - In a hold, keep steps that do not need the image ahead of the image steps. The runbook pass and Kubernetes sat
+>   behind the candidates step, so a disk refusal there hid both for two holds.
+> - A step that starts the web server from `web/build` needs the web build in the same hold.
+> - Write a queue script whole, with its label in one variable. A sed-derived copy kept the old label and would have
+>   deleted the previous hold's receipts; the waiter was stopped before it took the lock.

@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Compare a hosted CI run against a baseline, job by job.
+
+usage: hosted-compare.py <baseline.tsv> <new-jobs.json> [baseline-id] [new-id]
+  baseline.tsv  lines "<job name>\t<conclusion>" (from: gh run view <id> --json jobs -q '.jobs[] | [.name, .conclusion] | @tsv')
+  new-jobs.json output of: gh run view <id> --json jobs
+Prints a markdown table sorted by job name and a summary line. Exit 0 always; the reader judges.
+"""
+import json, sys
+
+def load_tsv(path):
+    out = {}
+    for line in open(path, encoding="utf-8"):
+        line = line.rstrip("\n")
+        if not line:
+            continue
+        name, _, conclusion = line.partition("\t")
+        out[name] = conclusion or "none"
+    return out
+
+def load_jobs(path):
+    data = json.load(open(path, encoding="utf-8"))
+    jobs = data["jobs"] if isinstance(data, dict) else data
+    return {j["name"]: (j.get("conclusion") or j.get("status") or "none") for j in jobs}
+
+def change(old, new):
+    if old is None:
+        return "new job" + (" (RED)" if new == "failure" else "")
+    if new is None:
+        return "missing in new run"
+    if old == new:
+        return "same" if new != "failure" else "still red"
+    if new == "success":
+        return "fixed" if old == "failure" else f"{old} -> success"
+    if new == "failure":
+        return "NEW RED"
+    return f"{old} -> {new}"
+
+def compare(base, new):
+    rows = []
+    for name in sorted(set(base) | set(new)):
+        rows.append((name, base.get(name), new.get(name), change(base.get(name), new.get(name))))
+    return rows
+
+def render(rows, base_id, new_id):
+    lines = [f"| Job | {base_id} | {new_id} | change |", "| --- | --- | --- | --- |"]
+    for name, old, new, ch in rows:
+        lines.append(f"| {name} | {old or '-'} | {new or '-'} | {ch} |")
+    counts = {}
+    for _, _, _, ch in rows:
+        key = ch.split(" (")[0] if ch.startswith("new job") else ch
+        counts[key] = counts.get(key, 0) + 1
+    summary = "; ".join(f"{k}: {v}" for k, v in sorted(counts.items()))
+    red_new = sum(1 for _, _, n, _ in rows if n == "failure")
+    red_old = sum(1 for _, o, _, _ in rows if o == "failure")
+    lines.append("")
+    lines.append(f"Summary: {summary}. Red jobs: {base_id} {red_old} -> {new_id} {red_new}.")
+    return "\n".join(lines)
+
+def main(argv):
+    if len(argv) < 3:
+        sys.stderr.write(__doc__)
+        return 2
+    base_id = argv[3] if len(argv) > 3 else "baseline"
+    new_id = argv[4] if len(argv) > 4 else "new"
+    print(render(compare(load_tsv(argv[1]), load_jobs(argv[2])), base_id, new_id))
+    return 0
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

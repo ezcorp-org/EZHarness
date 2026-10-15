@@ -1,0 +1,122 @@
+W18b — six pre-existing backend pool failures
+Branch wp/w18b-pool-fixes, worktree .worktrees/w18b-pool-fixes, base integ/w00 94fb95b6a.
+integ/w00 advanced to 6055bffc6 (validation docs only), merged at bceb9b2b5.
+Code head 2d33f46d7. Branch head 7498cdf11 (validator fixes: m4 positive control, wording); 672b3282e changed only tasks/.
+
+RESULT
+  All six failures are fixed at the root. The full backend pool at 2d33f46d7 has 28093 pass, 0 fail,
+  1895 files. Typecheck, lint, both boundary checks, gate integrity, the manifest lock, the new-file
+  coverage gate, and the patch coverage gate all pass (13 changed files are covered).
+
+COMMITS
+  fb07605c1 fix(sdk): anchor the project root only at a real git repository
+  da3b73c0c fix(web): retire the expired pi_session bridge instead of dating it in code
+  9f1fc35fd fix(verify): wait for the runner's readiness answer within the launcher budget
+  69cbd2127 test(examples): cover the postinstall scaffolds through the SDK root walk
+  bceb9b2b5 Merge branch 'integ/w00' into wp/w18b-pool-fixes
+  2d33f46d7 docs(lessons): W18b pool-fix lessons
+  672b3282e docs(w18b): gate file and todo review for the six pool failures
+  7498cdf11 test(security): add a positive control to the calendar-literal gate; correct W18b wording (m4 16 pass, lint 0, gate-integrity 0: receipts/fix-*.json)
+
+FAILURES, CAUSES, FIXES
+1-3. The /tmp root marker (three tests)
+  docs/extensions/examples/claude-design/lib/project.test.ts
+    > findProjectRoot > returns the starting dir when no .git exists up to the filesystem root
+    expect(received).toBe(expected): expected "/tmp/cd-nogit-…", received "/tmp"
+  docs/extensions/examples/graded-card-scanner/postinstall.test.ts
+    > findProjectRoot > falls back to the starting dir when no .git exists above
+    expected "/tmp/gcs-postinstall-…", received "/tmp"
+  src/__tests__/build-allowed-env-injection.test.ts
+    > buildAllowedEnv — EZCORP_PROJECT_ROOT resolution > swallows findProjectRoot failure when run outside a git tree
+    expect(received).toBeUndefined(): received "/tmp"
+  Cause: a product defect. The SDK findProjectRoot, five private copies in the example extensions,
+  and ai-kit's installer all accepted any path named .git. This host has an EMPTY
+  /tmp/.git directory (owner dev, left by another session). `git -C /tmp rev-parse` reports "not a git
+  repository", but the walk anchored at /tmp. So the host would inject EZCORP_PROJECT_ROOT=/tmp for any
+  spawn below /tmp, and extensions would write .ezcorp data into shared /tmp.
+  Fix: the SDK walk accepts only what git reads as a repository: a .git directory holding HEAD, or a
+  .git file whose text starts with "gitdir:". A new SDK export, resolveProjectRoot, never throws. The
+  five example copies (auto-note vault and postinstall, claude-design lib and postinstall,
+  file-organizer postinstall, graded-card-scanner postinstall, task-stack) route through it. The ai-kit
+  CLI keeps the SDK as a peer only, so it asks `git rev-parse --show-toplevel` with the caller's GIT_*
+  variables dropped. The shared test helper markGitRepository replaces the empty .git fixtures in eleven
+  test sites. The tests plant a stray empty .git inside their own temp tree, so the case holds whatever
+  /tmp contains. One .git walk is unchanged: the host resolver src/extensions/project-root.ts:139. It
+  accepts a root only where docs/extensions/examples exists, so a stray /tmp/.git cannot qualify.
+  Same cause, outside the backend pool, also fixed: the SDK leg's test/fs.test.ts (its precondition
+  threw "/tmp/.git exists") and the ai-kit leg's cli-install.test.ts ("throws when no git root found").
+  Mutation proof: with the old existsSync walk restored, 6 tests fail across 4 files (logs/mutant-walk.log).
+
+4-5. The pi_session hard expiry (two tests)
+  src/__tests__/security/m4-hooks-cors-pi-session.test.ts
+    > post-expiry branch does NOT set ezcorp_session from the legacy cookie
+    > pre-expiry branch DOES promote legacy token to ezcorp_session
+    expect(received).not.toBeNull(): received null (both)
+  Cause of the red tests: the regexes matched the old `if (...) {...} else {...}` shape by indentation.
+  Hook refactor 4b9351267 (2026-09-21) replaced the else branch with an early return, and they last
+  matched at b1b302eb9. The product defect you flagged is real: web/src/hooks.server.ts compared
+  Date.now() with Date.parse("2026-06-01T00:00:00Z"). That date has passed, so the promotion branch has
+  been dead code since June while the code still read as a live window.
+  Fix (documented policy, not a new config knob): the documented sec-M4 policy says that after
+  2026-06-01 the legacy cookie is purged, not promoted. That state is now permanent, so the bridge is
+  retired. retireLegacySessionCookie ignores and purges pi_session, never promotes it, and warns once.
+  No date in code decides what the hook accepts. The m4 source gates now pin the retirement and forbid
+  a calendar literal (Date.parse/new Date of a YYYY-MM-DD string) in the hook. The replicated decision
+  table is removed. The web Vitest suite drives the real hook with no pinned clock: exactly one cookie
+  operation (the purge), no re-issue, a /login bounce without session_expired, and one warning. Docs
+  (authentication.md) and the openapi.ts comment are updated.
+
+6. The "Unix socket path limit" (one test)
+  src/__tests__/production-image-lifecycle-launch.integration.test.ts
+    > long persistent state keeps the authenticated runner transport below the Unix-path limit
+  The W15 label is wrong: it names the test, not the cause. The file passes alone. Six concurrent copies
+  (the pool's shape) failed 1 of 24 with expect(exit).toBe(0): received 1, stderr
+  "TimeoutError: The operation timed out." All socket paths were already short: the launcher's runner
+  root is /tmp/ez-production-lifecycle-XXXXXXXX/s, and the runner's private socket is /tmp/ez-runner-*.
+  Cause: scripts/verify-production-image-lifecycle.sh probed the runner ONCE with
+  AbortSignal.timeout(1000). The runner answers /v4/inspect only after a Podman state query, whose
+  latency follows host load. So a healthy runner was refused on a busy host.
+  Fix: the probe reuses inspectProductionRunner from scripts/lib/production-lifecycle-client.ts (the
+  inline copy of the transport call is gone). It waits within the launcher's readiness budget: one
+  constant, readiness_seconds=120, used three times (socket wait, runner probe, health wait). A refusal, a wrong state, or
+  a runner that exits still fails at once. A new test injects a 2-second delay on the runner's Podman
+  state inspect through a fixture podman shim. The base script fails it with the same TimeoutError
+  (logs/mutant-launcher.log). After the fix, 24 concurrent copies have 0 failures (receipts/fixed-launch-stress.json).
+  This is not a widened tolerance: the one-second deadline was a wall-clock bound on host load, not a
+  property of the runner. The probe now uses the same constant as the launcher's other two waits.
+
+TESTS ADDED OR CHANGED (behaviour first)
+  SDK fs.test: a .git file naming gitdir is accepted; a stray empty .git dir and a .git file without
+  gitdir are ignored (and git agrees); resolveProjectRoot returns the root or the start; the
+  precondition uses git as the oracle. ai-kit: a nested cwd resolves the git-init'd repo; a stray empty
+  .git is not a root. Three example tests and build-allowed-env plant a stray .git. There are new
+  scaffold tests for the three postinstall scripts, run in-process from a nested cwd below a stray
+  .git. SDK test helpers: markGitRepository, gitInDirectory, outsideAnyGitRepository, runInDirectory.
+
+SWEEP (all at 2d33f46d7, clean tree unless stated)
+  typecheck 0, lint 0, check-boundaries 0, check-factory-boundaries 0, gate-integrity 0,
+  manifest-lock --check 0                       receipts/final-*.json
+  five files alone: 5/4/29/15/5 pass, 0 fail    receipts/head-*.json
+  backend pool (flock, timeout 5400 bun run test): 28093 pass | 0 fail | 1895 files   receipts/backend-pool.json
+    (earlier at 9f1fc35fd: 28090 | 0 | 1892, receipts/backend-pool-run1.json)
+  coverage producers: 19 bun files plus the web Vitest hook suite, all 0 fail   receipts/coverage-producers.json
+  BASE_REF=integ/w00 check-new-file-coverage: PASSED (no new source files)
+  BASE_REF=integ/w00 check-patch-coverage: PASSED (13 files)
+    The first run at 9f1fc35fd FAILED on 4 unloaded files (logs/gate-patch-coverage-run1.log,
+    reconstructed because the rerun overwrote the log). Fixed by 69cbd2127 plus the openapi producer.
+  Base reproductions: receipts/base-*.json, logs/base-sdk-fs.log, receipts/base-launch-stress.json.
+
+ASSUMPTIONS AND SCOPE NOTES
+  - No in-flight file was edited. hooks.server.ts, registry.ts, and the SDK are not on the forbidden list.
+  - I did not delete /tmp/.git: it is not mine, and the product no longer depends on it.
+  - The tests still assume os.tmpdir() is not inside a REAL git repository. git agrees on this host.
+    The SDK precondition checks it with git and names it when it fails.
+  - manifest.lock.json is regenerated for the six touched bundled extensions (source digests only).
+  - A git hook exports GIT_DIR, so git spawned from tests acted on the hook's repository. The test
+    helpers and ai-kit drop GIT_* variables. The worktree config was checked and is unchanged.
+
+OPEN FINDINGS (outside scope, not changed)
+  - packages/@ezcorp/ai-kit/src/cli/install.ts ignores the postinstall exit code, so a failed scaffold
+    is silent. It was invisible here until the empty-.git fixtures stopped anchoring.
+  - inspectProductionRunner keeps a fixed 5 s default for verification commands. That is the same class
+    of wall-clock deadline, but it did not fail here.

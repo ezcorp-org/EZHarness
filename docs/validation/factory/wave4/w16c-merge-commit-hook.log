@@ -1,0 +1,88 @@
+Checked 14 files in 24ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/extensions/v4/blobs-s3.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 7 pass
+ 0 fail
+ 41 expect() calls
+Ran 7 tests across 1 file. [755.00ms]
+  bun: src/factory/installation-startup.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 54 pass
+ 0 fail
+ 290 expect() calls
+Ran 54 tests across 1 file. [5.37s]
+  bun: src/factory/runtime-composition.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 33 pass
+ 0 fail
+ 111 expect() calls
+Ran 33 tests across 1 file. [838.00ms]
+  bun: src/factory/service-probes.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 18 pass
+ 0 fail
+ 50 expect() calls
+Ran 18 tests across 1 file. [687.00ms]
+  bun: src/__tests__/cov-fix-connection-postgres.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T11:22:03.969Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.970Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.971Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.971Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.971Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.971Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-09-27T11:22:03.972Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+
+ 8 pass
+ 0 fail
+ 36 expect() calls
+Ran 8 tests across 1 file. [526.00ms]
+  bun: src/__tests__/db-connection.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T11:22:04.542Z","level":"warn","msg":"Bun.sql pool close failed","subsystem":"db","error":"Error: reset"}
+{"ts":"2026-09-27T11:22:04.543Z","level":"error","msg":"Completing interrupted migration rollback from a prior boot","subsystem":"db","marker":{"ts":"2026-09-27T11:22:04.543Z","snapshot":"/tmp/conn-rollback-ZBnYMQ/snap"}}
+{"ts":"2026-09-27T11:22:04.543Z","level":"info","msg":"Interrupted rollback completed — snapshot restored","subsystem":"db","snapshot":"/tmp/conn-rollback-ZBnYMQ/snap"}
+{"ts":"2026-09-27T11:22:04.544Z","level":"error","msg":"Interrupted rollback with no snapshot — refusing to boot","subsystem":"db","message":"A migration rollback was interrupted on a prior boot and no snapshot is available to complete it. Refusing to boot to avoid starting a fresh empty database over the half-finished rollback.","marker":{"ts":"2026-09-27T11:22:04.544Z","snapshot":"/tmp/conn-rollback-fMLWXQ/does-not-exist"},"dbPath":"/tmp/conn-rollback-fMLWXQ/db"}
+{"ts":"2026-09-27T11:22:04.553Z","level":"warn","msg":"advisory unlock failed","subsystem":"db","error":"Error: unlock boom"}
+{"ts":"2026-09-27T11:22:04.554Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":60000}
+{"ts":"2026-09-27T11:22:04.554Z","level":"warn","msg":"waiting for migrate lock held by pid 5151","subsystem":"db","holderPid":5151,"waitMs":60000}
+{"ts":"2026-09-27T11:22:04.556Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":1000}
+{"ts":"2026-09-27T11:22:04.556Z","level":"warn","msg":"waiting for migrate lock held by pid unknown","subsystem":"db","holderPid":null,"waitMs":100}
+{"ts":"2026-09-27T11:22:04.556Z","level":"warn","msg":"waiting for migrate lock held by pid 7","subsystem":"db","holderPid":7,"waitMs":120000}
+{"ts":"2026-09-27T11:22:05.559Z","level":"warn","msg":"Could not write rollback-in-progress marker","subsystem":"db","error":"Error: ENOTDIR: not a directory, open '/tmp/conn-marker-wG8sYD/afile/.ezcorp-rollback-in-progress.json'"}
+{"ts":"2026-09-27T11:22:05.560Z","level":"info","msg":"Restored pre-boot snapshot","subsystem":"db","snapshot":"/tmp/ezcorp-test-db-JQiQeS/backups/pre-boot-2026-01-01T00-00-00-000Z","failedPath":"/tmp/ezcorp-test-db-JQiQeS/db.failed.1790508125560"}
+
+ 19 pass
+ 0 fail
+ 48 expect() calls
+Ran 19 tests across 1 file. [1.61s]
+  bun: src/__tests__/factory-boot.test.ts
+bun test v1.3.14 (0d9b296a)
+
+ 24 pass
+ 0 fail
+ 48 expect() calls
+Ran 24 tests across 1 file. [966.00ms]
+  bun: tests/postgres/migrate-lock.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-27T11:22:11.551Z","level":"warn","msg":"waiting for migrate lock held by pid 963011","subsystem":"db","holderPid":963011,"waitMs":300}
+
+ 1 pass
+ 0 fail
+ 4 expect() calls
+Ran 1 test across 1 file. [5.43s]
+  vitest: src/__tests__/factory-boot.server.test.ts
+
+ RUN  v5.0.0 /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/web
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  07:22:12
+   Duration  1.25s (transform 59%, environment 29%, setup 9%, tests 2%, import 1%)
+

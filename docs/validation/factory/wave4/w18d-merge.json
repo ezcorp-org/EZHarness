@@ -1,0 +1,128 @@
+{
+ "package": "w18d",
+ "branch": "wp/w18d-mutation",
+ "head": "241c76f164e8e9cabe5ffb859ad61d689c05ce95",
+ "codeHead": "7c1811611",
+ "branchBase": "0a95d765b",
+ "validatorVerdict": "ACCEPT by validator-3 (A/B on run-format.ts at its base: unpatched 69.70% with 30 untested survivors, patched 97.98% with 2 survivors); copied as w18d-validation.txt",
+ "mergeSha": "5e7d01801e404fee8265177465e21f95280d174e",
+ "tree": "a2033f7cab873710db7ab215980d1f7fc729d9ed",
+ "parents": [
+  "36c6d3b061f3a44e4239b5346a24be5777589bed",
+  "241c76f164e8e9cabe5ffb859ad61d689c05ce95"
+ ],
+ "conflicts": "none",
+ "integrationFix": [],
+ "policy": "no change under .github/ or scripts/quality-gates.json (gate mode and threshold unchanged); the real score on integ/w00 content vs origin/main is W18c's scope",
+ "patchApplied": {
+  "install": "cd web && bun install --frozen-lockfile, exit 0",
+  "runner": "web/node_modules/@stryker-mutator/vitest-runner/dist: 3 #testNameSeparator references in vitest-test-runner.js (getter, ctx.provide, convertTestToTestResult) plus 2 in stryker-setup.js (inject, toRawTestId)"
+ },
+ "strykerControl": {
+  "run1": "VOID (integrator error): targeted web/src/lib/factory/run-format.ts, which does not exist in this tree (validator-3 measured it on its own base); 'Glob pattern did not result in any files', 0 mutants, no tests executed, exit 1 (w18d-merge-stryker-control-run1.log)",
+  "run2": {
+   "target": "web/src/lib/factory/download.ts (its suite web/src/lib/factory/download.unit.test.ts has 1 test)",
+   "config": "committed stryker.config.json with the gate threshold as break/low/high (as validator-3's ab.sh), CI default concurrency, under the heavy lock",
+   "mutants": 13,
+   "status": {
+    "NoCoverage": 1,
+    "Killed": 4,
+    "Survived": 8
+   },
+   "testsCompletedPerMutant": [
+    null,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1,
+    1
+   ],
+   "testsPerMutant": 0.92,
+   "untestedSurvivors": 0,
+   "score": "30.77% (under the break threshold 80, so Stryker exits 1)",
+   "verdict": "passes the coordinator's criterion: Stryker executed the file's real test for every covered mutant (0.92 tests per mutant, the one test run 12 times; not ~0.16), every survivor has testsCompleted 1, and the fail-closed guard finds no untested survivor. The low score is the single test's strength on this file, not the patch; the break threshold is the committed gate value, unchanged."
+  }
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-26T03:56:52Z",
+   "end": "2026-09-26T03:56:53Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "a3bd65b1f11ed0a84e38d7cb154fdf972821a2a05bfdb912a60b5848729cb103"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-26T03:56:53Z",
+   "end": "2026-09-26T03:57:33Z",
+   "command": "bun run typecheck",
+   "logSha256": "0cadc2ca5c312f42c24763e0aa5d25a0bd21ad1e6a40c2bc5fe8f453d03f1e08"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:33Z",
+   "end": "2026-09-26T03:57:35Z",
+   "command": "bun run lint",
+   "logSha256": "2eca000ea67fae6a7de45cdbac27888e4c5b60a626ff5bc44bb3bb39f7b1987f"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:35Z",
+   "end": "2026-09-26T03:57:37Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:37Z",
+   "end": "2026-09-26T03:57:38Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:38Z",
+   "end": "2026-09-26T03:57:42Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-quality-report-fail-closed-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:42Z",
+   "end": "2026-09-26T03:57:43Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/quality-report-fail-closed.test.ts",
+   "logSha256": "e8006fc4348e25b4ef693a7f2b76f0186c6b9af82c8a10f51338d2ab850a1cb4"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-26T03:57:43Z",
+   "end": "2026-09-26T03:57:49Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "cda398f5d23c2dd83a92c54d09405993887b1790a333503a4c25c2b7bc09fa59"
+  }
+ ],
+ "coverage": {
+  "where": "staging at the merge commit",
+  "baseRef": "36c6d3b06",
+  "producer": "quality-report-fail-closed with coverage 42/0",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: 0 gated files (scripts/ is not gated)"
+ },
+ "commitHook": "the hook ran its staged suite (quality-report-fail-closed 42/0)",
+ "standingSteps": "resource gate at each step (disk 127G, MemAvailable 15 GiB, swap 8.5 GB free); the weekly limit paused work 2026-09-26 04:10Z to 2026-09-27 06:05Z with the merge staged"
+}

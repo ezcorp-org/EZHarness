@@ -9,23 +9,24 @@ import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
 import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule, serverModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent } from "./helpers/mock-request";
 
 mockServerAlias();
 mock.module("$server/db/queries/attachments", () => require("../db/queries/attachments"));
 mock.module("../../web/src/routes/api/attachments/[id]/$types", () => ({}));
-mock.module("$server/auth/middleware", () => ({
-  requireAuth: (locals: any) => {
-    if (!locals?.user) {
-      const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
-      throw res;
-    }
-    return locals.user;
-  },
-}));
-mock.module("$lib/server/security/api-keys", () => ({ requireScope: () => null }));
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). A raw object literal here is a partial
+// mock (missing checkAuth/requireRole/checkProjectRole/etc.), and the
+// $server/auth/middleware alias is claimed by dozens of files repo-wide, so
+// whichever file's registration is active when a shared-process run
+// resolves the alias wins for every OTHER file too. beforeAll (test-execution
+// time) plus a complete serverModule() factory make THIS file's own values
+// active for THIS file's own tests, and afterAll hands the alias back to the
+// real module so a later file in the same process starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", { requireScope: () => null }));
 
 mockDbConnection();
 mock.module("../db/queries/settings", () => {
@@ -67,6 +68,16 @@ let ownerConvId = "";
 let tmpRoot = "";
 
 beforeAll(async () => {
+  mock.module("$server/auth/middleware", () => ({
+    ...realAuthMiddleware,
+    requireAuth: (locals: any) => {
+      if (!locals?.user) {
+        const res = new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+        throw res;
+      }
+      return locals.user;
+    },
+  }));
   await setupTestDb();
   tmpRoot = await mkdtemp(join(tmpdir(), "ezcorp-audit-"));
 
@@ -117,6 +128,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
   await closeTestDb();
   await rm(tmpRoot, { recursive: true, force: true }).catch(() => {});
 });

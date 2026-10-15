@@ -1,0 +1,381 @@
+{
+  "generatedAt": "2026-09-25T06:16:16.975Z",
+  "verdict": "passed",
+  "criteria": [
+    {
+      "criterion": "ollama: three of three passes passed",
+      "ok": true,
+      "detail": [
+        {
+          "label": "ollama-1",
+          "outcome": "passed",
+          "failure": null
+        },
+        {
+          "label": "ollama-2",
+          "outcome": "passed",
+          "failure": null
+        },
+        {
+          "label": "ollama-3",
+          "outcome": "passed",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "criterion": "ollama: prepare's staged output is byte-identical across passes",
+      "ok": true,
+      "detail": [
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0"
+      ]
+    },
+    {
+      "criterion": "ollama: combine's staged output is byte-identical across passes",
+      "ok": true,
+      "detail": [
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e"
+      ]
+    },
+    {
+      "criterion": "mock: three of three passes passed",
+      "ok": true,
+      "detail": [
+        {
+          "label": "mock-1",
+          "outcome": "passed",
+          "failure": null
+        },
+        {
+          "label": "mock-2",
+          "outcome": "passed",
+          "failure": null
+        },
+        {
+          "label": "mock-3",
+          "outcome": "passed",
+          "failure": null
+        }
+      ]
+    },
+    {
+      "criterion": "mock: prepare's staged output is byte-identical across passes",
+      "ok": true,
+      "detail": [
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0"
+      ]
+    },
+    {
+      "criterion": "mock: combine's staged output is byte-identical across passes",
+      "ok": true,
+      "detail": [
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5"
+      ]
+    },
+    {
+      "criterion": "mock: infer's answer is identical across passes",
+      "ok": true,
+      "detail": [
+        "prompt-digest answer 95a14d196e84db4a",
+        "prompt-digest answer 95a14d196e84db4a",
+        "prompt-digest answer 95a14d196e84db4a"
+      ]
+    },
+    {
+      "criterion": "control-no-pin: every refusal named",
+      "ok": true,
+      "detail": [
+        {
+          "check": "C never ran",
+          "ok": true
+        },
+        {
+          "check": "the run ended failed",
+          "ok": true
+        },
+        {
+          "check": "B ran with no model pin",
+          "ok": true
+        },
+        {
+          "check": "B was refused model_pin_mismatch by the broker",
+          "ok": true
+        },
+        {
+          "check": "nothing was claimed or journaled for B",
+          "ok": true
+        },
+        {
+          "check": "the compiler refused the missing port by name, BINDING_PORT",
+          "ok": true
+        },
+        {
+          "check": "the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+          "ok": true
+        }
+      ]
+    },
+    {
+      "criterion": "control-missing-model: every refusal named",
+      "ok": true,
+      "detail": [
+        {
+          "check": "C never ran",
+          "ok": true
+        },
+        {
+          "check": "B was refused provider_unavailable",
+          "ok": true
+        },
+        {
+          "check": "the refusal carries Ollama's own missing-model message",
+          "ok": true
+        },
+        {
+          "check": "the provider error is journaled as B's one failed model operation",
+          "ok": true
+        }
+      ]
+    }
+  ],
+  "modes": {
+    "ollama": {
+      "pin": {
+        "provider": "ollama",
+        "model": "qwen3:1.7b",
+        "configuration": {
+          "temperature": 0,
+          "seed": 42,
+          "reasoningEffort": "none"
+        },
+        "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+        "policy": {
+          "tools": false
+        },
+        "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+      },
+      "answers": [
+        "The primary colors of light are red, blue, and yellow.",
+        "The primary colors of light are red, blue, and yellow.",
+        "The primary colors of light are red, blue, and yellow."
+      ],
+      "usage": [
+        {
+          "computeMs": 2126,
+          "costMicros": "0",
+          "inputTokens": 32,
+          "kind": "measured",
+          "outputTokens": 14
+        },
+        {
+          "computeMs": 155,
+          "costMicros": "0",
+          "inputTokens": 32,
+          "kind": "measured",
+          "outputTokens": 14
+        },
+        {
+          "computeMs": 148,
+          "costMicros": "0",
+          "inputTokens": 32,
+          "kind": "measured",
+          "outputTokens": 14
+        }
+      ],
+      "providerReceiptDigests": [
+        "03a9d6cf7374b441bf51642db4f0b4a5d393fafbf316194f58ab8efd170c4bb3",
+        "9a6ae5a494f9ec6b09826e7de4372e9911780bd878d54cd9d567ff4d43bc2e9e",
+        "9bb3d3b8e2a76029728d22afa350ad57c394d970a1530ef93c764954b20de7d3"
+      ],
+      "summaries": [
+        "5 words in; the model said: The primary colors of light are red, blue, and yellow.",
+        "5 words in; the model said: The primary colors of light are red, blue, and yellow.",
+        "5 words in; the model said: The primary colors of light are red, blue, and yellow."
+      ],
+      "prepareDigests": [
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0"
+      ],
+      "combineDigests": [
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e",
+        "sha256:cefb798e34737165e78df7a02cd1aa0e1e1ee0732030c40d0f949bad164d833e"
+      ],
+      "windows": [
+        {
+          "startedAt": "2026-09-25T06:11:33.401Z",
+          "finishedAt": "2026-09-25T06:12:09.993Z"
+        },
+        {
+          "startedAt": "2026-09-25T06:12:11.327Z",
+          "finishedAt": "2026-09-25T06:12:47.871Z"
+        },
+        {
+          "startedAt": "2026-09-25T06:12:49.196Z",
+          "finishedAt": "2026-09-25T06:13:22.564Z"
+        }
+      ]
+    },
+    "mock": {
+      "pin": {
+        "provider": "ezcorp-mock",
+        "model": "prompt-digest:w19a",
+        "configuration": {
+          "temperature": 0,
+          "seed": 42,
+          "reasoningEffort": "none"
+        },
+        "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+        "policy": {
+          "tools": false
+        },
+        "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+      },
+      "answers": [
+        "prompt-digest answer 95a14d196e84db4a",
+        "prompt-digest answer 95a14d196e84db4a",
+        "prompt-digest answer 95a14d196e84db4a"
+      ],
+      "usage": [
+        {
+          "computeMs": 18,
+          "costMicros": "0",
+          "inputTokens": 10,
+          "kind": "measured",
+          "outputTokens": 3
+        },
+        {
+          "computeMs": 16,
+          "costMicros": "0",
+          "inputTokens": 10,
+          "kind": "measured",
+          "outputTokens": 3
+        },
+        {
+          "computeMs": 18,
+          "costMicros": "0",
+          "inputTokens": 10,
+          "kind": "measured",
+          "outputTokens": 3
+        }
+      ],
+      "providerReceiptDigests": [
+        "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc",
+        "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc",
+        "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc"
+      ],
+      "summaries": [
+        "5 words in; the model said: prompt-digest answer 95a14d196e84db4a",
+        "5 words in; the model said: prompt-digest answer 95a14d196e84db4a",
+        "5 words in; the model said: prompt-digest answer 95a14d196e84db4a"
+      ],
+      "prepareDigests": [
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+        "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0"
+      ],
+      "combineDigests": [
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+        "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5"
+      ],
+      "windows": [
+        {
+          "startedAt": "2026-09-25T06:13:23.914Z",
+          "finishedAt": "2026-09-25T06:13:56.911Z"
+        },
+        {
+          "startedAt": "2026-09-25T06:13:58.223Z",
+          "finishedAt": "2026-09-25T06:14:32.398Z"
+        },
+        {
+          "startedAt": "2026-09-25T06:14:33.716Z",
+          "finishedAt": "2026-09-25T06:15:07.728Z"
+        }
+      ]
+    }
+  },
+  "ollamaDeterminism": {
+    "recordedAsIs": true,
+    "answersIdenticalAcrossPasses": true,
+    "pinnedSampling": {
+      "temperature": 0,
+      "seed": 42,
+      "reasoningEffort": "none"
+    }
+  },
+  "controls": {
+    "control-no-pin": {
+      "outcome": "passed",
+      "timeline": [
+        "queued",
+        "running",
+        "failed"
+      ],
+      "checks": [
+        {
+          "check": "C never ran",
+          "ok": true
+        },
+        {
+          "check": "the run ended failed",
+          "ok": true
+        },
+        {
+          "check": "B ran with no model pin",
+          "ok": true
+        },
+        {
+          "check": "B was refused model_pin_mismatch by the broker",
+          "ok": true
+        },
+        {
+          "check": "nothing was claimed or journaled for B",
+          "ok": true
+        },
+        {
+          "check": "the compiler refused the missing port by name, BINDING_PORT",
+          "ok": true
+        },
+        {
+          "check": "the invalid draft is unavailable, and publishing it is refused 422 factory_definition_invalid naming BINDING_PORT",
+          "ok": true
+        }
+      ]
+    },
+    "control-missing-model": {
+      "outcome": "passed",
+      "timeline": [
+        "queued",
+        "running"
+      ],
+      "checks": [
+        {
+          "check": "C never ran",
+          "ok": true
+        },
+        {
+          "check": "B was refused provider_unavailable",
+          "ok": true
+        },
+        {
+          "check": "the refusal carries Ollama's own missing-model message",
+          "ok": true
+        },
+        {
+          "check": "the provider error is journaled as B's one failed model operation",
+          "ok": true
+        }
+      ]
+    }
+  }
+}

@@ -110,7 +110,7 @@ for expected in "EZCORP_IMAGE_VERSION=${VERSION}" "EZCORP_IMAGE_SHA=${REVISION}"
 done
 
 section "Start container on port ${PORT}"
-# Encryption secrets are required at boot for the bundled-creds bootstrap.
+# Encryption secrets are required at boot.
 "$ENGINE" run -d \
   --name "${CONTAINER}" \
   -p "${PORT}:3000" \

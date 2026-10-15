@@ -516,31 +516,38 @@ class Supervisor:
         drop = self.drop_app_privileges
         if app_phase and action in ("recover-user-create", "abort-user-create-before-admission"):
             drop = partial(self.drop_stopped_user_privileges, os.getpid())
+        check, result = self.recovery_verifier(command, {"phase": phase, **value}, deadline_ms,
+            VERIFY_TIMEOUT_SECONDS, phase, "independent operator recovery verifier failed",
+            drop if app_phase else None)
+        self.recovery_diagnostic(phase, "returned", check.returncode, check.stdout, check.stderr)
+        return result
+
+    def recovery_verifier(self, command, value, deadline_ms, timeout_seconds, phase,
+                          error_message, drop=None):
         try:
             check = subprocess.run(command,
-                input=canonical({"phase": phase, **value}) + b"\n", capture_output=True,
-                timeout=bounded_timeout(deadline_ms, VERIFY_TIMEOUT_SECONDS), check=False,
-                preexec_fn=drop if app_phase else None)
+                input=canonical(value) + b"\n", capture_output=True,
+                timeout=bounded_timeout(deadline_ms, timeout_seconds), check=False,
+                preexec_fn=drop)
         except OSError:
             self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
-            raise ValueError("independent operator recovery verifier failed") from None
+            raise ValueError(error_message) from None
         except subprocess.TimeoutExpired as error:
             self.recovery_diagnostic(phase, "timeout", None, error.stdout, error.stderr)
-            raise ValueError("independent operator recovery verifier failed") from None
+            raise ValueError(error_message) from None
         except subprocess.SubprocessError:
             self.recovery_diagnostic(phase, "spawn_failed", None, b"", b"")
-            raise ValueError("independent operator recovery verifier failed") from None
+            raise ValueError(error_message) from None
         if check.returncode != 0:
             self.recovery_diagnostic(phase, "nonzero", check.returncode, check.stdout, check.stderr)
-            raise ValueError("independent operator recovery verifier failed")
+            raise ValueError(error_message)
         try:
             result = json.loads(check.stdout)
         except (ValueError, UnicodeError):
             self.recovery_diagnostic(phase, "invalid_json", check.returncode, check.stdout, check.stderr)
-            raise ValueError("independent operator recovery verifier failed") from None
+            raise ValueError(error_message) from None
 
-        self.recovery_diagnostic(phase, "returned", check.returncode, check.stdout, check.stderr)
-        return result
+        return check, result
 
     def private_recovery_bytes(self, path, maximum=16384, links=1):
         path = Path(path)
@@ -1027,14 +1034,27 @@ class Supervisor:
     def verify_recovery_fence(self, request, old_process):
         if not self.recovery_fence_command:
             raise ValueError("independent runner client fence verifier is required")
-        check = subprocess.run(self.recovery_fence_command,
-            input=canonical({"request": request, "oldProcess": old_process}) + b"\n",
-            capture_output=True,
-            timeout=bounded_timeout(request["deadlineMs"], AUTHORIZE_TIMEOUT_SECONDS),
-            check=False)
-        if check.returncode != 0 or json.loads(check.stdout) != {
-                "fenced": True, "evidence": request["fenceEvidence"]}:
+        phase = getattr(self, "recovery_fence_diagnostic_phase", "fence")
+        check, result = self.recovery_verifier(self.recovery_fence_command,
+            {"request": request, "oldProcess": old_process}, request["deadlineMs"],
+            AUTHORIZE_TIMEOUT_SECONDS, phase, "independent runner client fence verification failed")
+        if result != {"fenced": True, "evidence": request["fenceEvidence"]}:
+            self.recovery_diagnostic(phase, "invalid_reply", check.returncode, check.stdout, check.stderr)
             raise ValueError("independent runner client fence verification failed")
+        self.recovery_diagnostic(phase, "returned", check.returncode, check.stdout, check.stderr)
+
+    def recovery_fence(self, request, old_process, phase):
+        if phase not in ("initial-fence", "final-fence"):
+            raise ValueError("invalid recovery fence diagnostic phase")
+        previous = getattr(self, "recovery_fence_diagnostic_phase", None)
+        self.recovery_fence_diagnostic_phase = phase
+        try:
+            self.verify_recovery_fence(request, old_process)
+        finally:
+            if previous is None:
+                del self.recovery_fence_diagnostic_phase
+            else:
+                self.recovery_fence_diagnostic_phase = previous
 
     def preflight_recovery_config(self, action="recover-noeffect"):
         variable = "EZCORP_INCUS_FENCED_CLEANUP_CONFIG" if action == "recover-fenced-cleanup" else "EZCORP_INCUS_NOEFFECT_CONFIG"
@@ -1120,7 +1140,7 @@ class Supervisor:
         self.used_recoveries.add(request["nonce"])
         self.set_recovery_hold(request)
         old_process, stopped_at_ms = (stopped["oldProcess"], stopped["stoppedAtMs"]) if stopped is not None else (self.stop_child(), int(time.time() * 1000))
-        self.verify_recovery_fence(request, old_process)
+        self.recovery_fence(request, old_process, "initial-fence")
         # The host transport has a 30-second RPC deadline, but the v4
         # worker policy can run for 60 seconds. Leave margin for exit.
         time.sleep(65)
@@ -1193,7 +1213,7 @@ class Supervisor:
                                 capture_output=True, timeout=SIGN_TIMEOUT_SECONDS, check=True)
         # A stopped runner can restart during the quiet window or readbacks.
         # Recheck the same exact local fence immediately before the DB write.
-        self.verify_recovery_fence(request, old_process)
+        self.recovery_fence(request, old_process, "final-fence")
         if stopped is not None:
             self.verify_stopped_user_boundary(stopped)
         result = self.recovery_stage("apply", {"receipt": receipt,

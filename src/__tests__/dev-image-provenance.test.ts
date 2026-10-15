@@ -1,7 +1,8 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { writeTrackedFile } from "./helpers/exact-mode";
 
 const root = resolve(import.meta.dir, "..", "..");
 const script = join(root, "scripts", "warn-dev-image-provenance.sh");
@@ -24,8 +25,12 @@ function git(...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-writeFileSync(trackedInput, "clean source\n");
-writeFileSync(join(sandbox, ".dockerignore"), ".git\n");
+// Tracked fixture files are written as a git checkout leaves them
+// (helpers/exact-mode): the resolver counts any other permission as a Docker
+// build-context change, so a 077 runner saw this clean fixture as dirty.
+
+writeTrackedFile(trackedInput, "clean source\n");
+writeTrackedFile(join(sandbox, ".dockerignore"), ".git\n");
 git("init", "-q");
 git("add", ".");
 git("-c", "user.name=Provenance test", "-c", "user.email=provenance@example.invalid", "commit", "-qm", "fixture");
@@ -61,14 +66,14 @@ test("dev image provenance warns only when the image and bind-mounted checkout d
   expect(unknown.stderr).toContain("provenance is unavailable");
   expect(unknown.stderr).not.toContain("differs from");
   expect(unknown.stderr).toContain(dockerRebuildCommand(commit));
-  writeFileSync(trackedInput, "dirty source\n");
+  writeTrackedFile(trackedInput, "dirty source\n");
   try {
     const dirty = run(commit);
     expect(dirty.stderr).toContain("uncommitted Docker build-context changes");
     expect(dirty.stderr).toContain("Rebuild the image");
     expect(dirty.stderr).toContain(dockerRebuildCommand(commit));
   } finally {
-    writeFileSync(trackedInput, "clean source\n");
+    writeTrackedFile(trackedInput, "clean source\n");
   }
   expect(run(commit, "unknown").stderr).toContain("build source state is unavailable");
   const unreadable = run(commit, "clean", join(sandbox, "missing-checkout"));
@@ -88,7 +93,7 @@ test("a dirty image build still warns after the checkout becomes clean", () => {
 });
 
 test("provenance inspection ignores inherited Git repository and index overrides", () => {
-  writeFileSync(trackedInput, "dirty source\n");
+  writeTrackedFile(trackedInput, "dirty source\n");
   try {
     const result = run(commit, "clean", sandbox, {
       GIT_DIR: foreignGitDir,
@@ -103,6 +108,6 @@ test("provenance inspection ignores inherited Git repository and index overrides
     expect(result.stderr).not.toContain("provenance was not compared");
     expect(git("config", "--bool", "core.bare")).toBe("false");
   } finally {
-    writeFileSync(trackedInput, "clean source\n");
+    writeTrackedFile(trackedInput, "clean source\n");
   }
 });

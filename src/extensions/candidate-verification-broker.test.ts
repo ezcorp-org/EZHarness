@@ -7,6 +7,7 @@ import { proveSandboxLocalFallbackDenied } from "../runtime/workspaces/host-rout
 import { createIncusExtension, resolveHostIncusInvocationRuntime } from "../../extensions/incus-sandbox/index";
 import { incusManifest } from "../../extensions/incus-sandbox/manifest";
 import { incusCandidateFixture, INCUS_CANDIDATE_CONNECTION, INCUS_CANDIDATE_RPC } from "./incus-candidate-fixture";
+import { enforcingRunnerCapabilities } from "../__tests__/helpers/runner-capabilities";
 
 const release = {
   id: "release", artifactDigest: "a".repeat(64),
@@ -200,7 +201,9 @@ test("separate candidate sessions do not share storage, files or credential iden
 test("service evidence reports tested and unexercised capabilities and cannot hide denied calls", async () => {
   let hideDenied = false;
   let closed = 0;
-  const runner = { async start(input: StartRequest, reverseRpc: ReverseRpc) { return { workerId: input.workerId, onNotification: () => () => {}, close: async () => { closed++; }, request: async (method: string) => {
+  // The release has no shell grant, so the host starts it only on a runner
+  // that enforces the "deny" process policy.
+  const runner = { capabilities: enforcingRunnerCapabilities, async start(input: StartRequest, reverseRpc: ReverseRpc) { return { workerId: input.workerId, onNotification: () => () => {}, close: async () => { closed++; }, request: async (method: string) => {
     if (method === "extension/discover") return release.manifest;
     if (hideDenied) await expect(reverseRpc("ezcorp/shell", { context: input.context, input: { command: "dangerous" } })).rejects.toMatchObject({ code: "test_effect_denied" });
     else await reverseRpc("ezcorp/storage", { context: input.context, input: { action: "set", key: "test", value: 1 } });
@@ -218,7 +221,7 @@ test("service evidence reports tested and unexercised capabilities and cannot hi
 test("production candidate verification fails closed without an executed SP05 proof", async () => {
   const sandboxRelease = sandboxCandidateRelease();
   let closed = false;
-  const runner = { async start(input: StartRequest) { return {
+  const runner = { capabilities: enforcingRunnerCapabilities, async start(input: StartRequest) { return {
     workerId: input.workerId,
     onNotification: () => () => {},
     close: async () => { closed = true; },
@@ -231,7 +234,7 @@ test("production candidate verification fails closed without an executed SP05 pr
 test("production candidate verification runs provider assertions and returns host evidence", async () => {
   const sandboxRelease = sandboxCandidateRelease();
   const dispatched: unknown[] = [];
-  const runner = { async start(input: StartRequest) { return {
+  const runner = { capabilities: enforcingRunnerCapabilities, async start(input: StartRequest) { return {
     workerId: input.workerId,
     onNotification: () => () => {},
     close: async () => {},
@@ -259,7 +262,7 @@ function realIncusRunner(attack = false) {
   const extension = createIncusExtension(resolveHostIncusInvocationRuntime);
   const dispatched: string[] = [];
   let hostCalls = 0;
-  const runner = { async start(start: StartRequest, reverseRpc: ReverseRpc) { return {
+  const runner = { capabilities: enforcingRunnerCapabilities, async start(start: StartRequest, reverseRpc: ReverseRpc) { return {
     workerId: start.workerId,
     onNotification: () => () => {},
     close: async () => {},
@@ -312,7 +315,7 @@ test("candidate Incus fixture rejects any write or forged invocation", () => {
 
 test("provider conformance methods cannot inherit smoke-test host capabilities", async () => {
   const sandboxRelease = sandboxCandidateRelease();
-  const runner = { async start(input: StartRequest, reverseRpc: ReverseRpc) { return {
+  const runner = { capabilities: enforcingRunnerCapabilities, async start(input: StartRequest, reverseRpc: ReverseRpc) { return {
     workerId: input.workerId,
     onNotification: () => () => {},
     close: async () => {},

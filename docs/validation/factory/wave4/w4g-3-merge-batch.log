@@ -1,0 +1,93 @@
+=== heavy 2026-10-01T21:10:51Z
+HEAD 7e2752288c1bb2aebb8f3dfe58aa4934efe40514 MERGE_HEAD  index-tree 68a4ad3b933d54021201e66d446a5eb4f652767a
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-01T21:10:51Z attestation-check disk=201G memAvailable=15GiB swapFreeKiB=2430984/17173956
+--- START attestation-check 2026-10-01T21:10:51Z
+--- END   attestation-check 2026-10-01T21:10:51Z exit=0 
+guard set: 12 files from guard-suites.sh
+resource-gate 2026-10-01T21:10:51Z guard-set disk=201G memAvailable=15GiB swapFreeKiB=2430988/17173956
+--- START guard-set 2026-10-01T21:10:51Z
+--- END   guard-set 2026-10-01T21:10:53Z exit=0  62 pass 0 fail 
+resource-gate 2026-10-01T21:10:53Z build-factory-sdk disk=201G memAvailable=15GiB swapFreeKiB=2430988/17173956
+--- START build-factory-sdk 2026-10-01T21:10:53Z
+--- END   build-factory-sdk 2026-10-01T21:10:53Z exit=0 
+resource-gate 2026-10-01T21:10:53Z build-factory-transport disk=201G memAvailable=15GiB swapFreeKiB=2430992/17173956
+--- START build-factory-transport 2026-10-01T21:10:53Z
+--- END   build-factory-transport 2026-10-01T21:10:53Z exit=0 
+resource-gate 2026-10-01T21:10:53Z build-factory-orchestrator disk=201G memAvailable=15GiB swapFreeKiB=2430996/17173956
+--- START build-factory-orchestrator 2026-10-01T21:10:53Z
+--- END   build-factory-orchestrator 2026-10-01T21:10:53Z exit=0 
+resource-gate 2026-10-01T21:10:53Z pg-factory-wal-backup disk=201G memAvailable=15GiB swapFreeKiB=2430996/17173956
+--- START pg-factory-wal-backup 2026-10-01T21:10:53Z
+--- END   pg-factory-wal-backup 2026-10-01T21:11:00Z exit=0  1 pass 0 fail 
+resource-gate 2026-10-01T21:11:00Z unit-packages--ezcorp-extension-contract-src-network-test-ts disk=201G memAvailable=15GiB swapFreeKiB=2431664/17173956
+--- START unit-packages--ezcorp-extension-contract-src-network-test-ts 2026-10-01T21:11:00Z
+--- END   unit-packages--ezcorp-extension-contract-src-network-test-ts 2026-10-01T21:11:01Z exit=0  3 pass 0 fail 
+resource-gate 2026-10-01T21:11:01Z unit-packages--ezcorp-extension-contract-src-provider-wire-test-ts disk=201G memAvailable=15GiB swapFreeKiB=2431816/17173956
+--- START unit-packages--ezcorp-extension-contract-src-provider-wire-test-ts 2026-10-01T21:11:01Z
+--- END   unit-packages--ezcorp-extension-contract-src-provider-wire-test-ts 2026-10-01T21:11:02Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-01T21:11:02Z unit-packages--ezcorp-extension-contract-src-providers-test-ts disk=201G memAvailable=15GiB swapFreeKiB=2431836/17173956
+--- START unit-packages--ezcorp-extension-contract-src-providers-test-ts 2026-10-01T21:11:02Z
+--- END   unit-packages--ezcorp-extension-contract-src-providers-test-ts 2026-10-01T21:11:02Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-01T21:11:02Z unit-packages--ezcorp-extension-contract-src-validation-test-ts disk=201G memAvailable=15GiB swapFreeKiB=2431836/17173956
+--- START unit-packages--ezcorp-extension-contract-src-validation-test-ts 2026-10-01T21:11:02Z
+--- END   unit-packages--ezcorp-extension-contract-src-validation-test-ts 2026-10-01T21:11:03Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-01T21:11:03Z unit-packages--ezcorp-extension-contract-src-workspace-files-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2431852/17173956
+--- START unit-packages--ezcorp-extension-contract-src-workspace-files-test-ts 2026-10-01T21:11:03Z
+--- END   unit-packages--ezcorp-extension-contract-src-workspace-files-test-ts 2026-10-01T21:11:04Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-01T21:11:04Z unit-src-factory-wal-backup-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2431932/17173956
+--- START unit-src-factory-wal-backup-test-ts 2026-10-01T21:11:04Z
+--- END   unit-src-factory-wal-backup-test-ts 2026-10-01T21:11:04Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-01T21:11:04Z unit-docs-extensions-examples-excel-index-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2431940/17173956
+--- START unit-docs-extensions-examples-excel-index-test-ts 2026-10-01T21:11:04Z
+--- END   unit-docs-extensions-examples-excel-index-test-ts 2026-10-01T21:11:05Z exit=0  12 pass 0 fail 
+resource-gate 2026-10-01T21:11:05Z unit-docs-extensions-examples-excel-parser-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2432148/17173956
+--- START unit-docs-extensions-examples-excel-parser-test-ts 2026-10-01T21:11:05Z
+--- END   unit-docs-extensions-examples-excel-parser-test-ts 2026-10-01T21:11:06Z exit=0  20 pass 0 fail 
+resource-gate 2026-10-01T21:11:06Z unit-docs-extensions-examples-file-organizer-lib-rules-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2432220/17173956
+--- START unit-docs-extensions-examples-file-organizer-lib-rules-test-ts 2026-10-01T21:11:06Z
+--- END   unit-docs-extensions-examples-file-organizer-lib-rules-test-ts 2026-10-01T21:11:06Z exit=0  46 pass 0 fail 
+resource-gate 2026-10-01T21:11:06Z unit-src-__tests__-extension-dependency-audit-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2432220/17173956
+--- START unit-src-__tests__-extension-dependency-audit-test-ts 2026-10-01T21:11:06Z
+--- END   unit-src-__tests__-extension-dependency-audit-test-ts 2026-10-01T21:11:07Z exit=0  2 pass 0 fail 
+resource-gate 2026-10-01T21:11:07Z unit-src-__tests__-npm-deps-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2432260/17173956
+--- START unit-src-__tests__-npm-deps-test-ts 2026-10-01T21:11:07Z
+--- END   unit-src-__tests__-npm-deps-test-ts 2026-10-01T21:11:07Z exit=0  13 pass 0 fail 
+resource-gate 2026-10-01T21:11:07Z unit-src-__tests__-preprocess-manifest-validation-test-ts disk=200G memAvailable=15GiB swapFreeKiB=2432268/17173956
+--- START unit-src-__tests__-preprocess-manifest-validation-test-ts 2026-10-01T21:11:07Z
+--- END   unit-src-__tests__-preprocess-manifest-validation-test-ts 2026-10-01T21:11:08Z exit=0  25 pass 0 fail 
+resource-gate 2026-10-01T21:11:08Z deps-audit disk=200G memAvailable=15GiB swapFreeKiB=2432280/17173956
+--- START deps-audit 2026-10-01T21:11:08Z
+--- END   deps-audit 2026-10-01T21:11:08Z exit=0 
+resource-gate 2026-10-01T21:11:08Z web-vitest-full disk=200G memAvailable=15GiB swapFreeKiB=2432288/17173956
+--- START web-vitest-full 2026-10-01T21:11:08Z
+--- END   web-vitest-full 2026-10-01T21:16:08Z exit=0  Tests 7843 passed (7843) 
+resource-gate 2026-10-01T21:16:08Z web-server-lcov disk=198G memAvailable=16GiB swapFreeKiB=2080036/17173956
+resource-gate 2026-10-01T21:17:08Z web-server-lcov disk=199G memAvailable=15GiB swapFreeKiB=1456672/17173956
+resource-gate 2026-10-01T21:18:08Z web-server-lcov disk=199G memAvailable=15GiB swapFreeKiB=1485036/17173956
+resource-gate 2026-10-01T21:19:08Z web-server-lcov disk=198G memAvailable=15GiB swapFreeKiB=1576888/17173956
+resource-gate 2026-10-01T21:20:08Z web-server-lcov disk=198G memAvailable=16GiB swapFreeKiB=1677280/17173956
+resource-gate 2026-10-01T21:21:08Z web-server-lcov disk=198G memAvailable=15GiB swapFreeKiB=1810468/17173956
+resource-gate 2026-10-01T21:22:08Z web-server-lcov disk=199G memAvailable=16GiB swapFreeKiB=1871272/17173956
+resource-gate 2026-10-01T21:23:08Z web-server-lcov disk=198G memAvailable=16GiB swapFreeKiB=1894516/17173956
+resource-gate 2026-10-01T21:24:08Z web-server-lcov disk=198G memAvailable=16GiB swapFreeKiB=2133552/17173956
+--- START web-server-lcov 2026-10-01T21:24:08Z
+--- END   web-server-lcov 2026-10-01T21:24:28Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-01T21:24:29Z coverage-merge disk=198G memAvailable=16GiB swapFreeKiB=2135084/17173956
+--- START coverage-merge 2026-10-01T21:24:29Z
+--- END   coverage-merge 2026-10-01T21:24:29Z exit=0 
+resource-gate 2026-10-01T21:24:29Z web-build disk=198G memAvailable=16GiB swapFreeKiB=2135092/17173956
+--- START web-build 2026-10-01T21:24:29Z
+--- END   web-build 2026-10-01T21:25:11Z exit=0 
+resource-gate 2026-10-01T21:25:11Z graph-mock-pass disk=198G memAvailable=15GiB swapFreeKiB=2132252/17173956
+--- START graph-mock-pass 2026-10-01T21:25:11Z
+--- END   graph-mock-pass 2026-10-01T21:26:05Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-3/graph/w4g-3-mock.json; nothing to dump
+mock pass w4g-3-mock outcome: passed
+resource-gate 2026-10-01T21:26:05Z crap-changed-base disk=198G memAvailable=16GiB swapFreeKiB=2184308/17173956
+--- START crap-changed-base 2026-10-01T21:26:05Z
+--- END   crap-changed-base 2026-10-01T21:26:05Z exit=0 
+resource-gate 2026-10-01T21:26:05Z merge-commit-gates disk=198G memAvailable=15GiB swapFreeKiB=2184420/17173956
+--- START merge-commit-gates 2026-10-01T21:26:05Z
+--- END   merge-commit-gates 2026-10-01T21:26:10Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-10-01T21:26:10Z

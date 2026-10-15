@@ -1,0 +1,68 @@
+W4H-12 report (final, written once) — to validator-5 and team-lead
+Package: factory-host-launch on real PostgreSQL rejects in the hosted external-postgres job (hosted run 37383355593 at 1bc5f63c7).
+Branch: wp/w4h-12-factory-host-launch   Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-12
+Base: integ/w00 1bc5f63c7   Head: a8c6e9e94 (clean tree)   Gate file: tasks/factory/w4h-12-GATES.md (G1–G8)
+Evidence: /tmp/factory-platform-evidence/w4h-12/ (below: E/)
+
+CAUSE
+The external-postgres job (.github/workflows/db-postgres.yml, job at line 60 at the base) ran a real Podman guest in its storage step
+(./tests/postgres/factory-host-launch.test.ts) but never ran `bash scripts/setup-extension-runner-ci.sh --install`, the only step that
+pulls the pinned guest image, installs conmon 2.2.1, delegates the cgroup controllers and exports the user session. The runner starts every
+guest with --pull=never (packages/@ezcorp/extension-runner/src/podman.ts:477), so the first container (the isolation probe, podman.ts:325)
+failed with podman's "image not known". The test's `expect(promise).resolves.toBeUndefined()` printed only "Promise { <rejected> }".
+Not flaky: deterministic red without the setup, green with it.
+Corrected during the package: my fourth cause point (the factory-storage action's XDG_RUNTIME_DIR export) was DISPROVED by leg r6-xdg,
+and the change it motivated was reverted.
+
+COMMITS (author and committer archy <281643943+EZArchy@users.noreply.github.com>; hook ran normally on each; hook list <= 4 suites)
+e18becde4 fix(ci): provision the extension runner in external-postgres; storage keeps its runtime dir       hook 5/0 16/0 5/0
+44e2121e9 fix(extension-runner): refuse an unprovisioned runner image by name                              hook 5/0 4/0
+f0cf1e8f7 test(factory): surface the host-launch rejection instead of hiding it                          hook 1/0 1/0 (own pg15)
+e423c827b test(ci): the Podman-guest guard ignores comments, orders setup before storage, and pins the base workflow   hook 16/0 7/0
+ac20f1a8a revert(ci): the storage action keeps exporting XDG_RUNTIME_DIR; the setup-before-storage reason, corrected   hook 4/0 7/0
+643f12dd5 test(factory): host-launch twins assert again; drop the unproven setup-before-storage rule      hook 16/0 7/0 1/0 1/0 (own pg15)
+a8c6e9e94 docs(factory): W4H-12 gates and todo (new gate file force-added: .gitignore:8 `tasks`, ruled)
+Net diff 1bc5f63c7..a8c6e9e94: the workflow step; scripts/podman-guest-job-registration.test.ts (new guard) and its fixture
+scripts/fixtures/podman-guest-jobs/base/db-postgres.yml (byte-equal to 1bc5f63c7); scripts/lib/ci-registration.ts (stepsNeedingPreparation,
+stepsNeedingAction delegates) + test; core.ts (RunnerCommandError keeps the exit status) and podman.ts (requireImage: image_unavailable by
+name) + tests (core.test.ts case, new image-precondition.test.ts); both host-launch twins; tasks docs. The storage action and its
+registration test are unchanged against the base.
+
+GATES (receipt, sha256 prefix)
+G1 R1 red, hosted shape (runner-shaped Ubuntu 24.04 container, apt podman 4.9.3, 4 CPU, fresh pgvector:pg15 15.19, the storage step's
+   command on the one failing file; deviation accepted: the other 46 files need the job-local SeaweedFS): 0 pass / 1 fail, RunnerError
+   command_failed "...: image not known". E/logs/r1-red-step.log 0e45f3c5eac82330
+G2 cause with lines (above).
+G3 fixed at the root; no retry, no timeout change (job limit 15 min unchanged; hosted job took 7.5 min), no skip; test stays on real PG.
+G4 red without the fix: E/logs/unit-red-without-precondition.log ea6d3e0ef6609001 (image-precondition 0/4 on base podman.ts);
+   E/logs/unit-red-base-workflow.log 404e981717cb27ec (guard names the external-postgres storage step on the base workflow).
+G5 green, hosted shape, fresh DB, one run: r5-green at f0cf1e8f7 1 pass / 0 fail, 12 expect() calls, E/logs/r5-green-step.log
+   ef4693023c902f65; named-precondition leg (setup left out on purpose) red BY NAME image_unavailable, E/logs/r5-named-step.log
+   49d17f604893d523. For the head's exact job shape (setup + base action export) the green leg is r6-xdg.
+G6 r6-xdg: fixed workflow + base action's XDG export forced: GREEN 1/0, 12 expects, systemd cgroup manager, conmon 2.2.1. Disproved my
+   R2 point 4; the action change was reverted (ac20f1a8a). E/logs/r6-xdg-step.log b7ebbb1a4b05f645
+G7a local control (wave4i-2's 56-file postgres list, one bun process, own fresh pg15, shared S3 under test prefixes) at e423c827b:
+   629 pass / 0 fail, 9172 expects, 1136 s. E/logs/control-2.log 0e72c86803d18592. First run VOID (host OOM storm 01:06–01:08Z, a 15.4 GiB
+   tsgo not ours; I stopped my own run): E/logs/control.log 715f45ec669b1615.
+G7b final light legs at 643f12dd5: E/logs/final-legs.log af57ee735e6840e4 (each leg E/logs/final-<leg>.log). Unit core 5/0,
+   image-precondition 4/0, ci-registration 16/0, podman-guest-job-registration 7/0, factory-storage-action-registration 4/0; vs integ/w00
+   new-file PASSED, patch PASSED (3 files, all changed executable lines covered), gate-integrity PASSED; vs origin/main gate-integrity =
+   exactly the 8 expected coverage-tool lines; new-file/patch vs origin/main red only on the integration branch's own files (podman.ts's
+   40 uncovered lines from the integ diff contain none of this package's 15 added lines); CRAP --changed 6 functions, none > 30
+   (probeSecurity 20 = complexity at 100 %); guard set 507/0; typecheck, lint, boundaries, lanes rc 0; prune scan clean.
+   The first final-legs run at ac20f1a8a found the twins vacuous on both gate-integrity legs (my f0cf1e8f7); 643f12dd5 fixed it.
+G8 setup-before-storage ordering rule DROPPED (ruling): r7-order inconclusive, exit 1, E/logs/r7-order-step.log ad1f4901278ccc4f — case A's
+   runner setup itself failed rc 1 (log lost with the container, a harness defect), case B void (A's containers remained). The setup
+   step's presence stays required.
+Risk record: factory-assurance-release (hosted: success) and factory-deployment-operations (hosted: skipped) — after the revert they get
+   exactly the environment they had; scan E/logs/xdg-readers.txt 2c899bb2bbdca52d.
+
+HARNESS: E/r1.sh, E/in-container.sh, E/chain.sh (r5-chain.sh kept as run), E/image/Containerfile (byte-equal copy of W4H-6's), all run
+only through w00/gated-flock.sh (START_MEM 8 GiB, exit files E/logs/*.exit). Passwords only in 0600 files under /tmp/w4h-12-home-*,
+removed. Containers removed by name; no w4h12 container left; my tag localhost/w4h-12-runner:24.04 removed; the public
+docker.io/pgvector/pgvector:pg15 left in place.
+
+OPEN / FOR THE VALIDATOR
+- The fix is proven in a runner-shaped container, not on GitHub; the next hosted run of external-postgres is the proof of record.
+- Pending lessons: E/pending-lesson.md (2 lines).
+- Proof refs: none needed (every receipt names a commit on the branch).

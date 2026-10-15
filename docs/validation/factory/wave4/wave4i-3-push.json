@@ -1,0 +1,30 @@
+{
+  "push": "second push of the wave: feat/composable-factory-platform 1bc5f63c7 -> 1b96d27306cf3a21661e16a70f61f5e4837b2bcd (plain git push, exit 0 at 07:26:49Z, first try; pre-push hook: typecheck 61 s incl. mypy --strict on the 2 locked Python projects, svelte-check 620 files 0 errors 0 warnings; never --no-verify or --force)",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 07:24:15Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch (only a forced update of origin/evidence/pr-303, not ours); HEAD = origin/feat = 1bc5f63c7; ancestor of integ/w00 1b96d2730; config-check rc 0; 32 commits ahead",
+    "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating 1bc5f63c7..1b96d2730 Fast-forward",
+    "3 installs": "installs-step.log / installs.log: resource gate green (disk 302G, mem 15 GiB, swap 2.4 GiB); bun and bunx 1.4.2; w00/installs-lib.sh 36e14c55cd666ed0 frozen_installs exit 0 (root 18 packages, web 6 + svelte-kit sync, gate-integrity deps no changes, six package builds); status empty",
+    "4 push": "push.sh 4fff29036e949c9a through w00/tc-gate.sh 84f8b66f0bd3faf0 lock-free: GREEN at 07:25:34Z (MemAvailable 16.1 GiB, no heavy holder), lowest 12.2 GiB during the hook; push exit 0; HEAD = origin/feat = 1b96d2730",
+    "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid 1b96d2730, MERGEABLE, mergeStateStatus BLOCKED (checks queued at read time)",
+    "6 hosted": "ci 37743486763 (completed, failure; 58 jobs) and deps-audit 37743489742 (success). vs 37383355593: red 9 -> 3, fixed 6, same 49, still red 3, green->red 0; vs 37138524741: red 20 -> 3, fixed 17. Still red: Gate integrity (A, the 8, label), Factory runner readiness precheck (A, FACTORY_RUNNER_READ_TOKEN), Per-file coverage gate (C, NEW CAUSE: seven lcov-cov-* producer artifacts each upload lcov.info into one merge-multiple download folder, six producers' records lost; latent since the producers first succeeded; package W4H-15 opened by the coordinator). Details: wave4i-3-push-ci-37743486763-classification.md."
+  },
+  "failedLog": "full --log-failed: ci-37743486763/all-failed.log sha256 c1caa8abcefacaac (stays in the evidence dir); committed: the ruled excerpt (w00/push-log-excerpt.py 887368f0ceffe11e) and the Per-file coverage gate's whole job log (its cause lines sit outside the excerpt window)",
+  "hostEvents": [
+    "none during the push window (07:24-08:05Z): 0 host OOM kills; the wave's host events up to the combined run are in wave4i-3.json",
+    "shared .git/config: accepted baseline 29e61b63b05624e9 (a branch-only change accepted by the 2026-10-03 rule at the wave4i-3 receipts) at every step"
+  ],
+  "tooling": {
+    "push.sh": "4fff29036e949c9a",
+    "installs.sh": "8b4183e3b29b36df",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/tc-gate.sh": "84f8b66f0bd3faf0",
+    "w00/bun-pin.sh": "8efbd53ee7b13838",
+    "w00/resource-gate.sh": "530b792cc01e4ed4",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "w00/push-log-excerpt.py": "887368f0ceffe11e",
+    "w00/wave4i/push-checklist.md": "35dc9341d27cfd43",
+    "baseline 37383355593": "01285a508f1be6e9",
+    "baseline 37138524741": "074c4b968060d499"
+  },
+  "receiptsBy": "integrator-5"
+}

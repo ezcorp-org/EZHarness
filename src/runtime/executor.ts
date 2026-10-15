@@ -53,6 +53,7 @@ import * as dbRuns from "../db/queries/runs";
 import { getConversation } from "../db/queries/conversations";
 import { ExtensionRegistry } from "../extensions/registry";
 import { startCollector } from "../observability/collector";
+import { assertFactoryExecutionContext, type FactoryExecutionContext } from "./factory-execution";
 import { logger } from "../logger";
 const log = logger.child("executor");
 import * as activeRunsDb from "../db/queries/active-runs";
@@ -78,6 +79,23 @@ export interface AgentExecutionControl {
   invocationGuard?: InvocationGuard;
   /** Host-selected workspace inherited by workflow and nested agent runs. */
   workspaceTarget?: WorkspaceTarget;
+}
+
+export interface FactoryAttemptExecutionRequest {
+  conversationId: string;
+  userMessage: string;
+  execution: FactoryExecutionContext;
+  options?: {
+    projectId?: string;
+    workingDir?: string;
+    system?: string;
+    parentMessageId?: string;
+    agentConfigId?: string;
+    thinkingLevel?: "off" | "minimal" | "low" | "medium" | "high" | "xhigh";
+    toolRestriction?: "all" | "read-only" | "none";
+    allowedTools?: string[];
+    deniedTools?: string[];
+  };
 }
 
 /**
@@ -1062,7 +1080,9 @@ export class AgentExecutor {
        *  `ez-code__dispatch_run` are caught along with the bare builtins. The
        *  LLM-initiated half of the confinement — a route allowlist cannot see
        *  a mid-turn `invoke_agent`, because it issues no HTTP request. */
-      forceDenyOrchestration?: boolean },
+      forceDenyOrchestration?: boolean;
+      /** Factory runner context. When present, provider authority is brokered. */
+      factoryExecution?: FactoryExecutionContext },
   ): Promise<AgentRun> {
     const persistedConversation = await getConversation(conversationId);
     if (!persistedConversation) throw new Error("Conversation workspace is unavailable for chat run");
@@ -1413,6 +1433,7 @@ export class AgentExecutor {
         ctx,
         host,
         runId: run.id,
+        allowFailover: !options.factoryExecution,
         // Fallback quality tier: the tier that actually produced this turn's
         // model (setup-tools). A pinned model carries its OWN inferred tier
         // (a pinned Opus fails over to a powerful-tier peer, never silently
@@ -1505,6 +1526,18 @@ export class AgentExecutor {
     }
 
     return run;
+  }
+
+  /**
+   * C02 runner entrypoint. It validates factory authority before the shared
+   * chat executor starts any setup that could otherwise read host credentials.
+   */
+  async executeFactoryAttempt(request: FactoryAttemptExecutionRequest): Promise<AgentRun> {
+    assertFactoryExecutionContext(request.execution);
+    return this.streamChat(request.conversationId, request.userMessage, {
+      ...request.options,
+      factoryExecution: request.execution,
+    });
   }
 
   private storeRun(run: AgentRun): void {

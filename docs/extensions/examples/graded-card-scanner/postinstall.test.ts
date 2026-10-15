@@ -1,8 +1,8 @@
-// Tests for the postinstall deploy helper with real temp dirs.
+// Tests for the postinstall deploy helper — real temp dirs, no mocks.
 
-import { describe, expect, spyOn, test } from "bun:test";
-import * as fs from "node:fs";
+import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { findProjectRoot, installApp, main } from "./scripts/postinstall";
@@ -15,7 +15,7 @@ describe("findProjectRoot", () => {
   test("walks up to the nearest .git directory", () => {
     const root = makeTmp();
     try {
-      mkdirSync(join(root, ".git"));
+      markGitRepository(root);
       const nested = join(root, "a", "b", "c");
       mkdirSync(nested, { recursive: true });
       expect(findProjectRoot(nested)).toBe(root);
@@ -24,17 +24,16 @@ describe("findProjectRoot", () => {
     }
   });
 
-  test("falls back to the starting dir when no .git exists above", () => {
+  test("falls back to the starting dir when no git repository encloses it, ignoring a stray empty .git", () => {
     const dir = makeTmp();
-    const exists = fs.existsSync;
-    const stub = spyOn(fs, "existsSync").mockImplementation(path =>
-      String(path).endsWith("/.git") ? false : exists(path),
-    );
+    // A bare `.git` directory is not a repository (the host once carried an
+    // empty `/tmp/.git`); the walk passes it and returns `from`.
+    mkdirSync(join(dir, ".git"));
+    const start = join(dir, "child");
+    mkdirSync(start);
     try {
-      // The host may have /tmp/.git; simulate a tree with no Git ancestor.
-      expect(findProjectRoot(dir)).toBe(dir);
+      expect(findProjectRoot(start)).toBe(start);
     } finally {
-      stub.mockRestore();
       rmSync(dir, { recursive: true, force: true });
     }
   });

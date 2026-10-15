@@ -1,0 +1,31 @@
+Checked 4 files in 31ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/factory-sdk/src/kernel.test.ts
+bun test v1.4.2 (744846f84)
+
+ 30 pass
+ 0 fail
+ 170 expect() calls
+Ran 30 tests across 1 file. [4.67s]
+  bun: src/factory/provisioning/control-plane.test.ts
+bun test v1.4.2 (744846f84)
+
+ 22 pass
+ 0 fail
+ 259 expect() calls
+Ran 22 tests across 1 file. [443.00ms]
+  bun: src/factory/provisioning/fleet-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 53 expect() calls
+Ran 8 tests across 1 file. [375.00ms]
+  bun: src/factory/provisioning/fleet.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 142 expect() calls
+Ran 13 tests across 1 file. [380.00ms]
+[detached HEAD 9fe4056f0] merge: wp/w4f-2-crap-provisioning-kernel b6aa5204f into integ/w00 (W4F-2 CRAP splits: provisioning, kernel)

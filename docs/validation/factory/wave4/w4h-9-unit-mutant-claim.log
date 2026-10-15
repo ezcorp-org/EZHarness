@@ -1,0 +1,50 @@
+bun test v1.4.2 (744846f84)
+
+tests/service-detach.test.ts:
+158 |   try {
+159 |     await startAndAttach(harness, "worker");
+160 |     // While one host holds the stream a second is refused. This lives here,
+161 |     // under a lease that cannot fire, so the assertion tests exclusivity and
+162 |     // never how fast the box answered.
+163 |     expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
+                                                                                                ^
+error: expect(received).toBe(expected)
+
+Expected: 400
+Received: 200
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-9/packages/@ezcorp/extension-runner/tests/service-detach.test.ts:163:91)
+(fail) a dropped connection releases the attachment from the runtime's own signal, never from the lease [43.23ms]
+438 |   // The starter's first /v4/attach claims the start attachment instead of being refused; the single-holder rule then
+439 |   // applies to every later attach, exactly as before W4H-9.
+440 |   const harness = await startHarness();
+441 |   try {
+442 |     await startAndAttach(harness, "claimed");
+443 |     expect(await call(harness.socketPath, "/v4/attach", { workerId: "claimed" })).toEqual({ status: 400, body: { error: { code: "unknown_worker", stage: "runner", message: "Worker is unavailable or already attached", retryable: false } } });
+                                                                                        ^
+error: expect(received).toEqual(expected)
+
+@@ -2,10 +2,5 @@
+    "body": {
+-     "error": {
+-       "code": "unknown_worker",
+-       "message": "Worker is unavailable or already attached",
+-       "retryable": false,
+-       "stage": "runner",
+-     },
++     "workerId": "claimed",
+    },
+-   "status": 400,
++   "status": 200,
+  }
+
+- Expected  - 7
++ Received  + 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-9/packages/@ezcorp/extension-runner/tests/service-detach.test.ts:443:83)
+(fail) after the starter claims its worker, a second attach is refused [47.68ms]
+
+ 14 pass
+ 2 fail
+ 234 expect() calls
+Ran 16 tests across 1 file. [16.37s]

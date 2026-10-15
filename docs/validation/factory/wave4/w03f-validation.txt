@@ -1,0 +1,53 @@
+W03f (wp/w03f-provider-settle): ACCEPT at c02f2b0fa (code head 1e8f08279; c02f2b0fa is docs only), short hold after w09h-2's
+custody merges. validator-5, 2026-09-29. Base integ/w00 afbca4d88 (W03g landed). validator-4's ACCEPT of the code at 3a023745e
+covers the rest of the package. Its one base-leg gate finding is the one its decision file approves
+(w00/w03f-merge/gate-change-decision.txt, sha256 4703a536affe271874f67e798e30b5f3251a73652a1791cc8b4b823643352658). No finding above
+low.
+Receipts: /tmp/factory-platform-evidence/w03f-validation/hold-v5-c02f2b0fa/ (results.jsonl, logs/, tree-review.tsv),
+hold-c02f2b0fa.out and heavy-c02f2b0fa.out.
+
+- Shape: 3a023745e (validator-4's accepted head) is in the head. The commits over it are the W09h merge f5a93ffd0 (7
+  conflicts), the conflict-free W03g merge ef99d1120, the attestation 1e8f08279, and c02f2b0fa (docs).
+- Identity: all 21 commits in afbca4d88..c02f2b0fa are archy <281643943+EZArchy@users.noreply.github.com>, as author and as
+  committer.
+- The shared .git/config sha256 was 44962525f1ca1a8b at the start and end of both phases. The tree was clean. bun and bunx were
+  asserted at 1.3.14.
+- Merge resolution, red-first by mutants:
+  - The combined basis CHECK in src/db/migrations/add-factory-usage-operations.ts holds the union of W03e's, W03f's and W09h's
+    bases, and it is replaced while either marker is missing.
+  - The basis suites (add-factory-usage-nothing-launched-basis.test.ts, which uses W09h's shared case suite, and
+    add-factory-usage-operations.test.ts) are 7/0.
+  - They are red with W09h's "nothing launched, all zero" dropped from the union.
+  - They are red with the replace condition keyed only on the restore marker.
+  - packages/@ezcorp/factory-sdk/src/kernel.ts and validation.ts equal git's own merge-tree result in both merges, so they
+    are not hand-edited.
+- The re-added attestation (1e8f08279), under the decision file's four conditions:
+  - 1: the json holds exactly one entry, for src/factory/task-stops.ts.
+  - 2: line 373. Its text equals the head's line, its fileSha256 equals the head's task-stops.ts, and bunVersion 1.3.14
+    equals .bun-version.
+  - 3: a fresh lcov from factory-task-stops at the head gives DA 373 = 0 while DA 372 = 176. Against origin/main, the patch
+    gate prints "src/factory/task-stops.ts:373 attested" with the entry and no stale finding. With [] it names 373
+    uncovered.
+  - 4: this verdict and the hold log cite the decision file's sha256.
+- gate-integrity, by the lead's set rule (w00/findings-match.py):
+  - Base leg against afbca4d88: exactly {scripts/coverage-attestations.json}, the decision's set.
+  - origin/main leg: exactly the 8 paths of w00/expected-integ-findings-vs-main.txt.
+- Suites alone at the head, each count nonzero: factory-task-stops 43, dispatch-composition 50, kernel 30, usage-settlement 12,
+  guest-model-broker 12, provider-one-hop 11, guest-model-response 5, guest-model-journal 4.
+- Heavy legs under flock --close, lock_veto validator-2 first, 03:17:04Z to 03:19:30Z. The merged task-stops.ts resolution on
+  real PostgreSQL: admission-stop 5/0 (W09h's stop-before-admission and the race), task-stops 43/0, usage-basis-migration 5/0,
+  compute-admissions 2/0. Then the graph-proof runbook, mock mode, with web built first: outcome passed on try 1. The merge
+  changes factory-sdk.
+- Static checks, all exit 0: typecheck, lint, check-factory-boundaries, check-boundaries, and gitleaks on the changed files.
+- The owner's legs at 1e8f08279 (w03f/custody/logs/legs-head-1e8f08279.summary.log) agree: the same PostgreSQL suites are
+  green, and the patch gate against afbca4d88 prints 373 as attested.
+- Checks added by the lead's order:
+  - Merge f5a93ffd0's skipped hook suites (w03f/custody/receipts/hook-list-f5a93ffd0.jsonl, head f5a93ffd0, dirty 0, bun and bunx
+    1.3.14, config hash unchanged): 168 of 169 suites ran green, each with a nonzero test count.
+  - The 169th, src/__tests__/db-connection.test.ts, first failed from the runner, not the code. The runner exported
+    DATABASE_URL to every suite, and this suite asserts it is absent (hook-list-f5a93ffd0.CAUSE.txt). The rerun alone at
+    f5a93ffd0 without either variable gives exit 0, 21 pass, 0 fail (hook-list-db-connection-rerun.attempt-1.json).
+  - The owner's legs at 1e8f08279 print "src/factory/task-stops.ts:373 attested" in the patch-gate log. I read that line
+    myself.
+  - The command I ran is exactly the one ordered: DECISION_FILE=.../w03f-merge/gate-change-decision.txt BASE=afbca4d88
+    RESOLUTION_COMMITS="f5a93ffd0 1e8f08279".

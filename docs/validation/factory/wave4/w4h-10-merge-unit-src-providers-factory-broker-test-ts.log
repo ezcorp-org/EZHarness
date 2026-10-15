@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-05T07:41:55.072Z","level":"warn","msg":"Model \"claude-retired-0-0-19000101\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-retired-0-0-19000101"}
+{"ts":"2026-10-05T07:41:55.151Z","level":"warn","msg":"Model \"gpt-6-lunna\" is pinned for provider \"openai\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to openai, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"openai","modelId":"gpt-6-lunna"}
+
+ 23 pass
+ 0 fail
+ 62 expect() calls
+Ran 23 tests across 1 file. [1040.00ms]

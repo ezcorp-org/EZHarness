@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "factory.w11b-validation-results.v1",
+  "package": "W11b",
+  "validator": "w11b-validation (independent, read-only)",
+  "verdict": "ACCEPT-WITH-FIXES",
+  "head": "db21ca7019d06ca0d7336a2a9fda5904e214c25f",
+  "branch": "wp/w11b-image-egress",
+  "mergeBaseWithIntegW00": "f30da62fac9a6ebcf175d129e9e649470597950b",
+  "integW00TipAtValidationTime": "f1af41c16",
+  "treeState": {
+    "gitStatusPorcelain": "empty",
+    "commits": [
+      { "sha": "a8d0193b5f8d0c46cec77280bd40165ee609cd18", "subject": "feat(factory): move image variants out through the guest material mount", "confirmedOnBranch": true },
+      { "sha": "db21ca7019d06ca0d7336a2a9fda5904e214c25f", "subject": "fix(factory): let the runner own the material directory's mode and owner", "confirmedOnBranch": true }
+    ]
+  },
+  "independentReruns": [
+    { "command": "bun test --timeout 30000 ./src/factory/reference-image/materials.test.ts", "exitCode": 0, "result": "18 pass / 0 fail / 34 expect() calls" },
+    { "command": "bun test --timeout 30000 ./src/factory/reference-image/{closure,lock,materials,publication,semantic-quorum,variants}.test.ts --coverage", "exitCode": 0, "result": "169 pass / 0 fail / 417 expect() calls across 6 files; matches gate file B8 exactly" },
+    { "command": "bun test --timeout 30000 ./scripts/check-factory-boundaries.test.ts", "exitCode": 0, "result": "25 pass / 0 fail / 30 expect() calls; combined with the 6-file run above reconciles receipts.json's separate '194 pass / 447 assertions / 7 files' figure exactly (169+25=194, 417+30=447) -- not a discrepancy, a broader receipt" },
+    { "command": "bun run typecheck", "exitCode": 0, "result": "backend, web, tests, e2e, and Python (mypy --strict) all pass" },
+    { "command": "bun run lint", "exitCode": 0, "result": "0 errors; 8 pre-existing infos in an unrelated web file, not touched by this pack" },
+    { "command": "bun scripts/check-factory-boundaries.ts", "exitCode": 0, "result": "F07/F13 checks pass; REQUIRED_SHARED_IMPORTS row for src/factory/reference-image/materials.ts -> packages/@ezcorp/extension-runner/src/index.ts confirmed present" },
+    { "command": "bun scripts/gate-integrity.ts", "exitCode": 0, "result": "no gate-weakening or test-cheating changes detected" },
+    { "command": "nix-shell -p uv --run 'bash scripts/python-quality.sh all'", "exitCode": 0, "result": "183 Python test cases for src/factory/reference-image/python; 100% of 691 statements and 212 branches; matches receipts.json exactly" },
+    { "command": "bun scripts/merge-lcov.ts (own coverage dirs, bun + python) -> coverage/lcov.info", "exitCode": 0, "result": "530 source files merged; materials.ts measured at 72/72 lines (100%), matching the gate file's claim exactly" },
+    { "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exitCode": 0, "result": "PASSED: 1 new source file gated (materials.ts)" },
+    { "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exitCode": 0, "result": "PASSED: all changed executable lines covered (2 files: materials.ts, check-factory-boundaries.ts)" }
+  ],
+  "notRerun": [
+    "scripts/verify-factory-image-pack.ts GPU journey -- explicitly excluded by the team lead's brief; it cannot pass until W01d (branch wp/w01d-materials-handover, head 26bafa23d) lands on integ/w00, confirmed NOT an ancestor of integ/w00 at validation time",
+    "scripts/verify-factory-image-publication.ts (real S3 publish leg) -- not in the common.md mandatory rerun list; avoided to prevent unnecessary additional object churn in the shared S3 store; its digest bindings were reviewed by inspection instead",
+    "tests/postgres/factory-*.test.ts -- no migration or schema file is in this leaf's diff (git diff --name-only f30da62fa db21ca701 has zero migration/schema hits), so no postgres producer is affected"
+  ],
+  "codeReview": {
+    "materialsTs": "src/factory/reference-image/materials.ts calls no readdir and no bare open of its own; every read-back goes through listRunnerMaterials/openRunnerMaterial imported from @ezcorp/extension-runner. Digest check (line ~176) happens and refuses BEFORE begin()/writeChunk()/seal() are ever called (line ~186+), confirming the 'nothing reaches the store on a digest mismatch' claim by direct code reading, not just the RecordingMaterials test.",
+    "eighteenTests": "Counted 18 test() calls in materials.test.ts, matching the claim exactly. Each of the refusal tests (lying digest, truncated write, undeclared file, missing declared file, duplicate claim, planted symlink) was read and reasoned through against the corresponding refuse() call site in materials.ts; each is a real assertion on a distinct code path, not a duplicate or a tautology.",
+    "sharedSymlinkGuard": "packages/@ezcorp/extension-runner/src/materials.ts (untouched by this leaf, confirmed by empty diff) independently verified to refuse a symlink via dirent.isSymbolicLink() in the walk, and to open with O_NOFOLLOW|O_NONBLOCK plus a regular-file stat check in openRunnerMaterial -- matches the claim.",
+    "b4SealOrdering": "In scripts/verify-factory-image-pack.ts, sealGuestMaterials (line 410) is called after the try/finally block that awaits worker.close() (line 403), outside that block -- confirmed by direct reading, matches the B4 claim.",
+    "noChmodChownRemains": "grep for chmod|chown|0o777|0777 across every file touched by this leaf's diff (f30da62fa..db21ca701) returns zero matches in executable code; all four hits are in prose comments/gate-file text explaining the removed history. The db21ca701 diff shows the chmod/podman-unshare-chown block fully deleted from scripts/verify-factory-image-pack.ts's prepareMaterialDirectory, leaving only mkdir."
+  },
+  "findings": [
+    {
+      "id": "F1",
+      "severity": "medium",
+      "category": "process/consistency, not a defect in the shipped code",
+      "title": "The caller-side directory handover was removed from W11b's verification script before W01d landed, diverging from the coordinator's contemporaneous written guidance for the sibling W12 pack to keep an equivalent interim copy",
+      "detail": "Commit 8bbfaf14a (docs(factory): record the handover question as answered...), already on integ/w00, is authored by the same identity ('archy') 8 minutes before db21ca701, and records: 'This round finishes with the four lines in ReferenceDataGuestDirectory.create in place; when W01d is on integ/w00 the coordinator signals and those four lines are deleted in a small follow-up, so every pack uses one implementation. Until then this pack's copy is the only thing keeping its guests able to write, and removing it early would break every journey.' W12's production file src/factory/reference-data/materials.ts (class ReferenceDataGuestDirectory, verified in the w12-data worktree) still contains chmod(0o755)/chmod(0o770)/podman-unshare-chown today, per that guidance. W11b's second commit (db21ca701) removed the equivalent workaround from its own script, breaking its own ability to produce a live end-to-end proof until W01d lands -- exactly the outcome the coordinator's note warned against for 'every journey'.",
+      "mitigatingFactor": "This is not a correctness defect and not a misrepresentation: the gate file (B1/B6/B7) is fully transparent that these rows are unchecked and explains why in detail; the coordinator's guidance text was framed around W12's specific production file (ReferenceDataGuestDirectory.create), and W11's own production code (src/factory/reference-image/*.ts) never contained directory-creation/chmod logic in the first place -- only the standalone verification script (scripts/verify-factory-image-pack.ts) did, so nothing shipped in the pack's production surface regressed. No credential, no security control, and no gate integrity is weakened by this choice.",
+      "recommendation": "The team lead/coordinator should explicitly confirm whether the 'keep an interim copy until W01d lands' policy was meant to bind W11's verification script too. If yes, restore a clearly-marked interim workaround in scripts/verify-factory-image-pack.ts (matching W12's pattern) so B1/B6/B7 can be exercised now rather than blocked until W01d lands. If no (W11's script is disposable tooling and the sibling comparison doesn't apply), record that explicitly in w11b-GATES.md so a future reader does not need to reconstruct this reasoning independently.",
+      "reproduction": "git log --oneline integ/w00 -5 (shows 8bbfaf14a on integ/w00); git show 8bbfaf14a; git merge-base --is-ancestor 26bafa23d integ/w00 (exits non-zero: not merged); grep -n 'chmod\\|chown' /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w12-data/src/factory/reference-data/materials.ts"
+    },
+    {
+      "id": "F2",
+      "severity": "low",
+      "category": "evidence integrity",
+      "title": "receipts.json's logDigest for logs/gates.log does not match the file's actual current sha256",
+      "detail": "receipts.json records logDigest 'sha256:9106502fb57a435b74fea90cdfe7f6f60cc89a7a215c05b8116597c7e43a0538' for /tmp/factory-platform-evidence/w11b/logs/gates.log. Independently computed sha256sum of that file is 'f0a55e3bfe57288df03345949cfa1cc2f6c40ec5929b71ecc3b015eaf2165ec2' -- confirmed with both sha256sum and openssl dgst -sha256, and does not match any obvious truncation of the file's three appended run-blocks either. Every other digest cross-checked (gateFileDigest for tasks/factory/w11b-GATES.md, receiptDigest for logs/journey-mount.json, receiptDigest for logs/publication.json) matched exactly.",
+      "mitigatingFactor": "The file's mtime (15:36:42.244) and receipts.json's mtime (15:36:42.268) are 24ms apart, consistent with a digest captured a moment before or during a final write rather than deliberate tampering. All of the actual numbers the gate file and receipts.json quote from gates.log (typecheck=0, lint=0, boundaries=0, gate-integrity=0, python 183 cases/100%, new-file/patch PASSED) were independently reproduced by my own reruns and match the log's current content.",
+      "recommendation": "Regenerate the gates.log digest in receipts.json so the evidence chain is auditable byte-for-byte.",
+      "reproduction": "sha256sum /tmp/factory-platform-evidence/w11b/logs/gates.log; compare against the 'logDigest' field of the 'gates' record in /tmp/factory-platform-evidence/w11b/receipts.json"
+    }
+  ],
+  "planConformance": {
+    "planSection": "W11 (parent, already accepted) -- W11b closes G15 and G18b specifically",
+    "bullets": [
+      { "bullet": "Execute seeds 11/23/37/53 ... in isolated GPU jobs (byte egress for the >1 MiB variants)", "proof": "logs/journey-mount.json from the superseded (caller-chowned) run: all four seeds generated at 1024x1024, three of four bytes exceed the 1 MiB control-channel budget, all sealed through the mount with matching digests. Explicitly NOT proof of the landed contract per the gate file itself -- correctly marked unproven pending W01d." },
+      { "bullet": "published through W08 with exact verified bytes", "proof": "logs/publication.json: seed 23 (998,116 bytes) published, matchesReceipt/matchesSource true for both the variant and its evidence document, repeat publish refused with factory_s3_manifest_published. Same superseded-input caveat as above -- correctly marked unproven pending W01d (B6)." },
+      { "bullet": "every failed variant remains visible", "proof": "journey-mount.json records all four seeds' per-claim outcomes (including the three ocr-no-text FAILs) rather than discarding them -- verified by inspection." }
+    ]
+  },
+  "interfaceConformance": {
+    "ownershipCheck": "This leaf's diff (f30da62fa..db21ca701) touches only src/factory/reference-image/* (W11-owned), scripts/verify-factory-image-pack.ts (W11-owned), scripts/check-factory-boundaries.ts and scripts/coverage-thresholds.json (shared config every package appends a row to, per interface freeze section 12/16), and tasks/factory/w11b-GATES.md. No file owned by another package (packages/@ezcorp/extension-contract/src/types.d.ts, packages/@ezcorp/extension-runner/src/*, any Terra-owned runner file) was modified.",
+    "materialMountContractCheck": "Cross-checked against interface freeze section 16 ('Section 6 guest byte path (W01, 2026-09-14)') and the accepted tasks/factory/w01c-GATES.md: 'the directory is the caller's to create and destroy, never world-writable' and 'no mode is set by this package [the runner] at all'. W11b's read-back path (listRunnerMaterials/openRunnerMaterial usage, GUEST_MATERIALS_PATH=/materials, read-only-after-stop) matches the frozen contract exactly. The open question is not a contract deviation but the timing of the caller-side-vs-runner-side ownership handover discussed in finding F1."
+  },
+  "gateIntegrityAndDry": {
+    "loweredThresholds": "none found",
+    "newExcludes": "none found in scripts/coverage-config.ts EXCLUDES from this diff",
+    "skipOnlyTodo": "none found in materials.test.ts",
+    "assertionFreeTests": "none -- every test in materials.test.ts asserts on sealed output, thrown error, or recorded store calls",
+    "emptyCatchInTests": "none found",
+    "duplicatedHelpers": "none -- materials.ts explicitly depends on only 3 methods of GuestMaterialSink (begin/writeChunk/seal) rather than reimplementing FactoryMaterialService, and delegates all filesystem access to the shared extension-runner helpers",
+    "secondPath": "none found -- REQUIRED_SHARED_IMPORTS row present and verified"
+  },
+  "negativePathDepth": {
+    "forged": "lying digest -- covered ('nothing is written to the store before the bytes verify')",
+    "stale/corrupt": "truncated write -- covered",
+    "foreign": "planted symlink escaping to /etc/passwd -- covered (delegated to and verified in the shared walk)",
+    "duplicate/lostResponse": "same path claimed twice -- covered at the declaration layer; already-sealed replay (idempotent) and already-sealed-with-different-bytes (conflict) -- covered at the store layer",
+    "concurrent": "not separately tested within a single seal call, but out of scope for this leaf: sealGuestMaterials runs once per attempt after the guest is confirmed stopped, and the store-level idempotent-seal/conflict tests cover the cross-call replay case that matters here",
+    "crashRestart": "handled by the store-level replay/conflict tests above (a crash between seal and caller-ack is exactly the scenario 'an already-sealed material returns its existing handle' proves)"
+  },
+  "securityPosture": {
+    "credentialsInEvidence": "none found in receipts.json, gates.log, or the gate file; G16 (ANTHROPIC_API_KEY) is explicitly disclosed as absent, not worked around",
+    "authorityChecksRemoved": "none -- this leaf adds no new authority surface; it consumes the existing shared material read-back which already enforces its own bounds",
+    "secretReachableByGuest": "no -- the guest-writable directory contract (noexec,nosuid,nodev, symlink refusal via O_NOFOLLOW) is entirely inherited from the already-accepted W01c shared module, unmodified by this leaf"
+  }
+}

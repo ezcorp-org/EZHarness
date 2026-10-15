@@ -1,0 +1,13 @@
+W16c merge (6c1e94f679eac4cebf1804f1f27d1c407cff2f84) addendum: the graph-proof mock pass, deferred by the lead's ruling of 2026-09-27.
+
+The standing mock pass (scripts/factory-graph-proof/run.sh pass mock none) ran at the staged merge, index tree
+52d5f9f2a, from 11:21:29Z to 11:21:32Z, and failed 3 s in with a harness error, before any run started:
+"the graph guest did not build: types.ts(6,8): error TS2307: Cannot find module './console-types.ts'".
+No product database was kept (w16c-merge-graph-mock.json). This is the known integ/w00 regression from the W14 merge
+(1e0e21a8a): W14 added packages/@ezcorp/factory-sdk/src/console-types.ts, imported by types.ts, and
+scripts/factory-graph-proof/guest-package.ts copies a fixed SDK_MODULES list without it. W14b (w14-continue, a
+leaf from 146a94829) fixes it. It is not a W16c failure: every other leg of the W16c heavy job exited 0
+(w16c-merge-heavy-batch.log).
+
+Ruling: W16c commits with this failure recorded. The mock pass at a head that contains W16c is proven in W14b's
+merge batch, and the W14b merge receipts must cite this deferral.

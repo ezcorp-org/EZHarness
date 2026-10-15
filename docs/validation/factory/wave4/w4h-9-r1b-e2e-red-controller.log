@@ -1,0 +1,42 @@
+archived_image=localhost/ezcorp-extension-v4:audit-final-3ec53eaa
+archived_source=3ec53eaa66409a39d66b502f79d74139ec94dcf2
+archived_build_log=/tmp/factory-platform-evidence/w4h-1/upgrade-sf2/upgrade/upgrade-0555e3d21c06-previous-archive-build.log
+
+[1m==> Use supplied candidate image for semantic retry(B[m
+  [32m✓(B[m Previous image source=3ec53eaa66409a39d66b502f79d74139ec94dcf2; candidate image source=d341d8690f63c7f46ff3fd396854577858c0a071; driver source=d341d8690f63c7f46ff3fd396854577858c0a071
+  [32m✓(B[m Runner profile transition prepared: previous=docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834; candidate=docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+
+[1m==> Semantic lifecycle seed on the previous image(B[m
+ Network ezcorp-upgrade-semantic-old-0555e3d21c06_default Creating 
+ Network ezcorp-upgrade-semantic-old-0555e3d21c06_default Creating 
+ Network ezcorp-upgrade-semantic-old-0555e3d21c06_default Created 
+ Network ezcorp-upgrade-semantic-old-0555e3d21c06_default Created 
+ Container ezcorp-upgrade-semantic-old-0555e3d21c06-app Creating 
+ Container ezcorp-upgrade-semantic-old-0555e3d21c06-app Created 
+ Container ezcorp-upgrade-semantic-old-0555e3d21c06-app Starting 
+ Container ezcorp-upgrade-semantic-old-0555e3d21c06-app Started 
+109 |     while (Date.now() < deadline) {
+110 |       const state = await client.extensionControl<InstallationState>("extensions_inspect", { installationId, operationId, waitMs: 30_000 });
+111 |       const operation = state.operations[operationId];
+112 |       assert(operation, "The build operation disappeared");
+113 |       if (["queued", "building", "verifying"].includes(operation.state)) continue;
+114 |       assert.equal(operation.state, "verified", JSON.stringify(operation.diagnostics));
+                   ^
+AssertionError: [{"code":"operation_failed","stage":"build","message":"Operation failed. See host diagnostics.","retryable":false}]
++ actual - expected
+
++ 'failed'
+- 'verified'
+
+ generatedMessage: false,
+     actual: "failed",
+   expected: "verified",
+   operator: "strictEqual",
+       diff: "simple",
+       code: "ERR_ASSERTION"
+
+      at waitVerified (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-1-sf2/scripts/lib/production-lifecycle-client.ts:114:14)
+      at createBuild (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-1-sf2/scripts/lib/production-lifecycle-client.ts:133:25)
+
+Bun v1.4.2 (Linux x64)
+upgrade_command_exit=1 upgrade_cleanup_exit=0

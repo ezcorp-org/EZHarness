@@ -1,0 +1,10 @@
+b136d150da66ca786dd5d93b6b7b9b9ca8bf2249
+bun.lock
+manifest.lock.json
+src/__tests__/gate-scripts.test.ts
+src/api-registry.ts
+src/db/schema.ts
+tasks/todo.md
+web/bun.lock
+web/src/__tests__/route-contract.test.ts
+web/src/app.d.ts

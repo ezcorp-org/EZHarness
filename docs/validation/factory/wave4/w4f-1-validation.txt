@@ -1,0 +1,44 @@
+VERDICT (validator-6) — W4F-1 at 5576263ae (wp/w4f-1-w12e-coverage, owner w12e-2), base integ 0a6b3ef06: ACCEPT
+
+2 commits, all archy noreply:
+  - 7656e98fa: F1, a vitest unit test for the preview guard;
+  - 5576263ae: F3, scripts/coverage-attestations.json emptied to [] (plus the w4f-GATES rows).
+git diff --stat 0a6b3ef06 5576263ae: 3 files, +56 −20.
+Config hash 44962525f1ca1a8b at the start and end of every phase. Bun and bunx 1.4.2 come from the tree's pin, with the
+pipelining flag exported.
+
+F1: preview-pipeline-guard.ts covered by its authoritative producer (vitest, the only coverage producer for web/src/lib)
+  - Red: the owner's web.lcov at 8676d8757 gives the guard LF 6 / LH 0, and the final gates had it at 0% (w12e-fix-final/per-file-thresholds.log).
+  - Green: my own run of `bash scripts/web-vitest-coverage.sh` at 5576263ae gives 7808 tests, exit 0, and the guard LF 6 / LH 6 in my web.lcov.
+  - In the merged lcov the guard is not below its per-file threshold.
+  - The patch gate against origin/main over the merged set does not name the guard file.
+F3: the attestation entry is removed
+  - The json reads [] (attestation-emptied PASS), and `attestation-check.py 5576263ae --allow-removal` PASSES.
+  - The patch gate against origin/main over the merged set reports "PASSED: all changed executable lines covered (507 file(s))".
+    It shows no attestation line and no task-stops.ts line, so line 336 is credited on its own.
+  - The merged set is my producers plus the owner's 338 verified w12e-fix inputs, with my 4d0c708c5 node lcov in place of their
+    node.lcov. Only docs/validation differ between 4d0c708c5 and 0a6b3ef06.
+Base leg (decision w00/w4f-merge/gate-change-decision.txt, sha256 11ee9b51af08dc36…):
+  - gate-integrity against 0a6b3ef06 shows exactly "coverage gate tool changed (M): scripts/coverage-attestations.json";
+    base-set PASS, and no other finding;
+  - the main leg equals the 8-line expected set: PASS.
+  - The decision states its path in prose ("Path approved: exactly scripts/coverage-attestations.json"). I normalized it to the
+    helper's scope-line form (decision-normalized.txt) and logged the original's sha alongside.
+
+RERUN RESULTS (hold-v6-w4f1-5576263ae/results.jsonl)
+  Static, lock-free:
+    identity 2/2 archy; typecheck, lint, check-factory-boundaries and check-boundaries 0; gate-integrity as above.
+    tests-unchanged PASS: only `A 43+ 0- web/src/lib/build/preview-pipeline-guard.unit.test.ts`; no existing test edited.
+    gitleaks 0.
+    Receipts: 19 scanned, 0 missing (w4f/w12e-2/).
+  Heavy, under the lock (lock_veto validator-6 first; 06:52–06:57Z):
+    - unit leg: the union holds no Bun-run test (the hook maps 1 vitest file), so it was skipped, not run bare;
+    - SDK 246/0; producer-web (vitest) 7808, exit 0; guard set 12 files 60/0;
+    - merge 0; new-file and patch against 0a6b3ef06 PASSED;
+    - CRAP --changed: 0 touched functions ("no touched function exceeds CRAP 30").
+  Not judged:
+    - The full per-file threshold run over my merge exits 1 on 138 web files that only the browser lanes cover; my merge has no
+      browser lcov. F1 is judged on the guard file's own line, which is absent.
+
+No findings. Evidence: /tmp/factory-platform-evidence/w4f-validation/hold-v6-w4f1-5576263ae/ (hold.log, hold-run1.log,
+results*.jsonl, logs/, cov/, merged.lcov, decision-normalized.txt), owner-inputs-0a6b3ef06/.

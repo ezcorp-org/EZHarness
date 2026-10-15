@@ -57,10 +57,23 @@ describe("Dockerfile.dev image ownership", () => {
 			expect(copy).toStartWith(`COPY --chown=${DEV_USER} `);
 		}
 
+		// Every step that installs or builds writes into /app, so each must run as
+		// the unprivileged user. One matcher covers any `bun install` or `bun run`,
+		// whatever the build command is called.
 		const writableSteps = steps.filter(
-			(step) => step.startsWith("RUN ") && /(bun install|bun run --cwd)/.test(step),
+			(step) => step.startsWith("RUN ") && /\bbun (install|run)\b/.test(step),
 		);
-		expect(writableSteps).toHaveLength(3);
+		const role = (step: string) =>
+			/\bbun run build:packages\b/.test(step)
+				? "package build"
+				: /\bbun install\b/.test(step)
+					? /\bcd web\b/.test(step)
+						? "web install"
+						: "root install"
+					: `unexpected: ${step}`;
+		// The image writes as UID:GID 1000 exactly three times: the root install, the
+		// web install and the workspace package build, in that order.
+		expect(writableSteps.map(role)).toEqual(["root install", "web install", "package build"]);
 		for (const step of writableSteps) {
 			expect(steps.indexOf(step)).toBeGreaterThan(unprivilegedUser);
 		}

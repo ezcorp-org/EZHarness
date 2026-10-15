@@ -1,0 +1,43 @@
+#!/usr/bin/env python3
+# extra.json for the wave4i-3 receipt (integrator-5, lead's word 2026-10-08 ~07:2xZ). Every hash is computed here from the file.
+import hashlib, json
+E = '/tmp/factory-platform-evidence'; W = E + '/w00'; O = W + '/wave4i-3'
+h = lambda p: hashlib.sha256(open(p, 'rb').read()).hexdigest()[:16]
+x = {
+ "runOfRecord": "wave4i-3 at integ/w00 6b9ff91ac (W4H-11, W4H-14 main sync and their receipts on top of wave4i-2's head lineage; origin/main e3309906d is its ancestor). One attempt, no VOID try: the runner ran all 39 legs including the 5 manifest producers (their own 15 GiB gates passed in-run from 05:45:52Z; no exit 96), so plan step 2 (standalone producers + --merge-only) was NOT needed.",
+ "bindingJudgement": "final-merge-gates.sh with BASES=origin/main at head 6b9ff91aca1b0e4bd1e19483dc663a6d04174936 vs origin/main e3309906d: merge, global floor, per-file thresholds, new-file, patch, CRAP --changed; gate-integrity origin/main = the 8 standing findings (findings-match PASS). Second pass vs 1c84df6d5 (the last combined head, wave4i-2).",
+ "history": [
+  "04:37:07Z wave4i-3 started at 6b9ff91ac on the lead's word (wrapper w00/wave4i/run.sh, WAVE_RUN=wave4i-3, PREV_COMBINED_HEAD=1c84df6d5); start: df -BG / 324G, MemAvailable 17.9 GiB, SwapFree 3.0 GiB (the 140 GiB start rule met); preflight (both Temporal binaries) OK; config 888c78b9e94ea660; prune scan vs 1c84df6d5 clean (12 hits, 0 STOP)",
+  "06:21:37Z runner end ('combined exit=1' = the known interim shape): 39/39 legs, 49468 testsRan, every leg exit 0 except gate-integrity (= the 8); mergeBlockedBy []; interim checks vs origin/main: patch 0, global-floor 0, crap-changed 0, new-file 1 only on the 5 BROWSER_CANONICAL_SOURCES .svelte files (FactoryConsole, FactoryGraph, FactoryGraphBoundary, FactoryNode, (app)/factories/+page) whose coverage comes from the browser part",
+  "06:21:37-07:13:37Z after-runner through gated-flock (after.exit 0; HEAVY DONE status=0 dirty=0)",
+  "07:13:37-07:14:00Z final gates vs origin/main (binding); driver exit 0; wrapper end 07:14:00Z, head unchanged, dirty=0, config 888c78b9e94ea660",
+  "07:17:27-07:17:46Z final gates vs the second base 1c84df6d5 (by hand, plan step 3)"],
+ "producersInRun": "manifest-cov-shard 30103 pass / 0 fail over 2023 files (shard 0/1); manifest-cov-extras, manifest-web-security-coverage, manifest-factory-reference-data (11 + 11 tests) exit 0; factory-temporal covered by the node-coverage leg. The runner's own producer gate (15 GiB) passed by itself; no standalone producer, no --merge-only.",
+ "typesLeg": "the runner's types leg ran through w00/tc-gate.sh (in-lock 12 GiB rule): 05:17:11-05:18:03Z exit 0, MemAvailable 18.9 GiB before, 13.7 lowest (wave4i-3-tc-gate.log)",
+ "afterRunnerSummary": "guard set 507/0 (40 files); web-build 0; graph-mock-pass passed; W09e console 0; W03f reference-data journey 11/0; browser part (bun and bunx 1.4.2): build, transfer-roundtrip, transfer-check 0; mock-gate 283, mock-full 1466, evidence 394, fresh-setup 7, real-auth 108, factory-services 13; browser merge 0",
+ "finalGatesSummary": {
+  "originMain": "final/gates.txt " + h(O + '/final/gates.txt') + " 07:13:37-07:14:00Z at MemAvailable 15 GiB: 397 runner + 1 browser inputs; merge 0 (2384 files; merged lcov " + h(O + '/final/merged-lcov.info') + "; 0 SF outside /tmp); global floor 0 (margin 8.08); per-file 0 (2233 files); new-file 0 (460 new files); patch 0 (518 files); crap-changed 0; gate-integrity origin/main exit 1 = the 8 (final-origin-main-expected-match.txt " + h(O + '/final-origin-main-expected-match.txt') + ", PASS). The interim new-file finding on the 5 .svelte files is gone once the browser lcov joins.",
+  "base1c84df6d5": "final-1c84df6d5/gates.txt " + h(O + '/final-1c84df6d5/gates.txt') + " 07:17:27-07:17:46Z: same merged lcov; global floor 0; per-file 0; new-file 0 (no new source files); patch 0 (3 files); gate-integrity vs 1c84df6d5 0 (PASSED); its origin/main leg = the 8 (final-1c84df6d5-origin-main-expected-match.txt " + h(O + '/final-1c84df6d5-origin-main-expected-match.txt') + ", PASS)"},
+ "memoryAtStarts": "start 04:37:07Z 17.9 GiB / swap 3.0; producers from 05:45:52Z >= 15 GiB (their gate); after-runner 06:21:37Z 17 GiB / swap 3.8; final passes 07:13:37Z 15 GiB and 07:17:27Z 16 GiB; host OOM kills during the run (04:37-07:18Z): 0",
+ "hostEvents": [
+  "2026-10-06 17:46:09Z - 2026-10-08 ~03:46Z: the shared proof PostgreSQL was DEAD (podman state stale 'running' with a gone pid after the OOM storms killed it and its conmon); found by the W4H-11 merge hold try 1 (graph mock pass 'PostgresError: Failed to connect'); repaired by the coordinator (podman stop -t 2; podman start with crash recovery; 193 databases intact; port re-bound); this run's PostgreSQL legs ran on the repaired server",
+  "2026-10-06 22:09-22:14Z host OOM storm (160 kills): a pool of 21 bun processes outside any container (another session's stress test, /tmp/stress-base-panel-*.log), 34.1 GB; victims included the rootless podman pause process, conmon and the archive S3 store (Exited 137); it voided W4H-11's R5 setup (exit 4)",
+  "2026-10-07 21:47-23:00Z host OOM storms: tsgo processes of another session in obviousRepos/obvious/.worktrees/skip-review-fixes/apps/api (pid 2055939 12.7 GB; an 11 GB tsgo killed 21:47:54Z; pids 2884893, 2962589, 2978825 at 7.3 / 5.3 / 4.0 GB; up to 50 kills in one window); they voided W4H-11 R5 legs (resources hold 1, content try 1), never a leg of this run",
+  "2026-10-07 02:2x-15:03Z disk recovery from 66 GB: our merged clean package worktrees removed (11 at 02:23Z, 6 at 14:39Z); the user's podman cleanup and nix GC; the user's w00/worktree-cleanup-user.sh --apply (others' stale worktrees, uncommitted changes archived under w00/worktree-archive/) 68 -> 134 GB; the user's root-only cleanup -> 202 GB (19:42Z) and 337 GB (21:31Z); 324 GB at this run's start",
+  "2026-10-07 14:42-14:45Z shared S3 stores: the archive store's container had been removed by the user's `podman rm` of exited containers (named data volume intact) and was recreated by the coordinator from the repo compose after `podman network reload --all`; the ordinary store restarted; both healthy (403 on 18333/18334)",
+  "w01h/graph/dump-and-drop.sh still missing (systemd-tmpfiles, q /tmp 10d; the user's exclusions not set): the after-runner's mock pass logged 'No such file or directory' after the pass; no effect on any result"],
+ "tooling": {
+  "w00/wave4i/run.sh (wrapper, as run)": h(W + '/wave4i/run.sh'), "w00/wave4f/run.sh (driver, as run = run.sh.as-run)": h(W + '/wave4f/run.sh'),
+  "w00/combined-integration.py (as run)": h(W + '/combined-integration.py'), "w00/wave4f/after-runner.sh": h(W + '/wave4f/after-runner.sh'),
+  "w00/wave4f/final-merge-gates.sh": h(W + '/wave4f/final-merge-gates.sh'), "w00/heavy-lib.sh": h(W + '/heavy-lib.sh'), "w00/tc-gate.sh": h(W + '/tc-gate.sh'),
+  "w00/gated-flock.sh": h(W + '/gated-flock.sh'), "w00/resource-gate.sh": h(W + '/resource-gate.sh'), "w00/prune-scan.sh": h(W + '/prune-scan.sh'),
+  "w00/findings-match.py": h(W + '/findings-match.py'), "w00/expected-integ-findings-vs-main.txt": h(W + '/expected-integ-findings-vs-main.txt'),
+  "w00/bun-pin.sh": h(W + '/bun-pin.sh'), "w00/installs-lib.sh": h(W + '/installs-lib.sh'), "w00/own-pg.sh": h(W + '/own-pg.sh'),
+  "w00/wave4f/run-receipt-json.py": h(W + '/wave4f/run-receipt-json.py'), "w00/wave4f/run-receipt-sources.sh": h(W + '/wave4f/run-receipt-sources.sh'),
+  "w00/merge-receipts.sh": h(W + '/merge-receipts.sh'),
+  "Temporal test server (preflight)": open(W + '/temporal-test-server.sha256').read().strip()[:16], "Temporal CLI v1.9.1 (preflight)": open(W + '/temporal-cli.sha256').read().strip()[:16]},
+ "planNote": "DRY at 6b9ff91ac 04:36Z and the run's own plan: 1505 lines, sha256 " + h(O + '/plan.txt') + " (39 legs; 371 auto-extra files in 10 chunks; pgSteps 4); the plan at 0363f883a kept as plan-0363f883a.txt " + h(O + '/plan-0363f883a.txt') + " (1499 lines; before the types leg moved to tc_run and before W4H-11's two tests joined auto-extra)",
+ "configHash": {"before": "888c78b9e94ea660", "after": hashlib.sha256(open('/home/dev/work/EZCorp/EZHarness/.git/config', 'rb').read()).hexdigest()[:16],
+  "note": "888c78b9e94ea660 at the wrapper start and end (wrapper.log) and at every hold; after the run another session added only [branch \"fix/auth-invite-signup-link-oct08\"]; config-check.py --accept-note accepted it as the baseline by the 2026-10-03 rule at the receipts (wave4i-3-receipts-config-check.txt); [core]/[extensions] unchanged, no [user]"},
+ "receiptsBy": "integrator-5"}
+json.dump(x, open(O + '/receipts/extra.json', 'w'), indent=2); print('ok', len(x))

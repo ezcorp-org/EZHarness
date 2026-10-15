@@ -11,7 +11,7 @@ export type { AuditEntry };
 
 export async function insertTransactionalAuditEntry(database: MigrationDb, id: string, userId: string | null, action: string, target: string, metadata: Record<string, unknown>): Promise<void> {
   const safeMetadata = JSON.stringify(redactForAudit(metadata).redacted);
-  await database.execute(sql`INSERT INTO audit_log (id, user_id, action, target, metadata) VALUES (${id}, ${userId}, ${action}, ${target}, ${safeMetadata}::jsonb) ON CONFLICT (id) DO NOTHING`);
+  await database.execute(sql`INSERT INTO audit_log (id, user_id, action, target, metadata) VALUES (${id}, ${userId}, ${action}, ${target}, ${safeMetadata}::text::jsonb) ON CONFLICT (id) DO NOTHING`);
 }
 
 /**

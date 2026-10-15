@@ -54,6 +54,7 @@ import {
   symlinkSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { dirname, join } from "node:path";
 import {
   __resetProjectRootCacheForTests,
@@ -98,7 +99,7 @@ export function useTempProjectRoot(prefix = "ez-project-root-"): TempProjectRoot
   const root = realpathSync(mkdtempSync(join(tmpdir(), prefix)));
 
   mkdirSync(join(root, "docs", "extensions", "examples"), { recursive: true });
-  mkdirSync(join(root, ".git"), { recursive: true });
+  markGitRepository(root);
 
   const nodeModulesHost = findNodeModulesHost(realRoot);
   for (const tree of LINKED_TREES) {

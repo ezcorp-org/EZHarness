@@ -1,0 +1,3 @@
+scripts/lcov-artifact-names-registration.test.ts
+scripts/lib/ci-registration.test.ts
+scripts/setup-factory-python-base.test.ts

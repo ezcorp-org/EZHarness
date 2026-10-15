@@ -1,0 +1,30 @@
+=== heavy batch 2026-09-25T07:13:17Z
+HEAD 27d9575311e3626b0ca004b577c9f3a0600d52cf MERGE_HEAD 6964484900fa429eed02a1d8d000f0b7a76ffba1 index-tree 292c173d0b37a6dfaba677b80fbc73834706d0bf umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  126G  93% /
+--- START pg-factory-checkpoint 2026-09-25T07:13:17Z
+--- END   pg-factory-checkpoint 2026-09-25T07:13:53Z exit=0  12 pass 0 fail 
+--- START pg-factory-executions 2026-09-25T07:13:53Z
+--- END   pg-factory-executions 2026-09-25T07:13:58Z exit=0  7 pass 0 fail 
+--- START pg-factory-key-rotation 2026-09-25T07:13:58Z
+--- END   pg-factory-key-rotation 2026-09-25T07:14:03Z exit=0  1 pass 0 fail 
+--- START pg-factory-pool-checkpoint 2026-09-25T07:14:03Z
+--- END   pg-factory-pool-checkpoint 2026-09-25T07:14:04Z exit=0  6 pass 0 fail 
+--- START pg-factory-restore 2026-09-25T07:14:04Z
+--- END   pg-factory-restore 2026-09-25T07:14:34Z exit=0  17 pass 0 fail 
+--- START pg-factory-retention 2026-09-25T07:14:34Z
+--- END   pg-factory-retention 2026-09-25T07:14:41Z exit=0  14 pass 0 fail 
+--- START podman-guest.podman.integration 2026-09-25T07:14:41Z
+--- END   podman-guest.podman.integration 2026-09-25T07:14:51Z exit=0  1 pass 0 fail 
+--- START podman-attempt-runtime.integration 2026-09-25T07:14:51Z
+--- END   podman-attempt-runtime.integration 2026-09-25T07:15:06Z exit=0  7 pass 0 fail 
+--- START podman-guest-broker-transport.integration 2026-09-25T07:15:06Z
+--- END   podman-guest-broker-transport.integration 2026-09-25T07:15:20Z exit=0  12 pass 0 fail 
+--- START podman-guest-model.podman.integration 2026-09-25T07:15:20Z
+--- END   podman-guest-model.podman.integration 2026-09-25T07:15:27Z exit=0  1 pass 0 fail 
+--- START podman-validator-guest.podman.integration 2026-09-25T07:15:27Z
+--- END   podman-validator-guest.podman.integration 2026-09-25T07:15:34Z exit=0  1 pass 0 fail 
+--- START orchestrator-test 2026-09-25T07:15:34Z
+--- END   orchestrator-test 2026-09-25T07:17:14Z exit=0 
+--- START pool-coverage 2026-09-25T07:17:14Z
+--- END   pool-coverage 2026-09-25T07:17:31Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail 
+BATCH DONE status=0 2026-09-25T07:17:31Z

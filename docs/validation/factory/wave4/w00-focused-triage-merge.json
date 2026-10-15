@@ -1,0 +1,1 @@
+{"merge": "1464483fb", "branch": "wp/w00-focused-triage", "branchHead": "c8020c441", "validator": "ACCEPT (sonnet) on c8020c441 after a REJECT on dc3eba210", "checks": {"typecheck": 0, "lint": 0, "gate-integrity": 0, "boundaries": 0, "touched-suites-one-process": "127 pass 0 fail"}}

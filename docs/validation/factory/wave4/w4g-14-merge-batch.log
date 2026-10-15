@@ -1,0 +1,51 @@
+=== heavy 2026-10-03T13:54:31Z
+HEAD a3964cfb6ed21493789ac23449b7f81ebebf93b2 MERGE_HEAD  index-tree 1cc0ae8e039bc4c4891cf45952c1179b7f9fd45a
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+shared config hash at hold start: 44962525f1ca1a8b
+resource-gate 2026-10-03T13:54:31Z attestation-check disk=170G memAvailable=15GiB swapFreeKiB=5148588/17173956
+--- START attestation-check 2026-10-03T13:54:31Z
+--- END   attestation-check 2026-10-03T13:54:31Z exit=0 
+guard set: 36 files from guard-suites.sh
+resource-gate 2026-10-03T13:54:31Z guard-set disk=170G memAvailable=15GiB swapFreeKiB=5148588/17173956
+--- START guard-set 2026-10-03T13:54:31Z
+--- END   guard-set 2026-10-03T13:55:15Z exit=0  468 pass 0 fail 
+resource-gate 2026-10-03T13:55:15Z build-factory-sdk disk=170G memAvailable=14GiB swapFreeKiB=5176624/17173956
+--- START build-factory-sdk 2026-10-03T13:55:15Z
+--- END   build-factory-sdk 2026-10-03T13:55:15Z exit=0 
+resource-gate 2026-10-03T13:55:15Z build-factory-transport disk=170G memAvailable=14GiB swapFreeKiB=5176624/17173956
+--- START build-factory-transport 2026-10-03T13:55:15Z
+--- END   build-factory-transport 2026-10-03T13:55:15Z exit=0 
+resource-gate 2026-10-03T13:55:15Z build-factory-orchestrator disk=170G memAvailable=14GiB swapFreeKiB=5176624/17173956
+--- START build-factory-orchestrator 2026-10-03T13:55:15Z
+--- END   build-factory-orchestrator 2026-10-03T13:55:15Z exit=0 
+resource-gate 2026-10-03T13:55:15Z unit-src-__tests__-file-organizer-applier-reserved-dirs-test-ts disk=170G memAvailable=14GiB swapFreeKiB=5176624/17173956
+--- START unit-src-__tests__-file-organizer-applier-reserved-dirs-test-ts 2026-10-03T13:55:15Z
+--- END   unit-src-__tests__-file-organizer-applier-reserved-dirs-test-ts 2026-10-03T13:55:15Z exit=0  5 pass 0 fail 
+resource-gate 2026-10-03T13:55:15Z unit-src-__tests__-web-mock-pair-pollution-test-ts disk=170G memAvailable=14GiB swapFreeKiB=5176628/17173956
+--- START unit-src-__tests__-web-mock-pair-pollution-test-ts 2026-10-03T13:55:15Z
+--- END   unit-src-__tests__-web-mock-pair-pollution-test-ts 2026-10-03T13:55:21Z exit=0  7 pass 0 fail 
+resource-gate 2026-10-03T13:55:21Z focused103-one-process disk=170G memAvailable=14GiB swapFreeKiB=5179736/17173956
+--- START focused103-one-process 2026-10-03T13:55:21Z
+--- END   focused103-one-process 2026-10-03T13:57:55Z exit=0  1671 pass 0 fail 
+resource-gate 2026-10-03T13:57:55Z web-server-lcov disk=170G memAvailable=14GiB swapFreeKiB=5197800/17173956
+--- START web-server-lcov 2026-10-03T13:57:55Z
+--- END   web-server-lcov 2026-10-03T13:58:16Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-03T13:58:16Z coverage-merge disk=170G memAvailable=15GiB swapFreeKiB=5198052/17173956
+--- START coverage-merge 2026-10-03T13:58:16Z
+--- END   coverage-merge 2026-10-03T13:58:17Z exit=0 
+resource-gate 2026-10-03T13:58:17Z web-build disk=170G memAvailable=15GiB swapFreeKiB=5198088/17173956
+--- START web-build 2026-10-03T13:58:17Z
+--- END   web-build 2026-10-03T13:58:58Z exit=0 
+resource-gate 2026-10-03T13:58:58Z graph-mock-pass disk=170G memAvailable=15GiB swapFreeKiB=5278136/17173956
+--- START graph-mock-pass 2026-10-03T13:58:58Z
+--- END   graph-mock-pass 2026-10-03T13:59:46Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-14/graph/w4g-14-mock.json; nothing to dump
+mock pass w4g-14-mock outcome: passed
+resource-gate 2026-10-03T13:59:46Z crap-changed-base disk=170G memAvailable=14GiB swapFreeKiB=5275428/17173956
+--- START crap-changed-base 2026-10-03T13:59:46Z
+--- END   crap-changed-base 2026-10-03T13:59:47Z exit=0 
+resource-gate 2026-10-03T13:59:47Z merge-commit-gates disk=170G memAvailable=15GiB swapFreeKiB=5268780/17173956
+--- START merge-commit-gates 2026-10-03T13:59:47Z
+--- END   merge-commit-gates 2026-10-03T13:59:52Z exit=0 
+shared config hash at hold end: 44962525f1ca1a8b
+HEAVY DONE status=0 dirty=0 2026-10-03T13:59:52Z

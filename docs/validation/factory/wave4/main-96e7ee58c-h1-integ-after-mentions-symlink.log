@@ -1,0 +1,15 @@
+bun test v1.3.14 (0d9b296a)
+
+src/__tests__/security/h1-local-provider-ssrf.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+SyntaxError: Export named 'requireAdmin' not found in module '$lib/server/security/api-keys'.
+-------------------------------
+
+
+ 13 pass
+ 1 fail
+ 1 error
+ 16 expect() calls
+Ran 14 tests across 2 files. [1231.00ms]

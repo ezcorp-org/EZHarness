@@ -1,0 +1,19 @@
+CRAP: --changed against 79791f76cf012b11e18a207c60b7f88023f236a9 → 2 measured file(s) in diff
+
+CRAP: 12 functions in 2 files (max 30, warn 15)
+
+Worst 12:
+     13.0  cc= 13 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:149 validateInboxEvent
+     13.0  cc= 13 cov=100%  src/factory/usage-settlement.ts:309 assertSettlementProofs
+     11.0  cc= 11 cov=100%  src/factory/usage-settlement.ts:301 assertSettlementFields
+     10.0  cc= 10 cov=100%  src/factory/usage-settlement.ts:326 settlementAmountBasis
+      9.0  cc=  9 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:169 validateRunControlEvent
+      9.0  cc=  9 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:178 validateReplanReplacement
+      7.0  cc=  7 cov=100%  src/factory/usage-settlement.ts:338 sealFactoryUsageSettlement
+      6.0  cc=  6 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:158 validateAttemptStoppedEvent
+      2.0  cc=  2 cov=100%  src/factory/usage-settlement.ts:373 buildFactoryUsageSettlement
+      1.0  cc=  1 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:174 <anonymous@174>
+      1.0  cc=  1 cov=100%  packages/@ezcorp/factory-orchestrator/src/validation.ts:185 <anonymous@185>
+      1.0  cc=  1 cov=100%  src/factory/usage-settlement.ts:296 invalidSettlement
+
+✓ no touched function exceeds CRAP 30

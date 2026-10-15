@@ -2,7 +2,7 @@
  * Secure-preview reaper (Phase 3b). reapPreviewConversation must kill the
  * dev-server processes (through the setuid helper's --kill mode), revoke the
  * DB previews + forget their quota accounting, release the uid ONLY when the
- * kill is CONFIRMED (else QUARANTINE it), release netns, and drop the
+ * kill is CONFIRMED (else QUARANTINE it), and drop the
  * watcher's watch — surviving any single step failing.
  *
  * The kill-confirmation → uid-release-vs-quarantine branch is the core
@@ -22,7 +22,6 @@ function deps(over: Record<string, unknown> = {}) {
     revoked: [] as string[],
     uid: [] as string[],
     quarantined: [] as string[],
-    netns: [] as string[],
     unwatched: [] as string[],
     forgot: [] as string[],
   };
@@ -31,7 +30,6 @@ function deps(over: Record<string, unknown> = {}) {
     revokePreviews: async (c: string) => { calls.revoked.push(c); return ["p1", "p2", "p3"]; },
     reapUid: (c: string) => { calls.uid.push(c); return true; },
     quarantineUid: (c: string) => { calls.quarantined.push(c); return true; },
-    reapNetns: (c: string) => { calls.netns.push(c); return false; },
     unwatch: (c: string) => { calls.unwatched.push(c); },
     forgetQuota: (id: string) => { calls.forgot.push(id); },
     ...over,
@@ -55,7 +53,6 @@ describe("reapPreviewConversation", () => {
     expect(calls.revoked).toEqual(["conv-1"]);
     expect(calls.uid).toEqual(["conv-1"]); // released, not quarantined
     expect(calls.quarantined).toEqual([]);
-    expect(calls.netns).toEqual(["conv-1"]);
     expect(calls.unwatched).toEqual(["conv-1"]);
     // Every revoked preview id had its quota forgotten (no per-id leak).
     expect(calls.forgot).toEqual(["p1", "p2", "p3"]);
@@ -123,7 +120,6 @@ describe("reapPreviewConversation", () => {
     const res = await reapPreviewConversation("conv-u", d);
     // The throw is caught — uidReleased stays false, but later steps still run.
     expect(res.uidReleased).toBe(false);
-    expect(calls.netns).toEqual(["conv-u"]);
     expect(calls.unwatched).toEqual(["conv-u"]);
   });
 
@@ -134,17 +130,7 @@ describe("reapPreviewConversation", () => {
     });
     const res = await reapPreviewConversation("conv-qx", d);
     expect(res.uidQuarantined).toBe(false); // throw → stays false
-    expect(calls.netns).toEqual(["conv-qx"]);
     expect(calls.unwatched).toEqual(["conv-qx"]);
-  });
-
-  test("a throwing netns-reap is swallowed; unwatch still runs", async () => {
-    const { d, calls } = deps({
-      reapNetns: () => { throw new Error("netns boom"); },
-    });
-    const res = await reapPreviewConversation("conv-n", d);
-    expect(res.uidReleased).toBe(true);
-    expect(calls.unwatched).toEqual(["conv-n"]); // unwatch still ran
   });
 
   test("a throwing unwatch is swallowed; the reap still resolves", async () => {
@@ -172,7 +158,6 @@ describe("reapPreviewConversation — default (live) revoke seam", () => {
       killProcesses: async () => ({ killed: 0, unconfirmed: 0 }),
       reapUid: () => true,
       quarantineUid: () => true,
-      reapNetns: () => false,
       unwatch: () => {},
       // forgetQuota omitted too → exercises its default (no ids to forget).
     });

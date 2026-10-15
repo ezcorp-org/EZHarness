@@ -1,0 +1,49 @@
+=== heavy batch 2026-09-25T23:33:00Z
+HEAD 6cea43e67f2c84d5937cc47beb49d377d1354252 MERGE_HEAD 3a04baab3f7a70df8fdacc1211c3c97a1d452300 index-tree df86988772cbd74f380316d9dfd55d1994efaed6 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  115G  94% /
+resource-gate 2026-09-25T23:33:00Z pg-factory-pool-http disk=115G memAvailable=16GiB swapFreeKiB=7713700/17173956
+--- START pg-factory-pool-http 2026-09-25T23:33:00Z
+--- END   pg-factory-pool-http 2026-09-25T23:33:01Z exit=0  4 pass 0 fail 
+resource-gate 2026-09-25T23:33:01Z pg-factory-compute-admissions disk=115G memAvailable=17GiB swapFreeKiB=7713712/17173956
+--- START pg-factory-compute-admissions 2026-09-25T23:33:01Z
+--- END   pg-factory-compute-admissions 2026-09-25T23:33:08Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-25T23:33:08Z pg-factory-artifact-materials disk=115G memAvailable=17GiB swapFreeKiB=7713752/17173956
+--- START pg-factory-artifact-materials 2026-09-25T23:33:08Z
+--- END   pg-factory-artifact-materials 2026-09-25T23:35:35Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-25T23:35:35Z pg-factory-pool-mtls disk=114G memAvailable=16GiB swapFreeKiB=7716404/17173956
+--- START pg-factory-pool-mtls 2026-09-25T23:35:35Z
+--- END   pg-factory-pool-mtls 2026-09-25T23:35:36Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-25T23:35:36Z pg-factory-execution-gateway disk=114G memAvailable=16GiB swapFreeKiB=7716504/17173956
+--- START pg-factory-execution-gateway 2026-09-25T23:35:36Z
+--- END   pg-factory-execution-gateway 2026-09-25T23:35:48Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-25T23:35:48Z pg-factory-private-service disk=114G memAvailable=15GiB swapFreeKiB=6919520/17173956
+--- START pg-factory-private-service 2026-09-25T23:35:48Z
+--- END   pg-factory-private-service 2026-09-25T23:35:57Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-25T23:35:57Z pg-factory-host-launch disk=114G memAvailable=17GiB swapFreeKiB=6883888/17173956
+--- START pg-factory-host-launch 2026-09-25T23:35:57Z
+--- END   pg-factory-host-launch 2026-09-25T23:36:09Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-25T23:36:09Z podman-private-https.integration disk=114G memAvailable=17GiB swapFreeKiB=6855008/17173956
+--- START podman-private-https.integration 2026-09-25T23:36:09Z
+--- END   podman-private-https.integration 2026-09-25T23:36:11Z exit=0  15 pass 0 fail 
+resource-gate 2026-09-25T23:36:11Z podman-guest-broker-transport.integration disk=114G memAvailable=17GiB swapFreeKiB=6855872/17173956
+--- START podman-guest-broker-transport.integration 2026-09-25T23:36:11Z
+--- END   podman-guest-broker-transport.integration 2026-09-25T23:36:28Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-25T23:36:28Z podman-host-launch-transport.integration disk=114G memAvailable=17GiB swapFreeKiB=6903580/17173956
+--- START podman-host-launch-transport.integration 2026-09-25T23:36:28Z
+--- END   podman-host-launch-transport.integration 2026-09-25T23:36:39Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-25T23:36:39Z podman-execution-gateway.integration disk=114G memAvailable=17GiB swapFreeKiB=6910984/17173956
+--- START podman-execution-gateway.integration 2026-09-25T23:36:39Z
+--- END   podman-execution-gateway.integration 2026-09-25T23:36:46Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-25T23:36:46Z podman-artifact-materials.integration disk=114G memAvailable=17GiB swapFreeKiB=6914128/17173956
+--- START podman-artifact-materials.integration 2026-09-25T23:36:46Z
+--- END   podman-artifact-materials.integration 2026-09-25T23:36:56Z exit=0  21 pass 0 fail 
+resource-gate 2026-09-25T23:36:56Z podman-supervisor-process.podman.integration disk=114G memAvailable=17GiB swapFreeKiB=6915180/17173956
+--- START podman-supervisor-process.podman.integration 2026-09-25T23:36:56Z
+--- END   podman-supervisor-process.podman.integration 2026-09-25T23:36:59Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-25T23:36:59Z podman-host-launch-e2e.podman.integration disk=114G memAvailable=17GiB swapFreeKiB=6915648/17173956
+--- START podman-host-launch-e2e.podman.integration 2026-09-25T23:36:59Z
+--- END   podman-host-launch-e2e.podman.integration 2026-09-25T23:37:08Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-25T23:37:08Z pool-coverage disk=114G memAvailable=17GiB swapFreeKiB=6918040/17173956
+--- START pool-coverage 2026-09-25T23:37:08Z
+--- END   pool-coverage 2026-09-25T23:37:31Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail 
+BATCH DONE status=0 2026-09-25T23:37:31Z

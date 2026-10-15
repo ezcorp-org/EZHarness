@@ -1,0 +1,11 @@
+W4H-6 merge 463837a12: validator-5's addendum was superseded after the merge (still ACCEPT carried to 4bcd76089; same conclusion).
+Addendum to w4h-6-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- w4h-6-merge.json's validatorVerdict cites the base verdict verdict-validator-5-w4h6.txt sha256 e7f22f69c00f239c... (ACCEPT at
+  346e8767c) and the first note verdict-validator-5-w4h6-4bcd76089.txt sha256 56cf421ecc78f446..., copied as w4h-6-validation-addendum.txt.
+- The note of record is the SUPERSEDING addendum verdict-validator-5-w4h6-addendum.txt, sha256 2c34186bd5426892803289ddfd18684b1fc997761f74ddcc9c84657f32a2d2ad,
+  copied as w4h-6-validation-addendum-of-record.txt. It replaces the first note (same conclusion, fewer checks in the first).
+- From the addendum of record: list 0 of G6 logged cgroup_oom=1 (a guest at its own memory limit, as the gates doc explains); list 0
+  is 2524 pass / 0 fail.
+- The per-list disk figures in w4h-6-merge.json (2 MB coverage output inside the container; 2-3 GB transient host disk) are the owner's
+  figures; validator-5 did not measure them.
+The merge, its hold and the publish are unchanged.

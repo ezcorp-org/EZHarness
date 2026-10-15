@@ -1,0 +1,4512 @@
+{
+  "$id": "urn:ezcorp:factory:api-request:v1",
+  "$ref": "#/definitions/FactoryApiRequest",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AcceptanceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "freshnessMs": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "protected": {
+          "type": "boolean"
+        },
+        "required": {
+          "type": "boolean"
+        },
+        "validator": {
+          "$ref": "#/definitions/RunnerReference"
+        }
+      },
+      "required": [
+        "id",
+        "validator",
+        "required",
+        "protected"
+      ],
+      "type": "object"
+    },
+    "AcceptanceContract": {
+      "additionalProperties": false,
+      "properties": {
+        "claims": {
+          "items": {
+            "$ref": "#/definitions/AcceptanceClaim"
+          },
+          "type": "array"
+        },
+        "groups": {
+          "items": {
+            "$ref": "#/definitions/AcceptanceGroup"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "claims"
+      ],
+      "type": "object"
+    },
+    "AcceptanceGroup": {
+      "additionalProperties": false,
+      "properties": {
+        "claimIds": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "minimumPasses": {
+          "type": "number"
+        },
+        "requireAllDecisive": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "claimIds",
+        "minimumPasses",
+        "requireAllDecisive"
+      ],
+      "type": "object"
+    },
+    "AcceptanceNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "candidate": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "contract": {
+          "type": "string"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "evidence": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "acceptance",
+          "type": "string"
+        },
+        "maxRepairs": {
+          "description": "Repairs this contract authorizes after a protected rejection.\n\nThe first candidate is not a repair, so the node runs at most `maxRepairs + 1` candidate generations. An absent bound authorizes no remediation at all: a rejection is terminal. `FACTORY_LIMITS.maxCandidateGenerations` caps every domain at three generations.",
+          "maximum": 2,
+          "minimum": 0,
+          "type": "number"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "candidate",
+        "contract",
+        "evidence",
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ApprovalNode": {
+      "additionalProperties": false,
+      "properties": {
+        "actorScope": {
+          "type": "string"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "choices": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "context": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "expiresInMs": {
+          "type": "number"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "approval",
+          "type": "string"
+        },
+        "onDenied": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "onExpired": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "actorScope",
+        "choices",
+        "context",
+        "expiresInMs",
+        "id",
+        "kind",
+        "onDenied",
+        "onExpired"
+      ],
+      "type": "object"
+    },
+    "BinaryExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "eq",
+            "lt",
+            "lte",
+            "gt",
+            "gte"
+          ],
+          "type": "string"
+        },
+        "left": {
+          "$ref": "#/definitions/Expression"
+        },
+        "right": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "left",
+        "right"
+      ],
+      "type": "object"
+    },
+    "BooleanExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "and",
+            "or"
+          ],
+          "type": "string"
+        },
+        "values": {
+          "items": {
+            "$ref": "#/definitions/Expression"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "values"
+      ],
+      "type": "object"
+    },
+    "BranchNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "condition": {
+          "$ref": "#/definitions/Expression"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "else": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "branch",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "then": {
+          "$ref": "#/definitions/FactoryGraph"
+        }
+      },
+      "required": [
+        "condition",
+        "else",
+        "id",
+        "kind",
+        "then"
+      ],
+      "type": "object"
+    },
+    "BudgetBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxComputeMs": {
+          "type": "number"
+        },
+        "maxCostMicros": {
+          "type": "string"
+        },
+        "maxTokens": {
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "Effect": {
+      "enum": [
+        "none",
+        "read",
+        "write",
+        "publish"
+      ],
+      "type": "string"
+    },
+    "ExistsExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "exists",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/ValueReference"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Expression": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/LiteralExpression"
+        },
+        {
+          "$ref": "#/definitions/ValueReference"
+        },
+        {
+          "$ref": "#/definitions/ExistsExpression"
+        },
+        {
+          "$ref": "#/definitions/BinaryExpression"
+        },
+        {
+          "$ref": "#/definitions/NotExpression"
+        },
+        {
+          "$ref": "#/definitions/BooleanExpression"
+        },
+        {
+          "$ref": "#/definitions/InExpression"
+        },
+        {
+          "$ref": "#/definitions/LengthExpression"
+        }
+      ]
+    },
+    "FactoryAction": {
+      "description": "Exact product permissions. Runtime authority remains a separate product fact.",
+      "enum": [
+        "factory.author",
+        "factory.publish",
+        "factory.run",
+        "factory.operate",
+        "factory.approve",
+        "factory.release",
+        "factory.trust"
+      ],
+      "type": "string"
+    },
+    "FactoryApiRequest": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryDefinitionBody"
+            },
+            "kind": {
+              "const": "draft.create",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryDefinitionBody"
+            },
+            "kind": {
+              "const": "draft.update",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "draft.delete",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "draft.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "draft.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryDefinitionListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryImportBody"
+            },
+            "kind": {
+              "const": "draft.import",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "draft.export",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryExportQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryDefinitionBody"
+            },
+            "kind": {
+              "const": "draft.validate",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryPublishBody"
+            },
+            "kind": {
+              "const": "version.publish",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "version.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryVersionPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "version.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryRunStartBody"
+            },
+            "kind": {
+              "const": "run.start",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryDraftPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "run.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRunPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "run.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryRunListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryRunControlBody"
+            },
+            "kind": {
+              "const": "run.control",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRunPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "command.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryCommandPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "approval.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryApprovalPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "approval.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryApprovalDecisionBody"
+            },
+            "kind": {
+              "const": "approval.decide",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryApprovalPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "grant.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryGrantListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryGrantSetBody"
+            },
+            "kind": {
+              "const": "grant.set",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryGrantPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "grant.revoke",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryGrantPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryServiceCredentialIssueBody"
+            },
+            "kind": {
+              "const": "service-credential.issue",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryServiceAccountPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "service-credential.revoke",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryServiceCredentialPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseTrustPublishBody"
+            },
+            "kind": {
+              "const": "release.trust.publish",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.trust.revoke",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseControlBody"
+            },
+            "kind": {
+              "const": "release.control.set",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseContractBody"
+            },
+            "kind": {
+              "const": "release.contract.put",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseContractPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleasePrepareBody"
+            },
+            "kind": {
+              "const": "release.prepare",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.get",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseApprovalRequestBody"
+            },
+            "kind": {
+              "const": "release.approval.request",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseApprovalDecisionBody"
+            },
+            "kind": {
+              "const": "release.approval.decide",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseApprovalPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.notification.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleasePolicyBody"
+            },
+            "kind": {
+              "const": "release.policy.put",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleasePolicyPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "release.policy.delete",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleasePolicyPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryReleaseReconciliationBody"
+            },
+            "kind": {
+              "const": "release.reconcile",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryReleaseOperationPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "run.inspect",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRunPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryInspectionQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "run.events",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRunPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryEventQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.ticket",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryArtifactPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryListQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryPackageInstallBody"
+            },
+            "kind": {
+              "const": "package.install",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryPackageTrustBody"
+            },
+            "kind": {
+              "const": "package.trust",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryPackagePath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.impact",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryPackagePath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryPackageImpactQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "package.affected-runs",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryPackagePath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryPackageAffectedRunsQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "purge.preview",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryTenantPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryPurgeRequestBody"
+            },
+            "kind": {
+              "const": "purge.request",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryTenantPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryArtifactShareBody"
+            },
+            "kind": {
+              "const": "artifact.share",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryArtifactPath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.unshare",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryArtifactSharePath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "artifact.shared.read",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactorySharedArtifactPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactorySharedArtifactQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "validator.material",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryProjectPath"
+            },
+            "query": {
+              "$ref": "#/definitions/FactoryValidatorMaterialQuery"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "query"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "restore.list",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryTenantPath"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "body": {
+              "$ref": "#/definitions/FactoryRestoreSignBody"
+            },
+            "kind": {
+              "const": "restore.sign",
+              "type": "string"
+            },
+            "path": {
+              "$ref": "#/definitions/FactoryRestorePath"
+            },
+            "preconditions": {
+              "$ref": "#/definitions/FactoryMutationPreconditions"
+            },
+            "schemaVersion": {
+              "const": "factory.api.request.v1",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "kind",
+            "path",
+            "preconditions",
+            "body"
+          ],
+          "type": "object"
+        }
+      ],
+      "description": "Canonical C09 route input. `path` is populated from trusted routing state. Tenant identity is intentionally absent, and resource identity never appears in a request body."
+    },
+    "FactoryApprovalDecisionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "choice": {
+          "description": "Must equal one of the exact choices in the protected approval request.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contextDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "choice",
+        "contextDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryApprovalPath": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "projectId",
+        "runId"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactPath": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "projectId",
+        "runId"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactReference": {
+      "additionalProperties": false,
+      "description": "Opaque, immutable object reference. Ownership is resolved by the gateway.",
+      "properties": {
+        "artifactId": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "encodedBytes": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "artifactId",
+        "digest",
+        "encodedBytes"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactShareBody": {
+      "additionalProperties": false,
+      "properties": {
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "targetProjectId",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "FactoryArtifactSharePath": {
+      "additionalProperties": false,
+      "description": "A named read of one artifact's exact bytes, granted from its project to another.",
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "targetProjectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "projectId",
+        "runId",
+        "targetProjectId"
+      ],
+      "type": "object"
+    },
+    "FactoryAvailability": {
+      "enum": [
+        "available",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "FactoryBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxExpandedNodes": {
+          "type": "number"
+        },
+        "maxScopeDepth": {
+          "type": "number"
+        },
+        "runDeadlineMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maxExpandedNodes",
+        "maxScopeDepth"
+      ],
+      "type": "object"
+    },
+    "FactoryCommandPath": {
+      "additionalProperties": false,
+      "properties": {
+        "commandId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "commandId",
+        "projectId",
+        "runId"
+      ],
+      "type": "object"
+    },
+    "FactoryDefinition": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance": {
+          "$ref": "#/definitions/AcceptanceContract"
+        },
+        "bounds": {
+          "$ref": "#/definitions/FactoryBounds"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "factories": {
+          "items": {
+            "$ref": "#/definitions/FactoryReference"
+          },
+          "type": "array"
+        },
+        "graph": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "interpreterCompatibility": {
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "packages": {
+          "items": {
+            "$ref": "#/definitions/PackageReference"
+          },
+          "type": "array"
+        },
+        "presentation": {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        },
+        "schemaVersion": {
+          "const": "factory.v1",
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "id",
+        "version",
+        "interpreterCompatibility",
+        "inputPorts",
+        "outputPorts",
+        "graph",
+        "acceptance",
+        "packages",
+        "capabilities",
+        "effects",
+        "bounds"
+      ],
+      "type": "object"
+    },
+    "FactoryDefinitionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "source": {
+          "$ref": "#/definitions/FactoryDefinition"
+        }
+      },
+      "required": [
+        "source"
+      ],
+      "type": "object"
+    },
+    "FactoryDefinitionListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "archived": {
+          "type": "boolean"
+        },
+        "availability": {
+          "$ref": "#/definitions/FactoryAvailability"
+        },
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "search": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryDraftPath": {
+      "additionalProperties": false,
+      "properties": {
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "factoryId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryEventQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "cursor"
+      ],
+      "type": "object"
+    },
+    "FactoryExportQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "json",
+            "yaml"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "format"
+      ],
+      "type": "object"
+    },
+    "FactoryGrantListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/FactoryAction"
+        },
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "principalKind": {
+          "$ref": "#/definitions/FactoryPrincipalKind"
+        },
+        "search": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryGrantPath": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/definitions/FactoryAction"
+        },
+        "principalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "principalKind": {
+          "$ref": "#/definitions/FactoryPrincipalKind"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "principalId",
+        "principalKind",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryGrantSetBody": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryGraph": {
+      "additionalProperties": false,
+      "properties": {
+        "nodes": {
+          "items": {
+            "$ref": "#/definitions/FactoryNode"
+          },
+          "type": "array"
+        },
+        "outputs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "nodes",
+        "outputs"
+      ],
+      "type": "object"
+    },
+    "FactoryImportBody": {
+      "additionalProperties": false,
+      "properties": {
+        "format": {
+          "enum": [
+            "json",
+            "yaml"
+          ],
+          "type": "string"
+        },
+        "source": {
+          "maxLength": 16777216,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "format",
+        "source"
+      ],
+      "type": "object"
+    },
+    "FactoryInspectionQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "search": {
+          "description": "Server-side filter over node instance identifiers.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "section": {
+          "$ref": "#/definitions/FactoryInspectionSection"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryInspectionSection": {
+      "description": "The sections of a run inspection that page independently.",
+      "enum": [
+        "children",
+        "attempts",
+        "artifacts"
+      ],
+      "type": "string"
+    },
+    "FactoryListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "search": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryMutationPreconditions": {
+      "additionalProperties": false,
+      "description": "Values sourced from Idempotency-Key and If-Match, outside the JSON body.",
+      "properties": {
+        "expectedRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "idempotencyKey": {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        "payloadDigest": {
+          "description": "Canonical path/query/body digest computed by the shared route wrapper.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        }
+      },
+      "required": [
+        "idempotencyKey",
+        "payloadDigest",
+        "expectedRevision"
+      ],
+      "type": "object"
+    },
+    "FactoryNode": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TaskNode"
+        },
+        {
+          "$ref": "#/definitions/BranchNode"
+        },
+        {
+          "$ref": "#/definitions/JoinNode"
+        },
+        {
+          "$ref": "#/definitions/MapNode"
+        },
+        {
+          "$ref": "#/definitions/LoopNode"
+        },
+        {
+          "$ref": "#/definitions/SubfactoryNode"
+        },
+        {
+          "$ref": "#/definitions/ApprovalNode"
+        },
+        {
+          "$ref": "#/definitions/AcceptanceNode"
+        },
+        {
+          "$ref": "#/definitions/ReleaseNode"
+        }
+      ]
+    },
+    "FactoryPackageAffectedRunsQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "trustRevision": {
+          "description": "Only the attempts one decision reached.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryPackageImpactQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "transition": {
+          "$ref": "#/definitions/FactoryPackageTransition"
+        }
+      },
+      "required": [
+        "transition"
+      ],
+      "type": "object"
+    },
+    "FactoryPackageInstallBody": {
+      "additionalProperties": false,
+      "properties": {
+        "installationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reference": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "releaseId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference",
+        "installationId",
+        "releaseId"
+      ],
+      "type": "object"
+    },
+    "FactoryPackagePath": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "referenceId": {
+          "description": "Lowercase sha256 of the canonical runner reference.",
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "referenceId"
+      ],
+      "type": "object"
+    },
+    "FactoryPackageTransition": {
+      "enum": [
+        "publish",
+        "quarantine",
+        "revoke"
+      ],
+      "type": "string"
+    },
+    "FactoryPackageTrustBody": {
+      "additionalProperties": false,
+      "properties": {
+        "transition": {
+          "$ref": "#/definitions/FactoryPackageTransition"
+        }
+      },
+      "required": [
+        "transition"
+      ],
+      "type": "object"
+    },
+    "FactoryPrincipalKind": {
+      "enum": [
+        "user",
+        "service"
+      ],
+      "type": "string"
+    },
+    "FactoryProjectPath": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryProviderReceiptBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "dispatchGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "effectDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "providerReceiptId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "requestDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object",
+        "requestDigest",
+        "operationId",
+        "dispatchGeneration",
+        "providerReceiptId",
+        "version",
+        "effectDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryPublishBody": {
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "type": "object"
+    },
+    "FactoryPurgeRequestBody": {
+      "additionalProperties": false,
+      "properties": {
+        "confirmTenantId": {
+          "description": "The exact tenant identity, typed by the operator.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "reason": {
+          "description": "The operator's reason, kept in the surviving audit.",
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reason",
+        "confirmTenantId"
+      ],
+      "type": "object"
+    },
+    "FactoryReference": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseApprovalDecisionBody": {
+      "additionalProperties": false,
+      "properties": {
+        "contextDigest": {
+          "maxLength": 64,
+          "minLength": 64,
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "denied"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "contextDigest",
+        "decision"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseApprovalPath": {
+      "additionalProperties": false,
+      "properties": {
+        "approvalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "approvalId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseApprovalRequestBody": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        }
+      },
+      "required": [
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseContractBody": {
+      "additionalProperties": false,
+      "properties": {
+        "claimGroups": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "claimIds": {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "id": {
+                "type": "string"
+              },
+              "minimumPasses": {
+                "type": "number"
+              },
+              "requireAllDecisive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "claimIds",
+              "minimumPasses",
+              "requireAllDecisive"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "mandatoryClaims": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "freshnessMs": {
+                "type": "number"
+              },
+              "id": {
+                "type": "string"
+              },
+              "required": {
+                "type": "boolean"
+              },
+              "validatorId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "validatorId",
+              "freshnessMs"
+            ],
+            "type": "object"
+          },
+          "maxItems": 1000,
+          "type": "array"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "contractDigest",
+        "validatorLockDigest",
+        "mandatoryClaims",
+        "claimGroups"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseContractPath": {
+      "additionalProperties": false,
+      "properties": {
+        "contractId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "contractId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseControlBody": {
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "enabled"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseDestinationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "account": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expectedVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "object": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "provider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "provider",
+        "account",
+        "object"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseOperationPath": {
+      "additionalProperties": false,
+      "properties": {
+        "operationId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "operationId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePolicyBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "contractDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "destinationAccount": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destinationPrefix": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destinationProvider": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "expiresAtMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "maxOperations": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "maxSpendMicros": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "principalId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "principalKind": {
+          "$ref": "#/definitions/FactoryPrincipalKind"
+        }
+      },
+      "required": [
+        "principalKind",
+        "principalId",
+        "action",
+        "destinationProvider",
+        "destinationAccount",
+        "destinationPrefix",
+        "contractDigest",
+        "maxOperations",
+        "maxSpendMicros",
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePolicyPath": {
+      "additionalProperties": false,
+      "properties": {
+        "policyId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "policyId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactoryReleasePrepareBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "candidateDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "candidateGeneration": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "deadlineMs": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "decisionId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "destination": {
+          "$ref": "#/definitions/FactoryReleaseDestinationBody"
+        },
+        "estimatedSpendMicros": {
+          "maximum": 9007199254740991,
+          "minimum": 0,
+          "type": "number"
+        },
+        "nodeInstanceId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "request": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "runId",
+        "nodeInstanceId",
+        "candidateGeneration",
+        "decisionId",
+        "candidateDigest",
+        "action",
+        "destination",
+        "request",
+        "estimatedSpendMicros",
+        "deadlineMs"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseReconciliationBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "enum": [
+            "attach_receipt",
+            "confirm_no_effect",
+            "keep_uncertain"
+          ],
+          "type": "string"
+        },
+        "providerEvidence": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "reason": {
+          "maxLength": 4096,
+          "minLength": 1,
+          "type": "string"
+        },
+        "receipt": {
+          "$ref": "#/definitions/FactoryProviderReceiptBody"
+        }
+      },
+      "required": [
+        "action",
+        "reason",
+        "providerEvidence"
+      ],
+      "type": "object"
+    },
+    "FactoryReleaseTrustPublishBody": {
+      "additionalProperties": false,
+      "properties": {
+        "packageLock": {
+          "$ref": "#/definitions/RunnerReference",
+          "description": "Immutable runner package and optional model configuration approved for release."
+        },
+        "validatorTrustDigest": {
+          "description": "Protected validator lock digest.",
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "packageLock",
+        "validatorTrustDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryRestorePath": {
+      "additionalProperties": false,
+      "description": "One restore epoch's path under the tenant.",
+      "properties": {
+        "restoreId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "tenantId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId",
+        "restoreId"
+      ],
+      "type": "object"
+    },
+    "FactoryRestoreSignBody": {
+      "additionalProperties": false,
+      "properties": {
+        "reportDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "required": [
+        "reportDigest"
+      ],
+      "type": "object"
+    },
+    "FactoryRunCancelBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "cancel",
+          "type": "string"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action"
+      ],
+      "type": "object"
+    },
+    "FactoryRunControlBody": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunCancelBody"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunRevisionBody"
+        }
+      ]
+    },
+    "FactoryRunListQuery": {
+      "additionalProperties": false,
+      "properties": {
+        "cursor": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "limit": {
+          "maximum": 200,
+          "minimum": 1,
+          "type": "number"
+        },
+        "search": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/definitions/FactoryRunStatus"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryRunPath": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "runId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "runId"
+      ],
+      "type": "object"
+    },
+    "FactoryRunRepairBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "repair",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "Root of the bounded node subtree to replace.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryTransportValue"
+          },
+          "type": "object"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "action",
+        "nodeId",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "FactoryRunReplanBody": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "const": "replan",
+          "type": "string"
+        },
+        "nodeId": {
+          "description": "Current subfactory node instance to replace.",
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryTransportValue"
+          },
+          "type": "object"
+        },
+        "reason": {
+          "maxLength": 2048,
+          "minLength": 1,
+          "type": "string"
+        },
+        "replacement": {
+          "$ref": "#/definitions/FactoryReference",
+          "description": "Exact published child revision."
+        }
+      },
+      "required": [
+        "action",
+        "nodeId",
+        "replacement",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "FactoryRunRevisionBody": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/FactoryRunRepairBody"
+        },
+        {
+          "$ref": "#/definitions/FactoryRunReplanBody"
+        }
+      ]
+    },
+    "FactoryRunStartBody": {
+      "additionalProperties": false,
+      "description": "Parameters are named factory input ports. Large values use artifact handles.",
+      "properties": {
+        "definitionDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "grantRevision": {
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "parameters": {
+          "additionalProperties": {
+            "$ref": "#/definitions/FactoryTransportValue"
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "factoryVersion",
+        "definitionDigest",
+        "grantRevision",
+        "parameters"
+      ],
+      "type": "object"
+    },
+    "FactoryRunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "waiting",
+        "cancelling",
+        "succeeded",
+        "failed",
+        "cancelled",
+        "uncertain"
+      ],
+      "type": "string"
+    },
+    "FactoryServiceAccountPath": {
+      "additionalProperties": false,
+      "properties": {
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "serviceAccountId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "projectId",
+        "serviceAccountId"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceCredentialIssueBody": {
+      "additionalProperties": false,
+      "properties": {
+        "expiresAtMs": {
+          "description": "Whole-second expiry, no more than one hour after issuance.",
+          "maximum": 9007199254740991,
+          "minimum": 1,
+          "type": "number"
+        },
+        "scopes": {
+          "description": "Canonical order is read, write, chat.",
+          "items": {
+            "$ref": "#/definitions/FactoryServiceScope"
+          },
+          "maxItems": 3,
+          "minItems": 1,
+          "type": "array"
+        }
+      },
+      "required": [
+        "scopes",
+        "expiresAtMs"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceCredentialPath": {
+      "additionalProperties": false,
+      "properties": {
+        "credentialId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "serviceAccountId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "credentialId",
+        "projectId",
+        "serviceAccountId"
+      ],
+      "type": "object"
+    },
+    "FactoryServiceScope": {
+      "enum": [
+        "read",
+        "write",
+        "chat"
+      ],
+      "type": "string"
+    },
+    "FactorySharedArtifactPath": {
+      "additionalProperties": false,
+      "properties": {
+        "artifactId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifactId",
+        "projectId"
+      ],
+      "type": "object"
+    },
+    "FactorySharedArtifactQuery": {
+      "additionalProperties": false,
+      "description": "The reader names the exact bytes it was given; nothing else of the source becomes readable.",
+      "properties": {
+        "digest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        },
+        "encodedBytes": {
+          "maximum": 16777216,
+          "minimum": 1,
+          "type": "number"
+        },
+        "mediaType": {
+          "maxLength": 128,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "digest",
+        "encodedBytes",
+        "mediaType"
+      ],
+      "type": "object"
+    },
+    "FactoryTenantPath": {
+      "additionalProperties": false,
+      "description": "The tenant purge request is installation-wide; it names no project.",
+      "properties": {
+        "tenantId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "tenantId"
+      ],
+      "type": "object"
+    },
+    "FactoryTransportValue": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "inline",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/definitions/JsonValue"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "artifact": {
+              "$ref": "#/definitions/FactoryArtifactReference"
+            },
+            "kind": {
+              "const": "artifact",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "artifact"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "FactoryValidatorMaterialQuery": {
+      "additionalProperties": false,
+      "description": "Name a published version, or a validator lock digest; exactly one of the two.",
+      "properties": {
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "factoryVersion": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "validatorLockDigest": {
+          "maxLength": 71,
+          "minLength": 71,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "FactoryVersionPath": {
+      "additionalProperties": false,
+      "properties": {
+        "factoryId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "projectId": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        },
+        "version": {
+          "maxLength": 512,
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "required": [
+        "factoryId",
+        "projectId",
+        "version"
+      ],
+      "type": "object"
+    },
+    "InExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "collection": {
+          "$ref": "#/definitions/Expression"
+        },
+        "kind": {
+          "const": "in",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value",
+        "collection"
+      ],
+      "type": "object"
+    },
+    "JoinNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "eligibleOutcomes": {
+          "items": {
+            "$ref": "#/definitions/JoinOutcome"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "join",
+          "type": "string"
+        },
+        "mode": {
+          "enum": [
+            "all",
+            "any",
+            "quorum"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "predecessors": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "quorum": {
+          "type": "number"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "mode",
+        "predecessors"
+      ],
+      "type": "object"
+    },
+    "JoinOutcome": {
+      "enum": [
+        "succeeded",
+        "failed",
+        "skipped",
+        "cancelled"
+      ],
+      "type": "string"
+    },
+    "JsonPrimitive": {
+      "type": [
+        "null",
+        "boolean",
+        "number",
+        "string"
+      ]
+    },
+    "JsonValue": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/JsonPrimitive"
+        },
+        {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        {
+          "additionalProperties": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "object"
+        }
+      ]
+    },
+    "LengthExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "length",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LiteralExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LiteralValue": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "literal",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/JsonValue"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "LoopNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "body": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "budget": {
+          "$ref": "#/definitions/BudgetBounds"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "carriedSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "initialInput": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "loop",
+          "type": "string"
+        },
+        "maxElapsedMs": {
+          "type": "number"
+        },
+        "maxIterations": {
+          "type": "number"
+        },
+        "nextInput": {
+          "$ref": "#/definitions/Expression"
+        },
+        "onExhausted": {
+          "enum": [
+            "fail",
+            "escalate"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "resultSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "until": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "body",
+        "carriedSchema",
+        "id",
+        "initialInput",
+        "kind",
+        "maxElapsedMs",
+        "maxIterations",
+        "nextInput",
+        "onExhausted",
+        "resultSchema",
+        "until"
+      ],
+      "type": "object"
+    },
+    "MapNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "body": {
+          "$ref": "#/definitions/FactoryGraph"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "collection": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "itemSchema": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "kind": {
+          "const": "map",
+          "type": "string"
+        },
+        "maxConcurrency": {
+          "type": "number"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "mode": {
+          "enum": [
+            "all",
+            "collect"
+          ],
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "body",
+        "collection",
+        "id",
+        "itemSchema",
+        "kind",
+        "maxConcurrency",
+        "maxItems",
+        "mode"
+      ],
+      "type": "object"
+    },
+    "NotExpression": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "not",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/definitions/Expression"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PackageReference": {
+      "additionalProperties": false,
+      "properties": {
+        "digest": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "version",
+        "digest"
+      ],
+      "type": "object"
+    },
+    "PortSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "$defs": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "$ref": {
+          "type": "string"
+        },
+        "additionalProperties": {
+          "type": "boolean"
+        },
+        "const": {
+          "$ref": "#/definitions/JsonValue"
+        },
+        "description": {
+          "type": "string"
+        },
+        "enum": {
+          "items": {
+            "$ref": "#/definitions/JsonValue"
+          },
+          "type": "array"
+        },
+        "items": {
+          "$ref": "#/definitions/PortSchema"
+        },
+        "maxItems": {
+          "type": "number"
+        },
+        "maxLength": {
+          "type": "number"
+        },
+        "maximum": {
+          "type": "number"
+        },
+        "minItems": {
+          "type": "number"
+        },
+        "minLength": {
+          "type": "number"
+        },
+        "minimum": {
+          "type": "number"
+        },
+        "properties": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "required": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/PortSchemaType"
+            },
+            {
+              "items": [
+                {
+                  "enum": [
+                    "array",
+                    "boolean",
+                    "integer",
+                    "number",
+                    "object",
+                    "string"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "const": "null",
+                  "type": "string"
+                }
+              ],
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            }
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "PortSchemaType": {
+      "enum": [
+        "array",
+        "boolean",
+        "integer",
+        "null",
+        "number",
+        "object",
+        "string"
+      ],
+      "type": "string"
+    },
+    "ReferencePathSegment": {
+      "type": [
+        "string",
+        "number"
+      ]
+    },
+    "ReferenceRoot": {
+      "enum": [
+        "input",
+        "node",
+        "map",
+        "loop"
+      ],
+      "type": "string"
+    },
+    "ReleaseNode": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptedCandidate": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "adapter": {
+          "$ref": "#/definitions/RunnerReference"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "destination": {
+          "$ref": "#/definitions/ValueSource"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "release",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "acceptedCandidate",
+        "adapter",
+        "destination",
+        "id",
+        "kind"
+      ],
+      "type": "object"
+    },
+    "ResourceBounds": {
+      "additionalProperties": false,
+      "properties": {
+        "maxComputeMs": {
+          "type": "number"
+        },
+        "maxCostMicros": {
+          "type": "string"
+        },
+        "maxTokens": {
+          "type": "number"
+        },
+        "memoryBytes": {
+          "type": "number"
+        },
+        "resourceClass": {
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "RetryPolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "initialDelayMs": {
+          "type": "number"
+        },
+        "maxAttempts": {
+          "type": "number"
+        },
+        "maximumDelayMs": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "maxAttempts",
+        "initialDelayMs",
+        "maximumDelayMs"
+      ],
+      "type": "object"
+    },
+    "RunnerReference": {
+      "additionalProperties": false,
+      "description": "One pinned runner, named twice on purpose.\n\n`package` is the scoped distribution identity a human publishes and installs, for example `@ezcorp/reference-data`. `manifestName` is the name inside the built v4 manifest, which the shared extension contract constrains to `^[a-z][a-z0-9-]{0,63}$` and therefore can never be scoped. The two were previously required to be equal, which no real pack could satisfy: the v4 grammar is the shared contract and stays, so the reference now carries the manifest's exact name explicitly and the scoped identity keeps its own field.",
+      "properties": {
+        "configurationDigest": {
+          "type": "string"
+        },
+        "digest": {
+          "type": "string"
+        },
+        "export": {
+          "type": "string"
+        },
+        "manifestName": {
+          "description": "Exactly `manifest.name` of the built v4 release. Bound into the receipt and the trust revision.",
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "package": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "manifestName",
+        "version",
+        "digest",
+        "export"
+      ],
+      "type": "object"
+    },
+    "SubfactoryNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "factory": {
+          "$ref": "#/definitions/FactoryReference"
+        },
+        "grants": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "subfactory",
+          "type": "string"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "releaseMode": {
+          "enum": [
+            "none",
+            "authorized"
+          ],
+          "type": "string"
+        },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair or replan may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        }
+      },
+      "required": [
+        "factory",
+        "grants",
+        "id",
+        "kind",
+        "releaseMode"
+      ],
+      "type": "object"
+    },
+    "TaskNode": {
+      "additionalProperties": false,
+      "properties": {
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/definitions/ValueSource"
+          },
+          "type": "object"
+        },
+        "capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "deadlineMs": {
+          "type": "number"
+        },
+        "dependsOn": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "effects": {
+          "items": {
+            "$ref": "#/definitions/Effect"
+          },
+          "type": "array"
+        },
+        "id": {
+          "type": "string"
+        },
+        "inputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "kind": {
+          "const": "task",
+          "type": "string"
+        },
+        "maxIterations": {
+          "type": "number"
+        },
+        "outputPorts": {
+          "additionalProperties": {
+            "$ref": "#/definitions/PortSchema"
+          },
+          "type": "object"
+        },
+        "repairableInputs": {
+          "description": "Literal-bound input ports that an authorized repair may replace.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "resources": {
+          "$ref": "#/definitions/ResourceBounds"
+        },
+        "retry": {
+          "$ref": "#/definitions/RetryPolicy"
+        },
+        "runner": {
+          "$ref": "#/definitions/RunnerReference"
+        }
+      },
+      "required": [
+        "id",
+        "kind",
+        "runner"
+      ],
+      "type": "object"
+    },
+    "ValueReference": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "ref",
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "path": {
+          "items": {
+            "$ref": "#/definitions/ReferencePathSegment"
+          },
+          "type": "array"
+        },
+        "root": {
+          "$ref": "#/definitions/ReferenceRoot"
+        }
+      },
+      "required": [
+        "kind",
+        "root",
+        "name"
+      ],
+      "type": "object"
+    },
+    "ValueSource": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/ValueReference"
+        },
+        {
+          "$ref": "#/definitions/LiteralValue"
+        }
+      ]
+    }
+  }
+}

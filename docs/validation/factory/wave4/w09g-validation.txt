@@ -1,0 +1,41 @@
+2026-09-27 validator-4 on W09g b40472cbf4f389635a08c0ce87242560250e60b0 (wp/w09g-vite-bun-import; base integ/w00
+c3da32784): ACCEPT. No findings.
+
+Identity: c3da32784..b40472cbf has three commits (70d24242c fix, f5f060788 test, b40472cbf fix), all archy with the
+noreply address as author and committer. Shared .git/config sha256 prefix 44962525f1ca1a8b before and after.
+
+The fix: src/db/connection.ts takes the pool class from the runtime (bunSqlClass() returns globalThis.Bun.SQL,
+refused by name otherwise); no "bun" import is left for Vite to analyse. Since b40472cbf the class is resolved inside
+the default pool opener, so a pool override never needs the Bun runtime; without an override, the refusal fires at
+the first pool open. Under Bun 1.3.14, Bun.SQL always exists (f5f060788 asserts it equals the "bun" SQL export), so
+the refusal cannot fire on a production path. W09f's semantics are unchanged: swappableBunSql, the override seam,
+recoverFromDriverDesync, the drain and the 10 s window. vitest.config.ts is unchanged.
+
+Red-first (my own runs; scratch worktree val-w09g):
+  The new load test plus the four route files from the worker's repro-red.log (console-dispatch, route-kit,
+  console, factories): at the head 5 files, 52/52 pass (logs/web-five-head.log); with c3da32784's connection.ts all 5
+  fail with 'Failed to resolve import "bun" from "../src/db/connection.ts"' (logs/web-five-old-connection.log).
+  db-connection under Bun: 21/0.
+
+Hold under flock --close at b40472cbf, BASE_REF=c3da32784 (18:30:07Z to 18:34:49Z; gate before each leg: 17 GiB
+available, 6 GiB swap, 112 GB; receipts/hold-c3da32784/, logs/hold-c3da32784/):
+  web-vitest-pool: scripts/web-vitest-coverage.sh (the canonical Vitest pool, V8 coverage, maxWorkers 2):
+    Test Files 623 passed (623), Tests 7748 passed (7748). No file failed to load, none has zero tests, no
+    'Failed to resolve import'. So no web test reaches the static "bun" imports in src/factory/pool/process.ts:5 or
+    src/factory/provisioning/local.ts:5. The four connection.ts route files are green.
+  connection-bun: db-connection, cov-fix-connection-postgres, swappable-bun-sql                      35/0
+  postgres: tests/postgres/bun-sql-pool-replacement.test.ts on the proof PostgreSQL                    1/0
+  merge-lcov 1147 files; new-file gate PASSED (no new source files); patch gate PASSED (1 file: connection.ts)
+Static at b40472cbf: boundary suites (factory-process-boundaries + check-factory-boundaries.test) 48/0;
+  check-factory-boundaries, gate-integrity, typecheck, lint exit 0.
+
+Post-W15f base: proof merge bb769c9d494630bca0fd93c001645714b4a2b195 = ref proof/w09g-integ-94edd1e30 (integ/w00
+94edd1e30 + b40472cbf), no conflicts; its commit hook ran db-connection (21 pass) and the load test (1 passed);
+`bun run typecheck` on it exits 0 (receipts/proof-94edd1e30/typecheck.json). W15f (c3da32784..94edd1e30) touches
+neither src/db/connection.ts nor any file under web/. The second heavy hold there was withdrawn on the lead's order to save
+lock time (the queued waiter, PID 1391246, was stopped before it held the lock); the proof merge's typecheck (0) and
+hook counts (21 + 1) are the base evidence; integrator-2's merge batch on 94edd1e30 runs the web server leg,
+the connection suites and the gates. This verdict rests on the c3da32784 hold above.
+
+Report timing: the c3da32784 hold ended 18:34:49Z; it was reported at 18:57Z because the completion notice reached
+me late.

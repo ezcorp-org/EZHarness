@@ -1,0 +1,134 @@
+{
+ "subject": "staged origin/main 96e7ee58c merge into integ/w00 6c8ec29c5",
+ "validatedTrees": {
+  "e79654ea0": {
+   "proofRef": "proof/main-96e7ee58c-staged",
+   "commit": "b07a0b4d8",
+   "legs": "heavy.sh, static.sh, pairs.sh (first validator)"
+  },
+  "29a453a8d": {
+   "proofRef": "proof/main-96e7ee58c-staged-r2",
+   "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+   "legs": "r2/ (replacement validator)"
+  }
+ },
+ "firstRun": {
+  "backend-pool": {
+   "exit": 1,
+   "pass": 28769,
+   "fail": 15,
+   "files": 1942,
+   "note": "log shows script exit 1; heavy.log records exit=0 of the flock wrapper only"
+  },
+  "combined": {
+   "failed": [
+    "focused",
+    "pool-coverage"
+   ],
+   "passed": [
+    "sdk-build",
+    "transport-build",
+    "sdk-tests",
+    "web-coverage",
+    "web-bun-coverage",
+    "postgres",
+    "types",
+    "lint",
+    "gate-integrity",
+    "boundaries",
+    "orchestrator-build",
+    "node-coverage",
+    "compute-coverage",
+    "provisioning-coverage",
+    "python-coverage"
+   ]
+  },
+  "static": {
+   "allExit0Except": [
+    "manifest-lock"
+   ]
+  },
+  "pairs": {
+   "failedOnly": [
+    "x-local-sandbox-startup-alone",
+    "x-mentions-then-local-sandbox-startup"
+   ],
+   "cause": "umask 077"
+  }
+ },
+ "r2OnStagedTree": {
+  "install-root --frozen-lockfile": 0,
+  "install-web --frozen-lockfile": 0,
+  "manifest-lock regenerate+diff": 0,
+  "bundled-source-lock alone": "0 (3/3)",
+  "policy-change alone": "0 (2/2)",
+  "bundled-v4-bootstrap alone": "0 (59/59)",
+  "policy-change,source-lock,v4 one process": "1 (49 pass 15 fail)",
+  "same after proposed fix": "0 (64/64)",
+  "policy-change,v4 with module restore only": "1 (49 pass 12 fail)",
+  "v4,policy-change": "0 (61/61)",
+  "mock-cleanup-coverage with fix": "0 (16/16)",
+  "biome on fixed file": 0,
+  "pool service-server node bundle @29a453a8d": 1,
+  "same @6c8ec29c5 (integ)": 1,
+  "same @260855e57 (pre-W15)": 0,
+  "podman-compose-wrapper umask022 host HOME": "1 (53/10)",
+  "same empty HOME": "1 (53/10)",
+  "static": [
+   {
+    "leg": "typecheck",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:22:21-04:00",
+    "finishedAt": "2026-09-24T10:23:22-04:00",
+    "logSha256": "119bc0473fae586c346e29619886fb830ec77c6a8a2c07c215150888bf3ea29c"
+   },
+   {
+    "leg": "lint",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:23:22-04:00",
+    "finishedAt": "2026-09-24T10:23:24-04:00",
+    "logSha256": "f0d08d2e809158c68896b52e4cd0d24357996523ab76cf84685580e358ef011a"
+   },
+   {
+    "leg": "gate-integrity",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:23:24-04:00",
+    "finishedAt": "2026-09-24T10:23:25-04:00",
+    "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+   },
+   {
+    "leg": "boundaries",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:23:25-04:00",
+    "finishedAt": "2026-09-24T10:23:26-04:00",
+    "logSha256": "7bc27ebaae7b275fdd2403a02dc60c70eb94d07e269401e006b56590502d16e7"
+   },
+   {
+    "leg": "web-check",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:23:26-04:00",
+    "finishedAt": "2026-09-24T10:23:35-04:00",
+    "logSha256": "e3b36cffc96eeae2317e05ce120e6640a09f5359d7b501fed15618dbf20bf3ee"
+   },
+   {
+    "leg": "runtime-version-pins",
+    "exitCode": 0,
+    "commit": "718f444a836ed6f5d825bd9c1a016b1c855ee289",
+    "tree": "29a453a8d72dd28830b865e97de09cc1faedd6c2",
+    "startedAt": "2026-09-24T10:23:35-04:00",
+    "finishedAt": "2026-09-24T10:23:36-04:00",
+    "logSha256": "93c695db605afb38b3528dfdd0838f7660d0c02d449b1c742fe334e42f16ea0f"
+   }
+  ]
+ }
+}

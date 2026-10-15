@@ -126,7 +126,8 @@ start_container() {
 
 wait_ready() {
   local budget="${1:-60}"
-  local deadline=$(( $(date +%s) + budget ))
+  local deadline
+  deadline=$(( $(date +%s) + budget ))
   while :; do
     local code
     code=$(curl -sS -o /dev/null -w "%{http_code}" "http://localhost:${PORT}/api/ready" || true)

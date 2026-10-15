@@ -1,0 +1,8 @@
+== src/__tests__/git-hooks.test.ts
+bun test v1.4.2 (744846f84)
+
+ 29 pass
+ 0 fail
+ 244 expect() calls
+Ran 29 tests across 1 file. [4.50s]
+suites rc=0

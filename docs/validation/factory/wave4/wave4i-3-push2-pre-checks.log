@@ -1,0 +1,17 @@
+pre-checks 2026-10-09T16:38:49Z (integrator-5, push-checklist step 1, third push)
+toplevel: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform
+status --porcelain lines: 0
+branch: feat/composable-factory-platform
+core.bare: file:/home/dev/work/EZCorp/EZHarness/.git/config	false file:/home/dev/work/EZCorp/EZHarness/.git/worktrees/composable-factory-platform/config.worktree	false 
+ident: archy <281643943+EZArchy@users.noreply.github.com>
+fetch rc=0
+From github.com:ezcorp-org/EZHarness
+ + 2b504f24e...af0ea5958 evidence/pr-303 -> origin/evidence/pr-303  (forced update)
+HEAD:        1b96d27306cf3a21661e16a70f61f5e4837b2bcd
+origin/feat: 1b96d27306cf3a21661e16a70f61f5e4837b2bcd
+HEAD = origin/feat: yes
+HEAD ancestor of integ/w00 (3897fe923): rc=0
+config: 29e61b63b05624e9 = accepted baseline
+config-check rc=0
+ahead: 15 commits
+resources: disk 201G MemAvailable: 18.5 GiB SwapFree: 8.1 GiB 

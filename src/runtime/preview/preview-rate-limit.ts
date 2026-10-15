@@ -1,8 +1,7 @@
 /**
  * preview-rate-limit.ts — per-preview request-rate + byte-budget quotas for
  * the dynamic passthrough (Secure User-Site Preview / Port Exposure, Phase
- * 3b — mirrors the MCP-proxy quota pattern, see src/extensions/mcp-proxy.ts +
- * rate-limit.ts).
+ * 3b — see rate-limit.ts).
  *
  * An untrusted dev server reached through the proxy must not be able to (a)
  * hammer the host with unbounded requests, or (b) stream unbounded bytes back

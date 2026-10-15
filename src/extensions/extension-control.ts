@@ -1,4 +1,4 @@
-import type { WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { ProcessSpawnPolicy, Runner, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { scaffoldWorkspace } from "@ezcorp/sdk/scaffold";
 import { compileValueSchema, validateWorkspaceFiles, WORKSPACE_FILE_SCHEMA } from "@ezcorp/extension-contract";
 import type { ExtensionLifecycle } from "./v4";
@@ -7,6 +7,7 @@ import { extensionLogger } from "../logger";
 import { inspectRuntimeLocks, recoverRuntimeLock } from "./runtime-locks";
 
 import { requestedReleaseGrants } from "./bundled-drift-reapprove";
+import { approvalProcessSpawn } from "./process-spawn-policy";
 export { requestedReleaseGrants } from "./bundled-drift-reapprove";
 
 const log = extensionLogger("author", "control");
@@ -58,7 +59,15 @@ export function createExtensionFiles(name = "my-extension", description = "A new
 }
 
 export class ExtensionControl {
-  constructor(private readonly lifecycle: ExtensionLifecycle) {}
+  /**
+   * With `runner`, extensions_inspect adds the process policy each approval's
+   * release would start under (process-spawn-policy.ts), so a reader of the
+   * state can tell whether a stdio MCP server can really start.
+   */
+  constructor(
+    private readonly lifecycle: ExtensionLifecycle,
+    private readonly runner?: Runner,
+  ) {}
 
   async execute(actor: LifecycleActor, tool: ExtensionControlTool, input: Record<string, unknown>, signal?: AbortSignal): Promise<unknown> {
     signal?.throwIfAborted();
@@ -121,7 +130,12 @@ export class ExtensionControl {
     return this.lifecycle.editWorkspace(actor, { installationId, workspaceId, expectedRevision: expectedRevision(input), writes: sourceFiles(input.writes), deletes: input.deletes as string[] | undefined });
   }
 
-  private async inspect(actor: LifecycleActor, installationId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<InstallationState & { locks?: Awaited<ReturnType<typeof inspectRuntimeLocks>> }> {
+  private async inspect(actor: LifecycleActor, installationId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<InstallationState & { locks?: Awaited<ReturnType<typeof inspectRuntimeLocks>>; approvalProcessSpawn?: Record<string, ProcessSpawnPolicy> }> {
+    const state = await this.inspectState(actor, installationId, input, signal);
+    return this.runner ? { ...state, approvalProcessSpawn: await approvalProcessSpawn(this.runner, state) } : state;
+  }
+
+  private async inspectState(actor: LifecycleActor, installationId: string, input: Record<string, unknown>, signal?: AbortSignal): Promise<InstallationState & { locks?: Awaited<ReturnType<typeof inspectRuntimeLocks>> }> {
     const waitMs = input.waitMs ?? 0;
     if (typeof waitMs !== "number" || !Number.isSafeInteger(waitMs) || waitMs < 0 || waitMs > 300000) throw new ExtensionControlError("invalid_input", "waitMs must be between 0 and 300000.");
     const deadline = performance.now() + waitMs;

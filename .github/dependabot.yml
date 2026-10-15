@@ -79,7 +79,7 @@ updates:
   # `bun`, NOT `npm`: this repo's lockfiles are `bun.lock` (root, covering the
   # `packages/@ezcorp/*` workspaces) and `web/bun.lock`. Dependabot's `npm`
   # ecosystem handles npm/pnpm/yarn lockfiles; `bun` is its own ecosystem
-  # (bun >= 1.1.39 — this repo pins 1.3.14 in `.bun-version`).
+  # (bun >= 1.1.39 — this repo pins 1.4.2 in `.bun-version`).
   #
   # Included on purpose: bumping a vulnerable dependency is what actually
   # RESOLVES an advisory. An audit gate with no upgrade path just accumulates

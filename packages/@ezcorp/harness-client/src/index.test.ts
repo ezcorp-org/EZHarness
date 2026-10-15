@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { HarnessClient, HarnessApiError, SseDataBuffer, RUNTIME_EVENT_NAMES, HARNESS_ROUTES, buildPath, type CallerToolCall } from "./index";
 // The app's canonical list — must stay identical to the package's copy.
 import { RUNTIME_EVENT_NAMES as APP_EVENT_NAMES } from "../../../../web/src/lib/runtime-event-names";
+import { referenceCodeV1 } from "@ezcorp/factory-sdk";
 
 describe("SseDataBuffer", () => {
   test("splits records and skips comments/heartbeats", () => {
@@ -29,10 +30,57 @@ describe("SseDataBuffer", () => {
   });
 });
 
+test("factory authoring client sends encoded paths, queries, and mutation preconditions", async () => {
+  const requests: Request[] = [];
+  const fetcher = (async (input: string | URL | Request, init?: RequestInit) => {
+    const request = input instanceof Request ? new Request(input, init) : new Request(input.toString(), init);
+    requests.push(request);
+    return Response.json({ schemaVersion: "factory.api.response.v1", kind: "draft.validation", valid: true, diagnostics: [] });
+  }) as unknown as typeof fetch;
+  const factory = new HarnessClient({ baseUrl: "http://factory.test/", apiKey: "ezk_factory", fetch: fetcher });
+  await factory.listFactoryDefinitions("project/one", { limit: 2, archived: false, availability: "available" });
+  await factory.createFactoryDraft("project/one", referenceCodeV1, "create-key");
+  await factory.importFactoryDraft("project/one", "yaml", "schemaVersion: factory.v1", "import-key");
+  await factory.getFactoryDraft("project/one", "factory/one");
+  await factory.updateFactoryDraft("project/one", "factory/one", referenceCodeV1, 1, "update-key");
+  await factory.archiveFactoryDraft("project/one", "factory/one", 2, "archive-key");
+  await factory.exportFactoryDraft("project/one", "factory/one", "json");
+  await factory.validateFactoryDraft("project/one", "factory/one", referenceCodeV1);
+  await factory.listFactoryVersions("project/one", "factory/one", {});
+  await factory.getFactoryVersion("project/one", "factory/one", "1/0");
+  await factory.listFactoryGrants("project/one", { principalKind: "service", action: "factory.run" });
+
+  expect(requests).toHaveLength(11);
+  expect(new URL(requests[0]!.url).pathname).toBe("/api/factories/projects/project%2Fone/definitions");
+  expect(new URL(requests[0]!.url).searchParams.get("archived")).toBe("false");
+  expect(requests[1]!.headers.get("If-Match")).toBe("0");
+  expect(requests[1]!.headers.get("Idempotency-Key")).toBe("create-key");
+  expect(await requests[1]!.clone().json()).toEqual({ source: referenceCodeV1 });
+  expect(requests[5]!.method).toBe("DELETE");
+  expect(requests[5]!.headers.get("If-Match")).toBe("2");
+  expect(new URL(requests[8]!.url).search).toBe("");
+  expect(new URL(requests[9]!.url).pathname).toEndWith("/versions/1%2F0");
+  expect(new URL(requests[10]!.url).searchParams.get("action")).toBe("factory.run");
+  const runBody = { factoryVersion: "1", definitionDigest: `sha256:${"a".repeat(64)}`, grantRevision: 1, parameters: {} };
+  await factory.startFactoryRun("project/one", "factory/one", runBody, "start-key");
+  await factory.listFactoryRuns("project/one", { factoryId: "factory/one", status: "waiting", limit: 2 });
+  await factory.listFactoryRuns("project/one");
+  await factory.getFactoryRun("project/one", "run/one");
+  await factory.controlFactoryRun("project/one", "run/one", { action: "cancel" }, 2, "cancel-key");
+  await factory.getFactoryCommand("project/one", "run/one", "command/one");
+  expect(requests[11]!.headers.get("If-Match")).toBe("0");
+  expect(requests[11]!.headers.get("Idempotency-Key")).toBe("start-key");
+  expect(new URL(requests[12]!.url).searchParams.get("status")).toBe("waiting");
+  expect(requests[15]!.headers.get("If-Match")).toBe("2");
+  expect(new URL(requests[16]!.url).pathname).toContain("/runs/run%2Fone/commands/command%2Fone");
+  expect(requests.every(request => request.headers.get("Authorization") === "Bearer ezk_factory")).toBe(true);
+});
+
 test("extension control exposes the shared lifecycle without a key-based approval method", async () => {
   const input = { action: "create", name: "test" };
-  expect(await client().extensionControl("extensions_workspace", input)).toEqual({ tool: "extensions_workspace", input });
-  expect(await client().extensionControl("extensions_describe")).toEqual({ tool: "extensions_describe", input: {} });
+  type Echo = { tool: string; input: Record<string, unknown> };
+  expect(await client().extensionControl<Echo>("extensions_workspace", input)).toEqual({ tool: "extensions_workspace", input });
+  expect(await client().extensionControl<Echo>("extensions_describe")).toEqual({ tool: "extensions_describe", input: {} });
 });
 
 describe("event-name parity with the app", () => {
@@ -527,6 +575,31 @@ describe("HarnessClient", () => {
     }
     expect(events).toEqual(["run:start", "run:complete"]);
   });
+
+  test("streamEvents cancels the open stream when the consumer stops early", async () => {
+    // The server never closes an SSE stream, so a consumer that breaks out
+    // must close the connection itself; releasing the reader lock alone
+    // leaves the socket open for the life of the process.
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(c) {
+        c.enqueue(new TextEncoder().encode('data: {"type":"run:start","data":{"runId":"r1"}}\n\n'));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const c = new HarnessClient({
+      baseUrl: "http://harness.test",
+      apiKey: "ezk_test",
+      fetch: (async () => new Response(body, { headers: { "Content-Type": "text/event-stream" } })) as unknown as typeof fetch,
+    });
+    for await (const evt of c.streamEvents()) {
+      expect(evt.type).toBe("run:start");
+      break;
+    }
+    expect(cancelled).toBe(true);
+  });
 });
 
 describe("HarnessClient — extension control", () => {
@@ -659,6 +732,14 @@ describe("route table (HARNESS_ROUTES + buildPath)", () => {
 
   test("buildPath leaves a template with no params untouched", () => {
     expect(buildPath("/api/extensions")).toBe("/api/extensions");
+  });
+
+  test("buildPath refuses a param that is a whole dot segment", () => {
+    // encodeURIComponent leaves `.` alone and the URL parser resolves `..`
+    // even when encoded, so `/api/extensions/../activate` reached another route.
+    for (const id of ["", ".", ".."]) {
+      expect(() => buildPath("/api/extensions/:id/activate", { id })).toThrow(/invalid route param ':id'/);
+    }
   });
 
   test("buildPath throws loudly on a missing route param", () => {

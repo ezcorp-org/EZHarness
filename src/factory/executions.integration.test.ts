@@ -1,0 +1,205 @@
+import { afterEach, expect, test } from "bun:test";
+import { PGlite } from "@electric-sql/pglite";
+import { vector } from "@electric-sql/pglite-pgvector";
+import { pg_trgm } from "@electric-sql/pglite/contrib/pg_trgm";
+import { drizzle } from "drizzle-orm/pglite";
+import { sql } from "drizzle-orm";
+import * as schema from "../db/schema";
+import { migrate } from "../db/migrate";
+import { FactoryAttemptLivenessError, FactoryExecutionJournal, type FactoryAttemptAuthority } from "./executions";
+import type { FactoryRunnerRequest, JsonValue } from "@ezcorp/factory-sdk";
+import { factoryRunnerRequestDigest, factoryRunnerRequestIdentity } from "@ezcorp/factory-sdk/compiler";
+import { verifyFactoryExecutionAdmission } from "../__tests__/helpers/factory-execution-admission-suite";
+
+const databases: PGlite[] = [];
+
+afterEach(async () => {
+  await Promise.all(databases.splice(0).map(database => database.close()));
+});
+
+function authority(overrides: Partial<FactoryAttemptAuthority> = {}): FactoryAttemptAuthority {
+  return {
+    attemptId: "attempt-1",
+    tenantId: "tenant-a",
+    projectId: "project-a",
+    runId: "run-a",
+    nodeInstanceId: "node-a",
+    candidateGeneration: 2,
+    attemptNumber: 3,
+    grantRevision: 4,
+    reservationGeneration: 5,
+    executionEpoch: 6,
+    cancellationEpoch: 0,
+    requestDigest: "a".repeat(64),
+    deadlineAt: new Date(Date.now() + 60_000),
+    ...overrides,
+  };
+}
+
+function runnerRequest(attempt: FactoryAttemptAuthority, input: JsonValue = { b: 2, a: 1 }): FactoryRunnerRequest {
+  return {
+    schemaVersion: "factory.runner.request.v1",
+    authority: { attemptId: attempt.attemptId, tenantId: attempt.tenantId, projectId: attempt.projectId, runId: attempt.runId, nodeInstanceId: attempt.nodeInstanceId, candidateGeneration: attempt.candidateGeneration, attemptNumber: attempt.attemptNumber, grantRevision: attempt.grantRevision, reservationGeneration: attempt.reservationGeneration, executionEpoch: attempt.executionEpoch, cancellationEpoch: attempt.cancellationEpoch, deadlineAtMs: attempt.deadlineAt.getTime(), nextOperationIndex: 0 },
+    runner: { package: "runner", manifestName: "runner", version: "1", digest: `sha256:${"a".repeat(64)}`, export: "run" }, input: { kind: "inline", value: input }, grants: [], resources: {}, tools: [], broker: { attemptToken: "ephemeral-broker-token", audience: "gateway" },
+  };
+}
+
+function admission(attempt: FactoryAttemptAuthority, input?: JsonValue) {
+  const request = runnerRequest(attempt, input);
+  return { ...attempt, requestDigest: factoryRunnerRequestDigest(request), request };
+}
+
+function measuredUsage(outputTokens: number) {
+  return { kind: "measured" as const, inputTokens: 1, outputTokens, computeMs: 3, costMicros: "4" };
+}
+
+function checkpointReference(artifactId: string, journalCursor: number) {
+  return { artifactId, digest: `sha256:${"c".repeat(64)}`, encodedBytes: 1, journalCursor };
+}
+
+function operation(index: number) {
+  const attempt = authority();
+  return {
+    operationId: `${attempt.runId}:${attempt.nodeInstanceId}:${attempt.candidateGeneration}:${index}`,
+    operationIndex: index,
+    kind: "model" as const,
+    requestDigest: "a".repeat(64),
+  };
+}
+
+test("durably admits, journals, cancels, and reconciles a tenant-scoped factory attempt", async () => {
+  const database = new PGlite({ extensions: { vector, pg_trgm } });
+  databases.push(database);
+  await database.waitReady;
+  const db = drizzle(database, { schema });
+  await migrate(db);
+  const definitionDigest = `sha256:${"a".repeat(64)}`;
+  await db.execute(sql`INSERT INTO projects(id, name, path) VALUES ('project-a', 'Project A', '/tmp/project-a')`);
+  await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'tenant-a', 6)`);
+  await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
+  await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${definitionDigest}, 'test', 6, 'run-request', '{}')`);
+
+  const authorizations: string[] = [];
+  const journal = new FactoryExecutionJournal(db, async (_transaction, current) => { authorizations.push(current.attemptId); });
+  const transactionalAuthority = authority({ attemptId: "transactional-attempt", nodeInstanceId: "transactional-node", candidateGeneration: 17, attemptNumber: 1 });
+  await verifyFactoryExecutionAdmission({
+    db,
+    journal,
+    admission: input => admission(transactionalAuthority, input),
+    foreignAuthority: admission({ ...transactionalAuthority, tenantId: "tenant-b" }),
+  });
+  const attempt = admission(authority());
+  expect(await journal.admit(attempt)).toMatchObject({ reused: false });
+  expect(await journal.admit({ ...attempt, request: { ...attempt.request, broker: { ...attempt.request.broker, attemptToken: "reissued-broker-token" } } })).toMatchObject({ reused: true });
+  await expect(journal.admit({ ...attempt, request: runnerRequest(attempt, { a: 3 }) })).rejects.toThrow("does not match");
+  await expect(journal.admit(admission(authority({ tenantId: "tenant-b" })))).rejects.toThrow("epoch is stale");
+  await expect(journal.admit(admission(authority({ attemptId: "unknown-project", projectId: "missing" })))).rejects.toThrow();
+
+  const first = operation(0);
+  await journal.prepare(attempt, first);
+  expect(authorizations).toContain("attempt-1");
+  await journal.prepare(attempt, first);
+  await expect(journal.prepare(attempt, { ...first, requestDigest: "b".repeat(64) })).rejects.toThrow("conflicts");
+  await expect(journal.prepare(attempt, { ...first, operationId: "foreign" })).rejects.toThrow("does not match");
+  const ahead = operation(1);
+  await journal.prepare(attempt, ahead);
+  await expect(journal.prepare(attempt, operation(3))).rejects.toThrow("not contiguous");
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: true });
+  expect(await journal.dispatch(attempt, ahead.operationId)).toEqual({ claimed: true });
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
+  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "result" })).rejects.toThrow("needs result, usage, and workspace checkpoint");
+  await journal.settle(attempt, ahead.operationId, "completed", { resultDigest: "ahead", result: { output: "ahead" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-2", 1) });
+  expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: -1 });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) });
+  await journal.settle(attempt, first.operationId, "completed", { resultDigest: "result", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) });
+  expect(await journal.operation(attempt, first.operationId)).toEqual({ state: "completed", result: { output: "first" } });
+  expect(await journal.operations(attempt)).toEqual(expect.arrayContaining([
+    expect.objectContaining({ operationId: first.operationId, operationIndex: 0, state: "completed", resultDigest: "result", usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) }),
+    expect.objectContaining({ operationId: ahead.operationId, operationIndex: 1, state: "completed", resultDigest: "ahead" }),
+  ]));
+  expect(await journal.status(attempt)).toMatchObject({ terminalResult: { output: "ahead" }, workspaceCheckpoint: checkpointReference("checkpoint-2", 1) });
+  await journal.prepare(attempt, first);
+  expect(await journal.dispatch(attempt, first.operationId)).toEqual({ claimed: false });
+  await expect(journal.settle(attempt, first.operationId, "completed", { resultDigest: "changed", result: { output: "first" }, usage: measuredUsage(2), workspaceCheckpoint: checkpointReference("checkpoint-1", 0) })).rejects.toThrow("cannot settle");
+  expect(await journal.status(attempt)).toMatchObject({ status: "running", journalCursor: 1, cancelAcceptedAt: null });
+  const snapshot = await journal.evidence(attempt);
+  expect(snapshot.journalCursor).toBe(1);
+  expect(snapshot.operations.map(item => item.operationIndex)).toEqual([0, 1]);
+  await db.execute(sql`UPDATE factory_executions SET journal_cursor=9007199254740992 WHERE attempt_id=${attempt.attemptId}`);
+  await expect(journal.evidence(attempt)).rejects.toThrow("Factory journal cursor is corrupt");
+  await db.execute(sql`UPDATE factory_executions SET journal_cursor=1 WHERE attempt_id=${attempt.attemptId}`);
+  await expect(journal.prepare({ ...attempt, cancellationEpoch: 1 }, operation(2))).rejects.toThrow("stale, cancelled, or expired");
+
+  const second = operation(2);
+  await journal.prepare(attempt, second);
+  await journal.dispatch(attempt, second.operationId);
+  const expired = { ...attempt, deadlineAt: new Date(Date.now() - 1) };
+  expect(await journal.cancel(expired)).toBe(true);
+  expect(await journal.cancel(attempt)).toBe(false);
+  expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
+  await expect(journal.settle(attempt, second.operationId, "failed", { resultDigest: "late" })).rejects.toThrow("stale, cancelled, or expired");
+  await journal.reconcileLate(expired, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: measuredUsage(1), workspaceCheckpoint: checkpointReference("late", 2) });
+  await expect(journal.reconcileLate({ ...expired, requestDigest: "b".repeat(64) }, second.operationId, { providerReceiptDigest: "provider-receipt", resultDigest: "late-result", usage: measuredUsage(1), workspaceCheckpoint: checkpointReference("late", 2) })).rejects.toThrow("unavailable");
+  expect(await journal.status(attempt)).toMatchObject({ status: "cancel_accepted", journalCursor: 1 });
+  expect(await journal.confirmStopped(expired)).toBe(true);
+  expect(await journal.status(attempt)).toMatchObject({ status: "stopped" });
+  expect(await journal.confirmStopped(attempt)).toBe(false);
+
+  const resumed = admission(authority({ attemptId: "attempt-resumed", attemptNumber: 4 }));
+  expect(await journal.admit(resumed)).toMatchObject({ reused: false });
+  await expect(journal.prepare(resumed, operation(0))).rejects.toThrow("not contiguous");
+  await journal.prepare(resumed, operation(3));
+
+  await expect(journal.status({ ...attempt, grantRevision: 99 })).rejects.toThrow("unavailable");
+  expect(await journal.cancel(expired)).toBe(false);
+
+  const mutable = admission(authority({ attemptId: "attempt-snapshot", attemptNumber: 9 }));
+  const expected = { ...mutable, deadlineAt: new Date(mutable.deadlineAt) };
+  const expectedRequest = factoryRunnerRequestIdentity(mutable.request);
+  const snapshotJournal = new FactoryExecutionJournal(db, async () => {
+    (mutable as { tenantId: string }).tenantId = "tenant-b";
+    mutable.deadlineAt.setTime(0);
+    (mutable.request.input as unknown as { value: { a: number } }).value.a = 900;
+  });
+  expect(await snapshotJournal.admit(mutable)).toMatchObject({ reused: false });
+  expect(await snapshotJournal.status(expected)).toMatchObject({ status: "admitted" });
+  expect(await snapshotJournal.request(expected)).toEqual(expectedRequest);
+});
+
+test("the liveness fence names an attempt it never admitted apart from one whose fence moved", async () => {
+  const database = new PGlite({ extensions: { vector, pg_trgm } });
+  databases.push(database);
+  await database.waitReady;
+  const db = drizzle(database, { schema });
+  await migrate(db);
+  await db.execute(sql`INSERT INTO projects(id, name, path) VALUES ('project-a', 'Project A', '/tmp/project-a')`);
+  await db.execute(sql`INSERT INTO factory_installation(singleton, tenant_id, execution_epoch) VALUES (1, 'tenant-a', 6)`);
+  await db.execute(sql`INSERT INTO factory_projects(tenant_id, project_id) VALUES ('tenant-a', 'project-a')`);
+  await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES ('tenant-a', 'project-a', 'run-a', ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'run-request', '{}')`);
+  const journal = new FactoryExecutionJournal(db, async () => {});
+  const code = async (attempt: FactoryAttemptAuthority, read = false) => {
+    const error = await db.transaction(transaction => read
+      ? journal.authorizeMaterialReadInTransaction(transaction, attempt)
+      : journal.authorizeMaterialWriteInTransaction(transaction, attempt)).then(() => undefined, (failure: unknown) => failure);
+    expect(error).toBeInstanceOf(FactoryAttemptLivenessError);
+    return (error as FactoryAttemptLivenessError).code;
+  };
+
+  // Never admitted: the run is live and the attempt row does not exist.
+  expect(await code(authority({ attemptId: "never-admitted" }))).toBe("factory_attempt_unknown");
+  expect(await code(authority({ attemptId: "never-admitted" }), true)).toBe("factory_attempt_unknown");
+  // Nor its run, nor its project.
+  expect(await code(authority({ attemptId: "never-admitted", runId: "run-missing" }))).toBe("factory_attempt_unknown");
+  expect(await code(authority({ attemptId: "never-admitted", projectId: "project-missing" }))).toBe("factory_attempt_unknown");
+
+  // Admitted, then its fence moves: the same calls name it not live.
+  const admitted = admission(authority({ attemptId: "admitted-attempt" }));
+  await journal.admit(admitted);
+  await db.transaction(transaction => journal.authorizeMaterialWriteInTransaction(transaction, admitted));
+  expect(await code({ ...admitted, cancellationEpoch: 1 })).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, cancellationEpoch: 1 }, true)).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, executionEpoch: 7 })).toBe("factory_attempt_not_live");
+  await db.execute(sql`UPDATE factory_runs SET execution_epoch=5 WHERE run_id='run-a'`);
+  expect(await code(admitted)).toBe("factory_attempt_not_live");
+  expect(await code({ ...admitted, deadlineAt: new Date(Date.now() - 1_000) })).toBe("factory_attempt_not_live");
+});

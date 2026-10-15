@@ -1,0 +1,54 @@
+W09h (wp/w09h-admission-stop): ACCEPT at 3d2d03cc8 (code head ef3f64457; 3d2d03cc8 changes tasks/*.md only). validator-5,
+2026-09-28. Base e92d34d45 (integ/w00 with W09e). M1 is closed. No finding above low remains open.
+Receipts: /tmp/factory-platform-evidence/w09h-validation/hold-v5-2080af911/ (prep), hold-v5-ef3f64457/ and hold-v5-3d2d03cc8/
+(final phase, heavy phase, runbook rerun), heavy-3d2d03cc8.out, runbook-3d2d03cc8.out.
+
+M1 (medium) CLOSED by ef3f64457:
+- At 2080af911, dropping one clause of the all-or-none stop CHECK on factory_compute_admissions left the migration test and
+  the PGlite admissions suite green.
+- ef3f64457's PGlite case, measured by me, is 2/0 at the head. It is red with each of the stop_event_json,
+  stop_requested_epoch and stop_requested_at_ms clauses removed in turn.
+
+VERIFIED:
+- Identity: all 7 commits in e92d34d45..3d2d03cc8 are archy <281643943+EZArchy@users.noreply.github.com>, as author and as
+  committer.
+- The shared .git/config sha256 was 44962525f1ca1a8b at the start and end of every phase. The tree was clean after each
+  phase. bun and bunx were asserted at 1.3.14 from the tree's .bun-version. A gate ran before every leg.
+- Diff:
+  - 3d2d03cc8 over ef3f64457 is w09h-GATES.md and todo.md.
+  - ef3f64457 over 2080af911 is the one migration test file.
+  - Tree review at 2080af911, 29 files: no weakening pattern and no conflict marker. The only gate-tooling rows add:
+    db-postgres.yml registers admission-stop and usage-basis-migration, and coverage-thresholds adds the two new
+    migrations at 100.
+- Red-first, re-measured by me. Each fails by assertion:
+  - R1 at base: the owner's reproduction test (proof/w09h-r1-red-snapshot a18691d7f) on e92d34d45's code, 0/1, "W09h R1: a
+    run cancelled while its node waits for compute admission ends, and its hold is released".
+  - The old pin: the base's factory-task-stops-suite helper against the head's code, 31/1, "cancelling during admission
+    claims no capacity and leaves no stop to settle".
+  - R2 kernel: kernel-run-controls 15/0. It is red with stoppedBefore accepted on any node kind.
+  - Orchestrator inbox: with the stoppedBefore enum check disabled, the package's own tests are 90/1.
+  - R4 basis: the migration test 1/0. It is red with "no-operations: nothing launched, all zero" removed from the CHECK.
+  - R3 late grant: removing `if (stopped?.stop_command_id) throw new FactoryComputeAdmissionError(FACTORY_COMPUTE_ADMISSION_
+    ATTEMPT_STOPPED);` from commitDecision gives src/__tests__/factory-compute-admissions.test.ts 18/1 ("R3: a grant that
+    arrives after the stop is refused by name and released at the pool, never committed"). On real PostgreSQL the same
+    mutant is 5/0. There the stop's epoch loses the grant's authority first, and the catch path names the refusal from the
+    row's stop_command_id; the CHECK's `state <> 'admitted'` is a third guard. Defence in depth, proven by the unit case.
+- Equivalent, not a finding: the `|| event.effect !== undefined` clause of the stoppedBefore rule. W09e's rule above it
+  already refuses an effect on a non-release node, a release node fails the node-kind clause, and an unknown node is
+  ignored after the check. The test says so.
+- R5: 0f503c130 changes tests only. Both orders of stop against grant run on real PostgreSQL, synchronised on pg_locks and
+  pg_stat_activity, not on time, inside the admission-stop suite (5/0). The run lock is the shared authority path, which W09h
+  does not change.
+- Static checks at 3d2d03cc8, all exit 0: typecheck, lint, check-factory-boundaries, check-boundaries, gate-integrity
+  against origin/main and against e92d34d45. schema drift and gitleaks: 0 at 2080af911, and the code is unchanged since.
+- Heavy phase under flock --close, lock_veto validator-2 first, 19:02:28Z to 19:15:43Z. Each count is nonzero:
+  - PostgreSQL, one process each with lcov: admission-stop 5/0, task-stops 32/0, compute-admissions 2/0, run-lifecycle
+    92/0, schema 2/0, migration-restart 18/0, usage-basis-migration 1/0
+  - unit 31/0, SDK 238/0, standing guard set 59/0
+  - orchestrator coverage: exit 97 under the zero-count rule until W18c's f77a3c112 lands. Its node runner's own record
+    (cov-src/orch/test-progress.log) is tests 91, pass 91, fail 0, and it wrote lcov. Judged green by the lead's ruling.
+  - merge-lcov over 761 source files. New-file coverage PASSED (2 new source files gated). Patch coverage PASSED (every
+    changed executable line covered, 13 files), both against e92d34d45.
+- Runbook: graph-proof pass mock none at 3d2d03cc8, with the web built first. Outcome passed (rerun alone under the lock,
+  19:48:00Z to 19:49:33Z). The first run in the heavy phase failed from a fault in my hold: no web build, so the web
+  process exited with "Module not found build/index.js". It is not W09h's; lib.sh runbook_leg now builds web first.

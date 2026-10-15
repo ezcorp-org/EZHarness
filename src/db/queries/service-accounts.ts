@@ -45,6 +45,7 @@ import { getDb } from "../connection";
 import {
   DELEGATION_OWNER_COLUMN,
   serviceAccounts,
+  SERVICE_ACCOUNT_IS_LIVE_SQL,
   workflowDelegations,
   type DelegationOwnerKind,
   type ServiceAccountRow,
@@ -428,7 +429,8 @@ export async function getServiceAccountByName(
  * (`workflow-versions.ts:299-306`) — and it would surface as a 500 where the
  * caller deserves a named 400.
  *
- * Liveness here is `enabled` alone. `service_accounts` has no `revoked_at`:
+ * Liveness is `enabled` and an absent or future expiry. `service_accounts`
+ * has no `revoked_at`:
  * an account is retired by {@link deleteServiceAccount}, which refuses while
  * live delegations name it, so there is no tombstone state for this predicate
  * to exclude the way {@link countLiveDelegationsOwnedBy} excludes one.
@@ -437,7 +439,10 @@ export async function findLiveServiceAccount(id: string): Promise<ServiceAccount
   const rows = await getDb()
     .select()
     .from(serviceAccounts)
-    .where(and(eq(serviceAccounts.id, id), eq(serviceAccounts.enabled, true)));
+    .where(and(
+      eq(serviceAccounts.id, id),
+      SERVICE_ACCOUNT_IS_LIVE_SQL,
+    ));
   return rows[0];
 }
 

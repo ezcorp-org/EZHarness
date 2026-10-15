@@ -1,4 +1,4 @@
-import { beforeEach, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
 import { ContractError } from "@ezcorp/extension-contract";
 import type { LiveSandboxPresetQualification } from "@ezcorp/extension-contract";
 import { PGlite } from "@electric-sql/pglite";
@@ -8,6 +8,7 @@ import { createServer } from "node:net";
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { serverModule } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
 import { IncusAdmissionReadinessError } from "../../../../../../../src/infrastructure/incus-admission-contract";
 import { IncusAdmissionReadinessService as ActualReadinessService } from "../../../../../../../src/infrastructure/incus-admission-readiness";
 import { admissionPin, admissionObservation, admissionSelection } from "../../../../../../../src/infrastructure/__tests__/incus-admission-observation";
@@ -28,11 +29,13 @@ let active: Record<string, unknown>;
 const connection = { installationId: "installation", releaseId: "release", connectionId: "connection", connectionRevision: 1, label: "Development", setupId: null };
 const preset = { id: "compose", profile: "persistent-web-compose.v1", limits: { memoryBytes: 4294967296, cpuMillis: 2000, diskBytes: 21474836480, pids: 1024 } };
 const run = { runId: "run", state: "AWAITING_RESTART", deadlineAt: "2999-01-01T00:00:00Z" };
-mock.module("$server/auth/middleware", () => ({ requireAdminSession: (locals: { user?: { role: string }; authMethod?: string }) =>
-  locals.user?.role === "admin" && locals.authMethod === "session" ? locals.user : Response.json({}, { status: locals.user ? 403 : 401 }) }));
+
+const realAuthMiddleware = serverModule("auth/middleware", {});
+const realLifecycleService = serverModule("extensions/extension-lifecycle-service", {});
+
 mock.module("$server/logger", () => ({ logger: { child: () => ({ warn: (message: string, fields: unknown) => warnings.push({ message, fields }) }) } }));
 mock.module("$server/db/connection", () => ({ getDb: () => ({ execute: async () => { queries++; if (fail) throw new Error("SECRET"); return rows.shift() ?? []; } }) }));
-mock.module("$server/extensions/extension-lifecycle-service", () => ({ getExtensionLifecycle: async () => undefined }));
+
 mock.module("$server/extensions/release-process", () => ({ getReleaseRuntime: () => ({}), resolveActiveRelease: async (id: string) => {
   if (id === "inactive") throw new ContractError("RELEASE_NOT_ACTIVE", "SECRET");
   if (id === "broken") throw new Error("SECRET-integrity-failure");
@@ -51,6 +54,16 @@ mock.module("$server/infrastructure/incus-admission-readiness", () => ({ IncusAd
 const { GET } = await import("./+server");
 const admin = { user: { role: "admin" }, authMethod: "session" };
 const request = (locals: unknown = admin) => GET({ locals } as Parameters<typeof GET>[0]);
+
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => ({ ...realAuthMiddleware, requireAdminSession: (locals: { user?: { role: string }; authMethod?: string }) =>
+  locals.user?.role === "admin" && locals.authMethod === "session" ? locals.user : Response.json({}, { status: locals.user ? 403 : 401 }) }));
+  mock.module("$server/extensions/extension-lifecycle-service", () => ({ ...realLifecycleService, getExtensionLifecycle: async () => undefined }));
+});
+afterAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+  mock.module("$server/extensions/extension-lifecycle-service", () => realLifecycleService);
+});
 
 beforeEach(() => {
   rows = [[connection], [{ id: "project", name: "Project" }], [], []]; queries = 0; fail = false;
@@ -127,7 +140,6 @@ test("sanitizes failures without leaking database diagnostics", async () => {
   expect(broken.status).toBe(503);
   expect(await broken.text()).not.toContain("SECRET");
 });
-
 
 test("readonly host failure and capacity exhaustion keep full qualification distinct", async () => {
   qualification = { validUntil: "2999-01-01T00:00:00Z" };

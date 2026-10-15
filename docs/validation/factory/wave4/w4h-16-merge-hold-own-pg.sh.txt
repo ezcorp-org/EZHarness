@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# W4H-16 hold (called by gated-flock): the standard w4f-merge/hold-w4f.sh with its PostgreSQL legs (pg() in heavy-lib.sh) on an OWN fresh
+# pg15 (w00/own-pg.sh), never the shared proof server (the W4H-12 form). Exit 75 from the hold = re-queue; the trap removes the server.
+set -u
+E=/tmp/factory-platform-evidence/w00; D=${1:?dir}
+. $E/lock-veto.sh; lock_veto integrator-2
+. $E/own-pg.sh; own_pg_start w4h-16-hold-pg >> $D/hold-gate.log 2>&1 || exit 3
+bash $E/w4f-merge/hold-w4f.sh $D; exit $?

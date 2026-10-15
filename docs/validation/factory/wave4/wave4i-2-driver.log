@@ -1,0 +1,43 @@
+head 1c84df6d5d5aba0703ee433ae711450728d16d66 bun 1.4.2 bunx 1.4.2 flag=1
+auto-extra excluded (node --test packages, covered by their own leg): ['./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts', './packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts', './packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts', './packages/@ezcorp/factory-orchestrator/test/process.test.ts', './packages/@ezcorp/factory-orchestrator/test/validation.test.ts']
+focused files: 106 auto-extra files (own leg, one process each): 368
+{"name": "sdk-build", "exitCode": 0, "start": "2026-10-05T04:55:03", "end": "2026-10-05T04:55:04"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-10-05T04:55:04", "end": "2026-10-05T04:55:04"}
+{"name": "sdk-tests", "exitCode": 0, "start": "2026-10-05T04:55:04", "end": "2026-10-05T04:55:17"}
+{"name": "focused", "exitCode": 0, "start": "2026-10-05T04:55:17", "end": "2026-10-05T04:58:22"}
+{"name": "web-coverage", "exitCode": 0, "start": "2026-10-05T04:58:22", "end": "2026-10-05T05:03:05"}
+{"name": "web-bun-coverage", "exitCode": 0, "start": "2026-10-05T05:03:05", "end": "2026-10-05T05:03:06"}
+{"name": "postgres", "exitCode": 0, "start": "2026-10-05T05:03:06", "end": "2026-10-05T05:20:44"}
+{"name": "postgres-pool-one", "exitCode": 0, "start": "2026-10-05T05:20:44", "end": "2026-10-05T05:20:46"}
+{"name": "postgres-bun-sql-pool-replacement", "exitCode": 0, "start": "2026-10-05T05:20:46", "end": "2026-10-05T05:20:51"}
+{"name": "postgres-bun-sql-request-queue", "exitCode": 0, "start": "2026-10-05T05:20:51", "end": "2026-10-05T05:20:58"}
+{"name": "postgres-factory-assurance", "exitCode": 0, "start": "2026-10-05T05:20:58", "end": "2026-10-05T05:21:04"}
+{"name": "types", "exitCode": 0, "start": "2026-10-05T05:21:04", "end": "2026-10-05T05:21:49"}
+{"name": "lint", "exitCode": 0, "start": "2026-10-05T05:21:49", "end": "2026-10-05T05:21:50"}
+{"name": "gate-integrity", "exitCode": 1, "start": "2026-10-05T05:21:50", "end": "2026-10-05T05:21:56"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-10-05T05:21:56", "end": "2026-10-05T05:21:56"}
+{"name": "orchestrator-build", "exitCode": 0, "start": "2026-10-05T05:21:56", "end": "2026-10-05T05:21:57"}
+{"name": "node-coverage", "exitCode": 0, "start": "2026-10-05T05:21:57", "end": "2026-10-05T05:23:56"}
+{"name": "pool-coverage", "exitCode": 0, "start": "2026-10-05T05:23:56", "end": "2026-10-05T05:24:11"}
+{"name": "compute-coverage", "exitCode": 0, "start": "2026-10-05T05:24:11", "end": "2026-10-05T05:24:59"}
+{"name": "provisioning-coverage", "exitCode": 0, "start": "2026-10-05T05:24:59", "end": "2026-10-05T05:25:35"}
+{"name": "python-coverage", "exitCode": 0, "start": "2026-10-05T05:25:35", "end": "2026-10-05T05:25:40"}
+{"name": "auto-extra-0", "exitCode": 0, "start": "2026-10-05T05:25:40", "end": "2026-10-05T05:29:48"}
+{"name": "auto-extra-1", "exitCode": 0, "start": "2026-10-05T05:29:48", "end": "2026-10-05T05:30:26"}
+{"name": "auto-extra-2", "exitCode": 0, "start": "2026-10-05T05:30:26", "end": "2026-10-05T05:32:31"}
+{"name": "auto-extra-3", "exitCode": 0, "start": "2026-10-05T05:32:31", "end": "2026-10-05T05:33:53"}
+{"name": "auto-extra-4", "exitCode": 0, "start": "2026-10-05T05:33:53", "end": "2026-10-05T05:35:51"}
+{"name": "auto-extra-5", "exitCode": 0, "start": "2026-10-05T05:35:51", "end": "2026-10-05T05:36:41"}
+{"name": "auto-extra-6", "exitCode": 0, "start": "2026-10-05T05:36:41", "end": "2026-10-05T05:37:39"}
+{"name": "auto-extra-7", "exitCode": 0, "start": "2026-10-05T05:37:39", "end": "2026-10-05T05:38:33"}
+{"name": "auto-extra-8", "exitCode": 0, "start": "2026-10-05T05:38:33", "end": "2026-10-05T05:44:28"}
+{"name": "auto-extra-9", "exitCode": 0, "start": "2026-10-05T05:44:28", "end": "2026-10-05T05:44:38"}
+{"name": "podman-podman", "exitCode": 0, "start": "2026-10-05T05:44:38", "end": "2026-10-05T05:46:54"}
+{"name": "podman-attempt-runtime", "exitCode": 0, "start": "2026-10-05T05:46:54", "end": "2026-10-05T05:47:11"}
+{"name": "podman-supervisor", "exitCode": 0, "start": "2026-10-05T05:47:11", "end": "2026-10-05T05:47:33"}
+{"name": "podman-package-preparation", "exitCode": 0, "start": "2026-10-05T05:47:33", "end": "2026-10-05T05:47:50"}
+{"name": "manifest-cov-shard", "exitCode": 96, "start": "2026-10-05T06:07:50", "end": "2026-10-05T06:07:50"}
+{"name": "manifest-cov-extras", "exitCode": 96, "start": "2026-10-05T06:27:50", "end": "2026-10-05T06:27:50"}
+{"name": "manifest-web-security-coverage", "exitCode": 0, "start": "2026-10-05T06:27:50", "end": "2026-10-05T06:27:51"}
+{"name": "manifest-factory-reference-data", "exitCode": 0, "start": "2026-10-05T06:27:51", "end": "2026-10-05T06:44:57"}
+DONE failed=True

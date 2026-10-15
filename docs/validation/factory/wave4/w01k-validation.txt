@@ -1,0 +1,40 @@
+2026-09-25 ~17:30Z validator-4 on W01k 3a04baab3 (wp/w01k-private-https-verify; base 03538e909; code head 8c413221f): ACCEPT.
+
+Head: 3a04baab3 changes only tasks/factory/w01k-GATES.md over 3375b6111, and 3375b6111 changes only that file over
+8c413221f (git diff --quiet 8c413221f 3a04baab3 -- . ':!tasks' holds). Every run below was at 3375b6111 from a fresh
+worktree (val-w01k-head, clean at start), so its code is the code of 3a04baab3.
+
+Fix (f81d11a7c): src/factory/private-https.ts handshake(socket, success, authorizationError) sets peerIdentity only when
+success && authorizationError == null and the CN is a non-empty string. socket.authorized is not read. The comment
+names the callback as the check. pool/service-server.ts reads identity through poolPeerIdentity, which requires
+authorized === true and a real getPeerCertificate.
+
+Legs (receipts: commit, exit code, log sha256, dirty-at-start; no environment; no PostgreSQL URL in argv):
+  probe-tls-cases-head: exit 0. Trusted 200. Foreign CA, expired, not-yet-valid, serverAuth-only and self-signed
+    each 401 {"error":"unauthorized"}; no certificate: no response (handshake fails).
+  red-on-old-private-https: 10 pass / 5 fail. The five fails are exactly the untrusted kinds (old private-https.ts
+    and service-server.ts from 03538e909 in a throwaway worktree).
+  green-on-head-private-https: 15/0. The tests include a same-subject impersonator from an unrelated CA, and every
+    untrusted case asserts that no handler ran.
+  probe-listeners (fresh unrelated CA B, impersonator with the exact allowed subject, real startFactoryHostServices
+    and composeFactoryGuestBroker):
+    old: the impersonator got the trusted answer on host launch (400 invalid_intent), host stop (400 invalid_request)
+      and the guest-broker route (404 not_found). The C05 peer binding was bypassable.
+    head: the listener answers the impersonator and a CA-B stranger 401 on all three. Exit 0.
+  pool-peer-identity-head: 1/0.
+  static: boundary suites (factory-process-boundaries + check-factory-boundaries.test) 48/0;
+    check-factory-boundaries, gate-integrity, typecheck, lint exit 0.
+  coverage hold (df 129 GB, 15 GiB available): focused 12 files 138/0; PostgreSQL pool-http, compute-admissions,
+    artifact-materials, pool-mtls 36/0; pool coverage producer 86/0; Podman supervisor 3/0; merge-lcov 721 files;
+    new-file gate PASSED (no new source files); patch gate PASSED (2 files) with BASE_REF=03538e909.
+Worker hold k3 (/tmp/factory-platform-evidence/w01k/receipts/k3/, 15 receipts): all name 8c413221f, exit 0, clean at
+  start, log sha256 match.
+
+Audit: the worker's table (w01k-GATES.md) is correct and more complete than my pre-read. My pre-read called the Node pool
+  server dead; it is live (pool/index.ts re-export; factory-pool-mtls runs it as a Node bundle). Correction recorded in
+  pre-read/audit-03538e909.txt. The Temporal authorizer site holds: Envoy requires and validates the client
+  certificate, sets x-forwarded-client-cert with SANITIZE_SET, verifies the JWT signature before ext_authz, and the
+  authorizer's port is not published.
+
+Findings: none.
+Receipts: /tmp/factory-platform-evidence/w01k-validation/receipts/{*.json,static/,coverage/}; probes in probe/; logs in logs/.

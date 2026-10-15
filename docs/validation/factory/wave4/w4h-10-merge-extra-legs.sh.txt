@@ -1,0 +1,11 @@
+# W4H-10 main sync (lead ruling (a), 2026-10-05, the W-SYNC form; precedent W-SYNC 787f8676c with wave4g as its coverage judgement):
+# new-file and patch vs the first parent are recorded INFORMATIONAL — the first-parent diff is main's 169 files and this hold's lcov is
+# partial; the wave4i-2 combined run's final gates (full-pool lcov + browser, vs beaff68c8) are BINDING. gate-integrity both legs bind.
+export MCG_COVERAGE_INFORMATIONAL="first-parent diff = main's 169 files; partial lcov; wave4i-2 final gates bind (lead ruling (a), W-SYNC 787f8676c precedent)"
+NOTEST=1 leg typecheck-all bun run typecheck
+NOTEST=1 leg manifest-lock-check bun scripts/regenerate-manifest-lock.ts --check
+# web/ suites that run with bun in the web directory (the hook's bun-web mode)
+leg web-bun-route-contract bash -c 'cd web && bun test --timeout 120000 ./src/__tests__/route-contract.test.ts'
+leg web-bun-dependency-security bash -c 'cd web && bun test --timeout 120000 ./src/__tests__/dependency-security.test.ts'
+# actionlint unconditionally (lead: the hold runs actionlint; this diff touches no workflow file, so the standard trigger does not fire)
+NOTEST=1 leg actionlint /tmp/factory-platform-evidence/w00/tools/actionlint-1.7.7/actionlint -config-file /tmp/factory-platform-evidence/w00/tools/actionlint-1.7.7/actionlint-labels.yaml

@@ -1,0 +1,97 @@
+{
+  "receipt": "w15-merge-real-server-pass",
+  "producingCommit": "d5ee523098efb921526ce079f5507ff08f8c14dc",
+  "mergeStaged": true,
+  "startedAt": "2026-09-23T21:01:57-04:00",
+  "finishedAt": "2026-09-23T21:15:33-04:00",
+  "exitCode": 1,
+  "recordStartedAt": "2026-09-24T01:01:58.021Z",
+  "recordFinishedAt": "2026-09-24T01:15:33.080Z",
+  "recordFresh": true,
+  "outcome": "failed",
+  "failure": "the server never reported ready",
+  "readyStatus": null,
+  "rolesRunning": null,
+  "rolesRunningCount": 0,
+  "rolesHeld": null,
+  "rolesHeldCount": 0,
+  "sharedStores": {
+    "statuses": [
+      {
+        "store": "ordinary",
+        "port": 18333,
+        "reachable": true,
+        "detail": "http 403"
+      },
+      {
+        "store": "archive",
+        "port": 18334,
+        "reachable": true,
+        "detail": "http 403"
+      }
+    ],
+    "unreachable": []
+  },
+  "temporal": {
+    "port": 41909,
+    "tlsPort": 45353,
+    "reachable": true
+  },
+  "privateService": {
+    "port": 40959,
+    "accepting": true
+  },
+  "orchestrationLifecycle": "ready",
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "guestPackage": {
+    "reference": {
+      "package": "@ezcorp/w09b-guest",
+      "manifestName": "w09b-guest",
+      "version": "1.0.0",
+      "digest": "sha256:7836206a51aea644482cac4a7a9de8c9a42311fbbd1abcca97abcfeadefb12d7",
+      "export": "run"
+    },
+    "artifactDigest": "7836206a51aea644482cac4a7a9de8c9a42311fbbd1abcca97abcfeadefb12d7",
+    "sourceDigest": "cf8c739fdf0251175cc4f59db64d751bc288a0b5851d84118cf376df388d496c",
+    "buildMs": 4216
+  },
+  "durableRun": {
+    "runId": "a4200598-0829-4879-8370-88962dffbc4c",
+    "startedStatus": 202,
+    "readBackStatus": 200,
+    "readBackStatusValue": "queued",
+    "terminal": null,
+    "restart": {
+      "readyState": null,
+      "runStatus": "running",
+      "runId": "a4200598-0829-4879-8370-88962dffbc4c",
+      "firstExit": {
+        "code": 0,
+        "signal": null
+      }
+    }
+  },
+  "notProven": [
+    "a COMPLETED runner result: the completed variant carries a staged output artifact, and staging one needs the auxiliary material service a minimal guest has no mount for (W01c/W04). The guest here returns the canonical `cancelled` result \u2014 the one member of the union that needs no staged artifact \u2014 which the dispatcher records and the projector projects.",
+    "a PUBLISHED release: `release-outcome` runs here and its scan finds nothing, because this guest's definition carries no release node and no approval or policy was written. What is proved is that the role composes from the declared destination and runs; what is not is a claimable operation being claimed and published, which needs a release node in the definition plus an approval or policy through W05's production writers. The declared destination itself is proved to reach the real store by the s3-destination-proof receipt.",
+    "notification-send: W17, as planned."
+  ],
+  "shutdown": {
+    "exited": {
+      "code": 0,
+      "signal": null
+    },
+    "childrenAtRun": 0,
+    "survivors": [],
+    "portAfterStop": "refused",
+    "teardownLog": [
+      "{\"ts\":\"2026-09-24T01:15:31.515Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}",
+      "{\"ts\":\"2026-09-24T01:15:31.519Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":1}",
+      "{\"ts\":\"2026-09-24T01:15:31.520Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}"
+    ]
+  },
+  "recordSha256": "c1ab3e64a46b5ece736611b37576e81ddf56f8a66a1b1e94d297fbe7f17844db"
+}

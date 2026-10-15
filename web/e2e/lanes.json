@@ -1,5 +1,5 @@
 {
-  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane. Standard lanes have automatic, blocking CI consumers; external-model is the explicit supported-provider lane. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence is the dedicated screenshot-capture lane for its listed journeys; @evidence tests may also run in mock-gate or mock-full, while the diff-scoped visual-evidence workflow selects changed tagged specs and mapped renderers. production-image contains the Docker-backed File Organizer journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists. external-model is an executable operator opt-in for supported third-party model weights, not a CI substitute for deterministic Kokoro coverage.",
+  "//": "E2E lane manifest. EVERY web/e2e/**/*.spec.ts has exactly ONE lane. Standard lanes have automatic, blocking CI consumers; external-model is the explicit supported-provider lane. mock-gate is the fast protected mock set; mock-full is the remaining mock-preview product coverage. fresh-setup and real-auth are real-PGlite journeys. evidence is the dedicated screenshot-capture lane for its listed journeys; @evidence tests may also run in mock-gate or mock-full, while the diff-scoped visual-evidence workflow selects changed tagged specs and mapped renderers. production-image contains the Docker-backed File Organizer journey. ci.yml derives Playwright arguments from this manifest through scripts/e2e-lane-args.ts; no browser backlog lane exists. external-model is an executable operator opt-in for supported third-party model weights, not a CI substitute for deterministic Kokoro coverage. factory-services is the service-backed factory lane: real Temporal, real object storage, and real credentials on the self-hosted factory-real runner, consumed by the ci.yml job Factory product and domain E2E. web/playwright.factory-services.config.ts boots the whole real stack through web/e2e/factory-services/stack.ts, and every consumer fails closed on a missing service, so the lane can never be collected empty as a pass.",
   "lanes": {
     "mock-gate": [
       "web/e2e/agent-panel-parity.spec.ts",
@@ -97,7 +97,9 @@
       "web/e2e/file-organizer-real.spec.ts"
     ],
     "evidence": [
+      "web/e2e/admin-dashboard-edges.spec.ts",
       "web/e2e/admin-routing-cost.spec.ts",
+      "web/e2e/agent-detail-actions.spec.ts",
       "web/e2e/agent-detail-breadcrumb.spec.ts",
       "web/e2e/api-key-scopes-evidence.spec.ts",
       "web/e2e/auth-autocomplete.spec.ts",
@@ -114,16 +116,20 @@
       "web/e2e/chat-graph-evidence.spec.ts",
       "web/e2e/city-conditions-card.spec.ts",
       "web/e2e/code-review-panel-evidence.spec.ts",
+      "web/e2e/composer-ime-enter.spec.ts",
       "web/e2e/composer-suggestions.spec.ts",
       "web/e2e/conversation-list-sidebar-nav.spec.ts",
       "web/e2e/default-model-selection.spec.ts",
       "web/e2e/dev-badge.spec.ts",
+      "web/e2e/extension-author-approval-grants.spec.ts",
       "web/e2e/extension-author-failure-cards.spec.ts",
       "web/e2e/extension-author-heading.spec.ts",
       "web/e2e/extension-author-installations.spec.ts",
+      "web/e2e/extension-detail-edges.spec.ts",
       "web/e2e/extension-disable-hides-hub-page.spec.ts",
       "web/e2e/extension-secret-settings.spec.ts",
       "web/e2e/extensions-audit-retention-note.spec.ts",
+      "web/e2e/extensions-library-edges.spec.ts",
       "web/e2e/extensions-mcp-tab.spec.ts",
       "web/e2e/extensions-sort.spec.ts",
       "web/e2e/ez-clear-conversation.spec.ts",
@@ -147,6 +153,7 @@
       "web/e2e/project-context-non-project-routes.spec.ts",
       "web/e2e/project-form-default-path.spec.ts",
       "web/e2e/project-hub.spec.ts",
+      "web/e2e/provider-oauth-paste.spec.ts",
       "web/e2e/rbac-permissions.spec.ts",
       "web/e2e/resume-last-path.spec.ts",
       "web/e2e/routing-experiments-settings.spec.ts",
@@ -300,6 +307,8 @@
       "web/e2e/ez-read-page.spec.ts",
       "web/e2e/ez-search-chat.spec.ts",
       "web/e2e/ez-summarize-chat.spec.ts",
+      "web/e2e/factory-authoring-console.spec.ts",
+      "web/e2e/factory-live-console.spec.ts",
       "web/e2e/favicon-unread-badge.spec.ts",
       "web/e2e/feature-mention-injection.spec.ts",
       "web/e2e/feature-mention-popover.spec.ts",
@@ -405,6 +414,10 @@
     ],
     "external-model": [
       "web/e2e/kokoro-tts-realmodel.spec.ts"
+    ],
+    "factory-services": [
+      "web/e2e/factory-authoring-flow.spec.ts",
+      "web/e2e/factory-services-console.spec.ts"
     ]
   }
 }

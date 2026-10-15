@@ -1,0 +1,30 @@
+frozen_installs at 3c6e533409b48b3f7686ec68c93115726f39c796 bun 1.4.2 bunx 1.4.2 flag=1
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+
++ @earendil-works/pi-agent-core@0.87.1
++ @earendil-works/pi-ai@0.87.1
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.31.0
+
+18 packages installed [225.00ms]
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
+6 packages installed [110.00ms]
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+bun install v1.4.2 (744846f84)
+
+Checked 1 install across 2 packages (no changes) [1.00ms]
+$ bunx tsc -b tsconfig.build.json
+$ bunx tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+$ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+$ bunx tsc -b tsconfig.build.json
+frozen_installs done

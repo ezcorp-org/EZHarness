@@ -1,0 +1,32 @@
+VERDICT (validator-6) — W4G-10 at 62460cc50 (wp/w4g-10, owner w16-2), base 84a9ef717: ACCEPT
+
+2 commits, both archy noreply as author and committer:
+  - 69da9c629: web/src/__tests__/context-initialization.server.test.ts pays the cold import of the server graph once, in a
+    beforeAll; every test still re-imports a fresh module after vi.resetModules();
+  - 62460cc50: the gates doc (the hook margin, the fallback and the trigger to revisit).
+Files changed: that test file and tasks/factory/w4g-10-GATES.md. No timeout changes; no product source changes.
+Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the flag.
+
+REVIEW
+  - The cold import takes 3.6 s on an idle host and 6 to 9 s under load (the owner's timing files), against vitest's 5 s budget
+    per test. No test measures that load, so moving it to a beforeAll changes no assertion.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g10.sh): a git-archive snapshot of each revision, frozen installs (root, web),
+  then the test file 5 times with vitest beside a CPU hog of one busy process per CPU (32).
+  - At 84a9ef717, RED: 0 of 5 runs pass; each run has 2 failed, 2 passed (load 11 to 23).
+  - At 62460cc50, GREEN: 5 of 5 runs pass, 4 of 4 tests each (load 24 to 31).
+
+RERUN RESULTS (hold-v6-w4g10-62460cc50/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 2/2; receipts 60 scanned, 0 missing;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against 84a9ef717 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg: none by design. The changed test is a web vitest file, and the web producer runs it (EXTRA_UNIT=/dev/null);
+    - SDK 246/0;
+    - web vitest producer 7843 tests, exit 0; web build 0;
+    - guard set 62/0 across 12 files (rerun under the lock on 2026-10-02, after the resource gate refused the first run);
+    - lcov merge 0; the new-file and patch gates pass.

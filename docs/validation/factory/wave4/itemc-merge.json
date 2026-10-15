@@ -1,0 +1,261 @@
+{
+ "package": "w18-hygiene item C",
+ "branch": "wp/w18-hygiene-3",
+ "head": "5da8fffedf1f2a976af49605c52a8ea6aa646b11",
+ "branchBase": "6cea43e67",
+ "validatorVerdict": "validator-3: ACCEPT-WITH-FIXES at da4190118, then FINAL ACCEPT at 5da8fffed (re-authored history with identical trees; fix round ddc74597a; docs 5da8fffed); F1, F2, L1-L3 closed; copied as itemc-validation.txt",
+ "workerReport": "w18-hygiene/report.txt (copied as itemc-worker-report.txt)",
+ "mergeSha": "e4ec2119cffd294ad111d3a19d62a975a4f733d3",
+ "tree": "ec25f2b514cb06a789eedac14c9fd8c632e03b8f",
+ "parents": [
+  "9da0ed9ecd88136016bdd7ce6d17386936cca6c0",
+  "5da8fffedf1f2a976af49605c52a8ea6aa646b11"
+ ],
+ "conflicts": {},
+ "integrationFix": [],
+ "rulings": {
+  "identity": "the merge was held until the eight commits carrying a personal address were re-authored (trees identical); every commit over 6cea43e67 is archy noreply",
+  "openDefects": "OPEN-1 extensions-api -> extension-settings-api and OPEN-2 commit <-> preview stay OPEN, owned by item C2; not blockers for item C",
+  "sessionOutage": "the heavy batch ended 14:31Z during the 14:30-16:00Z outage; the commit at 16:04Z was made after re-verifying the staged tree ec25f2b51 unchanged (lead ruling)"
+ },
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:12Z",
+   "end": "2026-09-27T13:37:12Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "7552bac6e7f14c61ac629f410c09d3a3e867840f9e9b506ff6fe48366495392b"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:13Z",
+   "end": "2026-09-27T13:37:54Z",
+   "command": "bun run typecheck",
+   "logSha256": "cf3afce90b02acf575c9f3b08c239f629287cb827b67467b319fa10db0f3e366"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:54Z",
+   "end": "2026-09-27T13:37:55Z",
+   "command": "bun run lint",
+   "logSha256": "3e5df4cb8b5989ba315a63a1e8268f54d900d804afe2eb446e21f280510993f1"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:55Z",
+   "end": "2026-09-27T13:37:58Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:58Z",
+   "end": "2026-09-27T13:37:59Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-27T13:37:59Z",
+   "end": "2026-09-27T13:38:03Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-__tests__-git-hooks-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:03Z",
+   "end": "2026-09-27T13:38:07Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/git-hooks.test.ts",
+   "logSha256": "7e84ca92df89c3d29d622bffa3598211301d17cdae8856bf1920a118cb2aeb41"
+  },
+  {
+   "name": "focused-src-__tests__-gate-scripts-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:07Z",
+   "end": "2026-09-27T13:38:13Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/gate-scripts.test.ts",
+   "logSha256": "92b18d92870ee5482a7d1800a07623cbfa7957120aaa09f5872e71195ff9ba74"
+  },
+  {
+   "name": "focused-packages-@ezcorp-sdk-test-filesystem-harness-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:13Z",
+   "end": "2026-09-27T13:38:14Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/sdk/test/filesystem-harness.test.ts",
+   "logSha256": "d181b39c64f66085929a96f7cfab53c97acb3ab4786168f6d668d17a1dd4ee8e"
+  },
+  {
+   "name": "focused-packages-@ezcorp-sdk-test-fs-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:14Z",
+   "end": "2026-09-27T13:38:15Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/sdk/test/fs.test.ts",
+   "logSha256": "e9b897f8ee566e55cb2ff163c89fbf9e8a12dfb7a003a5a62ba8d88b603db2e7"
+  },
+  {
+   "name": "focused-src-__tests__-mock-cleanup-coverage-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:15Z",
+   "end": "2026-09-27T13:38:16Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/mock-cleanup-coverage.test.ts",
+   "logSha256": "f81787c357ff65d7256bd5950453a08682067b9931d71771e678eb0e18b62e28"
+  },
+  {
+   "name": "focused-packages-@ezcorp-ai-kit-test-unit-cli-install-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:16Z",
+   "end": "2026-09-27T13:38:17Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts",
+   "logSha256": "57a36a1832e21f0684dc5498f4900fa1c60cb8c528e5f15b880a98f0ce034eb8"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:17Z",
+   "end": "2026-09-27T13:38:21Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "bcf26556e39ccd72330b644afe6b1130385883094349ff09c14dc7e3190ab894"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:21Z",
+   "end": "2026-09-27T13:38:22Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "cb1019381c5dd57bd42ad8ec476bd377359a7d7c61aaa8c788c9658a8dbb69a3"
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-27T13:38:22Z",
+   "end": "2026-09-27T13:38:30Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "8dcb620ccbe8167c172bc3b93a46a994152458b47eed2eb48e818e61b5d62432"
+  }
+ ],
+ "checkBoundaries": "scripts/check-boundaries.ts exit 0 (5803 source files, 0 violations)",
+ "heavy": {
+  "batch": [
+   "=== heavy 2026-09-27T14:13:57Z",
+   "HEAD 9da0ed9ecd88136016bdd7ce6d17386936cca6c0 MERGE_HEAD 5da8fffedf1f2a976af49605c52a8ea6aa646b11 index-tree ec25f2b514cb06a789eedac14c9fd8c632e03b8f",
+   "resource-gate 2026-09-27T14:13:57Z focused-producer disk=122G memAvailable=17GiB swapFreeKiB=6747508/17173956",
+   "--- START focused-producer 2026-09-27T14:13:57Z",
+   "--- END   focused-producer 2026-09-27T14:29:08Z exit=0  5727 pass 0 fail ",
+   "focused-producer load errors: 0",
+   "resource-gate 2026-09-27T14:29:08Z pair-extensions-patch-route-then-installer-idempotent-local disk=122G memAvailable=17GiB swapFreeKiB=6729176/17173956",
+   "--- START pair-extensions-patch-route-then-installer-idempotent-local 2026-09-27T14:29:08Z",
+   "--- END   pair-extensions-patch-route-then-installer-idempotent-local 2026-09-27T14:29:13Z exit=0  27 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:13Z pair-installer-idempotent-local-then-extensions-patch-route disk=122G memAvailable=17GiB swapFreeKiB=6729200/17173956",
+   "--- START pair-installer-idempotent-local-then-extensions-patch-route 2026-09-27T14:29:13Z",
+   "--- END   pair-installer-idempotent-local-then-extensions-patch-route 2026-09-27T14:29:19Z exit=0  27 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:19Z pair-extensions-patch-route-then-phase-2b-e2e disk=122G memAvailable=17GiB swapFreeKiB=6729304/17173956",
+   "--- START pair-extensions-patch-route-then-phase-2b-e2e 2026-09-27T14:29:19Z",
+   "--- END   pair-extensions-patch-route-then-phase-2b-e2e 2026-09-27T14:29:20Z exit=0  19 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:20Z pair-phase-2b-e2e-then-extensions-patch-route disk=122G memAvailable=17GiB swapFreeKiB=6729344/17173956",
+   "--- START pair-phase-2b-e2e-then-extensions-patch-route 2026-09-27T14:29:20Z",
+   "--- END   pair-phase-2b-e2e-then-extensions-patch-route 2026-09-27T14:29:21Z exit=0  19 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:21Z pair-extensions-delete-route-policy-then-installer-idempotent-local disk=122G memAvailable=17GiB swapFreeKiB=6729356/17173956",
+   "--- START pair-extensions-delete-route-policy-then-installer-idempotent-local 2026-09-27T14:29:21Z",
+   "--- END   pair-extensions-delete-route-policy-then-installer-idempotent-local 2026-09-27T14:29:27Z exit=0  25 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:27Z pair-installer-idempotent-local-then-extensions-delete-route-policy disk=122G memAvailable=17GiB swapFreeKiB=6729380/17173956",
+   "--- START pair-installer-idempotent-local-then-extensions-delete-route-policy 2026-09-27T14:29:27Z",
+   "--- END   pair-installer-idempotent-local-then-extensions-delete-route-policy 2026-09-27T14:29:32Z exit=0  25 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:32Z pair-extensions-delete-route-policy-then-phase-2b-e2e disk=122G memAvailable=17GiB swapFreeKiB=6729416/17173956",
+   "--- START pair-extensions-delete-route-policy-then-phase-2b-e2e 2026-09-27T14:29:32Z",
+   "--- END   pair-extensions-delete-route-policy-then-phase-2b-e2e 2026-09-27T14:29:34Z exit=0  17 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:34Z pair-phase-2b-e2e-then-extensions-delete-route-policy disk=122G memAvailable=17GiB swapFreeKiB=6729436/17173956",
+   "--- START pair-phase-2b-e2e-then-extensions-delete-route-policy 2026-09-27T14:29:34Z",
+   "--- END   pair-phase-2b-e2e-then-extensions-delete-route-policy 2026-09-27T14:29:35Z exit=0  17 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:35Z four-together disk=122G memAvailable=17GiB swapFreeKiB=6729436/17173956",
+   "--- START four-together 2026-09-27T14:29:35Z",
+   "--- END   four-together 2026-09-27T14:29:41Z exit=0  44 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:41Z helpers-coverage disk=122G memAvailable=17GiB swapFreeKiB=6729452/17173956",
+   "--- START helpers-coverage 2026-09-27T14:29:41Z",
+   "--- END   helpers-coverage 2026-09-27T14:29:52Z exit=0  304 pass 0 fail ",
+   "resource-gate 2026-09-27T14:29:52Z coverage-merge disk=122G memAvailable=17GiB swapFreeKiB=6729500/17173956",
+   "--- START coverage-merge 2026-09-27T14:29:52Z",
+   "--- END   coverage-merge 2026-09-27T14:29:52Z exit=0 ",
+   "resource-gate 2026-09-27T14:29:52Z web-build disk=122G memAvailable=17GiB swapFreeKiB=6729516/17173956",
+   "--- START web-build 2026-09-27T14:29:52Z",
+   "--- END   web-build 2026-09-27T14:30:31Z exit=0 ",
+   "resource-gate 2026-09-27T14:30:31Z graph-mock-pass disk=122G memAvailable=17GiB swapFreeKiB=6726200/17173956",
+   "--- START graph-mock-pass 2026-09-27T14:30:31Z",
+   "--- END   graph-mock-pass 2026-09-27T14:31:07Z exit=0 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/itemc-merge/graph/itemc-merge-mock.json; nothing to dump",
+   "mock pass itemc-merge-mock outcome: passed",
+   "HEAVY DONE status=0 dirty=0 2026-09-27T14:31:07Z"
+  ],
+  "legs": {
+   "focusedProducer": "405 files, the flags of w18a3-merge/focused-command.json, one process: 5727 pass / 0 fail, 0 load errors",
+   "pairMatrix": "patch-route x installer 27/27 both orders, patch-route x phase-2b 19/19, delete-policy x installer 25/25, delete-policy x phase-2b 17/17; all four together 44/0",
+   "helpers": "gate-scripts, ai-kit cli-install, SDK filesystem-harness, git-hooks, mock-cleanup-coverage 304/0 with lcov",
+   "fast": "git-hooks 27/0, gate-scripts 210/0, filesystem-harness 5/0, fs 28/0, mock-cleanup-coverage 34/0, cli-install 28/0"
+  }
+ },
+ "graphMockPass": {
+  "label": "itemc-merge-mock",
+  "outcome": "passed",
+  "ranAt": "staged merge, index tree ec25f2b51",
+  "retainedDatabase": "none"
+ },
+ "coverage": {
+  "where": "staging at the merge commit",
+  "baseRef": "9da0ed9ec",
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (1 file)",
+  "note": "hook-lib.sh is shell with no lcov; validator-3 proved it by revert probes"
+ },
+ "commitHook": {
+  "ruling": "standing: above the cap skip only by ruling, list recorded verbatim, listed suites run outside the hook",
+  "hookListVerbatim": [
+   "  30 test files map to this commit (cap 12) \u2014 NOT running:",
+   "    docs/extensions/examples/docs-updater/index.integration.test.ts",
+   "    packages/@ezcorp/sdk/test/filesystem-harness.test.ts",
+   "    scripts/check-patch-coverage-typeonly.test.ts",
+   "    src/extensions/first-party-integration/docs-updater/git.test.ts",
+   "    src/extensions/first-party-integration/repo-activity-notify/git.test.ts",
+   "    src/extensions/project-git-refs.test.ts",
+   "    src/extensions/__tests__/project-git-broker.test.ts",
+   "    src/extensions/__tests__/project-open-pr.test.ts",
+   "    src/extensions/__tests__/source-project-credentials.test.ts",
+   "    src/factory/git-objects.test.ts",
+   "    src/factory/reference-code/git-reader.test.ts",
+   "    src/__tests__/biome-ignores-worktrees.test.ts",
+   "    src/__tests__/extension-events-hub-branch.test.ts",
+   "    src/__tests__/extensions-delete-route-policy.test.ts",
+   "    src/__tests__/extensions-patch-route.test.ts",
+   "    src/__tests__/gate-scripts.test.ts",
+   "    src/__tests__/git-hooks.test.ts",
+   "    src/__tests__/git-install.test.ts",
+   "    src/__tests__/hub-render-pull.test.ts",
+   "    src/__tests__/mock-cleanup-coverage.test.ts",
+   "    src/__tests__/phase-2b-e2e.test.ts",
+   "    src/__tests__/security/c3-extension-install.test.ts",
+   "    src/__tests__/source-parser-git-coverage.test.ts",
+   "    src/__tests__/source-parser.test.ts",
+   "    src/__tests__/unlanded-branches.test.ts",
+   "    src/__tests__/visual-evidence-select.test.ts",
+   "    src/__tests__/workflow-run-persistence.test.ts",
+   "    web/src/routes/api/import/__tests__/commit.test.ts",
+   "    web/src/__tests__/extensions-api.test.ts",
+   "    web/src/__tests__/extensions-events-route.test.ts",
+   "  Above the 12-file cap a hook that ran them all would be slow enough to get bypassed,",
+   "  and a bypassed hook checks nothing \u2014 so this blocks the commit instead of skipping silently.",
+   "  Narrow the commit, raise EZ_PRECOMMIT_TEST_MAX, or set EZ_SKIP_HOOK_TESTS=1 to acknowledge"
+  ],
+  "listedSuitesRun": "15 of the 30 ran in the heavy batch or fast checks; the other 15 ran one per process under the lock before the commit (itemc-merge-hook-direct.log), all green with nonzero counts; 0 missing",
+  "skip": "EZ_SKIP_HOOK_TESTS=1 on the merge commit only"
+ },
+ "alsoInThisReceiptsCommit": [
+  "w01h-withdrawal.txt: W01h merge 1593c1137 with receipts 3c1c8becb withdrawn from integ/w00 to proof refs because validator-2 found a lock-order deadlock (D1) in aefcf828f after the merge; fix round 2 at e676e6190 merges after its re-check.",
+  "w15d-merge-g6-graph-addendum.txt: w15b-fix's G6 graph leg text (mock pass passed at 9da0ed9ec)"
+ ],
+ "standingSteps": "resource gate before every leg (disk 122G, MemAvailable 17 GiB); config hash 44962525f1ca1a8b; SDK package cleaned and rebuilt after staging"
+}

@@ -16,6 +16,9 @@
 # e.g.  scripts/test-e2e.sh --list
 #       scripts/test-e2e.sh e2e/auth-login.spec.ts
 set -e
+# The lane's server runs under the `bun` PATH resolves: pin it first (scripts/lib/lane-bun.sh).
+. "$(dirname "${BASH_SOURCE[0]}")/lib/lane-bun.sh"
+lane_bun_pin
 
 cd "$(dirname "$0")/../web"
 

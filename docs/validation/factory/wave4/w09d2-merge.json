@@ -1,0 +1,158 @@
+{
+ "package": "w09d2",
+ "branch": "wp/w09d2-named-refusals",
+ "head": "f2bc7040c097a5b2e9462305a717e4892f670bff",
+ "codeHead": "295ced6b8",
+ "validatorVerdict": "ACCEPT-WITH-FIXES (validator-3, 2026-09-24, on f2bc7040c; verdict copied as w09d2-validation-report.txt)",
+ "mergeSha": "e6f69ddbbf464fb670e4a394453c0ff22ec5e848",
+ "tree": "1f006e3e5f25c1a33984d99d00cb830c1f846b32",
+ "parents": [
+  "7771476dbfc7a01bfec1d237f8db51cd87ea5bad",
+  "f2bc7040c097a5b2e9462305a717e4892f670bff"
+ ],
+ "conflicts": "none",
+ "integrationFix": [
+  {
+   "id": "M1",
+   "what": "disclosure added to tasks/factory/w09d2-GATES.md under 'Open, with owners' (coordinator ruling): a lost response on a dispatch that queued nothing still wedges the run in stopping (command-failed issues cancel-node; task-stops.ts:348 refuses it as factory_task_stop_stale). Pre-existing mechanism, not introduced here. Owner W03 (stop path); proof case in the refused-dispatch follow-up package (W02/W03).",
+   "files": [
+    "tasks/factory/w09d2-GATES.md"
+   ]
+  }
+ ],
+ "acceptedMissingLeg": "PGlite focused suites with coverage and the new-file/patch gates were not rerun by the validator at f2bc7040c; the worker's receipts at 295ced6b8 pass (20 files 0 fail; new-file 0, patch 0); source identical at f2bc7040c (tasks/ and docs only). Coordinator ruling: accepted on source identity. The integrator reran the focused suites without coverage on the merged tree (checks below).",
+ "rulings": {
+  "M1": "disclosed, owner W03, proof case in the W02/W03 refused-dispatch follow-up",
+  "O1": "refused-dispatch lease and budget hold gap disclosed; owned by W02/W03 (package after W03e+W05b)"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:01Z",
+   "end": "2026-09-24T18:57:02Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "c6e79817cf02610028bc4986752f581c74de0b809b0526ae9ba181dc7f7f13c5"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:02Z",
+   "end": "2026-09-24T18:57:50Z",
+   "command": "bun run typecheck",
+   "logSha256": "e84d3899a7dc97aa0c7222db71301dd654f7f048399219ca43a10b8a2a382c1b"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:50Z",
+   "end": "2026-09-24T18:57:52Z",
+   "command": "bun run lint",
+   "logSha256": "b2a5456e591175753ad470c638f744438881d829bfe98a4dd479a97a24fdbd37"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:52Z",
+   "end": "2026-09-24T18:57:55Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:55Z",
+   "end": "2026-09-24T18:57:55Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "7bc27ebaae7b275fdd2403a02dc60c70eb94d07e269401e006b56590502d16e7"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T18:57:55Z",
+   "end": "2026-09-24T18:57:59Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "bf54d71df4bb820ddd5c50188d70a55f86e50dcea637f3af20599f18a8d2dabc"
+  },
+  {
+   "name": "focused-packages-@ezcorp-factory-sdk-src-kernel-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T18:58:00Z",
+   "end": "2026-09-24T18:58:06Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/factory-sdk/src/kernel.test.ts",
+   "logSha256": "09d54ed2844894bcaec33fc8ed08daba5b62c11e6c20108fd8a6214501aaa245"
+  },
+  {
+   "name": "focused-src-factory-private-commands-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T18:58:06Z",
+   "end": "2026-09-24T18:58:07Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-commands.test.ts",
+   "logSha256": "2fdb262407e730f9358903012626e9adda20eb69f636fa22f55d097f52c29122"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T18:58:07Z",
+   "end": "2026-09-24T18:58:11Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-service-composition.test.ts",
+   "logSha256": "d7407bc4d53e10046e2643a47c9693d713d9d36f20da0c740659f657a497a7fc"
+  },
+  {
+   "name": "focused-src-__tests__-factory-run-lifecycle-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T18:58:11Z",
+   "end": "2026-09-24T18:58:38Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-run-lifecycle.test.ts",
+   "logSha256": "67d334912312d1bcdec811e44752052b3eb5cc089b03e57af836f5f648cb7957"
+  },
+  {
+   "name": "focused-scripts-factory-task-execution-admission-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T18:58:38Z",
+   "end": "2026-09-24T18:58:39Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-task-execution-admission-registration.test.ts",
+   "logSha256": "08670047485a8113c2e8d13c6f7ff70d879b22973c76e74b4235115889bf56c3"
+  },
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0,
+   "log": "w00/w09d2-merge/build-factory-sdk.log"
+  },
+  {
+   "name": "factory-orchestrator bun run test (tsc -b + node --test, Temporal test server, heavy lock)",
+   "exitCode": 0,
+   "counts": {
+    "tests": 88,
+    "pass": 88,
+    "fail": 0
+   },
+   "start": "2026-09-24T14:58:49-04:00",
+   "end": "2026-09-24T15:10:24-04:00",
+   "log": "w09d2-merge-orchestrator-test.log"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh",
+  "summary": [
+   "=== heavy batch 2026-09-24T19:13:33Z",
+   "HEAD 7771476dbfc7a01bfec1d237f8db51cd87ea5bad MERGE_HEAD f2bc7040c097a5b2e9462305a717e4892f670bff index-tree 1f006e3e5f25c1a33984d99d00cb830c1f846b32 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  195G  89% /",
+   "--- START pg-factory-run-lifecycle-s3 2026-09-24T19:13:33Z",
+   "--- END   pg-factory-run-lifecycle-s3 2026-09-24T19:14:21Z exit=0  66 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle 2026-09-24T19:14:21Z",
+   "--- END   pg-factory-run-lifecycle 2026-09-24T19:14:48Z exit=0  66 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-24T19:14:48Z"
+  ]
+ },
+ "commitHook": {
+  "firstAttempt": "REFUSED. The hook's run_staged_tests ran packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts with bun test: 12 pass, 15 fail (Temporal workflow tests timing out, e.g. 'advances independent successors while another branch is blocked' after 30000 ms); its other three suites passed: kernel.test.ts 27/0, private-commands.test.ts 7/0, private-service-composition.test.ts 18/0. Log copied as w09d2-merge-hook-bun-run.log. Nothing was committed.",
+  "ruling": "coordinator 2026-09-24: a hook defect (wrong runner), not a W09d-2 red. Commit the same tree 1f006e3e5 with EZ_SKIP_HOOK_TESTS=1 (lint still runs; no --no-verify). Correct-runner results: factory-orchestrator bun run test 88/88; run-lifecycle-s3 66/0; run-lifecycle 66/0; the hook's other three suites 27/0, 7/0, 18/0. Hook routing fix owned by W18a-3 (backlog line in tasks/todo.md).",
+  "secondAttempt": "EZ_SKIP_HOOK_TESTS=1: lint 10 files, no fixes; commit exit 0 (w00/w09d2-merge/commit-2.log)"
+ },
+ "receiptsAdded": [
+  "tasks/todo.md backlog: supervisor-process probe-timeout flake (1 in 14), hook routing of factory-orchestrator tests"
+ ],
+ "workerReport": "w09d2-worker-report.txt (w09d2/report.txt)",
+ "standingSteps": "df 197G before the heavy legs, 195G during, 192G at commit"
+}

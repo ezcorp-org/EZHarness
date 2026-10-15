@@ -1,0 +1,89 @@
+=== heavy 2026-09-28T13:18:05Z
+HEAD d65886b9a2e8fbf54c3c3deca2a0d61c1031a388 MERGE_HEAD 0bf2fcaa2121ad7a56f51c95d7c435811122f27e index-tree a10ebc8d8b0a9127afe69d75f4e7c371af2a613e
+resource-gate 2026-09-28T13:18:05Z build-factory-sdk disk=165G memAvailable=16GiB swapFreeKiB=6885176/17173956
+--- START build-factory-sdk 2026-09-28T13:18:05Z
+--- END   build-factory-sdk 2026-09-28T13:18:05Z exit=0 
+resource-gate 2026-09-28T13:18:05Z build-factory-transport disk=165G memAvailable=16GiB swapFreeKiB=6885180/17173956
+--- START build-factory-transport 2026-09-28T13:18:05Z
+--- END   build-factory-transport 2026-09-28T13:18:05Z exit=0 
+resource-gate 2026-09-28T13:18:05Z build-factory-orchestrator disk=165G memAvailable=16GiB swapFreeKiB=6885180/17173956
+--- START build-factory-orchestrator 2026-09-28T13:18:05Z
+--- END   build-factory-orchestrator 2026-09-28T13:18:06Z exit=0 
+resource-gate 2026-09-28T13:18:06Z pg-factory-installation-bootstrap disk=165G memAvailable=16GiB swapFreeKiB=6885180/17173956
+--- START pg-factory-installation-bootstrap 2026-09-28T13:18:06Z
+--- END   pg-factory-installation-bootstrap 2026-09-28T13:18:11Z exit=0  17 pass 0 fail 
+resource-gate 2026-09-28T13:18:11Z pg-factory-pool-process disk=165G memAvailable=16GiB swapFreeKiB=6885260/17173956
+--- START pg-factory-pool-process 2026-09-28T13:18:11Z
+--- END   pg-factory-pool-process 2026-09-28T13:18:14Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-28T13:18:14Z pg-factory-pool-service disk=165G memAvailable=16GiB swapFreeKiB=6885304/17173956
+--- START pg-factory-pool-service 2026-09-28T13:18:14Z
+--- END   pg-factory-pool-service 2026-09-28T13:18:15Z exit=0  5 pass 0 fail 
+resource-gate 2026-09-28T13:18:15Z pg-factory-grants disk=165G memAvailable=16GiB swapFreeKiB=6885336/17173956
+--- START pg-factory-grants 2026-09-28T13:18:15Z
+--- END   pg-factory-grants 2026-09-28T13:18:20Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-28T13:18:20Z pg-factory-schema disk=165G memAvailable=16GiB swapFreeKiB=6885700/17173956
+--- START pg-factory-schema 2026-09-28T13:18:20Z
+--- END   pg-factory-schema 2026-09-28T13:18:26Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-28T13:18:26Z pg-factory-restore disk=165G memAvailable=16GiB swapFreeKiB=6885748/17173956
+--- START pg-factory-restore 2026-09-28T13:18:26Z
+--- END   pg-factory-restore 2026-09-28T13:18:56Z exit=0  17 pass 0 fail 
+resource-gate 2026-09-28T13:18:56Z pg-factory-artifact-access disk=165G memAvailable=16GiB swapFreeKiB=6917468/17173956
+--- START pg-factory-artifact-access 2026-09-28T13:18:56Z
+--- END   pg-factory-artifact-access 2026-09-28T13:19:06Z exit=0  2 pass 0 fail 
+resource-gate 2026-09-28T13:19:06Z pg-factory-definitions disk=165G memAvailable=16GiB swapFreeKiB=6917640/17173956
+--- START pg-factory-definitions 2026-09-28T13:19:06Z
+--- END   pg-factory-definitions 2026-09-28T13:19:17Z exit=0  12 pass 0 fail 
+resource-gate 2026-09-28T13:19:17Z pg-factory-lazy-input disk=165G memAvailable=16GiB swapFreeKiB=6917852/17173956
+--- START pg-factory-lazy-input 2026-09-28T13:19:17Z
+--- END   pg-factory-lazy-input 2026-09-28T13:19:22Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-28T13:19:22Z pg-provisioning-gateway disk=165G memAvailable=16GiB swapFreeKiB=6918140/17173956
+--- START pg-provisioning-gateway 2026-09-28T13:19:22Z
+--- END   pg-provisioning-gateway 2026-09-28T13:20:04Z exit=0  63 pass 0 fail 1 pass 0 fail 
+resource-gate 2026-09-28T13:20:04Z podman-supervisor-process.podman.integration disk=165G memAvailable=15GiB swapFreeKiB=6918652/17173956
+--- START podman-supervisor-process.podman.integration 2026-09-28T13:20:04Z
+--- END   podman-supervisor-process.podman.integration 2026-09-28T13:20:07Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-28T13:20:07Z podman-guest-broker-transport.integration disk=165G memAvailable=15GiB swapFreeKiB=6918680/17173956
+--- START podman-guest-broker-transport.integration 2026-09-28T13:20:07Z
+--- END   podman-guest-broker-transport.integration 2026-09-28T13:20:23Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-28T13:20:23Z podman-package-preparation.podman.integration disk=165G memAvailable=14GiB swapFreeKiB=6919000/17173956
+--- START podman-package-preparation.podman.integration 2026-09-28T13:20:23Z
+--- END   podman-package-preparation.podman.integration 2026-09-28T13:20:41Z exit=0  1 pass 0 fail 
+resource-gate 2026-09-28T13:20:41Z unit-lcov disk=165G memAvailable=14GiB swapFreeKiB=6919256/17173956
+--- START unit-lcov 2026-09-28T13:20:41Z
+--- END   unit-lcov 2026-09-28T13:21:11Z exit=0  1023 pass 0 fail 
+resource-gate 2026-09-28T13:21:11Z hook-scripts-check-factory-boundaries-test-ts disk=165G memAvailable=16GiB swapFreeKiB=6919652/17173956
+--- START hook-scripts-check-factory-boundaries-test-ts 2026-09-28T13:21:11Z
+--- END   hook-scripts-check-factory-boundaries-test-ts 2026-09-28T13:21:14Z exit=0  31 pass 0 fail 
+resource-gate 2026-09-28T13:21:14Z hook-src-__tests__-migrate-test-ts disk=165G memAvailable=15GiB swapFreeKiB=6919680/17173956
+--- START hook-src-__tests__-migrate-test-ts 2026-09-28T13:21:14Z
+--- END   hook-src-__tests__-migrate-test-ts 2026-09-28T13:21:17Z exit=0  8 pass 0 fail 
+resource-gate 2026-09-28T13:21:17Z hook-src-__tests__-readiness-test-ts disk=165G memAvailable=16GiB swapFreeKiB=6919720/17173956
+--- START hook-src-__tests__-readiness-test-ts 2026-09-28T13:21:17Z
+--- END   hook-src-__tests__-readiness-test-ts 2026-09-28T13:21:17Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-28T13:21:17Z hook-src-__tests__-scope-enforcement-test-ts disk=165G memAvailable=16GiB swapFreeKiB=6919720/17173956
+--- START hook-src-__tests__-scope-enforcement-test-ts 2026-09-28T13:21:17Z
+--- END   hook-src-__tests__-scope-enforcement-test-ts 2026-09-28T13:21:18Z exit=0  8 pass 0 fail 
+resource-gate 2026-09-28T13:21:18Z hook-src-factory-graph-proof-diagnostics-test-ts disk=165G memAvailable=16GiB swapFreeKiB=6919720/17173956
+--- START hook-src-factory-graph-proof-diagnostics-test-ts 2026-09-28T13:21:18Z
+--- END   hook-src-factory-graph-proof-diagnostics-test-ts 2026-09-28T13:21:19Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-28T13:21:19Z web-bun-route-contract disk=165G memAvailable=16GiB swapFreeKiB=6919720/17173956
+--- START web-bun-route-contract 2026-09-28T13:21:19Z
+--- END   web-bun-route-contract 2026-09-28T13:21:19Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-28T13:21:19Z web-w16-lcov disk=165G memAvailable=16GiB swapFreeKiB=6919740/17173956
+--- START web-w16-lcov 2026-09-28T13:21:19Z
+--- END   web-w16-lcov 2026-09-28T13:21:29Z exit=0  Tests 37 passed (37) 
+resource-gate 2026-09-28T13:21:29Z web-server-lcov disk=165G memAvailable=16GiB swapFreeKiB=6919848/17173956
+--- START web-server-lcov 2026-09-28T13:21:29Z
+--- END   web-server-lcov 2026-09-28T13:21:48Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-09-28T13:21:48Z coverage-merge disk=165G memAvailable=16GiB swapFreeKiB=6919460/17173956
+--- START coverage-merge 2026-09-28T13:21:48Z
+--- END   coverage-merge 2026-09-28T13:21:49Z exit=0 
+resource-gate 2026-09-28T13:21:49Z web-build disk=165G memAvailable=16GiB swapFreeKiB=6919460/17173956
+--- START web-build 2026-09-28T13:21:49Z
+--- END   web-build 2026-09-28T13:22:29Z exit=0 
+resource-gate 2026-09-28T13:22:29Z graph-mock-pass disk=165G memAvailable=16GiB swapFreeKiB=6919708/17173956
+--- START graph-mock-pass 2026-09-28T13:22:29Z
+--- END   graph-mock-pass 2026-09-28T13:23:21Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w16-merge/graph/w16-merge-mock.json; nothing to dump
+mock pass w16-merge-mock outcome: passed
+HEAVY DONE status=0 dirty=1 2026-09-28T13:23:21Z

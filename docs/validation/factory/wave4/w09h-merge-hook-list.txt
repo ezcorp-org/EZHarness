@@ -1,0 +1,10 @@
+packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts
+packages/@ezcorp/factory-sdk/src/kernel.test.ts
+src/db/factory-schema.test.ts
+src/db/migrations/add-factory-compute-admission-stop.test.ts
+src/db/migrations/add-factory-usage-nothing-launched-basis.test.ts
+src/factory/usage-settlement.test.ts
+src/__tests__/factory-compute-admissions.test.ts
+src/__tests__/migrate.test.ts
+tests/postgres/factory-admission-stop.test.ts
+tests/postgres/factory-usage-basis-migration.test.ts

@@ -1,0 +1,16 @@
+[
+ {
+  "head": "425c1bfde6c21dde92e9612f3cdef04abe858290",
+  "dirty": false,
+  "name": "web-coverage",
+  "exitCode": 0,
+  "start": "2026-09-13T13:20:12",
+  "end": "2026-09-13T13:25:14",
+  "command": [
+   "bash",
+   "scripts/web-vitest-coverage.sh",
+   "--output",
+   "/tmp/factory-platform-evidence/w00-staging3-web-coverage"
+  ]
+ }
+]

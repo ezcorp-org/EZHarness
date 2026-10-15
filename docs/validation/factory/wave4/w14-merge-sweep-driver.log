@@ -1,0 +1,57 @@
+build-extension-contract exit=0 dirty=0 counts={}
+build-sdk exit=0 dirty=0 counts={}
+build-factory-sdk exit=0 dirty=0 counts={}
+build-factory-transport exit=0 dirty=0 counts={}
+build-factory-orchestrator exit=0 dirty=0 counts={}
+build-harness-client exit=0 dirty=0 counts={}
+lint exit=0 dirty=0 counts={}
+typecheck exit=0 dirty=0 counts={}
+boundaries exit=0 dirty=0 counts={}
+gate-integrity exit=0 dirty=0 counts={}
+schema-drift exit=0 dirty=0 counts={}
+sdk-tests exit=0 dirty=0 counts={"bunPass": 227, "bunFail": 0}
+bun-console exit=0 dirty=0 counts={"bunPass": 3, "bunFail": 0}
+bun-console-integration exit=0 dirty=0 counts={"bunPass": 25, "bunFail": 0}
+bun-pg-console exit=0 dirty=0 counts={"bunPass": 25, "bunFail": 0}
+bun-package-fence exit=0 dirty=0 counts={"bunPass": 17, "bunFail": 0}
+bun-pg-package-fence exit=0 dirty=0 counts={"bunPass": 17, "bunFail": 0}
+bun-package-preparation exit=0 dirty=0 counts={"bunPass": 22, "bunFail": 0}
+bun-pg-package-preparation exit=0 dirty=0 counts={"bunPass": 22, "bunFail": 0}
+bun-installation-startup exit=0 dirty=0 counts={"bunPass": 51, "bunFail": 0}
+bun-startup-config exit=0 dirty=0 counts={"bunPass": 49, "bunFail": 0}
+bun-application exit=0 dirty=0 counts={"bunPass": 6, "bunFail": 0}
+bun-attempt-composition exit=0 dirty=0 counts={"bunPass": 14, "bunFail": 0}
+bun-validator-materials exit=0 dirty=0 counts={"bunPass": 10, "bunFail": 0}
+bun-pg-validator-materials exit=0 dirty=0 counts={"bunPass": 10, "bunFail": 0}
+bun-run-lifecycle exit=0 dirty=0 counts={"bunPass": 74, "bunFail": 0}
+bun-pg-run-lifecycle exit=0 dirty=0 counts={"bunPass": 74, "bunFail": 0}
+bun-definitions exit=0 dirty=0 counts={"bunPass": 11, "bunFail": 0}
+bun-pg-definitions exit=0 dirty=0 counts={"bunPass": 12, "bunFail": 0}
+bun-pg-restore exit=0 dirty=0 counts={"bunPass": 17, "bunFail": 0}
+bun-keyset-cursor exit=0 dirty=0 counts={"bunPass": 2, "bunFail": 0}
+bun-tenant-administrator exit=0 dirty=0 counts={"bunPass": 3, "bunFail": 0}
+bun-grants exit=0 dirty=0 counts={"bunPass": 13, "bunFail": 0}
+bun-service-credentials exit=0 dirty=0 counts={"bunPass": 5, "bunFail": 0}
+bun-scope-enforcement exit=0 dirty=0 counts={"bunPass": 8, "bunFail": 0}
+bun-session-scope exit=0 dirty=0 counts={"bunPass": 13, "bunFail": 0}
+bun-api-docs exit=0 dirty=0 counts={"bunPass": 5, "bunFail": 0}
+bun-openapi exit=0 dirty=0 counts={"bunPass": 8, "bunFail": 0}
+bun-route-contract exit=0 dirty=0 counts={"bunPass": 29, "bunFail": 0}
+bun-e2e-lanes exit=0 dirty=0 counts={"bunPass": 24, "bunFail": 0}
+bun-evidence-covers exit=0 dirty=0 counts={"bunPass": 7, "bunFail": 0}
+bun-c13-inventory exit=0 dirty=0 counts={"bunPass": 13, "bunFail": 0}
+bun-process-boundaries exit=0 dirty=0 counts={"bunPass": 17, "bunFail": 0}
+bun-boundaries-test exit=0 dirty=0 counts={"bunPass": 31, "bunFail": 0}
+web-check exit=0 dirty=0 counts={}
+web-vitest exit=0 dirty=0 counts={"vitestFailed": 0, "vitestPassed": 7741}
+web-vitest-check exit=0 dirty=0 counts={}
+browser-build exit=0 dirty=0 counts={}
+browser-factory-specs exit=0 dirty=0 counts={"playwrightPassed": 24}
+browser-merge exit=0 dirty=0 counts={}
+browser-focus exit=0 dirty=0 counts={}
+browser-lcov exit=0 dirty=0 counts={}
+real-lane exit=3 dirty=0 counts={}
+merge-lcov exit=0 dirty=0 counts={}
+new-file-coverage exit=0 dirty=0 counts={}
+patch-coverage exit=0 dirty=0 counts={}
+[sweep] done at a80a4f9b5de0e037d2739d4d0c42dd595dbf57b0

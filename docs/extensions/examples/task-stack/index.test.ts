@@ -1,6 +1,7 @@
 import { test, expect, beforeAll, beforeEach, afterAll, describe, spyOn } from "bun:test";
 import { join } from "path";
 import { mkdirSync, mkdtempSync, rmSync, readFileSync, writeFileSync, existsSync } from "fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { tmpdir } from "os";
 import {
   loadStore, saveStore, genId, ensureStack, getStackTasks, reindex,
@@ -68,7 +69,7 @@ function installFsStub(): void {
 
 beforeAll(() => {
   process.env.EZCORP_FS_ALLOWED = "1";
-  mkdirSync(join(TMP_DIR, ".git"), { recursive: true });
+  markGitRepository(TMP_DIR);
   mkdirSync(join(TMP_DIR, "web", "src", "lib", "components"), { recursive: true });
 });
 

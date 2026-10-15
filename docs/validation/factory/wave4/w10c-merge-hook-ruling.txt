@@ -1,0 +1,2 @@
+W10c hook ruling (team-lead, 2026-10-04, per commit: the commit on edd373c59 with trial tree 46d6fab1fcdcc417): run all 13 mapped files at commit, SKIP=0, no EZ_SKIP_HOOK_TESTS. One above the cap; validator-6 ran the same 13 (207/0 + 246/0).
+Applied as EZ_PRECOMMIT_TEST_MAX=13 on the commit (the hook's own setting to run more than 12 files; all 13 run, none skipped). First attempt without it: the hook blocked at the cap (refused-cap/commit.log).

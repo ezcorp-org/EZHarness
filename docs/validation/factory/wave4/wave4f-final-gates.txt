@@ -1,0 +1,17 @@
+resource-gate 2026-10-01T09:48:04Z final-merge-gates disk=240G memAvailable=16GiB swapFreeKiB=2535920/17173956
+head=baeade9767e431720be300c1953e6e2e9758cdfa start=2026-10-01T09:48:04Z bun=1.4.2
+runner inputs: 339 from /tmp/factory-platform-evidence/wave4f-lcov-inputs
+browser inputs: 1 from /tmp/factory-platform-evidence/w00/wave4f/after/browser/browser-merged
+merge exit=0 | merged 2337 source files → coverage/lcov.info
+absolute SF outside /tmp after merge: 0
+global-floor exit=0 | ✓ at or above the 90% floor (margin 8.05 points)
+per-file-thresholds exit=0 | Coverage gate PASSED: 2191 enforced file(s) at or above threshold.
+new-file-origin_main exit=0 | New-file coverage gate PASSED: 458 new source file(s) gated.
+patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (513 file(s)).
+gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+new-file-c1377122b exit=0 | New-file coverage gate PASSED: 192 new source file(s) gated.
+patch-c1377122b exit=0 | Patch coverage gate PASSED: all changed executable lines covered (349 file(s)).
+gate-integrity-c1377122b exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+crap-changed-origin_main exit=0 | ✓ no touched function exceeds CRAP 30
+end=2026-10-01T09:48:26Z status=1 dirty=0 lcov-sha256=83f5ef0e9a6d8f4d

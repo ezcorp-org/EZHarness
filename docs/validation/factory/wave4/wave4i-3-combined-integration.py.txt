@@ -1,0 +1,324 @@
+#!/usr/bin/env python3
+"""Reusable combined-integration + coverage-gate runner (adapted from the
+root-protected-effects-parent-* runners). Usage:
+  combined-integration.py --repo PATH --prefix NAME [--skip a,b] [--patch-bases sha,sha]
+Writes <evidence>/<prefix>-<check>.log, <prefix>-results.json, <prefix>-coverage-results.json."""
+from pathlib import Path
+import argparse, os, subprocess, json, fcntl, shutil, sys, datetime, glob, posixpath, re, time
+ap = argparse.ArgumentParser()
+ap.add_argument('--repo', required=True); ap.add_argument('--prefix', required=True)
+ap.add_argument('--skip', default=''); ap.add_argument('--patch-bases', default='644987ada,2588c9f19edcae24273f4a2049eb3ac37bd6f920')
+ap.add_argument('--quality-base', default='origin/main', help='BASE_REF for crap-score --changed (what CI diffs against)'); ap.add_argument('--quality-blocking', action='store_true', help='fold the global-floor and CRAP results into the exit code (default: record only, until W18a lands)'); ap.add_argument('--allow-dirty', action='store_true'); ap.add_argument('--podman', action='store_true', help='also run the real Podman suites (serially)'); ap.add_argument('--focused-extra', default=''); ap.add_argument('--reuse-from', default=''); ap.add_argument('--auto-extra-base', default='', help='also run every added/changed *.test.ts (bun-runnable, outside web/ and tests/postgres/) since this ref')
+ap.add_argument('--legs-manifest', default='', help='scripts/combined-runner-legs.json (W18c): its suites join the focused leg (cwd web: the web bun leg); its producers and localOnlyProducers run as coverage legs with COV_OUT redirected, except a producer whose script a built-in leg already runs')
+ap.add_argument('--plan', action='store_true', help='print the resolved legs as JSON and exit: no lock, nothing runs')
+ap.add_argument('--merge-only', default='', metavar='STANDALONE.json', help='run NO leg: take <prefix>-results.json of an earlier run with the SAME arguments at the SAME head, replace the legs named in STANDALONE.json (a list of leg records, each run alone at this head) and run the unchanged merge block over it (integrator-4, lead ruling 2026-10-05, wave4i-2)')
+a = ap.parse_args()
+root = Path('/tmp/factory-platform-evidence'); repo = Path(a.repo); P = a.prefix
+skip = set(filter(None, a.skip.split(',')))
+MEASURED = {'sdk': ['packages/@ezcorp/factory-sdk'], 'product': ['src','packages','scripts'], 'postgres': ['src','tests','packages'], 'node': ['packages/@ezcorp/factory-orchestrator','src/factory'], 'web': ['web/src'], 'web-bun': ['web/src','src','packages'], 'pool': ['src/factory/pool','src/factory','tests/postgres'], 'compute': ['src/factory','tests/postgres'], 'provisioning': ['src/factory/provisioning','src/factory','tests/postgres'], 'python': ['src/factory/runner/python']}
+PRODUCER_CHECK = {'sdk': 'sdk-tests', 'product': 'focused', 'postgres': 'postgres', 'node': 'node-coverage', 'web': 'web-coverage', 'web-bun': 'web-bun-coverage', 'pool': 'pool-coverage', 'compute': 'compute-coverage', 'provisioning': 'provisioning-coverage', 'python': 'python-coverage'}
+# the pinned toolchain dir follows the tree's .bun-version (common.md "Bun pin switch", 2026-09-28): W12e moves the pin
+# to 1.4.2 and the combined run must follow it; a missing dir for the pinned version fails by name
+_pin_dir = Path('/tmp/factory-tools') / ('bun-' + (repo / '.bun-version').read_text().strip()) / 'bun-linux-x64'
+if not (_pin_dir / 'bun').exists(): sys.exit(f'no pinned toolchain for .bun-version at {_pin_dir}')
+env = os.environ.copy(); env['PATH'] = f'{_pin_dir}:' + env['PATH']; env['TC_IN_LOCK'] = '1'   # every leg runs inside the runner's lock (w00/tc-gate.sh)
+# the pin, fail-closed: both bun and bunx on this PATH must report .bun-version (the tool dir once lacked bunx, so
+# `bunx --bun vite` fell through to the system Bun; common.md 2026-09-27)
+_pin = (repo / '.bun-version').read_text().strip()
+# Bun 1.4.0-1.4.2's Postgres client mixes up responses under load (oven-sh/bun#32088, #43187); the product's startup guard
+# (W12e) requires the pipelining flag in the START environment on exactly those versions. Set it by the same rule as the pin
+# and drop an inherited value elsewhere, so every leg starts with the environment its tree demands (integrator-3, 2026-09-30).
+_PIPELINING_FLAG = 'BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING'
+if _pin in ('1.4.0', '1.4.1', '1.4.2'): env[_PIPELINING_FLAG] = '1'
+else: env.pop(_PIPELINING_FLAG, None)
+for _tool in ('bun', 'bunx'):
+ _got = subprocess.run([_tool, '--version'], env=env, capture_output=True, text=True).stdout.strip()
+ if _got != _pin: sys.exit(f'BUN PIN MISMATCH: {_tool} on PATH is {_got or "missing"} ({shutil.which(_tool, path=env["PATH"])}), .bun-version pins {_pin}')
+fields = dict(l.split('=', 1) for l in (root / 'postgres.env').read_text().splitlines())
+endpoint = subprocess.check_output(['podman', 'port', 'factory-platform-proof-postgres', '5432'], text=True).strip()
+env.pop('DATABASE_URL', None); env.pop('GATE_CHANGE_APPROVED', None)
+env['FACTORY_TEST_POSTGRES_URL'] = f"postgres://{fields['POSTGRES_USER']}:{fields['POSTGRES_PASSWORD']}@{endpoint}/{fields['POSTGRES_DB']}"
+# The S3 credential directory lives on tmpfs and changes on every reboot: take it from the
+# environment, else discover the single generated directory, else fail by name.
+_secrets = os.environ.get('EZCORP_FACTORY_STORAGE_SECRETS_DIR') or (lambda d: d[0] if len(d) == 1 else None)(sorted(glob.glob('/run/user/%d/ezcorp-factory-storage.*' % os.getuid())))
+if not _secrets or not os.path.isdir(_secrets): sys.exit('no factory storage credential directory: export EZCORP_FACTORY_STORAGE_SECRETS_DIR or run scripts/setup-factory-storage.sh up|recover')
+env['EZCORP_FACTORY_STORAGE_SECRETS_DIR'] = _secrets
+env['FACTORY_TEMPORAL_TEST_SERVER'] = '/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server'
+workflow = (repo / '.github/workflows/db-postgres.yml').read_text()
+# the list-run set = every ./tests/postgres/ line of the workflow's list step (migrate-lock.test.ts is in that list without the
+# factory- prefix, so a factory- filter wrongly made it a step-level leg; W18c rerun 2026-09-28)
+ci_files = [l.strip() for l in workflow.splitlines() if l.strip().startswith('./tests/postgres/')]
+assert len(ci_files) >= 20, ci_files
+# every other tests/postgres suite the workflow names runs in its own CI step (its own process): one leg each here
+# (validator-4 wave4f review H3, 2026-09-27: migrate-lock, bun-sql-pool-replacement, pool-one fell outside every leg)
+pg_steps = [f for f in dict.fromkeys(re.findall(r'\./tests/postgres/[\w./-]+\.test\.ts', workflow)) if f not in ci_files]
+# each step-level suite runs with its CI step's own env (db-postgres.yml `env:` block of the step whose run names the
+# file), as CI does: pool-one needs DB_POOL_MAX="1" (W18c rerun at 36fcf0fcc, 2026-09-28). Minimal parser: a step starts
+# at '- name:'; its env block is the indented KEY: value lines under 'env:'; $VAR / ${VAR} expand from the leg's env.
+def _workflow_step_env(text):
+ steps, cur = [], None
+ for line in text.splitlines():
+  if re.match(r'^\s*- name:', line): cur = {'env': {}, 'run': ''}; steps.append(cur); in_env = False; continue
+  if cur is None: continue
+  if re.match(r'^\s*env:\s*$', line): in_env = True; continue
+  m = re.match(r'^\s+([A-Z][A-Z0-9_]*):\s*(.*)$', line) if in_env else None
+  if m: cur['env'][m.group(1)] = m.group(2).strip().strip('"').strip("'"); continue
+  if in_env and line.strip() and not line.startswith(' ' * 10): in_env = False
+  if re.match(r'^\s*run:', line) or (cur['run'] and line.startswith(' ' * 10) and not re.match(r'^\s*[a-z-]+:', line)): cur['run'] += ' ' + line.strip()
+ return {f: next((st['env'] for st in steps if f in st['run']), {}) for f in pg_steps}
+pg_step_env = _workflow_step_env(workflow)
+_pg_missing = [f for f in ci_files + pg_steps if not (repo / f).exists()]
+assert not _pg_missing, ('workflow names a missing PostgreSQL suite', _pg_missing)
+focused = ['./src/__tests__/factory-run-lifecycle.test.ts','./src/factory/release-authority.integration.test.ts','./src/factory/executions.integration.test.ts','./src/factory/run-inputs.integration.test.ts','./src/db/migrations/add-factory-child-runs.test.ts','./src/db/migrations/bind-factory-child-definition-source.test.ts','./src/db/migrations/bind-factory-child-start-clock.test.ts','./scripts/factory-task-execution-admission-registration.test.ts','./src/db/migrations/add-factory-command-approvals.test.ts','./src/factory/release-application.test.ts','./src/factory/application.test.ts','./src/factory/private-commands.test.ts','./src/__tests__/factory-private-service.test.ts','./src/factory/validator-materials.test.ts','./src/factory/assurance.test.ts','./src/factory/releases.integration.test.ts','./src/factory/attempt-queue.integration.test.ts','./src/delivery-queue/durable-delivery-queue.test.ts','./scripts/factory-validator-materials-registration.test.ts','./src/factory/package-preparation.integration.test.ts','./src/db/migrations/add-factory-package-preparations.test.ts','./src/db/migrations/add-factory-task-outcomes.test.ts','./src/factory/artifacts.integration.test.ts','./src/factory/protected-command-provenance.test.ts','./scripts/factory-protected-command-effects-registration.test.ts','./src/db/factory-schema.test.ts','./src/__tests__/gate-scripts.test.ts']
+ALWAYS_EXTRA = ['./packages/@ezcorp/extension-runner/tests/browser.test.ts','./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts','./packages/@ezcorp/extension-runner/tests/ci-conmon.test.ts','./packages/@ezcorp/extension-runner/tests/ci-delegation.test.ts','./packages/@ezcorp/extension-runner/tests/core.test.ts','./packages/@ezcorp/extension-runner/tests/dependencies.test.ts','./packages/@ezcorp/extension-runner/tests/materials.test.ts','./packages/@ezcorp/extension-runner/tests/protocol.test.ts','./packages/@ezcorp/extension-runner/tests/service.test.ts','./packages/@ezcorp/extension-runner/tests/trusted-local.test.ts','./src/extensions/__tests__/project-pull-request-transport.test.ts','./src/extensions/__tests__/github-projects-handler.test.ts','./src/extensions/__tests__/github-projects-handler.integration.test.ts','./src/extensions/__tests__/github-projects-handler-default-db.test.ts','./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts','./src/factory/release-adapters.test.ts','./src/__tests__/workflow-release-assets.test.ts','./src/__tests__/workflow-release-consent.test.ts','./src/__tests__/workflow-service-release-authority.test.ts','./src/__tests__/workflow-run-persistence.test.ts','./src/__tests__/workflow-nesting.test.ts','./src/__tests__/workflow-capability-hash.test.ts','./src/__tests__/workflow-delegation-consent.test.ts','./src/__tests__/workflow-delegation-record.test.ts','./src/__tests__/workflow-consent-reconcile.test.ts','./src/__tests__/list-flags.test.ts','./src/__tests__/service-capabilities.test.ts','./src/extensions/v4/deliveries.test.ts','./src/__tests__/failover.test.ts','./src/__tests__/factory-service-token.test.ts','./src/__tests__/openapi.test.ts']
+auto = []
+if a.auto_extra_base:
+ changed = subprocess.check_output(['git','diff','--name-only','--diff-filter=AM',a.auto_extra_base,'HEAD'], cwd=repo, text=True).split()
+ # a test file that belongs to a package whose own test script is not bun (node --test) is not bun-runnable: the
+ # package's coverage leg (node-coverage) runs it; running it under bun test gives false reds (W18c measurement 2026-09-27)
+ def _node_runner_package(f):
+  d = (repo / f).parent
+  while d != repo and d != d.parent:
+   pj = d / 'package.json'
+   if pj.exists():
+    try: return 'node --test' in (json.loads(pj.read_text()).get('scripts', {}).get('test', ''))
+    except Exception: return False
+   d = d.parent
+  return False
+ auto_all = [f for f in changed if f.endswith('.test.ts') and not f.startswith(('web/','tests/postgres/')) and '.podman.' not in f and 'temporal' not in f and (repo/f).exists()]
+ auto_node = ['./'+f for f in auto_all if _node_runner_package(f)]
+ auto = ['./'+f for f in auto_all if not _node_runner_package(f)]
+ if auto_node: print('auto-extra excluded (node --test packages, covered by their own leg):', auto_node, flush=True)
+# auto-extra files run in their own leg, one bun process per file (a 400-file pooled process showed cross-file
+# contamination that single-file runs do not: W18c measurement 2026-09-27); the curated pool stays the focused leg
+# the standing guard set (w00/guard-suites.sh, the merge fast checks' own list) always joins the focused leg
+guards = subprocess.check_output(['bash', '/tmp/factory-platform-evidence/w00/guard-suites.sh', str(repo)], text=True).split()
+assert len(guards) >= 5, guards
+focused = list(dict.fromkeys(f for f in focused + ALWAYS_EXTRA + guards + list(filter(None, a.focused_extra.split(','))) if (repo / f).exists()))
+auto = [f for f in auto if f not in focused]
+print('focused files:', len(focused), 'auto-extra files (own leg, one process each):', len(auto), flush=True)
+# W18c leg manifest: the suites CI's producers load that the built-in legs do not, and CI's coverage producers.
+manifest_root, manifest_web, manifest_producers = [], [], []
+if a.legs_manifest:
+ m = json.loads(Path(a.legs_manifest).read_text())
+ for s_ in m['suites']:
+  f = s_['file']
+  if not (repo / f).exists(): sys.exit(f'manifest suite missing in the repository: {f}')
+  if s_['cwd'] == '.': manifest_root.append('./' + f)
+  elif s_['cwd'] == 'web' and f.startswith('web/'): manifest_web.append('./' + f[len('web/'):])
+  else: sys.exit(f'manifest suite with an unknown cwd {s_["cwd"]!r}: {f}')
+ for p_ in m['producers'] + m.get('localOnlyProducers', []):
+  if 'COV_OUT=coverage-shard' not in p_['command']: sys.exit(f'manifest producer {p_["id"]} does not write COV_OUT=coverage-shard')
+  if not re.search(r'scripts/[\w./-]+\.sh', p_['command']): sys.exit(f'manifest producer {p_["id"]} names no scripts/*.sh')
+  manifest_producers.append(p_)
+ focused = list(dict.fromkeys(focused + manifest_root))
+web_tests = [f for f in ['src/lib/factory/FactoryReleaseInbox.component.test.ts','src/lib/factory/client.unit.test.ts','src/routes/(app)/factories/factories-page.server.test.ts','src/routes/api/factories/factories.server.test.ts'] if (repo / 'web' / f).exists()]
+cov = lambda n: str(root / f'{P}-{n}-coverage')
+checks = [
+ ('sdk-build', ['bun','run','--cwd','packages/@ezcorp/factory-sdk','build']),
+ ('transport-build', ['bun','run','--cwd','packages/@ezcorp/factory-transport','build']),
+ ('sdk-tests', ['bun','test','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("sdk")}','./packages/@ezcorp/factory-sdk/src']),
+ ('focused', ['bun','test','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("product")}',*focused]),
+ ('web-coverage', ['bash','scripts/web-vitest-coverage.sh','--output',cov('web')]),
+ # web/ bun suites run from web/ (its bunfig and aliases); their lcov is re-rooted at the merge
+ ('web-bun-coverage', ['bash','-c','cd web && exec bun test "$@"','web-bun-coverage','--timeout','30000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("web-bun")}','./src/__tests__/security/bearer-auth.test.ts',*manifest_web]),
+ ('postgres', ['bun','test','--timeout','60000','--coverage','--coverage-reporter=lcov',f'--coverage-dir={cov("postgres")}',*ci_files]),
+ *[(f"postgres-{Path(f).stem.replace('.test','')}", ['bun','test','--timeout','60000','--coverage','--coverage-reporter=lcov',f"--coverage-dir={cov('postgres-' + Path(f).stem.replace('.test',''))}",f]) for f in pg_steps],
+ ('types', ['bash','-c','. /tmp/factory-platform-evidence/w00/tc-gate.sh; tc_run types "$1" bun run typecheck','types',str(root / f'{P}-tc-gate.log')]),  # the typecheck rule (lead 2026-10-06): w00/tc-gate.sh, 12 GiB in the lock; 75 = red gate or killed: VOID, rerun the leg
+ ('lint', ['bun','run','lint']),
+ ('gate-integrity', ['bun','scripts/gate-integrity.ts']),
+ ('boundaries', ['bun','scripts/check-factory-boundaries.ts']),
+ ('orchestrator-build', ['bun','run','--cwd','packages/@ezcorp/factory-orchestrator','build']),
+ ('node-coverage', ['bash','scripts/factory-orchestrator-coverage.sh']),
+ ('pool-coverage', ['bash','scripts/factory-pool-coverage.sh']),
+ ('compute-coverage', ['bash','scripts/factory-compute-admissions-coverage.sh']),
+ ('provisioning-coverage', ['bash','scripts/factory-provisioning-coverage.sh']),
+ ('python-coverage', ['nix-shell','-p','uv','--run','bash scripts/python-quality.sh all']),
+]
+if auto:
+ _auto_dir = cov('auto')
+ # chunks of 40 files, one leg each (1800 s), 600 s per file; every file runs and every red is reported, not only the
+ # first (validator-4 wave4f review M1, 2026-09-27); the coverage dir is <chunk>-<index>, all join the merge
+ _loop = ('set -u; k=$1; shift; i=0; red=0; for f in "$@"; do echo "== auto-extra $k/$i $f"; timeout 600 bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir="' + _auto_dir + '/$k-$i" "$f" || { echo "== auto-extra RED $f exit=$?"; red=$((red+1)); }; i=$((i+1)); done; '
+          'echo "== auto-extra chunk $k: $i files, $red red"; [ "$red" -eq 0 ]')
+ for _k in range(0, len(auto), 40):
+  checks.append((f'auto-extra-{_k // 40}', ['bash', '-c', _loop, 'auto-extra', str(_k // 40), *auto[_k:_k + 40]]))
+if a.podman:
+ for f in ['./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts','./src/factory/runner/attempt-runtime.integration.test.ts','./src/factory/runner/supervisor.podman.integration.test.ts','./src/factory/package-preparation.podman.integration.test.ts']:
+  if (repo / f).exists(): checks.append(('podman-' + Path(f).stem.split('.')[0], ['bun','test','--timeout','300000',f]))
+# manifest producers: one leg each, COV_OUT redirected; a producer whose script a built-in leg already runs is covered by it
+manifest_legs = []; builtin = list(checks)
+for p_ in manifest_producers:
+ script = re.search(r'scripts/[\w./-]+\.sh', p_['command']).group(0)
+ covered = next((n for n, c in builtin if script in ' '.join(c)), None)
+ if covered: manifest_legs.append({'id': p_['id'], 'coveredBy': covered}); continue
+ name = 'manifest-' + p_['id']
+ checks.append((name, ['bash', '-c', p_['command'].replace('COV_OUT=coverage-shard', 'COV_OUT=' + cov(name))]))
+ manifest_legs.append({'id': p_['id'], 'leg': name, 'command': checks[-1][1][2]})
+plan = {'repo': str(repo), 'prefix': P, 'skip': sorted(skip), 'autoExtra': auto, 'autoExtraChunks': (len(auto) + 39) // 40, 'pgSteps': pg_steps, 'pgStepEnv': pg_step_env, 'guards': guards, 'autoExtraExcludedNodeRunner': (auto_node if a.auto_extra_base else []), 'focused': focused, 'webBun': ['./src/__tests__/security/bearer-auth.test.ts', *manifest_web], 'manifest': manifest_legs, 'checks': [{'name': n, 'command': c} for n, c in checks]}
+if a.plan: print(json.dumps(plan, indent=1)); sys.exit(0)
+# --merge-only: the earlier run's plan must be this plan (same legs, same commands), so the merge reads the same inputs
+if a.merge_only:
+ if json.loads((root / f'{P}-plan.json').read_text())['checks'] != plan['checks']: sys.exit(f'merge-only: {P}-plan.json differs from the plan of these arguments; refused')
+else: (root / f'{P}-plan.json').write_text(json.dumps(plan, indent=1) + '\n')
+# every leg: the resource gate first (>= 6 GiB available, 15 GiB for the CI coverage producer; >= 2 GiB swap free;
+# >= 100 GB disk plus the leg's peak: 20 GB for legs that build images, 5 GB otherwise), a bound (7200 s for the CI
+# coverage producers, 3600 s for the pooled PostgreSQL leg, the per-file sum for an auto-extra chunk, 1800 s otherwise), and for a test leg a nonzero test count
+# (the shared counter; zero fails with 97). Validator-4's wave4f review (2026-09-27) M2 and L1.
+HEAVY = lambda cmd: 'test-coverage.sh' in ' '.join(cmd)
+# an auto-extra chunk's bound is the sum of its per-file bounds (600 s each; the files start at argv[5]), so a slow file
+# ends only itself (validator-4 re-review N1); the CI coverage producers run the podman suites too, so they build images (L1)
+BOUND = lambda name, cmd: 7200 if HEAVY(cmd) else 3600 if name == 'postgres' else 600 * (len(cmd) - 5) + 60 if name.startswith('auto-extra-') else 1800
+PEAK_GB = lambda name, cmd: 20 if HEAVY(cmd) or name.startswith('podman-') or 'reference-data' in name else 5
+TEST_LEG = lambda name: name.startswith(('manifest-', 'podman-', 'auto-extra', 'postgres')) or name in ('sdk-tests', 'focused', 'web-coverage', 'web-bun-coverage', 'postgres', 'node-coverage', 'pool-coverage', 'compute-coverage', 'provisioning-coverage', 'python-coverage')
+def readings():
+ mi = dict(l.split(':', 1) for l in Path('/proc/meminfo').read_text().splitlines()); kib = lambda k: int(mi[k].split()[0])
+ return {'memAvailableGiB': round(kib('MemAvailable') / 2**20, 1), 'swapFreeGiB': round(kib('SwapFree') / 2**20, 1), 'diskAvailGB': shutil.disk_usage('/').free // 10**9}
+def gate(need_gib, disk_gb, wait_s=1200):
+ deadline = time.time() + wait_s
+ while True:
+  r = readings()
+  if r['memAvailableGiB'] >= need_gib and r['swapFreeGiB'] >= 2 and r['diskAvailGB'] >= disk_gb: return r, True
+  if time.time() >= deadline: return r, False
+  time.sleep(30)
+def tests_ran(log):
+ out = subprocess.run(['bash', '-c', 'source /tmp/factory-platform-evidence/w00/test-count.sh; test_count "$1"', '_', str(log)], capture_output=True, text=True).stdout.strip()
+ return int(out) if out.isdigit() else 0
+with open('/tmp/ezcorp-validation-heavy.lock', 'w') as lock:
+ dirty = subprocess.check_output(['git','status','--porcelain'], cwd=repo, text=True)
+ if dirty and not a.allow_dirty: sys.exit(f'dirty tree:\n{dirty}')
+ fcntl.flock(lock, fcntl.LOCK_EX)
+ # heavy-lock veto (briefs/common.md, 2026-09-27): the coordinator writes lock-veto/<lane>; the run refuses to start (exit 98)
+ _veto = Path('/tmp/factory-platform-evidence/w00/lock-veto') / (os.environ.get('LOCK_LANE') or 'integrator-2')
+ if _veto.exists():
+  print(f'LOCK VETO for lane {_veto.name}: {_veto.read_text().strip()}', flush=True); sys.exit(98)
+ sha = subprocess.check_output(['git','rev-parse','HEAD'], cwd=repo, text=True).strip()
+ reuse = [r for r in a.reuse_from.split(',') if r]
+ def reusable(label):
+  for prior_prefix in reuse:
+   alt = root / f'{prior_prefix}-{label}-coverage' / 'lcov.info'
+   if not alt.exists(): continue
+   prior_head = json.loads((root / f'{prior_prefix}-results.json').read_text())[0]['head']
+   if subprocess.run(['git','diff','--quiet',prior_head,sha,'--',*MEASURED[label]], cwd=repo).returncode == 0: return (alt, prior_head)
+  return None
+ for label, check in PRODUCER_CHECK.items():
+  if check in skip and 'coverage' not in skip and not reusable(label):
+   print(f'reuse of {label} coverage is not valid at {sha[:9]}; running {check} instead', flush=True); skip.discard(check)
+   if check == 'node-coverage': skip.discard('orchestrator-build')
+ results = []; failed = False; merge_blocked = []
+ # a red leg blocks the coverage merge only when its output feeds the merge (a producer) or is a build the producers need;
+ # gate-integrity, types, lint, boundaries and the podman pass/fail legs are recorded red and fail the run's exit, but the
+ # merge and the coverage gates still run so the head's coverage evidence exists (ruling (b), W18c rerun 2026-09-28)
+ MERGE_INPUT = lambda name: name.endswith('-build') or (TEST_LEG(name) and not name.startswith('podman-'))
+ if a.merge_only:
+  # every leg of the plan ran in the earlier run (same order); every record and every standalone record is for THIS head;
+  # a standalone record replaces the leg of the same name and is marked; failed and mergeBlockedBy follow the loop's own rule
+  results = json.loads((root / f'{P}-results.json').read_text())
+  if [r['name'] for r in results] != [n for n, _ in checks if n not in skip]: sys.exit(f'merge-only: {P}-results.json does not hold every planned leg in order; refused')
+  for s_ in json.loads(Path(a.merge_only).read_text()):
+   i = next((k for k, r in enumerate(results) if r['name'] == s_['name']), None)
+   if i is None: sys.exit(f"merge-only: standalone leg {s_['name']} is not in the plan; refused")
+   if not isinstance(s_.get('exitCode'), int) or (TEST_LEG(s_['name']) and s_['exitCode'] == 0 and not s_.get('testsRan')): sys.exit(f"merge-only: standalone leg {s_['name']} has no exit code or ran zero tests; refused")
+   results[i] = {**s_, 'standalone': True, 'replaces': {k: results[i].get(k) for k in ('exitCode', 'start', 'end', 'gate')}}
+  if any(r['head'] != sha for r in results): sys.exit(f'merge-only: a leg record is not for HEAD {sha}; refused')
+  failed = any(r['exitCode'] for r in results); merge_blocked = [r['name'] for r in results if r['exitCode'] and MERGE_INPUT(r['name'])]
+  (root / f'{P}-results.json').write_text(json.dumps(results, indent=1) + '\n'); print(json.dumps({'mergeOnly': a.merge_only, 'mergeBlockedBy': merge_blocked}), flush=True)
+ for name, cmd in ([] if a.merge_only else checks):
+  if name in skip: continue
+  e = env.copy()
+  if name.startswith('postgres'): e['DATABASE_URL'] = e['FACTORY_TEST_POSTGRES_URL']
+  if name.startswith('postgres-'):
+   _f = next((f for f in pg_steps if name == 'postgres-' + Path(f).stem.replace('.test', '')), None)
+   for _k, _v in (pg_step_env.get(_f) or {}).items(): e[_k] = re.sub(r'\$\{?([A-Z_][A-Z0-9_]*)\}?', lambda m: e.get(m.group(1), ''), _v)
+  if name == 'node-coverage': e['COV_OUT'] = cov('node')
+  if name in ('pool-coverage','compute-coverage','provisioning-coverage'):
+   e['COV_OUT'] = cov(name.split('-')[0]); e['DATABASE_URL'] = e['FACTORY_TEST_POSTGRES_URL']
+  if name == 'python-coverage': e['PYTHON_COVERAGE_OUT'] = cov('python')
+  need = 15 if HEAVY(cmd) else 6; disk_need = 100 + PEAK_GB(name, cmd)
+  g, ok = gate(need, disk_need)
+  start = datetime.datetime.now().isoformat(timespec='seconds'); log = root / f'{P}-{name}.log'
+  if not ok:
+   log.write_text(f'GATE TIMEOUT after 1200 s: {json.dumps(g)}; needs {need} GiB available, 2 GiB swap free, {disk_need} GB disk; leg not run (exit 96)\n'); r = subprocess.CompletedProcess(cmd, 96)
+  else:
+   with log.open('w') as out:
+    try: r = subprocess.run(cmd, cwd=repo, env=e, stdout=out, stderr=subprocess.STDOUT, timeout=BOUND(name, cmd))
+    except (OSError, subprocess.TimeoutExpired) as err:
+     out.write(type(err).__name__ + '\n'); r = subprocess.CompletedProcess(cmd, 124 if isinstance(err, subprocess.TimeoutExpired) else 127)
+  rc = r.returncode; n = tests_ran(log) if ok and TEST_LEG(name) else None
+  if ok and rc == 0 and TEST_LEG(name) and n == 0:
+   rc = 97
+   with log.open('a') as out: out.write('ZERO TESTS RAN: this leg fails (exit 97 in place of 0)\n')
+  rec = {'head': sha, 'dirty': bool(dirty), 'name': name, 'exitCode': rc, 'testsRan': n, 'gate': g, 'start': start, 'end': datetime.datetime.now().isoformat(timespec='seconds'), 'command': cmd}
+  results.append(rec); (root / f'{P}-results.json').write_text(json.dumps(results, indent=1) + '\n'); print(json.dumps({k: rec[k] for k in ('name','exitCode','start','end')}), flush=True)
+  if rc:
+   failed = True
+   if MERGE_INPUT(name): merge_blocked.append(name)
+ # coverage merge + gates (only if every build and every merge-input producer passed; other reds are recorded)
+ covres = {'head': sha, 'producers': [], 'checks': [], 'mergeBlockedBy': merge_blocked, 'redLegsNotBlockingMerge': [r['name'] for r in results if r['exitCode'] and not MERGE_INPUT(r['name'])]}
+ if not merge_blocked and 'coverage' not in skip:
+  inputs = root / f'{P}-lcov-inputs'; shutil.rmtree(inputs, ignore_errors=True); inputs.mkdir()
+  for label in ['sdk','product','postgres','node','pool','compute','provisioning','python']:
+   src = Path(cov(label)) / 'lcov.info'
+   if src.exists(): covres['producers'].append({'producer': label, 'input': str(src), 'head': sha})
+   else:
+    r = reusable(label)
+    if r: src, prior_head = r; covres['producers'].append({'producer': label, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label]})
+   if src.exists(): shutil.copyfile(src, inputs / f'{label}.lcov')
+  # web/ producers write SF paths relative to web/ (the bun leg also as ../src, ../packages):
+  # re-root them at the repository root.
+  reroot = lambda l: ('SF:' + posixpath.normpath('web/' + l[3:])) if l.startswith('SF:') and not l.startswith(('SF:web/','SF:/')) else l
+  for label, producer in [('web','web-vitest'), ('web-bun','web-bun')]:
+   src = Path(cov(label)) / 'lcov.info'; rec = {'producer': producer, 'input': str(src), 'head': sha, 'rerooted': True}
+   if not src.exists():
+    r = reusable(label)
+    if r: src, prior_head = r; rec = {'producer': producer, 'input': str(src), 'head': prior_head, 'reused': True, 'sourceIdenticalTo': sha, 'paths': MEASURED[label], 'rerooted': True}
+   if src.exists():
+    (inputs / f'{label}.lcov').write_text('\n'.join(reroot(l) for l in src.read_text().splitlines()) + '\n')
+    covres['producers'].append(rec)
+  # auto-extra: one lcov per file, all join the merge; the step-level PostgreSQL legs likewise (a missing one fails by name)
+  for _lc in sorted(Path(cov('auto')).glob('*/lcov.info')) if auto else []:
+   shutil.copyfile(_lc, inputs / f'auto-{_lc.parent.name}.lcov'); covres['producers'].append({'producer': f'auto-{_lc.parent.name}', 'input': str(_lc), 'head': sha})
+  for _f in pg_steps:
+   _leg = 'postgres-' + Path(_f).stem.replace('.test', ''); _lc = Path(cov(_leg)) / 'lcov.info'
+   if _leg in skip: continue
+   if not _lc.exists(): covres['producers'].append({'producer': _leg, 'missing': str(_lc)}); failed = True; continue
+   shutil.copyfile(_lc, inputs / f'{_leg}.lcov'); covres['producers'].append({'producer': _leg, 'input': str(_lc), 'head': sha})
+  # manifest producers' lcov: SF paths that exist only under web/ are re-rooted, as for the web legs; a missing file fails by name
+  reroot_missing = lambda l: ('SF:' + posixpath.normpath('web/' + l[3:])) if l.startswith('SF:') and not (repo / l[3:]).exists() and (repo / 'web' / l[3:]).exists() else l
+  for leg in manifest_legs:
+   if 'leg' not in leg or leg['leg'] in skip: continue
+   # a producer names its lcov as it likes (lcov.info, lcov_shard_0.info, lcov_x_*.info, lcov_security.info: W18c
+   # measurement 2026-09-27): every *.info under the leg's coverage dir joins; none at all fails by name
+   srcs = sorted(Path(cov(leg['leg'])).rglob('*.info')) if Path(cov(leg['leg'])).is_dir() else []
+   if not srcs: covres['producers'].append({'producer': leg['leg'], 'missing': cov(leg['leg']) + '/**/*.info'}); failed = True; continue
+   for _i, src in enumerate(srcs):
+    (inputs / f"{leg['leg']}-{_i}.lcov").write_text('\n'.join(reroot_missing(l) for l in src.read_text().splitlines()) + '\n')
+    covres['producers'].append({'producer': leg['leg'], 'input': str(src), 'head': sha})
+  out = repo / 'coverage' / 'lcov.info'; out.parent.mkdir(exist_ok=True)
+  with (root / f'{P}-coverage-merge.log').open('w') as log:
+   m = subprocess.run(['bun','scripts/merge-lcov.ts',str(inputs / '*.lcov'),str(out)], cwd=repo, env=env, stdout=log, stderr=subprocess.STDOUT)
+  covres['checks'].append({'name':'merge','exitCode':m.returncode})
+  if m.returncode: failed = True
+  if m.returncode == 0:
+   for base in filter(None, a.patch_bases.split(',')):
+    for label, script in [('new-file','scripts/check-new-file-coverage.ts'),('patch','scripts/check-patch-coverage.ts')]:
+     e = env.copy(); e['BASE_REF'] = base
+     # a ref such as origin/main names a file: keep a SHA's 9-character prefix, spell a ref with '/' in full with '_'
+     with (root / f"{P}-coverage-{label}-{(base if '/' in base else base[:9]).replace('/', '_')}.log").open('w') as log:
+      r = subprocess.run(['bun',script], cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
+     covres['checks'].append({'name': label, 'base': base, 'exitCode': r.returncode}); print(json.dumps(covres['checks'][-1]), flush=True)
+     if r.returncode: failed = True
+  if m.returncode == 0:
+   # main's quality gates (CI runs both over the same merged lcov): the global
+   # line-coverage floor and CRAP on the files this branch changed against main.
+   for label, cmd, extra_env in [('global-floor', ['bun','scripts/check-global-coverage.ts'], {}), ('crap-changed', ['bun','scripts/crap-score.ts','--changed'], {'BASE_REF': a.quality_base})]:
+    if not (repo / cmd[1]).exists(): covres['checks'].append({'name': label, 'skipped': 'script absent'}); continue
+    e = env.copy(); e.update(extra_env)
+    with (root / f'{P}-quality-{label}.log').open('w') as log:
+     r = subprocess.run(cmd, cwd=repo, env=e, stdout=log, stderr=subprocess.STDOUT)
+    covres['checks'].append({'name': label, 'base': extra_env.get('BASE_REF'), 'exitCode': r.returncode, 'blocking': a.quality_blocking}); print(json.dumps(covres['checks'][-1]), flush=True)
+    if r.returncode and a.quality_blocking: failed = True
+  shutil.copyfile(out, root / f'{P}-merged-lcov.info')
+ (root / f'{P}-coverage-results.json').write_text(json.dumps(covres, indent=1) + '\n')
+ print('DONE failed=%s' % failed, flush=True)
+sys.exit(1 if failed else 0)

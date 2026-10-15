@@ -1,0 +1,20 @@
+COORDINATOR RULING (team-lead, 2026-09-29 00:2xZ) — how merge-commit-gates.sh judges the origin/main gate-integrity leg after W18c
+
+Fact: since W18c landed (dbb2c71d2), gate-integrity run against origin/main on any integ merge reports seven findings that integ
+already carries: three coverage-gate tool changes approved by the user's one-commit decision of 2026-09-28T06:45Z
+(scripts/merge-lcov.ts, scripts/check-coverage.ts, scripts/check-new-file-coverage.ts) and four inherited files attributed to their
+owners by integrator-3's trace (scripts/check-patch-coverage.ts, scripts/merge-browser-route-coverage.sh,
+scripts/factory-orchestrator-v8-to-lcov.mjs, scripts/node-v8-to-lcov.mjs). None belongs to C2, W09h, W03f, W02d or W12e.
+
+Ruling:
+1. merge-commit-gates.sh takes an EXPECTED-INTEG-FINDINGS file for the origin/main leg:
+   /tmp/factory-platform-evidence/w00/expected-integ-findings-vs-main.txt (the seven paths above, one per line). The leg PASSES only
+   when the set of unapproved gate-integrity findings against origin/main equals that file's set exactly (sorted, line for line).
+   Any extra finding FAILS the leg (a new gate change); any missing finding FAILS the leg too (the tree no longer matches what the
+   ruling describes). The receipts record the file's sha256 and the compared sets.
+2. The base leg (against the integ base of the merge) stays strictly binding: no finding is accepted there except through a
+   per-commit decision file (W18c's was; W03g's will be, for its own two findings), never through this mechanism.
+3. GATE_CHANGE_APPROVED=1 is never used to pass the origin/main leg.
+4. The expected file changes only by a coordinator ruling: W03g's landing adds scripts/check-patch-coverage.ts (already present as
+   inherited) and scripts/coverage-attestations.json under W03g's decision file; any other addition needs its own decision.
+5. At PR time, CI's gate-integrity against main will show the same set; the user decides the PR labels then (standing item).

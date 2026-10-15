@@ -1,0 +1,112 @@
+=== heavy 2026-09-28T21:48:14Z
+HEAD dbb2c71d2a83bdc2a434314379bb8903506e50c7 MERGE_HEAD  index-tree 3cc0e7134802d5b4cd6a3a2cf0df4f95619a15da
+resource-gate 2026-09-28T21:48:14Z build-factory-sdk disk=156G memAvailable=15GiB swapFreeKiB=5707460/17173956
+--- START build-factory-sdk 2026-09-28T21:48:14Z
+--- END   build-factory-sdk 2026-09-28T21:48:15Z exit=0 
+resource-gate 2026-09-28T21:48:15Z bun-packages--ezcorp-factory-sdk-src-validation-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707464/17173956
+--- START bun-packages--ezcorp-factory-sdk-src-validation-test-ts 2026-09-28T21:48:15Z
+--- END   bun-packages--ezcorp-factory-sdk-src-validation-test-ts 2026-09-28T21:48:15Z exit=0  7 pass 0 fail 
+resource-gate 2026-09-28T21:48:15Z bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707464/17173956
+--- START bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts 2026-09-28T21:48:15Z
+--- END   bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts 2026-09-28T21:48:16Z exit=0  9 pass 0 fail 
+resource-gate 2026-09-28T21:48:16Z bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707484/17173956
+--- START bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts 2026-09-28T21:48:16Z
+--- END   bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts 2026-09-28T21:48:17Z exit=0  25 pass 0 fail 
+resource-gate 2026-09-28T21:48:17Z bun-packages--ezcorp-sdk-test-fs-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707484/17173956
+--- START bun-packages--ezcorp-sdk-test-fs-test-ts 2026-09-28T21:48:17Z
+--- END   bun-packages--ezcorp-sdk-test-fs-test-ts 2026-09-28T21:48:18Z exit=0  29 pass 0 fail 
+resource-gate 2026-09-28T21:48:18Z bun-scripts-factory-postgres-suite-registration-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707484/17173956
+--- START bun-scripts-factory-postgres-suite-registration-test-ts 2026-09-28T21:48:18Z
+--- END   bun-scripts-factory-postgres-suite-registration-test-ts 2026-09-28T21:48:19Z exit=0  6 pass 0 fail 
+resource-gate 2026-09-28T21:48:19Z bun-src-runtime-factory-execution-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707500/17173956
+--- START bun-src-runtime-factory-execution-test-ts 2026-09-28T21:48:19Z
+--- END   bun-src-runtime-factory-execution-test-ts 2026-09-28T21:48:19Z exit=0  22 pass 0 fail 
+resource-gate 2026-09-28T21:48:19Z bun-src-__tests__-auth-jwt-password-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707524/17173956
+--- START bun-src-__tests__-auth-jwt-password-test-ts 2026-09-28T21:48:19Z
+--- END   bun-src-__tests__-auth-jwt-password-test-ts 2026-09-28T21:48:20Z exit=0  21 pass 0 fail 
+resource-gate 2026-09-28T21:48:20Z bun-src-__tests__-combined-runner-legs-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707544/17173956
+--- START bun-src-__tests__-combined-runner-legs-test-ts 2026-09-28T21:48:20Z
+--- END   bun-src-__tests__-combined-runner-legs-test-ts 2026-09-28T21:48:21Z exit=0  8 pass 0 fail 
+resource-gate 2026-09-28T21:48:21Z bun-src-__tests__-compose-podman-masks-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707600/17173956
+--- START bun-src-__tests__-compose-podman-masks-test-ts 2026-09-28T21:48:21Z
+--- END   bun-src-__tests__-compose-podman-masks-test-ts 2026-09-28T21:48:24Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-28T21:48:24Z bun-src-__tests__-coverage-gate-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707620/17173956
+--- START bun-src-__tests__-coverage-gate-test-ts 2026-09-28T21:48:24Z
+--- END   bun-src-__tests__-coverage-gate-test-ts 2026-09-28T21:48:29Z exit=0  18 pass 0 fail 
+resource-gate 2026-09-28T21:48:29Z bun-src-__tests__-e2e-lanes-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707696/17173956
+--- START bun-src-__tests__-e2e-lanes-test-ts 2026-09-28T21:48:29Z
+--- END   bun-src-__tests__-e2e-lanes-test-ts 2026-09-28T21:48:35Z exit=0  31 pass 0 fail 
+resource-gate 2026-09-28T21:48:35Z bun-src-__tests__-factory-shell-required-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707780/17173956
+--- START bun-src-__tests__-factory-shell-required-test-ts 2026-09-28T21:48:35Z
+--- END   bun-src-__tests__-factory-shell-required-test-ts 2026-09-28T21:48:35Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-28T21:48:35Z bun-src-__tests__-gate-scripts-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707780/17173956
+--- START bun-src-__tests__-gate-scripts-test-ts 2026-09-28T21:48:35Z
+--- END   bun-src-__tests__-gate-scripts-test-ts 2026-09-28T21:48:42Z exit=0  233 pass 0 fail 
+resource-gate 2026-09-28T21:48:42Z bun-src-__tests__-hooks-public-path-identity-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707812/17173956
+--- START bun-src-__tests__-hooks-public-path-identity-test-ts 2026-09-28T21:48:42Z
+--- END   bun-src-__tests__-hooks-public-path-identity-test-ts 2026-09-28T21:48:44Z exit=0  19 pass 0 fail 
+resource-gate 2026-09-28T21:48:44Z bun-src-__tests__-test-totals-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707824/17173956
+--- START bun-src-__tests__-test-totals-test-ts 2026-09-28T21:48:44Z
+--- END   bun-src-__tests__-test-totals-test-ts 2026-09-28T21:48:44Z exit=0  3 pass 0 fail 
+resource-gate 2026-09-28T21:48:44Z bun-src-__tests__-web-vitest-coverage-guard-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707824/17173956
+--- START bun-src-__tests__-web-vitest-coverage-guard-test-ts 2026-09-28T21:48:44Z
+--- END   bun-src-__tests__-web-vitest-coverage-guard-test-ts 2026-09-28T21:48:47Z exit=0  8 pass 0 fail 
+resource-gate 2026-09-28T21:48:47Z podman-guest-broker-transport.integration disk=156G memAvailable=16GiB swapFreeKiB=5707852/17173956
+--- START podman-guest-broker-transport.integration 2026-09-28T21:48:47Z
+--- END   podman-guest-broker-transport.integration 2026-09-28T21:49:03Z exit=0  13 pass 0 fail 
+resource-gate 2026-09-28T21:49:03Z web-w18c-lcov disk=156G memAvailable=16GiB swapFreeKiB=5708128/17173956
+--- START web-w18c-lcov 2026-09-28T21:49:03Z
+--- END   web-w18c-lcov 2026-09-28T21:49:14Z exit=0  Tests 95 passed (95) 
+resource-gate 2026-09-28T21:49:14Z python-guest disk=156G memAvailable=17GiB swapFreeKiB=5708228/17173956
+--- START python-guest 2026-09-28T21:49:14Z
+--- END   python-guest 2026-09-28T21:49:20Z exit=0 
+resource-gate 2026-09-28T21:49:20Z web-server-lcov disk=156G memAvailable=17GiB swapFreeKiB=5708352/17173956
+--- START web-server-lcov 2026-09-28T21:49:20Z
+--- END   web-server-lcov 2026-09-28T21:49:40Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-09-28T21:49:40Z web-build disk=156G memAvailable=17GiB swapFreeKiB=5707028/17173956
+--- START web-build 2026-09-28T21:49:40Z
+--- END   web-build 2026-09-28T21:50:20Z exit=0 
+resource-gate 2026-09-28T21:50:20Z graph-mock-pass disk=156G memAvailable=17GiB swapFreeKiB=5707572/17173956
+--- START graph-mock-pass 2026-09-28T21:50:20Z
+--- END   graph-mock-pass 2026-09-28T21:51:08Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w18c-merge/graph/w18c-merge-mock.json; nothing to dump
+mock pass w18c-merge-mock outcome: passed
+resource-gate 2026-09-28T21:51:08Z browser-part disk=156G memAvailable=15GiB swapFreeKiB=5709240/17173956
+--- START browser-part 2026-09-28T21:51:08Z
+--- END   browser-part 2026-09-28T22:30:13Z exit=0 
+browser lane mock-gate: 259 passed
+browser lane mock-full: 1449 passed
+browser lane evidence: 393 passed
+browser lane fresh-setup: 7 passed
+browser lane real-auth: 107 passed
+browser lane factory-services: 13 passed
+browser inputs added: 1
+resource-gate 2026-09-28T22:30:13Z coverage-merge-final disk=154G memAvailable=14GiB swapFreeKiB=5377260/17173956
+--- START coverage-merge-final 2026-09-28T22:30:13Z
+--- END   coverage-merge-final 2026-09-28T22:30:15Z exit=0 
+absolute SF outside /tmp after the final merge: 0
+resource-gate 2026-09-28T22:30:15Z merge-commit-gates disk=154G memAvailable=14GiB swapFreeKiB=5377416/17173956
+--- START merge-commit-gates 2026-09-28T22:30:15Z
+--- END   merge-commit-gates 2026-09-28T22:30:26Z exit=1 
+resource-gate 2026-09-28T22:30:26Z old-tooling-xcheck disk=154G memAvailable=16GiB swapFreeKiB=5381412/17173956
+--- START old-tooling-xcheck 2026-09-28T22:30:26Z
+--- END   old-tooling-xcheck 2026-09-28T22:30:43Z exit=0 
+HEAVY DONE status=1 dirty=0 2026-09-28T22:30:43Z
+=== heavy 2026-09-28T22:40:45Z
+HEAD dbb2c71d2a83bdc2a434314379bb8903506e50c7 MERGE_HEAD  index-tree 3cc0e7134802d5b4cd6a3a2cf0df4f95619a15da
+=== run 2 (same commit dbb2c71d2a83bdc2a434314379bb8903506e50c7; run 1 leg receipts carry over)
+resource-gate 2026-09-28T22:40:45Z sdk-lcov disk=153G memAvailable=13GiB swapFreeKiB=5468756/17173956
+--- START sdk-lcov 2026-09-28T22:40:45Z
+--- END   sdk-lcov 2026-09-28T22:41:02Z exit=0  236 pass 0 fail 
+final merge inputs: 21
+resource-gate 2026-09-28T22:41:02Z coverage-merge-final disk=153G memAvailable=16GiB swapFreeKiB=5470168/17173956
+--- START coverage-merge-final 2026-09-28T22:41:02Z
+--- END   coverage-merge-final 2026-09-28T22:41:03Z exit=0 
+absolute SF outside /tmp after the final merge: 0
+resource-gate 2026-09-28T22:41:03Z merge-commit-gates disk=153G memAvailable=17GiB swapFreeKiB=5470172/17173956
+--- START merge-commit-gates 2026-09-28T22:41:03Z
+--- END   merge-commit-gates 2026-09-28T22:41:14Z exit=0 
+resource-gate 2026-09-28T22:41:14Z old-tooling-xcheck disk=153G memAvailable=16GiB swapFreeKiB=5470520/17173956
+--- START old-tooling-xcheck 2026-09-28T22:41:14Z
+--- END   old-tooling-xcheck 2026-09-28T22:41:30Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-09-28T22:41:30Z

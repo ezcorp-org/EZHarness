@@ -1,0 +1,41 @@
+ACCEPT wp/w4h-22-toast-outcome at a708a22c8
+W4H-22 verdict (the file-organizer refused-add case awaits its outcomes), validator-8 (lane validator-8), 2026-10-10T04:3xZ
+
+VERDICT: ACCEPT wp/w4h-22-toast-outcome at a708a22c8. Every binding leg of the accepted plan (with the Red A / Red B correction) passes.
+One mutant survives and is explained (informational, item 5).
+Commits on base fe445d241 (archy noreply, 2 of 2): b5bd72672 (the spec fix), a708a22c8 (gate file and todo). Owner report sha256
+1e50c2130647b628; its 13 receipt hashes match. The owner's proof refs (r1/r2) are read; my red and mutants are my own variants.
+Every hold ran on a git-archive snapshot outside the evidence dir, removed after; the runner container, volume and snapshot removed.
+
+1. Scope: only web/e2e/file-organizer-real.spec.ts, the gate file and todo. Byte-unchanged: web/src (HubPageView.svelte, toast.svelte.ts),
+   src, packages, lanes.json, playwright config, .github, the runtime replay script. Of the spec's 13 cases only the refused-add case
+   changed; the 12 others and the file preamble are byte-equal to base. Identity 2/2; prune clean (0 hits); config baseline.
+2. The fix (read): one bound liveRoundTripMs = 20_000 (as the file's beforeAll title wait :256); the case awaits the Hub page GET
+   (status 200), then the title and the prompt dialog with that bound; then the add-folder POST response with status 200 and body
+   exactly {ok:false, message:"Path must be an absolute, valid filesystem path."}; then the toast with a 4 s bound, inside the toast's
+   5 s life (toast.svelte.ts duration = 5000). No sleep.
+3. Live runs (my runner-shaped harness: own image tag and container, 4 CPUs, the CI job's setup and candidate build at the head, under the
+   lock 02:48-04:24Z on 2026-10-10, host_oom 0 on every leg). The content shard as CI runs it: file-organizer 13 passed (the case 3.5 s),
+   legacy-adoption exit 0 (451 s), shard exit 0.
+   Spec variants on the same candidate (my own holds: route.fetch of the REAL backend answer, held, then fulfilled with that answer):
+   - Red A, base spec + a 9 s page hold (12.3 s total): the case fails toBeVisible at 5000 ms, element not found; 8 passed, 4 did not
+     run — the hosted signature of run 38001537073.
+   - Red B, base spec + a 7 s dispatch hold: the case fails at the toast's 5000 ms; 4 did not run.
+   - Head + both holds (page 12.3 s, dispatch 7.0 s): 13 passed.
+   - Head + an 18 s dispatch hold (near the 20 s bound): 13 passed; the held body was the real {ok:false, message} refusal.
+4. Mutants, RED by assertion on the live stack:
+   - the response wait removed (the head's toast bound alone) under the 7 s dispatch hold: fails at the toast's 4000 ms.
+   - COMPONENT mutant: addToast removed from dispatchAction's ok:false branch in HubPageView.svelte (scratch-only), the candidate image
+     rebuilt, the head spec: fails at the toast's 4000 ms, 4 did not run.
+5. Informational survivor: the head with only the TITLE bound back to the default 5 s, under the 9 s page hold, still passes (12.7 s):
+   the head first awaits the page GET response (20 s), after which the title renders well inside 5 s. The 20 s title bound is a second
+   layer; the response wait is the load-bearing one, and removing both is the base behaviour, red in Red A. Not a defect.
+6. gate-integrity base PASSED; main pinned at e3309906d = exactly the 8. Lint 0; boundaries 0; gitleaks 0. Typecheck (all programs,
+   web/e2e included) and svelte-check 0, in-lock at 19.0 GiB, pinned Node. Guard set 41 files 511 pass 0 fail.
+DISCLOSURE (my harness): the first live try (02:23-02:40Z) is VOID by my harness defects: legacy-adoption could not fetch its archived
+source (my W4H-18 copy had dropped the legacy/previous commit fetch; added as the owner's and W4H-11's harnesses do), and the variants
+folder kept a 0700 mode the container user could not read (every variant exited 2 at once). Its file-organizer part was green (13
+passed). Kept as w4h-22-harness/head-try1-harness/.
+Leftover candidate (from the lead): the content artifact carries no trace or screenshot on failure.
+Evidence: /tmp/factory-platform-evidence/validator-8/ w4h-22-light/, w4h-22-heavy/, w4h-22-harness/ (heavy.sh, v8-fo.sh, v8-rebuild.sh,
+variants/ with each spec's sha256 in the leg logs, head/hold-20261010T024853Z/); hold-w4h-22-{light,heavy}.sh.

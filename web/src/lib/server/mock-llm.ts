@@ -12,7 +12,14 @@
  *
  * Module-level state is a per-process singleton shared by the completions
  * route and the `/script` seed route.
+ *
+ * A second, stateless mode answers `model:"prompt-digest:<label>"` with a
+ * fixed answer derived from the prompt itself (see
+ * {@link mockPromptDigestTurn}). It needs no seeding, so the same request
+ * gets the same answer in every process and every pass, which is what a
+ * deterministic CI stand-in for a real model needs.
  */
+import { createHash } from "node:crypto";
 
 export interface MockToolCall {
   /** Optional explicit tool-call id; defaults to `call_<index>`. */
@@ -301,4 +308,40 @@ export function buildMockFaultResponse(fault: MockFault): Response {
  *  completions route (and the wire integration test) use. */
 export function buildMockTurnResponse(turn: MockTurn): Response {
   return turn.fault ? buildMockFaultResponse(turn.fault) : buildMockStreamResponse(turn);
+}
+
+/** The model prefix that selects the stateless prompt-digest answer. */
+export const MOCK_PROMPT_DIGEST_PREFIX = "prompt-digest:";
+
+export function isMockPromptDigestModel(model: unknown): boolean {
+  return typeof model === "string" && model.startsWith(MOCK_PROMPT_DIGEST_PREFIX) && model.length > MOCK_PROMPT_DIGEST_PREFIX.length;
+}
+
+/** The words of every text a request's messages carry, whether a string or text parts. */
+function promptWords(messages: unknown): number {
+  const texts: string[] = [];
+  for (const message of Array.isArray(messages) ? messages : []) {
+    const content = (message as { content?: unknown } | null)?.content;
+    if (typeof content === "string") texts.push(content);
+    else if (Array.isArray(content)) {
+      for (const part of content) if (typeof (part as { text?: unknown } | null)?.text === "string") texts.push((part as { text: string }).text);
+    }
+  }
+  return texts.join(" ").split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * A fixed answer for a given prompt digest.
+ *
+ * The digest covers the model name and the messages exactly as the client sent
+ * them, so the same prompt always gets the same answer and a different prompt
+ * a different one. Usage is the fake's own count — the words it was sent and
+ * the words it answered — reported through the normal usage chunk, so a
+ * caller that journals measured usage records real numbers from this
+ * provider, not zeros.
+ */
+export function mockPromptDigestTurn(model: string, messages: unknown): MockTurn {
+  const digest = createHash("sha256").update(JSON.stringify({ model, messages })).digest("hex");
+  const text = `prompt-digest answer ${digest.slice(0, 16)}`;
+  return { text, finishReason: "stop", usage: { input: promptWords(messages), output: text.split(" ").length } };
 }

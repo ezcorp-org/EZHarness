@@ -1,0 +1,26 @@
+context = git archive 4ae2f1658c47f1afefce922da7f507a174eb3cf2: 13142 files; dist dirs under packages: 0
+== boot check
+== container log (last 40 lines)
+{"ts":"2026-10-03T05:05:02.559Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-03T05:05:02.560Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-10-03T05:05:03.585Z","level":"info","msg":"Database mode: embedded PGlite","subsystem":"db","path":"/app/data/ezcorp"}
+{"ts":"2026-10-03T05:05:03.665Z","level":"warn","msg":"getProjectRoot() resolved via the process.cwd() fallback — expected in the container (no EZCORP_PROJECT_ROOT, no .git in the image), and correct there because WORKDIR is the install root. If bundled-extension lookups are failing, this is the first thing to check: set EZCORP_PROJECT_ROOT, run from the repo root, or ensure docs/extensions/examples/ is present.","subsystem":"extensions","cwd":"/app"}
+{"ts":"2026-10-03T05:05:04.217Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-03T05:05:04.320Z","level":"info","msg":"goal-host: boot sweep complete","subsystem":"goal-host","count":0}
+{"ts":"2026-10-03T05:05:04.348Z","level":"info","msg":"Embedding warmup kicked","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.348Z","level":"info","msg":"Decay sweep started","subsystem":"startup.timers","intervalHours":1}
+{"ts":"2026-10-03T05:05:04.348Z","level":"info","msg":"Audit-log retention sweep started","subsystem":"startup.timers","retentionDays":180}
+{"ts":"2026-10-03T05:05:04.350Z","level":"info","msg":"Compaction started","subsystem":"startup.timers","intervalHours":6}
+{"ts":"2026-10-03T05:05:04.352Z","level":"info","msg":"ScheduleDaemon started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.352Z","level":"info","msg":"WorkflowRunner started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.354Z","level":"info","msg":"WebhookDeliveryDaemon started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.356Z","level":"info","msg":"BriefingDaemon started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.357Z","level":"info","msg":"HostMaintenanceDaemon started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.358Z","level":"info","msg":"EmbedWorker started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.359Z","level":"info","msg":"github-projects daemon wake loop armed","subsystem":"ext.github-projects.daemon","wakeMs":30000}
+{"ts":"2026-10-03T05:05:04.359Z","level":"info","msg":"GithubProjectsDaemon started","subsystem":"startup.timers"}
+{"ts":"2026-10-03T05:05:04.367Z","level":"info","msg":"preview data-dir locked down to 0700, app-uid-owned (keystone)","subsystem":"preview.uid-pool","path":"/app/.ezcorp/data"}
+{"ts":"2026-10-03T05:05:04.367Z","level":"info","msg":"PreviewPortWatcher source selected by capability mode","subsystem":"startup.timers","mode":"uid","source":"ProcPortSource","dataDirLocked":true}
+{"ts":"2026-10-03T05:05:04.367Z","level":"info","msg":"PreviewPortWatcher started","subsystem":"startup.timers"}
+Listening on http://0.0.0.0:3000/ 
+health status 200

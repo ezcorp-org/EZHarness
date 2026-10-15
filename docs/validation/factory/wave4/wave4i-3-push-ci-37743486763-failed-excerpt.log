@@ -1,0 +1,76 @@
+# excerpt of `gh run view 37743486763 --log-failed` (integrator-5, push-log-excerpt.py)
+# full log: /tmp/factory-platform-evidence/w00/wave4i-3/push/ci-37743486763/all-failed.log sha256 c1caa8abcefacaac4fd2f691efabcd987fa7f58e9cb4712b04316a1bc8a8aa1f bytes 31408 lines 132
+
+## Factory runner readiness precheck (26 lines; 26 kept)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	﻿2026-10-08T07:27:09.3966706Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.3967171Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4246917Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4247330Z env:
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4247684Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4248148Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4248545Z   FACTORY_RUNNER_READ_TOKEN: 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4248899Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4249233Z ##[endgroup]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4418481Z 124 |   inspect?: typeof inspectFactoryRunners;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4419419Z 125 |   log?: Pick<Console, "log">;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4420045Z 126 | } = {}): Promise<number> {
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4420536Z 127 |   const env = options.env ?? process.env;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4421114Z 128 |   const token = env.FACTORY_RUNNER_READ_TOKEN;
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4422198Z 129 |   if (!token) throw new Error("FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners");
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4423861Z                               ^
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4424682Z error: FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4426015Z       at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4427224Z       at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4427878Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4450704Z ##[error]
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	      at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4459548Z 
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4459698Z Bun v1.4.2 (Linux x64)
+Factory runner readiness precheck	Require online real and GPU runners before self-hosted jobs queue	2026-10-08T07:27:09.4465282Z ##[error]Process completed with exit code 1.
+
+## Gate integrity (22 lines; 21 kept)
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5411119Z ^[[36;1mbun scripts/gate-integrity.ts^[[0m
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5456138Z shell: /usr/bin/bash -e {0}
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5456529Z env:
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5456898Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5457326Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5457664Z   BASE_REF: origin/main
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5458047Z   GATE_CHANGE_APPROVED: 
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5458526Z   NODE_PATH: /home/runner/work/EZHarness/EZHarness/.github/gate-integrity-deps/node_modules
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:14.5459065Z ##[endgroup]
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4781241Z Gate integrity FAILED (8 finding(s)):
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4783438Z   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4785709Z   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4788179Z   coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4790239Z   coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4792393Z   coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4794432Z   coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4796485Z   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4798631Z   coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4799549Z 
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4800089Z If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+Gate integrity	Gate-integrity meta-check	2026-10-08T07:27:20.4934027Z ##[error]Process completed with exit code 1.
+
+## Per-file coverage gate (84 lines; 21 kept)
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4169578Z   packages/@ezcorp/factory-orchestrator/src/definition-pages.ts: wildcard threshold packages/@ezcorp/factory-orchestrator/src/** has no lcov record for this executable source — a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4170737Z   packages/@ezcorp/factory-transport/src/index.ts: wildcard threshold packages/@ezcorp/factory-transport/src/** has no lcov record for this executable source — a coverage producer omitted an individual file. Add the owning test/producer; do not hide it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4171701Z   src/factory/reference-image/python/image_guest.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4172747Z   src/factory/reference-image/python/reference_image/png_format.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4173669Z   src/factory/reference-image/python/reference_image/png_normalize.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4174584Z   src/factory/reference-image/python/reference_image/claims.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4175496Z   src/factory/reference-image/python/reference_image/ocr_report.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4176409Z   src/factory/reference-image/python/reference_image/fixtures.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4177323Z   src/factory/reference-image/python/reference_image/__init__.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4178227Z   src/factory/reference-image/python/reference_image/sdxl.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4179078Z   src/factory/runner/python/factory_ijson.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4179991Z   src/factory/runner/python/factory_schema.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4180821Z   src/factory/runner/python/factory_materials.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4181637Z   src/factory/runner/python/guest.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4182589Z   src/factory/runner/python/factory_validation.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4183412Z   src/factory/runner/python/c02_runner.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4184240Z   src/factory/runner/python/refdata/parquet.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4185072Z   src/factory/runner/python/refdata/guest.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4186025Z   src/factory/runner/python/refdata/__init__.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4186853Z   src/factory/runner/python/refdata/rows.py: runtime-native source has no lcov record — run its own producer (bash scripts/python-quality.sh coverage) and merge its LCOV; a Bun leg cannot measure it.
+Per-file coverage gate	Merge lcov + enforce thresholds	2026-10-08T07:55:11.4193956Z ##[error]Process completed with exit code 1.

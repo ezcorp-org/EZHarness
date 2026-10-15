@@ -1,0 +1,53 @@
+VERDICT (validator-6) — W4G-9 at 393ca6386 (wp/w4g-9, owner w16-2), base 84a9ef717: ACCEPT
+
+8 commits, all archy noreply as author and committer:
+  - 1e9999a6a hono (root); 10bad8024 ip-address (root); b82f36f4c qs (root); 01134478e dompurify (web); 8eedebf34 fast-uri (web);
+  - 88da2c92d and 7356f2034: the gate file;
+  - 393ca6386: the factory SDK pins yaml 2.8.3.
+Files changed: bun.lock, web/bun.lock, packages/@ezcorp/factory-sdk/package.json, tasks/factory/w4g-9-GATES.md.
+Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the pipelining flag.
+
+RULING APPLIED: w00/briefs/w4g.md, amendment 2026-10-01 22:50Z. W4G-9 may change packages/@ezcorp/factory-sdk/package.json for the
+exact yaml pin only (2.8.2 → 2.8.3, exact-pin style), with the matching yaml lines in bun.lock. The diff of 393ca6386 is exactly
+that: one line in the package.json, two yaml lines in bun.lock, and the gate file.
+
+LOCKFILES (w4g-validation/lockfile-check-w4g3.py, against each commit's parent):
+  - 84a9ef717..7356f2034: no package.json and no allowlist change; each commit changes only the package its subject names, in only
+    its own lockfile; every new version satisfies every parent range: hono 4.13.12 (2 parents), ip-address 10.7.2, qs 6.16.0
+    (2 parents), dompurify 3.4.16, fast-uri 3.1.8.
+  - 7356f2034..393ca6386: the check flags the factory-sdk package.json, which is the ruled change; the lockfile change names only
+    @ezcorp/factory-sdk/yaml 2.8.3.
+  - No allowlist entry anywhere in the range.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g9.sh, lockfile reads only):
+  - At 84a9ef717, RED: raw bun audit names hono, ip-address and qs at the root and dompurify and fast-uri in web.
+  - At 393ca6386, GREEN: raw audit names none of them, and no yaml at the root.
+  - On `git merge-tree --write-tree 393ca6386 82453d321` (W4G-3's head holds the HIGH fixes this base lacks): the hosted command
+    `bun scripts/audit-deps.ts` exits 0, and raw audit names exactly root {esbuild, uuid} and web {cookie, qs}, the packages the
+    gate file lists with the parent upgrade that would fix each.
+
+UNIT LEG NOTE: the 20-file unit set (the 14 MCP SDK test files, four tests of indirect SDK users, lazy-input and
+  factory-definitions) gives in ONE process 125 pass, 6 skip, 69 fail. The 69 failing tests are the same set at the base 84a9ef717
+  (w4g-validation/w4g9-unit-ab/). One file per process, 17 of the 18 MCP-path files run tests and pass at base and head.
+  CORRECTION (amended 2026-10-02 after integrator-3's report): the 18th file, packages/@ezcorp/ai-kit/test/e2e/real-subprocess-obo.test.ts,
+  is opt-in (describe.skipIf unless EZCORP_E2E_SUBPROCESS=1; it needs pgvector). It runs NO test: 0 pass, 6 skip, at base and head
+  alike. My per-file check judged files by exit code only, so it counted this file as a pass. That was wrong; it is "not run".
+  Whether the file is dropped as opt-in or run opted in is the lead's ruling. The verdict does not depend on it: W4G-9 changes no
+  code on that path that the other 17 files and the producers do not run. The cause is the
+  substack-pilot test's process-wide mock of the MCP SDK; it is W4G-11 (w16-2, 4c6057aad), where my 18 files give 180 pass, 0 fail
+  in one process. It is not a W4G-9 defect.
+
+RERUN RESULTS (hold-v6-w4g9-393ca6386/results.jsonl)
+  Static:
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 8/8; receipts 84 scanned, 0 missing;
+    - typecheck and lint 0; check-boundaries 0; check-factory-boundaries 0 (rerun at 00:45Z after the resource gate refused it);
+    - gate-integrity: the base leg against 84a9ef717 is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg as noted above; SDK 246/0 (the yaml user parse.ts);
+    - web vitest producer 7843 tests, exit 0; web build 0;
+    - pool producer 107/0;
+    - guard set 62/0;
+    - the new-file and patch gates against 84a9ef717 pass.

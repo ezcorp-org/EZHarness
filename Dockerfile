@@ -1,6 +1,7 @@
 # Stage 1: Build
-FROM docker.io/oven/bun:1.3.14 AS builder
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+FROM docker.io/oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS builder
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
 # Install root dependencies
@@ -12,6 +13,9 @@ COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: the @ezcorp/sdk `prepare` script (and root `postinstall`)
 # compile the SDK to dist/ via tsc, but the SDK source + tsconfig.build.json
 # haven't been COPY'd yet (only the package.json). Skip lifecycle here; we
@@ -21,7 +25,8 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web dependencies
 COPY web/package.json web/bun.lock web/
-COPY web/patches/ web/patches/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY web/patches web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
 
 # Copy source and build
@@ -30,20 +35,21 @@ COPY . .
 # source and tsconfigs are present. The web bundler follows each package's
 # `import` export to dist/, while Bun at runtime follows the `bun` export to
 # src/. Skipped at install-time above due to layer-cache constraints.
-RUN bun run --cwd packages/@ezcorp/sdk build \
-  && bun run --cwd packages/@ezcorp/harness-client build
+RUN bun run build:packages
 RUN cd web && bun run build
 
 # Stage 2: Runtime
-FROM docker.io/oven/bun:1.3.14-slim
-ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+FROM docker.io/oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61
+# Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
 WORKDIR /app
 
-# Phase 7 (MCP isolation) + Phase 55 Stage 1 (DNS rebind / tmpfs / seccomp
-# log-mode) + Phase 58 Stage 2 (netns veth-pair + nftables egress filter)
-# runtime dependencies. `oven/bun:1-slim` is debian-bookworm and ships
-# without these; the namespace launcher (`src/extensions/mcp-launcher.sh`)
-# needs all of them:
+# Runtime dependencies. Most were added for the host MCP launcher
+# (Phase 7 / 55 / 58), which is deleted: since #246 MCP servers run in the
+# extension runner's isolated worker, not in this image's process tree.
+# `bubblewrap` still backs the bwrap tier of the agent-shell sandbox; the
+# others are candidates for removal once nothing else is found to need them.
+# Original rationale per package:
 #   - util-linux  →  `unshare`, `prlimit`, `capsh`
 #   - iproute2    →  `ip` (bring up loopback inside the netns; Phase 58
 #                    `ip link set <ns> netns <pid>` + per-veth setup)
@@ -101,7 +107,7 @@ RUN apt-get update \
 #
 # Pinned rather than taken from the `cli.github.com` apt repo: a floating
 # version would invalidate this layer on every upstream release, the same
-# drift the pinned `oven/bun:1.3.14` base exists to avoid.
+# drift the pinned `oven/bun:1.4.2` base exists to avoid.
 ARG GH_VERSION=2.63.2
 ARG TARGETARCH
 RUN set -eux; \
@@ -115,33 +121,6 @@ RUN set -eux; \
     install -o root -g root -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gharch}/bin/gh" /usr/local/bin/gh; \
     rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}"; \
     gh --version
-
-# Phase 55 / MCP-03 — Compile the seccomp BPF blob from the committed JSON
-# profile. Build deps (gcc + libseccomp-dev) are apt-installed for the
-# duration of this RUN and purged immediately, so they never bloat the
-# runtime image. The resulting `/app/src/extensions/mcp-seccomp.bpf`
-# survives in the final image; the launcher opens it at MCP-spawn time
-# and passes the FD to `bwrap --seccomp <fd>`.
-#
-# The source-of-truth profile (`src/extensions/mcp-seccomp.json`) is
-# committed to the repo; `scripts/check-seccomp-bpf-fresh.sh` is the CI
-# guard against artifact drift if the BPF blob is also committed.
-#
-# Build-stage tokens this block contains (asserted by W2 Dockerfile-shape
-# tests in `src/__tests__/mcp-seccomp-profile.test.ts`):
-#   - literal "gcc" + "-lseccomp"
-#   - the compile invocation referencing both mcp-seccomp.json and
-#     mcp-seccomp.bpf so the JSON→BPF transformation is grep-discoverable.
-COPY --from=builder /app/src/extensions/mcp-seccomp.json /tmp/mcp-seccomp.json
-COPY --from=builder /app/build/compile-seccomp.c /tmp/compile-seccomp.c
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends \
-       gcc libseccomp-dev libc6-dev \
-  && gcc -O2 -o /tmp/compile-seccomp /tmp/compile-seccomp.c -lseccomp \
-  && mkdir -p /app/src/extensions \
-  && /tmp/compile-seccomp /tmp/mcp-seccomp.json /app/src/extensions/mcp-seccomp.bpf \
-  && apt-get purge -y --auto-remove gcc libseccomp-dev libc6-dev \
-  && rm -rf /var/lib/apt/lists/* /tmp/compile-seccomp /tmp/compile-seccomp.c /tmp/mcp-seccomp.json
 
 # Build-time metadata injected by CI (`docker/metadata-action` → build-args).
 # Surfaced as OCI labels for image introspection and as env vars the app
@@ -185,6 +164,9 @@ COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
 COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
 COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
 COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
 # `--ignore-scripts`: prevents the SDK's `prepare` (build) from running.
 # Two reasons: (1) the SDK source isn't COPY'd into this stage (only its
 # manifest), and (2) `--production` skips devDependencies including
@@ -195,17 +177,12 @@ RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun instal
 
 # Install web production dependencies (needed by SvelteKit server at runtime)
 COPY web/package.json web/bun.lock web/
-COPY web/patches/ web/patches/
+# web/package.json's patchedDependencies: the frozen install fails without the patch files.
+COPY web/patches web/patches/
 RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --production --frozen-lockfile --ignore-scripts
 
 # Copy backend source
 COPY --from=builder /app/src ./src
-
-# Phase 7 — make sure the netns launcher script is executable in the
-# runtime image. `git` preserves the +x bit, but `COPY` from a build
-# stage that may have applied tooling (linters etc.) needs an explicit
-# chmod for the final image to spawn it via `unshare ... -- launcher.sh`.
-RUN chmod +x /app/src/extensions/mcp-launcher.sh
 
 # Secure Preview / Phase 3a (uid-based portable isolation) — compile the
 # setuid-root `preview-spawn` helper and install it root:root mode 4755.
@@ -228,8 +205,8 @@ RUN chmod +x /app/src/extensions/mcp-launcher.sh
 # (no .ts siblings) and previewSpawnHelperPath() defaults to that path.
 #
 # Build deps (gcc + libc6-dev) are installed for the duration of this RUN
-# and purged immediately so they never bloat the runtime image — same
-# pattern as the seccomp compile above. The source-of-truth C lives at
+# and purged immediately so they never bloat the runtime image. The
+# source-of-truth C lives at
 # build/preview-spawn.c (committed, auditable, < 200 lines).
 #
 # mode 4755 = rwsr-xr-x: setuid bit + world-exec so uid 1000 can invoke it;

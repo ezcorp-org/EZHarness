@@ -6,6 +6,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import socket
 import stat
@@ -32,11 +33,23 @@ REQUIRED = (
 )
 MANIFEST = "release-bundle-manifest.json"
 RUNTIME_DIR = ".ezcorp"
+BUN_VERSION = ".bun-version"
 
 
 def require(condition, message):
     if not condition:
         raise ValueError(message)
+
+
+def pinned_bun_version(root):
+    path = root / BUN_VERSION
+    require(path.is_file() and stat.S_ISREG(path.lstat().st_mode),
+            "regular .bun-version is required")
+    require(0 < path.stat().st_size <= 32, "invalid .bun-version")
+    raw = path.read_bytes()
+    match = re.fullmatch(rb"([0-9]+\.[0-9]+\.[0-9]+)\n?", raw)
+    require(match is not None, "invalid .bun-version")
+    return match.group(1).decode("ascii")
 
 
 def sha256(path):
@@ -239,7 +252,7 @@ def verify(root, *, runtime_source=None, app_uid=None, app_gid=None, owner=0):
     check_safe_modes(root)
     document = json.loads((root / MANIFEST).read_text())
     require(set(document) == {"schema", "gitSha", "bunVersion", "bunSha256", "locks", "files"}
-            and document["schema"] == 1 and document["bunVersion"] == "1.3.14",
+            and document["schema"] == 1 and document["bunVersion"] == pinned_bun_version(root),
             "release manifest schema or Bun version changed")
     require(document["bunSha256"] == sha256(root / "bin/bun"), "Bun digest changed")
     for relative, digest in document["locks"].items():
@@ -319,14 +332,16 @@ def stage(source, output, bun, expected_bun_sha256):
             "release staging destination must be under /tmp or /var/tmp")
     require(len(expected_bun_sha256) == 64 and sha256(bun) == expected_bun_sha256,
             "pinned Bun SHA-256 mismatch")
-    require(subprocess.check_output([str(bun), "--version"], text=True).strip() == "1.3.14",
-            "Bun 1.3.14 is required")
     head = git_head(source)
+    version = pinned_bun_version(source)
+    require(subprocess.check_output([str(bun), "--version"], text=True).strip() == version,
+            f"Bun {version} is required")
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".ezh-release-build-", dir=output.parent) as temporary:
         work = Path(temporary) / "release"
         work.mkdir()
         extract_head(source, work)
+        require(pinned_bun_version(work) == version, "archived Bun version changed")
         (work / "bin").mkdir()
         shutil.copy2(bun, work / "bin/bun")
         os.chmod(work / "bin/bun", 0o755)
@@ -357,7 +372,7 @@ def stage(source, output, bun, expected_bun_sha256):
         os.chmod(work / RUNTIME_DIR, 0o755)
         check_required(work)
         normalize_modes(work)
-        document = {"schema": 1, "gitSha": head, "bunVersion": "1.3.14",
+        document = {"schema": 1, "gitSha": head, "bunVersion": version,
                     "bunSha256": expected_bun_sha256,
                     "locks": {name: sha256(work / name) for name in ("bun.lock", "web/bun.lock")},
                     "files": inventory(work)}

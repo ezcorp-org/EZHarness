@@ -1,0 +1,541 @@
+{
+ "package": "w09d",
+ "branch": "wp/w09d-validators",
+ "head": "d41f16a1dab06b2170ab9da5a6db607e804a42ea",
+ "validatorVerdict": "ACCEPT (w09d-validator-check) at d41f16a1d",
+ "mergeSha": "8cea0f638",
+ "parents": [
+  "ceb995563bbce6e1c3f53f2755ca2b9239831f88",
+  "d41f16a1dab06b2170ab9da5a6db607e804a42ea"
+ ],
+ "conflicts": "none",
+ "newPostgresSuites": "none (validator-materials and validator-multiclaim were already registered)",
+ "thresholdKeys": "present for plain-values, validator-acceptance, validator-composition, validator-declaration",
+ "checks": [
+  {
+   "name": "build-factory-sdk",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:04Z",
+   "end": "2026-09-23T10:28:05Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-sdk build",
+   "logSha256": "0ad46fd432d0b2e6a433dacc29bfb84255c96f218c33c8038f0681ee0af86ce6"
+  },
+  {
+   "name": "build-factory-transport",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:05Z",
+   "end": "2026-09-23T10:28:05Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-transport build",
+   "logSha256": "8a2a5f9c47e78504d07925bc730a73cfcb5d7ddab6822525e21c4494d5e1b119"
+  },
+  {
+   "name": "build-extension-contract",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:05Z",
+   "end": "2026-09-23T10:28:05Z",
+   "command": "bun run --cwd packages/@ezcorp/extension-contract build",
+   "logSha256": "e20750af3bb7ff11ef37ac8f30f7c0906803cd42e9f2d67a9f970738fd62ad9b"
+  },
+  {
+   "name": "build-factory-orchestrator",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:05Z",
+   "end": "2026-09-23T10:28:07Z",
+   "command": "bun run --cwd packages/@ezcorp/factory-orchestrator build",
+   "logSha256": "237f472f8b39af1616097623569627d73c87f4271c37f01779c33c6fb87400b1"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:12Z",
+   "end": "2026-09-23T10:28:54Z",
+   "command": "bun run typecheck",
+   "logSha256": "cb0cbe207f2aaf72329c31236a077ba54ea04e8e2fb67bfdbc41129a2bc2fcf3"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:54Z",
+   "end": "2026-09-23T10:28:56Z",
+   "command": "bun run lint",
+   "logSha256": "7529bdbf4a8a443f676be29fc14d4b08c491092e5b9ad4a767101b578dd449aa"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:56Z",
+   "end": "2026-09-23T10:28:58Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "9d669a61ced14512072fb396824b19c4e464b7e618de0321ca8c4f817d64e88d"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:58Z",
+   "end": "2026-09-23T10:28:59Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "e346e734a230b3cf1d614173774827b46a46cae870e3ed94906de392d8b4baa4"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-23T10:28:59Z",
+   "end": "2026-09-23T10:29:03Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "73d1fe1fd959de625650decac7f415e1f0f1609e97753166dcef08f6e9668a42"
+  },
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:03Z",
+   "end": "2026-09-23T10:29:03Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "712ff9dad0ddf629f6b5388ba5a9d96af0a28860a83e1398197a68c103419606"
+  },
+  {
+   "name": "c13-inventory",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:03Z",
+   "end": "2026-09-23T10:29:04Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-c13-inventory.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "1537f36a8675e1886b71a7eb50f92336caa81e183aefae0384de55372f426e3f"
+  },
+  {
+   "name": "focused-src-factory-plain-values",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:12Z",
+   "end": "2026-09-23T10:29:13Z",
+   "command": "bun test --timeout 120000 ./src/factory/plain-values.test.ts",
+   "counts": {
+    "pass": 4,
+    "fail": 0
+   },
+   "logSha256": "62c6aaaceea7710a0d512109487fed8f24145decc8c09e3c3059b92b6565a0af"
+  },
+  {
+   "name": "focused-src-factory-validator-declaration",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:13Z",
+   "end": "2026-09-23T10:29:13Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-declaration.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "ca6c124fe4da51c69d824697c58b8d6ec5b6e80e6b0ae4efc5a3f078c08a50ce"
+  },
+  {
+   "name": "focused-src-factory-validator-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:13Z",
+   "end": "2026-09-23T10:29:14Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-composition.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "2f8cd2a3d05d0d04fa45339e6b6bbbd0bc8723f4ab98bdf4d0e3177ea96a30d1"
+  },
+  {
+   "name": "focused-src-factory-validator-acceptance",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:14Z",
+   "end": "2026-09-23T10:29:15Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-acceptance.test.ts",
+   "counts": {
+    "pass": 19,
+    "fail": 0
+   },
+   "logSha256": "b542468fdd4150f17ef338dd438e06b604f1e1beb3e65e26e9637b4fb0b3f989"
+  },
+  {
+   "name": "focused-src-factory-validator-materials",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:15Z",
+   "end": "2026-09-23T10:29:18Z",
+   "command": "bun test --timeout 120000 ./src/factory/validator-materials.test.ts",
+   "counts": {
+    "pass": 9,
+    "fail": 0
+   },
+   "logSha256": "5cbb3dca7cba294cc072b48456f4194672ccfeb13c2c77d5fa678820b1863bdd"
+  },
+  {
+   "name": "focused-src-factory-startup-config",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:18Z",
+   "end": "2026-09-23T10:29:18Z",
+   "command": "bun test --timeout 120000 ./src/factory/startup-config.test.ts",
+   "counts": {
+    "pass": 39,
+    "fail": 0
+   },
+   "logSha256": "0dfcbb575eca95ceccb2bcff2cd6c17c466b6a2d3619e90534b097aaa80fbd2c"
+  },
+  {
+   "name": "focused-src-factory-runtime-workers",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:18Z",
+   "end": "2026-09-23T10:29:19Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-workers.test.ts",
+   "counts": {
+    "pass": 21,
+    "fail": 0
+   },
+   "logSha256": "319c76f5d596b2d98da182a00d58038d4583c8c38c81fb6048dc98925f178259"
+  },
+  {
+   "name": "focused-src-factory-runtime-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:19Z",
+   "end": "2026-09-23T10:29:20Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-composition.test.ts",
+   "counts": {
+    "pass": 31,
+    "fail": 0
+   },
+   "logSha256": "e59d2dc0045126da714391d1e75acde4e8b6058281cdd5053c1bfb5b3bb4ae4d"
+  },
+  {
+   "name": "focused-src-factory-runtime-seams",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:20Z",
+   "end": "2026-09-23T10:29:20Z",
+   "command": "bun test --timeout 120000 ./src/factory/runtime-seams.test.ts",
+   "counts": {
+    "pass": 7,
+    "fail": 0
+   },
+   "logSha256": "7fd2c95c0a3b19be96b5652a8ec8a0c47aceb7960aef16ea22b5d0af5633ac13"
+  },
+  {
+   "name": "focused-src-factory-installation-startup",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:20Z",
+   "end": "2026-09-23T10:29:26Z",
+   "command": "bun test --timeout 120000 ./src/factory/installation-startup.test.ts",
+   "counts": {
+    "pass": 49,
+    "fail": 0
+   },
+   "logSha256": "58b57853352e04e3e3830d52061b78a77d34f5e2f3755b6fdd59079482daac61"
+  },
+  {
+   "name": "focused-src-factory-installation-stores",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:26Z",
+   "end": "2026-09-23T10:29:26Z",
+   "command": "bun test --timeout 120000 ./src/factory/installation-stores.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "afcb5d4977609bf49ef6875802f3d4cf81381e5ab020c8c899ea40200f2ca284"
+  },
+  {
+   "name": "focused-src-factory-attempt-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:26Z",
+   "end": "2026-09-23T10:29:30Z",
+   "command": "bun test --timeout 120000 ./src/factory/attempt-composition.test.ts",
+   "counts": {
+    "pass": 14,
+    "fail": 0
+   },
+   "logSha256": "7a953a9c0abdb9967a883e2b79baadbb087374333b13e7aca70fb0a9ff791d1c"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:30Z",
+   "end": "2026-09-23T10:29:33Z",
+   "command": "bun test --timeout 120000 ./src/factory/private-service-composition.test.ts",
+   "counts": {
+    "pass": 19,
+    "fail": 0
+   },
+   "logSha256": "33859f21c70d4899185a00e684b82ebb356210ce1fb1ce8687bc814b824f41d9"
+  },
+  {
+   "name": "focused-src-factory-release-declaration",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:33Z",
+   "end": "2026-09-23T10:29:34Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-declaration.test.ts",
+   "counts": {
+    "pass": 11,
+    "fail": 0
+   },
+   "logSha256": "1225a4b592250f3229c01fe18349a8e7397bd94249584cd14f436ad119a7c0cb"
+  },
+  {
+   "name": "focused-src-factory-release-composition",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:34Z",
+   "end": "2026-09-23T10:29:34Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-composition.test.ts",
+   "counts": {
+    "pass": 17,
+    "fail": 0
+   },
+   "logSha256": "b783dd61a59a69bfc8576e4c9de875d9e743e97f5fda17ac26d8aaa452e5c559"
+  },
+  {
+   "name": "focused-src-factory-background-workers",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:34Z",
+   "end": "2026-09-23T10:29:35Z",
+   "command": "bun test --timeout 120000 ./src/factory/background-workers.test.ts",
+   "counts": {
+    "pass": 20,
+    "fail": 0
+   },
+   "logSha256": "afdbbf7438f8fa01c8932989b02545fef20ef348f745e1ddc13c0a1a9648ab27"
+  },
+  {
+   "name": "focused-src-factory-role-drivers",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:35Z",
+   "end": "2026-09-23T10:29:35Z",
+   "command": "bun test --timeout 120000 ./src/factory/role-drivers.test.ts",
+   "counts": {
+    "pass": 15,
+    "fail": 0
+   },
+   "logSha256": "0b0caacd08acc2059491d63696a068533668b93497891660953525458b38e66b"
+  },
+  {
+   "name": "focused-src-__tests__-factory-run-lifecycle",
+   "exitCode": 0,
+   "start": "2026-09-23T10:29:35Z",
+   "end": "2026-09-23T10:30:03Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-run-lifecycle.test.ts",
+   "counts": {
+    "pass": 66,
+    "fail": 0
+   },
+   "logSha256": "40bd3a82a50c707ab0c7897a26a3bdb7b0bb87497214aeaf101dfe6697d1701f"
+  },
+  {
+   "name": "focused-src-__tests__-factory-boot",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:03Z",
+   "end": "2026-09-23T10:30:04Z",
+   "command": "bun test --timeout 120000 ./src/__tests__/factory-boot.test.ts",
+   "counts": {
+    "pass": 24,
+    "fail": 0
+   },
+   "logSha256": "458fedeed50e10706b08e84fc169824f3a11dcc6251ea6b485e341d72c0bc88d"
+  },
+  {
+   "name": "focused-packages-@ezcorp-factory-sdk-src-kernel",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:04Z",
+   "end": "2026-09-23T10:30:10Z",
+   "command": "bun test --timeout 120000 ./packages/@ezcorp/factory-sdk/src/kernel.test.ts",
+   "counts": {
+    "pass": 25,
+    "fail": 0
+   },
+   "logSha256": "8d3a399fbdc8427ea079d6c3903c6b39dada754274614878cfea0e859e792c01"
+  },
+  {
+   "name": "focused-scripts-factory-c13-inventory",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:10Z",
+   "end": "2026-09-23T10:30:11Z",
+   "command": "bun test --timeout 120000 ./scripts/factory-c13-inventory.test.ts",
+   "counts": {
+    "pass": 13,
+    "fail": 0
+   },
+   "logSha256": "217ecea6a7dbde3b14fa3ff1ddbb14c0d119e92cdfdd1e009fba5c8bfa44c820"
+  },
+  {
+   "name": "changed-src-factory-protected-command-effects",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:24Z",
+   "end": "2026-09-23T10:30:25Z",
+   "command": "bun test --timeout 120000 ./src/factory/protected-command-effects.test.ts",
+   "counts": {
+    "pass": 3,
+    "fail": 0
+   },
+   "logSha256": "d8aeb8e93128a8b4ab95ea4c118c80d910be801c28c130d02206c7eae6665cf4"
+  },
+  {
+   "name": "changed-src-factory-release-authority.integration",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:25Z",
+   "end": "2026-09-23T10:30:27Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-authority.integration.test.ts",
+   "counts": {
+    "pass": 14,
+    "fail": 0
+   },
+   "logSha256": "37426245ac43aa9e25cd3074008553fbc47205626ea07db6a977a8a9668e9d36"
+  },
+  {
+   "name": "changed-src-factory-release-profile",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:27Z",
+   "end": "2026-09-23T10:30:28Z",
+   "command": "bun test --timeout 120000 ./src/factory/release-profile.test.ts",
+   "counts": {
+    "pass": 6,
+    "fail": 0
+   },
+   "logSha256": "2dd53f3272e85c979df0d1d3dcbd3317b6eb6e635aebfdcaf71fddc142f37912"
+  },
+  {
+   "name": "changed-src-factory-lazy-input",
+   "exitCode": 0,
+   "start": "2026-09-23T10:30:37Z",
+   "end": "2026-09-23T10:30:39Z",
+   "command": "bun test --timeout 120000 ./src/factory/lazy-input.test.ts",
+   "counts": {
+    "pass": 3,
+    "fail": 0
+   },
+   "logSha256": "663e47142d83785c611f308fd14bc41fc9cb028a88cb2e314919d0d4527f3605"
+  }
+ ],
+ "heavyBatch": {
+  "command": "flock --close /tmp/ezcorp-validation-heavy.lock timeout 7200 bash run-heavy-batch.sh",
+  "lockAcquired": "2026-09-23T12:38:05Z",
+  "wrapperExit": 0,
+  "steps": [
+   {
+    "name": "postgres-producers",
+    "start": "2026-09-23T12:38:05Z",
+    "end": "2026-09-23T12:39:29Z",
+    "exitCode": 0
+   },
+   {
+    "name": "orchestrator-leg",
+    "start": "2026-09-23T12:39:29Z",
+    "end": "2026-09-23T12:41:28Z",
+    "exitCode": 0
+   },
+   {
+    "name": "podman-podman.integration",
+    "start": "2026-09-23T12:41:28Z",
+    "end": "2026-09-23T12:42:49Z",
+    "exitCode": 0
+   },
+   {
+    "name": "podman-attempt-runtime.integration",
+    "start": "2026-09-23T12:42:49Z",
+    "end": "2026-09-23T12:43:03Z",
+    "exitCode": 0
+   },
+   {
+    "name": "podman-supervisor.podman.integration",
+    "start": "2026-09-23T12:43:03Z",
+    "end": "2026-09-23T12:43:15Z",
+    "exitCode": 0
+   },
+   {
+    "name": "podman-package-preparation.podman.integration",
+    "start": "2026-09-23T12:43:15Z",
+    "end": "2026-09-23T12:43:25Z",
+    "exitCode": 0
+   },
+   {
+    "name": "real-server-pass",
+    "start": "2026-09-23T12:43:25Z",
+    "end": "2026-09-23T12:44:44Z",
+    "exitCode": 0
+   }
+  ],
+  "postgresProducers": [
+   {
+    "file": "./tests/postgres/factory-run-lifecycle.test.ts",
+    "exitCode": "0",
+    "counts": "66 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-run-lifecycle-s3.test.ts",
+    "exitCode": "0",
+    "counts": "66 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-validator-materials.test.ts",
+    "exitCode": "0",
+    "counts": "9 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-validator-multiclaim.test.ts",
+    "exitCode": "0",
+    "counts": "3 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-boot.test.ts",
+    "exitCode": "0",
+    "counts": "1 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-schema.test.ts",
+    "exitCode": "0",
+    "counts": "2 pass  0 fail"
+   },
+   {
+    "file": "./tests/postgres/factory-private-service.test.ts",
+    "exitCode": "0",
+    "counts": "5 pass  0 fail"
+   }
+  ],
+  "orchestratorLeg": {
+   "script": "scripts/factory-orchestrator-coverage.sh",
+   "tests": 86,
+   "pass": 86,
+   "fail": 0
+  },
+  "podman": {
+   "podman.integration": 19,
+   "attempt-runtime.integration": 7,
+   "supervisor.podman.integration": 2,
+   "package-preparation.podman.integration": 1
+  },
+  "realServerPass": {
+   "outcome": "passed",
+   "exitCode": 0,
+   "recordFresh": true,
+   "readyStatus": 200,
+   "rolesRunningCount": 9,
+   "rolesHeld": [
+    {
+     "role": "notification-send",
+     "workPackage": "W17",
+     "reason": "a notification is not delivered until a sender confirms it left this host"
+    },
+    {
+     "role": "validator-material-registration",
+     "workPackage": "W09d",
+     "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    },
+    {
+     "role": "validator-scheduling",
+     "workPackage": "W09d",
+     "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+    }
+   ],
+   "orchestrationLifecycle": "ready",
+   "recordSha256": "1f23f5d37e52eb00075edff898b72aa76176ec121ecd98fc5e7a0d8e81bd7207"
+  }
+ },
+ "notes": [
+  "every check ran on the staged merge ceb995563 + d41f16a1d (34 files); the batch waited about two hours for the lock and finished before a usage-limit pause; the commit followed on the unchanged index",
+  "W09b harness (full-stack-proof.ts, unmodified copy) judged its own expectations; it declares no validator, so validator-material-registration and validator-scheduling are held with the named reason",
+  "standing steps at resume: df 168G free; touch over /tmp/factory-platform-evidence and /tmp/factory-tools, 139019 entries, one permission-denied directory (w15/private-pg/wal-archive, not ours)"
+ ]
+}

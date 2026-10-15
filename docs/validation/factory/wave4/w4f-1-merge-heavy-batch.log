@@ -1,0 +1,46 @@
+=== heavy 2026-10-01T07:07:10Z
+HEAD c46a1d10e7f5b12c43744b61dc21790e37849db3 MERGE_HEAD  index-tree 6551ea9d70afdc80a90f32dd888be9c9f6b51d1d
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-01T07:07:10Z attestation-check disk=232G memAvailable=16GiB swapFreeKiB=3694672/17173956
+--- START attestation-check 2026-10-01T07:07:10Z
+--- END   attestation-check 2026-10-01T07:07:10Z exit=0 
+guard set: 12 files from guard-suites.sh
+resource-gate 2026-10-01T07:07:10Z guard-set disk=232G memAvailable=16GiB swapFreeKiB=3694672/17173956
+--- START guard-set 2026-10-01T07:07:10Z
+--- END   guard-set 2026-10-01T07:07:11Z exit=0  60 pass 0 fail 
+resource-gate 2026-10-01T07:07:11Z build-factory-sdk disk=232G memAvailable=16GiB swapFreeKiB=3694680/17173956
+--- START build-factory-sdk 2026-10-01T07:07:11Z
+--- END   build-factory-sdk 2026-10-01T07:07:11Z exit=0 
+resource-gate 2026-10-01T07:07:11Z build-factory-transport disk=232G memAvailable=16GiB swapFreeKiB=3694680/17173956
+--- START build-factory-transport 2026-10-01T07:07:11Z
+--- END   build-factory-transport 2026-10-01T07:07:11Z exit=0 
+resource-gate 2026-10-01T07:07:11Z build-factory-orchestrator disk=232G memAvailable=16GiB swapFreeKiB=3694680/17173956
+--- START build-factory-orchestrator 2026-10-01T07:07:11Z
+--- END   build-factory-orchestrator 2026-10-01T07:07:12Z exit=0 
+resource-gate 2026-10-01T07:07:12Z web-lib-vitest-lcov disk=232G memAvailable=16GiB swapFreeKiB=3694680/17173956
+--- START web-lib-vitest-lcov 2026-10-01T07:07:12Z
+--- END   web-lib-vitest-lcov 2026-10-01T07:07:18Z exit=0  Tests 3 passed (3) 
+resource-gate 2026-10-01T07:07:18Z web-server-lcov disk=232G memAvailable=16GiB swapFreeKiB=3694252/17173956
+--- START web-server-lcov 2026-10-01T07:07:18Z
+--- END   web-server-lcov 2026-10-01T07:07:37Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-01T07:07:37Z coverage-merge disk=232G memAvailable=16GiB swapFreeKiB=3693912/17173956
+--- START coverage-merge 2026-10-01T07:07:37Z
+--- END   coverage-merge 2026-10-01T07:07:37Z exit=0 
+resource-gate 2026-10-01T07:07:37Z web-build disk=232G memAvailable=16GiB swapFreeKiB=3693912/17173956
+--- START web-build 2026-10-01T07:07:37Z
+--- END   web-build 2026-10-01T07:08:18Z exit=0 
+resource-gate 2026-10-01T07:08:18Z graph-mock-pass disk=232G memAvailable=17GiB swapFreeKiB=3159864/17173956
+--- START graph-mock-pass 2026-10-01T07:08:18Z
+--- END   graph-mock-pass 2026-10-01T07:09:07Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4f-merge/w4f-1/graph/w4f-1-mock.json; nothing to dump
+mock pass w4f-1-mock outcome: passed
+resource-gate 2026-10-01T07:09:07Z crap-changed-base disk=232G memAvailable=16GiB swapFreeKiB=3172208/17173956
+--- START crap-changed-base 2026-10-01T07:09:07Z
+--- END   crap-changed-base 2026-10-01T07:09:07Z exit=0 
+resource-gate 2026-10-01T07:09:07Z crap-changed-origin-main-info disk=232G memAvailable=16GiB swapFreeKiB=3172208/17173956
+--- START crap-changed-origin-main-info 2026-10-01T07:09:08Z
+--- END   crap-changed-origin-main-info 2026-10-01T07:09:08Z exit=0 
+resource-gate 2026-10-01T07:09:08Z merge-commit-gates disk=232G memAvailable=16GiB swapFreeKiB=3172316/17173956
+--- START merge-commit-gates 2026-10-01T07:09:08Z
+--- END   merge-commit-gates 2026-10-01T07:09:13Z exit=0 
+HEAVY DONE status=0 dirty=0 2026-10-01T07:09:13Z

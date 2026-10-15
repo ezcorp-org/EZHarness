@@ -1,0 +1,10 @@
+=== heavy 2026-10-05T18:32:18Z
+HEAD 1c84df6d5d5aba0703ee433ae711450728d16d66 MERGE_HEAD  index-tree e468b389727bb228cb455000b820e18c467688c8
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-05T18:32:18Z hold-start disk=241G memAvailable=15GiB swapFreeKiB=5307436/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB
+leg manifest-cov-extras command: COVERAGE_LEGS_ONLY=1 EZCORP_RUN_PODMAN_TESTS=1 COV_OUT=/tmp/factory-platform-evidence/wave4i-2-manifest-cov-extras-coverage bash scripts/test-coverage.sh
+resource-gate 2026-10-05T18:32:18Z manifest-cov-extras disk=241G memAvailable=15GiB swapFreeKiB=5307436/17173956 floors disk>=120G swap>=2097152KiB mem>=15GiB
+--- START manifest-cov-extras 2026-10-05T18:32:18Z
+--- END   manifest-cov-extras 2026-10-05T18:32:37Z exit=0  1030 pass 0 fail 94 pass 0 fail 104 pass 0 fail 226 pass 0 fail 11 pass 0 fail 7 pass 0 fail 41 pass 0 fail 20 pass 0 fail 34 pass 0 fail 60 pass 0 fail 13 pass 0 fail 8 pass 0 fail 11 pass 0 fail 5 pass 0 fail 41 pass 0 fail 52 pass 0 fail 14 pass 0 fail 42 pass 0 fail 15 pass 0 fail 10 pass 0 fail 8 pass 0 fail 16 pass 0 fail 12 pass 0 fail 22 pass 0 fail 4 pass 0 fail 9 pass 0 fail 95 pass 0 fail 1 pass 0 fail 11 pass 0 fail 
+lcov under /tmp/factory-platform-evidence/wave4i-2-manifest-cov-extras-coverage: 9 file(s)
+HEAVY DONE status=0 dirty=0 2026-10-05T18:32:37Z

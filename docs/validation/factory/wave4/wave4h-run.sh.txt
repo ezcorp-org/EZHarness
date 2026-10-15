@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Interim wave4f combined run on STAGING (start only after W18c lands in integ/w00 and the merge queue allows; staging clean).
+# 1) the combined runner exactly as briefed (it takes the heavy lock itself; NO outer flock), with --podman;
+# 2) after-runner.sh under the lock (23400 s): runbook mock pass, W09e e2e console spec if present, W03f journey if merged,
+#    the browser part (w00/browser-part.sh); 3) final-merge-gates.sh (authoritative gates).
+# Heavy-lock veto: run.sh holds no lock itself; the runner checks the veto after its fcntl.flock (coordinator), and
+# after-runner.sh calls lock_veto integrator-2 first once its flock is held (through heavy-lib.sh).
+# (No backend-pool part: cov-shard runs the same pooled suites with coverage; lead ruling M3, 2026-09-27.)
+# No outer timeout: the runner takes the lock itself and bounds every leg (H2).
+# Resource gate (disk 100 GB, memory 6 GiB, swap) before the run; the runner gates every leg itself.
+# DRAFT (not live until W18c's scripts/combined-runner-legs.json is in integ/w00): the extra legs come from that
+# manifest, read by legs-from-manifest.py, in place of a literal list. The seven guard suites below stay literal:
+# they are this driver's own registration and runtime checks, not coverage extras, and the manifest does not list them.
+set -u
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE DATABASE_URL FACTORY_TEST_POSTGRES_URL
+E=/tmp/factory-platform-evidence
+# RUN names the run (default wave4f): outputs in w00/$RUN and the runner prefix $RUN, so a later run (the W-SYNC head)
+# never overwrites an earlier run's evidence. The scripts stay in SD (this directory).
+RUN=${RUN:-wave4f}; SD=$E/w00/wave4f; O=$E/w00/$RUN; mkdir -p $O; export RUN
+S=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+# One definition of the coverage bases for the runner AND the final gates (no literal copies below).
+# Lead 2026-09-28: BASES = origin/main + c1377122b, the integ/w00 commit that was the base of the FIRST wave 4 merge
+# (docs/validation/factory/wave4/w00-verify-engine-merge.json "base": merge 72399bc4c of wp/w00-verify-engine onto
+# c1377122b, just after the pre-wave-4 origin/main sync f50b041c3); the same commit is --auto-extra-base. QBASE=origin/main.
+# Lead ruling 2026-10-01 (after the W-SYNC merge; W4G brief): patch and new-file bases origin/main only; the auto-extra base stays c1377122b.
+WAVE4_BASE=c1377122b BASES=origin/main QBASE=origin/main
+# Browser route coverage for the final gates: after-runner.sh's browser part (w00/browser-part.sh, this worktree).
+BROWSER_COV=$O/after/browser/browser-merged
+. /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$S"   # rule "Bun pin switch": PATH from the tree's .bun-version
+EZCORP_FACTORY_STORAGE_SECRETS_DIR=$(ls -d /run/user/1001/ezcorp-factory-storage.* | head -1); export EZCORP_FACTORY_STORAGE_SECRETS_DIR
+export FACTORY_TEMPORAL_TEST_SERVER=/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+. $E/w00/resource-gate.sh
+cd $S || exit 2
+[ -z "$(git status --porcelain)" ] || { echo "staging not clean" >> $O/summary.log; exit 3; }
+echo "start $(date -u +%FT%TZ) head $(git rev-parse HEAD)" > $O/summary.log
+# The pin of record (lead 2026-10-01, after the wave4f receipts had to cite it from other logs): printed by the driver itself,
+# in full-pool-run.sh's form, into the summary and the driver's stdout.
+echo "head $(git rev-parse HEAD) bun $(bun --version) bunx $(bunx --version) flag=${BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING-unset}" | tee -a $O/summary.log
+echo "patch bases $BASES, quality base $QBASE; integ/w00 merge base with origin/main $(git merge-base origin/main HEAD)" >> $O/summary.log
+resource_gate combined $O/summary.log || exit $?
+GUARDS=$(paste -sd, $SD/driver-guards.txt)   # the driver's own guard files, shared with w00/full-pool-run.sh
+MANIFEST=$S/scripts/combined-runner-legs.json
+MEXTRA=$(python3 $SD/legs-from-manifest.py $S focused-extra) || { echo "manifest refused: $MEXTRA" >> $O/summary.log; exit 4; }
+python3 $SD/legs-from-manifest.py $S web-suites > $O/manifest-web-suites.txt || exit 4
+python3 $SD/legs-from-manifest.py $S producers > $O/manifest-producers.tsv || exit 4
+# The producers and the web-cwd suites are the combined runner's to run (the coordinator adapts its copy to read the
+# manifest); refuse rather than run without them if this runner does not take the manifest.
+H=$(python3 $E/w00/combined-integration.py --help 2>&1)
+for f in --legs-manifest --plan; do grep -q -- "$f" <<< "$H" || { echo "combined runner has no $f; not run" >> $O/summary.log; exit 5; }; done
+# The runner's own resolution of every leg, without the lock, recorded before the run (it goes into the wave4f receipt).
+python3 $E/w00/combined-integration.py --repo $S --prefix $RUN --podman --auto-extra-base $WAVE4_BASE \
+  --focused-extra "$GUARDS,$MEXTRA" --legs-manifest $MANIFEST --patch-bases $BASES --quality-base $QBASE --plan > $O/plan.txt 2>&1 \
+  || { echo "runner --plan failed: $(tail -3 $O/plan.txt)" >> $O/summary.log; exit 6; }
+echo "plan: $O/plan.txt ($(wc -l < $O/plan.txt) lines, sha256 $(sha256sum $O/plan.txt | cut -c1-16))" >> $O/summary.log
+python3 $SD/legs-from-manifest.py plan-check $O/plan.txt >> $O/summary.log || { echo "plan refused (see above)" >> $O/summary.log; exit 7; }
+# DRY=1: stop after the plan check and list the remaining steps (no lock, no test run).
+if [ "${DRY:-0}" = 1 ]; then
+  { echo "DRY LISTING (no run): the combined runner with --prefix $RUN --podman --auto-extra-base $WAVE4_BASE --patch-bases $BASES --quality-base $QBASE"
+    echo "  then: flock --close /tmp/ezcorp-validation-heavy.lock timeout 23400 $SD/after-runner.sh (lock_veto integrator-2 via heavy-lib):"
+    grep -E '^(mock_pass|guard_leg|  leg |  echo "w0|NOTEST=1 leg browser-part|leg )' $SD/after-runner.sh | sed 's/^/    /'
+    echo "  then: bash $SD/final-merge-gates.sh $RUN $BROWSER_COV $BASES $QBASE (AUTHORITATIVE; runner coverage-results INTERIM)"
+    echo "  browser part runs in: $S (browser lcov SF paths anchor there)"; } >> $O/summary.log
+  exit 0
+fi
+{ echo "manifest $(sha256sum $MANIFEST | cut -c1-16) at $(git rev-parse HEAD)"; echo "focused-extra from manifest: $MEXTRA"; echo "web suites: $(tr '\n' ' ' < $O/manifest-web-suites.txt)"; echo "producers: $(cut -f1 $O/manifest-producers.tsv | tr '\n' ' ')"; } >> $O/summary.log
+# The runner log starts with the pin line (verify-receipts.py reads <prefix>-driver.log for "bun <v>" and "flag=1").
+echo "head $(git rev-parse HEAD) bun $(bun --version) bunx $(bunx --version) flag=${BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING-unset}" > $E/w00/$RUN-driver.log
+python3 $E/w00/combined-integration.py --repo $S --prefix $RUN --podman --auto-extra-base $WAVE4_BASE \
+  --focused-extra "$GUARDS,$MEXTRA" --legs-manifest $MANIFEST \
+  --patch-bases $BASES --quality-base $QBASE >> $E/w00/$RUN-driver.log 2>&1
+echo "combined exit=$? end $(date -u +%FT%TZ)" >> $O/summary.log
+# Ruling (b), 2026-09-28: a red gate-integrity/types/lint/boundaries/podman-* leg no longer blocks the coverage merge and
+# gates (only a failed build or merge-input producer does); the runner exit still reports every red. Record both lists.
+python3 -c 'import json,sys;d=json.load(open(sys.argv[1]));print("mergeBlockedBy:",json.dumps(d.get("mergeBlockedBy","MISSING")),"| redLegsNotBlockingMerge:",json.dumps(d.get("redLegsNotBlockingMerge","MISSING")))' $E/$RUN-coverage-results.json >> $O/summary.log 2>&1
+# Legs outside the runner by design, in their own lock hold (23400 s bound; the browser part alone is 1-2 h):
+# runbook mock pass, W09e e2e spec, W03f journey, the browser part.
+rm -rf $O/after; flock --close /tmp/ezcorp-validation-heavy.lock timeout 23400 env AFTER_OUT=$O/after $SD/after-runner.sh > $O/after-runner.log 2>&1
+echo "after-runner exit=$? end $(date -u +%FT%TZ) (legs in $O/after/heavy-batch.log)" >> $O/summary.log
+# FINAL merge and gates (lead 2026-09-28): the runner gates before the browser legs, so its coverage-results.json is
+# INTERIM; final-merge-gates.sh merges the runner's own inputs with the browser route coverage and its gates are the
+# authoritative wave4f gates. Lock-free (merge and gate scripts only), after the after-runner hold.
+FINAL_OUT=$O/final bash $SD/final-merge-gates.sh $RUN "$BROWSER_COV" "$BASES" "$QBASE" > $O/final-merge-gates.out 2>&1
+echo "final-merge-gates exit=$? end $(date -u +%FT%TZ) (AUTHORITATIVE gates: $O/final/gates.txt; runner coverage-results INTERIM)" >> $O/summary.log
+echo "dirty=$(git status --porcelain | wc -l)" >> $O/summary.log

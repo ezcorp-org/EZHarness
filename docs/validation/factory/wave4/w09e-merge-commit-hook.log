@@ -1,0 +1,23 @@
+Checked 42 files in 101ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  17 test files map to this commit (cap 12) — NOT running:
+    packages/@ezcorp/factory-sdk/src/kernel-run-controls.test.ts
+    packages/@ezcorp/factory-sdk/src/kernel.test.ts
+    src/db/migrations/add-factory-release-stop.test.ts
+    src/factory/archive-writer.test.ts
+    src/factory/dispatch-composition.test.ts
+    src/factory/private-service-composition.test.ts
+    src/factory/protected-command-effects.test.ts
+    src/factory/release-adapters.test.ts
+    src/factory/release-outcome-backoff.test.ts
+    src/factory/release-outcome-delivery.test.ts
+    src/factory/release-s3-publication.test.ts
+    src/factory/release-stops.test.ts
+    src/__tests__/migrate.test.ts
+    tests/postgres/factory-release-stop-migration.test.ts
+    tests/postgres/factory-release-stop-race.test.ts
+    web/src/lib/factory/FactoryRunInspector.component.test.ts
+    web/src/lib/factory/run-format.unit.test.ts
+    packages/@ezcorp/factory-orchestrator (node: bun run test) — also withheld, blocked by the same cap
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 17 file(s) above; continuing with lint.
+[integ/w00 3f4acd1c5] merge: wp/w09e-release-stop ef0868738 into integ/w00 (W09e release stop)

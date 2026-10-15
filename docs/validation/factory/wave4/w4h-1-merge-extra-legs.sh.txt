@@ -1,0 +1,4 @@
+# W4H-1: packages/@ezcorp/ai-kit/test/e2e/quickstart.test.ts is the opt-in live e2e (describe.skipIf without E2E_BASE_URL and E2E_API_KEY):
+# run alone it is 0 pass, 3 skip = VOID by rule, so it is not a unit leg (validator-6 verdict e266e517d7eb9c9c item 5).
+# The diff changes manifest.lock.json: the lock check, as validator-6 item (3) ran it.
+NOTEST=1 leg manifest-lock-check bun scripts/regenerate-manifest-lock.ts --check

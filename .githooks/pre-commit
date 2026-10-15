@@ -7,9 +7,10 @@
 # enforces the same checks either way.
 #
 # The test step resolves staged paths to their test files and runs only those
-# (scripts/lib/hook-lib.sh: run_staged_tests). It SKIPS past
-# EZ_PRECOMMIT_TEST_MAX files rather than blocking — see the note there.
-# EZ_SKIP_HOOK_TESTS=1 skips just the tests, keeping lint.
+# (scripts/lib/hook-lib.sh: run_staged_tests). Above EZ_PRECOMMIT_TEST_MAX
+# files it does not RUN them, but it always names them and, by default,
+# BLOCKS — never a silent skip; see the note there. EZ_SKIP_HOOK_TESTS=1
+# skips just the tests (visibly — the file list still prints), keeping lint.
 #
 # Installed by scripts/setup-git-hooks.sh (`git config core.hooksPath .githooks`,
 # wired into `bun install` postinstall).
@@ -104,11 +105,16 @@ fi
 # unguarded `.` there fails, run_staged_tests is then undefined, and the hook
 # blocks a perfectly clean commit. A tree without the lib has no tests this hook
 # could run anyway, so skipping is the correct behavior, not a fallback.
-if [ "${EZ_SKIP_HOOK_TESTS:-}" != "1" ] && [ -r "$ROOT/scripts/lib/hook-lib.sh" ]; then
+#
+# EZ_SKIP_HOOK_TESTS is NOT checked here (it used to be, which made the
+# over-cap skip doubly silent: no file list AND no "── Tests" header at all).
+# run_staged_tests reads it itself, for both the over-cap and under-cap
+# branches, so there is exactly one skip mechanism and it is always visible.
+if [ -r "$ROOT/scripts/lib/hook-lib.sh" ]; then
   . "$ROOT/scripts/lib/hook-lib.sh"
   echo "── Tests (staged) ─────────────────────────────────"
   if ! run_staged_tests "${STAGED[@]}"; then
-    fail "a unit test covering your staged changes failed" \
+    fail "a unit test covering your staged changes failed, or too many map to this commit" \
       "bun test --timeout 30000 <file>   (or: EZ_SKIP_HOOK_TESTS=1 git commit …)"
   fi
 fi

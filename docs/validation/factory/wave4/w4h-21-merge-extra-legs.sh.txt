@@ -1,0 +1,25 @@
+# W4H-21 (integrator-5; lead's prep order 2026-10-10): the factory Temporal coverage producer fails loudly (scripts/lib/test-totals.sh prints
+# node's cancelled count; scripts/factory-orchestrator-coverage.sh an inner timeout below the job timeout and a tee'd progress line; ci.yml an
+# always() upload step; the registration test). No full combined run (lead's ruling); merge gates BIND (scripts/ outside SOURCE_GLOBS: vacuous).
+tc_leg typecheck-all bun run typecheck
+# The REAL producer exactly as the combined runner's manifest leg runs it (scripts/combined-runner-legs.json factory-temporal:
+# "COV_OUT=coverage-shard bash scripts/factory-orchestrator-coverage.sh") with the pinned Temporal test server. coverage-shard/ is git-ignored;
+# cleared first, its lcov copied into the hold's coverage dir after. BINDING: tests 92 / pass 92 / fail 0 and the LCOV SF set equal to the
+# previous producer output (wave4i-3-lcov-inputs/node.lcov, wave4i-3's node-coverage leg at 6b9ff91ac).
+export FACTORY_TEMPORAL_TEST_SERVER=/tmp/factory-tools/temporal-test-server/temporal-test-server_1.38.0_linux_amd64/temporal-test-server
+rm -rf coverage-shard
+NOTEST=1 leg factory-temporal-producer bash -c 'COV_OUT=coverage-shard bash scripts/factory-orchestrator-coverage.sh'
+mkdir -p $C/orchestrator-producer && cp coverage-shard/lcov.info $C/orchestrator-producer/lcov.info 2>/dev/null || echo "factory-temporal producer: no coverage-shard/lcov.info" >> "$S"
+NOTEST=1 leg factory-temporal-producer-result bash -c 'grep -E "tests [0-9]+|pass [0-9]+|fail [0-9]+|cancelled [0-9]+" "$0" | tail -6
+  grep -qE "tests 92$" "$0" && grep -qE "pass 92$" "$0" && grep -qE "fail 0$" "$0" && ! grep -qE "cancelled [1-9][0-9]*$" "$0" || { echo "BINDING: tests/pass 92, fail 0, cancelled 0 NOT met"; exit 1; }
+  grep "^SF:" "$1" | sort -u > /tmp/w4h21-sf-merge.txt; grep "^SF:" "$2" | sed "s#^SF:.*/\(packages/\)#SF:\1#" | sort -u > /tmp/w4h21-sf-prev.txt
+  sed -i "s#^SF:.*/\(packages/\)#SF:\1#" /tmp/w4h21-sf-merge.txt; sort -u -o /tmp/w4h21-sf-merge.txt /tmp/w4h21-sf-merge.txt
+  echo "LCOV SF: merge $(wc -l < /tmp/w4h21-sf-merge.txt), previous $(wc -l < /tmp/w4h21-sf-prev.txt)"; diff /tmp/w4h21-sf-prev.txt /tmp/w4h21-sf-merge.txt && echo "LCOV SF set equal to the previous producer output"' \
+  "$D/heavy-factory-temporal-producer.log" "$C/orchestrator-producer/lcov.info" /tmp/factory-platform-evidence/wave4i-3-lcov-inputs/node.lcov
+# the other script that sources scripts/lib/test-totals.sh: the web-security producer, as its manifest leg runs it
+rm -rf coverage-shard
+NOTEST=1 leg web-security-producer bash -c 'COV_OUT=coverage-shard bash scripts/security-coverage.sh'
+mkdir -p $C/web-security-producer && cp coverage-shard/lcov.info $C/web-security-producer/lcov.info 2>/dev/null || true; rm -rf coverage-shard
+# ci.yml changed: actionlint 1.7.7 without the labels config at the first parent and the merge (W4H-15's actionlint-compare.sh); the labelled run
+# is hold-w4f.sh's standard actionlint leg for a workflow change.
+NOTEST=1 leg actionlint-compare bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-15-coverage-artifact-names/actionlint-compare.sh "$M"

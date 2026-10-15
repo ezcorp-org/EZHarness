@@ -1,0 +1,15 @@
+W4H-16 report addendum. report.txt (sha256 3c0bda2b7fe57e50...) stays as written, frozen at f80fcda35; no commit since.
+This file records the coordinator's rulings, received after report.txt was written.
+
+Condition 1: ACCEPTED as answered. report.txt lists the equality of the 17 ReferenceDataPackError constructions and the six
+  pinned refusals.
+Condition 2: NO spy test (ruling). dispose() is rm(root, {recursive, force}) (src/factory/reference-data/materials.ts:194-196),
+  so it is idempotent, and a second call changes nothing. The binding contract is "workRoot is empty after a successful run and
+  after each of the six refusals". src/factory/reference-data/pack-journey.test.ts asserts it:
+  `expect(await readdir(...workRoot)).toEqual([])` in the golden case and in every refusal case.
+  Open item O2 in report.txt is therefore closed by ruling.
+Condition 3: ACCEPTED with the difference disclosed. COV_OUT=/tmp/w4h-16-refdata-cov instead of coverage-shard: the same script
+  and the same suites, including tests/postgres/factory-reference-data on this hold's own pg15. Only the output folder differs.
+  There is no re-queue; the integrator's hold runs the literal manifest command.
+Condition 5: ACCEPTED (sets-check bf9d75b4a7695b80).
+The commit-timing disclosure (O1) is accepted.

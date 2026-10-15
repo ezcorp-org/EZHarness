@@ -1,0 +1,52 @@
+CRAP: --changed against origin/main → 72 measured file(s) in diff
+
+CRAP: 403 functions in 72 files (max 30, warn 15)
+
+Worst 15:
+    650.0  cc= 25 cov=  0%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+    380.0  cc= 19 cov=  0%  web/src/lib/factory/run-stream.ts:206 apply
+    210.0  cc= 14 cov=  0%  web/src/hooks.server.ts:903 handleApp
+    210.0  cc= 14 cov=  0%  web/src/routes/api/workflows/[name]/run/+server.ts:58 POST
+    182.0  cc= 13 cov=  0%  web/src/lib/factory/run-stream.ts:20 parseSseFrames
+    156.0  cc= 12 cov=  0%  web/src/lib/factory/run-stream.ts:167 follow
+    132.0  cc= 11 cov=  0%  web/src/hooks.server.ts:679 authenticateWithoutSession
+    110.0  cc= 10 cov=  0%  web/src/lib/factory/model.ts:201 newFactoryNode
+    110.0  cc= 10 cov=  0%  web/src/lib/factory/model.ts:232 compare
+     90.0  cc=  9 cov=  0%  web/src/hooks.server.ts:507 applyOnboardingGate
+     90.0  cc=  9 cov=  0%  web/src/lib/factory/model.ts:60 graphAt
+     90.0  cc=  9 cov=  0%  web/src/lib/factory/run-format.ts:17 streamSummary
+     72.0  cc=  8 cov=  0%  web/src/hooks.server.ts:805 authenticateSessionCookie
+     56.0  cc=  7 cov=  0%  web/src/hooks.server.ts:748 rejectSessionCookie
+     56.0  cc=  7 cov=  0%  web/src/lib/factory/preview.ts:34 rasterType
+
+18 function(s) above the warn line (not failing).
+
+✗ 24 function(s) you touched are over CRAP 30:
+    650.0  cc= 25 cov=  0%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+    380.0  cc= 19 cov=  0%  web/src/lib/factory/run-stream.ts:206 apply
+    210.0  cc= 14 cov=  0%  web/src/hooks.server.ts:903 handleApp
+    210.0  cc= 14 cov=  0%  web/src/routes/api/workflows/[name]/run/+server.ts:58 POST
+    182.0  cc= 13 cov=  0%  web/src/lib/factory/run-stream.ts:20 parseSseFrames
+    156.0  cc= 12 cov=  0%  web/src/lib/factory/run-stream.ts:167 follow
+    132.0  cc= 11 cov=  0%  web/src/hooks.server.ts:679 authenticateWithoutSession
+    110.0  cc= 10 cov=  0%  web/src/lib/factory/model.ts:201 newFactoryNode
+    110.0  cc= 10 cov=  0%  web/src/lib/factory/model.ts:232 compare
+     90.0  cc=  9 cov=  0%  web/src/hooks.server.ts:507 applyOnboardingGate
+     90.0  cc=  9 cov=  0%  web/src/lib/factory/model.ts:60 graphAt
+     90.0  cc=  9 cov=  0%  web/src/lib/factory/run-format.ts:17 streamSummary
+     72.0  cc=  8 cov=  0%  web/src/hooks.server.ts:805 authenticateSessionCookie
+     56.0  cc=  7 cov=  0%  web/src/hooks.server.ts:748 rejectSessionCookie
+     56.0  cc=  7 cov=  0%  web/src/lib/factory/preview.ts:34 rasterType
+     56.0  cc=  7 cov=  0%  web/src/lib/factory/preview.ts:45 planArtifactPreview
+     56.0  cc=  7 cov=  0%  web/src/lib/factory/run-stream.ts:110 run
+     56.0  cc=  7 cov=  0%  web/src/lib/server/mock-llm.ts:321 promptWords
+     56.0  cc=  7 cov=  0%  web/src/lib/server/shutdown.ts:203 shutdown
+     42.0  cc=  6 cov=  0%  web/src/hooks.server.ts:439 applyResponseHeaders
+     42.0  cc=  6 cov=  0%  web/src/hooks.server.ts:637 rejectUnauthenticated
+     42.0  cc=  6 cov=  0%  web/src/lib/factory/client.ts:92 decodeResponse
+     42.0  cc=  6 cov=  0%  web/src/lib/factory/model.ts:77 replaceGraph
+     42.0  cc=  6 cov=  0%  web/src/lib/factory/model.ts:173 connectFactoryNodes
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json
+info only: exit 1

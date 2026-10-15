@@ -1,0 +1,715 @@
+W01g — guest material staging over the broker
+=============================================
+
+Branch      wp/w01g-staging, cut from integ/w00 at 850ffaa54, merged with
+            integ/w00 twice while working (at 3ecba67e3 and bcd97df48).
+Head        b26900275  (clean tree, 0 dirty or untracked files)
+Proof       .worktrees/w01g-proof at 7d7f74289 = merge(wp/w01g-staging b46ae93ab,
+            wp/w09b-assembly 000e71b96) plus one proof-only commit.
+Evidence    /tmp/factory-platform-evidence/w01g/  (INDEX.json holds every file
+            with its byte count and sha256)
+
+
+1. THE REPRODUCTION, FIRST
+--------------------------
+Receipt: reproduction.json  (producing commit 000e71b96, the proof base, before
+any W01g code)
+
+   statusTimeline      queued -> running -> failed
+   terminal            { status: "failed", at: 7 }
+   runner result       cancelled
+   output              null
+   resultDigest        null
+   workspaceCheckpoint null
+   recordFresh         true
+
+That is the failure the package exists to close. Note that W09b's harness
+reports outcome "passed" for this run, because reaching ANY terminal status is
+its own pass criterion; the RUN it describes ended failed. W09b's own record
+says why, in notProven[0]: a COMPLETED result carries a staged output artifact
+and staging one needs the auxiliary material service a minimal guest has no
+mount for.
+
+Two harness-environment failures preceded it and are kept as evidence rather
+than deleted (logs/reproduction-wrapper.log history): the first run had no
+web/build output ("Module not found build/index.js"), the second was missing
+orchestrator-runner.sh from the output directory the harness loads from. Both
+are mine, not the product's.
+
+
+2. WHAT THE GAP ACTUALLY WAS
+----------------------------
+Not one missing function. A missing route.
+
+A sandboxed guest runs on --network=none, so W04's material service — which is
+HTTPS on the execution gateway — is unreachable from inside it. The reverse
+control frame is the only byte path a guest has, and it carried exactly one
+payload, the model request (W01e). On the other side, W09b's supervisor-services.ts
+records in its own header that the transport from a host back to the product is
+undefined and that a guest's broker call therefore refuses by name with
+factory_host_broker_unavailable.
+
+So the work was three things: define the staging frames, answer them on the
+host under the attempt's own verified authority, and carry them from the host
+process that runs the container to the product process that holds the tenant
+database.
+
+
+3. WHAT LANDED, BY COMMIT
+-------------------------
+261b6f645  feat(factory-sdk): type the guest material staging frames
+           FactoryGuestMaterialBegin/Chunk/Seal, an Output promotion frame, one
+           typed response union, two generated JSON schemas, the guest-side
+           client, Bun and Python bounds. A chunk is exactly
+           FACTORY_PAGE_BYTES_LIMIT, so the repository's existing canonical
+           base64 page codec carries it rather than a third encoder; a test
+           asserts the two bounds are equal in both runtimes.
+
+d0d063880  feat(factory): host adapter forwarding guest staging frames to the
+           material service
+           Every frame becomes a call on W04's FactoryAttemptMaterials under the
+           attempt's verified authority. The fourth frame promotes a sealed
+           material to the attempt's candidate output. Twelve named refusals,
+           with an exhaustiveness test derived from artifact-materials.ts's own
+           source.
+
+acd70a45b  feat(factory): the native runner's artifacts, over the same two
+           writers
+           createNativeFactoryArtifacts is the production implementation of
+           NativeFactoryArtifacts, plus guest checkpoint staging.
+
+cc5bb961f  feat(factory): the guest broker route a runner host forwards to
+           The product-side private route and the host-side forwarding client.
+
+bc834e9f1  feat(factory): the staging contract in the Python runtime, with
+           parity
+           factory_materials.py, HostChannel (the Python guest could not emit a
+           reverse request at all), a stage export, and 9 + 22 new conformance
+           fixtures compared verdict by verdict by both parity lanes.
+
+e0f57b446  feat(factory): a host composes its guest broker from a declaration
+6024af5bd  test(factory): the staging broker against real PostgreSQL, and the
+           gate file
+dc6ea66df  test(factory): measure the staged Python distribution and its new
+           module
+f4de47074, b26900275  the two integ/w00 merges
+
+
+4. THE THREE REAL-SERVER PASSES
+-------------------------------
+Receipts: proof-1.json, proof-2.json, proof-3.json, three-passes.json
+Producing commit for all three: b46ae93ab plus one dirty file, the proof-only
+supervisor composition, since committed as 7d7f74289.
+
+Each of the three, on its own fresh product database:
+
+   statusTimeline      queued -> running -> succeeded
+   terminal            { status: "succeeded" }
+   runner result       completed
+   output              sha256:65943bac7c26fa5d... , 82 bytes
+   resultDigest        65943bac7c26fa5d...          (= output.digest minus the
+                                                     namespace, by derivation)
+   workspaceCheckpoint sha256:25ebc78e8942a940..., journalCursor -1
+   restart             the run survives a web-server restart and reads back
+                       succeeded
+   recordFresh         true
+
+Seven frames crossed the host boundary in each pass: begin, chunk, seal and
+output for result.json, then begin, chunk and seal for
+workspace/attempt.json.
+
+STAGED OUTPUT READABLE. The receipts do not stop at "the run succeeded". Each
+pass records, from the product process against the real object store:
+
+  - the sealed material read back through FactoryScopedMaterials:
+      82 bytes, {"message":"staged over the guest broker","schemaVersion":"w01g.staged-output.v1"}
+      50 bytes, {"cursor":-1,"schemaVersion":"w01g.checkpoint.v1"}
+  - the candidate output loaded through FactoryArtifacts.loadInTransaction
+    restricted to kind candidate_output:
+      kind candidate_output, node instance "work", candidate generation 0,
+      content byte-identical to what the guest staged.
+
+NEGATIVE CONTROL. Receipt negative-control.json. Same harness, same host, same
+broker route, only the guest differs: W09b's own cancelling guest stages
+nothing, calls the broker zero times, and the run still ends failed with a
+cancelled result and no output. Unchanged from the reproduction.
+
+
+5. THREE THINGS THE FIRST END-TO-END RUN TAUGHT
+-----------------------------------------------
+Each had already passed a unit test.
+
+A sealed material has TWO digests, and confusing them is silent. The handle
+covers the chunk manifest the scoped reader resolves; the content digest covers
+the bytes. Both are "sha256:" and 64 hex. stageOutput now returns both rather
+than the handle alone, and a promotion names the content — which is what the
+first run caught.
+
+A COMPLETED result cannot name a material. verifyCompletedEvidence loads the
+output as kind candidate_output, bound to the attempt's own node instance and
+generation, and re-parses it as canonical I-JSON. So the promotion reads the
+sealed bytes back through the scoped reader, requires canonical I-JSON through
+artifactJson.parse (the SAME rule applied on the way back out, called rather
+than restated), and stages them through W04's own
+stageCandidateOutputInTransaction, whose coordinate makes a repeat after a lost
+response return the same reference and different bytes conflict. NOTHING IN
+W03's VERIFIER CHANGED.
+
+A completed result also needs a workspace checkpoint whose journalCursor equals
+its own, and an attempt that settled no operation has cursor -1 — which W04's
+FactoryWorkspaceCheckpoints.objectName refuses, because its names are operation
+indexes. The guest names that one workspace/attempt.json and stages a real
+sealed material, so the reference points at bytes rather than at nothing.
+
+
+6. AUTHORITY: WHAT A FRAME CARRIES
+----------------------------------
+Nothing but the attempt token, exactly as ruled.
+
+A frame names an operation id, an operation index, an object name and a
+version. Every scope field — tenant, project, run, attempt, node instance,
+candidate generation — is read from the verified attempt, either from
+factoryRunnerRequestAuthority(request) in process or from the verified attempt
+token on the wire. The material service rechecks the journal's liveness fence
+inside each of its own transactions, so the adapter adds no authority and no
+bypass.
+
+The request digest the journal matches on is the TOKEN-FREE canonical identity,
+so a token reissued on recovery still names the same durable attempt. A test
+asserts that equality directly.
+
+On the wire, two independent facts authorize one frame and neither is the
+frame: the mutual-TLS peer identity says which host may drive attempts, and the
+attempt token says which attempt the frame belongs to. The token travels in the
+request body because the Authorization header already carries the host's own
+service credential and both facts are needed; it is never logged. In the proof,
+the product side names the SUPERVISOR's own certificate identity
+("supervisor-w09b") as its allowed peer — a tenant client certificate on a
+runner host is exactly what C01 and C02 forbid.
+
+Refusals are named, never thrown as transport faults: a refusal turned into an
+error would make "your attempt was superseded" indistinguishable from "the
+product process is down". The vocabulary is invalid_request, unknown_attempt,
+unknown_material, deadline_expired, stale_epoch, oversize, digest_mismatch,
+chunk_out_of_order, sealed, conflict, operation_full,
+output_not_canonical_json, unavailable.
+
+stale_epoch covers the whole liveness fence in one name — run epoch, execution
+epoch, cancellation epoch, reservation generation, grant revision and admitted
+status — because the journal refuses them together in one UPDATE and telling
+them apart would need a second read under authority this adapter does not hold.
+That is documented on the type rather than left to be inferred.
+
+
+7. BOUNDS, AND WHY THEY ARE SMALL
+---------------------------------
+FramedExecution.received counts every byte a guest writes for the LIFE of the
+worker and podman.ts caps the ceiling at min(limits.outputBytes, 1 MiB). It is
+a lifetime budget, not a per-frame one, so chunking buys nothing beyond the
+frame bound and the TOTAL is what has to fit.
+
+   maxChunkBytes   32 KiB   (= FACTORY_PAGE_BYTES_LIMIT, asserted equal in both
+                             runtimes, so one canonical base64 codec carries a
+                             chunk instead of a second encoder per language)
+   maxChunks       64       (C02's own material chunk cap)
+   maxTotalBytes   512 KiB  (683 KiB as base64, inside the 1 MiB lifetime
+                             budget with room for the result frame)
+
+W04's material service still bounds a material at 256 MiB. A runner that
+reaches the gateway over private HTTPS may use all of it; a sandboxed guest has
+only this channel. The difference is the transport, not the contract, and the
+type says so.
+
+
+8. NativeFactoryArtifacts: IMPLEMENTED, NOT REMOVED
+---------------------------------------------------
+The grep, at the base:
+
+   src/factory/runner/native.ts:15   export interface NativeFactoryArtifacts
+   src/factory/runner/native.ts:54     artifacts: NativeFactoryArtifacts;
+   src/factory/runner/native.ts:66   export async function runNativeFactoryRunner
+   src/factory/runner/native.integration.test.ts  (the only callers)
+
+No production implementation and no production caller. It is implemented rather
+than removed because runNativeFactoryRunner is C02's Bun native entrypoint and
+the seam now has exactly one answer on both sides: createNativeFactoryArtifacts
+is built over the same candidate-output writer the guest broker promotes
+through and W04's FactoryWorkspaceCheckpoints. Two implementations here would
+be two answers to "what is a candidate output", and the validators read one.
+
+nativeFactoryOutputValue is shared by the digest the result carries and the
+bytes the artifact stores, so the equality verifyCompletedEvidence checks
+cannot be broken by one side normalizing differently.
+
+
+9. TESTS
+--------
+Per common.md, each new behavior has success, negative authority, concurrent
+calls, lost responses, crash/restart, cancellation/deadline, old generation,
+cross-scope denial and byte corruption.
+
+  guest-material-broker.integration.test.ts (PGlite) and
+  tests/postgres/factory-guest-material-broker.test.ts (real PostgreSQL + real
+  object store), one shared conformance suite, 20 cases:
+    end-to-end stage/seal/promote with both artifacts read back; the scoped
+    reader byte for byte; repeated begin/chunk/seal/promotion writing one chunk
+    row; a host rebuilt mid-upload finishing the same material; four concurrent
+    chunks against one real pool (the case a serial version cannot fail);
+    corrupt bytes at the chunk and at the seal; a chunk past the plan and after
+    the seal; an expired deadline before the database is touched; a moved
+    cancellation epoch, a cancelled status and a moved installation epoch;
+    cancellation landing between two chunks; one attempt reaching for another's
+    material under both operation ids; a promotion naming the wrong version;
+    non-canonical JSON refused as a candidate; frames the shared contract
+    refuses; a host with no material service; delegate routing; the refusal
+    table's exhaustiveness derived from source; the token-free request digest;
+    the native entrypoint's two writers.
+
+  guest-broker-transport.integration.test.ts: the whole byte path over a real
+  private HTTPS listener with mutual TLS — stage and promote across the
+  boundary, a refusal crossing as a refusal, a foreign certificate (403), an
+  unverifiable token (401), four malformed bodies (400), wrong path (404),
+  wrong method (405), oversize (413), a lying product answer, a garbled
+  answer, and the declared client resolving after the host bound.
+
+  packages/@ezcorp/factory-sdk/src/guest-material-frames.test.ts and
+  guest-materials.test.ts: the frame contract and the guest client against a
+  host double that reassembles what it is sent and refuses a seal it cannot
+  account for.
+
+  src/factory/runner/python/tests/test_factory_guest_material.py: the Python
+  half, both halves of the channel, 251 tests green in the project.
+
+  Parity: 14 accepted and 46 rejected conformance fixtures, compared code for
+  code by the host-process lane and by the isolated-container lane.
+
+COVERAGE. 100% of every new file, and both gates green over the merged lcov
+with BASE_REF=integ/w00:
+  packages/@ezcorp/factory-sdk/src/guest-materials.ts      100 / 100
+  src/factory/runner/attempt-authority.ts                  100 / 100
+  src/factory/runner/guest-material-broker.ts              100 / 100
+  src/factory/runner/guest-broker-service.ts               100 / 100
+  src/factory/runner/guest-broker-client.ts                100 / 100
+  src/factory/runner/python/factory_materials.py           measured by the
+                                                           Python lane
+Thresholds registered for each. No EXCLUDES, no lowered threshold, no skip.
+
+The first coverage-gate run FAILED on two real gaps and both were fixed rather
+than excluded: factory_materials.py needed the Python coverage lane in the leg
+set (the bun legs cannot see a .py file at all), and python-guest.ts had no
+test at all, so adding two generated schemas to its staged set changed a file
+nothing measured.
+
+
+10. THE FINAL SWEEP, AT b26900275, CLEAN TREE
+---------------------------------------------
+All receipts in /tmp/factory-platform-evidence/w01g/receipts/ with commit,
+command, exit code and timestamps.
+
+   sdk-build               0
+   typecheck               0   (backend, tests, web/e2e, mypy --strict x2)
+   lint                    0   (biome, 5351 files)
+   boundaries              0
+   gate-integrity          0
+   postgres-registration   0
+   schema-generate         0
+   schema-drift            0   (git diff --exit-code after regeneration)
+   python-lint             0
+   python-typecheck        0
+   python-test             0
+   coverage-sdk            0
+   coverage-runner         0
+   coverage-python         0
+   coverage-postgres       0   (real PostgreSQL + real S3, under flock --close)
+   coverage-merge          0
+   new-file-coverage       0
+   patch-coverage          0
+   podman-python-guest     0   (the image rebuilt with the two new schemas)
+   podman-guest-model      0
+   podman-attempt-runtime  0
+
+Every heavy producer ran under flock --close /tmp/ezcorp-validation-heavy.lock
+with an explicit timeout. No shared store was created, recreated, restarted or
+reconfigured; the proof verifies both SeaweedFS tiers read-only through
+check-shared-store.ts and refuses to run if either is unreachable.
+
+
+11. THE ONE THING THIS BRANCH DOES NOT CARRY, AND THE INTERFACE QUESTION
+------------------------------------------------------------------------
+The composition that MOUNTS the route in a deployment.
+
+The route handler, the material adapter, the forwarding client and the declared
+client are product code on wp/w01g-staging with tests. The two mounting points
+are W09's surfaces and this branch does not touch either:
+
+  HOST SIDE. src/factory/runner/supervisor-process.ts,
+  startFactoryConfiguredHostServices. W09b's supervisor-services.ts already
+  says "A deployment that grows that route supplies its own broker through
+  FactoryHostServiceOptions", and that is exactly the seam. RECOMMENDED SHAPE:
+  an optional services.guestBroker section in the supervisor configuration
+  document — { baseUrl, serverName?, tls: { caPath, certificatePath,
+  privateKeyPath, serviceTokenPath } }, the same shape services.pool already
+  has — passed to createFactoryGuestBrokerClient and handed in as broker.
+  factoryHostBrokerUnavailable stays the default when it is absent.
+
+  PRODUCT SIDE. The listener set the product runtime composes
+  (installationCollaborators in installation-startup.ts). RECOMMENDED SHAPE: a
+  guestBroker section in the startup document giving hostname, port,
+  allowedPeers (the HOST identities, not the tenant) and TLS paths; the
+  listener is startFactoryPrivateHttps over
+  createFactoryGuestBrokerRouteHandler, with the material services built from
+  the application the runtime already composes.
+
+WHAT THE PROOF DID INSTEAD, stated in every receipt rather than implied:
+
+  - The host half is two lines in supervisor-process.ts on the proof branch
+    only (commit 7d7f74289). It reads the declaration from beside the host key
+    rather than from the configuration document, because W09b's harness writes
+    that document and is reused unchanged. createFactoryDeclaredGuestBrokerClient
+    resolves lazily for that reason and is on the deliverable branch with tests.
+
+  - The product half ran in the HARNESS process against the real product
+    database, composed through the product's own createFactoryApplication so
+    the journal carries the real FactoryRuns.authorizeAttemptInTransaction
+    rather than a stub. guestBrokerListener.composedBy in every receipt says
+    so. The route handler, the adapter and the client are product code under
+    proof; only the process that bound the listener is the harness's.
+
+This is the W09c composition round the handoff already plans. Nothing about the
+contract, the authority or the bytes changes with it; only where the two
+listeners are constructed.
+
+
+12. HARNESS REUSE
+-----------------
+W09b's harness is reused, not copied. full-stack-proof.ts, check-shared-store.ts,
+gateway-listener.ts, tls-terminator.mjs and orchestrator-runner.sh are SYMLINKS
+into /tmp/factory-platform-evidence/w09b/repro/. W09b's worktree was never
+edited.
+
+Two files in my own directory differ: guest-package.ts (imports W09b's
+installFactoryGuestPackage unchanged and re-expresses only the build, because
+W09b's buildFactoryGuest takes no source argument) and guest-broker-listener.ts
+(the product-side route). W01G_GUEST=cancelled selects W09b's own guest, so the
+reproduction and the proof run through one harness and differ in the guest
+alone.
+
+Runnable legs:
+   repro/one-run.sh          one pass; W01G_GUEST and W01G_LABEL select it
+   repro/run-three.sh        three passes plus the negative control
+   repro/final-sweep.sh      the static gates
+   repro/coverage-legs.sh    the coverage legs and both gates
+   repro/podman-suites.sh    the container suites
+   repro/guest-build-probe.ts  one guest build with its diagnostics printed
+
+
+13. OPEN
+--------
+G13 in the gate file: the composition above, for W09c.
+
+Nothing else. Every other checklist item in the brief has a receipt.
+
+
+=====================================================================
+ROUND 2 — 2026-09-22 (resumed worker)
+=====================================================================
+
+Final head   70638290b  (clean tree). Code identical to 179674cbf:
+             `git diff --quiet 179674cbf 70638290b -- src packages scripts web tests`
+             exits 0. The last merge brought only docs/validation files.
+Receipts     every real-server, coverage, PostgreSQL and Podman receipt below
+             was produced at 179674cbf with 0 dirty files; the static sweep
+             receipts at 70638290b.
+
+R2.1 WHAT WAS WRONG AT THE START
+The handoff said integ/w00 was merged at 260855e57 with W09b. It was not:
+`git merge-base HEAD integ/w00` was bcd97df48, and supervisor-process.ts did
+not exist on the branch. Merged at 5c9729734 (clean, no conflicts).
+
+R2.2 COMMITS THIS ROUND
+  5c9729734  Merge branch 'integ/w00' into wp/w01g-staging  (brings W09b)
+  c3dc11cde  refactor(factory-sdk): route a staging frame by name from the SDK
+  994deebe8  feat(factory): a supervisor forwards staging frames from
+             services.guestBroker
+  179674cbf  docs(w01g): the host mount is a gate; the product mount stays open
+  71a94f56a  docs(w01g): round 2 receipts; host mount landed, product mount open
+  70638290b  Merge branch 'integ/w00' into wp/w01g-staging  (docs only)
+
+R2.3 THE HOST MOUNT IS NOW PRODUCT CODE (old G13, host half)
+The proof no longer needs the proof-only commit 7d7f74289. The supervisor
+document has an optional `services.guestBroker` section with the pool
+section's exact shape (baseUrl, serviceTokenPath, tls{caPath, certificatePath,
+privateKeyPath}). One validator checks both sections. The host builds the
+forwarding client before its listener binds, so a missing credential degrades
+the host by name. A model request goes to `factoryHostBrokerUnavailable` as
+the delegate, so its refusal is unchanged. Without the section nothing changes.
+
+Removed: createFactoryDeclaredGuestBrokerClient (the file beside the host key).
+It existed only for the proof harness. Grep at the final head finds no use of
+it, of `guest-broker.json`, or of the old `isFactoryGuestMaterialPayload`.
+
+SDK: `isFactoryGuestMaterialFrame` now sits beside the request validator and
+uses the SDK's own four version constants. The product broker had restated
+them as literals, and the host had to load artifacts.ts and
+artifact-materials.ts to route a frame. It now loads no product module for it.
+
+Ownership: supervisor-process.ts is in src/factory/runner/, which the freeze
+gives to Terra runtime (W01). The change is additive and optional. If the
+coordinator reads it as W09's file, 994deebe8 is one self-contained commit.
+
+R2.4 HOW THE HARNESS USES IT (W09b's harness still unedited)
+  repro/bun-host.sh             W09B_BUN. Passes every command to the pinned
+                                bun, except that before the supervisor starts
+                                it runs configure-guest-broker.ts on the
+                                document the harness wrote.
+  repro/configure-guest-broker.ts  adds services.guestBroker (port from
+                                W01G_BROKER_PORT, the supervisor's own cert and
+                                token) and writes guest-broker-host.json.
+  repro/guest-broker-listener.ts   binds W01G_BROKER_PORT; no declaration file.
+  repro/one-run.sh              default REPO is now w01g-staging; picks the
+                                port; refuses by name if
+                                EZCORP_FACTORY_STORAGE_SECRETS_DIR is empty;
+                                receipt gains guestBrokerHost.
+  repro/run-three.sh            rebuilds web/ first.
+  repro/coverage-legs.sh        runner leg adds supervisor-process.test.ts and
+                                supervisor-services.test.ts; postgres leg adds
+                                factory-artifact-materials.test.ts.
+  Old copies: repro/history/*.pre-r2.
+
+R2.5 HARNESS FAILURE KEPT AS EVIDENCE
+repro/history/proof-trial-r2-harness-env-failure.json: my first trial ran
+without EZCORP_FACTORY_STORAGE_SECRETS_DIR and failed with ENOENT copying
+'ordinary.json'. Mine, not the product's. one-run.sh now refuses by name.
+The rerun, proof-trial-r2.json, passed.
+
+R2.6 THE THREE PASSES AND THE CONTROL (producing commit 179674cbf, dirty 0)
+Receipts: proof-1.json, proof-2.json, proof-3.json, negative-control.json,
+three-passes.json. Log: logs/run-three-r2.log.
+
+  pass      timeline                    terminal   runner result  output
+  proof-1   queued running succeeded    succeeded  completed      sha256:65943bac7c26...
+  proof-2   queued running succeeded    succeeded  completed      sha256:65943bac7c26...
+  proof-3   queued running succeeded    succeeded  completed      sha256:65943bac7c26...
+  control   queued running failed       failed     cancelled      none
+
+Each pass: fresh product database, recordFresh true, restart reads back
+succeeded, guestBrokerHost.configuredIn = "services.guestBroker", 7 frames
+served (begin/chunk/seal/output for result.json, begin/chunk/seal for
+workspace/attempt.json), no readBackError. The scoped reader returned 82 bytes
+and the candidate output loaded as kind candidate_output with text
+{"message":"staged over the guest broker","schemaVersion":"w01g.staged-output.v1"}.
+Control: same host with the section configured, 0 frames, run ends failed.
+
+R2.7 SWEEP (receipts/<leg>.json and .log)
+  at 179674cbf (under flock --close):
+    coverage-sdk        0   36 pass / 0 fail
+    coverage-runner     0   107 pass / 0 fail
+    coverage-python     0
+    coverage-postgres   0   49 pass / 0 fail  (real PostgreSQL + real S3)
+    coverage-merge      0
+    new-file-coverage   0   6 new source files gated
+    patch-coverage      0   all changed executable lines covered, 14 files
+    podman-python-guest 0
+    podman-guest-model  0
+    podman-attempt-runtime 0
+  at 70638290b (clean): sdk-build, typecheck, lint, boundaries, gate-integrity,
+    postgres-registration, schema-generate, schema-drift, python-lint,
+    python-typecheck, python-test: all 0.
+
+No shared store was started, restarted or reconfigured. Stores were observed
+read-only (podman ps; check-shared-store.ts).
+
+R2.8 GATES
+G0 to G13 ticked in tasks/factory/w01g-GATES.md. The new G13 is the host
+mount. G14 is open (below). No gate was weakened, no threshold lowered.
+
+R2.9 OPEN: G14, THE PRODUCT MOUNT
+The listener that binds createFactoryGuestBrokerRouteHandler still runs in the
+harness process against the real product database (receipt field
+guestBrokerListener.composedBy). It belongs in the product composition root
+(src/factory/application.ts, src/factory/boot.ts, web factory-boot), which the
+freeze gives to the coordinator. Recommended shape: a `guestBroker` section in
+the startup document {hostname, port, allowedPeers (HOST identities), tls
+paths}, bound with startFactoryPrivateHttps over
+createFactoryGuestBrokerRouteHandler, with the material services built from
+the application the runtime already composes. repro/guest-broker-listener.ts
+is a working reference for the wiring.
+
+
+=====================================================================
+ROUND 3 — 2026-09-22/23 (product mount, delegated by the coordinator)
+=====================================================================
+
+Final head   f00605f72 (clean). Code identical to 23965e397:
+             `git diff --quiet 23965e397 f00605f72 -- src packages scripts web tests`
+             exits 0. integ/w00 merged at 23965e397 (docs only); a second
+             merge before the sweep was already up to date.
+
+R3.1 COMMITS
+  acf86c9dc  refactor(factory): one private path reader
+  a7d9fc5ee  feat(factory): the product binds the guest-broker route
+  23965e397  Merge branch 'integ/w00' into wp/w01g-staging (docs only)
+  f00605f72  docs(w01g): the product binds the guest-broker route; G14 closed
+
+R3.2 WHAT CHANGED
+- Startup document: optional `guestBroker` {hostname, port, allowedPeers
+  (host identities), tls}. All parts or none. It needs
+  hostLaunch.attemptTokenSecretPath, because the route verifies attempt
+  tokens with the dispatcher's own secret (loadFactoryAttemptTokenSecret,
+  reused). allowedPeers is non-empty, at most 64, unique identities.
+- src/factory/guest-broker-composition.ts (new, 100% threshold):
+  composeFactoryGuestBroker binds startFactoryPrivateHttps over
+  createFactoryGuestBrokerRouteHandler, with maxBodyBytes set to the
+  route's own bound. Readiness is {state:"bound"},
+  {state:"unconfigured", code:"factory_guest_broker_unconfigured"}, or
+  {state:"unavailable", code}. A failure is reported under role
+  "guest-broker" and never stops the rest of the factory.
+- installation-startup.ts: its own "W01g: the guest-broker route" region
+  beside the private service. It adds the listener to the runtime's
+  listeners, so it stops with them. runtime-composition.ts adds
+  guestBrokerReadiness to /api/ready detail.factory.guestBroker.
+- Host: createFactoryConfiguredGuestBroker(undefined) refuses a staging
+  frame with factory_host_broker_unavailable and a message naming
+  services.guestBroker. A model request keeps the general refusal.
+- DRY: createFactoryGuestMaterialServices is the one builder of the
+  broker's services. readPrivatePath and readPrivateText in private-files.ts
+  replace the copies in the supervisor, the private service composition,
+  and the attempt-token loader.
+
+R3.3 HARNESS (W09b's harness still unedited)
+- The harness binds NOTHING. guest-broker-listener.ts was retired
+  (repro/history/guest-broker-listener.ts.pre-r3).
+- bun-host.sh now also adds `guestBroker` to factory-startup.json before
+  every web start, including the restart. configure-guest-broker.ts has two
+  modes: supervisor and startup.
+- guest-broker-observer.ts is read-only. It polls the product database and
+  reads each sealed material through FactoryScopedMaterials and each
+  candidate output through FactoryArtifacts.load(["candidate_output"]).
+- The receipt gains guestBrokerReadiness (from /api/ready), guestBrokerProduct,
+  guestBrokerHost, guestBrokerObserver, guestBrokerObserved, and
+  guestBrokerObserverError.
+
+R3.4 PASSES (23965e397, 0 dirty, fresh product database each)
+  pass     timeline                  terminal  result     output             readiness
+  proof-1  queued running succeeded  succeeded completed  sha256:65943bac7c  bound
+  proof-2  queued running succeeded  succeeded completed  sha256:65943bac7c  bound
+  proof-3  queued running succeeded  succeeded completed  sha256:65943bac7c  bound
+  control  queued running failed     failed    cancelled  none               bound
+Each pass: recordFresh true; the restart reads back succeeded; the observer
+read result.json (82 bytes) and workspace/attempt.json (50 bytes) through the
+scoped reader, and the candidate_output (node "work", generation 0) with the
+staged text; no readBackError and no observer error. boundBy = "the web
+server, from guestBroker in its startup document".
+Trial first: proof-trial-r3.json at a7d9fc5ee, passed.
+
+R3.5 SWEEP
+  at 23965e397 under flock --close: coverage-sdk 36/0, coverage-runner 252/0
+  (now also covers startup-config, installation-startup, runtime-composition,
+  attempt-composition, private-service-composition), coverage-python 0,
+  coverage-postgres 49/0; new-file coverage passed with 7 new source files
+  gated; patch coverage passed (all changed lines covered, 21 files).
+  podman-python-guest, podman-guest-model, podman-attempt-runtime: all 0.
+  at f00605f72 (clean): sdk-build, typecheck, lint, boundaries,
+  gate-integrity, postgres-registration, schema-generate, schema-drift,
+  python lint/typecheck/test: all 0.
+
+R3.6 GATES
+G0 to G14 ticked. Nothing open. No gate weakened, no threshold lowered.
+
+
+=====================================================================
+ROUND 4 — 2026-09-23 (validator ACCEPT-WITH-FIXES at f00605f72)
+=====================================================================
+
+Code head    a805171a5 (clean). Final head f0aafe3a0 (docs only on top).
+Worktree     /home/dev/work/EZCorp/EZHarness/.worktrees/w01g-staging (moved
+             by the coordinator; the harness scripts follow it).
+
+R4.1 COMMITS
+  002aa6214  Merge branch 'integ/w00' (staging 578692e8a; tasks files only)
+  82162aff4  fix(factory): name an unknown attempt and a store fault, not a stale epoch
+  12a1ad076  feat(factory): bind the forwarding host to the attempt's lease, and verify its token
+  76b36e2a6  docs(w01g): round 4 gates; F5 recorded as uncomposed; proof gates reopened
+  b6fee475a  chore(factory-sdk): regenerate the staging response schema
+  04911b7ce  test(factory): the journal names a never-admitted attempt apart from a moved fence
+  f2d0991eb  Merge branch 'integ/w00' (brings W09d; conflicts resolved by union)
+  a805171a5  test(factory): two supervisor bind tests stop on the fact they assert
+
+R4.2 F1  executions.ts throws FactoryAttemptLivenessError from the fence:
+  factory_attempt_unknown (no attempt, run or project in the scope) or
+  factory_attempt_not_live (it exists; a fence moved, or the deadline passed).
+  One helper, requireAttempt, serves both the write and the read fence. The
+  broker maps that, FactoryRunLifecycleError codes and FactoryGrantError codes
+  by name, and everything untyped to `unavailable`. Tests:
+  executions.integration.test.ts (direct, both paths) and the shared suite (a
+  never-admitted attempt and an unknown run give unknown_attempt; a moved fence
+  gives stale_epoch; an object-store fault gives unavailable, then the same
+  frames succeed on resend). The SDK documents what each code means.
+
+R4.3 F2  G3 names a real case for each refusal: conflict (a begin that
+  contradicts its plan), operation_full (the 257th material in one operation),
+  unknown_attempt (the real journal), and unavailable (a store fault).
+
+R4.4 F3  The guest-broker route proves the host twice (mTLS identity in
+  `hosts`, and a bearer token that verifies with subject = that identity and
+  scope factory:guest-broker), then reads the attempt's launch record through
+  readFactoryAttemptLaunchFacts and refuses 403 forbidden_host unless that host
+  holds the lease. The startup section is now hosts (identity to host id) plus
+  tokens {issuer, audience, publicKeyPaths}. The private service and the route
+  share factoryServiceTokenVerifier. Tests: no bearer, a foreign key, another
+  subject, no scope, expired (401 each); a lease on another host, and no launch
+  record (403 forbidden_host each); the right host (200); and in the composed
+  route, a real launch row, then the same row moved to another host (403).
+
+R4.5 F5  Per the coordinator's ruling, native.ts is unchanged and recorded as
+  uncomposed in G6 with the grep (only native.ts and executor.ts): C02 line 71
+  and plan section 5 line 156 name it; removal needs the maintainer-only gate
+  label; a native runner in the runner image is a stage-2c item owned by W01
+  for W18's final gate.
+  F6 (observer late query error): the observer stops polling after its first
+  good poll once the database is gone; every receipt shows no observer error.
+
+R4.6 INCIDENTS, KEPT AS EVIDENCE
+  - 03:58: every pass failed in setup: postgres.env and /tmp/factory-tools
+    had been removed by the daily tmpfiles clean (log
+    logs/run-three-r4-harness-env-failure.log). The coordinator restored
+    them. The summary then read stale round-3 receipts; one-run.sh now deletes
+    its own receipt before it starts.
+  - The worktree moved. Its Python venvs held the old absolute path; I
+    recreated them and reinstalled node_modules cleanly.
+  - 04:3x: the host disk was full, and the ordinary store refused writes
+    ("volume N is not fully writable", percent_free 0.59). Publish failed with
+    HTTP 500 (AWS SDK DOMParser on the S3 error body).
+    receipts/store-unwritable-r4.json and
+    repro/history/*-r4-store-unwritable.json record it. The coordinator
+    freed space; I removed the w01g-proof worktree (about 2.5 GB) and old
+    coverage directories. I found no guest image I could attribute to myself.
+  - Patch gate: Bun marked executions.ts:568 uncovered although a stack trace
+    proved it ran. The cause was that lockTerminalCompletion, next to it, never
+    ran in the measured legs, and its unexecuted range bled back one line. The
+    runner leg now includes factory-run-lifecycle.test.ts. The PostgreSQL leg
+    now includes factory-executions.test.ts, because the journal changed.
+  - Flake: supervisor-process.test.ts failed 1 of 5 combined runs (two bind
+    tests shared a heartbeat count between loops). Fixed in a805171a5; 6 of 6
+    runs pass.
+
+R4.7 PROOF AND SWEEP (a805171a5, 0 dirty)
+  pass     timeline                  result     output             readiness
+  proof-1  queued running succeeded  completed  sha256:65943bac7c  bound
+  proof-2  queued running succeeded  completed  sha256:65943bac7c  bound
+  proof-3  queued running succeeded  completed  sha256:65943bac7c  bound
+  control  queued running failed     cancelled  none               bound
+  Each pass had a fresh database, a web restart that read back succeeded, the
+  scoped reader reading 82 and 50 bytes, the candidate_output loaded, and no
+  observer error. Hosts map {supervisor-w09b: host-w09b}; the host token was
+  minted by configure-guest-broker.ts.
+  coverage-sdk 36/0, coverage-runner 337/0, coverage-python 0,
+  coverage-postgres 59/0 (real PostgreSQL + S3); new-file coverage passed with
+  7 new source files gated; patch coverage passed (all changed lines covered, 22 files).
+  podman-python-guest, podman-guest-model, podman-attempt-runtime: all 0 at a805171a5.
+  Final head f00605f72 -> f0aafe3a0 (docs: proof gates closed). integ/w00 merge: already up to
+  date. Code identical to a805171a5. Static sweep at f0aafe3a0 (clean): sdk-build, typecheck,
+  lint, boundaries, gate-integrity, postgres-registration, schema-generate, schema-drift, python
+  lint/typecheck/test: all 0.
+
+R4.8 GATES  G0 to G14 ticked. G6 records F5 as uncomposed per the ruling. No gate weakened.

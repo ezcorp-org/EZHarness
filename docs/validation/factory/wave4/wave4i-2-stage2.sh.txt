@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# stage2.sh <requeue-n|0>: the after-runner re-run into after-2 (the same call as wave4f/run.sh; skipped if after-2.exit exists),
+# then, if n > 0, manifest-cov-extras re-queued alone behind it (the same call as the chain; fresh heavy.exit; gate-requeue-<n>.log).
+set -u
+E=/tmp/factory-platform-evidence; O=$E/w00/wave4i-2; P=$O/producers; X=$P/manifest-cov-extras; L=$P/trigger.log; n=${1:?n}
+if [ -e $O/after-2.exit ]; then echo "stage2: after-2.exit exists ($(cat $O/after-2.exit)); after-2 not started again" >> $L
+else
+  ( cd /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration || exit 2
+    unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE DATABASE_URL FACTORY_TEST_POSTGRES_URL
+    export RUN=wave4i-2; rm -rf $O/after-2
+    GATED_FLOCK_EXIT_FILE=$O/after-2.exit bash $E/w00/gated-flock.sh after-runner $O/after-2-gate.log timeout 23400 env AFTER_OUT=$O/after-2 $E/w00/wave4f/after-runner.sh > $O/after-2-runner.log 2>&1 )
+  echo "stage2: after-2 exit=$(cat $O/after-2.exit 2>/dev/null || echo none) end $(date -u +%FT%TZ)" >> $L
+fi
+if [ "$n" -gt 0 ]; then
+  echo "stage2: extras re-queue $n start $(date -u +%FT%TZ)" >> $L
+  GATED_FLOCK_START_MEM_GIB=15 GATED_FLOCK_EXIT_FILE=$X/heavy.exit bash $E/w00/gated-flock.sh manifest-cov-extras $X/gate-requeue-$n.log bash $P/producer-leg.sh manifest-cov-extras
+  echo "stage2: extras re-queue $n exit=$? end $(date -u +%FT%TZ)" >> $L
+fi

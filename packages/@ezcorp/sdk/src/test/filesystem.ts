@@ -33,6 +33,7 @@
 import { tmpdir } from "node:os";
 import {
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   writeFileSync,
   readdirSync,
@@ -40,8 +41,10 @@ import {
   existsSync,
   rmSync,
 } from "node:fs";
-import { spyOn } from "bun:test";
+import { join } from "node:path";
+import { onTestFinished, spyOn } from "bun:test";
 import { getChannel, JsonRpcError } from "../runtime";
+import { withoutGitContext } from "../git";
 import type { JsonRpcRequest, JsonRpcResponse } from "../types";
 
 /** Minimal structural view of `ExtensionProcess` — avoids a value import. */
@@ -235,12 +238,19 @@ export function wireFsHandler(
  * call the extension's vault/store functions directly.
  *
  * Sets `EZCORP_FS_ALLOWED=1` (satisfies the SDK pre-flight; the stub IS the
- * host). Must be RE-CALLED in `beforeEach`: the shared `src/__tests__/preload.ts`
- * runs `__resetChannelForTests()` after every test, dropping the singleton.
- * Non-fs methods throw so unrelated RPC usage stays loud.
+ * host) for the calling test only: the value the process had comes back when
+ * that test finishes, so a later test or file in the same process never runs
+ * with a grant it did not ask for. Must be RE-CALLED in `beforeEach`: the shared
+ * `src/__tests__/preload.ts` runs `__resetChannelForTests()` after every test,
+ * dropping the singleton. Non-fs methods throw so unrelated RPC usage stays loud.
  */
 export function installFsChannelStub(fsRoot: string): void {
+  const granted = process.env.EZCORP_FS_ALLOWED;
   process.env.EZCORP_FS_ALLOWED = "1";
+  onTestFinished(() => {
+    if (granted === undefined) delete process.env.EZCORP_FS_ALLOWED;
+    else process.env.EZCORP_FS_ALLOWED = granted;
+  });
   const ch = getChannel();
   spyOn(ch, "request").mockImplementation((async (method: string, params: unknown): Promise<unknown> => {
     if (!method.startsWith("ezcorp/fs.")) {
@@ -253,4 +263,81 @@ export function installFsChannelStub(fsRoot: string): void {
       throw new JsonRpcError(err.code, err.message);
     }
   }) as ReturnType<typeof getChannel>["request"]);
+}
+
+/**
+ * Make `dir` a git repository root as `findProjectRoot` reads it: a `.git`
+ * directory holding `HEAD`. A bare empty `.git` directory is not a
+ * repository and no longer anchors a project root.
+ */
+export function markGitRepository(dir: string): void {
+  mkdirSync(`${dir}/.git`, { recursive: true });
+  writeFileSync(`${dir}/.git/HEAD`, "ref: refs/heads/main\n");
+}
+
+/**
+ * `env` with every `GIT_*` variable removed and `home` as `HOME`, with
+ * `GIT_CONFIG_NOSYSTEM=1` and no `XDG_CONFIG_HOME`. A git subprocess run with
+ * this reads neither the caller's repository context (a git hook exports
+ * `GIT_DIR` and friends, which would make the command act on the hook's
+ * repository instead of discovering one from `cwd`), nor the real user's
+ * global config, nor the host's system config. Layers this test-specific
+ * full isolation (a scratch `HOME`, so no real identity/config is ever
+ * visible — needed here because a test may WRITE, e.g. `git init`/`git
+ * config`) on top of `withoutGitContext` (`../git`), the one production
+ * definition of the repository-redirection defense this and
+ * `src/__tests__/helpers/scratch-git.ts` both delegate to.
+ */
+export function isolatedGitEnv(
+  home: string,
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string> {
+  const out = withoutGitContext(env);
+  delete out.XDG_CONFIG_HOME;
+  out.HOME = home;
+  out.GIT_CONFIG_NOSYSTEM = "1";
+  return out;
+}
+
+/**
+ * Run git in `cwd` fully isolated (see {@link isolatedGitEnv}). `home`
+ * defaults to a fresh scratch directory per call, so a caller that does not
+ * need to inspect or reuse it need not create one — and, since this
+ * function created it, it also removes it when the call returns (L2, W18
+ * hygiene item C: an earlier default-parameter `home: string =
+ * mkdtempSync(...)` left one directory behind per call with no `home`
+ * argument, forever). A caller-supplied `home` is never removed here — it
+ * outlives this call by design (inspected or reused afterward), so cleanup
+ * stays the caller's own responsibility.
+ */
+export function gitInDirectory(
+  cwd: string,
+  args: string[],
+  home?: string,
+): { exitCode: number; stdout: string } {
+  const ownHome = home === undefined;
+  const resolvedHome = home ?? mkdtempSync(join(tmpdir(), "gitInDirectory-"));
+  try {
+    const env = isolatedGitEnv(resolvedHome);
+    const git = Bun.spawnSync(["git", ...args], { cwd, env, stdout: "pipe", stderr: "ignore" });
+    return { exitCode: git.exitCode, stdout: git.stdout.toString().trim() };
+  } finally {
+    if (ownHome) rmSync(resolvedHome, { recursive: true, force: true });
+  }
+}
+
+/** True when git itself finds no repository enclosing `dir`. */
+export function outsideAnyGitRepository(dir: string): boolean {
+  return gitInDirectory(dir, ["rev-parse", "--git-dir"]).exitCode !== 0;
+}
+
+/** Run `fn` with `dir` as the working directory, restoring the previous one afterwards. */
+export async function runInDirectory<T>(dir: string, fn: () => Promise<T>): Promise<T> {
+  const previous = process.cwd();
+  process.chdir(dir);
+  try {
+    return await fn();
+  } finally {
+    process.chdir(previous);
+  }
 }

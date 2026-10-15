@@ -1,0 +1,109 @@
+{
+  "package": "w01b",
+  "round": 2,
+  "verdict": "ACCEPT-WITH-FIXES",
+  "validated_head": "42b9e8c348723e88602a3f4d5f0e1cf3a499e557",
+  "first_round_validated_head": "516d4a8d4d0533feaad08195693361a9f934da74",
+  "delta_commit": "42b9e8c348723e88602a3f4d5f0e1cf3a499e557",
+  "delta_commit_subject": "fix(factory): rejoin a claimed attempt instead of abandoning it",
+  "branch": "wp/w01b-attempt-dispatch",
+  "current_integ_w00_tip": "625841ae2d821d6c4bfcd0d6925feb4e20499c53",
+  "validation_worktree": "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w01-runtime (the assigned worktree, already on branch wp/w01b-attempt-dispatch at the target head; no isolated worktree created this round)",
+  "tree_state": "clean (git status --porcelain empty) at validated_head before and after validation; only gitignored coverage/lcov.info was written",
+  "delta_reviewed": "git show 42b9e8c34 (4 files changed: src/factory/host-launch-transport.integration.test.ts +48/-4 net incl. one new test, src/factory/runner/remote-attempt-runtime.ts +32 (new reconnect() private method plus one-line dispatch change), tasks/factory/w01b-GATES.md (provenance line + G4 evidence sentence), tasks/lessons.md (+2 appended lines))",
+  "commits_verified_on_branch": [
+    "119e4000e00bd758efc9974c15a1634b7c41256b feat(factory): compose the attempt-dispatch driver W09 holds by name",
+    "69a025e50c8412a77b7310659170c4807629f4ef Merge branch 'integ/w00' into wp/w01b-attempt-dispatch",
+    "009b96fc9bbeedec160fe9c4228c5aeac9f0d2bb feat(factory): serve the host launch protocol over the private mutual-TLS service",
+    "7b4e9db0f7bacf6be3f30dbd22e155d6e29c3dce test(factory): prove a queued attempt runs in a real guest through the supervisor",
+    "516d4a8d4d0533feaad08195693361a9f934da74 feat(factory): prove the attempt-dispatch path end to end on both engines",
+    "42b9e8c348723e88602a3f4d5f0e1cf3a499e557 fix(factory): rejoin a claimed attempt instead of abandoning it"
+  ],
+  "prior_findings_disposition": [
+    {
+      "id": "F1",
+      "round1_severity": "moderate",
+      "status": "CLOSED",
+      "evidence": "src/factory/runner/remote-attempt-runtime.ts:85-103 adds a private reconnect() called from open() (line 39) whenever claimStart reports the row already launching/launched. It reconnects over the same transport.attach() path the in-process runtime's analogous logic uses, mints a fresh attempt token, and on a still-live host (attach disposition 'attached') collects the in-flight result via the identical live-guest map the original launch registered, recording it durably rather than throwing. New test 'a gateway that restarts mid-launch rejoins the running attempt instead of launching again' (host-launch-transport.integration.test.ts:120-165) drives this over the real mutual-TLS transport with two independently constructed FactoryRemoteAttemptRuntime instances sharing one store, and asserts runner.starts===1, runner.invocations===1, runner.attaches===0 across both gateways, plus store.terminalResult resolving to the completed result. Confirmed non-vacuous: read the pre-fix code at 516d4a8d4 (open()'s !claim.claimed branch returned settled(claim.intent,'attached',()=>this.durable(...)), and durable() throws launch_uncertain immediately when no terminal result is recorded yet) -- reverting to that code would make the new test's `expect(await second.wait()).toEqual(completed)` and the final terminalResult assertion fail, so this is a real controlled-fault/negative arm, not a vacuous pass."
+    },
+    {
+      "id": "F2",
+      "round1_severity": "minor",
+      "status": "CLOSED",
+      "evidence": "Unused `FactoryRunnerResult` import removed from host-launch-transport.integration.test.ts. Independent `bun run lint` rerun: exit 0, 5121 files checked, 0 errors, 0 warnings, 8 infos (all in unrelated web/ files); no host-launch-transport or remote-attempt-runtime mention anywhere in the lint log."
+    },
+    {
+      "id": "F3",
+      "round1_severity": "minor",
+      "status": "CLOSED",
+      "evidence": "tasks/factory/w01b-GATES.md header now reads 'cut from integ/w00 at 1d3edf5b0, which already contained W01's merge; then merged integ/w00 at 2377caaa4 through merge commit 69a025e50 to take W03's work-list scans' (confirmed via git show 42b9e8c34 diff). /tmp/factory-platform-evidence/w01b/INDEX.md (untracked, outside git) was independently read and carries the identical corrected sentence, so the fix reached both places the finding named."
+    },
+    {
+      "id": "F4",
+      "round1_severity": "evidence-gap-not-a-defect",
+      "status": "CLOSED",
+      "evidence": "Independently reran both suites this round under flock, not from receipts: full shared Podman suite (packages/@ezcorp/extension-runner/tests/podman.integration.test.ts) 16 pass / 0 fail / 86 expect() calls in 72.27s, exactly matching the worker's own post-fix receipt at /tmp/factory-platform-evidence/w01b/logs/podman-suite.json (16 pass / 86 expect). Package-preparation Podman suite (src/factory/package-preparation.podman.integration.test.ts) 1 pass / 0 fail / 6 expect() calls, exactly matching /tmp/factory-platform-evidence/w01b/logs/package-preparation-podman.json."
+    }
+  ],
+  "new_findings_r2": [
+    {
+      "id": "R2-F1",
+      "severity": "minor",
+      "title": "reconnect() collapses a host 'uncertain' attach disposition into 'attached' instead of passing it through",
+      "file": "src/factory/runner/remote-attempt-runtime.ts",
+      "lines": "97",
+      "description": "`return this.settled(tokened, handle.disposition === \"terminal\" ? \"terminal\" : \"attached\", ...)` maps any non-'terminal' host disposition to 'attached', silently absorbing 'uncertain' (which the wire protocol and host-launch-supervisor.ts's attachLive() legitimately return when a restarted host's runner.inspect() cannot determine guest state, host-launch-supervisor.ts:81). The sibling primary path in the same file, open() at line 62, passes `handle.disposition` straight through unmodified, so this is an inconsistency introduced by the fix rather than a pre-existing pattern. Currently behaviorally inert: the only production caller, IsolatedFactoryTrustedRunner.dispatch() equivalent at src/factory/runner/attempt-runtime.ts:785, does `(await this.runtime.open(...)).wait()` and never reads `.disposition`, and reconnect()'s own wait() closure (lines 97-102) independently produces a typed launch_uncertain rejection when the host has nothing to report, regardless of the mislabeled disposition field. Still worth matching open()'s pass-through for correctness and for any future consumer (logging, monitoring, a UI) that reads `.disposition`.",
+      "recommendation": "Change line 97 to pass `handle.disposition` through unmodified (matching line 62's pattern), or explicitly map both 'terminal' and 'uncertain' rather than defaulting everything else to 'attached'."
+    },
+    {
+      "id": "R2-F2",
+      "severity": "minor",
+      "title": "The 'supervisor also restarted, host holds nothing' sub-case of the reconnect fix has no dedicated end-to-end test; the green coverage gate cannot certify it because this repo's lcov is line-only, not branch-aware",
+      "file": "src/factory/runner/remote-attempt-runtime.ts",
+      "lines": "91-95, 99-101",
+      "description": "The team lead's brief asked to confirm the remote runtime 'stays uncertain (typed, not guessed) when the supervisor also restarted.' By code tracing this is correct: if a second, independent supervisor has restarted (live map empty) and its runner reports the guest as fully gone or unknown, host-launch-supervisor.ts's attachLive() returns disposition 'terminal' or 'uncertain' without registering anything in `live`; back in reconnect(), the wait() closure's `awaitResult()` call then hits supervisor.result() finding no `live` entry, which throws FactoryAttemptRuntimeError('launch_uncertain', 'This host is not running that attempt.'); reconnect()'s catch on line 101 re-wraps that as the same typed launch_uncertain error. That reasoning is sound, but no test in this diff or the pre-existing suite drives this exact combination (gateway restarted AND supervisor restarted AND host holds nothing) through FactoryRemoteAttemptRuntime.open()/reconnect() end to end; the pre-existing 'restarted supervisor reattaches' test (host-launch-transport.integration.test.ts:167-224) calls `client.attach(intent)` directly, bypassing the gateway's reconnect() and its wait()/result() sequencing entirely. Separately, scripts/merge-lcov.ts's own header comment states 'Bun 1.3.x emits no BRDA records, so branch data is intentionally not handled' -- this repo's coverage gates are line-only. Reading the merged lcov for the new reconnect() method shows every line, including the untested catch branches at lines 91-95 and 100-101, reporting a nonzero DA count even in a coverage run isolated to just the one new happy-path test (verified by running `bun test -t \"gateway that restarts mid-launch\"` alone and diffing the resulting lcov against the full-suite lcov: the two are byte-for-byte identical on those lines). That is consistent with V8/Bun collapsing adjacent try/catch ranges in small async functions rather than tracking the catch body's true entry independently, so a 100% patch-coverage gate on this file does not by itself prove the uncertain-outcome branch was exercised by any test.",
+      "recommendation": "Add a unit or integration case that forces transport.attach() to return disposition 'terminal' or 'uncertain' with no durable terminal result recorded (e.g. inject a fake FactoryHostLaunchTransport whose attach() returns disposition:'terminal' and whose result() throws, mirroring the shape host-launch-client.ts actually returns after a double restart), and assert reconnect()'s resulting .wait() rejects with a FactoryAttemptRuntimeError code 'launch_uncertain' rather than resolving to a guessed result. This directly proves the sentence in the commit message and lessons.md rather than leaving it to composition-by-inspection."
+    },
+    {
+      "id": "R2-F3",
+      "severity": "trivial",
+      "title": "Evidence index table not updated with the three post-fix receipts",
+      "file": "/tmp/factory-platform-evidence/w01b/INDEX.md",
+      "description": "INDEX.md's receipt table still lists only the four original round-1 receipts (focused-suites, e2e-podman-pglite, e2e-postgres, e2e-podman-coverage). The three new receipts generated while fixing F1/F4 (logs/transport-and-dispatch.json, logs/podman-suite.json, logs/package-preparation-podman.json, all dated 2026-09-14T15:08-15:10Z) exist on disk and are referenced by the commit message, but are not listed in the table. Independently verified all three reproduce exactly (10/88, 16/86, 1/6 respectively) -- not a fabrication, just an incomplete index.",
+      "recommendation": "Add the three receipts to the INDEX.md table for a future reader."
+    }
+  ],
+  "reruns": [
+    { "label": "build-factory-sdk", "command": "bun run --cwd packages/@ezcorp/factory-sdk build", "exit_code": 0 },
+    { "label": "build-factory-transport", "command": "bun run --cwd packages/@ezcorp/factory-transport build", "exit_code": 0 },
+    { "label": "build-factory-orchestrator", "command": "bun run --cwd packages/@ezcorp/factory-orchestrator build", "exit_code": 0 },
+    { "label": "typecheck", "command": "bun run typecheck", "exit_code": 0, "start": "2026-09-14T15:34:52Z", "end": "2026-09-14T15:35:26Z", "notes": "backend, web, tests-typecheck, web-e2e, and mypy --strict on the Python runner all pass" },
+    { "label": "lint", "command": "bun run lint", "exit_code": 0, "notes": "5121 files, 0 errors, 0 warnings, 8 infos (unrelated web/ files); confirmed no host-launch-transport-integration.test.ts or remote-attempt-runtime.ts entries" },
+    { "label": "boundaries", "command": "bun scripts/check-factory-boundaries.ts", "exit_code": 0, "result": "Factory boundary checks passed (F07 deterministic validator and F13 shared-module reuse)." },
+    { "label": "gate-integrity", "command": "bun scripts/gate-integrity.ts", "exit_code": 0, "result": "Gate integrity PASSED: no gate-weakening or test-cheating changes detected." },
+    { "label": "focused-suites", "command": "bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w01b-validation/coverage-r2/focused ./src/factory/runner/attempt-dispatch-driver.test.ts ./src/factory/host-launch-client.test.ts ./src/factory/host-launch-transport.integration.test.ts ./src/factory/runner/attempt-recovery.test.ts ./src/factory/runner/attempt-runtime.test.ts ./src/factory/runner/guest-frames.test.ts ./src/factory/runner/workspace-checkpoint-seam.test.ts", "exit_code": 0, "start": "2026-09-14T15:35:49Z", "end": "2026-09-14T15:36:24Z", "result": "52 pass / 0 fail, 245 expect() calls across 7 files (round-1 baseline was 51 pass / 227 expect(); delta is the +1 new rejoin test)" },
+    { "label": "solo-rejoin-isolation-check", "command": "bun test --timeout 300000 -t \"gateway that restarts mid-launch\" --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w01b-validation/coverage-r2/solo ./src/factory/host-launch-transport.integration.test.ts", "exit_code": 0, "result": "1 pass / 0 fail, 18 expect() calls; used only to isolate coverage of the new reconnect() branches, see R2-F2", "not_part_of_required_rerun_set": true },
+    { "label": "postgres-suites", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 300 bun test --timeout 60000 ./tests/postgres/factory-host-launch.test.ts ./tests/postgres/factory-schema.test.ts", "exit_code": 0, "start": "2026-09-14T15:46:00Z(approx, ran in background across a session boundary)", "end": "2026-09-14T15:54:12Z(approx)", "result": "3 pass / 0 fail, 2870 expect() calls", "matches_round1_claim": true },
+    { "label": "e2e-podman", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w01b-validation/coverage-r2/e2e ./src/factory/host-launch-e2e.podman.integration.test.ts", "exit_code": 0, "start": "2026-09-14T16:01:39Z", "end": "2026-09-14T16:01:45Z", "result": "1 pass / 0 fail, 13 expect() calls, real Podman guest" },
+    { "label": "podman-shared-suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 ./packages/@ezcorp/extension-runner/tests/podman.integration.test.ts", "exit_code": 0, "start": "2026-09-14T16:01:50Z", "end": "2026-09-14T16:03:03Z", "result": "16 pass / 0 fail, 86 expect() calls, 72.27s. Closes F4. Matches worker's own post-fix receipt logs/podman-suite.json exactly." },
+    { "label": "podman-package-preparation-suite", "command": "flock /tmp/ezcorp-validation-heavy.lock timeout 900 bun test --timeout 300000 ./src/factory/package-preparation.podman.integration.test.ts", "exit_code": 0, "start": "2026-09-14T16:03:07Z", "end": "2026-09-14T16:04:56Z", "result": "1 pass / 0 fail, 6 expect() calls. Closes F4. Matches worker's own post-fix receipt logs/package-preparation-podman.json exactly." },
+    { "label": "merge-lcov", "command": "bun scripts/merge-lcov.ts '/tmp/factory-platform-evidence/w01b-validation/coverage-r2/{focused,e2e}/lcov.info' coverage/lcov.info", "exit_code": 0, "result": "merged 600 source files -> coverage/lcov.info (repo-root path, as required by check-new-file-coverage.ts and check-patch-coverage.ts, which hardcode coverage/lcov.info)" },
+    { "label": "new-file-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-new-file-coverage.ts", "exit_code": 0, "result": "New-file coverage gate PASSED: 5 new source file(s) gated." },
+    { "label": "patch-coverage", "command": "BASE_REF=integ/w00 bun scripts/check-patch-coverage.ts", "exit_code": 0, "result": "Patch coverage gate PASSED: all changed executable lines covered (6 file(s))." }
+  ],
+  "gate_weakening_check": "No thresholds changed, no new EXCLUDES, no .skip/.only/.todo, no lowered coverage, no biome.json opt-outs. tasks/factory/w01b-GATES.md diff is a text-only provenance/evidence-sentence correction (G4's CHECK/EXPECT lines are byte-identical; only the EVIDENCE prose grew). tasks/lessons.md diff is a pure 2-line append (no deletions). gate-integrity.ts rerun independently: exit 0.",
+  "ownership_check": "All four files touched by 42b9e8c34 (src/factory/host-launch-transport.integration.test.ts, src/factory/runner/remote-attempt-runtime.ts, tasks/factory/w01b-GATES.md, tasks/lessons.md) remain inside Terra runtime (W01)'s owned surface per docs/plans/2026-09-13-composable-factory-platform-interfaces.md section 12 and section 6 (Host launch, attach, stop protocol, single writer Terra runtime W01/W02). FactoryAttemptOpen's disposition union type itself is unchanged; R2-F1 is a value-selection bug within the implementation, not a type/interface change.",
+  "plan_bullet_proof_map": [
+    { "bullet": "W01 -- Persist terminal results ... before acknowledging them. A fresh supervisor/gateway must read the same result without sending extension/invoke again.", "status": "proven for the gateway-restart-only case", "test": "host-launch-transport.integration.test.ts:120-165 ('a gateway that restarts mid-launch rejoins...')" },
+    { "bullet": "W01 -- Kill Node, gateway, guest, and supervisor before/after each journal and result boundary. Reattach a surviving attempt or confirm its stop before replacement; API failure or timeout never proves physical absence.", "status": "partially proven: gateway-only restart is proven end to end (new test); supervisor-also-restarted-with-live-container was already proven at the low-level attach() primitive (pre-existing 'restarted supervisor reattaches' test) but not through the composed reconnect() path; supervisor-also-restarted-with-nothing-left (typed uncertain) is proven only by code inspection, not by a test -- see R2-F2", "test": "host-launch-transport.integration.test.ts:167-224 (partial, low-level only)" },
+    { "bullet": "Pass criterion -- no duplicate invocation or external effect in the crash matrix", "status": "proven for the new scenario", "test": "host-launch-transport.integration.test.ts:157-159 (runner.starts===1, runner.invocations===1, runner.attaches===0)" }
+  ],
+  "security_posture": "No credential values in any log or receipt produced this round (grepped every logs-r2/*.log for POSTGRES_PASSWORD, service token contents; none found -- URLs and paths only). No authority check removed or weakened by the delta. reconnect() re-derives its token via the same mintAttemptToken/assertReady path as open(), so no new unauthenticated code path was introduced.",
+  "confirmed_accurate_claims": [
+    "All four prior findings (F1-F4) are closed, each independently reproduced rather than trusted from the worker's receipts.",
+    "The new rejoin test is a genuine controlled-fault/negative arm: proven non-vacuous by reading the pre-fix code and showing it would fail the new test's key assertions.",
+    "F4's two Podman suites reproduce with pass/fail/expect counts identical to the worker's own post-fix receipts.",
+    "No gate weakening, no scope/ownership violation, no credential leakage.",
+    "Tree remained clean throughout; only gitignored coverage/lcov.info was written by this validation."
+  ]
+}

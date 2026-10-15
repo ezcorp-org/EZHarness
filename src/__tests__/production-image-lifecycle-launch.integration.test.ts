@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { existsSync, watch } from "node:fs";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { DEFAULT_IMAGE } from "@ezcorp/extension-runner";
@@ -207,6 +207,8 @@ type ProcessIdentity = {
   processGroup: number;
   state: string;
   startTime: string;
+  commandLine?: string;
+  uid?: number;
 };
 
 async function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T | undefined> {
@@ -229,7 +231,39 @@ async function processIdentity(pid: number): Promise<ProcessIdentity | undefined
 
 async function hasIdentity(pid: number, expected: ProcessIdentity): Promise<boolean> {
   const current = await processIdentity(pid);
-  return current?.processGroup === expected.processGroup && current.startTime === expected.startTime;
+  if (current?.processGroup !== expected.processGroup || current.startTime !== expected.startTime) return false;
+  if (expected.commandLine !== undefined) {
+    try {
+      return (await stat(`/proc/${pid}`)).uid === expected.uid
+        && await readFile(`/proc/${pid}/cmdline`, "utf8") === expected.commandLine;
+    } catch {
+      return false;
+    }
+  }
+  return true;
+}
+
+async function ownedPeerGateway(runnerPid: number, socketPath: string): Promise<{ pid: number; identity: ProcessIdentity }> {
+  const matches: Array<{ pid: number; identity: ProcessIdentity }> = [];
+  for (const entry of await readdir("/proc")) {
+    if (!/^\d+$/.test(entry)) continue;
+    const pid = Number(entry);
+    try {
+      const fields = (await readFile(`/proc/${pid}/stat`, "utf8")).split(") ").at(-1)!.split(/\s+/);
+      if (Number(fields[1]) !== runnerPid) continue;
+      const commandLine = await readFile(`/proc/${pid}/cmdline`, "utf8");
+      const argv = commandLine.split("\0").filter(Boolean);
+      const uid = (await stat(`/proc/${pid}`)).uid;
+      if (argv.length !== 5 || argv[1] !== join(root, "packages/@ezcorp/extension-runner/src/peer-gateway.py")
+        || argv[2] !== socketPath || argv[4] !== String(process.getuid!()) || uid !== process.getuid!()) continue;
+      const identity = await processIdentity(pid);
+      if (identity) matches.push({ pid, identity: { ...identity, commandLine, uid } });
+    } catch {
+      // An unrelated process can exit while /proc is scanned.
+    }
+  }
+  expect(matches).toHaveLength(1);
+  return matches[0]!;
 }
 
 async function hasActiveIdentity(pid: number, expected: ProcessIdentity): Promise<boolean> {
@@ -267,6 +301,40 @@ async function finishOwnedLauncher(
     for (const processGroup of groups) await stopOwnedProcessGroup(processGroup, owned);
   }
 }
+
+test("owned launcher cleanup refuses a changed helper UID, command or start time", async () => {
+  const child = Bun.spawn([process.execPath, "-e", 'console.log("ready");setInterval(()=>{},1_000);'], {
+    detached: true,
+    stdout: "pipe",
+    stderr: "ignore",
+  });
+  let identity: ProcessIdentity | undefined;
+  try {
+    const reader = child.stdout.getReader();
+    expect(new TextDecoder().decode((await reader.read()).value)).toBe("ready\n");
+    await reader.cancel();
+    const observed = await processIdentity(child.pid);
+    expect(observed).toBeDefined();
+    identity = {
+      ...observed!,
+      uid: process.getuid!(),
+      commandLine: await readFile(`/proc/${child.pid}/cmdline`, "utf8"),
+    };
+    for (const changed of [
+      { ...identity, uid: identity.uid! + 1 },
+      { ...identity, commandLine: `${identity.commandLine}changed` },
+      { ...identity, startTime: `${identity.startTime}0` },
+    ]) {
+      await stopOwnedProcessGroup(identity.processGroup, [{ pid: child.pid, identity: changed }]);
+      expect(await hasActiveIdentity(child.pid, identity)).toBe(true);
+    }
+  } finally {
+    if (identity) await stopOwnedProcessGroup(identity.processGroup, [{ pid: child.pid, identity }]);
+    else child.kill("SIGKILL");
+    await child.exited;
+  }
+  expect(await hasActiveIdentity(child.pid, identity!)).toBe(false);
+});
 
 type OwnedLaunchFixture = { fixture: LaunchFixture; child?: ReturnType<typeof Bun.spawn>; owned: Array<{ pid: number; identity: ProcessIdentity }> };
 const activeLaunchFixtures = new Set<OwnedLaunchFixture>();
@@ -333,6 +401,45 @@ test("long persistent state keeps the authenticated runner transport below the U
   }
 }, 30_000);
 
+test("launcher readiness waits for a runner whose first answer takes longer than a second", async () => {
+  const fixture = await makeFixture();
+  const delayedInspections = join(fixture.directory, "delayed-inspections.log");
+  const realPodman = Bun.which("podman");
+  if (!realPodman) throw new Error("podman is required for the launcher fixture");
+  // The runner answers the readiness `inspect` only after a Podman state
+  // query, whose latency follows host load. Inject that latency past the
+  // one-second deadline the launcher's probe used to allow: a parallel pool
+  // produced it for real and the launcher refused a healthy runner. The
+  // runner gives Podman a scrubbed environment, so the paths are baked in.
+  await executable(join(fixture.bin, "podman"), `#!/bin/sh
+if [ "$1" = inspect ] && [ "$2" = "--format={{json .State}}" ]; then
+  sleep 2
+  printf '%s\n' "$3" >> '${delayedInspections}'
+fi
+exec '${realPodman}' "$@"
+`);
+  let child: ReturnType<typeof Bun.spawn> | undefined;
+  try {
+    await writeFile(fixture.setsidRelease, "release");
+    const launched = launch(fixture, ["true"]);
+    child = launched;
+    const [exit, stdout, stderr] = await Promise.all([
+      launched.exited,
+      new Response(launched.stdout).text(),
+      new Response(launched.stderr).text(),
+    ]);
+    expect(exit, `${stdout}\n${stderr}\n${await launcherDiagnostics(fixture.receipt)}`).toBe(0);
+    // The readiness inspection itself went through the delayed path. The
+    // runner names a worker's container from its store root and the id.
+    const readinessContainer = `ez-v4-${new Bun.CryptoHasher("sha256").update(`${join(fixture.state, "store")}:launcher-readiness`).digest("hex").slice(0, 32)}`;
+    expect((await readFile(delayedInspections, "utf8")).trim().split("\n")).toContain(readinessContainer);
+  } finally {
+    if (child && child.exitCode === null) child.kill("SIGTERM");
+    if (child) await child.exited;
+    await removeFixture(fixture);
+  }
+}, 30_000);
+
 async function assertLauncherCancellation(suspendRunner: boolean): Promise<void> {
   const fixture = await makeFixture();
   const verifierReady = join(fixture.directory, "verifier-ready");
@@ -342,6 +449,7 @@ async function assertLauncherCancellation(suspendRunner: boolean): Promise<void>
   let child: ReturnType<typeof Bun.spawn> | undefined;
   const owned: Array<{ pid: number; identity: ProcessIdentity }> = [];
   const active: OwnedLaunchFixture = { fixture, owned };
+  let gateway: Awaited<ReturnType<typeof ownedPeerGateway>> | undefined;
   activeLaunchFixtures.add(active);
   try {
     await writeFile(fixture.setsidRelease, "release");
@@ -393,6 +501,12 @@ async function assertLauncherCancellation(suspendRunner: boolean): Promise<void>
     expect(await hasIdentity(verifierDescendantPid, verifierDescendantIdentity!)).toBe(true);
     expect(await hasIdentity(runnerPid, runnerIdentity!)).toBe(true);
 
+    gateway = await ownedPeerGateway(runnerPid, join(runnerRoot!, "runner.sock"));
+    expect(gateway.identity.processGroup).toBe(launcherIdentity!.processGroup);
+    // SIGKILL prevents the deliberately suspended runner from closing its helper.
+    // Retain that child's identity so fixture cleanup can stop the owned group.
+    owned.push(gateway);
+
     if (suspendRunner) process.kill(runnerPid, "SIGSTOP");
     child.kill("SIGTERM");
     const [launcherExit, stdoutResult, stderrResult] = await Promise.all([
@@ -427,6 +541,7 @@ async function assertLauncherCancellation(suspendRunner: boolean): Promise<void>
     });
   } finally {
     await cleanupOwnedLaunchFixture(active);
+    if (gateway) expect(await hasActiveIdentity(gateway.pid, gateway.identity)).toBe(false);
   }
 }
 

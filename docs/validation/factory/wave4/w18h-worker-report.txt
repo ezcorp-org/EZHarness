@@ -1,0 +1,181 @@
+W18 hygiene backlog — report
+Worker: w18-hygiene. Worktree: /home/dev/work/EZCorp/EZHarness/.worktrees/w18-hygiene
+Items A+B: branch wp/w18-hygiene, base integ/w00 2b2e12550, head b7349ba8c (sent to validation,
+untouched since). Item D: branch wp/w18-hygiene-2, from b7349ba8c, head 49a50278b.
+
+Commits, items A+B (wp/w18-hygiene, oldest to newest):
+  ffd7c00e0  test(w18-hygiene): add webLibModule() helper for complete $lib mocks (F1)
+  65a1a46d8  test(w18-hygiene): complete the 36 src-side partial api-keys mocks (F1)
+  b563b7395  test(w18-hygiene): complete the 24 web-side partial api-keys mocks (F1)
+  bb74831c0  test(w18-hygiene): guard test rejecting a partial $lib/* mock factory (F1)
+  e07fbee6c  docs(w18-hygiene): item A (F1) gates and todo entry
+  e907ba25d  docs(w18-hygiene): add the item A (F1) GATES file
+  702a97468  fix(hooks): no silent skip above the pre-commit staged-test cap
+  05b6329db  test(hooks): cover both branches of the staged-test cap (no silent skip)
+  b7349ba8c  docs(w18-hygiene): item B (hook cap) gates and todo entry
+
+Commits, item D (wp/w18-hygiene-2, on top of b7349ba8c):
+  f71eb2898  test(w18-hygiene): add serverModule() helper for complete backend mocks (D)
+  7bb15980f  test(w18-hygiene): add completeFactory()/contextModule() for heavy modules (D)
+  69d04ed70  test(w18-hygiene): complete the other pre-existing partial-mock pollution (D)
+  1645390fc  test(w18-hygiene): recognize serverModule()/webLibModule() bindings as shims (D)
+  49a50278b  docs(w18-hygiene): item D gates and todo entry
+
+Gates file: tasks/factory/w18-hygiene-GATES.md (items A, B, D; item C stub)
+Todo entry: tasks/todo.md (section "W18 hygiene — 60 partial api-keys mocks, hook cap, 27 bare
+  git-init tests")
+Receipts: /tmp/factory-platform-evidence/w18-hygiene/receipts/ (SHA256SUMS.txt inside)
+Per-file coverage runs (60 files + git-hooks + mock-cleanup-coverage): /tmp/factory-platform-
+  evidence/w18-hygiene/f1-coverage/{src,web,hook}/
+
+=== ITEM A (F1) — DONE ===
+
+All 60 listed suites now mock $lib/server/security/api-keys completely, through the shared
+webLibModule() helper (identical to W18a-3's, on their unmerged wp/w18a3-quality-r2 branch — verified
+byte-for-byte so the two branches will not produce a duplicate-function conflict when both land).
+
+Two findings beyond the mechanical conversion:
+
+1. A real, reproducible-on-base cross-file pollution bug the F1 disclosure predicted in words: running
+   the 36 src-side files together in one bun process throws "Export named 'requireAdmin'/'verifyApiKey'
+   not found in module '$lib/server/security/api-keys'" on UNMODIFIED integ/w00 (proved in a throwaway
+   worktree, .worktrees/w18-hygiene-base-check, removed after use). All api-keys-specific instances of
+   this are gone after the fix. A handful of OTHER, unrelated partial-mock pollution bugs (for
+   $lib/server/context, $server/db/queries/extensions, $server/providers/local-model-check,
+   $lib/server/security/resource-quotas) are pre-existing on the base too, present with or without this
+   fix, and out of scope for F1 (which names only api-keys) — every affected file passes individually
+   and at its real CI invocation; only a synthetic force-batch of unrelated files together (not how any
+   real pool runs them) shows the residual, unrelated pollution. Not fixed here; flagging as a natural
+   W18-hygiene follow-up (same class of bug, different modules) if the team wants it.
+
+2. A self-recursion hazard in webLibModule() itself, found while converting the dual-specifier files
+   and, separately and more broadly, ALL 24 web-side files: calling webLibModule() LAZILY from inside a
+   mock.module() factory that is ALSO registered (directly or via a second specifier resolving to the
+   same file) for the exact module the factory's own require() call targets returns an object with ONLY
+   the override key — every real export is silently dropped. Proven with a standalone Bun repro
+   (not committed; described in the GATES file). Root cause under web/: its generated
+   .svelte-kit/tsconfig.json maps "$lib/*" to a REALLY resolvable path (unlike the repo root, where
+   $lib is purely virtual and only mock.module() gives it meaning), so the hazard applies to every
+   web-side file, not only the ones already using the known dual-specifier pattern. Fixed by computing
+   the merged object ONCE, before either mock.module() registration, everywhere it applies.
+
+Guard test added (commit bb74831c0, in src/__tests__/mock-cleanup-coverage.test.ts): a detector +
+balanced-paren scanner, pinned by 6 fixture tests for the general "$lib/* factory must be complete"
+rule, plus a repo-wide scan enforcing it for api-keys specifically (the module this item completed).
+Four files still mocking api-keys partially on W18a-3's in-flight branch (not yet on this package's
+base) are exempted by name with a removal note for when that merge lands — see item C.
+
+Verification: every one of the 60 files passes individually with --coverage at its REAL invocation
+(f1-src-isolated-results.txt, f1-web-isolated-results.txt — all exit=0). One file
+(extensions-events-route.test.ts) only passes when invoked the way scripts/test.sh actually invokes it
+(from the repo root); force-run standalone from web/ it hits a pre-existing, base-reproducible,
+unrelated failure (confirmed identical on 2b2e12550) — documented in the GATES file, not fixed (out of
+scope). typecheck/lint/boundaries/gate-integrity/factory-process-boundaries.test.ts all green on the
+final head. check-new-file-coverage.ts and check-patch-coverage.ts (BASE_REF=2b2e12550) both pass — this
+diff touches only *.test.ts files and one __tests__/helpers/*.ts file, all outside this repo's
+NON_SOURCE_GLOBS-excluded coverage-gate scope by design (test code isn't gated the same way product
+code is), so "0 files" is the correct, expected result, not a gap.
+
+=== ITEM B — DONE ===
+
+Reproduced the exact bug directly, twice, on this package's own work: committing the 36-file and then
+the 24-file api-keys conversion each hit scripts/lib/hook-lib.sh's run_staged_tests() cap (12) and
+printed one line ("N test files map to this commit (cap 12) — skipping.") then exited 0, landing the
+commit with zero tests run and no file named — the same shape as the coordinator's 74-file main-merge
+incident.
+
+Fix: above the cap, run_staged_tests() now prints the full list of files it is not running and, by
+default, returns 1 (blocks the commit). EZ_SKIP_HOOK_TESTS=1 is the one acknowledged escape hatch;
+moved from a pre-filter in .githooks/pre-commit (which made it invisible — the whole "Tests (staged)"
+step, including any list, never ran) into run_staged_tests() itself, so it now prints the file list and
+an explicit skip reason before returning 0, for BOTH the over-cap case and the pre-existing under-cap
+skip (which previously had zero output too) — one skip mechanism, always visible, instead of two.
+
+Three new tests in src/__tests__/git-hooks.test.ts (new repoWithHookLib() fixture extending the
+existing repoWithPreCommit(); real `git commit` in a throwaway tmpdir repo, per the file's established
+pattern — no GIT_* leakage risk since these tests never source the real repo's git context):
+  - over cap, no env var: commit BLOCKED, every staged file name appears in the output;
+  - over cap, EZ_SKIP_HOOK_TESTS=1: commit lands, file list + reason still print;
+  - at the cap: unaffected (no cap messaging).
+All 19 tests in the file pass (16 pre-existing + 3 new); gate-scripts.test.ts (204 tests, also drives
+the real hook machinery) unaffected. typecheck/lint/boundaries/gate-integrity/
+factory-process-boundaries.test.ts all green on the final head. check-new-file-coverage.ts /
+check-patch-coverage.ts pass (informational for this item: the changed files are shell, outside this
+repo's lcov-based coverage system).
+
+=== ITEM D — DONE (coordinator ruling on finding 2; branch wp/w18-hygiene-2) ===
+
+Same bug class as F1, for the four modules named in the ruling: $lib/server/context, $server/
+db/queries/extensions, $server/providers/local-model-check, $lib/server/security/resource-quotas.
+
+Reproduced first, on the unmodified base (the batch already used for item A's own reproduction):
+running the 36 F1 files together throws "Export named X not found" for all four — quoted verbatim in
+the item-D commit message and in tasks/factory/w18-hygiene-GATES.md GD1.
+
+Three of the four (db/queries/extensions, local-model-check, resource-quotas) converted the same way
+as F1: serverModule()/webLibModule() with precompute-once. 26 files touched repo-wide (10 src, 16 web).
+
+$lib/server/context needed a DIFFERENT fix, and this is the main finding of item D: it's the app's
+central wiring module. Spreading it for real (webLibModule) transitively pulls in db/queries/
+agent-configs, db/queries/conversations, db/queries/user-commands, db/connection, runtime/
+pending-messages — each already mocked, partially, by the SAME file, for an unrelated reason. Confirmed
+by direct reproduction: each attempted fix revealed the next layer, an unbounded cascade. Built
+completeFactory()/contextModule() instead (helpers/mock-cleanup.ts): a facade with the real 9-function
+export surface always present, overrides where given, a THROWING stub everywhere else. This fixes the
+actual bug (a route's static import always links) without ever requiring the real module, so no
+transitive graph is pulled in. All 13 context.ts consumers in the 26-file set use this.
+
+A companion false positive surfaced in the "every mock.module target is snapshotted or exempt"
+meta-test: it didn't recognize a serverModule()/webLibModule()-bound const as a valid $server/* shim
+(only require()/import* bindings), misclassifying 4 files' registrations as dangerous "redirects."
+Fixed by teaching collectModuleBindings() the two new helper forms.
+
+Bonus, single-file fix found while chasing a residual failure: extension-event-end-to-end.test.ts also
+had a partial $server/auth/middleware mock (2 of 9 real exports) — fixed with serverModule().
+
+DISCLOSED, NOT FIXED: after the above, extension-event-end-to-end.test.ts still leaves a residual,
+unrelated pollution (its own partial db/queries/conversations mock, not one of the four named modules)
+that fails 5 tests in messages-multipart-route.test.ts / messages-permission-mode-ceiling-route.test.ts
+only when all three run together — previously masked entirely by the context.ts crash this item fixed.
+Also disclosed, not undertaken: two much larger surveys found while enumerating every partial mock of
+the four target modules — 83 files elsewhere in the tree still partially mock db/queries/extensions via
+a plain relative specifier (outside this item's 26-file set, which only touched what the reproduction
+needed), and roughly 39 files partially mock $server/auth/middleware. Recommend a follow-up package if
+these are wanted closed; did not fold them into this already-large diff. Full accounting in
+tasks/factory/w18-hygiene-GATES.md, items GD1-GD8.
+
+Verification: all 26 files pass individually with --coverage at their real invocation (10 src +
+16 web, 13 via cd web, 3 via repo-root per scripts/lib/test-file-sets.sh — same pattern as item A).
+The batch reproduction (GD1) grepped clean of "Export named X not found" for all four target modules
+and for auth/middleware. typecheck, lint, boundaries, gate-integrity, factory-process-boundaries.test.ts
+all green on the final head (49a50278b). check-new-file-coverage.ts / check-patch-coverage.ts
+(BASE_REF=2b2e12550) both pass — same NON_SOURCE_GLOBS reasoning as item A ("0 files" is correct).
+
+Committed 26 files with EZ_SKIP_HOOK_TESTS=1 (item B's own hook, now loud rather than silent): the
+commit legitimately exceeds the 12-file cap, and every one of the 26 files was independently verified
+far more thoroughly than the hook's per-file run would (isolation + real invocation + the batch
+reproduction), all recorded above the hook's own printed file list in the commit message.
+
+=== ITEM C (F2, 27 bare git-init tests) — BLOCKED, NOT STARTED ===
+
+Per the spawn brief: waiting for the integ/w00 hash that contains W18a-3 (needed for
+src/__tests__/helpers/scratch-git.ts, which does not exist on either wp/w18-hygiene or wp/w18-hygiene-2
+— confirmed by checking; it lives only on W18a-3's unmerged wp/w18a3-quality-r2 branch, currently at
+6739e852b, ACCEPT-pending-G6 per the coordinator's handoff). Will merge that hash into wp/w18-hygiene-2
+and convert the 27 listed files to the helper once it is sent.
+
+=== No destructive actions, no scope violations ===
+
+Touched, items A+B: src/__tests__/helpers/mock-cleanup.ts, src/__tests__/mock-cleanup-coverage.test.ts,
+the 60 listed *.test.ts files, .githooks/pre-commit, scripts/lib/hook-lib.sh,
+src/__tests__/git-hooks.test.ts, tasks/todo.md, tasks/factory/w18-hygiene-GATES.md.
+Touched, item D (additional): the same helper + meta-test files (further edits), 25 more *.test.ts
+files, extension-event-end-to-end.test.ts (already counted; touched again for the auth/middleware
+bonus fix). No production behavior changed anywhere. No other package's files touched. Never ran bare
+`bun test` at the repo root; no heavy legs needed (no Podman/PostgreSQL/S3). A throwaway worktree
+(.worktrees/w18-hygiene-base-check) used to reproduce the F1 bug on the unmodified base was removed
+with `git worktree remove --force` after use — nothing left dangling. No force-push (neither branch
+pushed anywhere this session). No secret values printed anywhere. Disk stayed at 120+ GB free
+throughout (floor 100 GB).
+
+Waiting on team-lead for the integ/w00 hash containing W18a-3 before starting item C.

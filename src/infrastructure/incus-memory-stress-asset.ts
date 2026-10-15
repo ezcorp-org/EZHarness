@@ -1,3 +1,4 @@
+/// <reference path="./incus-guest/assets.d.ts" />
 import { createHash } from "node:crypto";
 
 import build from "./incus-guest/memory-stress.build.json";

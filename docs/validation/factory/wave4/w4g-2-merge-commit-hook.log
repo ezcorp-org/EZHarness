@@ -1,0 +1,10 @@
+Checked 1 file in 5ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/python-quality-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 10 pass
+ 0 fail
+ 50 expect() calls
+Ran 10 tests across 1 file. [399.00ms]
+[detached HEAD 553cbe633] merge: wp/w4g-2 f79a2ed9e into integ/w00 (W4G-2 Python pin through links)

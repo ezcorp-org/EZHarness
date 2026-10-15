@@ -1,0 +1,44 @@
+config: 29e61b63b05624e9 = accepted baseline
+try 1 2026-10-09T20:25:13Z
+
+── Bun version ─────────────────────────────────
+   (Bun version: 0s)
+
+── Lint (biome, full) ─────────────────────────────────
+
+Checked 6140 files in 1297ms. No fixes applied.
+Found 4 warnings.
+   (Lint (biome, full): 2s)
+
+── Typecheck ─────────────────────────────────
+$ bash scripts/typecheck.sh
+→ Typechecking backend (src/)...
+
+→ Typechecking web (SvelteKit)...
+
+→ Typechecking backend-tests (0 ratcheted file(s) excluded)...
+→ Typechecking web-e2e (0 ratcheted file(s) excluded)...
+✓ tests-typecheck passed (backend tests + web/e2e).
+
+→ Typechecking the locked Python distribution (mypy --strict)...
+Resolved 14 packages in 9ms
+Checked 13 packages in 2ms
+Resolved 7 packages in 1ms
+Checked 6 packages in 0.08ms
+→ mypy --strict (locked src/factory/runner/python)
+Success: no issues found in 21 source files
+→ mypy --strict (locked src/factory/reference-image/python)
+Success: no issues found in 16 source files
+✓ Python typecheck passed (2 locked project(s): src/factory/runner/python src/factory/reference-image/python; interpreter 3.13.12)
+
+✓ Typecheck passed.
+   (Typecheck: 52s)
+
+── Svelte check ─────────────────────────────────
+1791577574274 START "/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/web"
+1791577574276 COMPLETED 620 FILES 0 ERRORS 0 WARNINGS 0 FILES_WITH_PROBLEMS
+   (Svelte check: 7s)
+To github.com:ezcorp-org/EZHarness.git
+   3897fe923..6df16debf  feat/composable-factory-platform -> feat/composable-factory-platform
+push exit=0 2026-10-09T20:26:15Z
+HEAD 6df16debf34547bf8d92001c524e14ec4e9f5459 origin/feat 6df16debf34547bf8d92001c524e14ec4e9f5459

@@ -19,8 +19,8 @@ import { SESSION_ROUTE_SCOPE } from "./auth/api-key";
  * import a `web/src/lib/**` module — it corrupts that module's coverage). The
  * two are pinned equal in `src/__tests__/openapi.test.ts`, so a rename there
  * fails here rather than silently publishing a cookie name that no longer
- * exists. NOT `pi_session` — that is the legacy cookie the migration bridge in
- * `hooks.server.ts` accepts and clears, not what a session presents today.
+ * exists. NOT `pi_session` — that is the retired legacy cookie `hooks.server.ts`
+ * ignores and clears, not what a session presents today.
  */
 const SESSION_COOKIE_NAME = "ezcorp_session";
 

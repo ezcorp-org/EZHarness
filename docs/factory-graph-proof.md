@@ -1,0 +1,258 @@
+# Factory graph proof: deterministic tasks and a model task, end to end
+
+This runbook runs one factory graph on a real started application. Two task
+nodes run plain code. One task node calls a language model through the broker.
+Each node's output feeds the next node. Follow the steps in order. Each command
+is exact.
+
+## What the graph is
+
+The graph has three task nodes. Every wired value is a reference to a port.
+No node reads a literal for a value that another node produced.
+
+| Node | Runs | Reads | Writes |
+| --- | --- | --- | --- |
+| `prepare` | plain code | the run's `topic` input | `text`, `count` |
+| `infer` | one model call through the broker | `prepare.text` | `answer`, `usage` |
+| `combine` | plain code | `prepare.count`, `infer.answer` | `summary` |
+
+The graph's output `summary` is `combine.summary`. The guest code for all three
+nodes is `scripts/factory-graph-proof/guest/graph-guest.ts`. The definition is
+`graphDefinition` in `scripts/factory-graph-proof/graph.ts`.
+
+The proof has two modes. They run the same guests and the same graph. Only the
+model pin of `infer` changes.
+
+| Mode | Provider | Model | Needs |
+| --- | --- | --- | --- |
+| `ollama` | `ollama` | `qwen3:1.7b` | the host's Ollama at `http://127.0.0.1:11434` |
+| `mock` | `ezcorp-mock` | `prompt-digest:w19a` | nothing; the fake runs inside the product |
+
+Both modes pin temperature 0, seed 42, and reasoning effort `none`. Ollama
+honours all three. With reasoning effort `none`, `qwen3:1.7b` gave the same
+answer on repeated calls. Without it, the reasoning text changed between two
+identical seeded calls. The mock ignores the three settings. It returns a fixed
+answer for each prompt digest.
+
+## Before you start
+
+1. Provision the pinned toolchain once per host, then use it. Download `bun-linux-x64.zip` for the version in
+   `.bun-version`, check it against the release's `SHASUMS256.txt`, and unpack it. The zip ships only `bun`, so add
+   the `bunx` link yourself; the repository scripts refuse a directory without it and never create it.
+
+   ```sh
+   dir=/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64
+   [ -e "$dir/bunx" ] || ln -s bun "$dir/bunx"
+   export PATH=/tmp/factory-tools/bun-$(cat .bun-version)/bun-linux-x64:$PATH
+   bun --version    # equals .bun-version (1.4.2); run.sh asserts bun and bunx
+   node --version   # v24.14.1
+   ```
+
+2. Install dependencies in the worktree, if you have not already.
+
+   ```sh
+   bun install --frozen-lockfile
+   (cd web && bun install --frozen-lockfile)
+   ```
+
+3. Make sure the shared stores are up. These commands only read.
+
+   ```sh
+   podman ps --filter name=factory --format '{{.Names}} {{.Status}}'
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18333/
+   curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:18334/
+   ```
+
+   You must see `factory-platform-proof-postgres` and both storage services
+   up. Each `curl` must print an HTTP status (403 is healthy). Do not restart or
+   reconfigure a shared store yourself. Report a dead store to the coordinator.
+
+4. For mode `ollama`, make sure Ollama serves the model.
+
+   ```sh
+   curl -s http://127.0.0.1:11434/api/version
+   curl -s http://127.0.0.1:11434/v1/models | grep --line-buffered -o '"qwen3:1.7b"'
+   ```
+
+5. Export the storage credential directory. The path changes on every reboot,
+   so read it from your session. Never copy the files anywhere else.
+
+   ```sh
+   export EZCORP_FACTORY_STORAGE_SECRETS_DIR=/run/user/1001/ezcorp-factory-storage.<suffix>
+   ```
+
+   The script reads the PostgreSQL user, password and database from
+   `/tmp/factory-platform-evidence/postgres.env`. It builds the URL inside the
+   script and never puts it on a command line.
+
+## Run the whole proof
+
+This builds the web server from the worktree. Then it runs three passes in
+mode `ollama`, three passes in mode `mock`, the three controls, and the
+summary. Every pass boots a fresh installation on new, empty pool and product
+databases. The command holds the shared heavy lock, with the timeout inside
+the lock.
+
+```sh
+flock --close /tmp/ezcorp-validation-heavy.lock timeout 5400 scripts/factory-graph-proof/run.sh all
+```
+
+The exit code is 0 only when every pass, every control, and every cross-pass
+criterion passed.
+
+To run one pass against the current build:
+
+```sh
+flock --close /tmp/ezcorp-validation-heavy.lock timeout 1200 scripts/factory-graph-proof/run.sh pass mock none my-pass
+```
+
+The second argument is the mode (`ollama` or `mock`). The third is the control
+(`none`, `no-pin`, or `missing-model`). The last is the record name. A single
+pass does not rebuild the web server. Run `bun run --cwd web build` first if
+the sources changed.
+
+## What each pass does
+
+1. It checks the shared stores with one read-only request each.
+2. It creates fresh pool and product databases.
+3. It builds the guest package in a real rootless Podman build.
+4. It starts the pool, the host supervisor, Temporal behind a TLS terminator,
+   the web server, and the Node orchestrator. It waits until `/api/ready`
+   answers 200.
+5. Through public HTTP, it creates the administrator and a project.
+6. In mode `ollama`, it registers the model the way the settings page does. It
+   probes the URL with `POST /api/providers/local/models`. Then it writes
+   `provider:customModels` with `PUT /api/settings/provider:customModels`.
+7. It binds, trusts and prepares the package for the three runner references.
+   No product route does this yet, so the harness uses the product's own
+   classes. The record states this.
+8. Through public HTTP, it creates the definition, publishes it, and starts a
+   run with `topic` set to `the primary colours of light`.
+9. It waits for the run to end. Then it reads the evidence from the product
+   database and reads each staged output back from the object store.
+10. It stops every process. It drops both databases when the pass passed. It
+    keeps the product database when the pass failed, and names it in the
+    record.
+
+## Where the results are
+
+All paths are under `W19A_OUT`. The default is
+`/tmp/factory-platform-evidence/w19a/proof`.
+
+| File | What it holds |
+| --- | --- |
+| `<label>.json` | one pass: every HTTP step, the run timeline, each node's evidence, the checks, and the verdict |
+| `<label>.log` | the pass's own output; the last line is its verdict |
+| `<label>.process-<name>.log` | each process's full output, streamed as it arrived: `pool`, `supervisor`, `temporal`, `temporal-tls`, `gateway-stub`, `web`, `orchestrator` |
+| `<label>.stack/` | a failed pass only: the stack's `readiness/*.json` and any `*.log`, copied out before the stack directory is deleted |
+| `summary.json` | the cross-pass verdict |
+| `web-build.log` | the web build |
+
+In a record, `evidence.nodes.<node>` holds these facts for each node:
+
+- `input`: the value the node was dispatched with, from its durable request.
+- `stored`: its staged output, read back from the object store.
+- `candidateOutput`: the store scope that sealed the output (run, node, generation) and its digest.
+- `completionEventOutput`: the value the product read from the store when the node completed.
+- `operations`: the node's journal rows. For `infer` this is the model operation, with the provider receipt digest, the measured usage, and the result.
+- `model`: the model pin the attempt ran under.
+- `settlement`: the newest usage settlement of the attempt's reservation: its
+  `source`, `basis`, known and held cost, and whether a signed stop proves it.
+- `reservation`: that reservation's `state`, its reserved `amount`, and the
+  `actual` amount settled.
+
+## What a correct result looks like
+
+A passing proof pass has these facts. The pass checks each one and lists it in
+`checks`.
+
+- The run timeline ends `succeeded`.
+- Each node ran once.
+- `combine.stored.summary` equals `"<count> words in; the model said: <answer>"`,
+  where `<count>` is `prepare.stored.count` and `<answer>` is `infer.stored.answer`.
+- `combine.input.value` equals `{ count, answer }` from the two stored outputs.
+  `infer.input.value` equals `{ text }` from `prepare.stored`. So each node read
+  its inputs from the store, not from a new computation.
+- Each `completionEventOutput` equals that node's `stored` value.
+- `infer.operations` has exactly one row. Its kind is `model` and its state is
+  `completed`. Its usage is `measured`, with input and output tokens above zero.
+- `infer.model` names the mode's provider and model, and the pinned configuration.
+- `prepare` and `combine` have no operations.
+
+`summary.json` passes when these facts hold:
+
+- Each mode has three of three passes passed.
+- `prepare` and `combine` have the same output digest in all passes of a mode.
+- In mode `mock`, `infer` gave the same answer in all three passes.
+- Both controls passed.
+- Each control's run ended `failed` and was never held.
+
+The summary records mode `ollama`'s answers as they came, next to the pinned
+temperature and seed. It does not require them to be equal.
+
+## The negative controls
+
+Each control must be refused by name. A control pass passes when every refusal
+happened.
+
+| Control | How to run it | Correct result |
+| --- | --- | --- |
+| A binding to a port that does not exist | part of the `no-pin` pass | `POST .../definitions/<id>/validate` answers `valid: false` with the diagnostic `BINDING_PORT`; the draft is stored as `unavailable`; publishing it answers 422 `factory_definition_invalid` with the issue `BINDING_PORT` |
+| `infer` with no model pin | `run.sh pass mock no-pin control-no-pin` | `infer` fails with `model_pin_mismatch`; the journal holds no operation for it; `combine` never runs; the run ends `failed`; `infer.settlement` has source `no-operations`, and `infer.reservation.actual.computeMs` equals the reserved `computeMs` |
+| A model Ollama does not have | `run.sh pass ollama missing-model control-missing-model` | `infer` fails with `provider_unavailable`, carrying `model 'qwen3:w19a-missing' not found`; the journal holds one failed model operation with the code `provider_unavailable`, that message, and measured usage of zero tokens and zero cost; `combine` never runs; the run ends `failed` and is never held; `infer.settlement` has source `operations`, basis `provider-error: model usage measured, compute at reserved bound`, and known cost `0`; `infer.reservation.actual.computeMs` equals the reserved `computeMs` |
+| A failed pass keeps its diagnostics | `run.sh pass mock forced-failure control-forced-failure`, then `bun scripts/factory-graph-proof/verify-diagnostics.ts <W19A_OUT> control-forced-failure` | the pass runs the whole mock proof, then fails by the named check `forced failure: the diagnostics control fails this pass on purpose`; every `control-forced-failure.process-<name>.log` exists, is non-empty, and ends with its exit line; `control-forced-failure.stack/readiness/` holds `pool.json`, `supervisor.json` and `orchestration.json`; the check is written to `control-forced-failure.diagnostics-check.json` |
+
+Before W03f, the missing-model run did not end. The failed operation carried no
+usage, so the reconciliation role held the run on every pass with
+`factory_usage_hold_unresolved: no-operation-receipt`. Now Ollama's error answer
+is recorded with the usage it reported, which is zero. The stop settles the
+attempt from its journal: zero model cost, and compute at the reserved bound.
+The run then ends `failed` with `provider_unavailable`. The control still stops
+waiting when the server log names a hold, and that hold fails the pass.
+
+The stop never settles an attempt from the usage its guest reports. Before
+W03f, the no-pin guest's measured zero, with 0 ms of compute, decided its
+settlement (commit `eb7b8b8c5`). That rule is replaced: compute is charged at
+the reserved bound.
+
+## In a container
+
+This harness runs the web server on the host, so `http://127.0.0.1:11434`
+reaches Ollama. In a containerized deployment, register the host's Ollama as
+`http://host.containers.internal:11434` (Podman) or
+`http://host.docker.internal:11434` (Docker). Main #300 lets the local-provider
+guard accept those two names when the container's `/etc/hosts` maps them.
+
+## If a pass fails
+
+- Read `failure` and `checks` in the record. Each failed check carries its detail.
+- Read the processes' own words in `<label>.process-<name>.log`. Each file starts
+  with a `[w19-harness]` line naming the command and pid and ends with one naming
+  the exit code or signal. The pool and the supervisor print little; their own
+  last word is in `<label>.stack/readiness/pool.json` and `supervisor.json`
+  (`lifecycle`, and `errorCode` when degraded).
+- A pass that could not reach `/api/ready` records `orchestration` and
+  `hostProcesses`; the same files hold the rest.
+- Nothing in these files carries a secret once the pass has ended. The
+  harness collects every secret first:
+  - each text file under the stack's `secrets/`, whole;
+  - the hex and base64 forms of each binary file there (the master key);
+  - every string in a JSON file there, except the values of the configuration
+    keys listed in `CONFIGURATION_KEYS` in
+    `scripts/factory-graph-proof/diagnostics.ts` (ids, names, addresses,
+    paths). A new field counts as a secret until someone adds its key to that list;
+  - the password of any URL with credentials in those files, under any key;
+  - the database password, and the web server's own secrets.
+
+  A streamed log has each secret replaced by `[redacted]`. A stack file that
+  carries one is refused, not copied. The record lists both under `diagnostics`
+  (`redactions`, and `stack.refused`), with `stack.copied`, `stack.oversize` and
+  `stack.unreadable`. `secrets/` is never copied.
+- Redaction runs every 2 seconds while the pass runs, and once more after every
+  process has exited. If the harness itself dies (killed, or the machine stops),
+  the output of the last 2 seconds or less can stay unredacted in
+  `<label>.process-<name>.log`. Those files are mode 0600 inside the evidence
+  directory. After such a death, run the harness again or delete the logs; do
+  not share them first.
+- The product database of a failed pass is kept, except for the forced-failure
+  control. Its name is in `retainedProductDatabase`. Drop it when you are done.

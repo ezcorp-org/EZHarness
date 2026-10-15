@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# W4H-17 hold leg (b) (integrator-5): the changed spec ALONE, --repeat-each 3, under the mock-full lane's env (the same exports as
+# scripts/collect-browser-route-coverage-lane.sh) on the mapped build browser-part.sh made; receipts into a fresh empty dir. Exit = playwright's.
+set -uo pipefail
+REPO=${1:?repo} OUT=${2:?empty out dir}; unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE DATABASE_URL FACTORY_TEST_POSTGRES_URL
+. /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$REPO" || exit 95; cd "$REPO" || exit 2
+[ -f web/build/client/manifest.json ] || { echo "no mapped web/build"; exit 1; }
+rm -rf "$OUT"; mkdir -p "$OUT"
+export EZCORP_BROWSER_COVERAGE=1 EZCORP_BROWSER_COVERAGE_SOURCE_REVISION=$(git rev-parse HEAD) EZCORP_BROWSER_COVERAGE_OUTPUT=$OUT
+EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST="$(bun scripts/browser-route-coverage-manifest.ts --print)"; export EZCORP_BROWSER_COVERAGE_EXPECTED_MANIFEST
+(cd web && bunx playwright test --project=chromium --workers=2 --reporter=list --repeat-each 3 e2e/factory-authoring-console.spec.ts)

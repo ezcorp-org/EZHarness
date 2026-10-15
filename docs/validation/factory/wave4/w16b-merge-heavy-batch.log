@@ -1,0 +1,12 @@
+=== heavy batch 2026-09-25T11:40:34Z
+HEAD 0a95d765b933a81684d54132a70f9d9accee73bb MERGE_HEAD ea807dc81bcef12f8361fe8e410d42c7bb8387eb index-tree 8cf02007cc2cd23b3b078f87d07cc56e6aaa9ff3 umask 0077
+df: /dev/nvme0n1p2  1.8T  1.6T  147G  92% /
+--- START pg-factory-guest-model-route 2026-09-25T11:40:34Z
+--- END   pg-factory-guest-model-route 2026-09-25T11:40:39Z exit=0  17 pass 0 fail 
+--- START podman-supervisor-process.podman.integration 2026-09-25T11:40:39Z
+--- END   podman-supervisor-process.podman.integration 2026-09-25T11:40:42Z exit=0  3 pass 0 fail 
+--- START podman-guest-broker-transport.integration 2026-09-25T11:40:42Z
+--- END   podman-guest-broker-transport.integration 2026-09-25T11:40:57Z exit=0  13 pass 0 fail 
+--- START podman-guest-model-route.integration 2026-09-25T11:40:57Z
+--- END   podman-guest-model-route.integration 2026-09-25T11:41:01Z exit=0  17 pass 0 fail 
+BATCH DONE status=0 2026-09-25T11:41:01Z

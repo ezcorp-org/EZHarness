@@ -1,0 +1,29 @@
+bun test v1.4.2 (744846f84)
+
+docs/extensions/examples/sample-loop/try-loop.test.ts:
+
+┌─ TRY THE LOOP ───────────────────────────────────────────
+    sample-loop: on every run:complete, summarize the chat in one line.
+    ▶  firing  ezcorp/event/run:complete  { conversationId: "conv-demo-1" }
+    
+    ✓  RUN PERSISTED (Storage, per-run key)
+         key      loop:summarize:run:64c4d409-ab4e-4184-a2fd-ace9e370ec95
+         index    loop:summarize:index = [64c4d409-ab4e-4184-a2fd-ace9e370ec95]
+         status   done
+         events   1
+         summary  "The user asked how to rotate API keys; the assistant walked through the dashboard flow and the 24h grace window."
+    
+    ✓  ARTIFACT MIRRORED (.ezcorp/extension-data — git-legible)
+         .ezcorp/extension-data/summarize/summaries/64c4d409-ab4e-4184-a2fd-ace9e370ec95.md
+         │ # Summary
+         │ 
+         │ The user asked how to rotate API keys; the assistant walked through the dashboard flow and the 24h grace window.
+         │ 
+   ✅ loop works end-to-end.
+└──────────────────────────────────────────────────────────
+
+
+ 1 pass
+ 0 fail
+ 8 expect() calls
+Ran 1 test across 1 file. [715.00ms]

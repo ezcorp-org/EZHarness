@@ -1886,6 +1886,50 @@ class RecoveryDiagnosticsTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_real_fence_failure_records_private_diagnostic(self):
+        self.supervisor.recovery_fence_command = [sys.executable, "-c",
+            "import sys; print('PRIVATE_FENCE_CANARY', file=sys.stderr); sys.exit(7)"]
+        with self.assertRaisesRegex(ValueError, "^independent runner client fence verification failed$"):
+            self.supervisor.verify_recovery_fence({"fenceEvidence": "NEVER_RECORD_INPUT",
+                "deadlineMs": int(time.time() * 1000) + 30000}, {"pid": 123, "startTicks": "456"})
+        record = self.record()
+        self.assertEqual(record["stage"], "fence")
+        self.assertEqual(record["outcome"], "nonzero")
+        self.assertEqual(record["exitCode"], 7)
+        self.assertEqual(record["stderr"], "PRIVATE_FENCE_CANARY\n")
+
+    def test_real_fence_reply_and_timeout_diagnostics_keep_denial(self):
+        cases = [
+            ("print('not json')", "invalid_json", 0, 30000),
+            ("print('{\"fenced\":true,\"evidence\":\"wrong\"}')", "invalid_reply", 0, 30000),
+            ("import sys,time; print('PRIVATE_TIMEOUT_CANARY',file=sys.stderr,flush=True); time.sleep(2)",
+             "timeout", None, 100),
+        ]
+        for script, outcome, exit_code, budget in cases:
+            with self.subTest(outcome=outcome):
+                self.log.unlink(missing_ok=True)
+                self.supervisor.recovery_fence_command = [sys.executable, "-c", script]
+                with self.assertRaisesRegex(ValueError, "^independent runner client fence verification failed$"):
+                    self.supervisor.recovery_fence({"fenceEvidence": "NEVER_RECORD_INPUT",
+                        "deadlineMs": int(time.time() * 1000) + budget}, {}, "final-fence")
+                record = self.record()
+                self.assertEqual(record["stage"], "final-fence")
+                self.assertEqual(record["outcome"], outcome)
+                self.assertEqual(record["exitCode"], exit_code)
+                self.assertFalse(hasattr(self.supervisor, "recovery_fence_diagnostic_phase"))
+                if outcome == "timeout":
+                    self.assertEqual(record["stderr"], "PRIVATE_TIMEOUT_CANARY\n")
+
+    def test_fence_diagnostic_failure_cannot_replace_denial(self):
+        self.log.symlink_to(self.root / "missing")
+        self.supervisor.recovery_fence_command = [sys.executable, "-c", "raise SystemExit(7)"]
+        with mock.patch.object(MODULE.sys, "stderr") as stderr:
+            with self.assertRaisesRegex(ValueError, "^independent runner client fence verification failed$"):
+                self.supervisor.recovery_fence({"fenceEvidence": "NEVER_RECORD_INPUT",
+                    "deadlineMs": int(time.time() * 1000) + 30000}, {}, "initial-fence")
+        stderr.write.assert_called_once_with("Private recovery stage diagnostic unavailable\n")
+        self.assertFalse(hasattr(self.supervisor, "recovery_fence_diagnostic_phase"))
+
     def invoke(self, script):
         self.supervisor.recovery_command = [sys.executable, "-c", script]
         return self.supervisor.recovery_stage("backend", {"privateInput": "NEVER_RECORD_INPUT"},

@@ -1,0 +1,7 @@
+W4H-8 merge 5b8d5556f: the owner's report of record supersedes the copy in w4h-8-owner-report.txt.
+Addendum to w4h-8-merge-report-amendment.txt (SHA256SUMS is append-only; no existing line is rewritten).
+- w4h-8-owner-report.txt (amendment 60f8fcaa9) holds the owner's FIRST version, sha256 5efbe1edec75b9ac67ff69b9d0272ee675436f08dc39fb4c61c268f8bd57b686.
+- On the coordinator's order the owner rewrote /tmp/factory-platform-evidence/w4h-8/report.txt in the ordered shape (validator-5's
+  text plus a closing section on F1/F2/F3 and the final head), sha256 a980150176e33faac994e6467784fa2d5113fa6dac1266a8e16819945314f0de,
+  copied as w4h-8-owner-report-of-record.txt. That file is the report of record; the first version stays as history.
+The merge, its hold, the verdicts and the publish are unchanged.

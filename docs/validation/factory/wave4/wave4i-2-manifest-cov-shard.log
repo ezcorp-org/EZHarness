@@ -1,0 +1,6 @@
+== host-shard mode: shard 0/1 → 2020 files ==
+merged 1692 source files → /tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage/lcov_shard_0.info
+pre-merged 2020 per-file lcov(s) → /tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage/lcov_shard_0.info
+emitted per-file timings → /tmp/factory-platform-evidence/wave4i-2-manifest-cov-shard-coverage/timings-shard-0.json
+
+  30068 pass | 0 fail | 2020 files (shard 0/1)

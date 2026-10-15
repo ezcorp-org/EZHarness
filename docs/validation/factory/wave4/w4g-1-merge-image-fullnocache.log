@@ -1,0 +1,1594 @@
+context = git archive 4ae2f1658c47f1afefce922da7f507a174eb3cf2: 13142 files; dist dirs under packages: 0
+[1/2] STEP 1/19: FROM docker.io/oven/bun:1.4.2@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 AS builder
+[1/2] STEP 2/19: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+--> e6a2e766964a
+[1/2] STEP 3/19: WORKDIR /app
+--> d582beb51c46
+[1/2] STEP 4/19: COPY package.json bun.lock ./
+--> cd8cc5c40216
+[1/2] STEP 5/19: COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
+--> 7ecf50d1d477
+[1/2] STEP 6/19: COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+--> 235bff453782
+[1/2] STEP 7/19: COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+--> e1978ed40747
+[1/2] STEP 8/19: COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+--> 49d1aba043e7
+[1/2] STEP 9/19: COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+--> fb3c2f64715c
+[1/2] STEP 10/19: COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+--> 88f22b84d0f5
+[1/2] STEP 11/19: COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+--> 82fd54d27704
+[1/2] STEP 12/19: COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
+--> 25112363ca85
+[1/2] STEP 13/19: RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --frozen-lockfile --ignore-scripts
+bun install v1.4.2 (744846f84)
+
++ @biomejs/biome@2.5.14
++ @types/bun@1.4.2
++ @types/js-yaml@4.0.9
++ @types/node@26.6.1 (v26.6.4 available)
++ drizzle-kit@0.31.10
++ @aws-sdk/client-kms@3.1131.0
++ @aws-sdk/client-s3@3.1131.0
++ @balena/dockerignore@1.0.2
++ @earendil-works/pi-agent-core@0.85.1
++ @earendil-works/pi-ai@0.85.1
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.30.0
++ @zxing/library@0.23.0
++ drizzle-orm@0.45.2
++ exceljs@4.4.0
++ fast-png@8.0.0
++ file-type@22.1.0
++ jpeg-js@0.4.4
++ pdf-parse@2.4.5
++ yaml@2.9.1
++ typescript@5.9.3 (v7.0.2 available)
+
+510 packages installed [1343.00ms]
+--> 3b5970560a89
+[1/2] STEP 14/19: COPY web/package.json web/bun.lock web/
+--> 0dd2fe827291
+[1/2] STEP 15/19: COPY web/patches web/patches/
+--> e525e9e44166
+[1/2] STEP 16/19: RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --frozen-lockfile --ignore-scripts
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
++ @axe-core/playwright@4.13.0
++ @playwright/test@1.63.0
++ @stryker-mutator/core@10.0.0
++ @stryker-mutator/vitest-runner@10.0.0
++ @sveltejs/kit@2.70.3
++ @sveltejs/vite-plugin-svelte@7.3.0
++ @tailwindcss/vite@4.3.3
++ @testing-library/jest-dom@7.0.1
++ @testing-library/svelte@5.4.2
++ @types/jsdom@30.0.0
++ @typescript/native@7.0.2
++ @vitest/coverage-v8@5.0.0
++ ast-v8-to-istanbul@1.0.6
++ istanbul-lib-coverage@3.2.2
++ jsdom@30.0.1
++ rollup-plugin-visualizer@7.1.1
++ svelte@5.57.0
++ svelte-check@4.7.6
++ tailwindcss@4.3.3
++ typescript@6.0.3
++ vite@8.3.0
++ vitest@5.0.0
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @xyflow/svelte@1.6.6
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ elkjs@0.12.0
++ highlight.js@11.12.0
++ isomorphic-dompurify@4.2.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.13
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.6.5
+
+483 packages installed [7.23s]
+--> 7778fdf80e7e
+[1/2] STEP 17/19: COPY . .
+--> 86b24e3a3048
+[1/2] STEP 18/19: RUN bun run build:packages
+$ bun scripts/build-workspace-packages.ts
+build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+$ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+$ bunx tsc -b tsconfig.build.json
+--> 7a7fe2f952d3
+[1/2] STEP 19/19: RUN cd web && bun run build
+$ BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 bunx --bun vite build
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building ssr environment for production...
+transforming...
+✓ 5730 modules transformed.
+rendering chunks...
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 5001 modules transformed.
+rendering chunks...
+computing gzip size...
+.svelte-kit/output/client/_app/version.json                                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/workers/agent-fuzzy-search-worker-DWj5ig5-.js                  0.97 kB
+.svelte-kit/output/client/_app/immutable/workers/kokoro-tts-worker-DpBKgRHa.js                          2.43 kB
+.svelte-kit/output/client/.vite/manifest.json                                                          50.30 kB │ gzip:     5.62 kB
+.svelte-kit/output/client/stats.html                                                                1,952.76 kB │ gzip:   199.08 kB
+.svelte-kit/output/client/_app/immutable/workers/chunks/AJgC_YiK.js                                 2,214.84 kB
+.svelte-kit/output/client/_app/immutable/workers/assets/ort-wasm-simd-threaded.jsep-B0T3yYHD.wasm  21,596.01 kB │ gzip: 5,168.67 kB
+.svelte-kit/output/client/_app/immutable/assets/60.CpWWpKq2.css                                         0.06 kB │ gzip:     0.08 kB
+.svelte-kit/output/client/_app/immutable/assets/49.BJ_rxuiq.css                                         0.14 kB │ gzip:     0.11 kB
+.svelte-kit/output/client/_app/immutable/assets/snippet-sanitize.CZpbsZcQ.css                           0.71 kB │ gzip:     0.37 kB
+.svelte-kit/output/client/_app/immutable/assets/65.D3lIwtzx.css                                         0.85 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/assets/32.BtoN0ODj.css                                         0.86 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/assets/47.xIn2njHJ.css                                         2.77 kB │ gzip:     0.87 kB
+.svelte-kit/output/client/_app/immutable/assets/51.CBRCCQ4C.css                                         3.00 kB │ gzip:     0.88 kB
+.svelte-kit/output/client/_app/immutable/assets/28.CSjS6bQF.css                                         4.78 kB │ gzip:     1.22 kB
+.svelte-kit/output/client/_app/immutable/assets/last-model.DDSXdu-h.css                                 4.87 kB │ gzip:     1.34 kB
+.svelte-kit/output/client/_app/immutable/assets/48.BfuJXbYY.css                                         6.25 kB │ gzip:     1.51 kB
+.svelte-kit/output/client/_app/immutable/assets/MarkdownRenderer.C22SqRtT.css                           6.73 kB │ gzip:     1.31 kB
+.svelte-kit/output/client/_app/immutable/assets/27.iEdWJZEq.css                                         7.99 kB │ gzip:     1.63 kB
+.svelte-kit/output/client/_app/immutable/assets/3.D2ixIGvf.css                                         10.83 kB │ gzip:     2.50 kB
+.svelte-kit/output/client/_app/immutable/assets/FactoryGraph.thq89YzB.css                              19.35 kB │ gzip:     3.43 kB
+.svelte-kit/output/client/_app/immutable/assets/57.DWHY8c2l.css                                        20.42 kB │ gzip:     3.46 kB
+.svelte-kit/output/client/_app/immutable/assets/filter-empty-turns.vu8AWntT.css                        34.34 kB │ gzip:     6.05 kB
+.svelte-kit/output/client/_app/immutable/assets/34.DRTI37MV.css                                        65.54 kB │ gzip:     9.38 kB
+.svelte-kit/output/client/_app/immutable/assets/0.C3t8NFZX.css                                        135.37 kB │ gzip:    22.47 kB
+.svelte-kit/output/client/_app/immutable/chunks/BvRk9kiK.js                                             0.00 kB │ gzip:     0.02 kB
+.svelte-kit/output/client/_app/immutable/chunks/Bee62_Kb.js                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/CYB68K7S.js                                             0.02 kB │ gzip:     0.04 kB
+.svelte-kit/output/client/_app/immutable/chunks/DVrADooe.js                                             0.03 kB │ gzip:     0.05 kB
+.svelte-kit/output/client/_app/immutable/chunks/xihTtKlq.js                                             0.06 kB │ gzip:     0.08 kB
+.svelte-kit/output/client/_app/immutable/entry/start.DHazy5XW.js                                        0.08 kB │ gzip:     0.09 kB
+.svelte-kit/output/client/_app/immutable/chunks/BDZAYHJ3.js                                             0.08 kB │ gzip:     0.10 kB
+.svelte-kit/output/client/_app/immutable/chunks/BhEPmCXu.js                                             0.14 kB │ gzip:     0.13 kB
+.svelte-kit/output/client/_app/immutable/chunks/0CdjsEMm.js                                             0.17 kB │ gzip:     0.14 kB
+.svelte-kit/output/client/_app/immutable/nodes/2.CnV1VlVD.js                                            0.17 kB │ gzip:     0.15 kB
+.svelte-kit/output/client/_app/immutable/chunks/WChNvy45.js                                             0.19 kB │ gzip:     0.17 kB
+.svelte-kit/output/client/_app/immutable/chunks/Qa4ValTG.js                                             0.20 kB │ gzip:     0.15 kB
+.svelte-kit/output/client/_app/immutable/nodes/55.phr3DTQj.js                                           0.22 kB │ gzip:     0.19 kB
+.svelte-kit/output/client/_app/immutable/chunks/B4uMu7ng.js                                             0.24 kB │ gzip:     0.17 kB
+.svelte-kit/output/client/_app/immutable/chunks/xU1DEtSP.js                                             0.25 kB │ gzip:     0.16 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dew5tT4T.js                                             0.26 kB │ gzip:     0.20 kB
+.svelte-kit/output/client/_app/immutable/chunks/CH20nTEa.js                                             0.29 kB │ gzip:     0.16 kB
+.svelte-kit/output/client/_app/immutable/chunks/PB-P8Zwe.js                                             0.31 kB │ gzip:     0.18 kB
+.svelte-kit/output/client/_app/immutable/chunks/Om_2UmYg.js                                             0.45 kB │ gzip:     0.27 kB
+.svelte-kit/output/client/_app/immutable/chunks/Cxq7ySr5.js                                             0.48 kB │ gzip:     0.30 kB
+.svelte-kit/output/client/_app/immutable/chunks/DU4kI8En.js                                             0.49 kB │ gzip:     0.23 kB
+.svelte-kit/output/client/_app/immutable/nodes/37.CQ3BkXx5.js                                           0.50 kB │ gzip:     0.33 kB
+.svelte-kit/output/client/_app/immutable/chunks/VaBb-J56.js                                             0.51 kB │ gzip:     0.36 kB
+.svelte-kit/output/client/_app/immutable/nodes/54.BfB9ZqYX.js                                           0.52 kB │ gzip:     0.29 kB
+.svelte-kit/output/client/_app/immutable/chunks/FNLNZDjo.js                                             0.56 kB │ gzip:     0.35 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dt-HX3Vu.js                                             0.62 kB │ gzip:     0.38 kB
+.svelte-kit/output/client/_app/immutable/nodes/62.BCSr4EBP.js                                           0.63 kB │ gzip:     0.32 kB
+.svelte-kit/output/client/_app/immutable/chunks/jWRyahnJ.js                                             0.63 kB │ gzip:     0.32 kB
+.svelte-kit/output/client/_app/immutable/nodes/6.CQ4B-RyL.js                                            0.64 kB │ gzip:     0.41 kB
+.svelte-kit/output/client/_app/immutable/chunks/JYbIKlwc.js                                             0.66 kB │ gzip:     0.43 kB
+.svelte-kit/output/client/_app/immutable/nodes/7.Duv5PC_n.js                                            0.67 kB │ gzip:     0.43 kB
+.svelte-kit/output/client/_app/immutable/chunks/ZXovPA1C.js                                             0.68 kB │ gzip:     0.34 kB
+.svelte-kit/output/client/_app/immutable/chunks/FZzh2b5t.js                                             0.76 kB │ gzip:     0.43 kB
+.svelte-kit/output/client/_app/immutable/chunks/BkWNs1ZY.js                                             0.76 kB │ gzip:     0.39 kB
+.svelte-kit/output/client/_app/immutable/chunks/Dr5-Iwmh.js                                             0.83 kB │ gzip:     0.44 kB
+.svelte-kit/output/client/_app/immutable/chunks/BEQdcZAU.js                                             0.88 kB │ gzip:     0.42 kB
+.svelte-kit/output/client/_app/immutable/chunks/BaL_Naf-.js                         ✓ built in 6.73s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+(!) Your Vite config uses features that are unsupported by `configLoader: 'native'`, which is planned to become the default in a future major version of Vite:
+  - import "./src/lib/build/preview-pipeline-guard" without a file extension (vite.config.ts:6:38). Add the file extension
+Set `VITE_CONFIG_NATIVE_IGNORE_WARNING=true` to suppress this warning.
+vite v8.3.0 building client environment for production...
+transforming...
+✓ 4 modules transformed.
+rendering chunks...
+computing gzip size...
+.svelte-kit/output/client/service-worker.js  8.98 kB │ gzip: 2.59 kB
+
+✓ built in 11ms
+computing gzip size...
+.svelte-kit/output/server/.vite/manifest.json                                                                                                                  310.50 kB │ gzip:  27.89 kB
+.svelte-kit/output/server/stats.html                                                                                                                         2,319.29 kB │ gzip: 251.27 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.CpWWpKq2.css                                                                                               0.06 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BJ_rxuiq.css                                                                                               0.14 kB │ gzip:   0.11 kB
+.svelte-kit/output/server/_app/immutable/assets/snippet-sanitize.CZpbsZcQ.css                                                                                    0.71 kB │ gzip:   0.37 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.D3lIwtzx.css                                                                                               0.85 kB │ gzip:   0.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BtoN0ODj.css                                                                                               0.86 kB │ gzip:   0.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.xIn2njHJ.css                                                                                               2.77 kB │ gzip:   0.87 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.y4_E3Ofs.css                                                                                               2.97 kB │ gzip:   0.87 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.CSjS6bQF.css                                                                                               4.78 kB │ gzip:   1.22 kB
+.svelte-kit/output/server/_app/immutable/assets/last-model.682O9D96.css                                                                                          4.84 kB │ gzip:   1.34 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BfuJXbYY.css                                                                                               6.25 kB │ gzip:   1.51 kB
+.svelte-kit/output/server/_app/immutable/assets/MarkdownRenderer.C22SqRtT.css                                                                                    6.73 kB │ gzip:   1.31 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.iEdWJZEq.css                                                                                               7.99 kB │ gzip:   1.63 kB
+.svelte-kit/output/server/_app/immutable/assets/_layout.DYMmpVTA.css                                                                                            10.79 kB │ gzip:   2.50 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.BhMyK-mL.css                                                                                              20.40 kB │ gzip:   3.46 kB
+.svelte-kit/output/server/_app/immutable/assets/filter-empty-turns.DfdaWX13.css                                                                                 34.30 kB │ gzip:   6.05 kB
+.svelte-kit/output/server/_app/immutable/assets/_page.DpRy1QSu.css                                                                                              57.60 kB │ gzip:   8.33 kB
+.svelte-kit/output/server/_app/immutable/assets/_layout.DVHs39Tt.css                                                                                           134.86 kB │ gzip:  22.43 kB
+.svelte-kit/output/server/chunks/index-server.js                                                                                                                 0.03 kB │ gzip:   0.05 kB
+.svelte-kit/output/server/chunks/navigation.js                                                                                                                   0.03 kB │ gzip:   0.05 kB
+.svelte-kit/output/server/chunks/types4.js                                                                                                                       0.06 kB │ gzip:   0.07 kB
+.svelte-kit/output/server/chunks/toast.svelte.js                                                                                                                 0.07 kB │ gzip:   0.07 kB
+.svelte-kit/output/server/chunks/registry3.js                                                                                                                    0.07 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/content-builder2.js                                                                                                             0.09 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/modes.js                                                                                                                        0.09 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/retrieval.js                                                                                                                    0.09 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/mode-tool-scope.js                                                                                                              0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/application2.js                                                                                                                 0.10 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/host-maintenance-daemon2.js                                                                                                     0.10 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/agent-config.js                                                                                                                 0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/features.js                                                                                                                     0.10 kB │ gzip:   0.08 kB
+.svelte-kit/output/server/chunks/router2.js                                                                                                                      0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/extensions3.js                                                                                                                  0.10 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/host-stop-client2.js                                                                                                            0.11 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/completion-intents.js                                                                                                           0.11 kB │ gzip:   0.09 kB
+.svelte-kit/output/server/chunks/file-organizer-state.js                                                                                                         0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/preview-sessions.js                                                                                                             0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/secrets-store.js                                                                                                                0.11 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/page-cache.js                                                                                                                   0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/error-logs.js                                                                                                                   0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/release-composition2.js                                                                                                         0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/entries/endpoints/api/tool-invoke/_server.ts.js                                                                                        0.12 kB │ gzip:   0.10 kB
+.svelte-kit/output/server/chunks/api.js                          [33m[INEFFECTIVE_DYNAMIC_IMPORT] [0m../src/extensions/registry.ts is dynamically imported by ../src/extensions/delivery-runtime.ts, ../src/extensions/extension-lifecycle-service.ts, ../src/extensions/subprocess.ts, ../src/extensions/webhook-delivery-daemon.ts, ../src/runtime/stream-chat/setup-tools.ts, ... but also statically imported by ../src/db/queries/conversation-extensions.ts, ../src/runtime/executor.ts, ../src/runtime/sandbox/provider-invoker.ts, ../src/runtime/stream-chat/setup-tools.ts, ../src/runtime/stream-chat/subscribe-bridge.ts, ..., dynamic import will not move module into another chunk.
+
+✓ built in 15.88s
+
+Run npm run preview to preview your production build locally.
+
+> Using svelte-adapter-bun
+.svelte-kit/adapter-bun/chunks/build-sandbox-argv.js (7:52) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/build-sandbox-argv.js:7:53 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m7 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249mt[0m[38;5;249mr[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249mt[0m[38;5;249mo[0m[38;5;249mA[0m[38;5;249mr[0m[38;5;249mr[0m[38;5;249ma[0m[38;5;249my[0m[38;5;249mB[0m[38;5;249mu[0m[38;5;249mf[0m[38;5;249mf[0m[38;5;249me[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+ [38;5;240m  │[0m                                                     ────┬────  
+ [38;5;240m  │[0m                                                         ╰────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+.svelte-kit/adapter-bun/chunks/startup.js (21:32) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun:ffi' in .svelte-kit/adapter-bun/chunks/startup.js
+    [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m .svelte-kit/adapter-bun/chunks/startup.js:21:33 [38;5;246m][0m
+    [38;5;246m│[0m
+ [38;5;246m21 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mF[0m[38;5;249mF[0m[38;5;249mI[0m[38;5;249mT[0m[38;5;249my[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249m,[0m[38;5;249m [0m[38;5;249md[0m[38;5;249ml[0m[38;5;249mo[0m[38;5;249mp[0m[38;5;249me[0m[38;5;249mn[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun:ffi"[38;5;249m;[0m
+ [38;5;240m   │[0m                                 ────┬────  
+ [38;5;240m   │[0m                                     ╰────── Module not found, treating it as an external dependency
+[38;5;246m────╯[0m
+
+../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js (1:20) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'bun' in ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/drizzle-orm@0.45.2+eaea9df5714af670/node_modules/drizzle-orm/bun-sql/driver.js:1:21 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249mi[0m[38;5;249mm[0m[38;5;249mp[0m[38;5;249mo[0m[38;5;249mr[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249m{[0m[38;5;249m [0m[38;5;249mS[0m[38;5;249mQ[0m[38;5;249mL[0m[38;5;249m [0m[38;5;249m}[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249mr[0m[38;5;249mo[0m[38;5;249mm[0m[38;5;249m [0m"bun"[38;5;249m;[0m
+ [38;5;240m  │[0m                     ──┬──  
+ [38;5;240m  │[0m                       ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js (3:19) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'child_process' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/index.js:3:20 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mc[0m[38;5;249mp[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'child_process'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                    ───────┬───────  
+ [38;5;240m  │[0m                           ╰───────── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js (3:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/parse.js:3:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js (3:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/resolveCommand.js:3:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/which@2.0.2/node_modules/which/which.js (5:21) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'path' in ../node_modules/.bun/which@2.0.2/node_modules/which/which.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/which@2.0.2/node_modules/which/which.js:5:22 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m5 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mp[0m[38;5;249ma[0m[38;5;249mt[0m[38;5;249mh[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'path'[38;5;249m)[0m
+ [38;5;240m  │[0m                      ───┬──  
+ [38;5;240m  │[0m                         ╰──── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js (3:19) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/cross-spawn@7.0.6/node_modules/cross-spawn/lib/util/readShebang.js:3:20 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m3 │[0m [38;5;249mc[0m[38;5;249mo[0m[38;5;249mn[0m[38;5;249ms[0m[38;5;249mt[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m[38;5;249m;[0m
+ [38;5;240m  │[0m                    ──┬─  
+ [38;5;240m  │[0m                      ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js (1:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/index.js:1:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m1 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js (4:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/mode.js:4:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js (4:17) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'fs' in ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js
+   [38;5;246m╭[0m[38;5;246m─[0m[38;5;246m[[0m ../node_modules/.bun/isexe@2.0.0/node_modules/isexe/windows.js:4:18 [38;5;246m][0m
+   [38;5;246m│[0m
+ [38;5;246m4 │[0m [38;5;249mv[0m[38;5;249ma[0m[38;5;249mr[0m[38;5;249m [0m[38;5;249mf[0m[38;5;249ms[0m[38;5;249m [0m[38;5;249m=[0m[38;5;249m [0m[38;5;249mr[0m[38;5;249me[0m[38;5;249mq[0m[38;5;249mu[0m[38;5;249mi[0m[38;5;249mr[0m[38;5;249me[0m[38;5;249m([0m'fs'[38;5;249m)[0m
+ [38;5;240m  │[0m                  ──┬─  
+ [38;5;240m  │[0m                    ╰─── Module not found, treating it as an external dependency
+[38;5;246m───╯[0m
+
+  ✔ done
+[33m[PLUGIN_TIMINGS] [0mYour build spent 100% of 15.9s inside plugin hooks (40.4s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - vite-plugin-sveltekit-compile closeBundle (100%, 25.2s, 1 call)
+  - vite-plugin-sveltekit-compile writeBundle (57%, 9.0s, 1 call)
+  - vite-plugin-svelte:compile transform (16%, 2.6s, 2021 calls)
+  - visualizer generateBundle (10%, 1.6s, 1 call)
+Those rows are 100% of the build; the rest of the 100% is below.
+Not measurable — 1 hook whose calls overlap, so elapsed time covers work other calls were doing. Profile with `node --cpu-prof`:
+  - vite-plugin-sveltekit-guard resolveId (19714 calls)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+
+--> 3b391910e8de
+[2/2] STEP 1/65: FROM docker.io/oven/bun:1.4.2-slim@sha256:cb3bbbb08e13a4a2ff400f24c7a2a1d5efa83f6ef8544d52d95a519631e2fc61
+[2/2] STEP 2/65: ENV BUN_RUNTIME_TRANSPILER_CACHE_PATH=0 BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+--> 9539dc9647fa
+[2/2] STEP 3/65: WORKDIR /app
+--> 1b70522fb07c
+[2/2] STEP 4/65: RUN apt-get update   && apt-get install -y --no-install-recommends        util-linux        iproute2        iptables        nftables        libcap2-bin        bubblewrap        libseccomp2        git        curl        ca-certificates   && rm -rf /var/lib/apt/lists/*
+Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [264 kB]
+Fetched 10.2 MB in 2s (6129 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+util-linux is already the newest version (2.41.5-0+deb13u1).
+util-linux set to manually installed.
+libseccomp2 is already the newest version (2.6.0-2).
+libseccomp2 set to manually installed.
+ca-certificates is already the newest version (20250419).
+The following additional packages will be installed:
+  git-man libbpf1 libbrotli1 libcap2 libcom-err2 libcurl3t64-gnutls
+  libcurl4t64 libedit2 libelf1t64 liberror-perl libexpat1 libffi8
+  libgdbm-compat4t64 libgdbm6t64 libgnutls30t64 libgssapi-krb5-2 libidn2-0
+  libip4tc2 libip6tc2 libjansson4 libk5crypto3 libkeyutils1 libkrb5-3
+  libkrb5support0 libldap2 libmnl0 libnetfilter-conntrack3 libnfnetlink0
+  libnftables1 libnftnl11 libnghttp2-14 libnghttp3-9 libngtcp2-16
+  libngtcp2-crypto-gnutls8 libp11-kit0 libperl5.40 libpsl5t64 librtmp1
+  libsasl2-2 libsasl2-modules-db libssh2-1t64 libtasn1-6 libtirpc-common
+  libtirpc3t64 libunistring5 libxtables12 netbase perl perl-base
+  perl-modules-5.40
+Suggested packages:
+  gettext-base git-doc git-email git-gui gitk gitweb git-cvs git-mediawiki
+  git-svn python3:any firewalld kmod gdbm-l10n gnutls-bin krb5-doc krb5-user
+  sensible-utils perl-doc libterm-readline-gnu-perl
+  | libterm-readline-perl-perl make libtap-harness-archive-perl
+Recommended packages:
+  procps bash-completion patch less ssh-client libpam-cap krb5-locales
+  libldap-common publicsuffix libsasl2-modules
+The following NEW packages will be installed:
+  bubblewrap curl git git-man iproute2 iptables libbpf1 libbrotli1 libcap2-bin
+  libcom-err2 libcurl3t64-gnutls libcurl4t64 libedit2 libelf1t64 liberror-perl
+  libexpat1 libffi8 libgdbm-compat4t64 libgdbm6t64 libgnutls30t64
+  libgssapi-krb5-2 libidn2-0 libip4tc2 libip6tc2 libjansson4 libk5crypto3
+  libkeyutils1 libkrb5-3 libkrb5support0 libldap2 libmnl0
+  libnetfilter-conntrack3 libnfnetlink0 libnftables1 libnftnl11 libnghttp2-14
+  libnghttp3-9 libngtcp2-16 libngtcp2-crypto-gnutls8 libp11-kit0 libperl5.40
+  libpsl5t64 librtmp1 libsasl2-2 libsasl2-modules-db libssh2-1t64 libtasn1-6
+  libtirpc-common libtirpc3t64 libunistring5 libxtables12 netbase nftables
+  perl perl-modules-5.40
+The following packages will be upgraded:
+  libcap2 perl-base
+2 upgraded, 55 newly installed, 0 to remove and 13 not upgraded.
+Need to get 28.9 MB of archives.
+After this operation, 132 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian trixie/main amd64 perl-base amd64 5.40.1-6+deb13u1 [1666 kB]
+Get:2 http://deb.debian.org/debian trixie/main amd64 libexpat1 amd64 2.8.3-1~deb13u1 [123 kB]
+Get:3 http://deb.debian.org/debian trixie/main amd64 libcap2 amd64 1:2.75-10+deb13u1+b3 [29.0 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 libelf1t64 amd64 0.192-4 [189 kB]
+Get:5 http://deb.debian.org/debian trixie/main amd64 libbpf1 amd64 1:1.5.0-3 [169 kB]
+Get:6 http://deb.debian.org/debian trixie/main amd64 libmnl0 amd64 1.0.5-3 [11.9 kB]
+Get:7 http://deb.debian.org/debian trixie/main amd64 libkrb5support0 amd64 1.21.3-5+deb13u1 [33.1 kB]
+Get:8 http://deb.debian.org/debian trixie/main amd64 libcom-err2 amd64 1.47.2-3+b12 [25.0 kB]
+Get:9 http://deb.debian.org/debian trixie/main amd64 libk5crypto3 amd64 1.21.3-5+deb13u1 [81.2 kB]
+Get:10 http://deb.debian.org/debian trixie/main amd64 libkeyutils1 amd64 1.6.3-6 [9456 B]
+Get:11 http://deb.debian.org/debian trixie/main amd64 libkrb5-3 amd64 1.21.3-5+deb13u1 [326 kB]
+Get:12 http://deb.debian.org/debian trixie/main amd64 libgssapi-krb5-2 amd64 1.21.3-5+deb13u1 [138 kB]
+Get:13 http://deb.debian.org/debian trixie/main amd64 libtirpc-common all 1.3.6+ds-1 [11.0 kB]
+Get:14 http://deb.debian.org/debian trixie/main amd64 libtirpc3t64 amd64 1.3.6+ds-1 [83.3 kB]
+Get:15 http://deb.debian.org/debian trixie/main amd64 libxtables12 amd64 1.8.11-2 [31.9 kB]
+Get:16 http://deb.debian.org/debian trixie/main amd64 libcap2-bin amd64 1:2.75-10+deb13u1+b3 [36.5 kB]
+Get:17 http://deb.debian.org/debian trixie/main amd64 iproute2 amd64 6.15.0-1 [1089 kB]
+Get:18 http://deb.debian.org/debian trixie/main amd64 netbase all 6.5 [12.4 kB]
+Get:19 http://deb.debian.org/debian trixie/main amd64 libjansson4 amd64 2.14-2+b3 [39.8 kB]
+Get:20 http://deb.debian.org/debian trixie/main amd64 libnftnl11 amd64 1.2.9-1 [65.0 kB]
+Get:21 http://deb.debian.org/debian trixie/main amd64 libnftables1 amd64 1.1.3-1 [332 kB]
+Get:22 http://deb.debian.org/debian trixie/main amd64 libedit2 amd64 3.1-20250104-1 [93.8 kB]
+Get:23 http://deb.debian.org/debian trixie/main amd64 nftables amd64 1.1.3-1 [75.9 kB]
+Get:24 http://deb.debian.org/debian trixie/main amd64 perl-modules-5.40 all 5.40.1-6+deb13u1 [3014 kB]
+Get:25 http://deb.debian.org/debian trixie/main amd64 libgdbm6t64 amd64 1.24-2 [75.2 kB]
+Get:26 http://deb.debian.org/debian trixie/main amd64 libgdbm-compat4t64 amd64 1.24-2 [50.3 kB]
+Get:27 http://deb.debian.org/debian trixie/main amd64 libperl5.40 amd64 5.40.1-6+deb13u1 [4326 kB]
+Get:28 http://deb.debian.org/debian trixie/main amd64 perl amd64 5.40.1-6+deb13u1 [268 kB]
+Get:29 http://deb.debian.org/debian trixie/main amd64 bubblewrap amd64 0.12.0-1~deb13u1 [56.9 kB]
+Get:30 http://deb.debian.org/debian trixie/main amd64 libbrotli1 amd64 1.1.0-2+b7 [307 kB]
+Get:31 http://deb.debian.org/debian trixie/main amd64 libunistring5 amd64 1.3-2 [477 kB]
+Get:32 http://deb.debian.org/debian trixie/main amd64 libidn2-0 amd64 2.3.8-2 [109 kB]
+Get:33 http://deb.debian.org/debian trixie/main amd64 libsasl2-modules-db amd64 2.1.28+dfsg1-9 [19.8 kB]
+Get:34 http://deb.debian.org/debian trixie/main amd64 libsasl2-2 amd64 2.1.28+dfsg1-9 [57.5 kB]
+Get:35 http://deb.debian.org/debian trixie/main amd64 libldap2 amd64 2.6.10+dfsg-1 [194 kB]
+Get:36 http://deb.debian.org/debian trixie/main amd64 libnghttp2-14 amd64 1.64.0-1.1+deb13u1 [76.2 kB]
+Get:37 http://deb.debian.org/debian trixie/main amd64 libnghttp3-9 amd64 1.8.0-1 [67.7 kB]
+Get:38 http://deb.debian.org/debian trixie/main amd64 libpsl5t64 amd64 0.21.2-1.1+b1 [57.2 kB]
+Get:39 http://deb.debian.org/debian trixie/main amd64 libffi8 amd64 3.4.8-2 [24.1 kB]
+Get:40 http://deb.debian.org/debian trixie/main amd64 libp11-kit0 amd64 0.25.5-3 [425 kB]
+Get:41 http://deb.debian.org/debian trixie/main amd64 libtasn1-6 amd64 4.20.0-2+deb13u1 [50.1 kB]
+Get:42 http://deb.debian.org/debian trixie/main amd64 libgnutls30t64 amd64 3.8.9-3+deb13u4 [1469 kB]
+Get:43 http://deb.debian.org/debian trixie/main amd64 librtmp1 amd64 2.4+20151223.gitfa8646d.1-2+b5 [58.8 kB]
+Get:44 http://deb.debian.org/debian trixie/main amd64 libssh2-1t64 amd64 1.11.1-1+deb13u2 [245 kB]
+Get:45 http://deb.debian.org/debian trixie/main amd64 libcurl4t64 amd64 8.14.1-2+deb13u5 [391 kB]
+Get:46 http://deb.debian.org/debian trixie/main amd64 curl amd64 8.14.1-2+deb13u5 [270 kB]
+Get:47 http://deb.debian.org/debian trixie/main amd64 libngtcp2-16 amd64 1.11.0-1+deb13u1 [132 kB]
+Get:48 http://deb.debian.org/debian trixie/main amd64 libngtcp2-crypto-gnutls8 amd64 1.11.0-1+deb13u1 [29.5 kB]
+Get:49 http://deb.debian.org/debian trixie/main amd64 libcurl3t64-gnutls amd64 8.14.1-2+deb13u5 [384 kB]
+Get:50 http://deb.debian.org/debian trixie/main amd64 liberror-perl all 0.17030-1 [26.9 kB]
+Get:51 http://deb.debian.org/debian trixie/main amd64 git-man all 1:2.47.3-0+deb13u1 [2205 kB]
+Get:52 http://deb.debian.org/debian trixie/main amd64 git amd64 1:2.47.3-0+deb13u1 [8862 kB]
+Get:53 http://deb.debian.org/debian trixie/main amd64 libip4tc2 amd64 1.8.11-2 [20.0 kB]
+Get:54 http://deb.debian.org/debian trixie/main amd64 libip6tc2 amd64 1.8.11-2 [20.3 kB]
+Get:55 http://deb.debian.org/debian trixie/main amd64 libnfnetlink0 amd64 1.0.2-3 [14.4 kB]
+Get:56 http://deb.debian.org/debian trixie/main amd64 libnetfilter-conntrack3 amd64 1.1.0-1 [42.1 kB]
+Get:57 http://deb.debian.org/debian trixie/main amd64 iptables amd64 1.8.11-2 [361 kB]
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (Can't locate Term/ReadLine.pm in @INC (you may need to install the Term::ReadLine module) (@INC entries checked: /etc/perl /usr/local/lib/x86_64-linux-gnu/perl/5.40.1 /usr/local/share/perl/5.40.1 /usr/lib/x86_64-linux-gnu/perl5/5.40 /usr/share/perl5 /usr/lib/x86_64-linux-gnu/perl-base /usr/lib/x86_64-linux-gnu/perl/5.40 /usr/share/perl/5.40 /usr/local/lib/site_perl) at /usr/share/perl5/Debconf/FrontEnd/Readline.pm line 8, <STDIN> line 57.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Preconfiguring packages ...
+Fetched 28.9 MB in 3s (8848 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5507 files and directories currently installed.)
+Preparing to unpack .../perl-base_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking perl-base (5.40.1-6+deb13u1) over (5.40.1-6) ...
+Setting up perl-base (5.40.1-6+deb13u1) ...
+Selecting previously unselected package libexpat1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5507 files and directories currently installed.)
+Preparing to unpack .../libexpat1_2.8.3-1~deb13u1_amd64.deb ...
+Unpacking libexpat1:amd64 (2.8.3-1~deb13u1) ...
+Preparing to unpack .../libcap2_1%3a2.75-10+deb13u1+b3_amd64.deb ...
+Unpacking libcap2:amd64 (1:2.75-10+deb13u1+b3) over (1:2.75-10+deb13u1+b1) ...
+Setting up libcap2:amd64 (1:2.75-10+deb13u1+b3) ...
+Selecting previously unselected package libelf1t64:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 5516 files and directories currently installed.)
+Preparing to unpack .../00-libelf1t64_0.192-4_amd64.deb ...
+Unpacking libelf1t64:amd64 (0.192-4) ...
+Selecting previously unselected package libbpf1:amd64.
+Preparing to unpack .../01-libbpf1_1%3a1.5.0-3_amd64.deb ...
+Unpacking libbpf1:amd64 (1:1.5.0-3) ...
+Selecting previously unselected package libmnl0:amd64.
+Preparing to unpack .../02-libmnl0_1.0.5-3_amd64.deb ...
+Unpacking libmnl0:amd64 (1.0.5-3) ...
+Selecting previously unselected package libkrb5support0:amd64.
+Preparing to unpack .../03-libkrb5support0_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libkrb5support0:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libcom-err2:amd64.
+Preparing to unpack .../04-libcom-err2_1.47.2-3+b12_amd64.deb ...
+Unpacking libcom-err2:amd64 (1.47.2-3+b12) ...
+Selecting previously unselected package libk5crypto3:amd64.
+Preparing to unpack .../05-libk5crypto3_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libk5crypto3:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libkeyutils1:amd64.
+Preparing to unpack .../06-libkeyutils1_1.6.3-6_amd64.deb ...
+Unpacking libkeyutils1:amd64 (1.6.3-6) ...
+Selecting previously unselected package libkrb5-3:amd64.
+Preparing to unpack .../07-libkrb5-3_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libkrb5-3:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libgssapi-krb5-2:amd64.
+Preparing to unpack .../08-libgssapi-krb5-2_1.21.3-5+deb13u1_amd64.deb ...
+Unpacking libgssapi-krb5-2:amd64 (1.21.3-5+deb13u1) ...
+Selecting previously unselected package libtirpc-common.
+Preparing to unpack .../09-libtirpc-common_1.3.6+ds-1_all.deb ...
+Unpacking libtirpc-common (1.3.6+ds-1) ...
+Selecting previously unselected package libtirpc3t64:amd64.
+Preparing to unpack .../10-libtirpc3t64_1.3.6+ds-1_amd64.deb ...
+Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3 to /lib/x86_64-linux-gnu/libtirpc.so.3.usr-is-merged by libtirpc3t64'
+Adding 'diversion of /lib/x86_64-linux-gnu/libtirpc.so.3.0.0 to /lib/x86_64-linux-gnu/libtirpc.so.3.0.0.usr-is-merged by libtirpc3t64'
+Unpacking libtirpc3t64:amd64 (1.3.6+ds-1) ...
+Selecting previously unselected package libxtables12:amd64.
+Preparing to unpack .../11-libxtables12_1.8.11-2_amd64.deb ...
+Unpacking libxtables12:amd64 (1.8.11-2) ...
+Selecting previously unselected package libcap2-bin.
+Preparing to unpack .../12-libcap2-bin_1%3a2.75-10+deb13u1+b3_amd64.deb ...
+Unpacking libcap2-bin (1:2.75-10+deb13u1+b3) ...
+Selecting previously unselected package iproute2.
+Preparing to unpack .../13-iproute2_6.15.0-1_amd64.deb ...
+Unpacking iproute2 (6.15.0-1) ...
+Selecting previously unselected package netbase.
+Preparing to unpack .../14-netbase_6.5_all.deb ...
+Unpacking netbase (6.5) ...
+Selecting previously unselected package libjansson4:amd64.
+Preparing to unpack .../15-libjansson4_2.14-2+b3_amd64.deb ...
+Unpacking libjansson4:amd64 (2.14-2+b3) ...
+Selecting previously unselected package libnftnl11:amd64.
+Preparing to unpack .../16-libnftnl11_1.2.9-1_amd64.deb ...
+Unpacking libnftnl11:amd64 (1.2.9-1) ...
+Selecting previously unselected package libnftables1:amd64.
+Preparing to unpack .../17-libnftables1_1.1.3-1_amd64.deb ...
+Unpacking libnftables1:amd64 (1.1.3-1) ...
+Selecting previously unselected package libedit2:amd64.
+Preparing to unpack .../18-libedit2_3.1-20250104-1_amd64.deb ...
+Unpacking libedit2:amd64 (3.1-20250104-1) ...
+Selecting previously unselected package nftables.
+Preparing to unpack .../19-nftables_1.1.3-1_amd64.deb ...
+Unpacking nftables (1.1.3-1) ...
+Selecting previously unselected package perl-modules-5.40.
+Preparing to unpack .../20-perl-modules-5.40_5.40.1-6+deb13u1_all.deb ...
+Unpacking perl-modules-5.40 (5.40.1-6+deb13u1) ...
+Selecting previously unselected package libgdbm6t64:amd64.
+Preparing to unpack .../21-libgdbm6t64_1.24-2_amd64.deb ...
+Unpacking libgdbm6t64:amd64 (1.24-2) ...
+Selecting previously unselected package libgdbm-compat4t64:amd64.
+Preparing to unpack .../22-libgdbm-compat4t64_1.24-2_amd64.deb ...
+Unpacking libgdbm-compat4t64:amd64 (1.24-2) ...
+Selecting previously unselected package libperl5.40:amd64.
+Preparing to unpack .../23-libperl5.40_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking libperl5.40:amd64 (5.40.1-6+deb13u1) ...
+Selecting previously unselected package perl.
+Preparing to unpack .../24-perl_5.40.1-6+deb13u1_amd64.deb ...
+Unpacking perl (5.40.1-6+deb13u1) ...
+Selecting previously unselected package bubblewrap.
+Preparing to unpack .../25-bubblewrap_0.12.0-1~deb13u1_amd64.deb ...
+Unpacking bubblewrap (0.12.0-1~deb13u1) ...
+Selecting previously unselected package libbrotli1:amd64.
+Preparing to unpack .../26-libbrotli1_1.1.0-2+b7_amd64.deb ...
+Unpacking libbrotli1:amd64 (1.1.0-2+b7) ...
+Selecting previously unselected package libunistring5:amd64.
+Preparing to unpack .../27-libunistring5_1.3-2_amd64.deb ...
+Unpacking libunistring5:amd64 (1.3-2) ...
+Selecting previously unselected package libidn2-0:amd64.
+Preparing to unpack .../28-libidn2-0_2.3.8-2_amd64.deb ...
+Unpacking libidn2-0:amd64 (2.3.8-2) ...
+Selecting previously unselected package libsasl2-modules-db:amd64.
+Preparing to unpack .../29-libsasl2-modules-db_2.1.28+dfsg1-9_amd64.deb ...
+Unpacking libsasl2-modules-db:amd64 (2.1.28+dfsg1-9) ...
+Selecting previously unselected package libsasl2-2:amd64.
+Preparing to unpack .../30-libsasl2-2_2.1.28+dfsg1-9_amd64.deb ...
+Unpacking libsasl2-2:amd64 (2.1.28+dfsg1-9) ...
+Selecting previously unselected package libldap2:amd64.
+Preparing to unpack .../31-libldap2_2.6.10+dfsg-1_amd64.deb ...
+Unpacking libldap2:amd64 (2.6.10+dfsg-1) ...
+Selecting previously unselected package libnghttp2-14:amd64.
+Preparing to unpack .../32-libnghttp2-14_1.64.0-1.1+deb13u1_amd64.deb ...
+Unpacking libnghttp2-14:amd64 (1.64.0-1.1+deb13u1) ...
+Selecting previously unselected package libnghttp3-9:amd64.
+Preparing to unpack .../33-libnghttp3-9_1.8.0-1_amd64.deb ...
+Unpacking libnghttp3-9:amd64 (1.8.0-1) ...
+Selecting previously unselected package libpsl5t64:amd64.
+Preparing to unpack .../34-libpsl5t64_0.21.2-1.1+b1_amd64.deb ...
+Unpacking libpsl5t64:amd64 (0.21.2-1.1+b1) ...
+Selecting previously unselected package libffi8:amd64.
+Preparing to unpack .../35-libffi8_3.4.8-2_amd64.deb ...
+Unpacking libffi8:amd64 (3.4.8-2) ...
+Selecting previously unselected package libp11-kit0:amd64.
+Preparing to unpack .../36-libp11-kit0_0.25.5-3_amd64.deb ...
+Unpacking libp11-kit0:amd64 (0.25.5-3) ...
+Selecting previously unselected package libtasn1-6:amd64.
+Preparing to unpack .../37-libtasn1-6_4.20.0-2+deb13u1_amd64.deb ...
+Unpacking libtasn1-6:amd64 (4.20.0-2+deb13u1) ...
+Selecting previously unselected package libgnutls30t64:amd64.
+Preparing to unpack .../38-libgnutls30t64_3.8.9-3+deb13u4_amd64.deb ...
+Unpacking libgnutls30t64:amd64 (3.8.9-3+deb13u4) ...
+Selecting previously unselected package librtmp1:amd64.
+Preparing to unpack .../39-librtmp1_2.4+20151223.gitfa8646d.1-2+b5_amd64.deb ...
+Unpacking librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+Selecting previously unselected package libssh2-1t64:amd64.
+Preparing to unpack .../40-libssh2-1t64_1.11.1-1+deb13u2_amd64.deb ...
+Unpacking libssh2-1t64:amd64 (1.11.1-1+deb13u2) ...
+Selecting previously unselected package libcurl4t64:amd64.
+Preparing to unpack .../41-libcurl4t64_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking libcurl4t64:amd64 (8.14.1-2+deb13u5) ...
+Selecting previously unselected package curl.
+Preparing to unpack .../42-curl_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking curl (8.14.1-2+deb13u5) ...
+Selecting previously unselected package libngtcp2-16:amd64.
+Preparing to unpack .../43-libngtcp2-16_1.11.0-1+deb13u1_amd64.deb ...
+Unpacking libngtcp2-16:amd64 (1.11.0-1+deb13u1) ...
+Selecting previously unselected package libngtcp2-crypto-gnutls8:amd64.
+Preparing to unpack .../44-libngtcp2-crypto-gnutls8_1.11.0-1+deb13u1_amd64.deb ...
+Unpacking libngtcp2-crypto-gnutls8:amd64 (1.11.0-1+deb13u1) ...
+Selecting previously unselected package libcurl3t64-gnutls:amd64.
+Preparing to unpack .../45-libcurl3t64-gnutls_8.14.1-2+deb13u5_amd64.deb ...
+Unpacking libcurl3t64-gnutls:amd64 (8.14.1-2+deb13u5) ...
+Selecting previously unselected package liberror-perl.
+Preparing to unpack .../46-liberror-perl_0.17030-1_all.deb ...
+Unpacking liberror-perl (0.17030-1) ...
+Selecting previously unselected package git-man.
+Preparing to unpack .../47-git-man_1%3a2.47.3-0+deb13u1_all.deb ...
+Unpacking git-man (1:2.47.3-0+deb13u1) ...
+Selecting previously unselected package git.
+Preparing to unpack .../48-git_1%3a2.47.3-0+deb13u1_amd64.deb ...
+Unpacking git (1:2.47.3-0+deb13u1) ...
+Selecting previously unselected package libip4tc2:amd64.
+Preparing to unpack .../49-libip4tc2_1.8.11-2_amd64.deb ...
+Unpacking libip4tc2:amd64 (1.8.11-2) ...
+Selecting previously unselected package libip6tc2:amd64.
+Preparing to unpack .../50-libip6tc2_1.8.11-2_amd64.deb ...
+Unpacking libip6tc2:amd64 (1.8.11-2) ...
+Selecting previously unselected package libnfnetlink0:amd64.
+Preparing to unpack .../51-libnfnetlink0_1.0.2-3_amd64.deb ...
+Unpacking libnfnetlink0:amd64 (1.0.2-3) ...
+Selecting previously unselected package libnetfilter-conntrack3:amd64.
+Preparing to unpack .../52-libnetfilter-conntrack3_1.1.0-1_amd64.deb ...
+Unpacking libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+Selecting previously unselected package iptables.
+Preparing to unpack .../53-iptables_1.8.11-2_amd64.deb ...
+Unpacking iptables (1.8.11-2) ...
+Setting up libip4tc2:amd64 (1.8.11-2) ...
+Setting up libexpat1:amd64 (2.8.3-1~deb13u1) ...
+Setting up bubblewrap (0.12.0-1~deb13u1) ...
+Setting up libkeyutils1:amd64 (1.6.3-6) ...
+Setting up libgdbm6t64:amd64 (1.24-2) ...
+Setting up libgdbm-compat4t64:amd64 (1.24-2) ...
+Setting up libip6tc2:amd64 (1.8.11-2) ...
+Setting up libtirpc-common (1.3.6+ds-1) ...
+Setting up libbrotli1:amd64 (1.1.0-2+b7) ...
+Setting up libedit2:amd64 (3.1-20250104-1) ...
+Setting up libnghttp2-14:amd64 (1.64.0-1.1+deb13u1) ...
+Setting up libcom-err2:amd64 (1.47.2-3+b12) ...
+Setting up libelf1t64:amd64 (0.192-4) ...
+Setting up libjansson4:amd64 (2.14-2+b3) ...
+Setting up libkrb5support0:amd64 (1.21.3-5+deb13u1) ...
+Setting up libsasl2-modules-db:amd64 (2.1.28+dfsg1-9) ...
+Setting up libcap2-bin (1:2.75-10+deb13u1+b3) ...
+Setting up libunistring5:amd64 (1.3-2) ...
+Setting up libmnl0:amd64 (1.0.5-3) ...
+Setting up libk5crypto3:amd64 (1.21.3-5+deb13u1) ...
+Setting up libxtables12:amd64 (1.8.11-2) ...
+Setting up libsasl2-2:amd64 (2.1.28+dfsg1-9) ...
+Setting up libnghttp3-9:amd64 (1.8.0-1) ...
+Setting up libffi8:amd64 (3.4.8-2) ...
+Setting up perl-modules-5.40 (5.40.1-6+deb13u1) ...
+Setting up libnfnetlink0:amd64 (1.0.2-3) ...
+Setting up libtasn1-6:amd64 (4.20.0-2+deb13u1) ...
+Setting up git-man (1:2.47.3-0+deb13u1) ...
+Setting up netbase (6.5) ...
+Setting up libngtcp2-16:amd64 (1.11.0-1+deb13u1) ...
+Setting up libkrb5-3:amd64 (1.21.3-5+deb13u1) ...
+Setting up libssh2-1t64:amd64 (1.11.1-1+deb13u2) ...
+Setting up libldap2:amd64 (2.6.10+dfsg-1) ...
+Setting up libbpf1:amd64 (1:1.5.0-3) ...
+Setting up libnftnl11:amd64 (1.2.9-1) ...
+Setting up libidn2-0:amd64 (2.3.8-2) ...
+Setting up libperl5.40:amd64 (5.40.1-6+deb13u1) ...
+Setting up perl (5.40.1-6+deb13u1) ...
+Setting up libp11-kit0:amd64 (0.25.5-3) ...
+Setting up libgssapi-krb5-2:amd64 (1.21.3-5+deb13u1) ...
+Setting up libnetfilter-conntrack3:amd64 (1.1.0-1) ...
+Setting up libgnutls30t64:amd64 (3.8.9-3+deb13u4) ...
+Setting up libnftables1:amd64 (1.1.3-1) ...
+Setting up nftables (1.1.3-1) ...
+Setting up libtirpc3t64:amd64 (1.3.6+ds-1) ...
+Setting up iptables (1.8.11-2) ...
+update-alternatives: using /usr/sbin/iptables-legacy to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-legacy to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/iptables-nft to provide /usr/sbin/iptables (iptables) in auto mode
+update-alternatives: using /usr/sbin/ip6tables-nft to provide /usr/sbin/ip6tables (ip6tables) in auto mode
+update-alternatives: using /usr/sbin/arptables-nft to provide /usr/sbin/arptables (arptables) in auto mode
+update-alternatives: using /usr/sbin/ebtables-nft to provide /usr/sbin/ebtables (ebtables) in auto mode
+Setting up iproute2 (6.15.0-1) ...
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Setting up libpsl5t64:amd64 (0.21.2-1.1+b1) ...
+Setting up liberror-perl (0.17030-1) ...
+Setting up librtmp1:amd64 (2.4+20151223.gitfa8646d.1-2+b5) ...
+Setting up libngtcp2-crypto-gnutls8:amd64 (1.11.0-1+deb13u1) ...
+Setting up libcurl4t64:amd64 (8.14.1-2+deb13u5) ...
+Setting up libcurl3t64-gnutls:amd64 (8.14.1-2+deb13u5) ...
+Setting up git (1:2.47.3-0+deb13u1) ...
+Setting up curl (8.14.1-2+deb13u5) ...
+Processing triggers for libc-bin (2.41-12+deb13u3) ...
+--> 132ab86746b1
+[2/2] STEP 5/65: ARG GH_VERSION=2.63.2
+--> 58218a291277
+[2/2] STEP 6/65: ARG TARGETARCH
+--> a6770c14080b
+[2/2] STEP 7/65: RUN set -eux;     case "${TARGETARCH:-amd64}" in       amd64|arm64) gharch="${TARGETARCH:-amd64}" ;;       *) echo "unsupported TARGETARCH for gh: ${TARGETARCH}" >&2; exit 1 ;;     esac;     curl -fsSL -o /tmp/gh.tar.gz       "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_${gharch}.tar.gz";     tar -xzf /tmp/gh.tar.gz -C /tmp;     install -o root -g root -m 0755 "/tmp/gh_${GH_VERSION}_linux_${gharch}/bin/gh" /usr/local/bin/gh;     rm -rf /tmp/gh.tar.gz "/tmp/gh_${GH_VERSION}_linux_${gharch}";     gh --version
++ gharch=amd64
++ curl -fsSL -o /tmp/gh.tar.gz https://github.com/cli/cli/releases/download/v2.63.2/gh_2.63.2_linux_amd64.tar.gz
++ tar -xzf /tmp/gh.tar.gz -C /tmp
++ install -o root -g root -m 0755 /tmp/gh_2.63.2_linux_amd64/bin/gh /usr/local/bin/gh
++ rm -rf /tmp/gh.tar.gz /tmp/gh_2.63.2_linux_amd64
++ gh --version
+gh version 2.63.2 (2024-12-05)
+https://github.com/cli/cli/releases/tag/v2.63.2
+--> 9157f31a1062
+[2/2] STEP 8/65: COPY --from=builder /app/src/extensions/mcp-seccomp.json /tmp/mcp-seccomp.json
+--> 4a32a2b8c80c
+[2/2] STEP 9/65: COPY --from=builder /app/build/compile-seccomp.c /tmp/compile-seccomp.c
+--> 38192b4fc37e
+[2/2] STEP 10/65: RUN apt-get update   && apt-get install -y --no-install-recommends        gcc libseccomp-dev libc6-dev   && gcc -O2 -o /tmp/compile-seccomp /tmp/compile-seccomp.c -lseccomp   && mkdir -p /app/src/extensions   && /tmp/compile-seccomp /tmp/mcp-seccomp.json /app/src/extensions/mcp-seccomp.bpf   && apt-get purge -y --auto-remove gcc libseccomp-dev libc6-dev   && rm -rf /var/lib/apt/lists/* /tmp/compile-seccomp /tmp/compile-seccomp.c /tmp/mcp-seccomp.json
+Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [264 kB]
+Fetched 10.2 MB in 1s (7378 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-14
+  cpp-14-x86-64-linux-gnu cpp-x86-64-linux-gnu gcc-14 gcc-14-x86-64-linux-gnu
+  gcc-x86-64-linux-gnu libasan8 libatomic1 libbinutils libc-bin libc-dev-bin
+  libc6 libcc1-0 libcrypt-dev libctf-nobfd0 libctf0 libgcc-14-dev libgomp1
+  libgprofng0 libhwasan0 libisl23 libitm1 liblsan0 libmpc3 libmpfr6
+  libquadmath0 libsframe1 libtsan2 libubsan1 linux-libc-dev rpcsvc-proto
+Suggested packages:
+  binutils-doc gprofng-gui binutils-gold cpp-doc gcc-14-locales cpp-14-doc
+  gcc-multilib make manpages-dev autoconf automake libtool flex bison gdb
+  gcc-doc gcc-14-multilib gcc-14-doc gdb-x86-64-linux-gnu libc-devtools
+  glibc-doc seccomp
+Recommended packages:
+  manpages manpages-dev
+The following NEW packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-14
+  cpp-14-x86-64-linux-gnu cpp-x86-64-linux-gnu gcc gcc-14
+  gcc-14-x86-64-linux-gnu gcc-x86-64-linux-gnu libasan8 libatomic1 libbinutils
+  libc-dev-bin libc6-dev libcc1-0 libcrypt-dev libctf-nobfd0 libctf0
+  libgcc-14-dev libgomp1 libgprofng0 libhwasan0 libisl23 libitm1 liblsan0
+  libmpc3 libmpfr6 libquadmath0 libseccomp-dev libsframe1 libtsan2 libubsan1
+  linux-libc-dev rpcsvc-proto
+The following packages will be upgraded:
+  libc-bin libc6
+2 upgraded, 36 newly installed, 0 to remove and 11 not upgraded.
+Need to get 60.7 MB of archives.
+After this operation, 217 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian trixie/main amd64 libc6 amd64 2.41-12+deb13u4 [2847 kB]
+Get:2 http://deb.debian.org/debian trixie/main amd64 libc-bin amd64 2.41-12+deb13u4 [638 kB]
+Get:3 http://deb.debian.org/debian trixie/main amd64 libsframe1 amd64 2.44-3 [78.4 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 binutils-common amd64 2.44-3 [2509 kB]
+Get:5 http://deb.debian.org/debian trixie/main amd64 libbinutils amd64 2.44-3 [534 kB]
+Get:6 http://deb.debian.org/debian trixie/main amd64 libgprofng0 amd64 2.44-3 [808 kB]
+Get:7 http://deb.debian.org/debian trixie/main amd64 libctf-nobfd0 amd64 2.44-3 [156 kB]
+Get:8 http://deb.debian.org/debian trixie/main amd64 libctf0 amd64 2.44-3 [88.6 kB]
+Get:9 http://deb.debian.org/debian trixie/main amd64 binutils-x86-64-linux-gnu amd64 2.44-3 [1014 kB]
+Get:10 http://deb.debian.org/debian trixie/main amd64 binutils amd64 2.44-3 [265 kB]
+Get:11 http://deb.debian.org/debian trixie/main amd64 libisl23 amd64 0.27-1 [659 kB]
+Get:12 http://deb.debian.org/debian trixie/main amd64 libmpfr6 amd64 4.2.2-1 [729 kB]
+Get:13 http://deb.debian.org/debian trixie/main amd64 libmpc3 amd64 1.3.1-1+b3 [52.2 kB]
+Get:14 http://deb.debian.org/debian trixie/main amd64 cpp-14-x86-64-linux-gnu amd64 14.2.0-19 [11.0 MB]
+Get:15 http://deb.debian.org/debian trixie/main amd64 cpp-14 amd64 14.2.0-19 [1280 B]
+Get:16 http://deb.debian.org/debian trixie/main amd64 cpp-x86-64-linux-gnu amd64 4:14.2.0-1 [4840 B]
+Get:17 http://deb.debian.org/debian trixie/main amd64 cpp amd64 4:14.2.0-1 [1568 B]
+Get:18 http://deb.debian.org/debian trixie/main amd64 libcc1-0 amd64 14.2.0-19 [42.8 kB]
+Get:19 http://deb.debian.org/debian trixie/main amd64 libgomp1 amd64 14.2.0-19 [137 kB]
+Get:20 http://deb.debian.org/debian trixie/main amd64 libitm1 amd64 14.2.0-19 [26.0 kB]
+Get:21 http://deb.debian.org/debian trixie/main amd64 libatomic1 amd64 14.2.0-19 [9308 B]
+Get:22 http://deb.debian.org/debian trixie/main amd64 libasan8 amd64 14.2.0-19 [2725 kB]
+Get:23 http://deb.debian.org/debian trixie/main amd64 liblsan0 amd64 14.2.0-19 [1204 kB]
+Get:24 http://deb.debian.org/debian trixie/main amd64 libtsan2 amd64 14.2.0-19 [2460 kB]
+Get:25 http://deb.debian.org/debian trixie/main amd64 libubsan1 amd64 14.2.0-19 [1074 kB]
+Get:26 http://deb.debian.org/debian trixie/main amd64 libhwasan0 amd64 14.2.0-19 [1488 kB]
+Get:27 http://deb.debian.org/debian trixie/main amd64 libquadmath0 amd64 14.2.0-19 [145 kB]
+Get:28 http://deb.debian.org/debian trixie/main amd64 libgcc-14-dev amd64 14.2.0-19 [2672 kB]
+Get:29 http://deb.debian.org/debian trixie/main amd64 gcc-14-x86-64-linux-gnu amd64 14.2.0-19 [21.4 MB]
+Get:30 http://deb.debian.org/debian trixie/main amd64 gcc-14 amd64 14.2.0-19 [540 kB]
+Get:31 http://deb.debian.org/debian trixie/main amd64 gcc-x86-64-linux-gnu amd64 4:14.2.0-1 [1436 B]
+Get:32 http://deb.debian.org/debian trixie/main amd64 gcc amd64 4:14.2.0-1 [5136 B]
+Get:33 http://deb.debian.org/debian trixie/main amd64 libc-dev-bin amd64 2.41-12+deb13u4 [60.0 kB]
+Get:34 http://deb.debian.org/debian-security trixie-security/main amd64 linux-libc-dev all 6.12.111-1 [2988 kB]
+Get:35 http://deb.debian.org/debian trixie/main amd64 libcrypt-dev amd64 1:4.4.38-1 [119 kB]
+Get:36 http://deb.debian.org/debian trixie/main amd64 rpcsvc-proto amd64 1.4.3-1 [63.3 kB]
+Get:37 http://deb.debian.org/debian trixie/main amd64 libc6-dev amd64 2.41-12+deb13u4 [1995 kB]
+Get:38 http://deb.debian.org/debian trixie/main amd64 libseccomp-dev amd64 2.6.0-2 [98.1 kB]
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Preconfiguring packages ...
+Fetched 60.7 MB in 8s (7140 kB/s)
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9652 files and directories currently installed.)
+Preparing to unpack .../libc6_2.41-12+deb13u4_amd64.deb ...
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Unpacking libc6:amd64 (2.41-12+deb13u4) over (2.41-12+deb13u3) ...
+Setting up libc6:amd64 (2.41-12+deb13u4) ...
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9652 files and directories currently installed.)
+Preparing to unpack .../libc-bin_2.41-12+deb13u4_amd64.deb ...
+Unpacking libc-bin (2.41-12+deb13u4) over (2.41-12+deb13u3) ...
+Setting up libc-bin (2.41-12+deb13u4) ...
+Selecting previously unselected package libsframe1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9652 files and directories currently installed.)
+Preparing to unpack .../00-libsframe1_2.44-3_amd64.deb ...
+Unpacking libsframe1:amd64 (2.44-3) ...
+Selecting previously unselected package binutils-common:amd64.
+Preparing to unpack .../01-binutils-common_2.44-3_amd64.deb ...
+Unpacking binutils-common:amd64 (2.44-3) ...
+Selecting previously unselected package libbinutils:amd64.
+Preparing to unpack .../02-libbinutils_2.44-3_amd64.deb ...
+Unpacking libbinutils:amd64 (2.44-3) ...
+Selecting previously unselected package libgprofng0:amd64.
+Preparing to unpack .../03-libgprofng0_2.44-3_amd64.deb ...
+Unpacking libgprofng0:amd64 (2.44-3) ...
+Selecting previously unselected package libctf-nobfd0:amd64.
+Preparing to unpack .../04-libctf-nobfd0_2.44-3_amd64.deb ...
+Unpacking libctf-nobfd0:amd64 (2.44-3) ...
+Selecting previously unselected package libctf0:amd64.
+Preparing to unpack .../05-libctf0_2.44-3_amd64.deb ...
+Unpacking libctf0:amd64 (2.44-3) ...
+Selecting previously unselected package binutils-x86-64-linux-gnu.
+Preparing to unpack .../06-binutils-x86-64-linux-gnu_2.44-3_amd64.deb ...
+Unpacking binutils-x86-64-linux-gnu (2.44-3) ...
+Selecting previously unselected package binutils.
+Preparing to unpack .../07-binutils_2.44-3_amd64.deb ...
+Unpacking binutils (2.44-3) ...
+Selecting previously unselected package libisl23:amd64.
+Preparing to unpack .../08-libisl23_0.27-1_amd64.deb ...
+Unpacking libisl23:amd64 (0.27-1) ...
+Selecting previously unselected package libmpfr6:amd64.
+Preparing to unpack .../09-libmpfr6_4.2.2-1_amd64.deb ...
+Unpacking libmpfr6:amd64 (4.2.2-1) ...
+Selecting previously unselected package libmpc3:amd64.
+Preparing to unpack .../10-libmpc3_1.3.1-1+b3_amd64.deb ...
+Unpacking libmpc3:amd64 (1.3.1-1+b3) ...
+Selecting previously unselected package cpp-14-x86-64-linux-gnu.
+Preparing to unpack .../11-cpp-14-x86-64-linux-gnu_14.2.0-19_amd64.deb ...
+Unpacking cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Selecting previously unselected package cpp-14.
+Preparing to unpack .../12-cpp-14_14.2.0-19_amd64.deb ...
+Unpacking cpp-14 (14.2.0-19) ...
+Selecting previously unselected package cpp-x86-64-linux-gnu.
+Preparing to unpack .../13-cpp-x86-64-linux-gnu_4%3a14.2.0-1_amd64.deb ...
+Unpacking cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Selecting previously unselected package cpp.
+Preparing to unpack .../14-cpp_4%3a14.2.0-1_amd64.deb ...
+Unpacking cpp (4:14.2.0-1) ...
+Selecting previously unselected package libcc1-0:amd64.
+Preparing to unpack .../15-libcc1-0_14.2.0-19_amd64.deb ...
+Unpacking libcc1-0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libgomp1:amd64.
+Preparing to unpack .../16-libgomp1_14.2.0-19_amd64.deb ...
+Unpacking libgomp1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libitm1:amd64.
+Preparing to unpack .../17-libitm1_14.2.0-19_amd64.deb ...
+Unpacking libitm1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libatomic1:amd64.
+Preparing to unpack .../18-libatomic1_14.2.0-19_amd64.deb ...
+Unpacking libatomic1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libasan8:amd64.
+Preparing to unpack .../19-libasan8_14.2.0-19_amd64.deb ...
+Unpacking libasan8:amd64 (14.2.0-19) ...
+Selecting previously unselected package liblsan0:amd64.
+Preparing to unpack .../20-liblsan0_14.2.0-19_amd64.deb ...
+Unpacking liblsan0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libtsan2:amd64.
+Preparing to unpack .../21-libtsan2_14.2.0-19_amd64.deb ...
+Unpacking libtsan2:amd64 (14.2.0-19) ...
+Selecting previously unselected package libubsan1:amd64.
+Preparing to unpack .../22-libubsan1_14.2.0-19_amd64.deb ...
+Unpacking libubsan1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libhwasan0:amd64.
+Preparing to unpack .../23-libhwasan0_14.2.0-19_amd64.deb ...
+Unpacking libhwasan0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libquadmath0:amd64.
+Preparing to unpack .../24-libquadmath0_14.2.0-19_amd64.deb ...
+Unpacking libquadmath0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libgcc-14-dev:amd64.
+Preparing to unpack .../25-libgcc-14-dev_14.2.0-19_amd64.deb ...
+Unpacking libgcc-14-dev:amd64 (14.2.0-19) ...
+Selecting previously unselected package gcc-14-x86-64-linux-gnu.
+Preparing to unpack .../26-gcc-14-x86-64-linux-gnu_14.2.0-19_amd64.deb ...
+Unpacking gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Selecting previously unselected package gcc-14.
+Preparing to unpack .../27-gcc-14_14.2.0-19_amd64.deb ...
+Unpacking gcc-14 (14.2.0-19) ...
+Selecting previously unselected package gcc-x86-64-linux-gnu.
+Preparing to unpack .../28-gcc-x86-64-linux-gnu_4%3a14.2.0-1_amd64.deb ...
+Unpacking gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Selecting previously unselected package gcc.
+Preparing to unpack .../29-gcc_4%3a14.2.0-1_amd64.deb ...
+Unpacking gcc (4:14.2.0-1) ...
+Selecting previously unselected package libc-dev-bin.
+Preparing to unpack .../30-libc-dev-bin_2.41-12+deb13u4_amd64.deb ...
+Unpacking libc-dev-bin (2.41-12+deb13u4) ...
+Selecting previously unselected package linux-libc-dev.
+Preparing to unpack .../31-linux-libc-dev_6.12.111-1_all.deb ...
+Unpacking linux-libc-dev (6.12.111-1) ...
+Selecting previously unselected package libcrypt-dev:amd64.
+Preparing to unpack .../32-libcrypt-dev_1%3a4.4.38-1_amd64.deb ...
+Unpacking libcrypt-dev:amd64 (1:4.4.38-1) ...
+Selecting previously unselected package rpcsvc-proto.
+Preparing to unpack .../33-rpcsvc-proto_1.4.3-1_amd64.deb ...
+Unpacking rpcsvc-proto (1.4.3-1) ...
+Selecting previously unselected package libc6-dev:amd64.
+Preparing to unpack .../34-libc6-dev_2.41-12+deb13u4_amd64.deb ...
+Unpacking libc6-dev:amd64 (2.41-12+deb13u4) ...
+Selecting previously unselected package libseccomp-dev:amd64.
+Preparing to unpack .../35-libseccomp-dev_2.6.0-2_amd64.deb ...
+Unpacking libseccomp-dev:amd64 (2.6.0-2) ...
+Setting up libseccomp-dev:amd64 (2.6.0-2) ...
+Setting up binutils-common:amd64 (2.44-3) ...
+Setting up linux-libc-dev (6.12.111-1) ...
+Setting up libctf-nobfd0:amd64 (2.44-3) ...
+Setting up libgomp1:amd64 (14.2.0-19) ...
+Setting up libsframe1:amd64 (2.44-3) ...
+Setting up rpcsvc-proto (1.4.3-1) ...
+Setting up libmpfr6:amd64 (4.2.2-1) ...
+Setting up libquadmath0:amd64 (14.2.0-19) ...
+Setting up libmpc3:amd64 (1.3.1-1+b3) ...
+Setting up libatomic1:amd64 (14.2.0-19) ...
+Setting up libubsan1:amd64 (14.2.0-19) ...
+Setting up libhwasan0:amd64 (14.2.0-19) ...
+Setting up libcrypt-dev:amd64 (1:4.4.38-1) ...
+Setting up libasan8:amd64 (14.2.0-19) ...
+Setting up libtsan2:amd64 (14.2.0-19) ...
+Setting up libbinutils:amd64 (2.44-3) ...
+Setting up libisl23:amd64 (0.27-1) ...
+Setting up libc-dev-bin (2.41-12+deb13u4) ...
+Setting up libcc1-0:amd64 (14.2.0-19) ...
+Setting up liblsan0:amd64 (14.2.0-19) ...
+Setting up libitm1:amd64 (14.2.0-19) ...
+Setting up libctf0:amd64 (2.44-3) ...
+Setting up libgprofng0:amd64 (2.44-3) ...
+Setting up cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Setting up cpp-14 (14.2.0-19) ...
+Setting up libc6-dev:amd64 (2.41-12+deb13u4) ...
+Setting up libgcc-14-dev:amd64 (14.2.0-19) ...
+Setting up binutils-x86-64-linux-gnu (2.44-3) ...
+Setting up cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Setting up binutils (2.44-3) ...
+Setting up cpp (4:14.2.0-1) ...
+Setting up gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Setting up gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Setting up gcc-14 (14.2.0-19) ...
+Setting up gcc (4:14.2.0-1) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+compile-seccomp: skipping unresolved syscall 'chown32' on this arch
+compile-seccomp: skipping unresolved syscall 'clock_adjtime64' on this arch
+compile-seccomp: skipping unresolved syscall 'clock_getres_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'clock_gettime64' on this arch
+compile-seccomp: skipping unresolved syscall 'clock_nanosleep_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'fadvise64_64' on this arch
+compile-seccomp: skipping unresolved syscall 'fchown32' on this arch
+compile-seccomp: skipping unresolved syscall 'fcntl64' on this arch
+compile-seccomp: skipping unresolved syscall 'fstat64' on this arch
+compile-seccomp: skipping unresolved syscall 'fstatat64' on this arch
+compile-seccomp: skipping unresolved syscall 'fstatfs64' on this arch
+compile-seccomp: skipping unresolved syscall 'ftruncate64' on this arch
+compile-seccomp: skipping unresolved syscall 'futex_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'getegid32' on this arch
+compile-seccomp: skipping unresolved syscall 'geteuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'getgid32' on this arch
+compile-seccomp: skipping unresolved syscall 'getgroups32' on this arch
+compile-seccomp: skipping unresolved syscall 'getresgid32' on this arch
+compile-seccomp: skipping unresolved syscall 'getresuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'getuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'io_pgetevents_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'ipc' on this arch
+compile-seccomp: skipping unresolved syscall 'lchown32' on this arch
+compile-seccomp: skipping unresolved syscall '_llseek' on this arch
+compile-seccomp: skipping unresolved syscall 'lstat64' on this arch
+compile-seccomp: skipping unresolved syscall 'mmap2' on this arch
+compile-seccomp: skipping unresolved syscall 'mq_timedreceive_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'mq_timedsend_time64' on this arch
+compile-seccomp: skipping unresolved syscall '_newselect' on this arch
+compile-seccomp: skipping unresolved syscall 'ppoll_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'pselect6_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'recv' on this arch
+compile-seccomp: skipping unresolved syscall 'recvmmsg_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'rt_sigtimedwait_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'sched_rr_get_interval_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'semtimedop_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'send' on this arch
+compile-seccomp: skipping unresolved syscall 'sendfile64' on this arch
+compile-seccomp: skipping unresolved syscall 'setfsgid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setfsuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setgid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setgroups32' on this arch
+compile-seccomp: skipping unresolved syscall 'setregid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setresgid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setresuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setreuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'setuid32' on this arch
+compile-seccomp: skipping unresolved syscall 'sigprocmask' on this arch
+compile-seccomp: skipping unresolved syscall 'sigreturn' on this arch
+compile-seccomp: skipping unresolved syscall 'socketcall' on this arch
+compile-seccomp: skipping unresolved syscall 'stat64' on this arch
+compile-seccomp: skipping unresolved syscall 'statfs64' on this arch
+compile-seccomp: skipping unresolved syscall 'timer_gettime64' on this arch
+compile-seccomp: skipping unresolved syscall 'timer_settime64' on this arch
+compile-seccomp: skipping unresolved syscall 'timerfd_gettime64' on this arch
+compile-seccomp: skipping unresolved syscall 'timerfd_settime64' on this arch
+compile-seccomp: skipping unresolved syscall 'truncate64' on this arch
+compile-seccomp: skipping unresolved syscall 'ugetrlimit' on this arch
+compile-seccomp: skipping unresolved syscall 'utimensat_time64' on this arch
+compile-seccomp: skipping unresolved syscall 'waitpid' on this arch
+compile-seccomp: skipping unresolved syscall 'sync_file_range2' on this arch
+compile-seccomp: skipping unresolved syscall 'swapcontext' on this arch
+compile-seccomp: skipping unresolved syscall 'arm_fadvise64_64' on this arch
+compile-seccomp: skipping unresolved syscall 'arm_sync_file_range' on this arch
+compile-seccomp: skipping unresolved syscall 'breakpoint' on this arch
+compile-seccomp: skipping unresolved syscall 'cacheflush' on this arch
+compile-seccomp: skipping unresolved syscall 'set_tls' on this arch
+compile-seccomp: skipping unresolved syscall 's390_pci_mmio_read' on this arch
+compile-seccomp: skipping unresolved syscall 's390_pci_mmio_write' on this arch
+compile-seccomp: skipping unresolved syscall 's390_runtime_instr' on this arch
+compile-seccomp: skipping unresolved syscall 'riscv_flush_icache' on this arch
+compile-seccomp: skipping unresolved syscall 'umount' on this arch
+compile-seccomp: skipping unresolved syscall 'stime' on this arch
+compile-seccomp: skipping unresolved syscall 'clock_settime64' on this arch
+compile-seccomp: wrote /app/src/extensions/mcp-seccomp.bpf (added=333, skipped=74)
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  binutils* binutils-common* binutils-x86-64-linux-gnu* cpp* cpp-14*
+  cpp-14-x86-64-linux-gnu* cpp-x86-64-linux-gnu* gcc* gcc-14*
+  gcc-14-x86-64-linux-gnu* gcc-x86-64-linux-gnu* libasan8* libatomic1*
+  libbinutils* libc-dev-bin* libc6-dev* libcc1-0* libcrypt-dev* libctf-nobfd0*
+  libctf0* libgcc-14-dev* libgomp1* libgprofng0* libhwasan0* libisl23*
+  libitm1* liblsan0* libmpc3* libmpfr6* libquadmath0* libseccomp-dev*
+  libsframe1* libtsan2* libubsan1* linux-libc-dev* rpcsvc-proto*
+0 upgraded, 0 newly installed, 36 to remove and 11 not upgraded.
+After this operation, 217 MB disk space will be freed.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 13737 files and directories currently installed.)
+Removing gcc (4:14.2.0-1) ...
+Removing gcc-14 (14.2.0-19) ...
+Removing binutils (2.44-3) ...
+Removing libgprofng0:amd64 (2.44-3) ...
+Removing gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Removing gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Removing binutils-x86-64-linux-gnu (2.44-3) ...
+Removing libctf0:amd64 (2.44-3) ...
+Removing libbinutils:amd64 (2.44-3) ...
+Removing binutils-common:amd64 (2.44-3) ...
+Removing cpp (4:14.2.0-1) ...
+Removing cpp-14 (14.2.0-19) ...
+Removing cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Removing cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Removing libgcc-14-dev:amd64 (14.2.0-19) ...
+Removing libasan8:amd64 (14.2.0-19) ...
+Removing libatomic1:amd64 (14.2.0-19) ...
+Removing libc6-dev:amd64 (2.41-12+deb13u4) ...
+Removing libc-dev-bin (2.41-12+deb13u4) ...
+Removing libcc1-0:amd64 (14.2.0-19) ...
+Removing libcrypt-dev:amd64 (1:4.4.38-1) ...
+Removing libctf-nobfd0:amd64 (2.44-3) ...
+Removing libgomp1:amd64 (14.2.0-19) ...
+Removing libhwasan0:amd64 (14.2.0-19) ...
+Removing libisl23:amd64 (0.27-1) ...
+Removing libitm1:amd64 (14.2.0-19) ...
+Removing liblsan0:amd64 (14.2.0-19) ...
+Removing libmpc3:amd64 (1.3.1-1+b3) ...
+Removing libmpfr6:amd64 (4.2.2-1) ...
+Removing libquadmath0:amd64 (14.2.0-19) ...
+Removing libseccomp-dev:amd64 (2.6.0-2) ...
+Removing libsframe1:amd64 (2.44-3) ...
+Removing libtsan2:amd64 (14.2.0-19) ...
+Removing libubsan1:amd64 (14.2.0-19) ...
+Removing linux-libc-dev (6.12.111-1) ...
+Removing rpcsvc-proto (1.4.3-1) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9653 files and directories currently installed.)
+Purging configuration files for binutils-common:amd64 (2.44-3) ...
+Purging configuration files for binutils (2.44-3) ...
+Purging configuration files for libcrypt-dev:amd64 (1:4.4.38-1) ...
+Purging configuration files for cpp (4:14.2.0-1) ...
+--> f95e46ef8d3b
+[2/2] STEP 11/65: ARG VERSION=dev
+--> d38c090fed1d
+[2/2] STEP 12/65: ARG REVISION=unknown
+--> 26cff5d43851
+[2/2] STEP 13/65: ARG CREATED=unknown
+--> 5899688c5d7f
+[2/2] STEP 14/65: ARG EZCORP_BUILD_SOURCE_STATE=unknown
+--> 32fba628710b
+[2/2] STEP 15/65: RUN printf 'version=%s\nrevision=%s\ncreated=%s\nsource-state=%s\n'       "$VERSION" "$REVISION" "$CREATED" "$EZCORP_BUILD_SOURCE_STATE"       > /app/.ezcorp-image-provenance
+--> 0d0a9a90dc34
+[2/2] STEP 16/65: ENV EZCORP_IMAGE_VERSION=$VERSION
+--> fd2e0fea9a75
+[2/2] STEP 17/65: ENV EZCORP_IMAGE_SHA=$REVISION
+--> bd44da2ed99c
+[2/2] STEP 18/65: ENV EZCORP_IMAGE_BUILD_SOURCE_STATE=$EZCORP_BUILD_SOURCE_STATE
+--> ab26d37014fc
+[2/2] STEP 19/65: LABEL org.ezcorp.image.source-state=$EZCORP_BUILD_SOURCE_STATE
+--> 197fe5321c50
+[2/2] STEP 20/65: LABEL org.opencontainers.image.title="ezcorp"       org.opencontainers.image.version=$VERSION       org.opencontainers.image.revision=$REVISION       org.opencontainers.image.created=$CREATED       org.opencontainers.image.source="https://github.com/ezcorp-org/EZcorp"       org.opencontainers.image.description="EZ Corp AI — self-hosted agent runtime with embedded PGlite"
+--> 02cebc995ea8
+[2/2] STEP 21/65: COPY package.json bun.lock ./
+--> 77c31ee1e0f1
+[2/2] STEP 22/65: COPY packages/@ezcorp/sdk/package.json packages/@ezcorp/sdk/
+--> d31b68e8ed18
+[2/2] STEP 23/65: COPY packages/@ezcorp/ai-kit/package.json packages/@ezcorp/ai-kit/
+--> 6abb574b4bad
+[2/2] STEP 24/65: COPY packages/@ezcorp/harness-client/package.json packages/@ezcorp/harness-client/
+--> 61de7ab9513f
+[2/2] STEP 25/65: COPY packages/@ezcorp/extension-contract/package.json packages/@ezcorp/extension-contract/
+--> 5b5e1767ea6f
+[2/2] STEP 26/65: COPY packages/@ezcorp/extension-runner/package.json packages/@ezcorp/extension-runner/
+--> f0d9d36fa418
+[2/2] STEP 27/65: COPY packages/@ezcorp/factory-sdk/package.json packages/@ezcorp/factory-sdk/
+--> 3ede8412d4ff
+[2/2] STEP 28/65: COPY packages/@ezcorp/factory-transport/package.json packages/@ezcorp/factory-transport/
+--> 035b0b492087
+[2/2] STEP 29/65: COPY packages/@ezcorp/factory-orchestrator/package.json packages/@ezcorp/factory-orchestrator/
+--> 89f910c7fae9
+[2/2] STEP 30/65: RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked bun install --production --frozen-lockfile --ignore-scripts
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+
++ @aws-sdk/client-kms@3.1131.0
++ @aws-sdk/client-s3@3.1131.0
++ @balena/dockerignore@1.0.2
++ @earendil-works/pi-agent-core@0.85.1
++ @earendil-works/pi-ai@0.85.1
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.30.0
++ @zxing/library@0.23.0
++ drizzle-orm@0.45.2
++ exceljs@4.4.0
++ fast-png@8.0.0
++ file-type@22.1.0
++ jpeg-js@0.4.4
++ pdf-parse@2.4.5
++ yaml@2.9.1
++ typescript@5.9.3 (v7.0.2 available)
+
+476 packages installed [581.00ms]
+--> 4abbede6564d
+[2/2] STEP 31/65: COPY web/package.json web/bun.lock web/
+--> 79a99a2f6e50
+[2/2] STEP 32/65: COPY web/patches web/patches/
+--> e8c4e65f5e3c
+[2/2] STEP 33/65: RUN --mount=type=cache,target=/root/.bun/install/cache,sharing=locked cd web && bun install --production --frozen-lockfile --ignore-scripts
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @xyflow/svelte@1.6.6
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ elkjs@0.12.0
++ highlight.js@11.12.0
++ isomorphic-dompurify@4.2.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.13
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.6.5
+
+222 packages installed [3.52s]
+--> 62035ae7d980
+[2/2] STEP 34/65: COPY --from=builder /app/src ./src
+--> c07f2bd70829
+[2/2] STEP 35/65: RUN chmod +x /app/src/extensions/mcp-launcher.sh
+--> 6b89d9cffdc5
+[2/2] STEP 36/65: COPY --from=builder /app/build/preview-spawn.c /tmp/preview-spawn.c
+--> 851fadd645e8
+[2/2] STEP 37/65: RUN apt-get update   && apt-get install -y --no-install-recommends gcc libc6-dev   && mkdir -p /app/bin   && gcc -O2 -Wall -Wextra -o /app/bin/preview-spawn /tmp/preview-spawn.c   && chown root:root /app/bin/preview-spawn   && chmod 4755 /app/bin/preview-spawn   && apt-get purge -y --auto-remove gcc libc6-dev   && rm -rf /var/lib/apt/lists/* /tmp/preview-spawn.c
+Get:1 http://deb.debian.org/debian trixie InRelease [140 kB]
+Get:2 http://deb.debian.org/debian trixie-updates InRelease [47.3 kB]
+Get:3 http://deb.debian.org/debian-security trixie-security InRelease [43.4 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 Packages [9678 kB]
+Get:5 http://deb.debian.org/debian trixie-updates/main amd64 Packages [4412 B]
+Get:6 http://deb.debian.org/debian-security trixie-security/main amd64 Packages [264 kB]
+Fetched 10.2 MB in 1s (7355 kB/s)
+Reading package lists...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following additional packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-14
+  cpp-14-x86-64-linux-gnu cpp-x86-64-linux-gnu gcc-14 gcc-14-x86-64-linux-gnu
+  gcc-x86-64-linux-gnu libasan8 libatomic1 libbinutils libc-dev-bin libcc1-0
+  libcrypt-dev libctf-nobfd0 libctf0 libgcc-14-dev libgomp1 libgprofng0
+  libhwasan0 libisl23 libitm1 liblsan0 libmpc3 libmpfr6 libquadmath0
+  libsframe1 libtsan2 libubsan1 linux-libc-dev rpcsvc-proto
+Suggested packages:
+  binutils-doc gprofng-gui binutils-gold cpp-doc gcc-14-locales cpp-14-doc
+  gcc-multilib make manpages-dev autoconf automake libtool flex bison gdb
+  gcc-doc gcc-14-multilib gcc-14-doc gdb-x86-64-linux-gnu libc-devtools
+  glibc-doc
+Recommended packages:
+  manpages manpages-dev
+The following NEW packages will be installed:
+  binutils binutils-common binutils-x86-64-linux-gnu cpp cpp-14
+  cpp-14-x86-64-linux-gnu cpp-x86-64-linux-gnu gcc gcc-14
+  gcc-14-x86-64-linux-gnu gcc-x86-64-linux-gnu libasan8 libatomic1 libbinutils
+  libc-dev-bin libc6-dev libcc1-0 libcrypt-dev libctf-nobfd0 libctf0
+  libgcc-14-dev libgomp1 libgprofng0 libhwasan0 libisl23 libitm1 liblsan0
+  libmpc3 libmpfr6 libquadmath0 libsframe1 libtsan2 libubsan1 linux-libc-dev
+  rpcsvc-proto
+0 upgraded, 35 newly installed, 0 to remove and 11 not upgraded.
+Need to get 57.1 MB of archives.
+After this operation, 217 MB of additional disk space will be used.
+Get:1 http://deb.debian.org/debian trixie/main amd64 libsframe1 amd64 2.44-3 [78.4 kB]
+Get:2 http://deb.debian.org/debian trixie/main amd64 binutils-common amd64 2.44-3 [2509 kB]
+Get:3 http://deb.debian.org/debian trixie/main amd64 libbinutils amd64 2.44-3 [534 kB]
+Get:4 http://deb.debian.org/debian trixie/main amd64 libgprofng0 amd64 2.44-3 [808 kB]
+Get:5 http://deb.debian.org/debian trixie/main amd64 libctf-nobfd0 amd64 2.44-3 [156 kB]
+Get:6 http://deb.debian.org/debian trixie/main amd64 libctf0 amd64 2.44-3 [88.6 kB]
+Get:7 http://deb.debian.org/debian trixie/main amd64 binutils-x86-64-linux-gnu amd64 2.44-3 [1014 kB]
+Get:8 http://deb.debian.org/debian trixie/main amd64 binutils amd64 2.44-3 [265 kB]
+Get:9 http://deb.debian.org/debian trixie/main amd64 libisl23 amd64 0.27-1 [659 kB]
+Get:10 http://deb.debian.org/debian trixie/main amd64 libmpfr6 amd64 4.2.2-1 [729 kB]
+Get:11 http://deb.debian.org/debian trixie/main amd64 libmpc3 amd64 1.3.1-1+b3 [52.2 kB]
+Get:12 http://deb.debian.org/debian trixie/main amd64 cpp-14-x86-64-linux-gnu amd64 14.2.0-19 [11.0 MB]
+Get:13 http://deb.debian.org/debian trixie/main amd64 cpp-14 amd64 14.2.0-19 [1280 B]
+Get:14 http://deb.debian.org/debian trixie/main amd64 cpp-x86-64-linux-gnu amd64 4:14.2.0-1 [4840 B]
+Get:15 http://deb.debian.org/debian trixie/main amd64 cpp amd64 4:14.2.0-1 [1568 B]
+Get:16 http://deb.debian.org/debian trixie/main amd64 libcc1-0 amd64 14.2.0-19 [42.8 kB]
+Get:17 http://deb.debian.org/debian trixie/main amd64 libgomp1 amd64 14.2.0-19 [137 kB]
+Get:18 http://deb.debian.org/debian trixie/main amd64 libitm1 amd64 14.2.0-19 [26.0 kB]
+Get:19 http://deb.debian.org/debian trixie/main amd64 libatomic1 amd64 14.2.0-19 [9308 B]
+Get:20 http://deb.debian.org/debian trixie/main amd64 libasan8 amd64 14.2.0-19 [2725 kB]
+Get:21 http://deb.debian.org/debian trixie/main amd64 liblsan0 amd64 14.2.0-19 [1204 kB]
+Get:22 http://deb.debian.org/debian trixie/main amd64 libtsan2 amd64 14.2.0-19 [2460 kB]
+Get:23 http://deb.debian.org/debian trixie/main amd64 libubsan1 amd64 14.2.0-19 [1074 kB]
+Get:24 http://deb.debian.org/debian trixie/main amd64 libhwasan0 amd64 14.2.0-19 [1488 kB]
+Get:25 http://deb.debian.org/debian trixie/main amd64 libquadmath0 amd64 14.2.0-19 [145 kB]
+Get:26 http://deb.debian.org/debian trixie/main amd64 libgcc-14-dev amd64 14.2.0-19 [2672 kB]
+Get:27 http://deb.debian.org/debian trixie/main amd64 gcc-14-x86-64-linux-gnu amd64 14.2.0-19 [21.4 MB]
+Get:28 http://deb.debian.org/debian trixie/main amd64 gcc-14 amd64 14.2.0-19 [540 kB]
+Get:29 http://deb.debian.org/debian trixie/main amd64 gcc-x86-64-linux-gnu amd64 4:14.2.0-1 [1436 B]
+Get:30 http://deb.debian.org/debian trixie/main amd64 gcc amd64 4:14.2.0-1 [5136 B]
+Get:31 http://deb.debian.org/debian trixie/main amd64 libc-dev-bin amd64 2.41-12+deb13u4 [60.0 kB]
+Get:32 http://deb.debian.org/debian-security trixie-security/main amd64 linux-libc-dev all 6.12.111-1 [2988 kB]
+Get:33 http://deb.debian.org/debian trixie/main amd64 libcrypt-dev amd64 1:4.4.38-1 [119 kB]
+Get:34 http://deb.debian.org/debian trixie/main amd64 rpcsvc-proto amd64 1.4.3-1 [63.3 kB]
+Get:35 http://deb.debian.org/debian trixie/main amd64 libc6-dev amd64 2.41-12+deb13u4 [1995 kB]
+debconf: unable to initialize frontend: Dialog
+debconf: (TERM is not set, so the dialog frontend is not usable.)
+debconf: falling back to frontend: Readline
+debconf: unable to initialize frontend: Readline
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Teletype
+debconf: unable to initialize frontend: Teletype
+debconf: (This frontend requires a controlling tty.)
+debconf: falling back to frontend: Noninteractive
+Fetched 57.1 MB in 6s (9084 kB/s)
+Selecting previously unselected package libsframe1:amd64.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9652 files and directories currently installed.)
+Preparing to unpack .../00-libsframe1_2.44-3_amd64.deb ...
+Unpacking libsframe1:amd64 (2.44-3) ...
+Selecting previously unselected package binutils-common:amd64.
+Preparing to unpack .../01-binutils-common_2.44-3_amd64.deb ...
+Unpacking binutils-common:amd64 (2.44-3) ...
+Selecting previously unselected package libbinutils:amd64.
+Preparing to unpack .../02-libbinutils_2.44-3_amd64.deb ...
+Unpacking libbinutils:amd64 (2.44-3) ...
+Selecting previously unselected package libgprofng0:amd64.
+Preparing to unpack .../03-libgprofng0_2.44-3_amd64.deb ...
+Unpacking libgprofng0:amd64 (2.44-3) ...
+Selecting previously unselected package libctf-nobfd0:amd64.
+Preparing to unpack .../04-libctf-nobfd0_2.44-3_amd64.deb ...
+Unpacking libctf-nobfd0:amd64 (2.44-3) ...
+Selecting previously unselected package libctf0:amd64.
+Preparing to unpack .../05-libctf0_2.44-3_amd64.deb ...
+Unpacking libctf0:amd64 (2.44-3) ...
+Selecting previously unselected package binutils-x86-64-linux-gnu.
+Preparing to unpack .../06-binutils-x86-64-linux-gnu_2.44-3_amd64.deb ...
+Unpacking binutils-x86-64-linux-gnu (2.44-3) ...
+Selecting previously unselected package binutils.
+Preparing to unpack .../07-binutils_2.44-3_amd64.deb ...
+Unpacking binutils (2.44-3) ...
+Selecting previously unselected package libisl23:amd64.
+Preparing to unpack .../08-libisl23_0.27-1_amd64.deb ...
+Unpacking libisl23:amd64 (0.27-1) ...
+Selecting previously unselected package libmpfr6:amd64.
+Preparing to unpack .../09-libmpfr6_4.2.2-1_amd64.deb ...
+Unpacking libmpfr6:amd64 (4.2.2-1) ...
+Selecting previously unselected package libmpc3:amd64.
+Preparing to unpack .../10-libmpc3_1.3.1-1+b3_amd64.deb ...
+Unpacking libmpc3:amd64 (1.3.1-1+b3) ...
+Selecting previously unselected package cpp-14-x86-64-linux-gnu.
+Preparing to unpack .../11-cpp-14-x86-64-linux-gnu_14.2.0-19_amd64.deb ...
+Unpacking cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Selecting previously unselected package cpp-14.
+Preparing to unpack .../12-cpp-14_14.2.0-19_amd64.deb ...
+Unpacking cpp-14 (14.2.0-19) ...
+Selecting previously unselected package cpp-x86-64-linux-gnu.
+Preparing to unpack .../13-cpp-x86-64-linux-gnu_4%3a14.2.0-1_amd64.deb ...
+Unpacking cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Selecting previously unselected package cpp.
+Preparing to unpack .../14-cpp_4%3a14.2.0-1_amd64.deb ...
+Unpacking cpp (4:14.2.0-1) ...
+Selecting previously unselected package libcc1-0:amd64.
+Preparing to unpack .../15-libcc1-0_14.2.0-19_amd64.deb ...
+Unpacking libcc1-0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libgomp1:amd64.
+Preparing to unpack .../16-libgomp1_14.2.0-19_amd64.deb ...
+Unpacking libgomp1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libitm1:amd64.
+Preparing to unpack .../17-libitm1_14.2.0-19_amd64.deb ...
+Unpacking libitm1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libatomic1:amd64.
+Preparing to unpack .../18-libatomic1_14.2.0-19_amd64.deb ...
+Unpacking libatomic1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libasan8:amd64.
+Preparing to unpack .../19-libasan8_14.2.0-19_amd64.deb ...
+Unpacking libasan8:amd64 (14.2.0-19) ...
+Selecting previously unselected package liblsan0:amd64.
+Preparing to unpack .../20-liblsan0_14.2.0-19_amd64.deb ...
+Unpacking liblsan0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libtsan2:amd64.
+Preparing to unpack .../21-libtsan2_14.2.0-19_amd64.deb ...
+Unpacking libtsan2:amd64 (14.2.0-19) ...
+Selecting previously unselected package libubsan1:amd64.
+Preparing to unpack .../22-libubsan1_14.2.0-19_amd64.deb ...
+Unpacking libubsan1:amd64 (14.2.0-19) ...
+Selecting previously unselected package libhwasan0:amd64.
+Preparing to unpack .../23-libhwasan0_14.2.0-19_amd64.deb ...
+Unpacking libhwasan0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libquadmath0:amd64.
+Preparing to unpack .../24-libquadmath0_14.2.0-19_amd64.deb ...
+Unpacking libquadmath0:amd64 (14.2.0-19) ...
+Selecting previously unselected package libgcc-14-dev:amd64.
+Preparing to unpack .../25-libgcc-14-dev_14.2.0-19_amd64.deb ...
+Unpacking libgcc-14-dev:amd64 (14.2.0-19) ...
+Selecting previously unselected package gcc-14-x86-64-linux-gnu.
+Preparing to unpack .../26-gcc-14-x86-64-linux-gnu_14.2.0-19_amd64.deb ...
+Unpacking gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Selecting previously unselected package gcc-14.
+Preparing to unpack .../27-gcc-14_14.2.0-19_amd64.deb ...
+Unpacking gcc-14 (14.2.0-19) ...
+Selecting previously unselected package gcc-x86-64-linux-gnu.
+Preparing to unpack .../28-gcc-x86-64-linux-gnu_4%3a14.2.0-1_amd64.deb ...
+Unpacking gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Selecting previously unselected package gcc.
+Preparing to unpack .../29-gcc_4%3a14.2.0-1_amd64.deb ...
+Unpacking gcc (4:14.2.0-1) ...
+Selecting previously unselected package libc-dev-bin.
+Preparing to unpack .../30-libc-dev-bin_2.41-12+deb13u4_amd64.deb ...
+Unpacking libc-dev-bin (2.41-12+deb13u4) ...
+Selecting previously unselected package linux-libc-dev.
+Preparing to unpack .../31-linux-libc-dev_6.12.111-1_all.deb ...
+Unpacking linux-libc-dev (6.12.111-1) ...
+Selecting previously unselected package libcrypt-dev:amd64.
+Preparing to unpack .../32-libcrypt-dev_1%3a4.4.38-1_amd64.deb ...
+Unpacking libcrypt-dev:amd64 (1:4.4.38-1) ...
+Selecting previously unselected package rpcsvc-proto.
+Preparing to unpack .../33-rpcsvc-proto_1.4.3-1_amd64.deb ...
+Unpacking rpcsvc-proto (1.4.3-1) ...
+Selecting previously unselected package libc6-dev:amd64.
+Preparing to unpack .../34-libc6-dev_2.41-12+deb13u4_amd64.deb ...
+Unpacking libc6-dev:amd64 (2.41-12+deb13u4) ...
+Setting up binutils-common:amd64 (2.44-3) ...
+Setting up linux-libc-dev (6.12.111-1) ...
+Setting up libctf-nobfd0:amd64 (2.44-3) ...
+Setting up libgomp1:amd64 (14.2.0-19) ...
+Setting up libsframe1:amd64 (2.44-3) ...
+Setting up rpcsvc-proto (1.4.3-1) ...
+Setting up libmpfr6:amd64 (4.2.2-1) ...
+Setting up libquadmath0:amd64 (14.2.0-19) ...
+Setting up libmpc3:amd64 (1.3.1-1+b3) ...
+Setting up libatomic1:amd64 (14.2.0-19) ...
+Setting up libubsan1:amd64 (14.2.0-19) ...
+Setting up libhwasan0:amd64 (14.2.0-19) ...
+Setting up libcrypt-dev:amd64 (1:4.4.38-1) ...
+Setting up libasan8:amd64 (14.2.0-19) ...
+Setting up libtsan2:amd64 (14.2.0-19) ...
+Setting up libbinutils:amd64 (2.44-3) ...
+Setting up libisl23:amd64 (0.27-1) ...
+Setting up libc-dev-bin (2.41-12+deb13u4) ...
+Setting up libcc1-0:amd64 (14.2.0-19) ...
+Setting up liblsan0:amd64 (14.2.0-19) ...
+Setting up libitm1:amd64 (14.2.0-19) ...
+Setting up libctf0:amd64 (2.44-3) ...
+Setting up libgprofng0:amd64 (2.44-3) ...
+Setting up cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Setting up cpp-14 (14.2.0-19) ...
+Setting up libc6-dev:amd64 (2.41-12+deb13u4) ...
+Setting up libgcc-14-dev:amd64 (14.2.0-19) ...
+Setting up binutils-x86-64-linux-gnu (2.44-3) ...
+Setting up cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Setting up binutils (2.44-3) ...
+Setting up cpp (4:14.2.0-1) ...
+Setting up gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Setting up gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Setting up gcc-14 (14.2.0-19) ...
+Setting up gcc (4:14.2.0-1) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+Reading package lists...
+Building dependency tree...
+Reading state information...
+The following packages will be REMOVED:
+  binutils* binutils-common* binutils-x86-64-linux-gnu* cpp* cpp-14*
+  cpp-14-x86-64-linux-gnu* cpp-x86-64-linux-gnu* gcc* gcc-14*
+  gcc-14-x86-64-linux-gnu* gcc-x86-64-linux-gnu* libasan8* libatomic1*
+  libbinutils* libc-dev-bin* libc6-dev* libcc1-0* libcrypt-dev* libctf-nobfd0*
+  libctf0* libgcc-14-dev* libgomp1* libgprofng0* libhwasan0* libisl23*
+  libitm1* liblsan0* libmpc3* libmpfr6* libquadmath0* libsframe1* libtsan2*
+  libubsan1* linux-libc-dev* rpcsvc-proto*
+0 upgraded, 0 newly installed, 35 to remove and 11 not upgraded.
+After this operation, 217 MB disk space will be freed.
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 13693 files and directories currently installed.)
+Removing gcc (4:14.2.0-1) ...
+Removing gcc-14 (14.2.0-19) ...
+Removing binutils (2.44-3) ...
+Removing libgprofng0:amd64 (2.44-3) ...
+Removing gcc-x86-64-linux-gnu (4:14.2.0-1) ...
+Removing gcc-14-x86-64-linux-gnu (14.2.0-19) ...
+Removing binutils-x86-64-linux-gnu (2.44-3) ...
+Removing libctf0:amd64 (2.44-3) ...
+Removing libbinutils:amd64 (2.44-3) ...
+Removing binutils-common:amd64 (2.44-3) ...
+Removing cpp (4:14.2.0-1) ...
+Removing cpp-14 (14.2.0-19) ...
+Removing cpp-x86-64-linux-gnu (4:14.2.0-1) ...
+Removing cpp-14-x86-64-linux-gnu (14.2.0-19) ...
+Removing libgcc-14-dev:amd64 (14.2.0-19) ...
+Removing libasan8:amd64 (14.2.0-19) ...
+Removing libatomic1:amd64 (14.2.0-19) ...
+Removing libc6-dev:amd64 (2.41-12+deb13u4) ...
+Removing libc-dev-bin (2.41-12+deb13u4) ...
+Removing libcc1-0:amd64 (14.2.0-19) ...
+Removing libcrypt-dev:amd64 (1:4.4.38-1) ...
+Removing libctf-nobfd0:amd64 (2.44-3) ...
+Removing libgomp1:amd64 (14.2.0-19) ...
+Removing libhwasan0:amd64 (14.2.0-19) ...
+Removing libisl23:amd64 (0.27-1) ...
+Removing libitm1:amd64 (14.2.0-19) ...
+Removing liblsan0:amd64 (14.2.0-19) ...
+Removing libmpc3:amd64 (1.3.1-1+b3) ...
+Removing libmpfr6:amd64 (4.2.2-1) ...
+Removing libquadmath0:amd64 (14.2.0-19) ...
+Removing libsframe1:amd64 (2.44-3) ...
+Removing libtsan2:amd64 (14.2.0-19) ...
+Removing libubsan1:amd64 (14.2.0-19) ...
+Removing linux-libc-dev (6.12.111-1) ...
+Removing rpcsvc-proto (1.4.3-1) ...
+Processing triggers for libc-bin (2.41-12+deb13u4) ...
+(Reading database ... (Reading database ... 5%(Reading database ... 10%(Reading database ... 15%(Reading database ... 20%(Reading database ... 25%(Reading database ... 30%(Reading database ... 35%(Reading database ... 40%(Reading database ... 45%(Reading database ... 50%(Reading database ... 55%(Reading database ... 60%(Reading database ... 65%(Reading database ... 70%(Reading database ... 75%(Reading database ... 80%(Reading database ... 85%(Reading database ... 90%(Reading database ... 95%(Reading database ... 100%(Reading database ... 9653 files and directories currently installed.)
+Purging configuration files for binutils-common:amd64 (2.44-3) ...
+Purging configuration files for binutils (2.44-3) ...
+Purging configuration files for libcrypt-dev:amd64 (1:4.4.38-1) ...
+Purging configuration files for cpp (4:14.2.0-1) ...
+--> 8e0028363d86
+[2/2] STEP 38/65: COPY --from=builder /app/packages/@ezcorp/sdk/src ./packages/@ezcorp/sdk/src
+--> 996d5d70ffdd
+[2/2] STEP 39/65: COPY --from=builder /app/packages/@ezcorp/sdk/dist ./packages/@ezcorp/sdk/dist
+--> daf4443ab5cf
+[2/2] STEP 40/65: COPY --from=builder /app/packages/@ezcorp/harness-client/src ./packages/@ezcorp/harness-client/src
+--> ac4820ed24a6
+[2/2] STEP 41/65: COPY --from=builder /app/packages/@ezcorp/harness-client/dist ./packages/@ezcorp/harness-client/dist
+--> 1770da07e710
+[2/2] STEP 42/65: COPY --from=builder /app/packages/@ezcorp/extension-contract/src ./packages/@ezcorp/extension-contract/src
+--> b5e41a313b64
+[2/2] STEP 43/65: COPY --from=builder /app/packages/@ezcorp/extension-runner/src ./packages/@ezcorp/extension-runner/src
+--> c3140e259e7a
+[2/2] STEP 44/65: COPY --from=builder /app/scripts/migrate-extension-v4.ts ./scripts/migrate-extension-v4.ts
+--> c94d4ce9c2e6
+[2/2] STEP 45/65: COPY --from=builder /app/deploy/extension-runner/app-entrypoint.sh ./deploy/extension-runner/app-entrypoint.sh
+--> b7dceb696895
+[2/2] STEP 46/65: COPY --from=builder /app/packages/@ezcorp/ai-kit ./packages/@ezcorp/ai-kit
+--> 49e6eb156293
+[2/2] STEP 47/65: COPY --from=builder /app/docs ./docs
+--> bd41a88e77e7
+[2/2] STEP 48/65: COPY --from=builder /app/extensions ./extensions
+--> b2e452eed588
+[2/2] STEP 49/65: COPY --from=builder /app/manifest.lock.json ./manifest.lock.json
+--> 02834292532e
+[2/2] STEP 50/65: COPY --from=builder /app/web/build ./web/build
+--> dc2fdc2edf30
+[2/2] STEP 51/65: RUN mkdir -p /app/data /app/.ezcorp && chown -R bun:bun /app /app/data /app/.ezcorp
+--> 9c92151bf0de
+[2/2] STEP 52/65: RUN chown root:root /app/bin/preview-spawn   && chmod 4755 /app/bin/preview-spawn
+--> 04e3ab43479a
+[2/2] STEP 53/65: VOLUME /app/data
+--> fd41a9052d59
+[2/2] STEP 54/65: VOLUME /app/.ezcorp
+--> f7f9aefbb75e
+[2/2] STEP 55/65: EXPOSE 3000
+--> 80315db60beb
+[2/2] STEP 56/65: ENV EZCORP_PORT=3000
+--> b5dcc24aa20a
+[2/2] STEP 57/65: ENV BODY_SIZE_LIMIT=134217728
+--> ea1242126129
+[2/2] STEP 58/65: ENV EZCORP_DB_PATH=/app/data/ezcorp
+--> 96de309b0d8b
+[2/2] STEP 59/65: ENV NODE_ENV=production
+--> cc66cb3e7f24
+[2/2] STEP 60/65: ARG EZCORP_RUNTIME_UID=1000
+--> ff18f27509f6
+[2/2] STEP 61/65: ARG EZCORP_RUNTIME_GID=1000
+--> f5056ceb1f32
+[2/2] STEP 62/65: RUN test "$(id -u bun)" = "$EZCORP_RUNTIME_UID"   && test "$(id -g bun)" = "$EZCORP_RUNTIME_GID"
+--> c1a534470cb5
+[2/2] STEP 63/65: USER bun
+--> b951e3f77f91
+[2/2] STEP 64/65: HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3   CMD bun -e "const r = await fetch('http://localhost:3000/api/health'); process.exit(r.ok || r.status === 401 ? 0 : 1)" || exit 1
+time="2026-10-03T01:08:26-04:00" level=warning msg="HEALTHCHECK is not supported for OCI image format and will be ignored. Must use `docker` format"
+--> eb92e816557f
+[2/2] STEP 65/65: CMD ["bun", "run", "web/build/index.js"]
+[2/2] COMMIT localhost/integrator3-img-production-nocache:4ae2f1658c47
+time="2026-10-03T01:08:26-04:00" level=warning msg="HEALTHCHECK is not supported for OCI image format and will be ignored. Must use `docker` format"
+--> 4b7329a2be01
+Successfully tagged localhost/integrator3-img-production-nocache:4ae2f1658c47
+4b7329a2be01e10906dfcdc069745a585177e63114d56f51e06bf88deb07344f
+image localhost/integrator3-img-production-nocache:4ae2f1658c47 id 4b7329a2be01e10906dfcdc069745a585177e63114d56f51e06bf88deb07344f digest sha256:1bdc26dc879a4b79dd2f1d1c0a67785d318c687cdc3679ef785b3ec4b601eecd

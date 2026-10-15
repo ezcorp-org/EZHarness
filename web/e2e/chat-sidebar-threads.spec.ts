@@ -13,7 +13,8 @@ import { makeProject, makeConversation, makeMessage } from "./fixtures/data.js";
  *   - "All chats" lands on the full list at full width and does NOT get
  *     bounced by the index page's redirect to the last chat — and is offered
  *     even with only a few chats, since search, rename and delete live there;
- *   - plain /chat still redirects to your last chat (unchanged);
+ *   - plain /chat still redirects to your last chat (unchanged) — also when
+ *     you come to it from "All chats", where SvelteKit reuses the page;
  *   - "+ New chat" creates one and it appears in the section;
  *   - collapsing is remembered across a reload.
  */
@@ -125,6 +126,22 @@ test("the full list creates a thread and refreshes the persistent sidebar", asyn
 	await expect(threadRow(page, "new-conv")).toHaveAttribute("aria-current", "page");
 });
 
+test("from All chats, the Chat label takes you back to your last chat @evidence", async ({ page, mockApi }, testInfo) => {
+	await mockApi(setup());
+	await page.goto("/project/proj-1/chat/conv-2");
+	await section(page).getByTestId("chat-nav-show-all").click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\?all=1$/);
+	await expect(page.getByRole("navigation", { name: "Conversations" }).getByText("Planning the installer")).toBeVisible();
+
+	// Same route, only `?all` changes: the page is reused, and it must decide
+	// the redirect again rather than show "No conversations yet".
+	await section(page).getByTestId("chat-nav-link").click();
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\/conv-2$/);
+	await expect(page.getByText("Hi! How can I help?")).toBeVisible();
+	await expect(page.getByText("No conversations yet")).toBeHidden();
+	await captureEvidence(page, testInfo, "chat-label-from-all-chats");
+});
+
 test("plain /chat still takes you to your most recent chat", async ({ page, mockApi }) => {
 	await mockApi(setup());
 	await page.goto("/project/proj-1/chat");
@@ -150,4 +167,34 @@ test("collapsing the section is remembered across a reload", async ({ page, mock
 	await expect(section(page).getByTestId("chat-nav-threads")).toHaveCount(0);
 	await page.reload();
 	await expect(section(page).getByTestId("chat-nav-toggle")).toHaveAttribute("aria-expanded", "false");
+});
+
+test("a click while the splash fades out reaches the sidebar on the first try @evidence", async ({ page, mockApi }, testInfo) => {
+	// Hold the fading splash in place, as a slow device would: its removal
+	// is a 300 ms timer, so without this the race decides the outcome.
+	await page.addInitScript(() => {
+		const remove = Element.prototype.remove;
+		Element.prototype.remove = function (this: Element) {
+			if (this.id !== "splash") remove.call(this);
+		};
+	});
+	await mockApi(setup());
+	await page.goto("/project/proj-1/chat/conv-2");
+	const splash = page.locator("#splash");
+	await expect(splash).toHaveCount(1);
+	await expect(splash).toHaveCSS("opacity", "0");
+	// Decorative and fading: hidden from assistive tech, holds no focus.
+	await expect(splash).toHaveAttribute("aria-hidden", "true");
+	expect(await splash.evaluate((el) => el.contains(document.activeElement))).toBe(false);
+
+	const nav = page.getByRole("navigation", { name: "Main navigation" });
+	const scrollTop = () => nav.evaluate((el) => el.scrollTop);
+	const before = await scrollTop();
+	// A short timeout: if the splash catches the click, Playwright retries
+	// (scrolling the nav each time) until this runs out.
+	await threadRow(page, "conv-1").click({ timeout: 2000 });
+	await expect(page).toHaveURL(/\/project\/proj-1\/chat\/conv-1$/);
+	await expect(threadRow(page, "conv-1")).toHaveAttribute("aria-current", "page");
+	expect(await scrollTop()).toBe(before);
+	await captureEvidence(page, testInfo, "click-through-fading-splash");
 });

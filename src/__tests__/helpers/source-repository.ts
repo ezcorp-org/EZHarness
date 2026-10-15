@@ -7,6 +7,19 @@ export function git(root: string, ...args: string[]): void {
   if (result.exitCode !== 0) throw new Error(result.stderr.toString());
 }
 
+/** Like git(), but with extra environment variables layered over
+ *  process.env — for a caller that needs to point git at an alternate
+ *  index file (`GIT_INDEX_FILE`) without touching the real one. */
+export function gitWithEnv(root: string, envOverrides: Record<string, string>, args: string[]): void {
+  const result = Bun.spawnSync(["git", ...args], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+    env: { ...process.env, ...envOverrides },
+  });
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+}
+
 /** A committed source file plus ignored artifacts for provenance checks. */
 export function createSourceRepository(ignoredPaths: readonly string[]): string {
   const root = mkdtempSync(join(tmpdir(), "coverage-source-"));

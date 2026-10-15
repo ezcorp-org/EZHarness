@@ -2,19 +2,10 @@
 // auto-note postinstall — create vault directory scaffold
 
 import { mkdirSync, existsSync, writeFileSync } from "fs";
-import { join, dirname } from "path";
+import { join } from "path";
+import { resolveProjectRoot } from "@ezcorp/sdk/runtime";
 
-function findProjectRoot(from: string = process.cwd()): string {
-  let dir = from;
-  while (true) {
-    if (existsSync(join(dir, ".git"))) return dir;
-    const parent = dirname(dir);
-    if (parent === dir) return from;
-    dir = parent;
-  }
-}
-
-const root = findProjectRoot();
+const root = resolveProjectRoot();
 // Convention: all extension data goes under .ezcorp/extension-data/<ext-name>/
 const vaultRoot = join(root, ".ezcorp", "extension-data", "auto-note", "vault");
 const categories = ["ideas", "tasks", "decisions", "references", "journal", "meetings"];

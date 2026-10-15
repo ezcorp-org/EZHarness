@@ -1,0 +1,100 @@
+=== heavy 2026-10-02T00:51:26Z
+HEAD 01328c1ab12abdd7b1e54f293c4f7224cabf5aca MERGE_HEAD  index-tree 2d04bbd3b7b8037e820230d76ee055b577c7c762
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+shared config hash at hold start: 44962525f1ca1a8b
+resource-gate 2026-10-02T00:51:26Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2008940/17173956
+resource-gate 2026-10-02T00:52:26Z attestation-check disk=207G memAvailable=16GiB swapFreeKiB=2013344/17173956
+resource-gate 2026-10-02T00:53:26Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2014668/17173956
+resource-gate 2026-10-02T00:54:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2027548/17173956
+resource-gate 2026-10-02T00:55:27Z attestation-check disk=207G memAvailable=16GiB swapFreeKiB=2057968/17173956
+resource-gate 2026-10-02T00:56:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2058892/17173956
+resource-gate 2026-10-02T00:57:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2092552/17173956
+resource-gate 2026-10-02T00:58:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2093844/17173956
+resource-gate 2026-10-02T00:59:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2096156/17173956
+resource-gate 2026-10-02T01:00:27Z attestation-check disk=207G memAvailable=15GiB swapFreeKiB=2097460/17173956
+--- START attestation-check 2026-10-02T01:00:27Z
+--- END   attestation-check 2026-10-02T01:00:27Z exit=0 
+guard set: 13 files from guard-suites.sh
+resource-gate 2026-10-02T01:00:27Z guard-set disk=207G memAvailable=15GiB swapFreeKiB=2097460/17173956
+--- START guard-set 2026-10-02T01:00:27Z
+--- END   guard-set 2026-10-02T01:00:28Z exit=0  65 pass 0 fail 
+resource-gate 2026-10-02T01:00:28Z build-factory-sdk disk=207G memAvailable=15GiB swapFreeKiB=2097464/17173956
+--- START build-factory-sdk 2026-10-02T01:00:28Z
+--- END   build-factory-sdk 2026-10-02T01:00:28Z exit=0 
+resource-gate 2026-10-02T01:00:28Z build-factory-transport disk=207G memAvailable=15GiB swapFreeKiB=2097468/17173956
+--- START build-factory-transport 2026-10-02T01:00:28Z
+--- END   build-factory-transport 2026-10-02T01:00:28Z exit=0 
+resource-gate 2026-10-02T01:00:28Z build-factory-orchestrator disk=207G memAvailable=15GiB swapFreeKiB=2097468/17173956
+--- START build-factory-orchestrator 2026-10-02T01:00:28Z
+--- END   build-factory-orchestrator 2026-10-02T01:00:28Z exit=0 
+resource-gate 2026-10-02T01:00:28Z unit-src-factory-runner-python-runner-integration-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2097468/17173956
+--- START unit-src-factory-runner-python-runner-integration-test-ts 2026-10-02T01:00:28Z
+--- END   unit-src-factory-runner-python-runner-integration-test-ts 2026-10-02T01:00:38Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-02T01:00:38Z unit-src-factory-runner-uv-command-test-ts disk=207G memAvailable=15GiB swapFreeKiB=2097696/17173956
+--- START unit-src-factory-runner-uv-command-test-ts 2026-10-02T01:00:38Z
+--- END   unit-src-factory-runner-uv-command-test-ts 2026-10-02T01:00:39Z exit=0  6 pass 0 fail 
+resource-gate 2026-10-02T01:00:39Z web-server-lcov disk=207G memAvailable=15GiB swapFreeKiB=2097704/17173956
+--- START web-server-lcov 2026-10-02T01:00:39Z
+--- END   web-server-lcov 2026-10-02T01:00:59Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-02T01:00:59Z coverage-merge disk=207G memAvailable=16GiB swapFreeKiB=2098032/17173956
+--- START coverage-merge 2026-10-02T01:00:59Z
+--- END   coverage-merge 2026-10-02T01:00:59Z exit=0 
+resource-gate 2026-10-02T01:00:59Z web-build disk=207G memAvailable=16GiB swapFreeKiB=2098032/17173956
+--- START web-build 2026-10-02T01:00:59Z
+--- END   web-build 2026-10-02T01:01:41Z exit=0 
+resource-gate 2026-10-02T01:01:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1948796/17173956
+resource-gate 2026-10-02T01:02:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1963284/17173956
+resource-gate 2026-10-02T01:03:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1970836/17173956
+resource-gate 2026-10-02T01:04:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1973700/17173956
+resource-gate 2026-10-02T01:05:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1976116/17173956
+resource-gate 2026-10-02T01:06:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1977380/17173956
+resource-gate 2026-10-02T01:07:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1979176/17173956
+resource-gate 2026-10-02T01:08:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1980184/17173956
+resource-gate 2026-10-02T01:09:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1982016/17173956
+resource-gate 2026-10-02T01:10:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1983088/17173956
+resource-gate 2026-10-02T01:11:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1983892/17173956
+resource-gate 2026-10-02T01:12:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1984716/17173956
+resource-gate 2026-10-02T01:13:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1985652/17173956
+resource-gate 2026-10-02T01:14:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1986868/17173956
+resource-gate 2026-10-02T01:15:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1987804/17173956
+resource-gate 2026-10-02T01:16:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=1990488/17173956
+resource-gate 2026-10-02T01:17:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2001980/17173956
+resource-gate 2026-10-02T01:18:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2005300/17173956
+resource-gate 2026-10-02T01:19:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2008324/17173956
+resource-gate 2026-10-02T01:20:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2020804/17173956
+resource-gate 2026-10-02T01:21:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2035180/17173956
+resource-gate 2026-10-02T01:22:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2038600/17173956
+resource-gate 2026-10-02T01:23:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2041536/17173956
+resource-gate 2026-10-02T01:24:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2045160/17173956
+resource-gate 2026-10-02T01:25:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2046060/17173956
+resource-gate 2026-10-02T01:26:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2046896/17173956
+resource-gate 2026-10-02T01:27:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2047752/17173956
+resource-gate 2026-10-02T01:28:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2063192/17173956
+resource-gate 2026-10-02T01:29:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2076140/17173956
+resource-gate 2026-10-02T01:30:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2078512/17173956
+resource-gate 2026-10-02T01:31:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2080144/17173956
+resource-gate 2026-10-02T01:32:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2080920/17173956
+resource-gate 2026-10-02T01:33:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2081772/17173956
+resource-gate 2026-10-02T01:34:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2082500/17173956
+resource-gate 2026-10-02T01:35:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2083348/17173956
+resource-gate 2026-10-02T01:36:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2084524/17173956
+resource-gate 2026-10-02T01:37:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2086128/17173956
+resource-gate 2026-10-02T01:38:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2090172/17173956
+resource-gate 2026-10-02T01:39:41Z graph-mock-pass disk=207G memAvailable=15GiB swapFreeKiB=2090984/17173956
+resource-gate 2026-10-02T01:40:41Z graph-mock-pass disk=207G memAvailable=15GiB swapFreeKiB=2093940/17173956
+resource-gate 2026-10-02T01:41:41Z graph-mock-pass disk=207G memAvailable=16GiB swapFreeKiB=2094568/17173956
+resource-gate 2026-10-02T01:42:41Z graph-mock-pass disk=207G memAvailable=15GiB swapFreeKiB=2095276/17173956
+resource-gate 2026-10-02T01:43:41Z graph-mock-pass disk=207G memAvailable=15GiB swapFreeKiB=2096356/17173956
+resource-gate 2026-10-02T01:44:41Z graph-mock-pass disk=207G memAvailable=15GiB swapFreeKiB=2098844/17173956
+--- START graph-mock-pass 2026-10-02T01:44:41Z
+--- END   graph-mock-pass 2026-10-02T01:45:33Z exit=0 
+no retained database or run in /tmp/factory-platform-evidence/w00/w4g-merge/w4g-5/graph/w4g-5-mock.json; nothing to dump
+mock pass w4g-5-mock outcome: passed
+resource-gate 2026-10-02T01:45:33Z crap-changed-base disk=207G memAvailable=15GiB swapFreeKiB=2128584/17173956
+--- START crap-changed-base 2026-10-02T01:45:33Z
+--- END   crap-changed-base 2026-10-02T01:45:33Z exit=0 
+resource-gate 2026-10-02T01:45:33Z merge-commit-gates disk=207G memAvailable=15GiB swapFreeKiB=2128584/17173956
+--- START merge-commit-gates 2026-10-02T01:45:33Z
+--- END   merge-commit-gates 2026-10-02T01:45:38Z exit=0 
+shared config hash at hold end: 44962525f1ca1a8b
+HEAVY DONE status=0 dirty=0 2026-10-02T01:45:38Z

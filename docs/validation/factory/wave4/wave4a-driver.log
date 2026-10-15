@@ -1,0 +1,23 @@
+focused files: 222 auto-added: 181
+{"name": "sdk-build", "exitCode": 0, "start": "2026-09-21T16:04:36", "end": "2026-09-21T16:04:36"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-09-21T16:04:36", "end": "2026-09-21T16:04:36"}
+{"name": "sdk-tests", "exitCode": 0, "start": "2026-09-21T16:04:36", "end": "2026-09-21T16:04:54"}
+{"name": "focused", "exitCode": 1, "start": "2026-09-21T16:04:54", "end": "2026-09-21T16:13:08"}
+{"name": "web-coverage", "exitCode": 0, "start": "2026-09-21T16:13:08", "end": "2026-09-21T16:18:20"}
+{"name": "postgres", "exitCode": 1, "start": "2026-09-21T16:18:20", "end": "2026-09-21T16:20:53"}
+{"name": "types", "exitCode": 0, "start": "2026-09-21T16:20:53", "end": "2026-09-21T16:21:43"}
+{"name": "lint", "exitCode": 0, "start": "2026-09-21T16:21:43", "end": "2026-09-21T16:21:45"}
+{"name": "gate-integrity", "exitCode": 0, "start": "2026-09-21T16:21:45", "end": "2026-09-21T16:21:47"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-09-21T16:21:47", "end": "2026-09-21T16:21:48"}
+{"name": "orchestrator-build", "exitCode": 0, "start": "2026-09-21T16:21:48", "end": "2026-09-21T16:21:48"}
+{"name": "node-coverage", "exitCode": 0, "start": "2026-09-21T16:21:48", "end": "2026-09-21T16:24:12"}
+{"name": "pool-coverage", "exitCode": 0, "start": "2026-09-21T16:24:12", "end": "2026-09-21T16:24:50"}
+{"name": "compute-coverage", "exitCode": 0, "start": "2026-09-21T16:24:50", "end": "2026-09-21T16:25:36"}
+{"name": "provisioning-coverage", "exitCode": 0, "start": "2026-09-21T16:25:36", "end": "2026-09-21T16:25:39"}
+{"name": "python-coverage", "exitCode": 0, "start": "2026-09-21T16:25:39", "end": "2026-09-21T16:25:46"}
+{"name": "podman-podman", "exitCode": 0, "start": "2026-09-21T16:25:46", "end": "2026-09-21T16:27:12"}
+{"name": "podman-attempt-runtime", "exitCode": 0, "start": "2026-09-21T16:27:12", "end": "2026-09-21T16:27:27"}
+{"name": "podman-supervisor", "exitCode": 0, "start": "2026-09-21T16:27:27", "end": "2026-09-21T16:27:40"}
+{"name": "podman-package-preparation", "exitCode": 0, "start": "2026-09-21T16:27:40", "end": "2026-09-21T16:27:50"}
+DONE failed=True
+combined exit 1

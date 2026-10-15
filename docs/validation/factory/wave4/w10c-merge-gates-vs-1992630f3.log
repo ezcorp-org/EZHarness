@@ -1,0 +1,22 @@
+=== vs 1992630f3 (W10c branch base) at 49dbcc56265777d594b6ef9549d50e5d78a2021f 2026-10-04T19:20:24Z
+New-file coverage gate PASSED: no new source files in this diff.
+new-file exit=0
+Patch coverage gate FAILED (2 file(s) with uncovered changes):
+  scripts/check-factory-lanes.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+  scripts/lib/ci-registration.ts: changed source file has NO lcov data — no test loads it under coverage. Add/extend a test that exercises it (or, if it genuinely can't be measured, add an EXCLUDES entry in scripts/coverage-config.ts with justification).
+
+Add tests covering the changed lines above, then re-run the coverage pipeline.
+patch exit=1
+CRAP: --changed against 1992630f3 → 3 measured file(s) in diff
+
+CRAP: 5 functions in 3 files (max 30, warn 15)
+
+Worst 5:
+      9.0  cc=  9 cov=100%  src/providers/factory-broker.ts:85 factoryProviderReadiness
+      5.0  cc=  5 cov=100%  src/providers/factory-broker.ts:182 stream
+      4.0  cc=  4 cov=100%  src/providers/factory-broker.ts:175 createFactoryProviderBroker
+      3.0  cc=  3 cov=100%  src/providers/factory-broker.ts:116 credentialRunsPin
+      2.0  cc=  2 cov=100%  src/providers/factory-broker.ts:131 subscriptionOnly
+
+✓ no touched function exceeds CRAP 30
+crap exit=0

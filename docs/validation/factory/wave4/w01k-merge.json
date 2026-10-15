@@ -1,0 +1,233 @@
+{
+ "package": "w01k",
+ "branch": "wp/w01k-private-https-verify",
+ "head": "3a04baab3f7a70df8fdacc1211c3c97a1d452300",
+ "codeHead": "8c413221f",
+ "branchBase": "03538e909",
+ "validatorVerdict": "ACCEPT at 3a04baab3 by validator-4 (runs at 3375b6111, code identical); W01 owner approved; copied as w01k-validation.txt",
+ "workerReport": "the gate file tasks/factory/w01k-GATES.md (copied as w01k-worker-report.txt)",
+ "security": "src/factory/private-https.ts accepted client certificates from any CA and passed their CN as the verified peer identity for every listener on startFactoryPrivateHttps (found by W16's live proof); the fix sets peerIdentity only when the handshake verified the certificate (success && authorizationError == null, non-empty CN); pool/service-server.ts reads identity through poolPeerIdentity, which requires authorized === true",
+ "mergeSha": "6c6257d0e1258e1fdbd5fa304a577de7e86fede8",
+ "tree": "df86988772cbd74f380316d9dfd55d1994efaed6",
+ "parents": [
+  "6cea43e67f2c84d5937cc47beb49d377d1354252",
+  "3a04baab3f7a70df8fdacc1211c3c97a1d452300"
+ ],
+ "conflicts": "none",
+ "integrationFix": [],
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T23:31:19Z",
+   "end": "2026-09-25T23:31:20Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "5af3deec7e3b6c96c61c7b2547c974d41d3cc2db5d53d08f18e18dfda1aabafa"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T23:31:20Z",
+   "end": "2026-09-25T23:32:07Z",
+   "command": "bun run typecheck",
+   "logSha256": "bb5658ab3157c115b9ed90b63ecf5bde28c5f493f64b6d6c0ac8c8245d673176"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:07Z",
+   "end": "2026-09-25T23:32:09Z",
+   "command": "bun run lint",
+   "logSha256": "6e52b7e494901eadb1e9bff6db10943ea7f3f8aa8f20535f6eedf9c7099d663a"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:09Z",
+   "end": "2026-09-25T23:32:12Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:12Z",
+   "end": "2026-09-25T23:32:13Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:13Z",
+   "end": "2026-09-25T23:32:17Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-pool-service-server-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:17Z",
+   "end": "2026-09-25T23:32:18Z",
+   "command": "bun test --timeout 60000 ./src/factory/pool/service-server.test.ts",
+   "logSha256": "2bbc94803d94c8d9abce16ff745d95673bafbd9a571647f09846af3673da7370"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-process-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:18Z",
+   "end": "2026-09-25T23:32:20Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts",
+   "logSha256": "72f7460da73465204615334796122b2a5c236dd557d2a9ee3843fafe42a7f60c"
+  },
+  {
+   "name": "focused-src-factory-host-launch-client-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:20Z",
+   "end": "2026-09-25T23:32:21Z",
+   "command": "bun test --timeout 60000 ./src/factory/host-launch-client.test.ts",
+   "logSha256": "2652cf9b52191d7051260fcde3c554008adea6b6e49c8279ee4b3bb046c3f028"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:21Z",
+   "end": "2026-09-25T23:32:25Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-service-composition.test.ts",
+   "logSha256": "ce8151253a45309ede4fa7a2f108827ddf10c830e1c679e30e3073e267bd85d7"
+  },
+  {
+   "name": "focused-src-__tests__-factory-private-service-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:25Z",
+   "end": "2026-09-25T23:32:30Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-private-service.test.ts",
+   "logSha256": "094b6aabc1de93bdb38882d7e88e912ff924637d8ed28efd44bfd35199d976c8"
+  },
+  {
+   "name": "focused-src-__tests__-factory-compute-admissions-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:30Z",
+   "end": "2026-09-25T23:32:36Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-compute-admissions.test.ts",
+   "logSha256": "fd725d01d668c25c175d6344195ed9d0ab31b5d5ab7b6debc06d90d203c7acdb"
+  },
+  {
+   "name": "focused-src-factory-artifact-materials-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:36Z",
+   "end": "2026-09-25T23:32:37Z",
+   "command": "bun test --timeout 60000 ./src/factory/artifact-materials.test.ts",
+   "logSha256": "a46ae99dd05968ee88b4b0f51fc663773f51ca09aeec62bed476caefe74b184e"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:37Z",
+   "end": "2026-09-25T23:32:41Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "d19506875b0e21c0b8359914076335c260e3610fda76b316e74462dc084fe2dd"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:32:41Z",
+   "end": "2026-09-25T23:32:43Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "38cf5ef16633f71b1bb83378ecca5161907723acdebdd5ed61a36d304f26051b"
+  }
+ ],
+ "heavy": {
+  "summary": [
+   "lock 2026-09-25T23:33:00Z index-tree df86988772cbd74f380316d9dfd55d1994efaed6",
+   "resource-gate 2026-09-25T23:33:00Z heavy disk=115G memAvailable=16GiB swapFreeKiB=7713700/17173956",
+   "batch exit=0",
+   "resource-gate 2026-09-25T23:37:31Z web-build disk=114G memAvailable=17GiB swapFreeKiB=6964736/17173956",
+   "web build exit=0",
+   "resource-gate 2026-09-25T23:38:18Z mock-pass disk=114G memAvailable=17GiB swapFreeKiB=6977048/17173956",
+   "mock pass exit=0 {\"label\":\"w01k-mock-1\",\"mode\":\"mock\",\"control\":\"none\",\"outcome\":\"passed\",\"failure\":null}",
+   "DONE status=0 end=2026-09-25T23:38:58Z"
+  ],
+  "batch": [
+   "=== heavy batch 2026-09-25T23:33:00Z",
+   "HEAD 6cea43e67f2c84d5937cc47beb49d377d1354252 MERGE_HEAD 3a04baab3f7a70df8fdacc1211c3c97a1d452300 index-tree df86988772cbd74f380316d9dfd55d1994efaed6 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  115G  94% /",
+   "resource-gate 2026-09-25T23:33:00Z pg-factory-pool-http disk=115G memAvailable=16GiB swapFreeKiB=7713700/17173956",
+   "--- START pg-factory-pool-http 2026-09-25T23:33:00Z",
+   "--- END   pg-factory-pool-http 2026-09-25T23:33:01Z exit=0  4 pass 0 fail ",
+   "resource-gate 2026-09-25T23:33:01Z pg-factory-compute-admissions disk=115G memAvailable=17GiB swapFreeKiB=7713712/17173956",
+   "--- START pg-factory-compute-admissions 2026-09-25T23:33:01Z",
+   "--- END   pg-factory-compute-admissions 2026-09-25T23:33:08Z exit=0  2 pass 0 fail ",
+   "resource-gate 2026-09-25T23:33:08Z pg-factory-artifact-materials disk=115G memAvailable=17GiB swapFreeKiB=7713752/17173956",
+   "--- START pg-factory-artifact-materials 2026-09-25T23:33:08Z",
+   "--- END   pg-factory-artifact-materials 2026-09-25T23:35:35Z exit=0  29 pass 0 fail ",
+   "resource-gate 2026-09-25T23:35:35Z pg-factory-pool-mtls disk=114G memAvailable=16GiB swapFreeKiB=7716404/17173956",
+   "--- START pg-factory-pool-mtls 2026-09-25T23:35:35Z",
+   "--- END   pg-factory-pool-mtls 2026-09-25T23:35:36Z exit=0  1 pass 0 fail ",
+   "resource-gate 2026-09-25T23:35:36Z pg-factory-execution-gateway disk=114G memAvailable=16GiB swapFreeKiB=7716504/17173956",
+   "--- START pg-factory-execution-gateway 2026-09-25T23:35:36Z",
+   "--- END   pg-factory-execution-gateway 2026-09-25T23:35:48Z exit=0  2 pass 0 fail ",
+   "resource-gate 2026-09-25T23:35:48Z pg-factory-private-service disk=114G memAvailable=15GiB swapFreeKiB=6919520/17173956",
+   "--- START pg-factory-private-service 2026-09-25T23:35:48Z",
+   "--- END   pg-factory-private-service 2026-09-25T23:35:57Z exit=0  5 pass 0 fail ",
+   "resource-gate 2026-09-25T23:35:57Z pg-factory-host-launch disk=114G memAvailable=17GiB swapFreeKiB=6883888/17173956",
+   "--- START pg-factory-host-launch 2026-09-25T23:35:57Z",
+   "--- END   pg-factory-host-launch 2026-09-25T23:36:09Z exit=0  1 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:09Z podman-private-https.integration disk=114G memAvailable=17GiB swapFreeKiB=6855008/17173956",
+   "--- START podman-private-https.integration 2026-09-25T23:36:09Z",
+   "--- END   podman-private-https.integration 2026-09-25T23:36:11Z exit=0  15 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:11Z podman-guest-broker-transport.integration disk=114G memAvailable=17GiB swapFreeKiB=6855872/17173956",
+   "--- START podman-guest-broker-transport.integration 2026-09-25T23:36:11Z",
+   "--- END   podman-guest-broker-transport.integration 2026-09-25T23:36:28Z exit=0  13 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:28Z podman-host-launch-transport.integration disk=114G memAvailable=17GiB swapFreeKiB=6903580/17173956",
+   "--- START podman-host-launch-transport.integration 2026-09-25T23:36:28Z",
+   "--- END   podman-host-launch-transport.integration 2026-09-25T23:36:39Z exit=0  5 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:39Z podman-execution-gateway.integration disk=114G memAvailable=17GiB swapFreeKiB=6910984/17173956",
+   "--- START podman-execution-gateway.integration 2026-09-25T23:36:39Z",
+   "--- END   podman-execution-gateway.integration 2026-09-25T23:36:46Z exit=0  2 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:46Z podman-artifact-materials.integration disk=114G memAvailable=17GiB swapFreeKiB=6914128/17173956",
+   "--- START podman-artifact-materials.integration 2026-09-25T23:36:46Z",
+   "--- END   podman-artifact-materials.integration 2026-09-25T23:36:56Z exit=0  21 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:56Z podman-supervisor-process.podman.integration disk=114G memAvailable=17GiB swapFreeKiB=6915180/17173956",
+   "--- START podman-supervisor-process.podman.integration 2026-09-25T23:36:56Z",
+   "--- END   podman-supervisor-process.podman.integration 2026-09-25T23:36:59Z exit=0  3 pass 0 fail ",
+   "resource-gate 2026-09-25T23:36:59Z podman-host-launch-e2e.podman.integration disk=114G memAvailable=17GiB swapFreeKiB=6915648/17173956",
+   "--- START podman-host-launch-e2e.podman.integration 2026-09-25T23:36:59Z",
+   "--- END   podman-host-launch-e2e.podman.integration 2026-09-25T23:37:08Z exit=0  1 pass 0 fail ",
+   "resource-gate 2026-09-25T23:37:08Z pool-coverage disk=114G memAvailable=17GiB swapFreeKiB=6918040/17173956",
+   "--- START pool-coverage 2026-09-25T23:37:08Z",
+   "--- END   pool-coverage 2026-09-25T23:37:31Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-25T23:37:31Z"
+  ],
+  "privateHttpsIntegration": "15 pass 0 fail (the five untrusted-certificate cases red on the old code per validator-4)",
+  "mockPass": {
+   "label": "w01k-mock-1",
+   "outcome": "passed",
+   "startedAt": "2026-09-25T23:38:18.896Z",
+   "finishedAt": "2026-09-25T23:38:57.690Z"
+  }
+ },
+ "coverage": {
+  "proofCommit": "proof/w01k-merge-staged 343c2923c65b147ee7ea77ae43e2ef33adc6b8be (tree df8698877 = the merge tree; real frozen install; core.bare worktree false)",
+  "baseRef": "6cea43e67",
+  "producers": [
+   {
+    "producer": "focused (service-server, supervisor-process)",
+    "result": "41/0"
+   },
+   {
+    "producer": "private-https + guest-broker-transport integration",
+    "result": "28/0"
+   },
+   {
+    "producer": "pool coverage producer (scripts/factory-pool-coverage.sh, heavy leg)",
+    "result": "exit 0",
+    "why": "first patch run: pool/service-server.ts:46 (the Node-only line) uncovered; the pool producer covers it (DA:46,12)"
+   }
+  ],
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (2 files)"
+ },
+ "commitHook": "the hook ran its staged suites itself (under the cap), all pass",
+ "standingSteps": "resource gate at every step: disk 114-115G, MemAvailable 16-17 GiB, swap not exhausted; config hash 44962525f1ca1a8b"
+}

@@ -1,0 +1,309 @@
+resource-gate 2026-10-04T01:42:02Z w4h-5-hold outside-lock disk=91G memAvailable=10GiB swapFreeKiB=451244/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T01:44:02Z w4h-5-hold outside-lock disk=92G memAvailable=12GiB swapFreeKiB=1206324/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T01:46:02Z w4h-5-hold outside-lock disk=92G memAvailable=10GiB swapFreeKiB=1123624/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T01:48:02Z w4h-5-hold outside-lock disk=91G memAvailable=12GiB swapFreeKiB=1225480/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T01:50:02Z w4h-5-hold outside-lock disk=91G memAvailable=12GiB swapFreeKiB=1289008/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T01:52:02Z w4h-5-hold outside-lock disk=91G memAvailable=12GiB swapFreeKiB=1522292/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T01:54:02Z w4h-5-hold outside-lock disk=92G memAvailable=13GiB swapFreeKiB=1318260/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T01:56:02Z w4h-5-hold outside-lock disk=92G memAvailable=12GiB swapFreeKiB=1386932/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T01:58:02Z w4h-5-hold outside-lock disk=92G memAvailable=11GiB swapFreeKiB=1513868/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:00:02Z w4h-5-hold outside-lock disk=92G memAvailable=12GiB swapFreeKiB=1348464/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:02:02Z w4h-5-hold outside-lock disk=92G memAvailable=10GiB swapFreeKiB=1207268/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:04:02Z w4h-5-hold outside-lock disk=93G memAvailable=12GiB swapFreeKiB=1189100/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 93G below the 100 GB floor
+resource-gate 2026-10-04T02:06:02Z w4h-5-hold outside-lock disk=94G memAvailable=15GiB swapFreeKiB=927920/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 94G below the 100 GB floor
+resource-gate 2026-10-04T02:08:02Z w4h-5-hold outside-lock disk=94G memAvailable=13GiB swapFreeKiB=1089824/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 94G below the 100 GB floor
+resource-gate 2026-10-04T02:10:02Z w4h-5-hold outside-lock disk=93G memAvailable=11GiB swapFreeKiB=1385420/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 93G below the 100 GB floor
+resource-gate 2026-10-04T02:12:02Z w4h-5-hold outside-lock disk=92G memAvailable=11GiB swapFreeKiB=1511128/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:14:02Z w4h-5-hold outside-lock disk=91G memAvailable=12GiB swapFreeKiB=1725904/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T02:16:02Z w4h-5-hold outside-lock disk=91G memAvailable=12GiB swapFreeKiB=2459896/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T02:18:02Z w4h-5-hold outside-lock disk=91G memAvailable=10GiB swapFreeKiB=2448532/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 91G below the 100 GB floor
+resource-gate 2026-10-04T02:20:02Z w4h-5-hold outside-lock disk=87G memAvailable=12GiB swapFreeKiB=2519552/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 87G below the 100 GB floor
+resource-gate 2026-10-04T02:22:02Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=1944212/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:24:02Z w4h-5-hold outside-lock disk=88G memAvailable=12GiB swapFreeKiB=2316992/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:26:02Z w4h-5-hold outside-lock disk=88G memAvailable=14GiB swapFreeKiB=2030324/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:28:02Z w4h-5-hold outside-lock disk=88G memAvailable=14GiB swapFreeKiB=2085044/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:30:02Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=2186700/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:32:02Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=2590968/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:34:02Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=2643016/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:36:02Z w4h-5-hold outside-lock disk=88G memAvailable=12GiB swapFreeKiB=2680440/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T02:38:02Z w4h-5-hold outside-lock disk=95G memAvailable=11GiB swapFreeKiB=2710992/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 95G below the 100 GB floor
+resource-gate 2026-10-04T02:40:02Z w4h-5-hold outside-lock disk=96G memAvailable=9GiB swapFreeKiB=2676932/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 96G below the 100 GB floor
+resource-gate 2026-10-04T02:42:02Z w4h-5-hold outside-lock disk=96G memAvailable=8GiB swapFreeKiB=2391624/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 96G below the 100 GB floor
+resource-gate 2026-10-04T02:44:02Z w4h-5-hold outside-lock disk=95G memAvailable=8GiB swapFreeKiB=2101964/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 95G below the 100 GB floor
+resource-gate 2026-10-04T02:46:02Z w4h-5-hold outside-lock disk=95G memAvailable=13GiB swapFreeKiB=1322412/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 95G below the 100 GB floor
+resource-gate 2026-10-04T02:48:03Z w4h-5-hold outside-lock disk=93G memAvailable=11GiB swapFreeKiB=801924/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 93G below the 100 GB floor
+resource-gate 2026-10-04T02:50:03Z w4h-5-hold outside-lock disk=92G memAvailable=12GiB swapFreeKiB=723208/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:52:03Z w4h-5-hold outside-lock disk=92G memAvailable=7GiB swapFreeKiB=609204/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:54:03Z w4h-5-hold outside-lock disk=92G memAvailable=11GiB swapFreeKiB=551496/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:56:03Z w4h-5-hold outside-lock disk=92G memAvailable=10GiB swapFreeKiB=1062384/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 92G below the 100 GB floor
+resource-gate 2026-10-04T02:58:03Z w4h-5-hold outside-lock disk=89G memAvailable=9GiB swapFreeKiB=1164444/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:00:03Z w4h-5-hold outside-lock disk=89G memAvailable=11GiB swapFreeKiB=849444/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:02:03Z w4h-5-hold outside-lock disk=89G memAvailable=12GiB swapFreeKiB=1045524/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:04:03Z w4h-5-hold outside-lock disk=89G memAvailable=8GiB swapFreeKiB=1039604/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:06:03Z w4h-5-hold outside-lock disk=89G memAvailable=14GiB swapFreeKiB=1093300/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:08:03Z w4h-5-hold outside-lock disk=89G memAvailable=13GiB swapFreeKiB=1220192/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:10:03Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=1255708/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:12:03Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=1375852/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:14:03Z w4h-5-hold outside-lock disk=88G memAvailable=12GiB swapFreeKiB=1537332/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:16:03Z w4h-5-hold outside-lock disk=87G memAvailable=12GiB swapFreeKiB=1596192/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 87G below the 100 GB floor
+resource-gate 2026-10-04T03:18:03Z w4h-5-hold outside-lock disk=89G memAvailable=13GiB swapFreeKiB=1625140/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:20:03Z w4h-5-hold outside-lock disk=89G memAvailable=14GiB swapFreeKiB=1643056/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:22:03Z w4h-5-hold outside-lock disk=89G memAvailable=13GiB swapFreeKiB=1747416/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:24:03Z w4h-5-hold outside-lock disk=89G memAvailable=13GiB swapFreeKiB=1147008/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:26:03Z w4h-5-hold outside-lock disk=88G memAvailable=4GiB swapFreeKiB=1534500/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:28:03Z w4h-5-hold outside-lock disk=88G memAvailable=13GiB swapFreeKiB=908612/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:30:03Z w4h-5-hold outside-lock disk=89G memAvailable=13GiB swapFreeKiB=1740124/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 89G below the 100 GB floor
+resource-gate 2026-10-04T03:32:03Z w4h-5-hold outside-lock disk=88G memAvailable=11GiB swapFreeKiB=1289444/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:34:03Z w4h-5-hold outside-lock disk=88G memAvailable=12GiB swapFreeKiB=977060/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:36:03Z w4h-5-hold outside-lock disk=88G memAvailable=12GiB swapFreeKiB=185452/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 88G below the 100 GB floor
+resource-gate 2026-10-04T03:38:03Z w4h-5-hold outside-lock disk=86G memAvailable=7GiB swapFreeKiB=1067768/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 86G below the 100 GB floor
+resource-gate 2026-10-04T03:40:03Z w4h-5-hold outside-lock disk=85G memAvailable=11GiB swapFreeKiB=1048480/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 85G below the 100 GB floor
+resource-gate 2026-10-04T03:42:03Z w4h-5-hold outside-lock disk=85G memAvailable=9GiB swapFreeKiB=1125364/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 85G below the 100 GB floor
+resource-gate 2026-10-04T03:44:03Z w4h-5-hold outside-lock disk=85G memAvailable=10GiB swapFreeKiB=1074864/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 85G below the 100 GB floor
+resource-gate 2026-10-04T03:46:03Z w4h-5-hold outside-lock disk=84G memAvailable=12GiB swapFreeKiB=1726132/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 84G below the 100 GB floor
+resource-gate 2026-10-04T03:48:03Z w4h-5-hold outside-lock disk=83G memAvailable=11GiB swapFreeKiB=1778612/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T03:50:03Z w4h-5-hold outside-lock disk=83G memAvailable=12GiB swapFreeKiB=1821352/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T03:52:03Z w4h-5-hold outside-lock disk=83G memAvailable=9GiB swapFreeKiB=1336388/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T03:54:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1319504/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T03:56:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1345808/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T03:58:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1489140/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:00:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1555112/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:02:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1593176/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:04:03Z w4h-5-hold outside-lock disk=83G memAvailable=15GiB swapFreeKiB=1716952/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:06:03Z w4h-5-hold outside-lock disk=83G memAvailable=13GiB swapFreeKiB=1891652/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:08:03Z w4h-5-hold outside-lock disk=83G memAvailable=13GiB swapFreeKiB=1898340/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 83G below the 100 GB floor
+resource-gate 2026-10-04T04:10:03Z w4h-5-hold outside-lock disk=82G memAvailable=13GiB swapFreeKiB=1917224/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 82G below the 100 GB floor
+resource-gate 2026-10-04T04:12:03Z w4h-5-hold outside-lock disk=80G memAvailable=11GiB swapFreeKiB=2001444/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 80G below the 100 GB floor
+resource-gate 2026-10-04T04:14:03Z w4h-5-hold outside-lock disk=80G memAvailable=12GiB swapFreeKiB=1440156/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 80G below the 100 GB floor
+resource-gate 2026-10-04T04:16:03Z w4h-5-hold outside-lock disk=80G memAvailable=12GiB swapFreeKiB=1512184/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 80G below the 100 GB floor
+resource-gate 2026-10-04T04:18:03Z w4h-5-hold outside-lock disk=80G memAvailable=12GiB swapFreeKiB=163040/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 80G below the 100 GB floor
+resource-gate 2026-10-04T04:20:03Z w4h-5-hold outside-lock disk=77G memAvailable=13GiB swapFreeKiB=202252/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 77G below the 100 GB floor
+resource-gate 2026-10-04T04:22:03Z w4h-5-hold outside-lock disk=77G memAvailable=14GiB swapFreeKiB=458828/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 77G below the 100 GB floor
+resource-gate 2026-10-04T04:24:03Z w4h-5-hold outside-lock disk=76G memAvailable=15GiB swapFreeKiB=180768/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:26:03Z w4h-5-hold outside-lock disk=76G memAvailable=12GiB swapFreeKiB=156156/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:28:03Z w4h-5-hold outside-lock disk=76G memAvailable=10GiB swapFreeKiB=804/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:30:03Z w4h-5-hold outside-lock disk=76G memAvailable=13GiB swapFreeKiB=10204/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:32:03Z w4h-5-hold outside-lock disk=76G memAvailable=13GiB swapFreeKiB=260/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:34:03Z w4h-5-hold outside-lock disk=76G memAvailable=12GiB swapFreeKiB=1248636/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:36:03Z w4h-5-hold outside-lock disk=76G memAvailable=13GiB swapFreeKiB=1106628/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:38:03Z w4h-5-hold outside-lock disk=75G memAvailable=13GiB swapFreeKiB=1159896/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 75G below the 100 GB floor
+resource-gate 2026-10-04T04:40:04Z w4h-5-hold outside-lock disk=75G memAvailable=13GiB swapFreeKiB=1425140/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 75G below the 100 GB floor
+resource-gate 2026-10-04T04:42:04Z w4h-5-hold outside-lock disk=75G memAvailable=13GiB swapFreeKiB=1461768/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 75G below the 100 GB floor
+resource-gate 2026-10-04T04:44:04Z w4h-5-hold outside-lock disk=75G memAvailable=13GiB swapFreeKiB=1640356/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 75G below the 100 GB floor
+resource-gate 2026-10-04T04:46:04Z w4h-5-hold outside-lock disk=74G memAvailable=12GiB swapFreeKiB=1646356/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 74G below the 100 GB floor
+resource-gate 2026-10-04T04:48:04Z w4h-5-hold outside-lock disk=74G memAvailable=12GiB swapFreeKiB=1653744/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 74G below the 100 GB floor
+resource-gate 2026-10-04T04:50:04Z w4h-5-hold outside-lock disk=75G memAvailable=12GiB swapFreeKiB=1665672/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 75G below the 100 GB floor
+resource-gate 2026-10-04T04:52:04Z w4h-5-hold outside-lock disk=76G memAvailable=13GiB swapFreeKiB=1667364/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:54:04Z w4h-5-hold outside-lock disk=76G memAvailable=11GiB swapFreeKiB=1616692/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 76G below the 100 GB floor
+resource-gate 2026-10-04T04:56:04Z w4h-5-hold outside-lock disk=74G memAvailable=10GiB swapFreeKiB=1467768/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 74G below the 100 GB floor
+resource-gate 2026-10-04T04:58:04Z w4h-5-hold outside-lock disk=72G memAvailable=10GiB swapFreeKiB=1439976/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 72G below the 100 GB floor
+resource-gate 2026-10-04T05:00:04Z w4h-5-hold outside-lock disk=72G memAvailable=10GiB swapFreeKiB=184/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 72G below the 100 GB floor
+resource-gate 2026-10-04T05:02:04Z w4h-5-hold outside-lock disk=72G memAvailable=12GiB swapFreeKiB=192/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 72G below the 100 GB floor
+resource-gate 2026-10-04T05:04:04Z w4h-5-hold outside-lock disk=73G memAvailable=12GiB swapFreeKiB=333812/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 73G below the 100 GB floor
+resource-gate 2026-10-04T05:06:04Z w4h-5-hold outside-lock disk=69G memAvailable=11GiB swapFreeKiB=27048/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:08:04Z w4h-5-hold outside-lock disk=69G memAvailable=9GiB swapFreeKiB=1592/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:10:04Z w4h-5-hold outside-lock disk=69G memAvailable=10GiB swapFreeKiB=3456/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:12:04Z w4h-5-hold outside-lock disk=68G memAvailable=6GiB swapFreeKiB=729212/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:14:04Z w4h-5-hold outside-lock disk=68G memAvailable=11GiB swapFreeKiB=754536/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:16:04Z w4h-5-hold outside-lock disk=68G memAvailable=16GiB swapFreeKiB=578408/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:18:04Z w4h-5-hold outside-lock disk=68G memAvailable=14GiB swapFreeKiB=919940/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:20:04Z w4h-5-hold outside-lock disk=68G memAvailable=14GiB swapFreeKiB=944936/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:22:04Z w4h-5-hold outside-lock disk=69G memAvailable=14GiB swapFreeKiB=1276188/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:24:04Z w4h-5-hold outside-lock disk=69G memAvailable=13GiB swapFreeKiB=1338256/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:26:04Z w4h-5-hold outside-lock disk=69G memAvailable=12GiB swapFreeKiB=1330968/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:28:04Z w4h-5-hold outside-lock disk=69G memAvailable=12GiB swapFreeKiB=1263092/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:30:04Z w4h-5-hold outside-lock disk=69G memAvailable=12GiB swapFreeKiB=1035200/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:32:04Z w4h-5-hold outside-lock disk=69G memAvailable=14GiB swapFreeKiB=534980/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:34:04Z w4h-5-hold outside-lock disk=69G memAvailable=15GiB swapFreeKiB=1568/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 69G below the 100 GB floor
+resource-gate 2026-10-04T05:36:04Z w4h-5-hold outside-lock disk=68G memAvailable=14GiB swapFreeKiB=26904/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:38:04Z w4h-5-hold outside-lock disk=68G memAvailable=14GiB swapFreeKiB=49824/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+resource-gate 2026-10-04T05:40:04Z w4h-5-hold outside-lock disk=68G memAvailable=14GiB swapFreeKiB=123012/17173956
+resource-gate w4h-5-hold outside-lock STOP: disk 68G below the 100 GB floor
+gated-flock w4h-5-hold: GAVE UP after 14400s (gate never green long enough, 0 lock tries)
+resource-gate 2026-10-04T14:35:08Z w4h-5-hold outside-lock disk=112G memAvailable=12GiB swapFreeKiB=2676092/17173956
+gated-flock w4h-5-hold: gate green outside the lock, queue for the lock (try 1) 2026-10-04T14:35:08Z
+gated-flock w4h-5-hold: gate red inside the lock, lock released, re-queue 2026-10-04T14:43:06Z
+resource-gate 2026-10-04T14:45:06Z w4h-5-hold outside-lock disk=113G memAvailable=14GiB swapFreeKiB=1874708/17173956
+resource-gate 2026-10-04T14:46:06Z w4h-5-hold outside-lock disk=113G memAvailable=14GiB swapFreeKiB=1887044/17173956
+resource-gate 2026-10-04T14:47:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1748636/17173956
+resource-gate 2026-10-04T14:48:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1723788/17173956
+resource-gate 2026-10-04T14:49:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1732080/17173956
+resource-gate 2026-10-04T14:50:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1733428/17173956
+resource-gate 2026-10-04T14:51:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1914752/17173956
+resource-gate 2026-10-04T14:52:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1992304/17173956
+resource-gate 2026-10-04T14:53:06Z w4h-5-hold outside-lock disk=110G memAvailable=14GiB swapFreeKiB=1995328/17173956
+resource-gate 2026-10-04T14:54:06Z w4h-5-hold outside-lock disk=110G memAvailable=15GiB swapFreeKiB=2256136/17173956
+gated-flock w4h-5-hold: gate green outside the lock, queue for the lock (try 2) 2026-10-04T14:54:06Z
+gated-flock w4h-5-hold: gate red inside the lock, lock released, re-queue 2026-10-04T14:54:55Z
+resource-gate 2026-10-04T14:56:55Z w4h-5-hold outside-lock disk=107G memAvailable=15GiB swapFreeKiB=1348908/17173956
+resource-gate 2026-10-04T14:57:55Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1448408/17173956
+resource-gate 2026-10-04T14:58:55Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1351432/17173956
+resource-gate 2026-10-04T14:59:55Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1355072/17173956
+resource-gate 2026-10-04T15:00:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1366612/17173956
+resource-gate 2026-10-04T15:01:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1373060/17173956
+resource-gate 2026-10-04T15:02:56Z w4h-5-hold outside-lock disk=107G memAvailable=13GiB swapFreeKiB=1337112/17173956
+resource-gate 2026-10-04T15:03:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1340244/17173956
+resource-gate 2026-10-04T15:04:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1346600/17173956
+resource-gate 2026-10-04T15:05:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1356156/17173956
+resource-gate 2026-10-04T15:06:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1376868/17173956
+resource-gate 2026-10-04T15:07:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1379380/17173956
+resource-gate 2026-10-04T15:08:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1382364/17173956
+resource-gate 2026-10-04T15:09:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1385596/17173956
+resource-gate 2026-10-04T15:10:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1486848/17173956
+resource-gate 2026-10-04T15:11:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1492056/17173956
+resource-gate 2026-10-04T15:12:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1495880/17173956
+resource-gate 2026-10-04T15:13:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1502332/17173956
+resource-gate 2026-10-04T15:14:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1597972/17173956
+resource-gate 2026-10-04T15:15:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1792436/17173956
+resource-gate 2026-10-04T15:16:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1795732/17173956
+resource-gate 2026-10-04T15:17:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1797828/17173956
+resource-gate 2026-10-04T15:18:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1808804/17173956
+resource-gate 2026-10-04T15:19:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1810876/17173956
+resource-gate 2026-10-04T15:20:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1848664/17173956
+resource-gate 2026-10-04T15:21:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1953664/17173956
+resource-gate 2026-10-04T15:22:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1965192/17173956
+resource-gate 2026-10-04T15:23:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1967196/17173956
+resource-gate 2026-10-04T15:24:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1970532/17173956
+resource-gate 2026-10-04T15:25:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1972108/17173956
+resource-gate 2026-10-04T15:26:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1973992/17173956
+resource-gate 2026-10-04T15:27:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2029228/17173956
+resource-gate 2026-10-04T15:28:56Z w4h-5-hold outside-lock disk=107G memAvailable=13GiB swapFreeKiB=2031976/17173956
+resource-gate 2026-10-04T15:29:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2036956/17173956
+resource-gate 2026-10-04T15:30:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2041648/17173956
+resource-gate 2026-10-04T15:31:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2042964/17173956
+resource-gate 2026-10-04T15:32:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2043668/17173956
+resource-gate 2026-10-04T15:33:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2044780/17173956
+resource-gate 2026-10-04T15:34:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2047528/17173956
+resource-gate 2026-10-04T15:35:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2049020/17173956
+resource-gate 2026-10-04T15:36:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2049772/17173956
+resource-gate 2026-10-04T15:37:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2051228/17173956
+resource-gate 2026-10-04T15:38:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2052796/17173956
+resource-gate 2026-10-04T15:39:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2054912/17173956
+resource-gate 2026-10-04T15:40:56Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=2108044/17173956
+gated-flock w4h-5-hold: gate green outside the lock, queue for the lock (try 3) 2026-10-04T15:40:56Z
+gated-flock w4h-5-hold: gate red inside the lock, lock released, re-queue 2026-10-04T15:44:35Z
+resource-gate 2026-10-04T15:46:35Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1712360/17173956
+resource-gate 2026-10-04T15:47:35Z w4h-5-hold outside-lock disk=107G memAvailable=14GiB swapFreeKiB=1714572/17173956
+resource-gate 2026-10-04T15:48:35Z w4h-5-hold outside-lock disk=106G memAvailable=12GiB swapFreeKiB=1942972/17173956
+resource-gate 2026-10-04T15:49:35Z w4h-5-hold outside-lock disk=106G memAvailable=13GiB swapFreeKiB=2303652/17173956
+gated-flock w4h-5-hold: gate green outside the lock, queue for the lock (try 4) 2026-10-04T15:49:35Z
+gated-flock w4h-5-hold: command exit 0 2026-10-04T15:54:47Z

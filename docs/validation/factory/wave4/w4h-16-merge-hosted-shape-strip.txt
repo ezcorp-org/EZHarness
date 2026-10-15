@@ -1,0 +1,3 @@
+stripped 1 record(s) from /tmp/w4h16-hold-repro/src/lcov-cov-shard-3/lcov_shard_3.info
+stripped 1 record(s) from /tmp/w4h16-hold-repro/src/lcov-cov-shard-5/lcov_shard_5.info
+stripped 1 record(s) from /tmp/w4h16-hold-repro/src/lcov-cov-shard-6/lcov_shard_6.info

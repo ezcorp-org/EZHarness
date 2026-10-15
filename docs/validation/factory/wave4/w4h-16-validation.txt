@@ -1,0 +1,100 @@
+ACCEPT wp/w4h-16-hosted-coverage-gaps at f80fcda35
+W4H-16 verdict (hosted per-file coverage for pack.ts, materials.ts, publication.ts, uv-command.ts), validator-8 (lane validator-8), 2026-10-09T16:1xZ
+
+VERDICT: ACCEPT wp/w4h-16-hosted-coverage-gaps at f80fcda35. Every binding leg of the accepted plan and the three ruled checks
+passes. Three surviving mutants are non-blocking findings on lines this package did not change (F1-F3).
+Commits on base 8ea96b0ed (all archy noreply, author and committer): 9c6f3818a test, 3ccde2451 fix, 29ef4d085 test,
+56114dd20 fix, f80fcda35 gate file.
+Owner report sha256 3c0bda2b7fe57e50. Owner report-addendum.txt sha256 1c8c32fceac5674d (team-lead's rulings on conditions 2 and 3).
+Every hold ran on a git-archive snapshot outside the evidence dir, removed after. The owner's files were never touched.
+
+1. Scope and gate files (light hold w4h-16-light/)
+   - Changed paths are only pack.ts, the reference-data tests, uv-command.ts and its test, the three
+     factory-reference-data helpers, the gate file and tasks/todo.md.
+   - Byte-unchanged vs 8ea96b0ed: scripts/coverage-thresholds.json, coverage-config.ts, check-factory-lanes.ts,
+     lib/test-file-sets.sh, combined-runner-legs.json, .github and biome.json.
+   - Identity: 5 of 5 commits. Prune scan clean. Config = the accepted baseline at the start and end of every hold.
+2. Behaviour contract (check 1)
+   - refusal-literals.py on pack.ts, base vs head: 17 ReferenceDataPackError calls with 6 codes on each side.
+     Codes and templates are byte-equal. One interpolated variable is renamed
+     (snapshotAttempt.attempt.report.digest became attempt.report.digest, the same object).
+   - ONE dispose() call site, in withDirectory's finally.
+   - BINDING contract, "workRoot empty after success and after each refusal" (pack-journey.test.ts):
+     - pm1, the finally dispose removed: RED, 8 fail. "the golden input runs all four steps…" and all 7 refusal tests.
+     - pm2, the dispose moved out of the finally: RED, 7 fail, exactly the refusal tests:
+       "…leaves no directory", "…refused by count", "…refused before anything is sealed", "…refused by name",
+       "…not sealed under the old digest", "…{name,digest,encodedBytes} is refused", "…its directory removed".
+     - pm3, double dispose (INFORMATIONAL, as ruled): survives. dispose is an idempotent rm with force.
+3. Red at base
+   - The run's artifacts with W4H-15's unique names (f1b9efe1b) plus browser-route, root rewritten, merged on a base
+     snapshot, then the hosted check-coverage.
+   - It fails exactly the four, equal line for line to the owner's r1-check-coverage.log:
+     materials.ts line 91; pack.ts 50.44%; publication.ts no lcov data; uv-command.ts lines 20-21.
+   - Note: base 8ea96b0ed predates W4H-15. With the base's own names the old collision returns (about 40 files), so
+     both this leg and the green leg use W4H-15's names, as the integrated branch will.
+4. Hosted reach (check 3)
+   - Each suite is coverage_host, not lane-bound, and in exactly one of the 12 shards (lib/test-file-sets.sh at the head):
+     pack-journey shard 5, publication shard 3, uv-command shard 6, pack shard 9, reconcile shard 8, materials shard 4.
+   - All 2025 host files are in exactly one shard. The two new helpers are imported only by hosted suites.
+   - The new suites alone under unshare -rn (no network), with tripwire uv, nix, nix-shell, podman, docker, curl and wget
+     first on PATH: pack-journey 9/0, publication 7/0, pack 12/0. No tripwire was called.
+   - Green at head (heavy hold w4h-16-heavy/, heavy.exit 0). STRIP_SF removed the 3 stale hosted records: pack.ts from
+     shard-5, uv-command.ts from shards 3 and 6. EXTRA_LCOV added this tree's lcov (the 9 suites below).
+     Result: "Coverage gate PASSED: 2234 enforced file(s) at or above threshold", thresholds unchanged.
+     The log is byte-identical to the owner's r3-check-coverage.log (dead8c9…).
+5. Coverage and tests (heavy hold; lock_veto validator-8, gated-flock, GATE_TRIES=1 inside)
+   - 9 suites, each alone with lcov, 94/0: pack 12, reconcile 17, pack-journey 9, publication 7, uv-command 7,
+     materials 16, csv 12, manifest 7, guest 7. None is VOID.
+   - Every R1 line is hit: pack.ts 263/263, materials.ts 145/145, publication.ts 42/42, uv-command.ts 23/23.
+   - new-file vs 8ea96b0ed PASSED (no new source files). patch PASSED (2 files). CRAP: 8 touched functions, none above 30.
+   - Guard set: 40 files, 507 pass, 2 skip, 0 fail.
+6. Real journey, leg (a) (check 2; hold w4h-16-journey/, heavy.exit 0, under the lock 15:49-16:06Z on 2026-10-09)
+   - The literal manifest command `COV_OUT=coverage-shard bash scripts/factory-reference-data-coverage.sh`, on my own
+     pg15 (validator-8-w4h16-pg, 15.19, removed after). Pinned data image
+     localhost/ezcorp-factory-python-data@sha256:f9cc7477… present. The shared S3 store's secrets dir was used by the
+     suite's own objects only. Never the shared proof DB; DATABASE_URL never set.
+   - Results: units 91/0, journey.integration 11/0 (191 s), tests/postgres/factory-reference-data 11/0 (847 s).
+     113 tests, 0 fail.
+   - Its lcov hits pack.ts 263/263, materials.ts 145/145 and publication.ts 42/42 (lcov sha 38971c02b8a33b53).
+7. uv probe fix and G3
+   - G3's red, re-run with a kept log: the head's uv-command.test.ts against base uv-command.ts fails 3 by assertion
+     (w4h-16-light/logs/g3-red-base-probe.log):
+     "falls back to nix-shell and takes the store path it names", "falls back to nix shell when only nix is present",
+     "the default probe runs the Nix tool it found, takes the path it prints, and refuses when the tool fails".
+     Head: 7/0.
+   - Mutants RED: um1 (nix-shell bare name back), um2 (nix bare name back), um3 (probe ignores the exit code),
+     um4 (no trim).
+8. pack.ts mutants RED (each by assertion in the 3 reference-data suites):
+   - pm4 snapshot digest unchecked; pm5 zero partitions allowed; pm6 partition order unchecked;
+   - pm8 seal digest unchecked; pm9 firstRowIndex 0; pm11 materials input name changed (16 fail).
+9. Static checks
+   - Lint: 0 errors. The 2 warnings are scripts/setup-factory-python-base.test.ts:101 (noTemplateCurlyInString) and
+     tests/postgres/helpers/factory-recovery-databases.ts:50 (noCommaOperator). Both files are byte-unchanged since
+     8ea96b0ed and biome.json is unchanged, so both warnings exist at base.
+   - check-boundaries and check-factory-boundaries 0. gitleaks on the changed files 0.
+   - gate-integrity: base leg PASSED; main leg pinned at e3309906d = exactly the 8 (findings-match PASS).
+   - Typecheck (all programs including Python) 0, and svelte-check 620 files 0 errors.
+     tc rule path a: in-lock, MemAvailable 15.7 GiB before, lowest 12.1 GiB, pinned Node v24.14.1.
+
+FINDINGS (non-blocking: each surviving mutant is on a line this package did NOT change; each line exists at base)
+- F1 pm7: removing the digest half of sealProduced's check survives. The tamper test writes a file of a different size,
+  so the size check alone refuses it. A same-size, different-bytes case would pin the digest check.
+- F2 pm10: removing the sealed-summaries count check survives. No test makes the host's own sealed summaries disagree
+  in count. It is a defensive check.
+- F3 um5: accepting any non-empty probe output instead of an absolute path survives. No test makes the probe print a
+  relative path.
+
+DISCLOSURES (validator-8's own process; no effect on any result)
+- Leg (a) waited on the host's swap start margin from 2026-10-08 14:42Z. Tries 1 and 2 gave up (exit 91, 0 lock tries).
+  Try 3 stopped at 15:38Z on 2026-10-09: bunx was missing from /tmp/factory-tools/bun-1.4.2, restored by link at 15:47Z.
+  Try 4 stopped on my own defect: I traced own_pg_start in a subshell, whose EXIT trap removed the container. Try 5 ran
+  green. All tries are kept under validator-8/w4h-16-journey-try*/.
+- The first heavy hold's own-pg start reported "not ready" within 2 s; that start had no trace. The leg moved to its own
+  hold with a traced start.
+- The first red-at-base run used the base's own artifact names, which collide (above). It was re-run with W4H-15's names;
+  both logs are kept.
+Evidence: /tmp/factory-platform-evidence/validator-8/
+- w4h-16-light/ (results.jsonl sha 3fd7ce15fa2d65a8)
+- w4h-16-heavy/ (results.jsonl sha 2ad843735310d61e)
+- w4h-16-journey/ (results.jsonl sha 864f49693e98dc36)
+- hold-w4h-16-light.sh, hold-w4h-16-heavy.sh, hold-w4h-16-journey.sh, refusal-literals.py, lcov-merge-repro.sh

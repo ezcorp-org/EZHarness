@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+
+tests/service-detach.test.ts:
+406 |     await until(() => harness.service.eventStreams().includes("legacy-reverse") || answered > 1);
+407 |     finishReverse();
+408 |     expect(await reverse).toEqual({ resolved: { method: "host/storage" } });
+409 |     release();
+410 |     expect(await forward).toEqual({ resolved: "done" });
+411 |     expect(answered).toBe(1);
+                           ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 6
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w4h-9/packages/@ezcorp/extension-runner/tests/service-detach.test.ts:411:22)
+(fail) the 3ec53eaa RunnerClient answers each reverse call once and keeps its worker [40.83ms]
+
+ 13 pass
+ 1 fail
+ 228 expect() calls
+Ran 14 tests across 1 file. [16.12s]

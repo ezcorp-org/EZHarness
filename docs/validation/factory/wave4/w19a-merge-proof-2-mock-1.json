@@ -1,0 +1,1073 @@
+{
+  "label": "mock-1",
+  "mode": "mock",
+  "control": "none",
+  "startedAt": "2026-09-25T06:13:23.914Z",
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal dev server; the orchestrator's own mutual TLS is unrelaxed",
+    "the runner package installation (bind, trust, prepare) through the product's own classes, because no product route owns it yet (W02)"
+  ],
+  "steps": [
+    {
+      "label": "auth.setup",
+      "status": 201,
+      "body": {
+        "user": {
+          "id": "9021085e-fa37-4283-8a37-64b2e9c29748",
+          "name": "W19a Proof",
+          "email": "w19a-proof@example.invalid",
+          "role": "admin"
+        }
+      }
+    },
+    {
+      "label": "projects.create",
+      "status": 201,
+      "body": {
+        "id": "d039c57d-decb-4999-b733-ac9dd9a17168",
+        "name": "w19a-proof",
+        "path": "/home/dev/.w19a-stack-wTAwxT/project",
+        "icon": null,
+        "variables": {},
+        "createdAt": "2026-09-25T06:13:40.323Z",
+        "updatedAt": "2026-09-25T06:13:40.323Z"
+      }
+    },
+    {
+      "label": "auth.me",
+      "status": 200,
+      "body": {
+        "user": {
+          "id": "9021085e-fa37-4283-8a37-64b2e9c29748",
+          "email": "w19a-proof@example.invalid",
+          "name": "W19a Proof",
+          "role": "admin"
+        },
+        "extensionRunner": "isolated"
+      }
+    },
+    {
+      "label": "factory.draft.create",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "draft.summary",
+        "resource": {
+          "factoryId": "w19a.graph.v1",
+          "revision": 1,
+          "archived": false,
+          "sourceDigest": "4297d7d4311c920e2e1f4a77ae1ee3da47a69853bffd5ff330cbcbd42a00e439",
+          "updatedAtMs": 1790316824702,
+          "availability": "available"
+        }
+      }
+    },
+    {
+      "label": "factory.version.publish",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "version.summary",
+        "resource": {
+          "compiledBlobDigest": "e7e22a70747be56fa2ba5fc64cf3701625d5c8e8c9a54fd1b48f5b773f955e85",
+          "compiledBytes": 6462,
+          "definitionDigest": "sha256:b6884f4da5dee90752859eab9f1dae77330f4159fd85d99f34ed8dc1cf00b84d",
+          "draftRevision": 1,
+          "factoryId": "w19a.graph.v1",
+          "publishedAtMs": 1790316824712,
+          "version": "1.0.0"
+        }
+      }
+    },
+    {
+      "label": "factory.grants.list",
+      "status": 200,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "grant.page",
+        "page": {
+          "items": [
+            {
+              "principalKind": "user",
+              "principalId": "9021085e-fa37-4283-8a37-64b2e9c29748",
+              "action": "factory.author",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "9021085e-fa37-4283-8a37-64b2e9c29748",
+              "action": "factory.operate",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "9021085e-fa37-4283-8a37-64b2e9c29748",
+              "action": "factory.publish",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "9021085e-fa37-4283-8a37-64b2e9c29748",
+              "action": "factory.run",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            },
+            {
+              "principalKind": "user",
+              "principalId": "9021085e-fa37-4283-8a37-64b2e9c29748",
+              "action": "factory.trust",
+              "revision": 1,
+              "expiresAtMs": null,
+              "revoked": false,
+              "displayName": "W19a Proof"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "label": "factory.run.start",
+      "status": 202,
+      "body": {
+        "schemaVersion": "factory.api.response.v1",
+        "kind": "mutation.accepted",
+        "receipt": {
+          "commandId": "factory-command:592fe9b8aff3f7d8aa98bb328285358daa4a86de2240e6535f7db49963428670",
+          "resourceId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+          "statusUrl": "/api/factories/projects/d039c57d-decb-4999-b733-ac9dd9a17168/runs/b97d554a-a185-4a03-9002-30c69f38e77d/commands/factory-command%3A592fe9b8aff3f7d8aa98bb328285358daa4a86de2240e6535f7db49963428670"
+        }
+      }
+    }
+  ],
+  "pin": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a",
+    "configuration": {
+      "temperature": 0,
+      "seed": 42,
+      "reasoningEffort": "none"
+    },
+    "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+    "policy": {
+      "tools": false
+    },
+    "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+  },
+  "installationModelProvider": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a"
+  },
+  "sharedStores": [
+    {
+      "store": "ordinary",
+      "port": 18333,
+      "reachable": true,
+      "detail": "http 403"
+    },
+    {
+      "store": "archive",
+      "port": 18334,
+      "reachable": true,
+      "detail": "http 403"
+    }
+  ],
+  "databases": {
+    "pool": "w19a_pool_1790316804251_ba104f",
+    "product": "w19a_product_1790316804251_ba104f"
+  },
+  "guestBuild": {
+    "guest": {
+      "package": "@ezcorp/w19a-graph-guest",
+      "manifestName": "w19a-graph-guest",
+      "version": "1.0.0",
+      "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+    },
+    "sourceDigest": "8763abc9b388d502ce51ab26bcc3c006a557f0e85ee2c82264185d6a8520ddd7"
+  },
+  "startupDocument": {
+    "runnerProfiles": {
+      "brokerAudience": "factory-gateway",
+      "profiles": [
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "resourceClass": "cpu",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer",
+            "model": "prompt-digest:w19a",
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+          },
+          "resourceClass": "cpu-infer",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": [],
+          "model": {
+            "provider": "ezcorp-mock",
+            "model": "prompt-digest:w19a",
+            "configuration": {
+              "temperature": 0,
+              "seed": 42,
+              "reasoningEffort": "none"
+            },
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+            "policy": {
+              "tools": false
+            },
+            "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+          }
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "resourceClass": "cpu-combine",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        }
+      ]
+    },
+    "modelProvider": {
+      "provider": "ezcorp-mock",
+      "model": "prompt-digest:w19a"
+    },
+    "guestBroker": {
+      "port": 40683,
+      "hosts": {
+        "supervisor-w19a": "host-w19a"
+      }
+    }
+  },
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "orchestration": "ready",
+  "ready": {
+    "method": "GET",
+    "path": "/api/ready",
+    "status": 200,
+    "body": {
+      "state": "ready",
+      "detail": {
+        "factory": {
+          "tenantId": "tenant-01",
+          "running": [
+            "compute-admission-dispatch",
+            "compute-admission-poll",
+            "attempt-dispatch",
+            "run-projection",
+            "notification-inbox-delivery",
+            "child-settlement",
+            "usage-reconciliation",
+            "stop-settlement",
+            "retention-gc",
+            "checkpoint-barrier"
+          ],
+          "held": [
+            {
+              "role": "release-outcome",
+              "workPackage": "W07/W08",
+              "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+            },
+            {
+              "role": "notification-send",
+              "workPackage": "W17",
+              "reason": "a notification is not delivered until a sender confirms it left this host"
+            },
+            {
+              "role": "validator-material-registration",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            },
+            {
+              "role": "validator-scheduling",
+              "workPackage": "W09d",
+              "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+            }
+          ],
+          "providerReadiness": {
+            "schemaVersion": "factory.provider-readiness.v1",
+            "provider": "ezcorp-mock",
+            "model": "prompt-digest:w19a",
+            "ready": true,
+            "credentialKind": "apikey",
+            "failures": [],
+            "checkedAt": "2026-09-25T06:13:37.078Z"
+          },
+          "guestBroker": {
+            "state": "bound"
+          }
+        }
+      },
+      "since": "2026-09-25T06:13:39.138Z"
+    }
+  },
+  "packageInstall": [
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "prepare"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:e57dd9ba5726dcfc592178400d11f3e94e8b62319601a950cb82e0e87d538a4a"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "infer",
+        "model": "prompt-digest:w19a",
+        "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:be14707c525872b8d73325e0cac2e56f66d36b2eea47deff91f5140be8340f59"
+    },
+    {
+      "reference": {
+        "package": "@ezcorp/w19a-graph-guest",
+        "manifestName": "w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+        "export": "combine"
+      },
+      "trustRevision": 1,
+      "receiptDigest": "sha256:3106863626aa1d2df0916552858afc2186361d1671d0e30f3181322c1c1f7c9d"
+    }
+  ],
+  "definition": {
+    "schemaVersion": "factory.v1",
+    "id": "w19a.graph.v1",
+    "version": "1.0.0",
+    "interpreterCompatibility": "factory-kernel.v1",
+    "inputPorts": {
+      "topic": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 512
+      }
+    },
+    "outputPorts": {
+      "summary": {
+        "type": "string"
+      }
+    },
+    "graph": {
+      "nodes": [
+        {
+          "id": "prepare",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "inputPorts": {
+            "topic": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "text": {
+              "type": "string"
+            },
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            }
+          },
+          "bindings": {
+            "topic": {
+              "kind": "ref",
+              "root": "input",
+              "name": "topic"
+            }
+          },
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu"
+          }
+        },
+        {
+          "id": "infer",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "infer",
+            "model": "prompt-digest:w19a",
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+          },
+          "inputPorts": {
+            "text": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "answer": {
+              "type": "string"
+            },
+            "usage": {
+              "type": "object",
+              "properties": {
+                "inputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "outputTokens": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "inputTokens",
+                "outputTokens"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "bindings": {
+            "text": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "text"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-infer"
+          }
+        },
+        {
+          "id": "combine",
+          "kind": "task",
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "combine"
+          },
+          "inputPorts": {
+            "count": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "answer": {
+              "type": "string"
+            }
+          },
+          "outputPorts": {
+            "summary": {
+              "type": "string"
+            }
+          },
+          "bindings": {
+            "count": {
+              "kind": "ref",
+              "root": "node",
+              "name": "prepare",
+              "path": [
+                "count"
+              ]
+            },
+            "answer": {
+              "kind": "ref",
+              "root": "node",
+              "name": "infer",
+              "path": [
+                "answer"
+              ]
+            }
+          },
+          "dependsOn": [
+            "prepare",
+            "infer"
+          ],
+          "retry": {
+            "maxAttempts": 1,
+            "initialDelayMs": 1000,
+            "maximumDelayMs": 2000
+          },
+          "resources": {
+            "resourceClass": "cpu-combine"
+          }
+        }
+      ],
+      "outputs": {
+        "summary": {
+          "kind": "ref",
+          "root": "node",
+          "name": "combine",
+          "path": [
+            "summary"
+          ]
+        }
+      }
+    },
+    "acceptance": {
+      "id": "w19a.graph.v1.contract",
+      "version": "1",
+      "claims": [
+        {
+          "id": "claim",
+          "validator": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+            "export": "prepare"
+          },
+          "required": true,
+          "protected": true
+        }
+      ]
+    },
+    "packages": [
+      {
+        "name": "@ezcorp/w19a-graph-guest",
+        "version": "1.0.0",
+        "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9"
+      }
+    ],
+    "capabilities": [],
+    "effects": [
+      "none"
+    ],
+    "bounds": {
+      "maxExpandedNodes": 10,
+      "maxScopeDepth": 16,
+      "runDeadlineMs": 600000
+    }
+  },
+  "run": {
+    "runId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+    "timeline": [
+      "queued",
+      "running",
+      "succeeded"
+    ],
+    "terminal": "succeeded",
+    "heldBy": null,
+    "resource": {
+      "runId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+      "factoryId": "w19a.graph.v1",
+      "factoryVersion": "1.0.0",
+      "definitionDigest": "sha256:b6884f4da5dee90752859eab9f1dae77330f4159fd85d99f34ed8dc1cf00b84d",
+      "grantRevision": 1,
+      "revision": 1,
+      "status": "succeeded",
+      "createdAtMs": 1790316824733,
+      "updatedAtMs": 1790316836220,
+      "parameters": {
+        "topic": {
+          "kind": "inline",
+          "value": "the primary colours of light"
+        }
+      },
+      "output": {
+        "kind": "inline",
+        "value": {
+          "summary": "5 words in; the model said: prompt-digest answer 95a14d196e84db4a"
+        }
+      }
+    }
+  },
+  "evidence": {
+    "nodes": {
+      "prepare": {
+        "ran": true,
+        "attemptId": "b97d554a-a185-4a03-9002-30c69f38e77d:prepare:dispatch-node:4",
+        "nodeInstanceId": "prepare",
+        "executionStatus": "completed",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "prepare",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "topic": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "output": {
+            "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+            "artifactId": "factory-artifact-7fba96bf-8020-40d6-b032-4bffd4339b02",
+            "encodedBytes": 49
+          },
+          "status": "completed",
+          "operations": [],
+          "resultDigest": "673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:08234448b64d68d677f3067bb4310334cd99318f1a281e82be5e1a5daf790256",
+            "artifactId": "factory-artifact-33dedff8-7fd4-4cda-8a3b-deeac7a27969",
+            "encodedBytes": 613,
+            "journalCursor": -1
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-7fba96bf-8020-40d6-b032-4bffd4339b02",
+          "digest": "sha256:673b856a9ecb76c6f3ca1dd4b4c12659e1e3aecf2350c28a6968ea48758d7eb0",
+          "encodedBytes": 49,
+          "runId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+          "candidateNodeInstanceId": "prepare",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "completionEventOutput": {
+          "count": 5,
+          "text": "the primary colours of light"
+        },
+        "outcomeResult": null,
+        "operations": []
+      },
+      "infer": {
+        "ran": true,
+        "attemptId": "b97d554a-a185-4a03-9002-30c69f38e77d:infer:dispatch-node:7",
+        "nodeInstanceId": "infer",
+        "executionStatus": "completed",
+        "journalCursor": 0,
+        "runner": {
+          "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "infer",
+          "manifestName": "w19a-graph-guest",
+          "model": "prompt-digest:w19a",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": {
+          "configuration": {
+            "reasoningEffort": "none",
+            "seed": 42,
+            "temperature": 0
+          },
+          "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+          "model": "prompt-digest:w19a",
+          "policy": {
+            "tools": false
+          },
+          "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4",
+          "provider": "ezcorp-mock"
+        },
+        "input": {
+          "kind": "inline",
+          "value": {
+            "text": "the primary colours of light"
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 18,
+            "costMicros": "0",
+            "inputTokens": 10,
+            "outputTokens": 3
+          },
+          "output": {
+            "digest": "sha256:80e96c77111777d8bea137a12183fed4d76690f6856355979c58b0eb1ff4a201",
+            "artifactId": "factory-artifact-bcc2e3fe-9af7-4337-aa80-eb351b67da22",
+            "encodedBytes": 94
+          },
+          "status": "completed",
+          "operations": [
+            {
+              "kind": "model",
+              "state": "completed",
+              "usage": {
+                "kind": "measured",
+                "computeMs": 18,
+                "costMicros": "0",
+                "inputTokens": 10,
+                "outputTokens": 3
+              },
+              "operationId": "b97d554a-a185-4a03-9002-30c69f38e77d:infer:0:0",
+              "resultDigest": "3f3e7b6f5a9261bf08425f14bb22c7b0b9a3406715a68bd6a5b22c7b85bb8ae3",
+              "requestDigest": "35fbce206c11541b5e25207f043a7feeccecffe4b60bf008c23d6bd2dbbeea0f",
+              "operationIndex": 0,
+              "workspaceCheckpoint": {
+                "digest": "sha256:fe9d44e9c7b7516072341978b6e1a5c76e984447c15785325197dfa904a1fc5f",
+                "artifactId": "factory-artifact-54caebcb-4f59-4431-9b2c-885f49408e3d",
+                "encodedBytes": 615,
+                "journalCursor": 0
+              },
+              "providerReceiptDigest": "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc"
+            }
+          ],
+          "resultDigest": "80e96c77111777d8bea137a12183fed4d76690f6856355979c58b0eb1ff4a201",
+          "journalCursor": 0,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:fe9d44e9c7b7516072341978b6e1a5c76e984447c15785325197dfa904a1fc5f",
+            "artifactId": "factory-artifact-54caebcb-4f59-4431-9b2c-885f49408e3d",
+            "encodedBytes": 615,
+            "journalCursor": 0
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-bcc2e3fe-9af7-4337-aa80-eb351b67da22",
+          "digest": "sha256:80e96c77111777d8bea137a12183fed4d76690f6856355979c58b0eb1ff4a201",
+          "encodedBytes": 94,
+          "runId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+          "candidateNodeInstanceId": "infer",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "answer": "prompt-digest answer 95a14d196e84db4a",
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 3
+          }
+        },
+        "completionEventOutput": {
+          "answer": "prompt-digest answer 95a14d196e84db4a",
+          "usage": {
+            "inputTokens": 10,
+            "outputTokens": 3
+          }
+        },
+        "outcomeResult": null,
+        "operations": [
+          {
+            "operationId": "b97d554a-a185-4a03-9002-30c69f38e77d:infer:0:0",
+            "operationIndex": 0,
+            "kind": "model",
+            "state": "completed",
+            "requestDigest": "35fbce206c11541b5e25207f043a7feeccecffe4b60bf008c23d6bd2dbbeea0f",
+            "resultDigest": "3f3e7b6f5a9261bf08425f14bb22c7b0b9a3406715a68bd6a5b22c7b85bb8ae3",
+            "providerReceiptDigest": "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc",
+            "usage": {
+              "computeMs": 18,
+              "costMicros": "0",
+              "inputTokens": 10,
+              "kind": "measured",
+              "outputTokens": 3
+            },
+            "result": {
+              "providerReceiptDigest": "7d4585180c76ad4316804dd2d26b9dd8fcd1cb7fc8b9908864cc960518f624cc",
+              "schemaVersion": "factory.guest-model-response.v1",
+              "status": "completed",
+              "text": "prompt-digest answer 95a14d196e84db4a",
+              "usage": {
+                "computeMs": 18,
+                "costMicros": "0",
+                "inputTokens": 10,
+                "kind": "measured",
+                "outputTokens": 3
+              }
+            }
+          }
+        ]
+      },
+      "combine": {
+        "ran": true,
+        "attemptId": "b97d554a-a185-4a03-9002-30c69f38e77d:combine:dispatch-node:10",
+        "nodeInstanceId": "combine",
+        "executionStatus": "completed",
+        "journalCursor": -1,
+        "runner": {
+          "digest": "sha256:bdd384ea2703e67d50eff14a3a1b0dcff650ed1ce2f0c342f1cf2663b7bf7ae9",
+          "export": "combine",
+          "manifestName": "w19a-graph-guest",
+          "package": "@ezcorp/w19a-graph-guest",
+          "version": "1.0.0"
+        },
+        "model": null,
+        "input": {
+          "kind": "inline",
+          "value": {
+            "answer": "prompt-digest answer 95a14d196e84db4a",
+            "count": 5
+          }
+        },
+        "launchState": "terminal",
+        "result": {
+          "usage": {
+            "kind": "measured",
+            "computeMs": 0,
+            "costMicros": "0",
+            "inputTokens": 0,
+            "outputTokens": 0
+          },
+          "output": {
+            "digest": "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+            "artifactId": "factory-artifact-867a212b-4b68-4b66-808f-840d0fcf2638",
+            "encodedBytes": 79
+          },
+          "status": "completed",
+          "operations": [],
+          "resultDigest": "c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+          "journalCursor": -1,
+          "schemaVersion": "factory.runner.result.v1",
+          "workspaceCheckpoint": {
+            "digest": "sha256:39f4f0ffa35a812cc079e0a5e92118a93307247a01a38979d171f7a7019061c7",
+            "artifactId": "factory-artifact-f95ddb5a-2c79-4b15-9a7b-31fb3290b382",
+            "encodedBytes": 614,
+            "journalCursor": -1
+          }
+        },
+        "candidateOutput": {
+          "artifactId": "factory-artifact-867a212b-4b68-4b66-808f-840d0fcf2638",
+          "digest": "sha256:c507140d580994b66672c711c656c71276607c6ee1c766ee4e44103dff3653b5",
+          "encodedBytes": 79,
+          "runId": "b97d554a-a185-4a03-9002-30c69f38e77d",
+          "candidateNodeInstanceId": "combine",
+          "candidateGeneration": 0,
+          "objectName": "result.json"
+        },
+        "stored": {
+          "summary": "5 words in; the model said: prompt-digest answer 95a14d196e84db4a"
+        },
+        "completionEventOutput": {
+          "summary": "5 words in; the model said: prompt-digest answer 95a14d196e84db4a"
+        },
+        "outcomeResult": null,
+        "operations": []
+      }
+    },
+    "queue": [
+      {
+        "attempt_id": "b97d554a-a185-4a03-9002-30c69f38e77d:combine:dispatch-node:10",
+        "state": "delivered",
+        "failure_code": null
+      },
+      {
+        "attempt_id": "b97d554a-a185-4a03-9002-30c69f38e77d:infer:dispatch-node:7",
+        "state": "delivered",
+        "failure_code": null
+      },
+      {
+        "attempt_id": "b97d554a-a185-4a03-9002-30c69f38e77d:prepare:dispatch-node:4",
+        "state": "delivered",
+        "failure_code": null
+      }
+    ],
+    "commands": [
+      "b97d554a-a185-4a03-9002-30c69f38e77d:prepare:request-admission:2",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:prepare:start-timer:3",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:run:start-timer:1",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:prepare:dispatch-node:4",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:infer:request-admission:5",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:infer:start-timer:6",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:infer:dispatch-node:7",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:combine:request-admission:8",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:combine:start-timer:9",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:combine:dispatch-node:10",
+      "b97d554a-a185-4a03-9002-30c69f38e77d:run:complete-run:11"
+    ],
+    "projections": [
+      {
+        "consumer": "factory-run-status.v1",
+        "sequence": 7,
+        "payload": "{\"digest\":\"ce229d2484101df8ddcfd849babb33ad1dbd041017ed988c92231ec3c1f04c77\",\"sourceSequence\":7,\"status\":\"succeeded\"}"
+      }
+    ]
+  },
+  "readiness": {
+    "tenantId": "tenant-01",
+    "running": [
+      "compute-admission-dispatch",
+      "compute-admission-poll",
+      "attempt-dispatch",
+      "run-projection",
+      "notification-inbox-delivery",
+      "child-settlement",
+      "usage-reconciliation",
+      "stop-settlement",
+      "retention-gc",
+      "checkpoint-barrier"
+    ],
+    "held": [
+      {
+        "role": "release-outcome",
+        "workPackage": "W07/W08",
+        "reason": "the startup document declares no release destination, so there is nowhere to publish; declare one under `release.destinations` and `release.profiles` and this process composes the providers, the resolver and the profile set"
+      },
+      {
+        "role": "notification-send",
+        "workPackage": "W17",
+        "reason": "a notification is not delivered until a sender confirms it left this host"
+      },
+      {
+        "role": "validator-material-registration",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      },
+      {
+        "role": "validator-scheduling",
+        "workPackage": "W09d",
+        "reason": "the startup document declares no validator runtime under `validators.runtimes`, so no protected claim can be judged and no acceptance can pass"
+      }
+    ],
+    "providerReadiness": {
+      "schemaVersion": "factory.provider-readiness.v1",
+      "provider": "ezcorp-mock",
+      "model": "prompt-digest:w19a",
+      "ready": true,
+      "credentialKind": "apikey",
+      "failures": [],
+      "checkedAt": "2026-09-25T06:13:37.078Z"
+    },
+    "guestBroker": {
+      "state": "bound"
+    }
+  },
+  "checks": [
+    {
+      "check": "the run projected succeeded",
+      "ok": true
+    },
+    {
+      "check": "every node ran once",
+      "ok": true
+    },
+    {
+      "check": "C.summary equals the value computed from A.count and B.answer, all read from the store",
+      "ok": true
+    },
+    {
+      "check": "C was dispatched with exactly A.count and B.answer",
+      "ok": true
+    },
+    {
+      "check": "B was dispatched with exactly A.text",
+      "ok": true
+    },
+    {
+      "check": "each completion carried the bytes the store holds",
+      "ok": true
+    },
+    {
+      "check": "B's journal shows exactly one model operation, completed",
+      "ok": true
+    },
+    {
+      "check": "B's operation carries measured usage with tokens",
+      "ok": true
+    },
+    {
+      "check": "B ran under the pinned provider and model",
+      "ok": true
+    },
+    {
+      "check": "A and C settled no operation",
+      "ok": true
+    },
+    {
+      "check": "B's staged usage is the journal's usage",
+      "ok": true
+    }
+  ],
+  "outcome": "passed",
+  "finishedAt": "2026-09-25T06:13:56.911Z",
+  "processLogTails": {
+    "pool": "",
+    "supervisor": "",
+    "temporal": "Temporal CLI 1.9.1 (Server 1.32.0, UI 2.54.1)\n\nTemporal Server:      localhost:41465\nTemporal Persistence: /home/dev/.w19a-stack-wTAwxT/temporal.sqlite\nTemporal HTTP:        localhost:45907\nTemporal Metrics:     http://localhost:44245/metrics\n",
+    "temporal-tls": "tls-terminator 33571 -> 41465\n",
+    "gateway-stub": "",
+    "web": "eued\"}\n{\"ts\":\"2026-09-25T06:13:39.882Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"openai-image-gen-2\",\"installationId\":\"93ba9ca5-11ca-42c0-a28f-bcd51d130bf8\",\"operationId\":\"8dd43404-7703-4a8a-a66a-389aa258a38f\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:39.926Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"claude-design\",\"installationId\":\"46b9981a-273a-47e0-a82d-dc7f38428960\",\"operationId\":\"3d721798-4c3a-4fb1-b09c-e25827fc6dd9\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:39.963Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"price-chart\",\"installationId\":\"62aba5a2-7fe0-4a0b-a512-ad2c5d4364ad\",\"operationId\":\"3818b100-d312-4d14-8ab5-3c476d046ae6\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:39.999Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"city-conditions\",\"installationId\":\"60002142-1cd1-468b-ad65-e4963f662643\",\"operationId\":\"fb883041-5623-47d3-99ba-ff3f54db201f\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.032Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"kokoro-tts\",\"installationId\":\"3f53ff8c-3a6e-42e8-a320-124b495adb46\",\"operationId\":\"adc7b448-1017-4ede-8258-a6a63d3593c3\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.063Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"lessons-distiller\",\"installationId\":\"ab782f1b-b483-4084-af2d-da4d57bf3fad\",\"operationId\":\"419e0703-d0af-45d1-a45e-9f7ecc1bfe3e\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.093Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"extension-author\",\"installationId\":\"90ff4c6c-0969-493f-a0a5-cf2ff7027865\",\"operationId\":\"f9cd4f18-5b3c-4c50-8d47-743bd6e0c761\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.127Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"memory-extractor\",\"installationId\":\"3627c60b-a1fa-417d-ab79-cc7ba39b2c42\",\"operationId\":\"20bdaed5-2776-4945-a5b9-acba67b448bd\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.160Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-code\",\"installationId\":\"bf3fe48b-27cf-4fdc-ab38-9016f787e199\",\"operationId\":\"562d910f-928c-46f2-b4c9-bfbf83b11ccf\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.200Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"file-organizer\",\"installationId\":\"2ec94e2e-d284-4e96-a0e7-b45854c03857\",\"operationId\":\"c08ce0c9-2b4f-4614-9d47-721e00d5c30d\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.235Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ping-loop\",\"installationId\":\"b0bd3d5d-7e2d-441d-a9ab-394ffc137afe\",\"operationId\":\"939f8eab-961c-46f0-991b-dba56096232e\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.269Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"github-projects\",\"installationId\":\"3ab35572-c66d-4523-a550-142f77d8f025\",\"operationId\":\"8e92b388-0cb3-4f2e-b843-12af018d9f79\",\"status\":\"queued\"}\n{\"ts\":\"2026-09-25T06:13:40.317Z\",\"level\":\"info\",\"msg\":\"Bundled source staged; verified releases require human approval\",\"subsystem\":\"ext.bundled.bootstrap\",\"name\":\"ez-factory\",\"installationId\":\"3952acdf-45d1-429a-aead-53266ad62993\",\"operationId\":\"b6dd5ff2-c7e3-4575-a24a-816db1a8fa29\",\"status\":\"queued\"}\n",
+    "orchestrator": "2026-09-25T06:13:38.041Z [INFO] asset workflow-bundle-24162560e90a75ad9354.js 2.59 MiB [emitted] [immutable] (name: main)\nruntime modules 883 bytes 4 modules\nmodules by path ./node_modules/.bun/ 463 KiB\n  modules by path ./node_modules/.bun/@temporalio+common@1.23.0/node_modules/@temporal...(truncated) 164 KiB 36 modules\n  modules by path ./node_modules/.bun/@temporalio+workflow@1.23.0/node_modules/@tempor...(truncated) 223 KiB 29 modules\n  modules by path ./node_modules/.bun/nexus-rpc@0.0.3/node_modules/nexus-rpc/lib/ 22.3 KiB 13 modules\n  ./node_modules/.bun/long@5.3.2/node_modules/long/umd/index.js 49.8 KiB [built] [code generated]\n  ./node_modules/.bun/ms@3.0.0-canary.1/node_modules/ms/dist/index.cjs 3.41 KiB [built] [code generated]\nmodules by path ./packages/@ezcorp/ 487 KiB\n  modules by path ./packages/@ezcorp/factory-sdk/dist/ 432 KiB 24 modules\n  modules by path ./packages/@ezcorp/factory-orchestrator/src/ 55.2 KiB\n    ./packages/@ezcorp/factory-orchestrator/src/workflow-autogenerated-...(truncated) 593 bytes [built] [code generated]\n    + 7 modules\noptional modules 30 bytes [optional]\n  __temporal_custom_payload_converter (ignored) 15 bytes [optional] [built] [code generated]\n  __temporal_custom_failure_converter (ignored) 15 bytes [optional] [built] [code generated]\nwebpack 5.111.1 compiled successfully in 362 ms\n2026-09-25T06:13:38.045Z [INFO] Workflow bundle created { size: '2.59MB' }\n2026-09-25T06:13:38.194Z [INFO] Worker state changed {\n  sdkComponent: 'worker',\n  taskQueue: 'factory-orchestrator',\n  state: 'RUNNING'\n}\n2026-09-25T06:13:38.195Z [INFO] No Nexus services registered, not polling for Nexus tasks { sdkComponent: 'worker', taskQueue: 'factory-orchestrator' }\n"
+  }
+}

@@ -1,4 +1,3 @@
-import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import type { InvocationContext } from "@ezcorp/extension-contract";
 import { RunnerError, safeHostError } from "./core";
@@ -73,6 +72,29 @@ export function bindSensitiveRequestContext(base: InvocationContext, timeoutMs: 
   };
 }
 
+/**
+ * Exactly the members `FramedExecution` uses. A `ChildProcessWithoutNullStreams`
+ * satisfies it structurally, so the ordinary subprocess path is unchanged, and a
+ * detached guest can supply a transport whose lifetime is not a host process.
+ */
+export interface FramedStream {
+  on(event: "data", listener: (chunk: Buffer) => void): unknown;
+}
+export interface FramedSink {
+  readonly writableLength: number;
+  write(chunk: string): unknown;
+  on(event: "error", listener: (error: Error) => void): unknown;
+}
+export interface FramedTransport {
+  readonly stdout: FramedStream;
+  readonly stderr: FramedStream;
+  readonly stdin: FramedSink;
+  on(event: "error", listener: (error: Error) => void): unknown;
+  on(event: "close", listener: (code: number | null) => void): unknown;
+  once(event: "close", listener: (code: number | null) => void): unknown;
+  kill(signal?: NodeJS.Signals): unknown;
+}
+
 export class FramedExecution extends SensitiveRunnerExecution {
   private buffer = Buffer.alloc(0);
   private readonly pending = new Map<string, PendingRequest>();
@@ -87,7 +109,7 @@ export class FramedExecution extends SensitiveRunnerExecution {
   private logText = "";
   private sensitiveMode = false;
   readonly exited: Promise<number | null>;
-  constructor(readonly workerId: string, private readonly child: ChildProcessWithoutNullStreams, private readonly reverse: ReverseRpc, private readonly terminate: () => Promise<void>, private readonly frameBytes: number, private readonly timeoutMs: number, private readonly beginRequest?: (method: string, params: unknown) => (() => void), private readonly prepareSensitiveRequest?: (params: unknown) => unknown) {
+  constructor(readonly workerId: string, private readonly child: FramedTransport, private readonly reverse: ReverseRpc, private readonly terminate: () => Promise<void>, private readonly frameBytes: number, private readonly timeoutMs: number, private readonly beginRequest?: (method: string, params: unknown) => (() => void), private readonly prepareSensitiveRequest?: (params: unknown) => unknown) {
     super();
     this.exited = new Promise<number | null>(resolve => child.once("close", resolve)).then(async code => { await this.stop(); return code; });
     child.stdout.on("data", (chunk: Buffer) => this.consume(chunk));

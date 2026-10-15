@@ -1,0 +1,18 @@
+
+Running 12 tests using 1 worker
+
+Skipping host requirements validation logic because `PLAYWRIGHT_SKIP_VALIDATE_HOST_REQUIREMENTS` env variable is set.
+  ✓   1 [chromium] › e2e/factory-services-console.spec.ts:117:1 › an administrator grants itself package trust in the console (1.4s)
+  ✓   2 [chromium] › e2e/factory-services-console.spec.ts:128:1 › the console binds the built guest release and trusts it after reviewing its reach @evidence (7.9s)
+  ✓   3 [chromium] › e2e/factory-services-console.spec.ts:172:1 › the console imports and publishes a definition that runs the guest (797ms)
+  ✓   4 [chromium] › e2e/factory-services-console.spec.ts:184:1 › a save racing a publish leaves one consistent winner; in either fixed order a replayed key answers the same and a reused key is refused (235ms)
+  ✓   5 [chromium] › e2e/factory-services-console.spec.ts:235:1 › a run started from the version list is watched live to a terminal status with its attempts, costs, and evidence @evidence (2.2m)
+  ✓   6 [chromium] › e2e/factory-services-console.spec.ts:352:1 › the scoped API: tickets, download headers, a read-only key, a service credential, and a named share (439ms)
+  ✓   7 [chromium] › e2e/factory-services-console.spec.ts:461:1 › the console quarantines a package under a live attempt, shows what the fence stopped, lifts it, and records a purge request that deletes nothing @evidence (6.6s)
+  ✓   8 [chromium] › e2e/factory-services-console.spec.ts:534:1 › a run waiting on an approval streams live, shows the approval blocker, and a revoked reader's stream closes as revoked @evidence (12.2s)
+  ✓   9 [chromium] › e2e/factory-services-console.spec.ts:613:1 › grant expiry and revocation take effect on the next request, and a download ticket rechecks them (9.3s)
+  ✓  10 [chromium] › e2e/factory-services-console.spec.ts:648:1 › a draft a newer server wrote opens read-only in the console and still exports its exact bytes @evidence (2.9s)
+  ✓  11 [chromium] › e2e/factory-services-console.spec.ts:670:1 › long labels and a large map read cleanly at 1440 and 390 px, in light and dark @evidence (7.7s)
+  ✓  12 [chromium] › e2e/factory-services-console.spec.ts:700:1 › a restore the operator command opened shows its report and blocked check, and no signature reopens a tenant it keeps closed @evidence (7.4s)
+
+  12 passed (3.2m)

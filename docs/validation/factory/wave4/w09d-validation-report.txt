@@ -1,0 +1,83 @@
+W09d validation, round 3 re-check
+=================================
+Head validated: wp/w09d-validators d41f16a1d. The tree is clean, and integ/w00 ceb995563 is merged.
+Round-3 product commit: 106fbb843. Later commits on the branch are integ/w00 merges and docs.
+The round-1 validation is archived in round1/ (round1/report.txt).
+
+VERDICT: ACCEPT
+
+Every round-1 finding is fixed and verified. Every producer is green at the claimed head, and my
+three passes and two controls pass with named projected refusals.
+
+
+1. MY REPRODUCTION (scratch worktrees, both removed afterwards)
+- Head worktree: .worktrees/w09d-val-head at d41f16a1d.
+- Proof worktree: .worktrees/w09d-val-proof, merge commit 0b8b739aa.
+  Parents: d41f16a1d (wp/w09d-validators) and f00605f72 (wp/w01g-staging, the parent the worker used).
+  For the six conflicted files I took the worker's resolution from ceada04f5, then reviewed it: it
+  keeps both sides, and there is one readPrivateText reader. The product tree equals ceada04f5.
+  Only docs/ and tasks/ differ, because integ/w00 is newer.
+  Note: wp/w01g-staging has since moved to b6fee475a with new product commits. Those commits are not
+  proven together with W09d here.
+- Harness: the worker's current repro/ copied again, with evidence paths redirected. The judge now
+  also requires the projected reason to name a factory_ refusal (W09D_REQUIRE_NAMED_REFUSAL=1).
+
+| Producer                                                     | Exit | Counts                      |
+|--------------------------------------------------------------|------|-----------------------------|
+| bun run typecheck                                            | 0    |                             |
+| bun run lint                                                 | 0    |                             |
+| check-factory-boundaries.ts                                  | 0    |                             |
+| gate-integrity.ts                                            | 0    |                             |
+| factory-postgres-suite-registration.test.ts                  | 0    | 5 pass                      |
+| factory-c13-inventory.test.ts (F1)                           | 0    | 13 pass, 0 fail             |
+| orchestrator node --test, Temporal (heavy lock)              | 0    | 86 tests, 86 pass           |
+| PostgreSQL producers, 7 files (heavy lock)                   | 0    | 66, 66, 9, 3, 1, 2, 5 pass  |
+| focused suites with coverage, 21 files (heavy lock)          | 0    | all pass                    |
+| new-file coverage, BASE_REF=integ/w00                        | 0    | PASSED, 4 files             |
+| patch coverage, BASE_REF=integ/w00                           | 0    | PASSED, 17 files, 29 LCOV   |
+| attempt-runtime / supervisor-process / extension-runner / package-preparation Podman suites | 0 | 7 / 3 / 19 / 1 pass |
+| three passes and two controls, judged with PROJECTED_FAILURE=1 and NAMED_REFUSAL=1 | 0 | 5 of 5 pass |
+
+Pass facts, read from the receipts' durable rows:
+- proof-1, proof-2, and proof-3: fresh databases, validator PASS, reservation settled, acceptance
+  applied. Each run ended failed with
+  "FACTORY_COMMAND_FAILED: request-release <cmd>: factory_protected_effect_untrusted".
+- negative-undeclared: named factory_validator_runtime_untrusted at registration. The run projects
+  "request-acceptance <cmd>: factory_validator_material_missing".
+- negative-tampered: named factory_validator_declaration_digest_mismatch at startup, and both roles
+  are held. The run projects "request-acceptance <cmd>: factory_validator_unavailable".
+
+
+2. ROUND-1 FINDINGS, RE-CHECKED
+F1 FIXED. check-factory-boundaries.ts has the validator-declaration.ts to v4/blobs row. The C13
+   inventory test passes 13 of 13.
+F2 FIXED, and it matches freeze section 10. A crashed, timed-out, or uncertain validator is now
+   delivered as node-failed with failureKind "execution" (validator-acceptance.ts, failUnsettled).
+   The kernel's stopFailedAttempt fails a non-physical node in place with the typed reason, kind
+   "execution" (kernel.ts:502-507). So no cancel-node is created for the virtual node, no repair
+   round starts, and acceptance_rejected stays reserved for semantic failures.
+   The Temporal suite tests maxRepairs 0 and 2 and checks for no stops.
+F3 FIXED. advance() visits every schedule on every pass. deliver() waits until every claim is
+   terminal. It then settles each completed claim and marks each failed claim uncertain in one
+   transaction. Unit tests cover two claims, several unsettled claims, and an uncertain claim among
+   them. The lifecycle test shows the envelope refuses factory_budget_pending while the hold is open,
+   then closes after it settles.
+F4 FIXED. factoryCommandFailedEvent (kernel.ts:1503-1516) is the one builder. The workflow takes the
+   activity's cause message. factoryNamedRefusalEffect (private-service-composition.ts) answers a
+   factory_-coded refusal as the same event, with the same id, so either side deduplicates the other.
+   The outcome is unchanged, because any effect failure already failed the run. Errors without a code
+   still throw. My passes project the names.
+F5 FIXED. The gate file now discloses the change to the W06-owned lifecycle suite (w09d-GATES.md:94).
+F6 FIXED. The foreign-tenant and foreign-run refusals are asserted by name:
+   factory_protected_effect_scope and factory_transition_command_not_found.
+F7 FIXED. plain-values.ts holds isPlainRecord and factoryErrorCode. The duplicates are gone from the
+   validator modules and startup-config.ts. plain-values.ts has its own test and a 100 percent
+   coverage key.
+
+
+3. REMAINING NOTES (none block acceptance)
+- factoryNamedRefusalEffect wraps every private effect, not only W09d's. Behavior is unchanged,
+  because a thrown effect already failed the run. Worth a line in the W09 owner's review.
+- The contract approval in the proof still bypasses the public route (W09c), and the lock digest is
+  still read from the database (W14). Both are disclosed as O2 and O3. The release itself still stops
+  at factory_protected_effect_untrusted until W09c lands release profiles.

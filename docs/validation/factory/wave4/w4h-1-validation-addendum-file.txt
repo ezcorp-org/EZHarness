@@ -1,0 +1,24 @@
+ADDENDUM (validator-6, 2026-10-05) — W4H-1 at d341d8690 (base 52d8ba079): ACCEPT, both open items closed; one proof not run locally (legacy-adoption)
+To: verdict-validator-6-w4h1.txt (lock-free ACCEPT, sha256 e266e517d7eb9c9c, the hash W4H-1 merged on: daf2aa776, receipts 36ece5b99).
+
+1. RECOVERY SEED ITEM (side finding 2): closed by W4H-9 — verdict at c49f4b727 f419a60774769a4b (addendum b320bf4063ac6118), R3d closed
+   locally f54bdc118cdab08f; merged 4550c2f66, receipts 2808ff324, amendments da78aab05 and a5c5afebe.
+2. PRODUCTION-IMAGE PROOFS: closed locally. runtime-resources judged read-only from the owner's evidence (no rerun):
+   - exit file /tmp/factory-platform-evidence/w4h-1/rr/exit = 0; run log w4h-1/rr4.log sha256 80b76110339076a1; controller log
+     rr4/runtime-resources/controller.log sha256 2fe708c0df94aa45.
+   - revision: d341d8690f63c7f46ff3fd396854577858c0a071; the image from a clean `git archive` of it (13371 files, 0 dist dirs under
+     packages), localhost/w4h1-img-production:d341d8690f63, id 980b1918be2c… (tag removed after); the runner image
+     docker.io/oven/bun@sha256:9114c058… probed with no git on PATH.
+   - gate and load: load1 3.09 at the gate, 2.88 at the proof start; MemAvailable 15 GiB; swap 3 GiB; proof 00:26:17Z-00:34:06Z, exit 0.
+   - bootstrap: rr4/runtime-resources/runtime/bundled-bootstrap-initial.json (sha256 b204daa5d0f151fe): bootstrapInstallations 28,
+     terminalOperationStates {"verified": 28}; 28 distinct names, every build verified: ai-kit, ask-user, city-conditions,
+     claude-design, code-review-delegator, extension-author, ez-code, ez-factory, file-organizer, file-refactor, github-projects,
+     github-stats, kokoro-tts, lessons-distiller, log-analyzer, markdown-utils, memory-extractor, multi-agent-orchestrator,
+     openai-image-gen-2, orchestration, ping-loop, price-chart, project-analyzer, research-agent, scratchpad, task-tracking,
+     todo-tracker, web-search. ai-kit's build: "verified", no diagnostics. Captured 00:31:31Z, inside the 6-minute bootstrap deadline
+     (00:32:23Z).
+   - delivery (green/, 28/28, ai-kit verified) and runtime (green2/, 28/28) are the owner's results at the code head 2f2d689d7;
+     d341d8690 adds documents and ef7391fc5 (two test type annotations and the matching lock entry), and the run above verifies ai-kit
+     at d341d8690 itself. The earlier starved runtime-resources attempts stay recorded in the gate file.
+3. NOT RUN LOCALLY: legacy-adoption — scripts/verify-legacy-adoption.sh drives docker directly (lines 78-94) and this lane is podman
+   only; it is on the leftover list.

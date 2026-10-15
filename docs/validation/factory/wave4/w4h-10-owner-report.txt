@@ -1,0 +1,15 @@
+W4H-10 main sync, final (2026-10-05). Owner w4h-3. Branch wp/w4h-10-sync, head e6a3a70f2. Gate file tasks/factory/w4h-10-GATES.md.
+Commits (archy noreply, author and committer):
+  7247f7e9a Merge origin/main (beaff68c8) into the wave head (W4H-10 main sync)   parents 1ef82e971 beaff68c8; hook: list-bound skip,
+            printed list byte-equals hook-list-merge.txt (sha256 45ba088481f9e09f, 57), per w00/ruling-hook-skip-w4h-10-merge.txt
+  62cf3c661 fix(factory): Pi 0.87.1 - catalog gpt-6-luna, the C10 pin runs on OAuth only   hook 5 suites, all green
+  e6a3a70f2 docs(factory): W4H-10 gate file   hook 0
+Head form: normal commits after M, so integrator-3 merges the head with a detached merge.
+Conflicts: 9 resolved at the root (gate file, one line each); 2 semantic conflicts fixed in M (route count 66; dependency-security pins).
+57 hook suites: green (55 + the 2 fixed), heavy lock, gated. Pi: the override removed (catalog has gpt-6-luna); C10 OAuth-only via
+  referenceModelPin.credentialKind and one helper resolveCredentialForPin for readiness and the call; red first; 4 mutants all killed;
+  definition digests unchanged. Finding/LEFTOVER: OAuth-plan calls now settle at the catalog's API prices (provider-one-hop.ts:84-93).
+Legs at the head: typecheck all programs 0, lint 0, boundaries 0, frozen installs 0, web build 0, guard 41 files 760/2 skip/0 fail,
+  coverage of this package's lines (patch vs M) PASSED, gate-integrity vs origin/main the eight standing findings, vs 1ef82e971 PASSED,
+  PostgreSQL migrations on a dedicated database 27/0 (dropped), probe offline resolves the pin, prune scan clean.
+Open: the patch and new-file gates vs origin/main need the full-pool LCOV at integration (they fail branch-wide with this package's LCOVs).

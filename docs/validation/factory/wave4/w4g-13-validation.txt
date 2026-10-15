@@ -1,0 +1,33 @@
+VERDICT (validator-6) — W4G-13 at 051bf0947 (wp/w4g-13, owner w4f-3), base 341a6876d: ACCEPT
+
+2 commits, both archy noreply as author and committer: 524133225 (src/__tests__/dev-image-ownership.test.ts only) and 051bf0947
+(tasks/factory/w4g-13-GATES.md). No Dockerfile or other product file changes. Config hash 44962525f1ca1a8b at the start and end of
+both phases. Bun 1.4.2 with the flag.
+
+REVIEW
+  - Cause: the test counted RUN steps that matched `bun install|bun run --cwd`. W4G-1 made Dockerfile.dev run `bun run build:packages`,
+    so the count fell from 3 to 2 and the test failed.
+  - Fix: one matcher for any `bun install` or `bun run` (word-bounded), and the exact expected set by role, in order: root install,
+    web install, package build; each step still after USER 1000. An unknown step is named ("unexpected: <step>") and fails the set.
+
+REPRODUCTION, mine (w4g-validation/repro-w4g13.sh, a git-archive snapshot of each revision, frozen install):
+  - At 341a6876d, RED: dev-image-ownership.test.ts 0 pass, 1 fail.
+  - At 051bf0947, GREEN: 1 pass, 0 fail.
+
+CONTAINER-READING TESTS, mine (w4g-validation/w4g13-container-tests.sh, at 051bf0947, one process per file; the 24 files of
+  w4g-validation/container-reading-tests.txt, sha256 ab094b623a57796f):
+  - 23 PASS, each with a nonzero pass count, 0 fail (src/__tests__/mcp-seccomp-profile.test.ts: 9 pass, 2 skip; its two BPF
+    cases are skipIf(!BPF_PRESENT)).
+  - 1 VOID: src/__tests__/preview-uid-keystone.docker.test.ts, 0 pass, 4 skip. Its describe is skipIf(!DOCKER) and runs only with
+    DOCKER_TEST=1. It is opt-in and ran no test. W4G-13 does not touch it. FINDING for the lead: it is now in the guard set
+    (w00/guard-suites.sh), where the rule on opt-in files says it must be dropped or opted in with its prerequisites.
+
+RERUN RESULTS (hold-v6-w4g13-051bf0947/results.jsonl)
+  Static: frozen installs and builds 0; identity 2/2; receipts 7 scanned, 0 missing; typecheck, lint, both boundary checks 0;
+    gate-integrity: the base leg against 341a6876d is clean, the origin/main leg equals the 8-path set; gitleaks 0.
+  Heavy, under the lock: the reproduction red and green as above; void check 1 file, not VOID; unit leg 1/0; SDK 246/0;
+    guard set (old script, 14 files) 94/0; lcov merge 0; the new-file and patch gates against 341a6876d pass.
+  Guard set with the new script (w00/guard-suites.sh sha256 f678fe26e1bfcf07, 37 files) at 051bf0947: 468 pass, 6 skip, 0 fail.
+    The 6 skips are the keystone file's 4 (VOID, above) and the seccomp profile's 2 BPF cases.
+
+Late: the legs had finished by about 10:35Z; this verdict was written at 12:45Z. The delay was mine.

@@ -1,0 +1,26 @@
+Dependency audit — floor: high | roots: ., web
+  · .: 13 advisory/advisories
+  · web: 6 advisory/advisories
+
+Below the high floor (19) — not blocking:
+  moderate esbuild  GHSA-67mh-4wv8-2f99
+  moderate hono  GHSA-gqvv-2mrq-wpjv
+  moderate hono  GHSA-g6gw-c38x-mqfc
+  moderate hono  GHSA-crvj-82cr-hjcx
+  moderate hono  GHSA-hxh3-vqpv-xpqv
+  moderate ip-address  GHSA-rpw4-54j3-4h4q
+  moderate ip-address  GHSA-2vr4-cq9g-pvrc
+  moderate ip-address  GHSA-j6r3-76f7-8jcv
+  moderate ip-address  GHSA-h3mg-xc3c-68pw
+  moderate qs  GHSA-x5fp-wj9c-mxmx
+  moderate qs  GHSA-4mjr-xmp4-gh2g
+  moderate uuid  GHSA-w5hq-g745-h8pq
+  moderate yaml  GHSA-48c2-rrv3-qjmp
+  moderate fast-uri  GHSA-hrr3-gc8f-f4qj
+  moderate qs  GHSA-x5fp-wj9c-mxmx
+  moderate qs  GHSA-4mjr-xmp4-gh2g
+  moderate qs  GHSA-q8mj-m7cp-5q26
+  low      cookie  GHSA-pxg6-pf52-xh8x
+  low      dompurify  GHSA-p98j-92pf-mc4p
+
+✔ dependency audit clean at the high floor (0 allowlisted, 19 below floor).

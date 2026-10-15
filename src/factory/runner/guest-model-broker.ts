@@ -1,0 +1,233 @@
+import { canonicalJson } from "@ezcorp/extension-contract";
+import { validateFactoryGuestModelRequest, validateFactoryGuestModelResponse, type FactoryGuestModelRefusal, type FactoryGuestModelRequest, type FactoryGuestModelResponse, type FactoryMeasuredUsage, type FactoryModelPin, type FactoryRunnerFailedOperation, type FactoryRunnerRequest } from "@ezcorp/factory-sdk";
+import { FactoryGuestFrameError } from "./guest-frames";
+
+/**
+ * The one reverse-capability seam a factory guest reaches, and the only one.
+ *
+ * Before this there were three shapes for the same thing — the isolated
+ * runtime's `{ invoke }`, the host launch supervisor's bare function, and the
+ * provider broker's `stream` — so the composition could not write an adapter
+ * across them and no guest could request a model call at all. Both host-side
+ * shapes are now this interface; `createFactoryOneHopProvider` adapts the
+ * third onto it.
+ */
+export interface FactoryGuestBroker {
+  invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown>;
+}
+
+/** The guest model contract, served over that one seam. */
+export interface FactoryGuestModelBroker extends FactoryGuestBroker {
+  call(request: FactoryRunnerRequest, payload: unknown): Promise<FactoryGuestModelResponse>;
+}
+
+/** The refusals that name a provider which answered with an error. */
+export type FactoryProviderRefusal = Extract<FactoryGuestModelRefusal, "provider_unavailable" | "provider_auth_failed" | "provider_rate_limited">;
+
+/**
+ * How a claimed call failed.
+ *
+ * `evidence` is present only when the provider itself answered with an error
+ * and reported what that answer consumed: its measured usage (zero before any
+ * token was consumed, the partial amount after) and a digest of that answer.
+ * A failure without it proves nothing about cost, so its operation settles
+ * with no usage and the stop keeps the reservation held.
+ */
+export interface FactoryModelFailure {
+  readonly code: FactoryProviderRefusal;
+  readonly message: string;
+  readonly evidence?: { readonly usage: FactoryMeasuredUsage; readonly providerReceiptDigest: string };
+}
+
+/** A provider that answered with an error, typed. Any other thrown error is `provider_unavailable` with no evidence. */
+export class FactoryModelProviderError extends Error {
+  constructor(readonly failure: FactoryModelFailure) {
+    super(failure.message);
+    this.name = "FactoryModelProviderError";
+  }
+}
+
+/** What a provider double or the real SDK broker must answer in one hop. */
+export interface FactoryModelCompletion {
+  readonly text: string;
+  readonly providerReceiptDigest: string;
+  readonly usage: FactoryMeasuredUsage;
+}
+
+/** The single-hop provider seam. W10's streaming broker is adapted onto this. */
+export interface FactoryOneHopProvider {
+  complete(request: FactoryGuestModelRequest, attempt: FactoryRunnerRequest): Promise<FactoryModelCompletion>;
+}
+
+/**
+ * The outcome of the durable one-winner claim.
+ *
+ * `busy` and `settled` are distinct because the guest is told which: a second
+ * concurrent call may be retried once the first finishes, and a call after the
+ * operation settled never may.
+ */
+export type FactoryGuestModelClaim =
+  | { readonly claimed: true }
+  | { readonly claimed: false; readonly reason: "busy" | "settled" };
+
+/**
+ * The durable half of a model call.
+ *
+ * `claim` runs before any provider effect and is the authority on concurrency:
+ * an in-memory guard cannot refuse a second caller in another process, and the
+ * host supervisor and the product process are two processes. `record` writes
+ * the provider receipt digest and the measured usage against the attempt's own
+ * operation, which is what W03c's usage resolver settles from.
+ */
+export interface FactoryGuestModelJournal {
+  claim(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest): Promise<FactoryGuestModelClaim>;
+  record(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void>;
+  /**
+   * The provider answered but the completed settlement did not land.
+   *
+   * The receipt and the cost are real and must survive, so the operation is
+   * settled `uncertain` carrying both. That is the one state whose provider
+   * receipt digest is mandatory and the only state
+   * `FactoryUsageReconciliation.resolve` will consider, so this is what lets
+   * W03c settle the call later. Dropping the completion here would lose money
+   * the deployment has already spent.
+   */
+  hold(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, completion: FactoryModelCompletion): Promise<void>;
+  /**
+   * Settles a claimed operation that never produced a completion, and returns
+   * the operation exactly as settled, for the guest to copy into its result.
+   */
+  fail(attempt: FactoryRunnerRequest, request: FactoryGuestModelRequest, failure: FactoryModelFailure): Promise<FactoryRunnerFailedOperation>;
+}
+
+export interface FactoryGuestModelBrokerOptions {
+  readonly provider: FactoryOneHopProvider;
+  readonly journal: FactoryGuestModelJournal;
+  /**
+   * Where a reverse payload that is not a guest model request goes. The
+   * validator report frame is one, so collapsing the seam must not strand it.
+   */
+  readonly delegate?: FactoryGuestBroker;
+}
+
+/** A typed refusal. Shared by every answer a guest's model request can get. */
+export function factoryGuestModelRefusal(operationId: string, code: FactoryGuestModelRefusal, message: string, operation?: FactoryRunnerFailedOperation): FactoryGuestModelResponse {
+  return Object.freeze({ schemaVersion: "factory.guest-model-response.v1" as const, status: "refused" as const, operationId, refusal: Object.freeze({ code, message }), ...(operation === undefined ? {} : { operation }) });
+}
+
+/** The operation a payload names, or `unknown` when it names none a refusal could echo. */
+export function factoryGuestModelOperationIdOf(payload: unknown): string {
+  const operationId = (payload as { operationId?: unknown } | null)?.operationId;
+  return typeof operationId === "string" ? operationId : "unknown";
+}
+
+
+/** The pin must match the attempt's own, field for field, or the call is refused. */
+function pinned(attempt: FactoryRunnerRequest, asked: FactoryModelPin): boolean {
+  return attempt.model !== undefined && canonicalJson(attempt.model) === canonicalJson(asked);
+}
+
+/** True for the one payload shape this broker answers itself. */
+export function isFactoryGuestModelPayload(payload: unknown): boolean {
+  return !!payload && typeof payload === "object" && !Array.isArray(payload) && (payload as { schemaVersion?: unknown }).schemaVersion === "factory.guest-model-request.v1";
+}
+
+function reason(error: unknown): string {
+  return error instanceof Error ? error.message.slice(0, 4_096) : "The provider was unavailable.";
+}
+
+/** A typed provider failure as thrown, or `provider_unavailable` with no evidence for anything else. */
+function failureOf(error: unknown): FactoryModelFailure {
+  if (error instanceof FactoryModelProviderError) return { ...error.failure, message: reason(error) };
+  return { code: "provider_unavailable", message: reason(error) };
+}
+
+/**
+ * Builds the broker.
+ *
+ * Every refusal but one happens before the provider is reached, so a refused
+ * call costs nothing and leaves no receipt to settle. A guest asking for a
+ * model other than its pin, sending more than the frame policy allows, calling
+ * twice at once for one operation, or calling after that operation settled all
+ * get a typed refusal rather than a substitution or a silent failure.
+ *
+ * The exception is a call whose cost cannot be recorded. The effect already
+ * happened, so the operation stays dispatched for `reconcileLate` rather than
+ * being marked failed, and the guest is refused rather than handed an answer
+ * whose cost nothing can settle.
+ */
+export function createFactoryGuestModelBroker(options: FactoryGuestModelBrokerOptions): FactoryGuestModelBroker {
+  const call = async (attempt: FactoryRunnerRequest, payload: unknown): Promise<FactoryGuestModelResponse> => {
+    const validation = validateFactoryGuestModelRequest(payload);
+    if (!validation.ok) {
+      const operationId = factoryGuestModelOperationIdOf(payload);
+      const code: FactoryGuestModelRefusal = validation.issues[0]?.code === "GUEST_MODEL_INPUT_BYTES" || validation.issues[0]?.code === "GUEST_MODEL_MESSAGES" ? "input_too_large" : "invalid_request";
+      return factoryGuestModelRefusal(operationId, code, validation.issues[0]?.message ?? "Guest model request is invalid.");
+    }
+    const request = payload as FactoryGuestModelRequest;
+
+    if (!pinned(attempt, request.model)) return factoryGuestModelRefusal(request.operationId, "model_pin_mismatch", "A guest may only call the model its attempt pinned.");
+
+    const claim = await options.journal.claim(attempt, request);
+    if (!claim.claimed) {
+      return claim.reason === "settled"
+        ? factoryGuestModelRefusal(request.operationId, "operation_settled", "That operation already settled and cannot call a model again.")
+        : factoryGuestModelRefusal(request.operationId, "operation_busy", "That operation already has a model call in flight.");
+    }
+
+    let completion: FactoryModelCompletion;
+    try {
+      completion = await options.provider.complete(request, attempt);
+    } catch (error) {
+      const failure = failureOf(error);
+      // The claim is released as a failed settlement so the operation is not
+      // left dispatched forever by a provider that answered with an error. The
+      // settled operation rides on the refusal, because the guest's result must
+      // mirror it exactly. A failed release is reported as the same refusal
+      // with no operation; the operation then stays dispatched and held.
+      const operation = await options.journal.fail(attempt, request, failure).catch(() => undefined);
+      return factoryGuestModelRefusal(request.operationId, failure.code, failure.message, operation);
+    }
+
+    try {
+      // Durable before the guest is told: an unsettleable cost is worse than a
+      // failed call, so the recording is part of answering, not a follow-up.
+      await options.journal.record(attempt, request, completion);
+    } catch (error) {
+      // The provider answered and charged for it. The completion is handed to
+      // `hold` rather than discarded, so the receipt and the measured cost
+      // reach the journal as an uncertain operation and W03c's resolver can
+      // settle them. A failure to hold is named in the refusal rather than
+      // swallowed, because then nothing but `reconcileLate` can recover it.
+      const held = await options.journal.hold(attempt, request, completion).then(() => undefined, (holdError: unknown) => reason(holdError));
+      const message = held === undefined
+        ? `${reason(error)} (the cost was held as uncertain for reconciliation)`
+        : `${reason(error)} (the cost could not be held: ${held})`;
+      return factoryGuestModelRefusal(request.operationId, "provider_unavailable", message);
+    }
+
+    const response = Object.freeze({
+      schemaVersion: "factory.guest-model-response.v1" as const,
+      status: "completed" as const,
+      operationId: request.operationId,
+      text: completion.text,
+      providerReceiptDigest: completion.providerReceiptDigest,
+      usage: completion.usage,
+    });
+    // Checked after the recording, never before: an answer too large for the
+    // frame still cost what it cost. Truncating it here would be a silent
+    // substitution, so the guest is refused and the receipt stays settled.
+    const carried = validateFactoryGuestModelResponse(response);
+    if (!carried.ok) return factoryGuestModelRefusal(request.operationId, "provider_unavailable", carried.issues[0]?.message ?? "The provider answer does not fit the guest frame.");
+    return response;
+  };
+
+  return Object.freeze({
+    call,
+    async invoke(attempt: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
+      if (isFactoryGuestModelPayload(payload)) return call(attempt, payload);
+      if (options.delegate) return options.delegate.invoke(attempt, payload);
+      throw new FactoryGuestFrameError("frame_invalid", "Factory guest reverse payload is not a model request and this broker has no other route.");
+    },
+  });
+}

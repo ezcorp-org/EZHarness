@@ -1,0 +1,692 @@
+W01f INDEPENDENT VALIDATION REPORT
+Package: W01f - extension-runner event-stream attachment leak
+Validator worktree for reruns: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w01f-detach
+Scratch base worktree (created and removed): .worktrees/w00-integration/.worktrees/w01f-validate-base at 850ffaa54
+Evidence directory: /tmp/factory-platform-evidence/w01f-validation/
+Toolchain: bun 1.3.14 (/tmp/factory-tools/bun-1.3.14/bun-linux-x64), node v24.14.1
+
+=========================================================================
+VERDICT: ACCEPT-WITH-FIXES  --  and merge 86dccfdaf, NOT f8c16e590
+=========================================================================
+
+The defect is real, total, and reproduced. The fix is correct, and every claim
+I could test independently held - several of them more strongly than the worker
+stated. Every gate I reran is green. Three items keep this from a clean ACCEPT:
+one new failure mode the fix introduces that the first-party client cannot
+recover from (F1), and two claims in the record that are overstated and should
+be corrected before the report is filed as fact (F2, F3). None of them blocks
+the merge.
+
+READ THIS FIRST. The branch did not hold still. I was given f8c16e590 twice and
+told it was not changing. It moved twice more while I worked, and the second
+move changed PRODUCT SOURCE:
+  f8c16e590  the head I was given
+  13cef16f2  docs only - source byte-identical to f8c16e590
+  e579ddeba  docs only
+  86dccfdaf  test(extension-runner): drop a host only once the service has
+             parked its poll  <-- CHANGES service.ts (+3 lines) and the test file
+See F5 and section 11. My verdict covers 86dccfdaf, which I re-measured in full.
+86dccfdaf fixes a real race that made the detach suite hang at f8c16e590, so it
+is the commit that should merge. Do not merge f8c16e590 on the strength of this
+report.
+
+=========================================================================
+1. TREE STATE, HEAD, DIFF SCOPE
+=========================================================================
+
+git status --porcelain            -> empty (clean)
+Reported head                     -> f8c16e590
+Actual head at validation start   -> 13cef16f2  <-- see F5
+Merge base / integ/w00            -> 850ffaa54 (git rev-list --count HEAD..integ/w00 = 0)
+
+Commits on the branch (git log --oneline integ/w00..HEAD), all present:
+  13cef16f2 docs(factory): state plainly that W01f removed no test, with the inventory proof
+  f8c16e590 docs(factory): re-verify W01f on the integ/w00 merge
+  52bd86ddd Merge branch 'integ/w00' into wp/w01f-detach
+  2e58ac029 docs(factory): record the W01f heavy batches and the flock --close correction
+  10a1170b3 docs(factory): record the W01f detach measurement, the fix, and its gates
+  869ab1542 test(extension-runner): stop the detach cases depending on the host's speed
+  57a43bd54 fix(extension-runner): keep a busy host's attachment while it still owes a reply
+  1fff3badf test(extension-runner): prove every host disconnect releases the attachment
+  47c7937bd fix(extension-runner): release a dropped host attachment on the signal Bun delivers
+
+git diff --name-status integ/w00..HEAD - EXACTLY as claimed, five files:
+  M packages/@ezcorp/extension-runner/src/service.ts        (253 changed)
+  A packages/@ezcorp/extension-runner/tests/service-detach.test.ts (288 added)
+  A tasks/factory/w01f-GATES.md
+  M tasks/lessons.md
+  M tasks/todo.md
+No source file outside the package the worker owns. No gate file
+(scripts/**, biome.json, coverage-thresholds.json) touched:
+  git diff integ/w00..HEAD -- scripts/ biome.json   -> empty
+
+=========================================================================
+2. THE DEFECT, REPRODUCED AT THE MERGE BASE, AND THE FIX AT HEAD
+=========================================================================
+
+My own script, not the worker's:
+  /tmp/factory-platform-evidence/w01f-validation/repro-detach.ts
+It starts the REAL service (startRunnerService, which spawns the REAL python
+peer-gateway.py), drives everything through the PUBLIC unix socket, attaches a
+host per worker, parks a /v4/events poll, drops the client four ways, then
+samples /v4/attach until a replacement is admitted.
+
+Reproduce:
+  cd <base worktree> && bun /tmp/factory-platform-evidence/w01f-validation/repro-detach.ts <base worktree> 40000
+  cd <head worktree> && bun /tmp/factory-platform-evidence/w01f-validation/repro-detach.ts <head worktree> 45000
+Receipts: logs/repro-base.json, logs/repro-head.json
+
+                          BASE 850ffaa54            HEAD 13cef16f2
+  request.abort           held past 40 000 ms       released at 1 ms
+  request.destroy         held past 40 000 ms       released at 1 ms
+  socket.destroy          held past 40 000 ms       released at 2 ms
+  socket.end              held past 40 000 ms       released at 29 225 ms
+
+At the base every replacement /v4/attach was refused for the full 40 s window -
+twice the 20 s long poll, and longer than the 26 s the worker reported. The
+refusal body was identical in both trees:
+  400 {"error":{"code":"unknown_worker","stage":"runner","message":"Worker is unavailable or already attached","retryable":false}}
+At HEAD all four released and all four replacements reattached; a reverse
+notification queued after the release was delivered to the replacement
+(/v4/request 200, then /v4/events 200 with the notification present).
+socket.end at 29 225 ms is inside the 30 000 ms default lease, as designed.
+
+Worth recording: at the base the socket.end poll DID answer 200 at 20 001 ms
+(the long poll expired and the half-closed client could still read it), and the
+attachment still never released. The leak is not only about unanswered polls.
+
+=========================================================================
+3. CLAIM (b), MEASURED INDEPENDENTLY - CONFIRMED, AND STRONGER
+=========================================================================
+
+My own probe, written from scratch:
+  /tmp/factory-platform-evidence/w01f-validation/probe-transport.ts
+Receipt: logs/probe-transport.json. Reproduce:
+  bun /tmp/factory-platform-evidence/w01f-validation/probe-transport.ts
+
+node:http over a UNIX socket, response PARKED, every candidate listener
+registered AFTER the request body is fully drained (the order service.ts uses:
+header check -> auth -> readRequestBody -> dispatch -> park):
+
+  listeners attached: request.aborted/close/error/end/timeout,
+                      response.close/error/finish/timeout,
+                      request.socket.* and response.socket.*,
+                      and the raw socket from server.on("connection")
+  drop forms:         request.abort, request.destroy, socket.end, socket.destroy
+  observation window: 3 000 ms each
+
+  RESULT: "fired": [] for ALL FOUR forms. Not one event. Including zero
+  events on the server "connection" socket.
+
+Writes into the dead connection: five response.write() calls of 64 KiB each,
+327 680 bytes total, ALL returned true, no throw, no error event. This matches
+the worker's "320 KiB of writes return true" exactly.
+
+Bun.serve Request.signal on the same shapes:
+  request.abort     aborted  (my probe dropped at t=100 ms, signal at 100.52 ms -> ~0.5 ms latency)
+  request.destroy   aborted  (100.42 ms -> ~0.4 ms)
+  socket.destroy    aborted  (100.68 ms -> ~0.7 ms)
+  socket.end        NOT aborted within 3 s (fired only when I stopped the server)
+  SIGKILLed host process: aborted 2.2 ms after the kill
+
+So claim (b) is independently true. The worker said "about 10 ms"; I measured
+sub-millisecond. The worker said the signal does not fire for a pure half-close
+where the client stays alive and keeps reading; I confirm that, and it is
+exactly the case the lease exists to bound.
+
+No new listening TCP port. Bun.serve({unix:...}) reports port undefined,
+hostname undefined, url "unix:///...", and `ss -lntp` lists no TCP listener for
+the serving pid.
+
+=========================================================================
+4. PROTOCOL AND SECURITY - 25 OF 30 RAW CAPTURES BYTE-IDENTICAL
+=========================================================================
+
+My own capture harness sends literal HTTP/1.1 bytes through the REAL public
+unix socket (so through the real peer gateway) and records the exact response
+bytes, normalising only the Date header and UUIDs:
+  /tmp/factory-platform-evidence/w01f-validation/wire-diff.ts
+Receipts: logs/wire-base.json, logs/wire-head.json
+
+IDENTICAL at base and HEAD (25 of 30), byte for byte including status line,
+header names, header ORDER, Content-Length and framing:
+  all nine v4 routes (build, start, request, events, attach, reply, cancel,
+  inspect, artifacts), the 404 unknown_method body, the 401 unauthorized body
+  for a missing token, a wrong-length token and a same-length wrong token, the
+  400 invalid_request bodies for GET / wrong content-type / charset suffix /
+  malformed JSON / array body / null body, the 400 unknown_worker and
+  unknown_request bodies, the identifier refusal, a trailing-slash route, a
+  percent-encoded route, HTTP/1.0, and a case-varied AUTHORIZATION header.
+
+Socket posture, measured in both trees and IDENTICAL:
+  public socket  mode 0660, uid 1001, gid 100, is a socket
+  its directory  mode 0700, uid 1001
+  private upstream stays inside an owner-only mkdtemp, chmod 0600 (service.ts:251)
+  peer-gateway.py is NOT in the diff: SO_PEERCRED uid equality, a 32-permit
+  semaphore and a 360 s relay read timeout are all unchanged.
+  The unsafe_socket directory guard (service.ts:98-100) is unchanged.
+  The bearer check still uses timingSafeEqual on a length-checked buffer
+  (service.ts:218-220) and still runs before any route is chosen.
+  attachments() is in-process only; no route returns it (verified by reading
+  the whole dispatch switch, service.ts:186-211).
+
+FIVE deviations - see F3. None widens authority.
+
+Freeze section 6 (host launch, attach, stop) governs the FACTORY launch
+protocol: FactoryHostLaunchProtocol, FactoryAttemptDeviceGrant, invocationId
+derivation, the factory_attempt_launches migration. The diff touches none of
+those files or types. No deviation.
+C01 (tenant and authority): no authority check removed; one made stricter.
+C03 (admission and reservations): governs the pool ledger, not this transport.
+Ownership table: the package changed only surfaces it owns.
+The one exported signature change is additive - startRunnerService's return
+widened from {close(): Promise<void>} to RunnerService (adds attachments()).
+Repo-wide typecheck passes, so no consumer broke.
+
+=========================================================================
+5. THE LEASE, READ IN FULL AND INTERROGATED
+=========================================================================
+
+Mechanism (service.ts:109-123):
+  attachHost()      sets attached = true and arms the lease
+  renewAttachment() no-ops if not attached; else clears and re-arms a
+                    setTimeout(attachmentLeaseMs) whose callback releases only
+                    when session.pending.size === 0, and otherwise RE-ARMS
+  releaseAttachment() clears the lease, sets attached = false, takes
+                    session.wake, nulls it, then calls it
+Renewal points: /v4/events (171), /v4/request (196), /v4/reply (158).
+Re-arm condition: session.pending - the reverse calls the HOST still owes a
+reply to. Each pending entry carries its own timeout of at most 60 s
+(service.ts:137) and deletes itself, so the re-arm cannot loop forever: a truly
+gone host is released one lease after its last outstanding call.
+
+My own scenarios against the REAL service, none of which the worker's suite
+runs: /tmp/factory-platform-evidence/w01f-validation/lease-scenarios.ts
+Receipt: logs/lease-scenarios.json
+
+S1 Declared settings and named refusals - PASS. eventPollTimeoutMs defaults to
+   20 000, range 100 ms to 5 min, refused by the name "event_poll_window".
+   attachmentLeaseMs defaults to 30 000, must STRICTLY exceed the poll window
+   and stay at or under 600 000, refused by the name "attachment_lease".
+   All seven out-of-range probes (equal to poll, shorter than poll, above ten
+   minutes, non-integer, poll below 100 ms, poll above five minutes, poll NaN)
+   were refused by the correct name.
+
+S2 A host polling back to back is NEVER evicted - PASS. 24 consecutive polls at
+   the shipped 1.5x ratio (500 ms poll / 750 ms lease): every poll 200, the
+   attachment never dropped.
+
+S3 A LIVE host inside one long forward /v4/request, with no parked poll -
+   EVICTED. See F1. attachments() went ["w"], ["w"], then empty while the
+   request was still in flight; the request still returned 200 but the host's
+   next /v4/events returned
+   400 {"error":{"code":"unknown_worker",...,"message":"Worker event stream is unavailable or already attached",...}}
+
+S4 An owed reply re-arms - PASS. With a 750 ms lease the attachment survived
+   2 600 ms (more than three lease periods) of host silence while one reverse
+   call was owed; every sample read ["w"]; the reply was accepted 200, the
+   reverse call resolved with its result, and the host's next poll was served.
+   This independently confirms G7.
+
+S5 Once the reply settles, silence releases within ONE lease - PASS. Released
+   at 753 ms under a 750 ms lease.
+
+S6 A NON-holder's request renews the holder's lease - CONFIRMED. See F2.
+
+S7 Lease expiry racing an arriving request - PASS, no race. 60 rounds timed to
+   land on the lease boundary, each firing /v4/events and /v4/attach
+   concurrently: zero anomalies. Never two holders for one worker; never a poll
+   served AND a replacement admitted in the same instant; no double release.
+   This is structurally sound, not luck: the runtime is single-threaded, and
+   parkEventStream's settle() nulls session.wake BEFORE calling
+   releaseAttachment (service.ts:83), so the wake cannot re-enter and a second
+   release is impossible.
+
+=========================================================================
+6. SECTION 8 - JUDGMENT: NOT WEAKENED. NO BEHAVIOUR CLAIM DROPPED.
+=========================================================================
+
+Measured, not taken on trust:
+  cases        1fff3badf: 8   57a43bd54: 9   869ab1542: 9   HEAD: 9
+  expect sites 1fff3badf: 37  57a43bd54: 43  869ab1542: 43  HEAD: 43
+The ninth case ("a host busy with a reverse call is never evicted while it
+still owes a reply") was ADDED by 57a43bd54 together with the product
+correction it guards. All eight original case names survive verbatim at HEAD.
+The timing commit 869ab1542 changed ZERO assertion sites: 43 before, 43 after.
+
+The two assertions whose lease dependence was removed, from the 869ab1542 diff:
+  (a) expect(refused.status).toBe(400) - a second /v4/attach refused while the
+      first host still holds the stream. It was inside the four-form disconnect
+      loop under a 600 ms lease. It MOVED into the case "a dropped connection
+      releases the attachment from the runtime's own signal, never from the
+      lease", which runs with a 300 000 ms lease that cannot fire, and it still
+      asserts the same 400.
+  (b) expect(harness.service.attachments()).toEqual(["worker"]) in the busy-host
+      case, now under a lease that cannot expire during setup. Still present.
+
+Judgment: both assertions still assert the same behaviour. What was removed is
+their dependence on a 600 ms lease outlasting a dozen unix round trips - which
+is a test measuring the host, forbidden by tasks/lessons.md and by CLAUDE.md's
+"never assert on wall clock". The 4x repetition in the loop proved nothing extra:
+the drop had not happened yet at that point, so all four iterations asserted an
+identical fact. The runtime count 95 -> 92 is fully explained (4 - 1 = 3), and my
+own run reads exactly 92 expect() calls at HEAD. This is a REJECT only if a
+behaviour claim was dropped; none was.
+
+The design is still sound after the change: the "release came from the signal,
+not the lease" claim is proven in a case whose lease CANNOT fire, and the
+half-close claim is proven in a case where the lease MUST fire. The two are
+correctly separated.
+
+One fixed sleep exists, at service-detach.test.ts:254,
+`await Bun.sleep(LEASE_MS * 2)`. It is used to advance past two lease periods
+and then assert the attachment SURVIVED. A negative claim of the form "this
+does not happen within N" needs elapsed time; the assertion itself is on
+observed state, not on the clock. Acceptable. The other Bun.sleep (line 108) is
+a 1 ms tick inside an until() helper that awaits an observed condition.
+
+=========================================================================
+7. GATE INTEGRITY AND DRY
+=========================================================================
+
+  .skip / .only / .todo in the new test file        NONE
+  empty catch {} in the new test file               NONE
+  assertions on Date.now() / performance.now()      NONE
+  scripts/** or biome.json changed                  NONE (diff empty)
+  coverage-thresholds.json lowered or EXCLUDES added NONE (file untouched)
+  parallel implementation of the release/lease idea  NONE - grep for
+    releaseAttachment|renewAttachment|attachmentLease outside service.ts finds
+    only the test file
+  REQUIRED_SHARED_IMPORTS / SHARED_REUSE_MODULES     service.ts is not a
+    declared shared-reuse module (the table lists podman.ts, materials.ts,
+    python.ts, dependencies.ts, index.ts); the factory consumes the runner
+    through index.ts, which is unchanged. No row was required and
+    check-factory-boundaries passes.
+  No second queue / approval / blob / audit path introduced.
+
+=========================================================================
+8. RERUN RESULTS (all run by me, in the worker's worktree, at 13cef16f2)
+=========================================================================
+
+Script: /tmp/factory-platform-evidence/w01f-validation/rerun.sh
+Log:    logs/rerun.log
+
+  workspace package builds (all with a build script)   exit 0
+  bun run typecheck                                    exit 0
+  bun run lint                                         exit 0
+  bun scripts/check-factory-boundaries.ts              exit 0
+  bun scripts/gate-integrity.ts                        exit 0
+  16 light runner/contract suites, one process each    16/16 exit 0, 0 fail
+    of which service.test.ts                           5 pass / 0 fail / 23 expect
+    of which service-detach.test.ts                    9 pass / 0 fail / 92 expect
+  git status after the rerun                           still clean
+
+service-detach.test.ts reads 9 cases and 92 assertions, matching claim (d)
+exactly.
+
+COVERAGE of packages/@ezcorp/extension-runner/src/service.ts, computed by me
+from the two focused legs alone (summing DA hits per line across legs):
+  LF = 188, LH = 188, MISSING = 0
+Every line of the release and lease machinery is hit, including
+releaseAttachment, parkEventStream's settle/dropped/timer, renewAttachment's
+re-arm branch, the post-park !attached refusal, and the header-policy check.
+Claim (d) - "service.ts 188 of 188 lines covered" - is confirmed.
+
+HEAVY PRODUCERS AND THE TWO COVERAGE GATES: see section 8b below.
+
+=========================================================================
+9. FINDINGS, RANKED
+=========================================================================
+
+F1 (MEDIUM) - A live host inside one long forward /v4/request is evicted
+mid-work, and the shipped client cannot recover from it.
+  Where: packages/@ezcorp/extension-runner/src/service.ts:122
+    session.lease = setTimeout(() => { if (session.pending.size === 0) releaseAttachment(session); else renewAttachment(session); }, attachmentLeaseMs);
+  session.pending holds only the reverse calls the HOST owes a reply to. A
+  forward /v4/request that the host is waiting on renews the lease once, at
+  service.ts:196, and then nothing renews it for the rest of the call.
+  Measured (S6 in logs/lease-scenarios.json, scenario S3): with a 750 ms lease
+  and a worker method taking 2 500 ms, the attachment was released while the
+  request was still in flight and the host's next /v4/events returned 400
+  unknown_worker.
+  Reproduce: bun /tmp/factory-platform-evidence/w01f-validation/lease-scenarios.ts <head worktree>
+  and read S3_liveHostInsideOneLongRequest.
+  Reachability through the first-party client is LOW but the consequence is
+  severe. packages/@ezcorp/extension-runner/src/client.ts:41-59 runs its poll
+  loop independently of request(), so a poll normally renews every <= 20 s
+  against a 30 s lease. But that margin is only 10 s, on a box CLAUDE.md
+  documents as routinely running six agents; and the loop is sequential, so the
+  window opens whenever the host spends more than the remaining lease between
+  one poll returning and the next starting with no reverse call outstanding.
+  When it does open, client.ts:59 is
+    void poll().catch(() => { closed = true; });
+  so a spurious eviction permanently closes the host session client-side - there
+  is no re-attach - and every later request() throws worker_closed.
+  Suggested fixes, any one of which closes it: re-arm while a forward request is
+  in flight; re-attach in the client on unknown_worker; or widen the default
+  margin (C03 gives its own compute leases a 6x margin - 30 s lease renewed
+  every 5 s - against the 1.5x here; C03 does not bind this package, but the
+  ratio is a useful reference).
+
+F2 (LOW) - "An attachment lease renewed by every request from the holding host"
+is not what the code does, and unrelated traffic can defeat the half-close bound.
+  Where: service.ts:158, 171, 196 all call renewAttachment(session) keyed only
+  on workerId. The service keeps no per-host identity, so ANY authenticated
+  caller naming that worker renews the lease.
+  Measured (S6_nonHolderRenewsLease): the holder attached and then sent nothing
+  at all; a different caller issuing /v4/request every 300 ms kept the
+  attachment alive for 3 000 ms (four lease periods); it released 452 ms after
+  that traffic stopped.
+  Both callers are inside the same trust boundary (shared bearer token, same uid
+  enforced by SO_PEERCRED), so this is not an authority hole. But it means the
+  lease's bound on the half-closed-host case is not unconditional, and the
+  report's wording should say "every request naming that worker" rather than
+  "from the holding host".
+
+F3 (LOW) - "The v4 wire protocol is byte-identical" is overstated. 25 of 30 raw
+captures are byte-identical; five are not.
+  Reproduce: bun wire-diff.ts in each tree, then diff logs/wire-base.json
+  against logs/wire-head.json.
+  (i)   POST /v4/inspect?x=1        base 404 unknown_method -> HEAD 200
+  (ii)  POST /v4/../v4/inspect      base 404 unknown_method -> HEAD 200
+  (iii) POST http://runner/v4/inspect (absolute-form target)
+                                    base 404 unknown_method -> HEAD 200
+        Cause: service.ts:186 switches on new URL(request.url).pathname, which
+        normalises; the base switched on the raw request target. HEAD's
+        behaviour is the conventional HTTP one, but it IS a change.
+  (iv)  headers over 4096 bytes     base "HTTP/1.1 431 Request Header Fields Too
+        Large" with Connection: close and no body (node's parser, before the
+        handler) -> HEAD "HTTP/1.1 400" with
+        {"error":{"code":"request_limit",...,"message":"Runner request headers exceed policy",...}}
+        Cause: service.ts:215-217. The check still runs BEFORE authentication in
+        both trees, so nothing is bypassed; only the status and body changed.
+  (v)   two valid Authorization headers   base 200 -> HEAD 401. Bun's Headers
+        joins duplicates with ", " so the timingSafeEqual comparison fails,
+        where node kept the first. HEAD is STRICTER. This is a hardening.
+  None of the five widens authority: every newly accepted spelling still passes
+  the same bearer check and reaches the same handler with the same validation.
+  The claim should read "byte-identical on every v4 route and every refusal,
+  with five edge-case differences" rather than "byte-identical".
+
+F4 (INFORMATIONAL) - The stated reason for dropping headersTimeout is wrong,
+though nothing regressed.
+  The report credits peer-gateway.py's 360 s relay timeout as the duplicate. It
+  is not: that timeout resets on every read. I measured the actual slow-header
+  bound in both trees - a connection that sends a partial request line and then
+  goes silent:
+    base 850ffaa54  server closed it after 12 002 ms
+    HEAD 13cef16f2  server closed it after 12 003 ms
+  Identical, because Bun's node:http shim never honoured maxHeaderSize's
+  companion headersTimeout: 5000 in the first place. So the control was already
+  inert and removing it changed nothing measurable. maxConnections = 32 IS
+  genuinely duplicated - peer-gateway.py holds asyncio.Semaphore(32) and closes
+  a connection outright when it is locked, and the private socket is reachable
+  only through that gateway. Correct conclusion, wrong reason.
+
+F5 (MEDIUM, PROCESS) - The branch moved three times during validation, and the
+third move changed product source.
+  I was handed f8c16e590 and later told again, in writing, that it "is not
+  changing during your validation". It changed twice more:
+    13cef16f2  20:22 local - docs only. git diff f8c16e590..13cef16f2 --
+               packages/ src/ scripts/ web/  -> empty.
+    e579ddeba  docs only.
+    86dccfdaf  20:34 local - MODIFIES service.ts (+3) and the detach test file.
+  I asked the worker directly to hold the branch and it moved anyway; the last
+  move landed while my heavy batch was queued on the shared lock, so the batch
+  ran at 86dccfdaf while my light legs had been measured at 13cef16f2. That
+  mixed-head merge is what made my pass-1 patch-coverage gate fail (section 8b).
+  I re-measured everything at one head rather than publishing the mixture.
+  The change itself is good (F7, section 11) - this finding is about process,
+  not about the code. A validator cannot certify a moving head, and the
+  coordinator should freeze a branch before dispatching validation.
+  Net effect on this report: none of my conclusions changed, because I redid the
+  work. But the head named in the task is NOT the head I am certifying.
+
+F7 (MEDIUM, ALREADY FIXED BY THE WORKER) - the suite at the head I was given is
+flaky and can HANG.
+  At f8c16e590 / 13cef16f2, tests/service-detach.test.ts opened a poll with
+  openEventStream, which resolves when the request bytes leave the client rather
+  than when the service parks the poll. A drop issued inside that window installs
+  no abort listener, so nothing releases the attachment, and under the 300 000 ms
+  test lease the case has no fallback: it hangs to the 30 s budget and fails.
+  The worker found this themselves after I began, retained the failing output,
+  and fixed the cause at 86dccfdaf by adding an observation-only eventStreams()
+  reader and waiting on it before every drop. Full analysis in section 11.
+  I verified the fix independently: 12 concurrent runs of the file, 12/12 green.
+  This is the reason the merge should take 86dccfdaf rather than f8c16e590.
+
+F6 (INFORMATIONAL) - Section 10's claim that Bun.serve "removes a deviation
+rather than creating one" does not hold as stated.
+  Checked, as instructed: src/extensions/CLAUDE.md contains no runtime rule on
+  node:http or Bun.serve at all (its only nearby line is about SDK scaffolding).
+  packages/@ezcorp/extension-runner has no README. The root CLAUDE.md "## Bun"
+  section says "Default to Bun instead of Node.js" and then lists Bun.serve only
+  under "Don't add replaced deps" - the named targets are express and ws, not
+  node:http. And node:http/node:https remain in production siblings:
+    src/factory/pool/service-server.ts
+    packages/@ezcorp/sdk/src/v4/native-proxy.ts
+    packages/@ezcorp/extension-runner/src/client.ts  (this very package)
+  Nearly every Bun.serve occurrence in the repo is inside a test.
+  So: the change is CONSISTENT with the repo's Bun-first default, but it does
+  not remove a stated deviation, because no rule made node:http a deviation.
+  The justification that actually carries the change is the measurement in
+  section 3 of this report, and that justification is sufficient on its own.
+  The section 10 sentence should be softened.
+
+=========================================================================
+10. WHAT THE WORKER OVERSTATED, AND WHAT IT UNDERSTATED
+=========================================================================
+
+Overstated: "byte-identical" (F3); "renewed by every request from the holding
+host" (F2); headersTimeout being a peer-gateway duplicate (F4); "the
+repository's own CLAUDE.md already requires Bun.serve over node:http" (F6).
+
+Understated: the Request.signal latency. The worker reported ~10 ms; I measured
+0.4-0.7 ms for the three hard drops and 2.2 ms after a SIGKILL. The worker also
+reported the base defect as "still held at ~26 s"; I held the window open to
+40 s and all four were still held.
+
+Section 8 is accurate. The case and assertion-site counts the worker published
+(8 -> 9 cases, 43 assertion sites at three commits, 95 -> 92 explained by
+4 - 1 = 3) all reproduce exactly.
+
+=========================================================================
+11. THE HEAD MOVED AGAIN, MID-VALIDATION, AND IT CHANGED PRODUCT SOURCE
+=========================================================================
+
+While my heavy batch was queued the worker committed e579ddeba (docs) and then
+86dccfdaf, which changes packages/@ezcorp/extension-runner/src/service.ts and
+the detach test file. My heavy batch therefore acquired the lock and ran at
+86dccfdaf, not at the head I had measured the light legs on. I did not paper
+over that: I re-measured every light leg, both coverage gates, the reproduction
+and all eight lease scenarios at 86dccfdaf, so that the numbers below all come
+from ONE head.
+
+What 86dccfdaf actually does, and why it is right (F7):
+  At the head I was asked to validate, the detach suite carried a RACE of its
+  own. tests/service-detach.test.ts:openEventStream resolved when the request
+  bytes left the CLIENT, not when the service received them. A drop issued in
+  that window installed no abort listener, so nothing released the attachment;
+  and because 869ab1542 had correctly made the default test lease unreachable
+  (300 000 ms), there was no fallback and the case HUNG until the 30 s budget
+  expired instead of passing slowly. The worker hit it, kept the failing output
+  (logs/observed-race-arrival.log), and fixed the cause rather than the symptom.
+  The fix adds an observation-only reader to the service:
+    service.ts:20-21  eventStreams(): string[]  (interface)
+    service.ts:272    eventStreams: () => [...sessions].filter(([, s]) => s.wake !== undefined).map(([id]) => id)
+  and routes every drop case through openParkedEventStream(), which waits for
+  the service to report the poll parked before dropping.
+  My assessment: this is additive and correct. eventStreams() is never called by
+  the service itself, no route returns it (I reread the whole dispatch switch),
+  and the wire protocol is untouched - my wire capture at 13cef16f2 therefore
+  still describes 86dccfdaf. It also makes the suite STRONGER: every drop case
+  now genuinely proves the runtime's signal released the attachment, instead of
+  possibly racing past the listener.
+  Verified fixed: twelve concurrent runs of the file, 12/12 exit 0, 9 pass each
+  (logs/p2-detach-concurrency.log). This is the same twelve-way check the worker
+  reported, run independently by me.
+  CONSEQUENCE FOR THE MERGE: the suite at f8c16e590 is flaky and can hang.
+  86dccfdaf is the commit to merge.
+
+=========================================================================
+8b. HEAVY PRODUCERS AND COVERAGE - ALL AT 86dccfdaf
+=========================================================================
+
+Ten heavy producers, ONE `flock --close` acquisition, lock held 00:50:28Z to
+00:53:23Z and released cleanly (logs/heavy.log, script rerun.sh):
+  runner-podman             exit 0   19 pass / 0 fail / 103 expect
+  runner-main               exit 0    1 pass / 0 fail /   4 expect
+  supervisor-podman         exit 0    2 pass / 0 fail /   6 expect
+  package-preparation       exit 0    1 pass / 0 fail /   6 expect
+  runner-channel-identity   exit 0    3 pass / 0 fail /  15 expect
+  runner-provision          exit 0    3 pass / 0 fail /  19 expect
+  runner-binary-assets      exit 0    1 pass / 0 fail /   9 expect
+  runner-browser            exit 0    1 pass / 0 fail /  10 expect
+  runner-native-network     exit 0    1 pass / 0 fail /  42 expect
+  runner-podman-devices     exit 0    6 pass / 0 fail /  18 expect
+  SUMMARY validator_heavy_fail=0
+I waited for the lock rather than touching it. It was held by a live peer
+producer (pid 4086381, w09b, under `flock ... timeout 7200`) with three waiters
+ahead of me; I queued behind them and never signalled a holder.
+
+Pass 2, everything re-measured at 86dccfdaf (logs/rerun2.log, script rerun2.sh):
+  workspace builds                                     exit 0
+  bun run typecheck                                    exit 0
+  bun run lint                                         exit 0
+  bun scripts/check-factory-boundaries.ts              exit 0
+  bun scripts/gate-integrity.ts                        exit 0
+  16 light suites, one process each                    16/16 exit 0, 0 fail
+    service.test.ts                                    5 pass / 23 expect
+    service-detach.test.ts                             9 pass / 92 expect
+  service-detach.test.ts x12 concurrently              12/12 exit 0
+  bun scripts/merge-lcov.ts (26 legs)                  exit 0
+    merged sha256 3e931267ecea5ecededa0170f73a81955710fb0d44e69839651625f0848ce9c7
+  BASE_REF=integ/w00 check-new-file-coverage.ts        exit 0  "no new source files in this diff"
+  BASE_REF=integ/w00 check-patch-coverage.ts           exit 0  "all changed executable lines covered (1 file(s))"
+  packages/@ezcorp/extension-runner/src/service.ts     LH:189 LF:189 MISSING: none
+  git status after both passes                         clean
+
+So service.ts is at 100 percent - 189 of 189 lines with no missing line -
+including every formerly unreachable release line and the lines 86dccfdaf
+added. The worker's "188 of 188" was correct for f8c16e590; the file gained one
+executable line at 86dccfdaf and is still complete.
+
+FIRST-PASS NOTE, kept as evidence rather than discarded: my pass-1 patch
+coverage gate FAILED (exit 1, "service.ts: 2 changed line(s) uncovered: 74,211")
+and the merged LCOV read LH:223 LF:227. That was a MIXED-HEAD artifact of mine,
+not a defect: pass-1 light legs came from 13cef16f2 while the heavy legs ran at
+86dccfdaf, so merge-lcov unioned two different line numberings. Re-measured at
+one head, both gates pass. Receipts for the failed run are kept at
+logs/patch-coverage.log and logs/service-coverage.txt.
+
+Reproduction and lease scenarios re-run at 86dccfdaf, identical conclusions:
+  logs/repro-head2.json      released at 1 / 1 / 2 / 29 208 ms, all four
+                             replacements reattached, all four polls 200
+  logs/lease-scenarios2.json S1 refusals still named attachment_lease and
+                             event_poll_window; S2 back-to-back polling never
+                             evicted; S3 STILL evicts a live host inside one
+                             long forward request (F1 stands); S4 owed reply
+                             re-arms and the reply is accepted; S5 releases at
+                             753 ms under a 750 ms lease; S6 a non-holder still
+                             renews (F2 stands); S7 zero anomalies over 60 races.
+
+=========================================================================
+12. REPRODUCTION COMMANDS FOR EVERYTHING ABOVE
+=========================================================================
+
+  export PATH=/tmp/factory-tools/bun-1.3.14/bun-linux-x64:$PATH
+  V=/tmp/factory-platform-evidence/w01f-validation
+  H=<w01f-detach worktree>   B=<scratch worktree at 850ffaa54>
+
+  bun $V/probe-transport.ts                  # node:http vs Bun.serve, claim (b)
+  cd $B && bun $V/repro-detach.ts $B 40000   # defect at the merge base
+  cd $H && bun $V/repro-detach.ts $H 45000   # released and reattached at HEAD
+  cd $B && bun $V/wire-diff.ts $B            # wire capture, base
+  cd $H && bun $V/wire-diff.ts $H            # wire capture, HEAD  (then diff)
+  cd $H && bun $V/lease-scenarios.ts $H      # the eight lease scenarios
+  bash $V/rerun.sh                           # gates + 10 heavy producers
+  bash $V/rerun2.sh                          # everything again at one head
+
+=========================================================================
+ROUND 2 — VERDICT FOR 35d009a2f: ACCEPT
+=========================================================================
+Head 35d009a2f, clean, current with integ/w00 (behind=0), frozen. W01f-owned
+diff vs integ/w00 is seven files: service.ts, client.ts (new to the package),
+tests/service-detach.test.ts, tests/client-reattach.test.ts (new), and the
+three task documents.
+
+DELTA READ, every hunk. The lease was rebuilt around an ABSOLUTE deadline
+(session.leaseDeadline) plus two suppression counters. armAttachmentLease()
+arms only when attached AND no poll parked AND no owed reply AND inFlight==0,
+and always fires at max(1, leaseDeadline - now). renewAttachment() is the only
+thing that moves the deadline. That is the right shape: deferring can never buy
+silence, because the deadline does not move while the lease is held off.
+
+MY OWN SCENARIOS (logs/round2-scenarios.json, round2-scenarios.ts):
+  N1  holder inside a 3 s forward call under a 750 ms lease: held for all seven
+      samples, request 200, and released 20 ms after the call returned - the
+      deadline was NOT extended. F1 fixed exactly as claimed.
+  N2  dead client mid forward call: released 1 815 ms later, when the call
+      drained.
+  N2b silent host, no poll, one 2 s forward call: released at 2 016 ms, bounded
+      by the call, which is itself bounded by the session timer (<= 60 s).
+  N3  non-holder hammering /v4/request every 150 ms: released at 752 ms under a
+      750 ms lease. F2 fixed (at 86dccfdaf this was held indefinitely).
+  N5  back-to-back polling still never evicted.
+  N6  owed reply still defers, /v4/reply renews, reverse call resolves, next
+      poll 200.
+  N7  60 rounds on the lease boundary: zero anomalies, no double release.
+
+CLIENT RECOVERY BOUND (logs/client-recovery-bound.json), probed against the real
+RunnerClient with a fake service that refuses polls:
+  refuse every poll   -> 4 attaches = 3 recoveries, then the loop gives up
+  refuse attach too   -> 1 recovery; a worker really gone ends the loop at once
+  recover after two   -> counter resets on success, polling continues
+Bounded at exactly three consecutive recoveries, and it does not mask a gone
+worker.
+
+MY OWN CONTROLLED REVERTS, in a scratch worktree, worker tree untouched
+(controlled-reverts.sh, logs/my-controlled-reverts.log):
+  baseline            detach 11 pass, reattach 2 pass
+  A client recovery removed        -> both client cases FAIL (30 s timeouts)
+  B forward deferral removed       -> "never evicted while that call runs" FAILS
+  C renewal restored to /v4/request-> "a caller that does not hold the stream
+                                      cannot renew" FAILS
+  restored            sha256 byte-identical, tree clean, 11 pass + 2 pass
+Each new case genuinely pins its fix.
+
+WIRE SURFACE unchanged from the previous head: 25 of 30 raw captures identical,
+the same five deviations and no others, socket still 0660 uid 1001 gid 100 in a
+0700 directory (logs/wire-35d009a2f.json vs logs/wire-base.json). The gate file
+now tabulates those five with their causes.
+
+RECORD CORRECTIONS all landed: byte-identical dropped and the five differences
+tabulated; renewing and deferring described separately and accurately against
+the code; the headersTimeout reason corrected to the measured one; the CLAUDE.md
+claim cut back.
+
+RERUNS AT 35d009a2f: builds, typecheck, lint, check-factory-boundaries,
+gate-integrity all exit 0; 17 light suites 0 fail (service-detach 11 pass /
+216 expect, client-reattach 2 pass / 6 expect); service-detach x12 concurrently
+12/12 green; ten heavy producers in ONE flock --close acquisition, all exit 0,
+lock held 16:19:28Z-16:22:03Z and released; 27 legs merged (sha256
+85b143abd151218cafe987a56aeb43f997d2f9a18fdf2341f54099863ea4e246); both
+coverage gates exit 0 with BASE_REF=integ/w00; service.ts 197/197 and client.ts
+66/66, no missing line. Tree clean before and after.
+
+MY OWN ERROR, recorded: my first round-2 script had a path bug that made all ten
+heavy producers exit 1 without running (the coverage directory was never
+created). No stale legs entered any merge - I checked - and I reran them clean
+in heavy3.sh. Receipts for the failed attempt are kept at logs/p3-heavy.log.
+
+ONE RESIDUAL, informational, not a blocker (N4): armAttachmentLease only arms
+when inFlight reaches 0, so a caller keeping two forward calls permanently
+overlapping holds the lease off indefinitely. Measured: no release during 4 s of
+overlapping pumps, then release 21 ms after they stopped. It can only DEFER,
+never renew, so the deadline is already in the past and release is immediate
+once the overlap breaks; and it needs sustained traffic from an authenticated
+same-uid peer. The gate file's "waiting one out never buys a host extra silence"
+is true per drain but not across always-overlapping calls. Worth a sentence in
+the record; nothing to change.
+
+All three findings are fixed, each pinned by a case I turned red myself. ACCEPT.

@@ -1,0 +1,271 @@
+import { createGatewayTransport, GatewayStatusError, type GatewayResponse, type GatewayTransport, type GatewayTransportOptions } from "@ezcorp/factory-transport";
+import { parsePoolDeviceProfile, POOL_LEASE_STATES, POOL_QUEUE_FULL_HTTP_STATUS, POOL_QUEUE_FULL_REASON, POOL_RESOURCE_CLASSES, type PoolDecision, type PoolLease, type PoolLeaseState, type PoolLeaseStatus, type PoolResourceClass, type PoolResourceVector } from "./ledger";
+import type { PoolCheckpointPage, PoolCheckpointSlot } from "./checkpoint";
+import type { PoolAdmissionRequest, PoolLeaseFenceInput, PoolStopInput } from "./service";
+import { parseWireJson, POOL_HTTP_BYTES_LIMIT, wireCounter, wireExact, wireIsoDate, wireRecord, wireResources, wireText } from "./wire";
+
+const leaseStates = new Set<PoolLeaseState>(POOL_LEASE_STATES);
+const decisionStates = new Set<PoolDecision["status"]>(["queued", "rejected", "admitted", "cancelled"]);
+
+export interface PoolAdmissionClient {
+  request(input: PoolAdmissionRequest, signal?: AbortSignal): Promise<PoolDecision>;
+  status(reservationId: string, signal?: AbortSignal): Promise<PoolLeaseStatus | undefined>;
+  acknowledgeStart(input: PoolLeaseFenceInput, signal?: AbortSignal): Promise<PoolLease>;
+  renew(input: PoolLeaseFenceInput, signal?: AbortSignal): Promise<PoolLease>;
+  cancel(reservationId: string, allocationGeneration: number, signal?: AbortSignal): Promise<PoolLeaseStatus>;
+  /**
+   * The tenant's fenced confirmation that a supervisor's stop has settled.
+   *
+   * This is what `FactoryPoolStopAcknowledger` requires before a stop may
+   * release a product hold. It returns capacity to nobody: only the
+   * supervisor's own route mutates the ledger, and this call fails closed
+   * until that has happened, because C03 does not let a tenant's word free a
+   * holder's capacity.
+   */
+  confirmStopped(input: PoolStopInput, signal?: AbortSignal): Promise<PoolLeaseStatus>;
+}
+
+/**
+ * C06's two pool calls, kept off `PoolAdmissionClient` so admission's callers
+ * and fakes are untouched. Same tenant-scoped transport and wire rules.
+ */
+export interface PoolCheckpointClient {
+  /** One page of this tenant's live reservations, for a checkpoint barrier. */
+  checkpoint(after: string | null, signal?: AbortSignal): Promise<PoolCheckpointPage>;
+  /** A cluster-wide barrier slot, or null when every slot is held by another tenant. */
+  acquireCheckpointSlot(signal?: AbortSignal): Promise<PoolCheckpointSlot | null>;
+  /** Frees the slot `acquireCheckpointSlot` returned. */
+  releaseCheckpointSlot(token: string, signal?: AbortSignal): Promise<boolean>;
+  /** Re-create lost live reservations as `uncertain`. Needs the tenant's restore scope. */
+  restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal): Promise<{ readonly present: readonly string[]; readonly imported: readonly string[]; readonly overcommitted: readonly string[] }>;
+}
+
+function textList(value: unknown, label: string): readonly string[] {
+  if (!Array.isArray(value)) throw new Error(`Pool admission returned invalid ${label}.`);
+  return value.map(item => wireText(item, label));
+}
+
+export interface PoolAdmissionClientOptions extends GatewayTransportOptions { readonly tenantId: string }
+
+function json(response: GatewayResponse, label: string): unknown {
+  try { return parseWireJson(response.body, label); }
+  catch { throw new Error(`Pool admission returned invalid ${label}.`); }
+}
+
+function optionalText(value: unknown, label: string): string | undefined { return value === undefined ? undefined : wireText(value, label); }
+
+function sameResources(left: PoolResourceVector, right: PoolResourceVector): boolean {
+  return POOL_RESOURCE_CLASSES.every(resourceClass => left[resourceClass] === right[resourceClass]);
+}
+
+function lease(value: unknown): PoolLease {
+  const input = wireRecord(value, "lease");
+  wireExact(input, ["reservationId", "tenantId", "grantRevision", "allocationGeneration", "holderGeneration", "allocationToken", "fence", "deadlineAt", "resources", "hostId", "deviceProfile"], "lease");
+  return {
+    reservationId: wireText(input.reservationId, "lease reservation id"),
+    tenantId: wireText(input.tenantId, "lease tenant id"),
+    grantRevision: wireCounter(input.grantRevision, "lease grant revision", 1),
+    allocationGeneration: wireCounter(input.allocationGeneration, "lease allocation generation", 1),
+    holderGeneration: wireCounter(input.holderGeneration, "lease holder generation", 1),
+    allocationToken: wireText(input.allocationToken, "lease allocation token"),
+    fence: wireText(input.fence, "lease fence"),
+    deadlineAt: wireIsoDate(input.deadlineAt, "lease deadline"),
+    resources: wireResources(input.resources),
+    ...(input.hostId === undefined ? {} : { hostId: wireText(input.hostId, "lease host id") }),
+    ...(input.deviceProfile === undefined ? {} : { deviceProfile: parsePoolDeviceProfile(input.deviceProfile, input.hostId as string | undefined) }),
+  };
+}
+
+function status(value: unknown): PoolLeaseStatus {
+  const input = wireRecord(value, "lease status");
+  wireExact(input, ["reservationId", "tenantId", "state", "allocationGeneration", "holderGeneration", "effects", "resources", "hostId", "reason"], "lease status");
+  if (typeof input.state !== "string" || !leaseStates.has(input.state as PoolLeaseState)) throw new Error("Pool lease status state is malformed.");
+  return {
+    reservationId: wireText(input.reservationId, "status reservation id"),
+    tenantId: wireText(input.tenantId, "status tenant id"),
+    state: input.state as PoolLeaseState,
+    allocationGeneration: wireCounter(input.allocationGeneration, "status allocation generation", 1),
+    holderGeneration: wireCounter(input.holderGeneration, "status holder generation"),
+    effects: wireCounter(input.effects, "status effects"),
+    resources: wireResources(input.resources),
+    ...(input.hostId === undefined ? {} : { hostId: wireText(input.hostId, "status host id") }),
+    ...(input.reason === undefined ? {} : { reason: wireText(input.reason, "status reason") }),
+  };
+}
+
+/** Decode the exact pool decision shape from a durable or HTTP boundary. */
+export function parsePoolDecision(value: unknown): PoolDecision {
+  const input = wireRecord(value, "admission decision");
+  if (typeof input.status !== "string" || !decisionStates.has(input.status as PoolDecision["status"])) throw new Error("Pool admission decision status is malformed.");
+  const state = input.status as PoolDecision["status"];
+  wireExact(input, state === "admitted" ? ["status", "reservationId", "lease"] : ["status", "reservationId", "reason", "retryAfterSeconds", "queueAgeMs", "blockingResource"], "admission decision");
+  const reservationId = wireText(input.reservationId, "decision reservation id");
+  if (state === "admitted") return { status: state, reservationId, lease: lease(input.lease) };
+  const blocking = optionalText(input.blockingResource, "blocking resource");
+  if (blocking !== undefined && !(POOL_RESOURCE_CLASSES as readonly string[]).includes(blocking)) throw new Error("Pool blocking resource is malformed.");
+  return {
+    status: state,
+    reservationId,
+    ...(input.reason === undefined ? {} : { reason: wireText(input.reason, "decision reason") }),
+    ...(input.retryAfterSeconds === undefined ? {} : { retryAfterSeconds: wireCounter(input.retryAfterSeconds, "retry interval", 1) }),
+    ...(input.queueAgeMs === undefined ? {} : { queueAgeMs: wireCounter(input.queueAgeMs, "queue age") }),
+    ...(blocking === undefined ? {} : { blockingResource: blocking as PoolResourceClass }),
+  };
+}
+
+function snapshotRequest(value: PoolAdmissionRequest): PoolAdmissionRequest {
+  const input = wireRecord(value, "admission request");
+  wireExact(input, ["reservationId", "grantRevision", "grantScope", "resources", "admissionDeadline", "priority", "readySequence", "nodeId"], "admission request");
+  return {
+    reservationId: wireText(input.reservationId, "reservation id"),
+    grantRevision: wireCounter(input.grantRevision, "grant revision", 1),
+    grantScope: wireText(input.grantScope, "grant scope"),
+    resources: wireResources(input.resources),
+    admissionDeadline: wireIsoDate(input.admissionDeadline, "admission deadline").toISOString(),
+    ...(input.priority === undefined ? {} : { priority: wireCounter(input.priority, "priority") }),
+    ...(input.readySequence === undefined ? {} : { readySequence: wireCounter(input.readySequence, "ready sequence") }),
+    ...(input.nodeId === undefined ? {} : { nodeId: wireText(input.nodeId, "node id") }),
+  };
+}
+
+function snapshotFence(value: PoolLeaseFenceInput): PoolLeaseFenceInput {
+  const input = wireRecord(value, "lease fence");
+  wireExact(input, ["reservationId", "grantRevision", "allocationGeneration", "allocationToken"], "lease fence");
+  return { reservationId: wireText(input.reservationId, "reservation id"), grantRevision: wireCounter(input.grantRevision, "grant revision", 1), allocationGeneration: wireCounter(input.allocationGeneration, "allocation generation", 1), allocationToken: wireText(input.allocationToken, "allocation token") };
+}
+
+function assertLeaseBinding(value: PoolLease, tenantId: string, expected: Pick<PoolLeaseFenceInput, "reservationId" | "grantRevision"> & Partial<Pick<PoolLeaseFenceInput, "allocationGeneration">>, resources?: PoolResourceVector): void {
+  if (value.tenantId !== tenantId || value.reservationId !== expected.reservationId || value.grantRevision !== expected.grantRevision || expected.allocationGeneration !== undefined && value.allocationGeneration !== expected.allocationGeneration || resources !== undefined && !sameResources(value.resources, resources)) throw new Error("Pool admission returned a mismatched lease.");
+}
+
+function assertStatusBinding(value: PoolLeaseStatus, tenantId: string, reservationId: string): void {
+  if (value.tenantId !== tenantId || value.reservationId !== reservationId) throw new Error("Pool admission returned a mismatched status.");
+}
+
+async function requestJson(transport: GatewayTransport, method: "GET" | "POST", path: string, body: unknown, signal?: AbortSignal): Promise<GatewayResponse> {
+  return transport.request(method, path, body, POOL_HTTP_BYTES_LIMIT, signal);
+}
+
+/**
+ * C03 answers a full admission queue with HTTP 429 carrying the decision. The
+ * shared transport still fails closed on every other non-2xx status.
+ */
+async function admissionJson(transport: GatewayTransport, body: unknown, signal?: AbortSignal): Promise<GatewayResponse> {
+  try { return await requestJson(transport, "POST", "/v1/pool/requests", body, signal); }
+  catch (error) {
+    if (error instanceof GatewayStatusError && error.response.statusCode === POOL_QUEUE_FULL_HTTP_STATUS) return error.response;
+    throw error;
+  }
+}
+
+/**
+ * `Retry-After` in delta-seconds. The HTTP-date form carries no bounded
+ * interval for a caller that holds no clock agreement, so it is ignored and the
+ * decision body's own retry interval stays in force.
+ */
+function retryAfterHeader(response: GatewayResponse): number | undefined {
+  const raw = response.headers["retry-after"];
+  const value = typeof raw === "string" ? raw.trim() : "";
+  return /^[0-9]{1,6}$/.test(value) && Number(value) >= 1 ? Number(value) : undefined;
+}
+
+/** Tenant-scoped C03 client. Every mutation makes one bounded transport call. */
+export async function createPoolAdmissionClient(options: PoolAdmissionClientOptions): Promise<PoolAdmissionClient> {
+  const tenantId = wireText(options.tenantId, "client tenant id");
+  const transport = await createGatewayTransport(options);
+  const path = (reservationId: string) => `/v1/pool/requests/${encodeURIComponent(reservationId)}`;
+  const client: PoolAdmissionClient = {
+    async request(value: PoolAdmissionRequest, signal?: AbortSignal) {
+      const input = snapshotRequest(value);
+      const response = await admissionJson(transport, input, signal);
+      const result = parsePoolDecision(json(response, "admission decision"));
+      if (result.reservationId !== input.reservationId) throw new Error("Pool admission returned a mismatched reservation.");
+      if (response.statusCode === POOL_QUEUE_FULL_HTTP_STATUS) {
+        if (result.status !== "rejected" || result.reason !== POOL_QUEUE_FULL_REASON) throw new Error("Pool admission returned an unexpected queue-full decision.");
+        const seconds = retryAfterHeader(response);
+        return seconds === undefined ? result : { ...result, retryAfterSeconds: seconds };
+      }
+      if (result.status === "admitted") assertLeaseBinding(result.lease!, tenantId, input, input.resources);
+      return result;
+    },
+    async status(value: string, signal?: AbortSignal) {
+      const reservationId = wireText(value, "reservation id");
+      const response = await requestJson(transport, "GET", path(reservationId), undefined, signal);
+      if (response.statusCode === 204) {
+        if (response.body.byteLength !== 0) throw new Error("Pool admission returned an invalid empty status.");
+        return undefined;
+      }
+      const result = status(json(response, "lease status"));
+      assertStatusBinding(result, tenantId, reservationId);
+      return result;
+    },
+    async acknowledgeStart(value: PoolLeaseFenceInput, signal?: AbortSignal) {
+      const input = snapshotFence(value);
+      const result = lease(json(await requestJson(transport, "POST", `${path(input.reservationId)}/acknowledge-start`, { grantRevision: input.grantRevision, allocationGeneration: input.allocationGeneration, allocationToken: input.allocationToken }, signal), "lease"));
+      assertLeaseBinding(result, tenantId, input);
+      return result;
+    },
+    async renew(value: PoolLeaseFenceInput, signal?: AbortSignal) {
+      const input = snapshotFence(value);
+      const result = lease(json(await requestJson(transport, "POST", `${path(input.reservationId)}/renew`, { grantRevision: input.grantRevision, allocationGeneration: input.allocationGeneration, allocationToken: input.allocationToken }, signal), "lease"));
+      assertLeaseBinding(result, tenantId, input);
+      return result;
+    },
+    async confirmStopped(value: PoolStopInput, signal?: AbortSignal) {
+      const reservationId = wireText(value.reservationId, "reservation id");
+      const holderGeneration = wireCounter(value.holderGeneration, "holder generation", 1);
+      const hostId = wireText(value.hostId, "host id");
+      const result = status(json(await requestJson(transport, "POST", `${path(reservationId)}/confirm-stopped`, { holderGeneration, hostId }, signal), "lease status"));
+      assertStatusBinding(result, tenantId, reservationId);
+      // The answer must name the same holder and host the caller fenced, or it
+      // is about some other allocation and proves nothing about this stop.
+      if (result.holderGeneration !== holderGeneration || (result.hostId !== undefined && result.hostId !== hostId) || result.state !== "settled") throw new Error("Pool admission returned a mismatched stop acknowledgement.");
+      return result;
+    },
+    async cancel(value: string, generation: number, signal?: AbortSignal) {
+      const reservationId = wireText(value, "reservation id");
+      const allocationGeneration = wireCounter(generation, "allocation generation", 1);
+      const result = status(json(await requestJson(transport, "POST", `${path(reservationId)}/cancel`, { allocationGeneration }, signal), "lease status"));
+      assertStatusBinding(result, tenantId, reservationId);
+      if (result.allocationGeneration < allocationGeneration) throw new Error("Pool admission returned a stale cancellation status.");
+      return result;
+    },
+  };
+  return Object.freeze(client);
+}
+
+/** The tenant-scoped C06 checkpoint client, over its own mutual-TLS transport. */
+export async function createPoolCheckpointClient(options: PoolAdmissionClientOptions): Promise<PoolCheckpointClient> {
+  const tenantId = wireText(options.tenantId, "client tenant id");
+  const transport = await createGatewayTransport(options);
+  const client: PoolCheckpointClient = {
+    async checkpoint(after: string | null, signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint", { after: after === null ? null : wireText(after, "checkpoint cursor") }, signal), "checkpoint page"), "checkpoint page");
+      wireExact(input, ["position", "rows", "next"], "checkpoint page");
+      if (!Array.isArray(input.rows)) throw new Error("Pool admission returned invalid checkpoint rows.");
+      const rows = input.rows.map(row => wireRecord(row, "checkpoint row"));
+      if (rows.some(row => row.tenant_id !== tenantId)) throw new Error("Pool admission returned another tenant's checkpoint row.");
+      return { position: wireText(input.position, "checkpoint position"), rows, next: input.next === null ? null : wireText(input.next, "checkpoint cursor") };
+    },
+    async acquireCheckpointSlot(signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint-slot", {}, signal), "checkpoint slot"), "checkpoint slot");
+      wireExact(input, ["slot"], "checkpoint slot");
+      if (input.slot === null) return null;
+      const slot = wireRecord(input.slot, "checkpoint slot");
+      wireExact(slot, ["slot", "token", "expiresAt"], "checkpoint slot");
+      return { slot: wireCounter(slot.slot, "checkpoint slot", 0), token: wireText(slot.token, "checkpoint slot token"), expiresAt: wireIsoDate(slot.expiresAt, "checkpoint slot expiry").toISOString() };
+    },
+    async releaseCheckpointSlot(token: string, signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/checkpoint-slot/release", { token: wireText(token, "checkpoint slot token") }, signal), "checkpoint slot release"), "checkpoint slot release");
+      wireExact(input, ["released"], "checkpoint slot release");
+      if (typeof input.released !== "boolean") throw new Error("Pool admission returned an invalid checkpoint slot release.");
+      return input.released;
+    },
+    async restoreImport(rows: readonly Record<string, unknown>[], signal?: AbortSignal) {
+      const input = wireRecord(json(await requestJson(transport, "POST", "/v1/pool/restore-import", { rows }, signal), "restore import"), "restore import");
+      wireExact(input, ["present", "imported", "overcommitted"], "restore import");
+      return { present: textList(input.present, "present reservations"), imported: textList(input.imported, "imported reservations"), overcommitted: textList(input.overcommitted, "overcommitted reservations") };
+    },
+  };
+  return Object.freeze(client);
+}

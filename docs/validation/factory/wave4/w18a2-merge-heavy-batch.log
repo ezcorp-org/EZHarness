@@ -1,0 +1,16 @@
+queued 2026-09-23T15:19:21Z
+=== W18a2 merge heavy batch ===
+lock acquired: 2026-09-23T17:48:56Z
+tree: 39a7189e04b05648cc76e920fe4ebaf26decb301 + staged merge of 2cf47397787e9bdfd84a7bea935bf702dae90cf6
+--- START supervisor-process 2026-09-23T17:48:56Z
+--- END   supervisor-process 2026-09-23T17:48:58Z exit=0
+--- START supervisor-process.podman.integration 2026-09-23T17:48:58Z
+--- END   supervisor-process.podman.integration 2026-09-23T17:49:02Z exit=0
+--- START sandbox-stop 2026-09-23T17:49:02Z
+--- END   sandbox-stop 2026-09-23T17:49:02Z exit=0
+--- START sandbox-stop.podman.integration 2026-09-23T17:49:02Z
+--- END   sandbox-stop.podman.integration 2026-09-23T17:49:10Z exit=0
+--- START real-server-pass 2026-09-23T17:49:10Z
+--- END   real-server-pass 2026-09-23T17:50:40Z exit=0
+BATCH DONE status=0 2026-09-23T17:50:40Z
+wrapper exit=0 2026-09-23T17:50:40Z

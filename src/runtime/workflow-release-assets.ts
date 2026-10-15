@@ -8,6 +8,7 @@ export { workflowDelegationReleaseBinding } from "./workflow-scope";
 import { readWorkflowAuthorityUser, readWorkflowAuthorityMembership } from "../db/queries/workflow-authority";
 import { getWorkflowDelegation } from "../db/queries/workflow-delegations";
 import { findLiveServiceAccount } from "../db/queries/service-accounts";
+import { SERVICE_ACCOUNT_IS_LIVE_SQL } from "../db/schema";
 import type { MigrationDb } from "../db/migrations/types";
 import { sql } from "drizzle-orm";
 import { releaseRows } from "../db/queries/extension-releases";
@@ -24,7 +25,7 @@ async function canExecuteInProject(principalId: string, projectId: string | null
 }
 
 async function readService(serviceId: string, database?: MigrationDb) {
-  return database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND enabled=true FOR SHARE`))[0] : findLiveServiceAccount(serviceId);
+  return database ? releaseRows<{ projectId: string | null }>(await database.execute(sql`SELECT project_id AS "projectId" FROM service_accounts WHERE id=${serviceId} AND ${SERVICE_ACCOUNT_IS_LIVE_SQL} FOR SHARE`))[0] : findLiveServiceAccount(serviceId);
 }
 
 export async function workflowReleaseCanConsentService(entry: CachedWorkflow, serviceId: string, consenterId: string | null, projectId?: string | null, database?: MigrationDb): Promise<boolean> {
@@ -123,6 +124,17 @@ async function canExecuteRelease(entry: CachedWorkflow, authority: WorkflowExecu
   }
   return entry.source !== "extension" || workflowDelegationReleaseAllows(entry, verified.row.extensionReleaseBinding) && await workflowReleaseIsCurrent(entry, undefined, database);
 }
+
+/**
+ * The one message every lost-release-authority refusal carries.
+ *
+ * Named because a consumer has to recognise it: the mid-flight check throws
+ * a plain `Error`, so the executor's generic catch stores the MESSAGE as the
+ * run's error with no code beside it, and the factory's legacy adapter maps
+ * exactly that run to C10's `release-authority-lost`. Six literals of the
+ * same sentence could drift apart silently; one constant cannot.
+ */
+export const WORKFLOW_RELEASE_AUTHORITY_LOST = "Workflow release authority is no longer available";
 
 export async function workflowReleaseCanExecute(entry: CachedWorkflow, authority: WorkflowExecutionAuthority, database?: MigrationDb, resolveHostParent?: HostWorkflowParentResolver): Promise<boolean> {
   let parentRunId = authority.parentRunId;

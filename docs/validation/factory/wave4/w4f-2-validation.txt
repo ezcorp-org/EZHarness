@@ -1,0 +1,27 @@
+VERDICT (validator-6) — W4F-2 at b6aa5204f (wp/w4f-2-crap-provisioning-kernel, owner w16-2), base integ ffe6ea507: ACCEPT
+
+This is the rebase of ce22be7fe (on 0a6b3ef06) onto ffe6ea507, the integ head after W4F-1 landed. The ACCEPT at ce22be7fe
+(verdict-validator-6-w4f2-ce22be7fe.txt) carries to b6aa5204f under the carry-over rule. I checked the delta myself, read-only:
+  Patch-ids (git patch-id --stable over each branch range) are equal for all 4 code commits:
+    6fbb4e597 -> 7b294ee27  23a57c8e84f17362
+    fca9c1809 -> 3203672cb  bf59be02220596aa
+    3dd67203f -> 8c0dc36cb  1231824d1ef0564f
+    58377535d -> 2698b2ab6  1e0bec057ba97b03
+    The docs commit differs (ce22be7fe 3b762a12… -> b6aa5204f c07633bf…), as the gates-file union requires.
+  The four code files are byte-identical between ce22be7fe and b6aa5204f: kernel.ts, control-plane.ts, fleet-cli.ts, fleet.ts.
+  The branch's own code diff against its base is identical: git diff 0a6b3ef06 ce22be7fe == git diff ffe6ea507 b6aa5204f over those files.
+  git diff --name-only ffe6ea507 b6aa5204f: the four code files and tasks/factory/w4f-GATES.md.
+  Gates-file union: every W4F-1 line is kept, and every W4F-2 row is kept. Only W4F-2's own copy of the file title and brief line
+    was replaced by W4F-1's header, so the file has one header.
+  5 commits over ffe6ea507, all archy noreply. Head tree e4ffee7ed, equal to integrator-3's merge-trial tree.
+  The hook list is the same 4 test files.
+Carried from ce22be7fe, the code being identical:
+  - the behaviour-preservation read of each split;
+  - CRAP --changed: max 12, every touched function at 100% coverage, no touched function over 30; before 44, 38, 34, 32;
+  - typecheck, lint, both boundary checks, gitleaks, tests-unchanged;
+  - unit union 43/0, SDK 246/0, provisioning producer 64/0, guard set 60/0, new-file and patch PASSED;
+  - the graph-proof runbook mock pass.
+  The CRAP binding against ffe6ea507 covers the same four functions: the code diff against the base is identical.
+Config hash 44962525f1ca1a8b (unchanged).
+
+No findings.

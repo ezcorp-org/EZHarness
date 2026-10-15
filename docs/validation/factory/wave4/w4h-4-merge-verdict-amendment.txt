@@ -1,0 +1,16 @@
+W4H-4 merge 20c3f0641: correction of the verdict sha256 cited in w4h-4-merge.json, and one leftover line.
+Addendum to w4h-4-merge.json (whose SHA256SUMS line is not rewritten; SHA256SUMS is append-only).
+- w4h-4-merge.json "validatorVerdict" cites sha256 e2e6678a4ef90ab6... That was validator-6's first ACCEPT text at 5bdbecd3c, replaced
+  before the merge. The file receipted as w4h-4-validation.txt (receipts 645406221) is the CURRENT verdict, sha256
+  12611343a4ebc455... (ACCEPT at 5bdbecd3c, with the lead's third case — a fake bun reporting 1.4.2 while the real pinned bun is in
+  ~/.bun/bin: the resolver picks the real one, PASS — and the lane carry reasoning: run-factory-lane-tests.sh sources neither changed
+  library). The verdict of record is 12611343a4ebc455; e2e6678a4ef90ab6 is history (not copied). Both are ACCEPT at 5bdbecd3c; the
+  merge basis is unchanged. The REJECT 9c3bce963a212a53 and the withdrawn ACCEPT 7db9de00acebae4f stay as receipted.
+- The owner report of record is w4h-4-owner-report.txt, sha256 d6e7783116489517... (final, frozen by the lead). Its lines 105 and 108
+  cite e2e6678a4ef90ab6 as the owner saw the history; that is left as written.
+- Leftover (lead ruling, not a W4H-4 change): validator-6's limit — a fake bun that lies about its version, with no real pinned bun in
+  ~/.bun/bin or EZCORP_PINNED_BUN_DIR, would be trusted — is a leftover item: "refuse any --bound-tests list line that is not an existing
+  *.test.ts file" (w00/wave4h/leftover-additions.md; the wave4i docs commit records it).
+- The lanes ran at the merge commit (lanes hold, load1 5.35), not on a carry: device-test 7/0, factory-isolation 30/0,
+  factory-deployment-operations 11/0 (receipted w4h-4-merge-lanes-*). The lead's 60-minute carry fallback was not needed.
+The merge, its holds and the publish are unchanged.

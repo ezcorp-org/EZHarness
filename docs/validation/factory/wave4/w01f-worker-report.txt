@@ -1,0 +1,593 @@
+W01f — the event-stream detach leak in the extension runner service
+==================================================================
+
+Head: f8c16e5904ff4f581760150a70a16b016385c32e  (branch wp/w01f-detach, clean tree)
+Base: integ/w00 at 850ffaa54592f61346b65714ab7bec9e20ded16e, merged in at 52bd86ddd, 0 behind.
+      Originally cut from wp/w18a-sdk at 9e7866e2bb4abd92bcda3fbf788a07b43219bb3a, which has
+      since merged into integ/w00. EVERY gate was re-run on the merge and both coverage gates
+      moved to BASE_REF=integ/w00; see section 11.
+Evidence: /tmp/factory-platform-evidence/w01f/
+Gate file: tasks/factory/w01f-GATES.md (G1-G12, all checked, all with receipts)
+Task record and review paragraph: tasks/todo.md, section "W01f"
+Lessons appended: tasks/lessons.md, section "2026-09-21 - W01f event-stream detach"
+
+
+COMMITS (oldest first)
+  47c7937bd  fix(extension-runner): release a dropped host attachment on the signal Bun delivers
+  1fff3badf  test(extension-runner): prove every host disconnect releases the attachment
+  57a43bd54  fix(extension-runner): keep a busy host's attachment while it still owes a reply
+  869ab1542  test(extension-runner): stop the detach cases depending on the host's speed
+  10a1170b3  docs(factory): record the W01f detach measurement, the fix, and its gates
+  2e58ac029  docs(factory): record the W01f heavy batches and the flock --close correction
+  52bd86ddd  Merge branch 'integ/w00' into wp/w01f-detach
+  f8c16e590  docs(factory): re-verify W01f on the integ/w00 merge
+
+Diff against integ/w00, the whole of it (logs/postmerge-diff-stat.txt):
+  packages/@ezcorp/extension-runner/src/service.ts          253 +++---   the fix
+  packages/@ezcorp/extension-runner/tests/service-detach.test.ts  288 +++   the new test file
+  tasks/factory/w01f-GATES.md                               227 +++       gate file
+  tasks/lessons.md                                           45 +++       lessons
+  tasks/todo.md                                              77 +++       task record
+  5 files, 798 insertions, 92 deletions
+
+One source file changed. One new file, and it is a test file, which both coverage gates classify
+as non-source. No pre-existing test file was modified (logs/postmerge-test-diff.txt).
+
+The merge conflicted only in tasks/lessons.md and tasks/todo.md, both append-only documents;
+both sides were kept. The incoming lessons entry already carried the flock --close rule I had
+written independently, so mine was reduced to the part it did not have — how to recognise an
+inherited lock descriptor — rather than restating the rule twice.
+
+
+1. THE REPRODUCTION, BEFORE ANY CODE CHANGED
+--------------------------------------------
+Driven against the REAL service at 9e7866e2b with a clean tree: real peer-gateway.py, real Unix
+socket, real node:http client, a worker started and attached, a /v4/events poll parked, then the
+client dropped four different ways. A replacement host then tried to attach repeatedly, past the
+20 s long-poll timeout.
+
+  client close form      released?   observed
+  request.abort()        no          still held at 26 042 ms
+  request.destroy()      no          still held at 26 035-26 042 ms
+  socket.end()           no          still held at 26 035 ms
+  socket.destroy()       no          still held at 26 037 ms
+
+Every replacement /v4/attach answered "Worker is unavailable or already attached", including
+after the long poll had expired and answered. The attachment is held for the life of the session,
+so a host that disconnects permanently strands its worker.
+
+Receipts: logs/repro-detach-leak.json, logs/repro-detach-leak.meta.txt (commit and timestamps),
+script kept at probes/repro-detach-leak.ts.txt.
+
+
+2. THE ROOT CAUSE, MEASURED ON BUN 1.3.14
+------------------------------------------
+The six detach lines were unreachable because Bun's node:http server delivers NO disconnect
+signal at all. Every candidate was attached to the same parked exchange and the probe reports
+which ones fired.
+
+  response.on("close")                                    never fires, any close form
+  request.on("aborted") / request.on("close") / "error"   never fires
+  response.on("error") / response.on("finish")            never fires
+  request.socket and response.socket events               never fires
+  server.on("connection") socket close/end/error          never fires
+  server.on("clientError")                                never fires
+
+It goes further than silence. With the headers flushed and the body streaming - the exact shape
+the brief asked about - five response.write() calls totalling 320 KiB into the dropped connection
+all returned true and threw nothing, and response.writable stayed true. So a heartbeat whose write
+can fail does not exist on this transport: that branch is unavailable, not merely slower.
+
+The reason is visible in the internals: under Bun, request.socket is a synthesized
+Symbol(fakeSocket) with no _handle, remoteAddress null, and readyState permanently "open".
+
+Bun.serve DOES deliver the disconnect, as Request.signal:
+
+  request.abort()                                  aborts
+  request.destroy()                                aborts
+  socket.destroy()                                 aborts
+  host process SIGKILLed                           aborts, 12 ms
+  half-close then the process exits                aborts,  9 ms
+  half-close with the client alive and reading     does NOT abort
+
+The last row is correct behaviour, not a gap: a client that half-closes can still receive its
+answer, so it has not disconnected. The same six rows hold behind the real peer gateway.
+The streaming ReadableStream cancel callback fires on exactly the same cases as the signal.
+
+Receipts: logs/probe-node-http-signals.json, logs/probe-node-http-streaming.json,
+logs/probe-node-http-internals.json, logs/probe-bun-serve-signals.json,
+logs/probe-serve-through-gateway.json, logs/probe-dead-host-process.json.
+Probe sources kept as probes/*.ts.txt.
+
+
+3. THE FIX
+----------
+Serve the runner's private Unix socket with Bun.serve instead of node:http, and release the
+attachment from Request.signal - the mechanism this runtime actually delivers. Nothing polls for
+a disconnect and no timer guesses at one.
+
+For the one form the runtime reports nothing for, the attachment became a lease, and the lease has
+two distinct behaviours that an earlier draft of this report wrongly described as one.
+
+RENEWING pushes the deadline one lease into the future. Only a request that proves the caller still
+owns the stream may do it, because the protocol carries no host identity: /v4/events, which is
+refused unless the session is attached and no poll is parked, and /v4/reply, which needs a pending
+identifier only ever handed to the holder through that stream. /v4/attach starts the lease.
+/v4/request does NOT renew, because any authenticated caller can issue one.
+
+DEFERRING means the lease does not run at all, against an unchanged deadline: while the holder's
+poll is parked (the runtime reports that disconnect directly), while the host owes a reply to a
+queued reverse call, and while a forward call is executing. Each re-arms the lease when it drains,
+so waiting one out never buys a host extra silence.
+
+Both behaviours are validator findings F1 and F2, fixed here. A host waiting inside a long forward
+call is no longer evicted mid-call; a second caller hammering /v4/request can no longer keep a
+silent holder attached. And because an eviction can still be wrong in ways the service cannot see,
+the shipped client now takes its stream back after a refusal it did not cause, bounded at three
+consecutive recoveries so a worker that is really gone still ends the loop.
+
+That re-arm is a correction to my own first version, and it was found by reading the CLIENT rather
+than the service: RunnerClient collects an event, runs the host's reverse call, and only then
+polls again, so the legitimate gap between two host requests is as long as that call takes, up to
+the sixty-second host timeout. A lease that counted that gap as silence would have evicted a host
+in the middle of its work. Removing the re-arm turns the busy-host case red
+(logs/controlled-revert-lease-rearm.log), and the file was restored byte-identical.
+
+Two declared settings, both validated against each other:
+  eventPollTimeoutMs   default 20 000, range 100 ms to 5 min,
+                       refused by name: RunnerError("event_poll_window", ...)
+  attachmentLeaseMs    default 30 000, must exceed the poll window, at most 600 000,
+                       refused by name: RunnerError("attachment_lease", ...)
+
+A released attachment now answers nothing and keeps its whole queue. The previous code fell
+through after detaching and spliced the queued NOTIFICATIONS out to a client that had already
+gone, losing them; only the reverse calls survived. Making the detach path reachable is what
+exposed that.
+
+Test-only observation, exported from the module and never a global: startRunnerService now returns
+RunnerService { close(), attachments(): string[] }. No endpoint exposes it and the wire protocol
+does not mention it.
+
+The v4 wire protocol is unchanged on every route and every refusal the protocol defines, with five
+edge-case differences, none of which widens authority. "Byte-identical" was overstated and the
+validator captured the exact set (F3; 25 of 30 raw captures are byte-identical):
+
+  POST /v4/inspect?x=1                  base 404 unknown_method -> 200
+  POST /v4/../v4/inspect                base 404 unknown_method -> 200
+  POST http://runner/v4/inspect         base 404 unknown_method -> 200
+  headers over 4096 bytes               base 431, no body       -> 400 request_limit, typed body
+  two valid Authorization headers       base 200                -> 401
+
+The first three follow from routing on new URL(request.url).pathname, which normalises, where the
+base compared the raw request target. That is the conventional HTTP reading and it is kept
+deliberately, but it IS a change. The fourth is the header policy moving from node's parser into
+the handler, where it still runs before authentication, so nothing is bypassed; only the status and
+the body changed. The fifth is stricter than the base: Bun joins duplicate header values with ", "
+where node kept the first, so a request carrying two credentials is refused rather than having one
+silently chosen. Every newly accepted spelling still passes the same bearer check and reaches the
+same handler with the same validation.
+
+Freeze section 6 (host launch, attach, stop) is untouched. RunnerClient changes only by gaining the
+bounded stream recovery described above; its public surface is unchanged.
+
+One control moved rather than lost, and one reason corrected. node:http's maxHeaderSize: 4096
+becomes an explicit policy check in handle(), with its own test, because Bun.serve carries no
+header option, and it still runs before authentication. maxConnections = 32 IS genuinely
+duplicated: peer-gateway.py holds asyncio.Semaphore(32) and closes a connection outright when it is
+locked, and the private socket is reachable only through that gateway and stays 0600 inside an
+owner-only mkdtemp directory.
+
+The earlier claim that the gateway's 360 s relay timeout duplicated headersTimeout was wrong, and
+the validator measured why (F4): that timeout resets on every read, so it bounds nothing about a
+slow header. The real fact is that Bun's node:http shim never honoured headersTimeout: 5000 at all.
+Measured on a connection that sends a partial request line then goes silent, both trees close it
+after the same interval: base 12 002 ms, this branch 12 003 ms. The control was already inert, so
+removing it changed nothing measurable. That is the honest reason, not the one first given. Bun's
+unix listener accepts no idleTimeout: its type rejects the option, which is recorded in the code.
+
+
+4. VERIFIED BEHAVIOUR, END TO END
+----------------------------------
+Same four drops against the real service and gateway, after the fix (logs/verify-detach-release.json):
+
+  request.abort()      released at 251 ms, replacement attached
+  request.destroy()    released at 251 ms, replacement attached
+  socket.destroy()     released at 250 ms, replacement attached
+  socket.end()         released at 29 570 ms, replacement attached, inside the 30 s lease
+
+The 250 ms figures are the sampling floor of that script, not the latency; the signal itself fires
+in about 10 ms, which the probes measure directly.
+
+
+5. TESTS
+--------
+packages/@ezcorp/extension-runner/tests/service-detach.test.ts, 9 cases, 92 assertions, all
+behaviour-first and all awaiting an observed state rather than a fixed delay:
+
+  1. every host disconnect form releases the worker attachment and a replacement host attaches again
+  2. a dropped connection releases the attachment from the runtime's own signal, never from the lease
+  3. a host that half-closes and stops collecting is released within one attachment lease
+  4. one host's disconnect never releases another worker's attachment
+  5. a process whose hosts all disconnect holds no attachment afterwards
+  6. a released attachment keeps every queued reverse call and notification for the replacement host
+  7. a host busy with a reverse call is never evicted while it still owes a reply
+  8. an event poll window or attachment lease outside its declared range is refused by name
+  9. oversized headers, an absent body and an unknown endpoint are each refused
+
+Case 2 runs under a five-minute lease that nothing in the test can reach, so a release inside the
+test budget can only have come from the runtime's signal. Case 3 runs under a short lease, which
+is the only mechanism that can release a half-close. Case 7 is the controlled-revert case above.
+
+The five pre-existing service.test.ts cases are unchanged and pass.
+
+
+6. COVERAGE
+-----------
+packages/@ezcorp/extension-runner/src/service.ts: 220/220 lines, no line missing, on the merged
+LCOV of 27 legs and 597 source files (logs/final-service-coverage.txt, logs/merged-lcov.info).
+From the two service suites alone it is 183/183. W18a-sdk measured the same file at 164/170 with
+exactly the six detach lines uncovered; those six are now covered by tests that execute them.
+
+  BASE_REF=wp/w18a-sdk bun scripts/check-new-file-coverage.ts   exit 0
+    "New-file coverage gate PASSED: no new source files in this diff."
+  BASE_REF=wp/w18a-sdk bun scripts/check-patch-coverage.ts      exit 0
+    "Patch coverage gate PASSED: all changed executable lines covered (1 file(s))."
+
+No threshold lowered, no EXCLUDES entry, no .skip/.only/.todo, no assertion-free test, no empty
+catch in a test, no biome.json opt-out. The changed source file is already covered by the existing
+wildcard key packages/@ezcorp/extension-runner/src/** at 100, and the one new file is a test file,
+which both gates classify as non-source, so no coverage-thresholds key was added.
+
+
+7. WHAT IS GREEN, PRE-MERGE, ALL AT 2e58ac029 WITH A CLEAN TREE
+----------------------------------------------------------------
+(Section 11 repeats every one of these on the integ/w00 merge.)
+  bun run typecheck                                exit 0   logs/final-typecheck.log
+  bun run lint                                     exit 0   logs/final-lint.log
+  bun scripts/check-factory-boundaries.ts          exit 0   logs/final-boundaries.log
+  bun scripts/gate-integrity.ts                    exit 0   logs/final-gate-integrity.log
+  16 light runner + contract suites, one process per file, every exit 0
+                                                            logs/final-light-suites.log
+  service.test.ts + service-detach.test.ts         14 pass / 0 fail / 115 assertions
+                                                            logs/final-service-suites.log
+  new-file coverage, patch coverage                exit 0   logs/final-new-file-coverage.log,
+                                                            logs/final-patch-coverage.log
+
+Heavy producers, under flock, one batch at a time, every exit 0:
+  batch 1 at 57a43bd54, lock held 23:26:24Z-23:28:19Z   logs/heavy-run-1.log
+    extension-runner podman.integration              19 pass / 0 fail / 103 assertions
+    extension-runner main.integration                 1 pass / 0 fail
+    src/factory supervisor.podman.integration         2 pass / 0 fail
+    src/factory package-preparation.podman.integration 1 pass / 0 fail
+  batch 2 at 2e58ac029's parent 10a1170b3, lock held 23:48:22Z-23:49:09Z   logs/heavy-run-2.log
+    channel-identity 3, provision 3, binary-assets 1, browser 1,
+    native-network 1, podman-devices 6                all 0 fail
+
+main.integration.test.ts is the end-to-end proof of the transport change: it boots the production
+main.ts service with a real PodmanRunner, builds a real v4 extension, starts a worker, performs a
+reverse RPC across /v4/events and /v4/reply, inspects, and shuts down cleanly. That one leg covers
+171 of 186 lines of service.ts; the supervisor leg covers 167.
+
+Batch 1 ran with three files dirty: the two gitignored task documents and the test file whose
+timing fix landed at 869ab1542. None of those four producers loads any of them and service.ts was
+committed and clean; hashes are in logs/heavy-run-1-tree-state.txt. Batch 2 ran on a fully clean
+tree at the final source head.
+
+
+8. ONE FAILURE OBSERVED, AND WHAT WAS DONE ABOUT IT
+----------------------------------------------------
+NO TEST WAS REMOVED. No test case, and no assertion, was deleted anywhere in this package. If you
+were told otherwise, that is a misreading of an earlier draft of this section and the paragraphs
+below give the git evidence. One assertion MOVED between two cases, and that is the whole of it.
+
+What happened, in order.
+
+The light sweep at 57a43bd54 recorded "8 pass / 1 fail" for
+packages/@ezcorp/extension-runner/tests/service-detach.test.ts, while the same file had passed
+seconds earlier in the same sweep and passed again in twelve re-runs afterwards, six of them
+concurrent. The run is preserved at logs/observed-flake-light-suites.log. My sweep script did not
+retain the failing file's output, so I could not read which case failed or what it said. That was
+a defect in my own harness and it is fixed: the script now writes the full output of any failing
+file to logs/postmerge-failed-<file>.log.
+
+Without the output I had one usable fact: the runner's banner prints a total assertion count, and
+the failing run printed 91 where a full pass printed 95. I measured the per-case counts by running
+each case alone with -t (logs/expect-counts.txt: 32, 4, 5, 9, 15, 9, 8, 7, 6, summing to 95, which
+matches the full-pass banner). A case that fails stops at the assertion that failed, so the failing
+case executed four fewer assertions than it owns. Exactly two of the nine cases have an assertion
+in the position that loses four:
+
+  - "every host disconnect form releases the worker attachment and a replacement host attaches
+    again", at its fourth assertion of eight per loop iteration, which was
+    expect(refused.status).toBe(400) — a second /v4/attach expected to be refused while the first
+    host still holds the stream;
+  - "a host busy with a reverse call is never evicted while it still owes a reply", at its fourth
+    assertion of eight, which was expect(harness.service.attachments()).toEqual(["worker"]).
+
+Both of those assertions are true only while a short attachment lease has not yet expired, and at
+the time both cases ran with a 600 ms lease behind several Unix round trips of setup. On a box
+already running another worker's heavy producer, that lease can legitimately expire during setup,
+and then the first assertion reads 200 instead of 400 and the second reads an empty attachment
+list. In other words those two assertions were measuring how fast the host got through its setup,
+not what the service does. tasks/lessons.md forbids exactly that.
+
+So the dependence was removed, not the assertion, and not the case. Three changes, all in the test
+file, none in the product:
+
+  1. The default lease in the test harness went from 600 ms to 300 000 ms, so every case that is
+     not about the lease now runs under a lease that cannot fire at all.
+  2. The four cases that MUST observe a lease expiry ask for one explicitly, at 3000 ms, which no
+     setup of a dozen Unix round trips can exhaust.
+  3. The exclusivity assertion moved out of the disconnect table, where it ran once per drop form
+     under a short lease, into "a dropped connection releases the attachment from the runtime's own
+     signal, never from the lease", which runs under the five-minute lease. It is the same
+     assertion against the same behaviour; it simply no longer sits behind a clock.
+
+That is the entire diff of the timing-fix commit 869ab1542 as far as assertions go, and it is one
+line:
+
+    -      expect(refused.status).toBe(400);
+    +    expect((await call(harness.socketPath, "/v4/attach", { workerId: "worker" })).status).toBe(400);
+
+Three checks a validator can run in ten seconds, and what they return:
+
+  - Case inventory. `git show 1fff3badf:<file> | grep -oE '^test\("[^"]+'` lists eight cases;
+    the same grep at HEAD lists nine. All eight original names are present at HEAD, verbatim. The
+    ninth, "a host busy with a reverse call is never evicted while it still owes a reply", was
+    ADDED by 57a43bd54 together with the product correction it guards.
+  - Assertion sites. `grep -c 'expect(' <file>` returns 43 at 57a43bd54, 43 at 869ab1542, and 43
+    at HEAD. Not one assertion site was deleted.
+  - The banner's drop from 95 to 92 runtime assertions is fully explained by the move, and by
+    nothing else: the exclusivity assertion used to run inside a loop over the four drop forms, so
+    it counted four times; it now counts once. 4 - 1 = 3, and 95 - 3 = 92.
+
+Nothing was weakened, skipped, retried, or given a longer timeout. Ten concurrent copies of the
+file then passed (logs/concurrent-stability.log), and the file has passed every run since,
+including the whole post-merge sweep.
+
+One honest limit on this account. I could not reproduce the original failure at the old setting -
+twelve attempts, six of them concurrent, all green - so the identification above is an inference
+from the assertion count, not a captured stack. I have stated it as an inference throughout and
+kept the original failing run as evidence rather than discarding it. What is NOT an inference is
+that both candidate assertions depended on a 600 ms lease surviving setup, that such a dependence
+is a test measuring the host, and that the dependence is now gone from all nine cases.
+
+9. A SHARED-LOCK FAULT FOUND AND REPORTED, NOT REPAIRED
+--------------------------------------------------------
+While batch 2 waited, /proc/locks named PID 3470529 as the holder of
+/tmp/ezcorp-validation-heavy.lock and that PID no longer existed. The lock survived because an
+orphaned temporal-test-server, PID 3530151, reparented to PID 1, with the w00-integration
+factory-orchestrator open and fd 3 on the lock file, still held the inherited descriptor. Three
+producers were queued behind it, mine at the head.
+
+It belonged to another worker, so it was reported to the coordinator rather than killed
+(logs/stuck-lock-report.txt). The coordinator cleared it and added flock --close to the common
+brief. Neither of my batches orphaned anything: both released the lock at the timestamps above.
+The archived heavy-run-*.sh.txt are the scripts as executed and therefore still read plain flock;
+any later run of them should carry --close. A lesson recording this is in tasks/lessons.md.
+
+
+11. RE-VERIFIED ON THE integ/w00 MERGE
+---------------------------------------
+wp/w18a-sdk merged into integ/w00 (head 850ffaa54, which also carries W18a-app and the
+verify-script leaf), so integ/w00 was merged in at 52bd86ddd and everything was re-run on the
+merge. The four workspace packages were rebuilt first, because consumers resolve their built dist
+types. All at 52bd86ddd with a clean tree unless noted.
+
+  bun run typecheck                                exit 0   logs/postmerge-typecheck.log
+  bun run lint                                     exit 0   logs/postmerge-all.log
+  bun scripts/check-factory-boundaries.ts          exit 0   logs/postmerge-all.log
+  bun scripts/gate-integrity.ts                    exit 0   logs/postmerge-all.log
+  16 light runner + contract suites                every exit 0
+                                                            logs/postmerge-light-suites.log
+  BASE_REF=integ/w00 check-new-file-coverage.ts    exit 0   logs/postmerge-new-file-coverage.log
+  BASE_REF=integ/w00 check-patch-coverage.ts       exit 0   logs/postmerge-patch-coverage.log
+    "all changed executable lines covered (1 file(s))"
+  service.ts on the post-merge merged LCOV         188/188 lines, none missing
+                                                            logs/postmerge-service-coverage.txt
+                                                            logs/postmerge-merged-lcov.info
+                                                            (26 legs, 597 source files, sha256
+                                                            a1a7752c86e9817710da113065b9e57487b21ba5a20f0ac027d03763248fa1be)
+
+All TEN heavy producers in ONE lock acquisition under `flock --close`, as the updated common brief
+now requires, lock held 00:14:19Z to 00:17:00Z and released cleanly with no orphan
+(logs/postmerge-heavy.log, script postmerge-all.sh.txt):
+
+  extension-runner podman.integration              19 pass / 0 fail / 103 assertions
+  extension-runner main.integration                 1 pass / 0 fail
+  src/factory supervisor.podman.integration         2 pass / 0 fail
+  src/factory package-preparation.podman.integration 1 pass / 0 fail
+  extension-runner channel-identity                 3 pass / 0 fail
+  extension-runner provision.integration            3 pass / 0 fail
+  extension-runner binary-assets.integration        1 pass / 0 fail
+  extension-runner browser.integration              1 pass / 0 fail
+  extension-runner native-network.integration       1 pass / 0 fail
+  extension-runner podman-devices.integration       6 pass / 0 fail
+  SUMMARY postmerge_heavy_fail=0
+
+Confirmed again at the final head f8c16e590, clean tree, 0 commits behind integ/w00
+(logs/head-confirmation.log): gate integrity exit 0, factory boundaries exit 0, both coverage
+gates at BASE_REF=integ/w00 exit 0, service suites 14 pass / 0 fail. The only commit after the
+post-merge run touches tasks/ alone.
+
+The pre-merge receipts are retained under their final-* names; post-merge ones are prefixed
+postmerge-.
+
+
+10. WHAT REMAINS OPEN
+----------------------
+Nothing in this package. All twelve gates are checked with receipts.
+
+No interface or contract question. Freeze section 6 is untouched, the v4 wire protocol is
+unchanged, and the only exported signature change is additive: startRunnerService's return type
+widened from { close(): Promise<void> } to RunnerService, which adds attachments() and breaks no
+consumer (src/factory/runner/supervisor.podman.integration.test.ts reads it through
+Awaited<ReturnType<typeof startRunnerService>> and still typechecks).
+
+One thing a reviewer should weigh deliberately, stated rather than buried: this fix changes the
+runner service's HTTP transport from node:http to Bun.serve. That is a larger change than a defect
+package usually carries, and I took it because the measurement leaves no alternative - node:http
+under Bun delivers no disconnect signal of any kind and no failing write, so any fix that stays on
+that transport would have to be a timer, which the brief forbids and which would be guessing. The
+repository's Bun-first default points this way, though the earlier claim that CLAUDE.md "already
+requires Bun.serve over node:http" is more than the text supports, and the validator checked it
+(F6). What the text says is "Default to Bun instead of Node.js", and it names Bun.serve only under
+"Don't add replaced deps", where the named targets are express and ws, not node:http.
+src/extensions/CLAUDE.md carries no runtime rule on either, and node:http remains in production
+siblings including this package's own client.ts, src/factory/pool/service-server.ts and
+packages/@ezcorp/sdk/src/v4/native-proxy.ts. So the change is CONSISTENT with the repository's
+stated default; it does not resolve a rule the repository already imposed. Every existing assertion
+survives untouched, and the four bounds node:http was configured with are either preserved in the
+handler, shown to be genuinely duplicated by the peer gateway, or shown to have been inert.
+
+
+12. THE COORDINATOR'S PRE-VALIDATION SWEEP, AT THE HEAD BEING VALIDATED
+------------------------------------------------------------------------
+Re-run in full at 13cef16f25932320d6fe8d796364a5f678da1b68, clean tree, 0 commits behind
+integ/w00 at 850ffaa54 (logs/head-sweep.log, script head-sweep.sh.txt):
+
+  bun run typecheck                                exit 0   logs/head-typecheck.log
+  bun run lint                                     exit 0   logs/head-lint.log
+  bun scripts/check-factory-boundaries.ts          exit 0   logs/head-boundaries.log
+  bun scripts/gate-integrity.ts                    exit 0   logs/head-gate-integrity.log
+  service.test.ts + service-detach.test.ts         14 pass / 0 fail
+                                                            logs/head-service-suites.log
+  BASE_REF=integ/w00 check-new-file-coverage.ts    exit 0   logs/head-new-file-coverage.log
+  BASE_REF=integ/w00 check-patch-coverage.ts       exit 0   logs/head-patch-coverage.log
+  service.ts on the merged LCOV                    188/188 lines, none missing
+                                                            logs/head-service-coverage.txt
+                                                            logs/head-merged-lcov.info (31 legs)
+
+The four runner producers the coordinator named, under `flock --close`, lock held 00:24:04Z to
+00:26:05Z and released cleanly (logs/head-heavy.log, SUMMARY head_heavy_fail=0):
+
+  extension-runner podman.integration              19 pass / 0 fail / 103 assertions
+  extension-runner main.integration                 1 pass / 0 fail
+  src/factory supervisor.podman.integration         2 pass / 0 fail
+  src/factory package-preparation.podman.integration 1 pass / 0 fail
+
+integ/w00 had not advanced past 850ffaa54, so the merge at 52bd86ddd was already current and the
+merge step was a no-op; the sweep above was still re-run in full at the head. Any commit after
+13cef16f2 touches tasks/ only, which no suite loads, and the cheap gates were re-confirmed on it
+(logs/final-head-confirmation.log).
+
+
+13. THE VALIDATOR ROUND: ACCEPT-WITH-FIXES, AND THE THREE FIXES
+----------------------------------------------------------------
+Verdict ACCEPT-WITH-FIXES at 86dccfdaf, report at
+/tmp/factory-platform-evidence/w01f-validation/report.txt. Three changes were required. All three
+are made, and each one is pinned by a controlled revert that turns its new case red
+(logs/controlled-revert-round2.log, with the before and after hashes of both source files, which
+are byte-identical after restore).
+
+F1. A live host inside one long forward /v4/request was evicted mid-work, and the shipped client
+    could not recover. session.pending holds only the reverse calls the HOST owes, so a forward
+    call the host was waiting on renewed the lease once and then nothing held it off. The validator
+    measured it: a 750 ms lease and a 2 500 ms worker method released the attachment while the
+    request was still in flight, and the host's next /v4/events answered 400 unknown_worker. Fixed
+    in two independent places, because either alone leaves a hole:
+      - the service now defers the lease for exactly as long as a forward call runs, against an
+        unchanged deadline (service.ts, session.inFlight and armAttachmentLease);
+      - the client now takes its stream back after a refusal it did not cause, bounded at three
+        consecutive recoveries so a worker that is really gone still ends the loop (client.ts).
+    Tests: "a host waiting inside a long forward request is never evicted while that call runs",
+    "a host takes its event stream back after a refusal it did not cause", and "a host stops
+    polling when the worker itself is gone rather than retrying forever".
+    Controls: removing the deferral fails the first at 6 106 ms; removing the client recovery times
+    out both client cases at 30 s.
+
+F2. The lease was renewed by ANY authenticated caller naming the worker, not by the holder. The
+    validator measured a non-holder keeping a silent host's attachment alive for four lease periods
+    with /v4/request traffic. Renewal is now restricted to the two requests that prove ownership,
+    /v4/events and /v4/reply, plus /v4/attach which starts the lease. /v4/request no longer renews;
+    it only defers while it runs, which cannot extend the deadline.
+    Test: "a caller that does not hold the stream cannot renew the attachment lease".
+    Control: restoring renewal on /v4/request hangs that case to its 30 s budget.
+
+F3, F4, F6. Record corrections, all applied above: the wire behaviour is no longer claimed
+    byte-identical and the five differences are tabulated with their causes; the lease description
+    separates renewing from deferring; the headersTimeout reason is corrected to the measured one
+    (Bun's node:http shim never honoured it, both trees close a silent partial request at ~12 s);
+    and the CLAUDE.md claim is cut back to what the repository text actually says.
+
+F5 (process) and F7 (already fixed) needed no code change. On F5 the validator is right and the
+fault is mine: I was asked to hold the branch and a message asking me to hold arrived after I had
+already committed the change in question. I have not committed during a validation window since.
+
+14. THE FINAL SWEEP, AT THE HEAD BEING MERGED
+----------------------------------------------
+Head 35d009a2f2061e5af918da7ddea4a749efcedcfa, clean tree, 0 commits behind integ/w00 at
+3f45fa4f0. integ/w00 advanced twice during this round and was merged both times; the last 8 base
+commits touched only src/factory/releases.ts and one archive-writer test helper, and the sweep was
+re-run in full anyway rather than reasoning about what those could reach.
+Receipts: logs/final2-all.log, logs/final2-heavy.log, script final2-sweep.sh.txt.
+
+  bun run typecheck                                exit 0
+  bun run lint                                     exit 0
+  bun scripts/check-factory-boundaries.ts          exit 0
+  bun scripts/gate-integrity.ts                    exit 0
+  17 light runner + contract suites                every exit 0
+                                                   logs/final2-light-suites.log
+  BASE_REF=integ/w00 check-new-file-coverage.ts    exit 0
+  BASE_REF=integ/w00 check-patch-coverage.ts       exit 0
+  service.ts on the merged LCOV                    197/197 lines, none missing
+                                                   logs/final2-service-coverage.txt
+                                                   logs/final2-merged-lcov.info (27 legs, sha256
+                                                   85b143abd151218cafe987a56aeb43f997d2f9a18fdf2341f54099863ea4e246)
+
+All TEN heavy producers in ONE lock acquisition under `flock --close`, lock held 15:51:15Z to
+15:54:07Z and released cleanly, SUMMARY fail=0: podman.integration, main.integration,
+supervisor.podman, package-preparation.podman, channel-identity, provision, binary-assets, browser,
+native-network, podman-devices.
+
+The detach suite is 11 cases / 216 assertions and the client suite 2 cases; both at 0 fail.
+
+RECEIPTS (all under /tmp/factory-platform-evidence/w01f/)
+----------------------------------------------------------
+  logs/repro-detach-leak.json              the defect, at the base commit
+  logs/repro-detach-leak.meta.txt          its commit and timestamps
+  logs/probe-node-http-signals.json        every node:http listener, none fires
+  logs/probe-node-http-streaming.json      headers flushed, 320 KiB of writes all succeed
+  logs/probe-node-http-internals.json      the synthesized fake socket
+  logs/probe-bun-serve-signals.json        Bun.serve signal and stream cancel
+  logs/probe-serve-through-gateway.json    the same, behind the real peer gateway
+  logs/probe-dead-host-process.json        a real host process SIGKILLed
+  logs/verify-detach-release.json          all four drops released, after the fix
+  logs/controlled-revert-lease-rearm.log   red without the re-arm, green restored, hashes
+  logs/observed-flake-light-suites.log     the one observed failure, with its diagnosis
+  logs/expect-counts.txt                   per-case assertion counts used in that diagnosis
+  logs/concurrent-stability.log            ten concurrent copies of the detach suite
+  logs/final-sweep.log                     every light gate with exit, start and end
+  logs/final-typecheck.log                 exit 0
+  logs/final-lint.log                      exit 0
+  logs/final-boundaries.log                exit 0
+  logs/final-gate-integrity.log            exit 0
+  logs/final-service-suites.log            14 pass / 0 fail
+  logs/final-light-suites.log              16 files, every exit 0
+  logs/final-service-coverage.txt          service.ts 220/220
+  logs/final-new-file-coverage.log         exit 0
+  logs/final-patch-coverage.log            exit 0
+  logs/merged-lcov.info                    the merged LCOV all coverage numbers come from
+  logs/merge-lcov.log                      27 legs, 597 source files
+  logs/coverage-run.log                    every coverage leg with its exit
+  logs/heavy-run-1.log                     batch 1 under the lock
+  logs/heavy-run-1-tree-state.txt          what was dirty during batch 1, with hashes
+  logs/heavy-run-2.log                     batch 2 under the lock
+  logs/stuck-lock-report.txt               the orphaned lock holder
+  logs/test-diff.txt                       proof no pre-existing test file changed
+  logs/diff-stat.txt                       the whole diff against the base
+  heavy-run-1.sh.txt, heavy-run-2.sh.txt   the pre-merge heavy scripts as executed
+  final-sweep.sh.txt, coverage-run.sh.txt  the pre-merge light scripts as executed
+  postmerge-all.sh.txt                     the post-merge script as executed, with flock --close
+  logs/postmerge-all.log                   every post-merge gate with its exit and timestamps
+  logs/postmerge-typecheck.log             exit 0 on the merge
+  logs/postmerge-light-suites.log          16 files, every exit 0
+  logs/postmerge-heavy.log                 ten producers, one lock, every exit 0
+  logs/postmerge-new-file-coverage.log     exit 0, BASE_REF=integ/w00
+  logs/postmerge-patch-coverage.log        exit 0, BASE_REF=integ/w00
+  logs/postmerge-service-coverage.txt      service.ts 188/188
+  logs/postmerge-merged-lcov.info          the post-merge merged LCOV
+  logs/postmerge-diff-stat.txt             the whole diff against integ/w00
+  logs/postmerge-test-diff.txt             proof no pre-existing test file changed
+  logs/head-confirmation.log               the gates re-confirmed at the final head
+  probes/*.ts.txt                          every probe and reproduction source

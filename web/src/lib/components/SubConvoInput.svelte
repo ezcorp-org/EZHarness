@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { isSubmitEnter } from "$lib/chat-input-logic";
+
 	let {
 		conversationId,
 		onSend,
@@ -18,7 +20,7 @@
 	}
 
 	function handleKeydown(e: KeyboardEvent) {
-		if (e.key === "Enter" && !e.shiftKey) {
+		if (isSubmitEnter(e)) {
 			e.preventDefault();
 			submit();
 		}

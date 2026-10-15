@@ -15,6 +15,7 @@ import { parseIncusConnectionConfig } from "../../extensions/incus-sandbox/confi
 import { createHostIncusTransport } from "../../extensions/incus-sandbox/host-transport";
 import type { IncusTransportRequest } from "../../extensions/incus-sandbox/transport";
 import { releaseRuntimeFixture } from "../__tests__/helpers/release-runtime";
+import { enforcingRunnerCapabilities } from "../__tests__/helpers/runner-capabilities";
 import { ReleaseProcess } from "../extensions/release-process";
 import { handleCredentialBroker } from "../extensions/credential-broker";
 import type { RpcHandlerDeps } from "../extensions/tool-executor/rpc-handlers";
@@ -89,6 +90,7 @@ async function fixture(options: { fetch?: ProbeFetch } = {}) {
   }, options.fetch ?? defaultFetch));
   let onDispatch: ((context: InvocationContext, rpc: ReverseRpc) => Promise<unknown>) | undefined;
   const runner: Runner = {
+    capabilities: enforcingRunnerCapabilities,
     build: async () => { throw new Error("unused"); }, cancel: async () => {},
     inspect: async id => ({ id, state: "running", diagnostics: [] }), collectArtifacts: async () => ({}),
     start: async (start, rpc) => ({ workerId: start.workerId, close: async () => {}, onNotification: () => () => {},

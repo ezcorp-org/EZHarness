@@ -1,0 +1,18 @@
+# own-pg.sh (sourced; integrator-4, lead's W4H-12 order 2026-10-06): a FRESH PostgreSQL of the job's service image for one hold or
+# one commit, never the shared proof server. own_pg_start <name>: removes any old container of that name (with -v), starts
+# docker.io/pgvector/pgvector:pg15 on 127.0.0.1 with a random password in a 0700 home under /tmp (outside the evidence dir), waits for
+# pg_isready, exports PG_ENV_FILE and PG_CONTAINER (heavy-lib.sh pg() and detached-merge/commit.sh read them) and sets an EXIT trap
+# that removes the container with its anonymous volumes and the home. The image is public (not ours): never removed. No secret printed.
+own_pg_start() {
+  OWN_PG_NAME=${1:?name}; OWN_PG_HOME=/tmp/$OWN_PG_NAME-home; local img=docker.io/pgvector/pgvector:pg15 i
+  own_pg_stop() { podman rm -f -v "$OWN_PG_NAME" > /dev/null 2>&1; rm -rf "$OWN_PG_HOME"; }
+  trap own_pg_stop EXIT
+  own_pg_stop; mkdir -m 0700 "$OWN_PG_HOME"
+  ( umask 077; printf 'POSTGRES_USER=postgres\nPOSTGRES_PASSWORD=%s\nPOSTGRES_DB=ezcorp_test\n' "$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')" > "$OWN_PG_HOME/pg.env" )
+  podman image exists $img || podman pull -q $img > /dev/null || { echo "own-pg: STOP: no $img"; return 3; }
+  podman run -d --name "$OWN_PG_NAME" --env-file "$OWN_PG_HOME/pg.env" -p 127.0.0.1::5432 $img > /dev/null || { echo "own-pg: STOP: start"; return 3; }
+  for i in $(seq 1 60); do podman exec "$OWN_PG_NAME" pg_isready -U postgres -d ezcorp_test > /dev/null 2>&1 && break; sleep 1; done
+  podman exec "$OWN_PG_NAME" pg_isready -U postgres -d ezcorp_test > /dev/null || { echo "own-pg: STOP: not ready"; return 3; }
+  export PG_ENV_FILE=$OWN_PG_HOME/pg.env PG_CONTAINER=$OWN_PG_NAME
+  echo "own-pg: $OWN_PG_NAME ($img $(podman image inspect $img --format '{{.Id}}' | cut -c1-12), server $(podman exec "$OWN_PG_NAME" postgres --version | awk '{print $3}')) on 127.0.0.1:$(podman port "$OWN_PG_NAME" 5432 | head -1 | sed 's/.*://')"
+}

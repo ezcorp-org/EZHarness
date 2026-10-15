@@ -1,0 +1,4 @@
+Checked 1 file in 15ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  no test file maps to the staged changes — skipping
+[detached HEAD 8fc75ee6d] merge: wp/w4h-17-import-outcome bdafcbbfe into integ/w00 (the FactoryConsole import spec awaits the import outcome)

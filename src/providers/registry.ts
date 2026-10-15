@@ -70,6 +70,8 @@ const LOCAL_OAUTH_OVERRIDES: AnyModel[] = [
     contextWindow: 272_000,
     maxTokens: 128_000,
   },
+  // gpt-6-luna (the C10 pin, W10c) needs no entry: pi-ai 0.87.1's
+  // openai-codex catalog ships it, and the catalog wins in resolveOAuthModel.
 ];
 
 // Load discovered models from settings (populated by /api/providers/:provider/refresh-models).

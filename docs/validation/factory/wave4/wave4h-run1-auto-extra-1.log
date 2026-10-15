@@ -1,0 +1,531 @@
+== auto-extra 1/0 ./scripts/factory-graph-proof/guest-package.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [436.00ms]
+== auto-extra 1/1 ./scripts/gate-integrity-rule11.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 15 expect() calls
+Ran 12 tests across 1 file. [1372.00ms]
+== auto-extra 1/2 ./scripts/lib/container-engine.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 42 expect() calls
+Ran 19 tests across 1 file. [441.00ms]
+== auto-extra 1/3 ./scripts/lib/factory-storage-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 14 pass
+ 0 fail
+ 21 expect() calls
+Ran 14 tests across 1 file. [428.00ms]
+== auto-extra 1/4 ./scripts/lib/verify-factory-archive-writer-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 28 expect() calls
+Ran 19 tests across 1 file. [447.00ms]
+== auto-extra 1/5 ./scripts/lib/verify-factory-storage-cli.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 27 expect() calls
+Ran 17 tests across 1 file. [434.00ms]
+== auto-extra 1/6 ./scripts/pinned-bun.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 22 expect() calls
+Ran 8 tests across 1 file. [544.00ms]
+== auto-extra 1/7 ./src/__tests__/admin-analytics-api-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 56 expect() calls
+Ran 13 tests across 1 file. [450.00ms]
+== auto-extra 1/8 ./src/__tests__/admin-session-api-routes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 27 expect() calls
+Ran 8 tests across 1 file. [966.00ms]
+== auto-extra 1/9 ./src/__tests__/attachments-admin-audit.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 14 expect() calls
+Ran 4 tests across 1 file. [956.00ms]
+== auto-extra 1/10 ./src/__tests__/attachments-cross-user-security.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 8 expect() calls
+Ran 6 tests across 1 file. [903.00ms]
+== auto-extra 1/11 ./src/__tests__/attachments-gc.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:00.743Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"bee65665-2ee3-42a8-9738-c11960eaa91b","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":false,"uidQuarantined":false}
+
+ 1 pass
+ 0 fail
+ 5 expect() calls
+Ran 1 test across 1 file. [905.00ms]
+== auto-extra 1/12 ./src/__tests__/attachments-serve-route.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 15 expect() calls
+Ran 8 tests across 1 file. [922.00ms]
+== auto-extra 1/13 ./src/__tests__/auth-jwt-password.test.ts
+bun test v1.4.2 (744846f84)
+
+ 21 pass
+ 0 fail
+ 53 expect() calls
+Ran 21 tests across 1 file. [1112.00ms]
+== auto-extra 1/14 ./src/__tests__/biome-ignores-worktrees.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 10 expect() calls
+Ran 4 tests across 1 file. [3.78s]
+== auto-extra 1/15 ./src/__tests__/build-allowed-env-injection.test.ts
+bun test v1.4.2 (744846f84)
+
+ 29 pass
+ 0 fail
+ 47 expect() calls
+Ran 29 tests across 1 file. [433.00ms]
+== auto-extra 1/16 ./src/__tests__/bundled-bootstrap-policy-change.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:08.034Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"603db752-b3ea-463d-a605-844ad17b84d3","status":"queued"}
+{"ts":"2026-10-03T09:15:08.044Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"2157e1fa-d20a-47e9-a5a8-4ad81ddec96d","status":"queued"}
+{"ts":"2026-10-03T09:15:08.323Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"e856e5a5-7e70-435a-9a52-ac05dd9074b6","status":"queued"}
+{"ts":"2026-10-03T09:15:08.326Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"e856e5a5-7e70-435a-9a52-ac05dd9074b6","status":"queued"}
+{"ts":"2026-10-03T09:15:08.330Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3763791f-98b0-485f-9514-ef0202d28824","status":"queued"}
+{"ts":"2026-10-03T09:15:08.333Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"3763791f-98b0-485f-9514-ef0202d28824","status":"queued"}
+{"ts":"2026-10-03T09:15:08.336Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-03T09:15:08.337Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-03T09:15:08.337Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-03T09:15:08.337Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-03T09:15:08.337Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-10-03T09:15:08.337Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [1178.00ms]
+== auto-extra 1/17 ./src/__tests__/bundled-source-lock.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [985.00ms]
+== auto-extra 1/18 ./src/__tests__/bundled-v4-bootstrap.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:09.866Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"ask-user","error":"Error: Source is unreadable"}
+{"ts":"2026-10-03T09:15:09.868Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"task-tracking","error":"Error: Source is unreadable"}
+{"ts":"2026-10-03T09:15:09.869Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"scratchpad","error":"Error: Source is unreadable"}
+{"ts":"2026-10-03T09:15:09.870Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.872Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.873Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.874Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.875Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.876Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.877Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.878Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.879Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.880Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.882Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.883Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.884Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.885Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.886Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.887Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.888Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.889Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.890Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.892Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.893Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.894Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.895Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.896Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.897Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.898Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.899Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.900Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.901Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.903Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.904Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.905Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.906Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.907Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.908Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.909Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.911Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.912Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.913Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.914Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.915Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.916Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.917Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.918Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.919Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.921Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.922Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.923Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.924Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.925Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.926Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.927Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.928Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.929Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.930Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.931Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.933Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.934Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.935Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.936Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-10-03T09:15:09.937Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.939Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.942Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-03T09:15:09.943Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-03T09:15:09.944Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-10-03T09:15:09.945Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.946Z","level":"warn","msg":"Bundled source owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-10-03T09:15:09.947Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.948Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.950Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.952Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.953Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.954Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.955Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.956Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.957Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.958Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Source is unreadable"}
+{"ts":"2026-10-03T09:15:09.960Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Bundled source path does not match the reviewed inventory"}
+{"ts":"2026-10-03T09:15:09.961Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"complete","status":"succeeded"}
+{"ts":"2026-10-03T09:15:09.962Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-10-03T09:15:09.962Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: runner unavailable"}
+{"ts":"2026-10-03T09:15:09.963Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.964Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.966Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-10-03T09:15:09.966Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-10-03T09:15:09.967Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.968Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-10-03T09:15:09.969Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.970Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-10-03T09:15:09.971Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.972Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-10-03T09:15:09.974Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.975Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-10-03T09:15:09.976Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.977Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"verified"}
+{"ts":"2026-10-03T09:15:09.978Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.979Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"active"}
+{"ts":"2026-10-03T09:15:09.980Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.981Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-10-03T09:15:09.981Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-10-03T09:15:09.982Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-10-03T09:15:09.982Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+{"ts":"2026-10-03T09:15:09.984Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.985Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-10-03T09:15:09.985Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-10-03T09:15:09.986Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-10-03T09:15:09.987Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-10-03T09:15:09.988Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-10-03T09:15:09.989Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-10-03T09:15:09.989Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+
+ 59 pass
+ 0 fail
+ 285 expect() calls
+Ran 59 tests across 1 file. [567.00ms]
+== auto-extra 1/19 ./src/__tests__/bundled-wiring-activation.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:10.990Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"9b3eb5e3-d6bc-4203-81ed-a07e52aa138a","unwired":2,"inserted":2}
+
+ 3 pass
+ 0 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [1030.00ms]
+== auto-extra 1/20 ./src/__tests__/chat-tool-loop-e2e.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:12.080Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:12.087Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:12.088Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:12.089Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"4926ea0a-02fc-498c-8241-8078a24128f3","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a","registered":4,"expected":4}
+{"ts":"2026-10-03T09:15:12.090Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"4926ea0a-02fc-498c-8241-8078a24128f3","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a"}
+{"ts":"2026-10-03T09:15:12.111Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-03T09:15:12.118Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:12.121Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:12.121Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:12.122Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"96db23e6-410d-4c61-83f3-5878a261df2a","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a","registered":4,"expected":4}
+{"ts":"2026-10-03T09:15:12.122Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"96db23e6-410d-4c61-83f3-5878a261df2a","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a"}
+{"ts":"2026-10-03T09:15:12.129Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-03T09:15:12.134Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:12.137Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:12.138Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:12.138Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"daff995b-065f-4679-9e9f-433a0996b0ce","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a","registered":4,"expected":4}
+{"ts":"2026-10-03T09:15:12.138Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"daff995b-065f-4679-9e9f-433a0996b0ce","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a"}
+{"ts":"2026-10-03T09:15:12.146Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-10-03T09:15:12.150Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:12.153Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:12.153Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:12.153Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"009b777c-37db-4f6b-98bf-7162db0a6367","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a","registered":4,"expected":4}
+{"ts":"2026-10-03T09:15:12.153Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"009b777c-37db-4f6b-98bf-7162db0a6367","userId":"1d04740f-6df6-4461-818d-e8620aef7e1a"}
+{"ts":"2026-10-03T09:15:12.160Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+
+ 4 pass
+ 0 fail
+ 17 expect() calls
+Ran 4 tests across 1 file. [1293.00ms]
+== auto-extra 1/21 ./src/__tests__/ci-required-aggregation.test.ts
+bun test v1.4.2 (744846f84)
+
+ 40 pass
+ 0 fail
+ 55 expect() calls
+Ran 40 tests across 1 file. [506.00ms]
+== auto-extra 1/22 ./src/__tests__/combined-runner-legs.test.ts
+bun test v1.4.2 (744846f84)
+
+ 8 pass
+ 0 fail
+ 92 expect() calls
+Ran 8 tests across 1 file. [723.00ms]
+== auto-extra 1/23 ./src/__tests__/compose-podman-masks.test.ts
+bun test v1.4.2 (744846f84)
+
+ 13 pass
+ 0 fail
+ 56 expect() calls
+Ran 13 tests across 1 file. [1.71s]
+== auto-extra 1/24 ./src/__tests__/conversations-clone-turns-api.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:15.870Z","level":"error","msg":"clone failed","subsystem":"api.clone-turns","error":"database down"}
+
+ 9 pass
+ 0 fail
+ 18 expect() calls
+Ran 9 tests across 1 file. [440.00ms]
+== auto-extra 1/25 ./src/__tests__/cov-fix-connection-postgres.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:16.344Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.345Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.345Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.346Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.346Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.346Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.346Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.346Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.347Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-03T09:15:16.347Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-10-03T09:15:16.347Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-03T09:15:16.347Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-03T09:15:16.347Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-10-03T09:15:16.347Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-03T09:15:16.347Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":3}
+{"ts":"2026-10-03T09:15:16.347Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+
+ 11 pass
+ 0 fail
+ 52 expect() calls
+Ran 11 tests across 1 file. [3.46s]
+== auto-extra 1/26 ./src/__tests__/coverage-gate.test.ts
+bun test v1.4.2 (744846f84)
+
+ 18 pass
+ 0 fail
+ 88 expect() calls
+Ran 18 tests across 1 file. [3.03s]
+== auto-extra 1/27 ./src/__tests__/db-connection.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:22.845Z","level":"warn","msg":"Bun.sql pool close failed","subsystem":"db","error":"Error: reset"}
+{"ts":"2026-10-03T09:15:22.845Z","level":"error","msg":"Completing interrupted migration rollback from a prior boot","subsystem":"db","marker":{"ts":"2026-10-03T09:15:22.845Z","snapshot":"/tmp/conn-rollback-uS1lwW/snap"}}
+{"ts":"2026-10-03T09:15:22.846Z","level":"info","msg":"Interrupted rollback completed — snapshot restored","subsystem":"db","snapshot":"/tmp/conn-rollback-uS1lwW/snap"}
+{"ts":"2026-10-03T09:15:22.846Z","level":"error","msg":"Interrupted rollback with no snapshot — refusing to boot","subsystem":"db","message":"A migration rollback was interrupted on a prior boot and no snapshot is available to complete it. Refusing to boot to avoid starting a fresh empty database over the half-finished rollback.","marker":{"ts":"2026-10-03T09:15:22.846Z","snapshot":"/tmp/conn-rollback-HrJor0/does-not-exist"},"dbPath":"/tmp/conn-rollback-HrJor0/db"}
+{"ts":"2026-10-03T09:15:22.852Z","level":"warn","msg":"advisory unlock failed","subsystem":"db","error":"Error: unlock boom"}
+{"ts":"2026-10-03T09:15:22.853Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":60000}
+{"ts":"2026-10-03T09:15:22.853Z","level":"warn","msg":"waiting for migrate lock held by pid 5151","subsystem":"db","holderPid":5151,"waitMs":60000}
+{"ts":"2026-10-03T09:15:22.854Z","level":"warn","msg":"waiting for migrate lock held by pid 4242","subsystem":"db","holderPid":4242,"waitMs":1000}
+{"ts":"2026-10-03T09:15:22.854Z","level":"warn","msg":"waiting for migrate lock held by pid unknown","subsystem":"db","holderPid":null,"waitMs":100}
+{"ts":"2026-10-03T09:15:22.854Z","level":"warn","msg":"waiting for migrate lock held by pid 7","subsystem":"db","holderPid":7,"waitMs":120000}
+{"ts":"2026-10-03T09:15:23.859Z","level":"warn","msg":"Could not write rollback-in-progress marker","subsystem":"db","error":"Error: ENOTDIR: not a directory, open '/tmp/conn-marker-6Dwz0P/afile/.ezcorp-rollback-in-progress.json'"}
+{"ts":"2026-10-03T09:15:23.860Z","level":"info","msg":"Restored pre-boot snapshot","subsystem":"db","snapshot":"/tmp/ezcorp-test-db-T9sErm/backups/pre-boot-2026-01-01T00-00-00-000Z","failedPath":"/tmp/ezcorp-test-db-T9sErm/db.failed.1791018923860"}
+
+ 21 pass
+ 0 fail
+ 51 expect() calls
+Ran 21 tests across 1 file. [1.51s]
+== auto-extra 1/28 ./src/__tests__/db-queries-quickstart.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 23 expect() calls
+Ran 9 tests across 1 file. [3.65s]
+== auto-extra 1/29 ./src/__tests__/dev-image-ownership.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/dev-image-ownership.test.ts:
+58 | 		}
+59 | 
+60 | 		const writableSteps = steps.filter(
+61 | 			(step) => step.startsWith("RUN ") && /(bun install|bun run --cwd)/.test(step),
+62 | 		);
+63 | 		expect(writableSteps).toHaveLength(3);
+                             ^
+error: expect(received).toHaveLength(expected)
+
+Expected length: 3
+Received length: 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/dev-image-ownership.test.ts:63:25)
+(fail) Dockerfile.dev image ownership > constructs UID:GID 1000 ownership without recursively copying up /app [2.04ms]
+
+ 0 pass
+ 1 fail
+ 25 expect() calls
+Ran 1 test across 1 file. [438.00ms]
+== auto-extra RED ./src/__tests__/dev-image-ownership.test.ts exit=1
+== auto-extra 1/30 ./src/__tests__/dev-image-provenance.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 25 expect() calls
+Ran 3 tests across 1 file. [818.00ms]
+== auto-extra 1/31 ./src/__tests__/dockerignore-heavy-excludes.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 29 expect() calls
+Ran 7 tests across 1 file. [456.00ms]
+== auto-extra 1/32 ./src/__tests__/e2e-lanes.test.ts
+bun test v1.4.2 (744846f84)
+
+src/__tests__/e2e-lanes.test.ts:
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun)
+lane Bun: bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun), bunx 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bunx); Playwright runner bun 1.4.2 (/tmp/factory-tools/bun-1.4.2/bun-linux-x64/bun)
+
+ 31 pass
+ 0 fail
+ 403 expect() calls
+Ran 31 tests across 1 file. [5.38s]
+== auto-extra 1/33 ./src/__tests__/executor-failover.integration.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:35.734Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:35.739Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:35.740Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:35.740Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"47b76ebd-47c6-4d76-9e0d-0d5c966b9972"}
+{"ts":"2026-10-03T09:15:35.748Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-model","retry":1,"backoffMs":256}
+{"ts":"2026-10-03T09:15:36.011Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-model","attempt":1}
+{"ts":"2026-10-03T09:15:36.011Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-03T09:15:36.012Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-03T09:15:36.033Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:36.035Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:36.035Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:36.035Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"76ee0012-f65a-4b23-afa3-c0aabdb5d02f"}
+{"ts":"2026-10-03T09:15:36.038Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-model","retry":1,"backoffMs":190}
+{"ts":"2026-10-03T09:15:36.228Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-model","attempt":1}
+{"ts":"2026-10-03T09:15:36.237Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"prov-ok","branchLen":0}
+{"ts":"2026-10-03T09:15:36.238Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:36.239Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:36.239Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"cda125be-7cba-4efb-b0d8-405cec9b7d01"}
+{"ts":"2026-10-03T09:15:36.241Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-03T09:15:36.241Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-03T09:15:36.256Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","provider":"prov-fail","model":"prov-fail-opus","kinds":["text","pdf"],"branchLen":0}
+{"ts":"2026-10-03T09:15:36.257Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:36.257Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:36.258Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"fd5643e3-ac02-4deb-bc4c-9dcc23d3a795"}
+{"ts":"2026-10-03T09:15:36.260Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov-fail","model":"prov-fail-opus","retry":1,"backoffMs":174}
+{"ts":"2026-10-03T09:15:36.434Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov-fail","failedModel":"prov-fail-opus","attempt":1}
+{"ts":"2026-10-03T09:15:36.434Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-10-03T09:15:36.434Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"prov-ok","model":"prov-ok-model","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-03T09:15:36.446Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T09:15:36.447Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T09:15:36.447Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T09:15:36.447Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"ef30cb95-02f3-4b0e-aa21-9eaaebf39142"}
+
+ 5 pass
+ 0 fail
+ 50 expect() calls
+Ran 5 tests across 1 file. [1.62s]
+== auto-extra 1/34 ./src/__tests__/executor-slash-command-expansion-e2e.test.ts
+bun test v1.4.2 (744846f84)
+
+ 5 pass
+ 0 fail
+ 29 expect() calls
+Ran 5 tests across 1 file. [940.00ms]
+== auto-extra 1/35 ./src/__tests__/executor-watchdog-suspend-reason.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:37.950Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-03T09:15:37.950Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":615000,"reason":"Watchdog: no activity for 615s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-03T09:15:37.950Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-03T09:15:37.950Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":600000,"reason":"Watchdog: no activity for 600s — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-03T09:15:37.951Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":585000}
+{"ts":"2026-10-03T09:15:37.951Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":600000,"reason":"Tool shell exceeded its 90000ms call timeout — the computer may have been asleep or suspended for about 10 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-03T09:15:37.951Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+{"ts":"2026-10-03T09:15:37.951Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","suspendedMs":45000}
+{"ts":"2026-10-03T09:15:37.951Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+{"ts":"2026-10-03T09:15:37.951Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-1","conversationId":"conv-1","idleMs":90000,"reason":"Watchdog: no activity for 90s"}
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [432.00ms]
+== auto-extra 1/36 ./src/__tests__/ext-files-route.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 21 expect() calls
+Ran 11 tests across 1 file. [448.00ms]
+== auto-extra 1/37 ./src/__tests__/extension-event-end-to-end.test.ts
+bun test v1.4.2 (744846f84)
+
+ 12 pass
+ 0 fail
+ 42 expect() calls
+Ran 12 tests across 1 file. [483.00ms]
+== auto-extra 1/38 ./src/__tests__/extension-events-hub-branch.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:39.372Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-03T09:15:39.373Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"Worker rejected action"}
+{"ts":"2026-10-03T09:15:39.374Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"db down"}
+{"ts":"2026-10-03T09:15:39.375Z","level":"warn","msg":"hub action subprocess dispatch failed","subsystem":"ext-events","extensionId":"ext-cron","name":"cron-dashboard","event":"clear-log","error":"spawn exploded"}
+
+ 19 pass
+ 0 fail
+ 69 expect() calls
+Ran 19 tests across 1 file. [445.00ms]
+== auto-extra 1/39 ./src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T09:15:40.533Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"4a2859da-58ca-4398-9e1a-45187c206cfa","code":"recovery_failed"}
+{"ts":"2026-10-03T09:15:40.533Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"8440a3de-d090-4bfc-857b-d6c4c37b26ae","code":"recovery_failed"}
+{"ts":"2026-10-03T09:15:40.533Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 4 pass
+ 0 fail
+ 16 expect() calls
+Ran 4 tests across 1 file. [1153.00ms]
+== auto-extra chunk 1: 40 files, 1 red

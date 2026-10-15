@@ -1,0 +1,129 @@
+diff --git a/src/__tests__/cov-fix-connection-postgres.test.ts b/src/__tests__/cov-fix-connection-postgres.test.ts
+index 968aeec70..ee7eda5ab 100644
+--- a/src/__tests__/cov-fix-connection-postgres.test.ts
++++ b/src/__tests__/cov-fix-connection-postgres.test.ts
+@@ -83,6 +83,11 @@ interface FakeSqlClient {
+   closed?: number;
+ }
+ 
++/** A fake driver's answer: the bounded migrate lock's try-lock takes the lock; everything else returns no rows. */
++function grant(strings: TemplateStringsArray): Promise<unknown[]> {
++  return Promise.resolve(strings.join("").includes("pg_try_advisory_lock") ? [{ locked: true }] : []);
++}
++
+ /**
+  * The Bun.sql pool the opener seam hands initPostgres. A callable tagged
+  * template (advisory lock/unlock) that also exposes .close() for the drain
+@@ -93,7 +98,7 @@ function createFakeSqlClient(): FakeSqlClient {
+   const client: FakeSqlClient = Object.assign(
+     (strings: TemplateStringsArray, ..._v: unknown[]): Promise<unknown[]> => {
+       sqlCalls.push(strings.join("?"));
+-      return Promise.resolve([]);
++      return grant(strings);
+     },
+     {
+       closed: 0,
+@@ -112,7 +117,7 @@ function createReservedClient(events: string[]): FakeSqlClient {
+   return Object.assign(
+     (strings: TemplateStringsArray): Promise<unknown[]> => {
+       events.push(strings.join("?"));
+-      return Promise.resolve([]);
++      return grant(strings);
+     },
+     { release: () => { events.push("release"); } },
+   );
+@@ -227,7 +232,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
+     expect(migrateCalls).toBe(1);
+ 
+     // The advisory lock bracketed the migrate on the Bun.sql client.
+-    expect(sqlCalls.some((s) => s.includes("pg_advisory_lock"))).toBe(true);
++    expect(sqlCalls.some((s) => s.includes("pg_try_advisory_lock"))).toBe(true);
+     expect(sqlCalls.some((s) => s.includes("pg_advisory_unlock"))).toBe(true);
+ 
+     // applyBunSqlJsonbFix() swapped drizzle's jsonb mapper for identity.
+@@ -265,7 +270,7 @@ describe("initPostgres — external Postgres boot path (unit, mocked driver)", (
+     // the main external handle, so migration callers keep the { rows } shape.
+     const normalized = (await migrationDb.execute()) as unknown as { rows: unknown[] };
+     expect(normalized).toEqual({ rows: [] });
+-    expect(events[0]).toContain("pg_advisory_lock");
++    expect(events[0]).toContain("pg_try_advisory_lock");
+     expect(events[1]).toContain("pg_advisory_unlock");
+     expect(events[2]).toBe("release");
+ 
+@@ -289,7 +294,7 @@ describe("withPostgresMigrateLock — reserved migration failure cleanup (unit,
+         expect(migrationDb).toBe(reservedMigrationPools.at(-1));
+         throw new Error("migration failed");
+       })).rejects.toThrow("migration failed");
+-      expect(events[0]).toContain("pg_advisory_lock");
++      expect(events[0]).toContain("pg_try_advisory_lock");
+       expect(events[1]).toContain("pg_advisory_unlock");
+       expect(events[2]).toBe("release");
+     } finally {
+diff --git a/web/src/lib/server/factory-boot.ts b/web/src/lib/server/factory-boot.ts
+index cf66d0b18..133c59039 100644
+--- a/web/src/lib/server/factory-boot.ts
++++ b/web/src/lib/server/factory-boot.ts
+@@ -31,8 +31,29 @@ export interface FactoryHostBootDependencies {
+    * connection would fail the same way forever (W09f).
+    */
+   readonly recoverDatabase: (error: unknown) => Promise<boolean>;
++  /** Overrides {@link FACTORY_BOOT_BOUND_MS}. */
++  readonly bootBoundMs?: number;
++  /** How the host ends itself when boot outlives its bound. Defaults to `process.exit`. */
++  readonly exit?: (code: number) => void;
+ }
+ 
++/**
++ * How long factory boot may take before the host gives up and exits.
++ *
++ * Boot, up to "[factory] composed", is the startup config, binding the
++ * installation, the object store, the provider broker, the collaborators, and
++ * one round of the seven startup probes. Each probe has its own fifteen-second
++ * deadline (FACTORY_PROBE_DEADLINE_MS), so the probes cannot exceed 105 s even
++ * if every one hangs, and the other phases take seconds on a healthy host.
++ * Three minutes leaves that headroom, and stays well inside the provisioner's
++ * ten-minute ready() wait, so a restart and a fresh boot still fit in it. The
++ * readinessRetry window runs after boot, in the background, and is not part
++ * of this bound. Past it, the host logs the phase it stalled in and exits
++ * non-zero, so its supervisor restarts it instead of the healthcheck reporting
++ * "starting" for the whole wait.
++ */
++export const FACTORY_BOOT_BOUND_MS = 180_000;
++
+ /** Bounds a run may not exceed, from the environment or the documented default. */
+ function hostRunOptions(env: Readonly<Record<string, string | undefined>>) {
+   return {
+@@ -53,9 +74,23 @@ export async function startFactoryForHost(
+   dependencies: FactoryHostBootDependencies,
+   env: Readonly<Record<string, string | undefined>> = process.env,
+ ): Promise<FactoryInstallationStartup | null> {
++  const boundMs = dependencies.bootBoundMs ?? FACTORY_BOOT_BOUND_MS;
++  let started = "boot";
++  let finished = "none";
++  const bound = setTimeout(() => {
++    dependencies.log.error("[factory] boot exceeded its bound; exiting so the host restarts", { phase: started, lastFinished: finished, boundMs });
++    setReadiness({ state: "degraded", reason: "factory-boot-stalled", detail: { phase: started, lastFinished: finished, boundMs } });
++    (dependencies.exit ?? ((code: number) => process.exit(code)))(1);
++  }, boundMs);
++  bound.unref?.();
+   try {
+     const startup = await startFactoryInstallation({
+       host: {
++        trace: (event) => {
++          if (event.state === "started") started = event.phase;
++          else finished = event.phase;
++          dependencies.log.info("[factory] boot phase", event);
++        },
+         database: dependencies.database,
+         // `resolveParameters` is omitted so `createFactoryApplication` uses the
+         // run-inputs resolver it builds; naming it here would shadow that.
+@@ -105,6 +140,9 @@ export async function startFactoryForHost(
+     }
+     dependencies.log.error("[factory] composition failed; factory routes stay closed", { error: String(error) });
+     return null;
++  } finally {
++    // Boot is over, composed or refused: the bound no longer applies.
++    clearTimeout(bound);
+   }
+ }
+ 

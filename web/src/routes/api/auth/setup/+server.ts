@@ -12,6 +12,9 @@ import { errorJson } from "$lib/server/http-errors";
 import { RateLimiter } from "$lib/server/security/rate-limiter";
 import { getSessionConfig, setSessionCookie } from "$lib/server/auth/session-cookie";
 import { ensureBundledExtensions } from "$server/extensions/bundled";
+import { getDb } from "$server/db/connection";
+import { factoryBootstrapHost } from "$server/factory/provisioning/bootstrap";
+import { verifyFactoryBootstrapInvitation } from "$server/factory/provisioning/invitation";
 
 // First-boot bootstrap: 3 attempts / 1 hour per IP. Generous for a
 // legitimate single-shot setup, tight enough to block brute-forcing
@@ -41,6 +44,17 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
   }
   const { name, email, password } = result.data;
 
+  // A provisioned installation creates its first administrator only for the
+  // invited person holding the invitation token. Every refusal answers the
+  // same 403, so the response does not say which part was wrong.
+  let bootstrap: Awaited<ReturnType<typeof factoryBootstrapHost>>;
+  try {
+    bootstrap = await factoryBootstrapHost(process.env, getDb);
+    if (bootstrap) verifyFactoryBootstrapInvitation(bootstrap.invitation, { token: result.data.invitationToken, email }, Date.now());
+  } catch {
+    return errorJson(403, "A valid first-administrator invitation is required");
+  }
+
   const passwordHash = await hashPassword(password);
   const user = await createUser({
     email: email.toLowerCase(),
@@ -48,6 +62,10 @@ export const POST: RequestHandler = async ({ request, cookies, getClientAddress 
     name: name.trim(),
     role: "admin",
   });
+  // Identity only: consent is the administrator's separate, explicit act. If
+  // this write fails after the user exists, the consent act adopts the setup
+  // under the same invitation proof (FactoryInstallationBootstrap.consent).
+  if (bootstrap) await bootstrap.bootstrap.recordRedeemed(bootstrap.invitation, user.id);
 
   const cfg = getSessionConfig();
   const secret = await getJwtSecret();

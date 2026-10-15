@@ -1,4 +1,6 @@
 #!/usr/bin/env bun
+import { currentRepositoryGitContext } from "@ezcorp/sdk/git";
+
 /** Fail a source-attested receipt when its checkout contains source changes. */
 export type GitWorktreeStatus = {
   readonly exitCode: number;
@@ -13,14 +15,25 @@ export type GitWorktreeInspector = {
 function productionInspector(): GitWorktreeInspector {
   return {
     status(repoRoot) {
-      const process = Bun.spawnSync(
+      // Item C2 (W18 hygiene): this inspects repoRoot's OWN worktree status
+      // as invoked (a receipt-verification caller may itself run from
+      // inside a hook, where staged-vs-committed distinctions matter), so
+      // it keeps the invoking git context (currentRepositoryGitContext(),
+      // never withoutGitContext() -- stripping would be wrong here, not
+      // merely unneeded). The local result variable is renamed `process_`
+      // (was `process`): the original name shadowed the global `process`
+      // for this whole block, including its own initializer (a
+      // `let`/`const` temporal-dead-zone rule), so `process.env` below
+      // would otherwise throw.
+      const env = currentRepositoryGitContext(process.env);
+      const process_ = Bun.spawnSync(
         ["git", "status", "--porcelain=v1", "--untracked-files=all", "--ignore-submodules=none"],
-        { cwd: repoRoot, stdout: "pipe", stderr: "pipe" },
+        { cwd: repoRoot, stdout: "pipe", stderr: "pipe", env },
       );
       return {
-        exitCode: process.exitCode,
-        stdout: process.stdout.toString(),
-        stderr: process.stderr.toString(),
+        exitCode: process_.exitCode,
+        stdout: process_.stdout.toString(),
+        stderr: process_.stderr.toString(),
       };
     },
   };

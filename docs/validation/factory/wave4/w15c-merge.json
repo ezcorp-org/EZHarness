@@ -1,0 +1,159 @@
+{
+ "package": "w15c",
+ "branch": "wp/w15c-pool-leaf",
+ "head": "8112baaf15dd5fc0ea568a965f072a31331b9848",
+ "codeHead": "e7325b7f5",
+ "branchBase": "6c8ec29c5",
+ "validatorVerdict": "ACCEPT at 126b776d2 (source 603077bbb) and ACCEPT on the delta 8112baaf1 (code e7325b7f5, bare-specifier rule), validator-3; copied as w15c-validation.txt",
+ "mergeSha": "943501e4e67c2039085e2a6239a0b4a73f141c6f",
+ "tree": "150b39ee052c9f8b63507e9fece3bca7525b3862",
+ "parents": [
+  "bfa74c11fe275d00cf8c6f5b5f692362dad24c0d",
+  "8112baaf15dd5fc0ea568a965f072a31331b9848"
+ ],
+ "conflicts": {
+  "scripts/coverage-thresholds.json": "both sides kept (+src/factory/checkpoint-limits.ts: 100), none lowered; the first union dropped a comma, fixed before any check (file parses, 1184 entries)",
+  "tasks/lessons.md": "union",
+  "hunks": "w15c-merge-conflict-hunks.txt"
+ },
+ "integrationFix": [],
+ "rulings": {
+  "fixes": "pool-coverage red since the W15 merge (F2 of the main 96e7ee58c merge): the node bundle of src/factory/pool/service-server.ts pulled drizzle-orm/bun-sql through checkpoint-barrier -> ... -> db/connection. W15c adds the leaf src/factory/checkpoint-limits.ts and the node-service import boundary gate (forbiddenPackages bun, bun:*, drizzle-orm/bun-sql). At this merge the bundle builds (27 KB, 0 bun imports) and the pool producer exits 0.",
+  "W15b": "W15b, merging after W15c, drops its duplicate import walker in favour of this gate (runtimeImportClosure in scripts/check-factory-boundaries.ts)",
+  "guestRerun": "the three guest suites were rerun green after W12c on proof merge 2836a5a4e (ref proof/w15c-w12c-guests), 28/0; validator-3 confirmed the receipts",
+  "poolReds": "the backend pool at that proof merge shows 14 failures, the same as a detached integ/w00 head without W15c (6964dec93): the umask-sensitive tests and podman-compose-wrapper, main-origin F3/F4 items owned by W18a-3 (fixed on its branch). They are known W18a-3 items, not W15c failures, and stay red on every head until W18a-3 lands."
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T21:59:31Z",
+   "end": "2026-09-24T21:59:31Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "b0bcc093f452ef0a5c4e56f74c782b801ba37a6b2593bae14953f26ab8ddcbda"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T21:59:31Z",
+   "end": "2026-09-24T22:00:12Z",
+   "command": "bun run typecheck",
+   "logSha256": "727a047ae41854e2737e1db628a20722380751184f0bfcd3a6ca415ac90e888b"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:12Z",
+   "end": "2026-09-24T22:00:14Z",
+   "command": "bun run lint",
+   "logSha256": "a91c70cd2d082094533943448226ec9c41cacd12e6b4231ac9f95a9066634c36"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:14Z",
+   "end": "2026-09-24T22:00:16Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:16Z",
+   "end": "2026-09-24T22:00:16Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:16Z",
+   "end": "2026-09-24T22:00:21Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-packages-@ezcorp-factory-sdk-src-artifact-validation-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:21Z",
+   "end": "2026-09-24T22:00:22Z",
+   "command": "bun test --timeout 60000 ./packages/@ezcorp/factory-sdk/src/artifact-validation.test.ts",
+   "logSha256": "f12044c4eb8d9c2e6acd457d7d5b7808d2ab5ed01dd1b2ca940303b8fb23e209"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:22Z",
+   "end": "2026-09-24T22:00:24Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "570c810825413c75b28d6821e1a3089344da7e26f8c44c8a44387bb44e068478"
+  },
+  {
+   "name": "focused-src-factory-checkpoint-barrier-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:24Z",
+   "end": "2026-09-24T22:00:24Z",
+   "command": "bun test --timeout 60000 ./src/factory/checkpoint-barrier.test.ts",
+   "logSha256": "6f1cb1885fecb073af60a18c6c3fcaff5a445c1f781f32de4daa74e51238c412"
+  },
+  {
+   "name": "focused-src-factory-pool-checkpoint-routes-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:24Z",
+   "end": "2026-09-24T22:00:25Z",
+   "command": "bun test --timeout 60000 ./src/factory/pool/checkpoint-routes.test.ts",
+   "logSha256": "a237aec2f30510552d3a7ffcc7fc479f3e5f631df9214a8ad713d0649dd1bfdb"
+  },
+  {
+   "name": "focused-src-factory-recovery-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:25Z",
+   "end": "2026-09-24T22:00:25Z",
+   "command": "bun test --timeout 60000 ./src/factory/recovery-composition.test.ts",
+   "logSha256": "44ad7c67641fae65eb58f90910bdf4a2944c4e1f5a682645e62802bc6d9dd3e6"
+  },
+  {
+   "name": "focused-src-factory-restore-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:25Z",
+   "end": "2026-09-24T22:00:26Z",
+   "command": "bun test --timeout 60000 ./src/factory/restore-composition.test.ts",
+   "logSha256": "8350591c75954793a0cb719d33b78b5b0d21d3cf07cc1ac18d769ff5e3521bc2"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T22:00:26Z",
+   "end": "2026-09-24T22:00:29Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "5576316ec439e3e3316502ace90efb04d59f3fe62df539926ca1f5c33d69fe52"
+  },
+  {
+   "name": "pool service node bundle",
+   "exitCode": 0,
+   "command": "bun build src/factory/pool/service-server.ts --target node --format esm --outfile=<tmp>/server.mjs",
+   "logSha256": "a97fa95958c1acb0372bad80821d2c93a2c92678aa1dffd71533a2a7ec3dcfbf"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh ... pool",
+  "summary": [
+   "=== heavy batch 2026-09-24T22:00:54Z",
+   "HEAD bfa74c11fe275d00cf8c6f5b5f692362dad24c0d MERGE_HEAD 8112baaf15dd5fc0ea568a965f072a31331b9848 index-tree 150b39ee052c9f8b63507e9fece3bca7525b3862 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  141G  92% /",
+   "--- START pg-factory-checkpoint 2026-09-24T22:00:54Z",
+   "--- END   pg-factory-checkpoint 2026-09-24T22:01:30Z exit=0  12 pass 0 fail ",
+   "--- START pg-factory-key-rotation 2026-09-24T22:01:30Z",
+   "--- END   pg-factory-key-rotation 2026-09-24T22:01:35Z exit=0  1 pass 0 fail ",
+   "--- START pg-factory-pool-checkpoint 2026-09-24T22:01:35Z",
+   "--- END   pg-factory-pool-checkpoint 2026-09-24T22:01:36Z exit=0  6 pass 0 fail ",
+   "--- START pg-factory-restore 2026-09-24T22:01:36Z",
+   "--- END   pg-factory-restore 2026-09-24T22:02:02Z exit=0  13 pass 0 fail ",
+   "--- START pool-coverage 2026-09-24T22:02:02Z",
+   "--- END   pool-coverage 2026-09-24T22:02:21Z exit=0  24 pass 0 fail 24 pass 0 fail 4 pass 0 fail 3 pass 0 fail 13 pass 0 fail 4 pass 0 fail 11 pass 0 fail 2 pass 0 fail 1 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-24T22:02:21Z"
+  ]
+ },
+ "commitHook": "the pre-commit hook ran its staged suites: all pass (w00/w15c-merge/commit.log)",
+ "standingSteps": "df 143G at merge start, 141G before the heavy batch, 140G at commit"
+}

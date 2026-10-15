@@ -1,0 +1,45 @@
+W4H-18 report: the runner-FD settle in the production resources proof. Written once. FROZEN after this file.
+
+Branch wp/w4h-18-runner-fd-settle, worktree .worktrees/w4h-18, base integ/w00 6df16debf (integ is now 95bc71b20; the commits after the base are docs only).
+Commits (author and committer: archy noreply):
+  dcc3212c4b7669a9ad23c8808eceb84581207eda fix(shipping): settle the R4 runner FD count before the strict check
+  99c5bb9ab docs(factory): W4H-18 gates and todo review (runner-FD settle)
+Hook: the fix commit printed 1 suite (12 pass). The gate commit mapped 0 suites.
+
+Root cause: the script read the runner's /proc/<pid>/fd count once after each cycle and compared it by strict equality. A late
+close by the runner failed the proof, and the receipt held no runner descriptors, so a late close and a leak looked the same.
+
+Fix (lead rulings: helpers in the lib; equality only; runner snapshot for the kinds):
+  - settleRunnerFds waits for EQUALITY, at most 150 polls 100 ms apart (about 15 s per cycle; about 150 s for 10 cycles,
+    within the 25-minute proof timeout and the 75-minute job timeout). Above or below the baseline after the bound still fails.
+    Bound 0 is one strict read.
+  - The strict check message is byte-equal. A runner baseline fd snapshot is taken. On failure the receipt has failure.runner
+    (the settle, the extra descriptors with their kinds, the missing descriptors). Every sample has runnerFdSettle (polls used).
+  - multisetDelta moved to the lib (DRY). No app-side check changed. No threshold changed.
+
+Gates (all in tasks/factory/w4h-18-GATES.md, with receipts under /tmp/factory-platform-evidence/w4h-18/):
+  G1 R1a red at base: logs/r1a-unit-red-at-base.log
+  G2 R1b hosted receipt has no runner field: hosted-artifact-37986983940/, logs/hosted-37986983940-resources-job.log
+  G3 R1c base shard under the lock GREEN, 10/10, runnerFds 24: r1c-base/ (try 1 was a harness file-mode failure, kept)
+  G4 R2 unit GREEN 16/16; lib LH 63/63, FNH 12/12: logs/r2-unit-green.log, cov-r2/lcov.info
+  G5 R2 mutants 5/5 RED: logs/mutants-summary.log
+  G6 R3 suite shard "resources" at dcc3212c4 under the lock GREEN, 10/10, settle polls 1 in every cycle: r3-head/
+  G7 legs: lint, boundaries x2, gate-integrity (integ PASS; main = exactly the 8), new-file and patch PASSED and vacuous
+     (scripts/), CRAP vacuous vs integ (touched worst 11.0), prune clean: logs/legs-dcc3212c4/
+  G8 typecheck and svelte-check 0, pinned Node 24.14.1: logs/typecheck.log
+  G9 guard set under the lock, 41 files, 511 pass, 2 host-capability skips, 0 fail: guard/guard.log
+
+Open, disclosed:
+  - The script has no unit lcov: it runs the proof at module load. R3 executed its settle path. The failure branch did not
+    run live; its logic is the lib function, which is fully covered.
+  - The late close did not occur locally (1 poll in each cycle). A hosted run is the only place it has been seen.
+Cleanup: localhost/w4h-18-runner:24.04 removed by name. No w4h-18 container, volume or snapshot is left. Nothing pruned.
+
+sha256 (first 16 hex):
+  ee6078c0e253546b scripts/lib/shipping-runtime-resource-accounting.ts
+  3d7b97d6d12e310d scripts/verify-shipping-runtime-resources.ts
+  40b321c3be9837ae scripts/verify-shipping-runtime-runner-fd-settle.test.ts
+  7a236053ddb75930 tasks/factory/w4h-18-GATES.md
+  2e9524e57fbec978 r3-head receipt r4-resource-samples.json
+  43e8cb418c31b088 logs/mutants-summary.log
+  b6f9644f5257ee97 brief w4h-18.md

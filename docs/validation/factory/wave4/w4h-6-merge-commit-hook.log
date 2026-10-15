@@ -1,0 +1,24 @@
+Checked 7 files in 15ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/extension-runner/tests/channel-pool.test.ts
+bun test v1.4.2 (744846f84)
+
+ 6 pass
+ 0 fail
+ 17 expect() calls
+Ran 6 tests across 1 file. [1391.00ms]
+  bun: src/factory/reference-code/workspace.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 31 expect() calls
+Ran 15 tests across 1 file. [1.67s]
+  bun: src/factory/runner/supervisor.podman.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 6 expect() calls
+Ran 2 tests across 1 file. [21.33s]
+[detached HEAD 463837a12] merge: wp/w4h-6 4bcd76089 into integ/w00 (bounded FIFO reads and group kill keep the hosted runner's fs thread pool free)

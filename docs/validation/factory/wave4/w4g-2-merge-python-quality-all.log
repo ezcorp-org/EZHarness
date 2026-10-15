@@ -1,0 +1,76 @@
+Resolved 14 packages in 2ms
+Checked 13 packages in 3ms
+Resolved 7 packages in 0.68ms
+Checked 6 packages in 0.06ms
+→ ruff (locked src/factory/runner/python)
+All checks passed!
+→ ruff (locked src/factory/reference-image/python)
+All checks passed!
+→ mypy --strict (locked src/factory/runner/python)
+Success: no issues found in 21 source files
+→ mypy --strict (locked src/factory/reference-image/python)
+Success: no issues found in 16 source files
+→ discovered 253 Python test case(s) in src/factory/runner/python
+..........................................................................................................................................................escaped
+.escaped
+.escaped
+.................................................................................................
+----------------------------------------------------------------------
+Ran 253 tests in 0.460s
+
+OK
+→ discovered 183 Python test case(s) in src/factory/reference-image/python
+.......................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 183 tests in 0.036s
+
+OK
+→ discovered 253 Python test case(s) in src/factory/runner/python
+→ coverage.py over standard-library discovery (src/factory/runner/python)
+..........................................................................................................................................................escaped
+.escaped
+.escaped
+.................................................................................................
+----------------------------------------------------------------------
+Ran 253 tests in 1.439s
+
+OK
+→ coverage.py over one real script invocation
+{"ok": false, "error": "envelope must contain kind and value"}
+Name                                              Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------------------------------------
+src/factory/runner/python/c02_runner.py              32      0      6      0   100%
+src/factory/runner/python/factory_ijson.py          179      0     86      0   100%
+src/factory/runner/python/factory_materials.py       88      0     22      0   100%
+src/factory/runner/python/factory_schema.py         108      0     68      0   100%
+src/factory/runner/python/factory_validation.py     464      0    332      0   100%
+src/factory/runner/python/guest.py                  271      0     80      0   100%
+src/factory/runner/python/refdata/__init__.py         1      0      0      0   100%
+src/factory/runner/python/refdata/guest.py          246      0     84      0   100%
+src/factory/runner/python/refdata/parquet.py         23      0      2      0   100%
+src/factory/runner/python/refdata/rows.py            84      0     38      0   100%
+---------------------------------------------------------------------------------------------
+TOTAL                                              1496      0    718      0   100%
+Wrote LCOV report to /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage-python/src-factory-runner-python.raw
+→ discovered 183 Python test case(s) in src/factory/reference-image/python
+→ coverage.py over standard-library discovery (src/factory/reference-image/python)
+.......................................................................................................................................................................................
+----------------------------------------------------------------------
+Ran 183 tests in 0.059s
+
+OK
+Name                                                                  Stmts   Miss Branch BrPart  Cover   Missing
+-----------------------------------------------------------------------------------------------------------------
+src/factory/reference-image/python/image_guest.py                       216      0     48      0   100%
+src/factory/reference-image/python/reference_image/__init__.py            1      0      0      0   100%
+src/factory/reference-image/python/reference_image/claims.py             77      0     20      0   100%
+src/factory/reference-image/python/reference_image/fixtures.py           53      0     26      0   100%
+src/factory/reference-image/python/reference_image/ocr_report.py         58      0     14      0   100%
+src/factory/reference-image/python/reference_image/png_format.py        119      0     44      0   100%
+src/factory/reference-image/python/reference_image/png_normalize.py      89      0     38      0   100%
+src/factory/reference-image/python/reference_image/sdxl.py               78      0     22      0   100%
+-----------------------------------------------------------------------------------------------------------------
+TOTAL                                                                   691      0    212      0   100%
+Wrote LCOV report to /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage-python/src-factory-reference-image-python.raw
+→ python LCOV: /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage-python/lcov.info
+✓ Python all passed (2 locked project(s): src/factory/runner/python src/factory/reference-image/python; interpreter 3.13.12)

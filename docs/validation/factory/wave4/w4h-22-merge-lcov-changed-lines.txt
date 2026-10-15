@@ -1,0 +1,3 @@
+per-file lcov proof: merge c329cb4f7 vs base 7f641a70c; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-22-toast-outcome/merged.lcov
+web/e2e/file-organizer-real.spec.ts: NO LCOV RECORD in this hold (27 added lines)
+TOTAL instrumented added lines 0, uncovered 0

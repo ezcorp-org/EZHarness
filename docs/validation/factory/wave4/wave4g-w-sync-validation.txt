@@ -1,0 +1,72 @@
+VERDICT (validator-6) — W-SYNC merge 787f8676c (wp/w-sync-main): ACCEPT. Gates commit reviewed: 19dbd60fd (wp/w-sync-gates).
+
+Merge 787f8676c4f4: parents exactly 6fe920150 (integ, the wave) and 31052930d (origin/main); tree 3667d4bce.
+IDENTITY (the lead's ruling: the archy rule binds the wave's own commits only):
+  787f8676c archy <281643943+EZArchy@users.noreply.github.com>, author and committer: PASS.
+  19dbd60fd archy <281643943+EZArchy@users.noreply.github.com>, author and committer: PASS.
+  Upstream authorship: the 9 commits of 6fe920150..787f8676c^2 are origin/main's own, reached through the second parent,
+  and keep their upstream authors (jaysanny 8, EZArchy 1). The rule does not apply to them.
+Config hash 44962525f1ca1a8b at the start and end of every phase. Bun and bunx 1.4.2, the pipelining flag, Vitest 5.0.0.
+
+(1) MERGE STRUCTURE (check-merge.py; check-merge-787f8676c.txt)
+  The parents are right.
+  Against the mechanical merge (`git merge-tree --write-tree 6fe920150 origin/main` = 41fe03b26) the merge differs in exactly 5 paths:
+    - the three conflict files: build-pi-agent.ts, tasks/lessons.md, tasks/todo.md;
+    - the lead-approved exception: src/providers/factory-broker.ts and its test.
+  No other file differs from both parents' mechanical merge.
+  The checker was self-tested both ways: the wave head alone FAILS; a scratch mechanical merge passes the paths and fails on its markers.
+(2) JOURNALS: tasks/lessons.md and tasks/todo.md are true unions (line multiset): 0 lines of either side lost, 0 conflict
+    markers, 0 non-blank lines in neither side. The one blank line before "## W02c" is the only addition. No marker in any of the 3 files.
+(3) BOTH BEHAVIOURS
+  build-pi-agent.ts: `const model = factoryRuntime ? resolved.piModel : withKeylessAuth(resolveModelForCredential(…), initialCred.token)`.
+    - It keeps the wave's 190ad3afa (a factory attempt takes the gateway-approved model untouched).
+    - It keeps main's #315 8aa507304 (a keyless credential never sends its placeholder as a bearer).
+    - The lead's note named #317 and #319, but they do not touch this file.
+  factory-broker.ts:163 (the approved exception): `{ ...request.options, ...authCallOptions(credential.token) }`.
+    - This is main's #315 rule for a direct pi-ai call: a real key gives { apiKey }; the keyless placeholder gives
+      { apiKey, headers: { Authorization: null } }.
+    - It overwrites nothing: request.options comes from factory-execution.ts brokerOptions, an allowlist of toolChoice,
+      reasoning, deferred and thinkingBudgets, with no headers.
+    - The new case in factory-broker.test.ts pins both credentials.
+  My red checks at the merge:
+    - broker spread reverted to `apiKey: credential.token`: RED (factory-broker 13 tests, by assertion);
+    - build-pi-agent keyless wrap made an identity: RED (keyless-auth-header 10 tests);
+    - build-pi-agent factory branch disabled: SURVIVED against factory-execution.integration (6/0). Equivalent under that suite:
+      it uses a plain API key, for which resolveModelForCredential returns the model unchanged and withKeylessAuth is a no-op.
+      The factory branch differs only for an OAuth or keyless host credential, which no test covers. That gap is the wave's
+      own (190ad3afa), not this merge's; the merge kept the wave's line verbatim. Low; for the factory runtime's owner.
+  Both sides' tests at the merged tree:
+    - static: keyless-auth-header, llm-handler, failover, kilo-catalog, provider-error-classifier, web-vitest-coverage-guard, and
+      every bun test importing build-pi-agent: 244/0;
+    - main #319's web component tests under Vitest 5: 51/0;
+    - the wave's factory-execution.integration: 6/0;
+    - main's executor-failover.integration: 5/0.
+(4) STATIC (hold-v6-787f8676c/results.jsonl)
+  typecheck (scripts/typecheck.sh: backend plus web svelte-check), lint, check-factory-boundaries, check-boundaries: 0. gitleaks 0.
+  gate-integrity vs origin/main = exactly the 8 expected paths (findings-match.py PASS).
+  gate-integrity vs 6fe920150: one finding, scripts/check-web-vitest-coverage.ts. This is main's #319 change carried in, not made by
+    the merge: the merged file is byte-identical to origin/main's, and the wave never touched it. It is for the integrator's
+    merge gates and the PR, not a W-SYNC defect.
+(5) HEAVY, under the lock (lock_veto validator-6 first; the resource gate before every leg):
+    The 26 hook-mapped suites (w00/w-sync-merge/hook-mapped-3667d4bce.txt) all pass with nonzero counts:
+      - the 19 root suites, one process each: llm-handler 20, factory-broker 13, compose-podman-masks 13, context-summarize 16,
+        credentials 41, db-queries-quickstart 9, dockerignore-heavy-excludes 7, executor-failover.integration 5, executor 13,
+        executor-watchdog-suspend-reason 6, failover 27, installer-core 53, keyless-auth-header 10, kilo-catalog 60,
+        production-image-lifecycle-launch.integration 6, provider-error-classifier 65, quickstart-api 9,
+        sandbox-capability-probe 33, web-vitest-coverage-guard 9;
+      - the 7 web suites under Vitest 5, one at a time: ChatNavSection 31, ChatHeader 21, ConversationList.tree 12,
+        ChatMessage 11, layout-active-project-sync 8, chat-no-provider-banner 9, stores-quickstart-refresh 3.
+    Guard set 12 files 60/0.
+
+GATES COMMIT 19dbd60fd: a child of 787f8676c, archy noreply; `git diff --name-only 787f8676c 19dbd60fd` = tasks/factory/w-sync-GATES.md only.
+Its claims match the receipts under /tmp/factory-platform-evidence/w-sync/ and git:
+  - the broker red 12 pass, 1 fail (fix/red-factory-broker.log);
+  - ruled-receipts.txt: 26 suites, each rc=0 with counts, on tree 3667d4bce, Bun 1.4.2, Vitest 5.0.0, flag=1;
+  - heavy-legs-final.log: 173 suites rc=0, 0 non-zero; Vitest 12 files, 123 tests passed;
+  - G5: the 8 paths;
+  - G8: names vs integ 91 files and vs main 2471 files, both equal to git's counts;
+  - the merge identity and tree as stated.
+The "Playwright specs not covered here" note is accurate: they run in the integrator's chain at the published head.
+
+No blocking findings. One low item, the factory-branch test gap, belongs to the wave's runtime owner.
+Evidence: /tmp/factory-platform-evidence/w-sync-validation/ (hold-v6-787f8676c/, check-merge-787f8676c.txt, check-merge.py, prep.txt).

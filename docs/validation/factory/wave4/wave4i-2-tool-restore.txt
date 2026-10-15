@@ -1,0 +1,22 @@
+Temporal test server restore (integrator-3, lead's word 2026-10-05), as ci.yml lines 142-147
+download start 2026-10-05T08:50:31Z
+curl exit=0 end 2026-10-05T08:50:34Z
+/tmp/temporal-test-server.tar.gz: OK
+sha256 check exit=0
+extract+chmod exit=0 2026-10-05T08:50:45Z
+.rwx------ 83M dev 2026-08-10 19:14:06.000000000 -0400 temporal-test-server
+binary sha256 daa58458d32f6254a901085c27ad1c19a64a4e171679ed08b5b92c298baba6ce
+tarball removed from /tmp
+
+Temporal CLI restore (integrator-4, lead's word 2026-10-05): temporalio/cli v1.9.1 linux_amd64 from the GitHub release
+download start 2026-10-05T14:11:07Z
+curl tarball exit=0 checksums exit=0 end 2026-10-05T14:11:12Z
+09a0326a51db84d02735e53542b9ebd8c4758daf47482a9ab0abce15844e60d5  temporal_cli_1.9.1_linux_amd64.tar.gz
+temporal_cli_1.9.1_linux_amd64.tar.gz: OK
+sha256 check exit=0
+LICENSE
+temporal
+extract+chmod exit=0 2026-10-05T14:11:19Z
+temporal version 1.9.1 (Server 1.32.0, UI 2.54.1)
+binary sha256 712217694cac9f786a72d4b6c876cd15f3dcf1bf31434d9fed6af25242a327a0
+download folder removed from /tmp

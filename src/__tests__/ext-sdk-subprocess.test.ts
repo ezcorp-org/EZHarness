@@ -4,7 +4,7 @@
  * Covers:
  *   - src/extensions/sdk/config.ts        (readConfig, writeConfig, getPublishToken)
  *   - src/extensions/sdk/test-runner.ts    (buildTestSpawnArgs, buildTestEnv)
- *   - src/extensions/subprocess.ts         (parseMemoryLimit, ExtensionProcess statics)
+ *   - src/extensions/subprocess.ts         (parseMemoryLimit, HostExtensionProcess statics)
  *   - src/extensions/sdk/test-helpers.ts   (assertToolResult)
  *   - src/extensions/checksum.ts           (computeChecksum, verifyChecksum)
  */
@@ -186,16 +186,10 @@ describe("sdk/test-runner", () => {
 });
 
 // ────────────────────────────────────────────────────────────────
-// Module 3: subprocess.ts (parseMemoryLimit, ExtensionProcess statics)
+// Module 3: subprocess.ts (parseMemoryLimit, HostExtensionProcess statics)
 // ────────────────────────────────────────────────────────────────
 
-import {
-  parseMemoryLimit,
-  MIN_MEMORY_LIMIT_MB,
-  ExtensionProcess,
-  killActiveExtensionProcesses,
-  _addActiveProcessForTest,
-} from "../extensions/subprocess";
+import { parseMemoryLimit, } from "../extensions/subprocess";
 
 describe("subprocess", () => {
   describe("parseMemoryLimit", () => {
@@ -223,94 +217,9 @@ describe("subprocess", () => {
     });
   });
 
-  describe("ExtensionProcess.getSpawnArgs", () => {
-    test("returns prlimit + bun run --preload + extension path", () => {
-      // updated for sec-SB2/SB3: --preload MUST come AFTER the `run`
-      // subcommand — `bun --preload <path> run <ext>` is rejected by Bun's
-      // CLI parser (prints `bun run` help and exits immediately).
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {});
-      const args = ep.getSpawnArgs();
-      const expectedBytes = DEFAULT_MEMORY_LIMIT_MB * 1024 * 1024;
-      expect(args[0]).toBe("prlimit");
-      expect(args[1]).toBe(`--rss=${expectedBytes}`);
-      expect(args[2]).toBe("bun");
-      expect(args[3]).toBe("run");
-      expect(args[4]).toBe("--preload");
-      // Absolute path to the sandbox preload script — resolved at module load.
-      expect(args[5]).toMatch(/\/extensions\/runtime\/sandbox-preload\.ts$/);
-      expect(args[6]).toBe("/path/to/ext.ts");
-    });
 
-    test("uses custom memoryLimitBytes", () => {
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: 1024 * 1024 * 1024,
-      });
-      const args = ep.getSpawnArgs();
-      expect(args[1]).toBe(`--rss=${1024 * 1024 * 1024}`);
-    });
-  });
 
-  describe("ExtensionProcess.memoryLimitBytes", () => {
-    test("enforces MIN_MEMORY_LIMIT_MB floor", () => {
-      const tooSmall = 64 * 1024 * 1024; // 64MB, below 512MB floor
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: tooSmall,
-      });
-      expect(ep.memoryLimitBytes).toBe(MIN_MEMORY_LIMIT_MB * 1024 * 1024);
-    });
 
-    test("allows value above the floor", () => {
-      const bigLimit = 2 * 1024 * 1024 * 1024; // 2GB
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {}, {
-        memoryLimitBytes: bigLimit,
-      });
-      expect(ep.memoryLimitBytes).toBe(bigLimit);
-    });
-
-    test("uses default when no option provided", () => {
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {});
-      expect(ep.memoryLimitBytes).toBe(DEFAULT_MEMORY_LIMIT_MB * 1024 * 1024);
-    });
-  });
-
-  describe("ExtensionProcess.isRunning", () => {
-    test("is false before ensureRunning", () => {
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {});
-      expect(ep.isRunning).toBe(false);
-    });
-
-    test("is false after kill (without spawning)", () => {
-      const ep = new ExtensionProcess("test-id", "/path/to/ext.ts", {});
-      ep.kill();
-      expect(ep.isRunning).toBe(false);
-    });
-  });
-
-  describe("killActiveExtensionProcesses (process 'exit' cleanup)", () => {
-    test("kills every process in the active set", () => {
-      // The real handler is registered as process.on('exit', ...) — seed the
-      // active set via the test-only helper and invoke the exported cleanup
-      // directly so the kill-all contract is verified without a real exit.
-      const killed: string[] = [];
-      const a = { kill: () => killed.push("a") };
-      const b = { kill: () => killed.push("b") };
-      const removeA = _addActiveProcessForTest(a);
-      const removeB = _addActiveProcessForTest(b);
-      try {
-        killActiveExtensionProcesses();
-        expect(killed).toContain("a");
-        expect(killed).toContain("b");
-      } finally {
-        removeA();
-        removeB();
-      }
-    });
-
-    test("is a no-op when no processes are active", () => {
-      // Disposers above remove the seeded fakes; the set is empty again.
-      expect(() => killActiveExtensionProcesses()).not.toThrow();
-    });
-  });
 });
 
 // ────────────────────────────────────────────────────────────────

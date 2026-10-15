@@ -31,6 +31,10 @@ name: Mutation (nightly, full suite)
 #
 # Thresholds come from scripts/quality-gates.json — never hardcode one here.
 
+env:
+  # Bun 1.4.0-1.4.2: Postgres auto-pipelining off at process start (src/db/bun-sql-pipelining.ts refuses Bun.SQL otherwise).
+  BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: "1"
+
 on:
   schedule:
     # 03:17 UTC. Off the hour on purpose: the top of the hour is the busiest

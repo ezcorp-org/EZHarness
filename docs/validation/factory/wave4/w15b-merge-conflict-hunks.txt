@@ -1,0 +1,21 @@
+diff --cc src/factory/startup-config.ts
+index 687507e8e,722f2c846..000000000
+--- a/src/factory/startup-config.ts
++++ b/src/factory/startup-config.ts
+@@@ -16,11 -16,10 +16,16 @@@
+   * credential value, matching `parseFactoryOrchestratorProcessConfig`.
+   */
+  import { resolve } from "node:path";
+++<<<<<<< HEAD
+ +import type { FactoryModelPin } from "@ezcorp/factory-sdk";
+ +import { factoryModelSamplingOptions } from "./model-configuration";
+ +import { factoryModelPinMatchesRunner } from "./native-runner-policy";
+++=======
++ import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
+++>>>>>>> wp/w15b-runtime-kms
+  import { isPlainRecord } from "./plain-values";
+  import { readPrivatePath } from "./private-files";
++ import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
+  
+  export const FACTORY_STARTUP_CONFIG_SCHEMA = "factory.startup.v1";
+  const MAX_CONFIG_BYTES = 64 * 1024;

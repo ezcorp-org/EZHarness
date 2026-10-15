@@ -109,6 +109,25 @@ describe("completions endpoint", () => {
   });
 });
 
+describe("completions endpoint, prompt-digest mode", () => {
+  const body = { model: "prompt-digest:w19a", messages: [{ role: "user", content: "Name the primary colours of light." }] };
+
+  test("answers the prompt's fixed answer without any script, the same way twice", async () => {
+    const first = await (await completions({ request: jsonReq(body) } as any)).text();
+    const second = await (await completions({ request: jsonReq(body) } as any)).text();
+    expect(first).toBe(second);
+    expect(first).toMatch(/prompt-digest answer [a-f0-9]{16}/);
+    expect(first).toContain('"prompt_tokens":6');
+    // The scripted queue for the default key is untouched by this mode.
+    expect(dequeueMockTurn("default").text).toContain("no scripted turn");
+  });
+
+  test("is still closed when the test surface is off", async () => {
+    delete process.env.EZCORP_ALLOW_TEST_SURFACE;
+    expect((await completions({ request: jsonReq(body) } as any)).status).toBe(404);
+  });
+});
+
 describe("/release endpoint", () => {
 	test("fails closed for disabled, unscoped, malformed, and unauthenticated requests", async () => {
 		delete process.env.PI_E2E_REAL;

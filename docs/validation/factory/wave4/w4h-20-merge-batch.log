@@ -1,0 +1,64 @@
+=== heavy 2026-10-09T22:42:46Z
+HEAD 2e1008de8e4b74bd7a8cc65c23717e40bc465d74 MERGE_HEAD  index-tree 20ac57df2205ddfe8d8725188800758ea3de8e16
+pin: bun 1.4.2 bunx 1.4.2; BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING=1
+resource-gate 2026-10-09T22:42:46Z hold-start disk=182G memAvailable=18GiB swapFreeKiB=9236448/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+config: 29e61b63b05624e9 = accepted baseline
+shared config hash at hold start: 29e61b63b05624e9 (accepted baseline 29e61b63b05624e9)
+prune scan: exit 0 (prune scan: clean (0 hit(s)))
+resource-gate 2026-10-09T22:42:46Z attestation-check disk=182G memAvailable=18GiB swapFreeKiB=9236448/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START attestation-check 2026-10-09T22:42:46Z
+--- END   attestation-check 2026-10-09T22:42:46Z exit=0 
+guard set: 41 files from guard-suites.sh
+resource-gate 2026-10-09T22:42:46Z guard-set disk=182G memAvailable=18GiB swapFreeKiB=9236448/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START guard-set 2026-10-09T22:42:46Z
+--- END   guard-set 2026-10-09T22:43:47Z exit=0  511 pass 0 fail 
+resource-gate 2026-10-09T22:43:47Z build-factory-sdk disk=182G memAvailable=18GiB swapFreeKiB=9237564/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-sdk 2026-10-09T22:43:47Z
+--- END   build-factory-sdk 2026-10-09T22:43:47Z exit=0 
+resource-gate 2026-10-09T22:43:47Z build-factory-transport disk=182G memAvailable=18GiB swapFreeKiB=9237564/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-transport 2026-10-09T22:43:47Z
+--- END   build-factory-transport 2026-10-09T22:43:47Z exit=0 
+resource-gate 2026-10-09T22:43:47Z build-factory-orchestrator disk=182G memAvailable=18GiB swapFreeKiB=9237564/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START build-factory-orchestrator 2026-10-09T22:43:47Z
+--- END   build-factory-orchestrator 2026-10-09T22:43:47Z exit=0 
+resource-gate 2026-10-09T22:43:47Z pg-factory-restore disk=182G memAvailable=18GiB swapFreeKiB=9237564/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START pg-factory-restore 2026-10-09T22:43:47Z
+--- END   pg-factory-restore 2026-10-09T22:44:43Z exit=0  17 pass 0 fail 
+resource-gate 2026-10-09T22:44:43Z unit-scripts-lcov-artifact-names-registration-test-ts disk=182G memAvailable=18GiB swapFreeKiB=9247840/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-scripts-lcov-artifact-names-registration-test-ts 2026-10-09T22:44:43Z
+--- END   unit-scripts-lcov-artifact-names-registration-test-ts 2026-10-09T22:44:43Z exit=0  4 pass 0 fail 
+resource-gate 2026-10-09T22:44:43Z unit-scripts-lib-ci-registration-test-ts disk=182G memAvailable=18GiB swapFreeKiB=9247844/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-scripts-lib-ci-registration-test-ts 2026-10-09T22:44:43Z
+--- END   unit-scripts-lib-ci-registration-test-ts 2026-10-09T22:44:44Z exit=0  16 pass 0 fail 
+resource-gate 2026-10-09T22:44:44Z unit-scripts-setup-factory-python-base-test-ts disk=182G memAvailable=18GiB swapFreeKiB=9247844/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START unit-scripts-setup-factory-python-base-test-ts 2026-10-09T22:44:44Z
+--- END   unit-scripts-setup-factory-python-base-test-ts 2026-10-09T22:44:44Z exit=0  10 pass 0 fail 
+resource-gate 2026-10-09T22:44:44Z typecheck-all disk=182G memAvailable=18GiB swapFreeKiB=9247856/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START typecheck-all 2026-10-09T22:44:44Z
+--- END   typecheck-all 2026-10-09T22:45:29Z exit=0 
+resource-gate 2026-10-09T22:45:29Z lint-zero-warnings disk=182G memAvailable=18GiB swapFreeKiB=9251552/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START lint-zero-warnings 2026-10-09T22:45:29Z
+--- END   lint-zero-warnings 2026-10-09T22:45:30Z exit=0 
+resource-gate 2026-10-09T22:45:30Z web-server-lcov disk=182G memAvailable=18GiB swapFreeKiB=9251568/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START web-server-lcov 2026-10-09T22:45:30Z
+--- END   web-server-lcov 2026-10-09T22:45:50Z exit=0  Tests 179 passed (179) 
+resource-gate 2026-10-09T22:45:50Z coverage-merge disk=182G memAvailable=19GiB swapFreeKiB=9258252/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START coverage-merge 2026-10-09T22:45:50Z
+--- END   coverage-merge 2026-10-09T22:45:50Z exit=0 
+resource-gate 2026-10-09T22:45:50Z web-build disk=182G memAvailable=19GiB swapFreeKiB=9258252/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START web-build 2026-10-09T22:45:50Z
+--- END   web-build 2026-10-09T22:46:32Z exit=0 
+resource-gate 2026-10-09T22:46:32Z graph-mock-pass disk=182G memAvailable=18GiB swapFreeKiB=9111728/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START graph-mock-pass 2026-10-09T22:46:32Z
+--- END   graph-mock-pass 2026-10-09T22:47:22Z exit=0 
+bash: /tmp/factory-platform-evidence/w01h/graph/dump-and-drop.sh: No such file or directory
+mock pass w4h-20-lint-warnings-mock outcome: passed
+resource-gate 2026-10-09T22:47:22Z crap-changed-base disk=182G memAvailable=18GiB swapFreeKiB=9130200/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START crap-changed-base 2026-10-09T22:47:22Z
+--- END   crap-changed-base 2026-10-09T22:47:22Z exit=0 
+resource-gate 2026-10-09T22:47:22Z merge-commit-gates disk=182G memAvailable=18GiB swapFreeKiB=9130200/17173956 floors disk>=100G swap>=2097152KiB mem>=6GiB
+--- START merge-commit-gates 2026-10-09T22:47:22Z
+--- END   merge-commit-gates 2026-10-09T22:47:28Z exit=0 
+config: 29e61b63b05624e9 = accepted baseline
+shared config hash at hold end: 29e61b63b05624e9 (accepted baseline 29e61b63b05624e9)
+HEAVY DONE status=0 dirty=0 2026-10-09T22:47:28Z

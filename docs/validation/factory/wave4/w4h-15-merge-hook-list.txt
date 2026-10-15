@@ -1,0 +1,6 @@
+scripts/factory-compute-admissions-registration.test.ts
+scripts/factory-protected-command-effects-registration.test.ts
+scripts/factory-provisioning-registration.test.ts
+scripts/factory-validator-materials-registration.test.ts
+scripts/lcov-artifact-names-registration.test.ts
+scripts/lib/ci-registration.test.ts

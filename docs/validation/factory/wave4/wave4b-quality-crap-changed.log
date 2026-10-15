@@ -1,0 +1,47 @@
+CRAP: --changed against origin/main → 289 measured file(s) in diff
+
+CRAP: 4040 functions in 289 files (max 30, warn 15)
+
+Worst 15:
+    462.0  cc= 21 cov=  0%  src/extensions/service-capabilities.ts:13 assertServiceCapabilities
+    420.0  cc= 20 cov=  0%  src/db/connection.ts:207 initPglite
+    240.0  cc= 15 cov=  0%  src/factory/private-files.ts:80 writePrivateBoundedAtomic
+    217.5  cc= 15 cov=  3%  src/factory/private-files.ts:20 privateDirectory
+    182.0  cc= 13 cov=  0%  src/extensions/v4/deliveries.ts:80 enqueueInTransaction
+    173.3  cc= 25 cov= 38%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+     92.0  cc= 92 cov=100%  web/src/routes/api/factories/_shared.ts:432 mappedError
+     88.7  cc= 10 cov=  8%  src/auth/factory-service-token.ts:84 exactClaims
+     87.0  cc= 10 cov=  8%  src/factory/private-files.ts:64 readPrivateBounded
+     59.0  cc= 59 cov=100%  src/factory/private-service.ts:59 handle
+     56.0  cc=  7 cov=  0%  packages/@ezcorp/extension-runner/src/client.ts:41 poll
+     56.0  cc=  7 cov=  0%  src/runtime/tools/shell.ts:83 resolveShellSandbox
+     54.0  cc= 54 cov=100%  src/factory/task-stops.ts:452 readSealed
+     48.3  cc=  7 cov=  6%  src/factory/boot.ts:61 assertFactoryBootConfiguration
+     43.8  cc= 16 cov= 52%  src/runtime/stream-chat/failover.ts:170 runWithFailover
+
+145 function(s) above the warn line (not failing).
+
+✗ 20 function(s) you touched are over CRAP 30:
+    462.0  cc= 21 cov=  0%  src/extensions/service-capabilities.ts:13 assertServiceCapabilities
+    420.0  cc= 20 cov=  0%  src/db/connection.ts:207 initPglite
+    240.0  cc= 15 cov=  0%  src/factory/private-files.ts:80 writePrivateBoundedAtomic
+    217.5  cc= 15 cov=  3%  src/factory/private-files.ts:20 privateDirectory
+    182.0  cc= 13 cov=  0%  src/extensions/v4/deliveries.ts:80 enqueueInTransaction
+    173.3  cc= 25 cov= 38%  web/src/lib/server/security/bearer-auth.ts:94 attachBearerAuth
+     92.0  cc= 92 cov=100%  web/src/routes/api/factories/_shared.ts:432 mappedError
+     88.7  cc= 10 cov=  8%  src/auth/factory-service-token.ts:84 exactClaims
+     87.0  cc= 10 cov=  8%  src/factory/private-files.ts:64 readPrivateBounded
+     59.0  cc= 59 cov=100%  src/factory/private-service.ts:59 handle
+     56.0  cc=  7 cov=  0%  packages/@ezcorp/extension-runner/src/client.ts:41 poll
+     56.0  cc=  7 cov=  0%  src/runtime/tools/shell.ts:83 resolveShellSandbox
+     54.0  cc= 54 cov=100%  src/factory/task-stops.ts:452 readSealed
+     48.3  cc=  7 cov=  6%  src/factory/boot.ts:61 assertFactoryBootConfiguration
+     43.8  cc= 16 cov= 52%  src/runtime/stream-chat/failover.ts:170 runWithFailover
+     43.0  cc= 43 cov=100%  web/src/routes/api/factories/_shared.ts:189 dispatchFactoryRequest
+     37.0  cc= 37 cov=100%  src/factory/orchestration-process.ts:68 parseFactoryOrchestratorProcessConfig
+     37.0  cc= 37 cov=100%  src/factory/pool/process.ts:70 parseFactoryPoolProcessConfig
+     32.2  cc=  6 cov= 10%  src/factory/encryption.ts:163 loadExisting
+     30.4  cc= 10 cov= 41%  src/auth/factory-service-token.ts:48 verifyFactoryServiceToken
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json

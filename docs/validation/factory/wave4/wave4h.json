@@ -1,0 +1,213 @@
+{
+  "run": "wave4h",
+  "head": "1992630f37832aaea2e7dae0b60552224247903a",
+  "start": "start 2026-10-03T14:00:39Z head 1992630f37832aaea2e7dae0b60552224247903a",
+  "pinLine": "head 1992630f37832aaea2e7dae0b60552224247903a bun 1.4.2 bunx 1.4.2 flag=1",
+  "summaryEnds": [
+    "combined exit=1 end 2026-10-03T15:55:54Z",
+    "after-runner exit=1 end 2026-10-03T16:43:27Z (legs in /tmp/factory-platform-evidence/w00/wave4h/after/heavy-batch.log)",
+    "final-merge-gates exit=1 end 2026-10-03T16:43:47Z (AUTHORITATIVE gates: /tmp/factory-platform-evidence/w00/wave4h/final/gates.txt; runner coverage-results INTERIM)"
+  ],
+  "plan": {
+    "file": "wave4h-plan.txt",
+    "lines": 1365,
+    "sha256": "486f705a460729f85c83caa397ccc5805fb08e542fa410d7666b531a8602ce40",
+    "summary": [
+      "plan: /tmp/factory-platform-evidence/w00/wave4h/plan.txt (1365 lines, sha256 486f705a460729f8)",
+      "autoExtra (own legs, one bun process per file): 318 files",
+      "autoExtraChunks: 8",
+      "autoExtraExcludedNodeRunner (node --test packages, covered by the node-coverage leg): [\"./packages/@ezcorp/factory-orchestrator/test/file-key-wraps.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/gateway-activities.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process-launcher.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/process.test.ts\", \"./packages/@ezcorp/factory-orchestrator/test/validation.test.ts\"]",
+      "pgSteps (own postgres-<name> legs): [\"./tests/postgres/pool-one.test.ts\", \"./tests/postgres/bun-sql-pool-replacement.test.ts\", \"./tests/postgres/bun-sql-request-queue.test.ts\", \"./tests/postgres/factory-assurance.test.ts\"]"
+    ]
+  },
+  "drivers": {
+    "run.sh (as run)": "ac8b78c50b8d8902493f5d31a28309a59cc3d3213e8bf5d834d797f0aa09b7f2",
+    "after-runner.sh": "996f3a48b5237d49cb6941d7695757c738d9973bde4a0717aaaac115f18e79b9",
+    "final-merge-gates.sh": "c038e3b6098d82a101d1837b3a4522cf148eb041458509ad9f4a24f055369297",
+    "driver-guards.txt": "cbcb3c92d2760b1d4ed683c2bec1918b178bc9500aeb9f188d0fd7383d01a810",
+    "legs-from-manifest.py": "8a8933fd107d4509e7dbf59cdeeeb7d0c6b80bc205c52441471cea7bba09b653",
+    "combined-integration.py (runner)": "f4a81b8b97940edca26d1d834992559f7ae9a218abc17db7bf9508a908ef90a8",
+    "browser-part.sh": "c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+    "heavy-lib.sh": "6fff62469d9d5be903f7874b048d769f3db00f70d15e3e553420ad6c508a0fc7"
+  },
+  "runner": {
+    "legs": 37,
+    "exitCodes": {
+      "sdk-build": 0,
+      "transport-build": 0,
+      "sdk-tests": 0,
+      "focused": 0,
+      "web-coverage": 0,
+      "web-bun-coverage": 0,
+      "postgres": 0,
+      "postgres-pool-one": 0,
+      "postgres-bun-sql-pool-replacement": 0,
+      "postgres-bun-sql-request-queue": 0,
+      "postgres-factory-assurance": 0,
+      "types": 0,
+      "lint": 0,
+      "gate-integrity": 1,
+      "boundaries": 0,
+      "orchestrator-build": 0,
+      "node-coverage": 0,
+      "pool-coverage": 0,
+      "compute-coverage": 0,
+      "provisioning-coverage": 0,
+      "python-coverage": 0,
+      "auto-extra-0": 0,
+      "auto-extra-1": 0,
+      "auto-extra-2": 0,
+      "auto-extra-3": 0,
+      "auto-extra-4": 0,
+      "auto-extra-5": 0,
+      "auto-extra-6": 0,
+      "auto-extra-7": 0,
+      "podman-podman": 0,
+      "podman-attempt-runtime": 0,
+      "podman-supervisor": 0,
+      "podman-package-preparation": 0,
+      "manifest-cov-shard": 0,
+      "manifest-cov-extras": 0,
+      "manifest-web-security-coverage": 0,
+      "manifest-factory-reference-data": 0
+    },
+    "testsRanTotal": 48419,
+    "dirty": [
+      "False"
+    ],
+    "coverageResults": "INTERIM (wave4h-coverage-results-interim.json); the final gates are authoritative"
+  },
+  "afterRunner": {
+    "legs": {
+      "guard-set": {
+        "exit": 0,
+        "tail": "468 pass 0 fail"
+      },
+      "web-build": {
+        "exit": 0,
+        "tail": ""
+      },
+      "graph-mock-pass": {
+        "exit": 0,
+        "tail": ""
+      },
+      "w09e-e2e-console": {
+        "exit": 97,
+        "tail": ""
+      },
+      "w03f-reference-data-journey": {
+        "exit": 0,
+        "tail": "11 pass 0 fail"
+      },
+      "browser-part": {
+        "exit": 0,
+        "tail": ""
+      }
+    },
+    "mockPass": [
+      "mock pass wave4h-mock outcome: passed"
+    ]
+  },
+  "browser": {
+    "steps": [
+      {
+        "name": "build",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-roundtrip",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "transfer-check",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "mock-gate",
+        "exit": 0,
+        "passed": 259
+      },
+      {
+        "name": "mock-full",
+        "exit": 0,
+        "passed": 1466
+      },
+      {
+        "name": "evidence",
+        "exit": 0,
+        "passed": 393
+      },
+      {
+        "name": "fresh-setup",
+        "exit": 0,
+        "passed": 7
+      },
+      {
+        "name": "real-auth",
+        "exit": 0,
+        "passed": 107
+      },
+      {
+        "name": "merge",
+        "exit": 0,
+        "passed": null
+      },
+      {
+        "name": "factory-services",
+        "exit": 0,
+        "passed": 13
+      }
+    ],
+    "head": "1992630f37832aaea2e7dae0b60552224247903a"
+  },
+  "finalGates": {
+    "rows": [
+      "merge exit=0 | merged 2341 source files \u2192 coverage/lcov.info",
+      "global-floor exit=0 | \u2713 at or above the 90% floor (margin 8.05 points)",
+      "per-file-thresholds exit=0 | Coverage gate PASSED: 2194 enforced file(s) at or above threshold.",
+      "new-file-origin_main exit=0 | New-file coverage gate PASSED: 460 new source file(s) gated.",
+      "patch-origin_main exit=0 | Patch coverage gate PASSED: all changed executable lines covered (515 file(s)).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "gate-integrity-origin_main exit=1 | If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+      "crap-changed-origin_main exit=0 | \u2713 no touched function exceeds CRAP 30"
+    ],
+    "end": [
+      "end=2026-10-03T16:46:10Z status=1 dirty=0 lcov-sha256=b5173af728680cbf"
+    ],
+    "crapChangedOriginMain": [
+      "CRAP: --changed against origin/main \u2192 486 measured file(s) in diff",
+      "CRAP: 6434 functions in 486 files (max 30, warn 15)",
+      "\u2713 no touched function exceeds CRAP 30"
+    ]
+  },
+  "configHash": {
+    "before": "44962525f1ca1a8b",
+    "after": "44962525f1ca1a8b"
+  },
+  "receiptsBy": "integrator-3",
+  "runOfRecord": "wave4h run 3 at 1992630f3 (W4G-1..14 landed): runner, after-runner, browser part and final gates green; W09e console leg re-run as below",
+  "headNote": "1992630f3 = the W4G-14 receipts commit; the twelve W4G packages plus W4G-13 (8c7f7bc00) and W4G-14 (a3964cfb6) are merged",
+  "run1": {
+    "head": "341a6876d",
+    "result": "withdrawn by the lead after the runner step: 37 legs, 48153 tests, merge blocked by one red test, src/__tests__/dev-image-ownership.test.ts (the W4G-1 regression: passes at fda4108e8, fails at the W4G-1 merge 4ae2f1658); every other leg green; gate-integrity = the 8 lines. Fixed by W4G-13 (8c7f7bc00)",
+    "cleanup": "wave4h run 1 (head 341a6876d): withdrawn by the lead's ruling (\"withdraw\", 2026-10-03) after the runner step: 37 legs, 48153 tests,\nmerge blocked by one red test (src/__tests__/dev-image-ownership.test.ts, the W4G-1 regression: passes at fda4108e8, fails at\n4ae2f1658), every other leg green, gate-integrity = the 8 lines. Nothing from run 1 is published.\nWithdrawal (integrator-3, own processes only, SIGTERM by pid or own process group): driver 105720 and its after-runner (which had\ntaken the lock at about 10:06Z and was in graph-mock-pass). Orphaned mock-pass stack processes (ppid 1, started 10:06:42-10:06:50Z,\ntied to /home/dev/.w19a-stack-kAMCrA): 1029666 1029695 (pool, supervisor process.ts), 1029696 (temporal dev server :44065), 1029743\n(runner.lock flock), 1030219 (TLS proxy), 1030266 (gateway-listener.ts), 1030812 (orchestrator-runner.sh), 1030813\n(orchestration-process.ts); later, by the lead's /proc ruling: 1030267 (web `bun build/index.js`, cwd .../w00-integration/web,\nenviron naming the stack/DBs). All exited.\nProof PostgreSQL: w19a_pool_1791021995263_d21612 dropped (podman exec, password by variable name only); stack dir removed.\nw19a_product_1791021995263_d21612 LEFT IN PLACE by the lead's ruling: its drop failed with 20 sessions; the next step (listing them)\nwas denied by the permission system (\"Interfere With Workloads\") and is not retried; the database joins the standing user item\n\"scratch databases\". The other three w19a databases belong to other runs and were not touched."
+  },
+  "run2": {
+    "head": "a6bc6eeab",
+    "result": "withdrawn by the lead after the focused leg went red: 1668 pass, 3 fail in ONE bun process of 103 files, all three in src/__tests__/file-organizer-applier-reserved-dirs.test.ts (passes alone 5/0): getProjectRoot()'s process-wide cache ignored the victim's EZCORP_PROJECT_ROOT pin (the guard set, now with the container-reading tests, joins the runner's focused leg). Fixed by W4G-14 (a3964cfb6); the runner was stopped inside its PostgreSQL leg, so that leg's test databases may remain (lead: databases are left; 'scratch databases' user item)"
+  },
+  "w09eVoid": "first attempt (15:59:29Z) VOID, exit 97, zero tests: Playwright could not start its preview because 127.0.0.1:4173 was held by a foreign preview server (pid 169313, `bun build/index.js`, started 15:58:09Z, cwd .worktrees/incus-coverage-oct03/web, another session's workload; not touched); lead ruling (b): re-run only the void legs at the same head when the port is free, then the final gates",
+  "w09eRerun": "re-run of record at 1992630f3, under the lock (16:45Z, port 4173 free, 0 listeners before): 22 passed (49.0s); w00/wave4h/after-rerun-w09e/",
+  "finalGatesAttempts": "attempt 1 (16:43:47Z) and the run of record after the W09e re-run (16:46:10Z): identical gate rows and lcov sha256 b5173af728680cbf",
+  "bases": "patch/new-file bases origin/main only (lead ruling 2026-10-01 after the W-SYNC merge; w00/wave4f/run.sh and w00/full-pool-run.sh); auto-extra base c1377122b; quality base origin/main",
+  "guardSet": "w00/guard-suites.sh now joins validator-6's container-reading tests (w00/guard-container-reading-tests.txt sha256 177f1bc045d3a471, 36 files with the earlier set; preview-uid-keystone.docker.test.ts removed as opt-in by ruling)",
+  "pin": "the driver prints 'head <sha> bun 1.4.2 bunx 1.4.2 flag=1' as the runner log's first line and in summary.log (closing the wave4f/wave4g verifier gap)",
+  "gateIntegrity": "origin/main: raw exit 1 = exactly the 8-line expected set (sha256 9ec5cdcbce67c7ac), findings-match PASS in the runner and the final gates; no c1377122b rows (bases ruling)",
+  "verifier": "validator-6's verify-receipts.py /tmp/factory-platform-evidence/wave4h 1992630f37832aaea2e7dae0b60552224247903a --bases origin/main: RESULT ALL PASS",
+  "w4g3ConfigNote": "W4G-3 merge.json configHash after = e507104024a913c0 is a snapshot taken at 21:26Z inside the 21:14:09\u201321:26:54Z window in which a [user] section (archy identity, written by two owners without --worktree) sat in the shared .git/config; removed at 21:26:54Z; baseline 44962525f1ca1a8b before and after; no effect on 7e2752288 (committed before the window) or a818ff85d (explicit -c identity).",
+  "crap": "origin/main CRAP over the full-pool lcov: see finalGates.crapChangedOriginMain",
+  "lockLane": "LOCK_LANE=integrator-3; heavy-lib.sh checks integrator-2 and LOCK_LANE"
+}

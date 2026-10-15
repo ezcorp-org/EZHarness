@@ -1,6 +1,6 @@
 /**
  * PreviewPortWatcher — auto-detection daemon for dev servers that start
- * listening inside a conversation's netns (Secure User-Site Preview /
+ * listening for a conversation (Secure User-Site Preview /
  * Port Exposure, Phase 2 — see tasks/preview-port-exposure.md §3.2).
  *
  * Shape mirrors EmbedWorker / HostMaintenanceDaemon: PID lockfile, kill
@@ -10,10 +10,9 @@
  *
  * The watcher is SOURCE-AGNOSTIC: it polls an injected `PreviewPortSource`
  * (see preview-port-source.ts) for the current LISTEN sockets of each
- * watched conversation. The real source (`NetnsPortSource`) is capability
- * -gated and yields nothing on a fail-closed host (D2) — so on the current
- * env the watcher is a logged no-op. Everything below is fully testable
- * with a `StaticPortSource`.
+ * watched conversation. Production injects `ProcPortSource` (uid mode);
+ * the watcher does not run in static mode. Everything below is fully
+ * testable with a `StaticPortSource`.
  *
  * Detection rules (§3.2):
  *   - Debounce / stabilize: a port must be observed LISTENing for
@@ -109,7 +108,7 @@ interface WatchedConversation {
 export interface PreviewPortWatcherOptions {
   /** The enumeration source. REQUIRED — no production default is wired
    *  here so the daemon is impossible to stand up without an explicit
-   *  source (the bootstrap injects `NetnsPortSource`). */
+   *  source (the bootstrap injects `ProcPortSource`). */
   source: PreviewPortSource;
   /** Called with each requester-scoped detection. */
   onDetected: (event: PreviewDetectedEvent) => void | Promise<void>;

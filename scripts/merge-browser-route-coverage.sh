@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Merge the five mandatory browser-lane receipts from one mapped build, then
+# Merge the mandatory browser-lane receipts from one mapped build, then
 # fail closed on provenance, source-map fidelity, and every scripted route.
 set -euo pipefail
 
@@ -12,6 +12,13 @@ repo_root="$(cd "$(dirname "$0")/.." && pwd)"
 receipt_root="$1"
 output_dir="$2"
 required_lanes=(mock-gate mock-full evidence real-auth/fresh-setup real-auth/real-auth)
+# factory-services runs on a labelled runner with real services, so it is not
+# one of the five lanes an ordinary ubuntu run can produce. Declaring it makes
+# it REQUIRED: the merge then fails when its receipt is absent, rather than
+# quietly merging five lanes and calling that complete.
+if [ "${EZCORP_BROWSER_COVERAGE_SERVICE_LANES:-0}" = "1" ]; then
+    required_lanes+=(factory-services)
+fi
 
 for lane in "${required_lanes[@]}"; do
 	if ! find "$receipt_root/$lane" -type f -name 'chromium-worker-*.json' -print -quit 2>/dev/null | grep --line-buffered -q .; then

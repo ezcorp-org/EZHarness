@@ -1,5 +1,5 @@
 import { request } from "node:http";
-import type { BuildRequest, BuildResult, Runner, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
+import type { BuildRequest, BuildResult, Runner, RunnerCapabilities, RunnerExecution, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { RunnerError, safeHostError } from "./core";
 import { MAX_SENSITIVE_RESULT_BYTES, SENSITIVE_PROVIDER_METHOD, SensitiveRunnerExecution, type ReverseRpc } from "./protocol";
 
@@ -10,15 +10,29 @@ class RemoteRunnerExecution extends SensitiveRunnerExecution {
   private readonly listeners = new Set<(method: string, params: unknown) => void>();
   constructor(readonly workerId: string, private readonly call: RunnerCall, private readonly sensitiveCall: (workerId: string, params: unknown) => Promise<Uint8Array | null>, private readonly reverseRpc: ReverseRpc) {
     super();
-    void this.poll().catch(() => { this.closed = true; void this.call("cancel", { id: this.workerId }).catch(() => {}); });
+    void this.poll().catch(() => { this.closed = true; });
   }
   private async poll(): Promise<void> {
+    let recoveries = 0;
     while (!this.closed) {
-      const { events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: this.workerId });
+      let events: { id?: string; method: string; params: unknown }[];
+      try {
+        ({ events } = await this.call<{ events: { id?: string; method: string; params: unknown }[] }>("events", { workerId: this.workerId }));
+        recoveries = 0;
+      } catch (error) {
+        if (this.closed || recoveries >= MAX_STREAM_RECOVERIES) throw error;
+        recoveries += 1;
+        await this.call("attach", { workerId: this.workerId });
+        continue;
+      }
       for (const event of events) {
         if (this.closed) break;
         if (event.id) {
-          void this.reverseRpc(event.method, event.params).then(result => this.call("reply", { workerId: this.workerId, id: event.id, result }), error => this.call("reply", { workerId: this.workerId, id: event.id, error: safeHostError(error).code })).catch(() => { this.closed = true; void this.call("cancel", { id: this.workerId }).catch(() => {}); });
+          let reply: { result: unknown } | { error: string };
+          try { reply = { result: await this.reverseRpc(event.method, event.params) }; }
+          catch (error) { reply = { error: safeHostError(error).code }; }
+          // A stale reply does not cancel a worker whose attachment can resume.
+          await this.call("reply", { workerId: this.workerId, id: event.id, ...reply }).catch(() => {});
         } else for (const listener of this.listeners) listener(event.method, event.params);
       }
     }
@@ -35,6 +49,14 @@ class RemoteRunnerExecution extends SensitiveRunnerExecution {
   async close(): Promise<void> { this.closed = true; this.listeners.clear(); await this.call("cancel", { id: this.workerId }); }
   onNotification(listener: (method: string, params: unknown) => void): () => void { this.listeners.add(listener); return () => this.listeners.delete(listener); }
 }
+
+/**
+ * How many times in a row a host may take its own event stream back without a
+ * poll succeeding in between. A worker that is really gone refuses the attach
+ * and ends the loop on the first try; this bound only stops a service that
+ * accepts an attach and then refuses every poll from spinning.
+ */
+const MAX_STREAM_RECOVERIES = 3;
 
 export class RunnerClient implements Runner {
   constructor(private readonly options: { socketPath: string; token: string }) {}
@@ -99,8 +121,21 @@ export class RunnerClient implements Runner {
   inspect(id: string): Promise<RunnerInspection> { return this.call("inspect", { id }); }
   cancel(id: string): Promise<void> { return this.call("cancel", { id }); }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> { return (await this.call<{ files: WorkspaceFiles }>("artifacts", { artifactDigest })).files; }
+  /**
+   * What the runner service enforces. A service from before `/v4/capabilities`
+   * answers unknown_method: it enforces nothing optional, so that is reported
+   * as such rather than as an error.
+   */
+  async capabilities(): Promise<RunnerCapabilities> {
+    try { return { processSpawnEnforcement: (await this.call<Partial<RunnerCapabilities>>("capabilities", {})).processSpawnEnforcement === true }; }
+    catch (error) { if (error instanceof RunnerError && error.code === "unknown_method") return { processSpawnEnforcement: false }; throw error; }
+  }
   async start(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
     await this.call("start", input);
+    return this.attach(input, reverseRpc);
+  }
+  async attach(input: StartRequest, reverseRpc: ReverseRpc): Promise<RunnerExecution> {
+    await this.call("attach", { workerId: input.workerId });
     return new RemoteRunnerExecution(input.workerId, this.call.bind(this), this.callSensitive.bind(this), reverseRpc);
   }
 }

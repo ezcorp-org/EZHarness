@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, expect, mock, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { up as addSandboxController } from "../../db/migrations/add-sandbox-controller";
@@ -14,11 +14,14 @@ import {
   type SandboxWorkspaceBinding,
   type WorkspaceTarget,
 } from "../../runtime/workspaces/target";
+import { scratchRepository } from "../../__tests__/helpers/scratch-git";
 
 mockDbConnection();
 const { projects, projectWorkspaceBindings } = await import("../../db/schema");
 
-const root = await mkdtemp(join(tmpdir(), "ez-project-git-"));
+const scratchRoot = join(tmpdir(), `ez-project-git-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+const scratch = scratchRepository(scratchRoot, { name: "Fixture", email: "test@example.invalid" });
+const root = scratch.dir;
 let active = true;
 let owned = true;
 let member = true;
@@ -33,18 +36,14 @@ mock.module("../../auth/middleware", () => ({ checkProjectRole: async () => memb
 const { handleProjectGit, readProjectGit } = await import("../project-git-broker");
 const authorize = mock(async () => ({ decision: allowed ? "allow" : "prompt" }));
 const deps = { engine: { authorize } } as unknown as RpcHandlerDeps;
-async function git(...args: string[]) {
-  const child = Bun.spawn(["git", "-C", root, ...args], { env: { PATH: process.env.PATH, HOME: "/nonexistent", GIT_CONFIG_NOSYSTEM: "1", GIT_CONFIG_GLOBAL: "/dev/null", GIT_AUTHOR_NAME: "Fixture", GIT_AUTHOR_EMAIL: "test@example.invalid", GIT_COMMITTER_NAME: "Fixture", GIT_COMMITTER_EMAIL: "test@example.invalid" }, stdout: "pipe", stderr: "pipe" });
-  const output = await new Response(child.stdout).text();
-  expect(await child.exited).toBe(0);
-  return output.trim();
+function git(...args: string[]) {
+  return scratch.git(...args).trim();
 }
-await git("init");
-await git("commit", "--allow-empty", "-m", "First commit");
-const first = await git("rev-parse", "HEAD");
-await git("commit", "--allow-empty", "-m", "Second commit");
-const second = await git("rev-parse", "HEAD");
-await git("remote", "add", "origin", "https://host-only-token@github.com/owner/repo.git");
+git("commit", "--allow-empty", "-m", "First commit");
+const first = git("rev-parse", "HEAD");
+git("commit", "--allow-empty", "-m", "Second commit");
+const second = git("rev-parse", "HEAD");
+git("remote", "add", "origin", "https://host-only-token@github.com/owner/repo.git");
 beforeAll(async () => {
   await setupTestDb();
   await addSandboxController(getTestDb());
@@ -57,7 +56,7 @@ beforeEach(async () => {
   await getTestDb().delete(projectWorkspaceBindings);
   await getTestDb().delete(schema.sandboxBindings);
 });
-afterAll(async () => { await closeTestDb(); await rm(root, { recursive: true, force: true }); restoreModuleMocks(); });
+afterAll(async () => { await closeTestDb(); await rm(scratchRoot, { recursive: true, force: true }); restoreModuleMocks(); });
 
 const sandboxBinding: SandboxWorkspaceBinding = {
   projectId: "project", workspaceId: "workspace", connectionId: "connection",

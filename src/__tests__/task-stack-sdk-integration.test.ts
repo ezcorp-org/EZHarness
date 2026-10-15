@@ -16,7 +16,8 @@
 import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 import { join } from "path";
 import { tmpdir } from "os";
-import { mkdirSync, rmSync } from "fs";
+import { rmSync } from "fs";
+import { markGitRepository } from "@ezcorp/sdk/test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
 
 // ── DB stubs must be declared BEFORE importing createTestExtension ─────────
@@ -63,7 +64,7 @@ describe.skip("task-stack SDK integration (createTestExtension + real RPC)", () 
     // every test's store (`<root>/.ezcorp/extension-data/task-stack/...`)
     // isolated from the repo's own on-disk state.
     cwd = join(tmpdir(), `task-stack-sdk-integ-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-    mkdirSync(join(cwd, ".git"), { recursive: true });
+    markGitRepository(cwd);
     originalCwd = process.cwd();
     process.chdir(cwd);
 

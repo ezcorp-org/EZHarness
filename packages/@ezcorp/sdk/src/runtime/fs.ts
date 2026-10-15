@@ -42,26 +42,51 @@ function loadFsSync(): typeof import("node:fs") {
 }
 
 /**
- * Walk up from `from` (default `process.cwd()`) looking for a `.git`
- * directory. Returns the first containing project root. Throws if none is
- * found (i.e. the search hit the filesystem root without ever seeing .git).
+ * True when `dir/.git` is a repository marker in a form git itself reads: a
+ * directory that holds `HEAD`, or a worktree/submodule file that names its
+ * `gitdir:`. A stray empty `.git` directory (for example one left in a
+ * shared `/tmp`) is not a repository, so it must not anchor a project root.
+ */
+function isGitRepositoryMarker(fs: typeof import("node:fs"), dir: string): boolean {
+  const marker = join(dir, ".git");
+  const status = fs.statSync(marker, { throwIfNoEntry: false });
+  if (status?.isDirectory()) return fs.existsSync(join(marker, "HEAD"));
+  return status?.isFile() === true && fs.readFileSync(marker, "utf8").startsWith("gitdir:");
+}
+
+/**
+ * Walk up from `from` (default `process.cwd()`) to the nearest git
+ * repository root (see `isGitRepositoryMarker`). Throws if none is found
+ * (i.e. the search hit the filesystem root without seeing a repository).
  *
- * Matches the pattern that has been duplicated in several extension `lib/`
- * files. Having a single canonical implementation means `.ezcorp/` always
- * lands at the same place regardless of where the extension is invoked
- * from.
+ * Every extension that needs its project root routes through this function
+ * or `resolveProjectRoot`, so `.ezcorp/` always lands at the same place
+ * regardless of where the extension is invoked from.
  */
 export function findProjectRoot(from: string = process.cwd()): string {
   if (getToolContext()?.invocation) return "/project";
   const fs = loadFsSync();
   let dir = from;
   while (true) {
-    if (fs.existsSync(join(dir, ".git"))) return dir;
+    if (isGitRepositoryMarker(fs, dir)) return dir;
     const parent = dirname(dir);
     if (parent === dir) {
       throw new Error(`findProjectRoot: no .git ancestor found starting from ${from}`);
     }
     dir = parent;
+  }
+}
+
+/**
+ * `findProjectRoot`, but returns `from` itself when no repository encloses
+ * it or host `node:fs` is unavailable (inside the extension sandbox). For
+ * module-load and install-script paths that must not throw.
+ */
+export function resolveProjectRoot(from: string = process.cwd()): string {
+  try {
+    return findProjectRoot(from);
+  } catch {
+    return from;
   }
 }
 

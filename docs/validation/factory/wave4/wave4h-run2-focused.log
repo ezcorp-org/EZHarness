@@ -1,0 +1,126 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-03T12:53:06.455Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.pullRequest","extensionId":"foreign","tokenActorExtensionId":"installation"}
+{"ts":"2026-10-03T12:53:06.462Z","level":"warn","msg":"ezcorp/github-projects rejected: extension not in bundled allowlist","subsystem":"ext.github-projects.handler","extensionName":"evil-lookalike"}
+{"ts":"2026-10-03T12:53:07.252Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-03T12:53:08.532Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"8ede7a2b-64e2-463b-9cd2-3da6b61e5ae5","workflowRunId":"9e87206b-14e1-4644-8d74-815458f189cf","stepName":"gate"}
+{"ts":"2026-10-03T12:53:08.532Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-10-03T12:53:08.535Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"8ede7a2b-64e2-463b-9cd2-3da6b61e5ae5","workflowRunId":"9e87206b-14e1-4644-8d74-815458f189cf","stepName":"gate"}
+{"ts":"2026-10-03T12:53:08.535Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-10-03T12:53:08.566Z","level":"warn","msg":"approval timed out — run cancelled","subsystem":"workflow.approval-timeout","approvalId":"8ede7a2b-64e2-463b-9cd2-3da6b61e5ae5","workflowRunId":"9e87206b-14e1-4644-8d74-815458f189cf","stepName":"gate","reason":"its approval timed out"}
+{"ts":"2026-10-03T12:53:08.566Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":1,"deferred":0,"raced":0}
+{"ts":"2026-10-03T12:53:19.643Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"insert","error":"Error: Failed query: insert into \"workflow_runs\" (\"id\", \"workflow_definition_id\", \"workflow_name\", \"project_id\", \"user_id\", \"status\", \"input\", \"result\", \"started_at\", \"finished_at\", \"created_at\", \"cursor\", \"run_phase\", \"suspended_reason\", \"resumable\", \"claimed_by\", \"lease_expires_at\", \"definition_version_id\", \"definition_hash\", \"job_ref\", \"idempotency_key\", \"parent_run_id\", \"run_as_kind\", \"run_as\", \"delegation_id\") values ($1, $2, $3, $4, $5, $6, $7, default, $8, default, default, default, default, default, default, default, default, $9, $10, $11, $12, $13, $14, $15, $16)\nparams: 76d8972c-4429-4ae5-be38-784872a62c5c,,fk-violating,no-such-project-id,,running,{},2026-10-03T12:53:19.642Z,,1fa87daeb21173c7f13a57a42d0de2b3932db80ea77464f7c0ae80d7576aad9c,,,,,,"}
+{"ts":"2026-10-03T12:53:19.644Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: 40e36785-9aae-4c59-9e9b-30cd1653375a,76d8972c-4429-4ae5-be38-784872a62c5c,t,,running,,,,,,,,,,,,,,running,,,,,,,,,,,,"}
+{"ts":"2026-10-03T12:53:19.644Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: c7782d83-3118-4f2e-91de-696d9dd8b2c5,76d8972c-4429-4ae5-be38-784872a62c5c,t,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,"}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":206}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"solo","model":"solo-model","retry":1,"backoffMs":189}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":287}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":255}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.084Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p2","model":"p2-model","retry":1,"backoffMs":151}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":154}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":259}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":283}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":167}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.085Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":204}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":274}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":259}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":199}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":261}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":177}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":269}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":260}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":158}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":292}
+{"ts":"2026-10-03T12:53:29.289Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":262}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":261}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"poolside/laguna-s-2.1:free","retry":1,"backoffMs":178}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"poolside/laguna-s-2.1:free","retry":1,"backoffMs":195}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"model limited before first token — trying another model on the same provider","subsystem":"executor.streamChat.failover","provider":"kilo","failedModel":"poolside/laguna-s-2.1:free","fallbackModel":"kilo-auto/free"}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"poolside/laguna-s-2.1:free","retry":1,"backoffMs":280}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"model limited before first token — trying another model on the same provider","subsystem":"executor.streamChat.failover","provider":"kilo","failedModel":"poolside/laguna-s-2.1:free","fallbackModel":"kilo-auto/free"}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"kilo-auto/free","retry":1,"backoffMs":270}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"kilo","failedModel":"kilo-auto/free","attempt":2}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"poolside/laguna-s-2.1:free","retry":1,"backoffMs":156}
+{"ts":"2026-10-03T12:53:29.290Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"kilo","failedModel":"poolside/laguna-s-2.1:free","attempt":1}
+{"ts":"2026-10-03T12:53:29.291Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"kilo","model":"poolside/laguna-s-2.1:free","retry":1,"backoffMs":242}
+{"ts":"2026-10-03T12:53:29.291Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"kilo","failedModel":"poolside/laguna-s-2.1:free","attempt":1}
+
+src/__tests__/file-organizer-applier-reserved-dirs.test.ts:
+88 |     // Only the reserved-path layer can answer this one: `backups` is a
+89 |     // sibling of `data`, so neither the anchored check nor the
+90 |     // `.ezcorp/data` segment fallback sees it.
+91 |     const snapshot = join(projectRoot, ".ezcorp", "backups", "pre-boot.tar");
+92 |     expect(snapshot).not.toContain(join(".ezcorp", "data"));
+93 |     expect(await _applierInternals.touchesProtectedDir(snapshot, dataDirRoot)).toBe(true);
+                                                                                    ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/file-organizer-applier-reserved-dirs.test.ts:93:80)
+(fail) touchesProtectedDir covers the reserved dirs that are not `.ezcorp/data` > the project's `.ezcorp/backups` snapshot dir is protected [0.28ms]
+104 |       snapshot: { size: 17, mtimeMs: 0, isSymlink: false, nlink: 1 },
+105 |     };
+106 |     // Watched root = the project root, so ONLY the protected-dir deny
+107 |     // stands between this proposal and the platform's own snapshots.
+108 |     const outcome = await applyProposal(p, ctx(projectRoot));
+109 |     expect(outcome.status).toBe("blocked");
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: "blocked"
+Received: "applied"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/file-organizer-applier-reserved-dirs.test.ts:109:28)
+(fail) touchesProtectedDir covers the reserved dirs that are not `.ezcorp/data` > a proposal whose SRC is a pre-boot snapshot is BLOCKED end-to-end [1.97ms]
+120 |       src,
+121 |       dst: join(projectRoot, ".ezcorp", "backups", "planted.tar"),
+122 |       snapshot: { size: 1, mtimeMs: 0, isSymlink: false, nlink: 1 },
+123 |     };
+124 |     const outcome = await applyProposal(p, ctx(projectRoot));
+125 |     expect(outcome.status).toBe("blocked");
+                                 ^
+error: expect(received).toBe(expected)
+
+Expected: "blocked"
+Received: "applied"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/file-organizer-applier-reserved-dirs.test.ts:125:28)
+(fail) touchesProtectedDir covers the reserved dirs that are not `.ezcorp/data` > a proposal whose DST is a pre-boot snapshot dir is BLOCKED end-to-end [7.66ms]
+
+src/__tests__/fs-reserved-carveout-not-a-violation.test.ts:
+[ezcorp/fs] deprecated: extension "821efa8a-be6b-431c-a6d2-e6e8dc111478" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+[ezcorp/fs] deprecated: extension "4a75756e-fd91-409b-bcda-3e894eef20f4" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+{"ts":"2026-10-03T12:54:12.734Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-03T12:54:12.736Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-03T12:54:12.737Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-03T12:54:12.737Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"76d22fb2-ea42-4ea1-8a4a-9d2f6243ed52"}
+{"ts":"2026-10-03T12:54:12.744Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"model","budget":1,"before":1,"after":1,"droppedCount":0,"droppedTokens":0}
+{"ts":"2026-10-03T12:54:13.081Z","level":"warn","msg":"Model \"claude-retired-0-0-19000101\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-retired-0-0-19000101"}
+
+ 1668 pass
+ 2 skip
+ 3 fail
+ 8927 expect() calls
+Ran 1673 tests across 103 files. [153.63s]

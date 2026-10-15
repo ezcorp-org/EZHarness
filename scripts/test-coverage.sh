@@ -119,6 +119,7 @@ COV_OUT=${COV_OUT:-}
 TOTAL_PASS=0
 TOTAL_FAIL=0
 FULL_VITEST_EXIT=0
+PYTHON_LEG_EXIT=0
 PROVIDER_EXIT=0
 WORKER_EXIT=0
 WEB_UTILITY_EXIT=0
@@ -215,7 +216,7 @@ run_host_pool() {
       # Wall-clock ms per file — feeds the LPT shard planner's timings
       # manifest (emitted as $COV_OUT/timings-shard-N.json below).
       START_MS=$(date +%s%3N)
-      OUTPUT=$(bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
+      OUTPUT=$(ez_test_file_context "$f" bun test $TEST_TIMEOUT_FLAG --coverage --coverage-reporter=lcov --coverage-dir="$covdir" "./$f" 2>&1)
       CODE=$?
       echo $(( $(date +%s%3N) - START_MS )) > "$TMPDIR/time_$idx"
       echo "$CODE" > "$codefile"
@@ -284,6 +285,12 @@ run_legs() {
   # registered in legs-only mode.
   if [ -z "$COVERAGE_LEGS_ONLY" ]; then
     register_leg web-vitest-full cov_vitest_full
+    # Python source has exactly one instrumenter, coverage.py, and its wildcard
+    # threshold key would otherwise report a whole-tree dropout on every local
+    # run. CI publishes the same producer from the `Factory runner contracts`
+    # job, which is the only place with the pinned uv, so like the Vitest
+    # receipt this leg is never registered in legs-only mode.
+    register_leg python cov_python
   fi
 
   # Leg file lists come from lib/test-file-sets.sh (sdk_leg_files & co) —
@@ -445,6 +452,18 @@ run_legs() {
       echo "$?" > "$legs/vitest-full.code"
     ) &
     running=$((running + 1))
+
+    # ruff, mypy --strict, standard-library discovery, and coverage.py LCOV over
+    # the locked Python distribution. The script fails closed when uv, the lock,
+    # the pinned interpreter, or a discovered test is missing.
+    await_leg_slot
+    (
+      set +e
+      PYTHON_COVERAGE_OUT="${LEG_COV_DIR[python]}" bash "$SCRIPT_DIR/python-quality.sh" all \
+        > "$legs/python.out" 2>&1
+      echo "$?" > "$legs/python.code"
+    ) &
+    running=$((running + 1))
   fi
 
   wait
@@ -453,7 +472,7 @@ run_legs() {
   # tally + collect exit codes with the pre-parallel gating semantics.
   local leg
   local printed_legs=(native-memory-stress sdk hc suggest aikit providers api-client empty-node-shim worker web-utility)
-  if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full); fi
+  if [ -z "$COVERAGE_LEGS_ONLY" ]; then printed_legs+=(vitest-full python); fi
   for leg in "${printed_legs[@]}"; do
     echo ""
     echo "── leg output: $leg ──"
@@ -529,6 +548,11 @@ run_legs() {
     if [ "$FULL_VITEST_EXIT" != "0" ]; then
       FAILED_FILES+=("web full-vitest coverage leg")
       echo "--- FAIL: web full-vitest coverage leg (exit $FULL_VITEST_EXIT) ---"
+    fi
+    PYTHON_LEG_EXIT=$(cat "$legs/python.code" 2>/dev/null || echo 1)
+    if [ "$PYTHON_LEG_EXIT" != "0" ]; then
+      FAILED_FILES+=("python quality/coverage leg")
+      echo "--- FAIL: python quality/coverage leg (exit $PYTHON_LEG_EXIT) ---"
     fi
   fi
   PRODUCER_POOL_MS=$(( $(date +%s%3N) - started_ms ))
@@ -957,7 +981,7 @@ emit_full_timing_receipt
 # PRINTED, whichever code is returned.
 COVERAGE_FAILED=0
 if [ "$CHECK_EXIT" != "0" ] || [ "$SDK_LEG_EXIT" != "0" ] || [ "$FULL_VITEST_EXIT" != "0" ] || [ "$WEB_VITEST_SOURCE_GUARD_EXIT" != "0" ] || [ "$BROWSER_RECEIPT_EXIT" != "0" ] || [ "$HC_EXIT" != "0" ] || \
-   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$NATIVE_MEMORY_STRESS_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ]; then
+   [ "$AIKIT_EXIT" != "0" ] || [ "$EMPTY_NODE_SHIM_EXIT" != "0" ] || [ "$PROVIDER_EXIT" != "0" ] || [ "$API_CLIENT_EXIT" != "0" ] || [ "$WORKER_EXIT" != "0" ] || [ "$WEB_UTILITY_EXIT" != "0" ] || [ "$NATIVE_MEMORY_STRESS_EXIT" != "0" ] || [ "$SECURITY_EXIT" != "0" ] || [ "$PYTHON_LEG_EXIT" != "0" ]; then
   COVERAGE_FAILED=1
 fi
 
@@ -970,7 +994,7 @@ else
   echo "  TESTS:    passed (no pass/fail-set file failed both the pooled run and an isolated re-run)"
 fi
 if [ "$COVERAGE_FAILED" != "0" ]; then
-  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT native_memory_stress=$NATIVE_MEMORY_STRESS_EXIT security=$SECURITY_EXIT)"
+  echo "  COVERAGE: FAILED (check=$CHECK_EXIT sdk=$SDK_LEG_EXIT vitest_full=$FULL_VITEST_EXIT vitest_sources=$WEB_VITEST_SOURCE_GUARD_EXIT browser_receipt=$BROWSER_RECEIPT_EXIT harness-client=$HC_EXIT ai-kit=$AIKIT_EXIT empty-node-shim=$EMPTY_NODE_SHIM_EXIT providers=$PROVIDER_EXIT worker=$WORKER_EXIT web_utility=$WEB_UTILITY_EXIT native_memory_stress=$NATIVE_MEMORY_STRESS_EXIT security=$SECURITY_EXIT python=$PYTHON_LEG_EXIT)"
 else
   echo "  COVERAGE: passed"
 fi

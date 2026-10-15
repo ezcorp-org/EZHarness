@@ -4,19 +4,18 @@
 
 ## Intent
 
-When the LLM runs a long-running dev server (`bun dev`, `vite`, `next dev`, …) through the `shell` tool, the user usually wants to see it in a browser. Naively exposing a container-internal port is dangerous: it could leak one user's site to another, or let untrusted user code reach the app's DB and JWT secret. This feature makes "show me the running site" safe **by construction** rather than by LLM cooperation: the dev server runs under a dedicated isolation boundary (a preview **uid**, or a network namespace where available), its listen port is auto-detected and attributed back to exactly one conversation/user, the user must explicitly consent before anything serves, and traffic flows through a hardened reverse proxy on a wildcard `*.preview.<host>` origin behind a per-preview, per-user signed token.
+When the LLM runs a long-running dev server (`bun dev`, `vite`, `next dev`, …) through the `shell` tool, the user usually wants to see it in a browser. Naively exposing a container-internal port is dangerous: it could leak one user's site to another, or let untrusted user code reach the app's DB and JWT secret. This feature makes "show me the running site" safe **by construction** rather than by LLM cooperation: the dev server runs under a dedicated isolation boundary (a per-conversation preview **uid**), its listen port is auto-detected and attributed back to exactly one conversation/user, the user must explicitly consent before anything serves, and traffic flows through a hardened reverse proxy on a wildcard `*.preview.<host>` origin behind a per-preview, per-user signed token.
 
 ## How it works
 
 ### 1. Capability tiering (fail-closed)
 
-`previewCapabilities()` (`src/runtime/preview/preview-netns.ts`) picks one mode at boot, in precedence order:
+`previewCapabilities()` (`src/runtime/preview/preview-capabilities.ts`) picks one mode at boot:
 
-- **`netns`** — the hardened tier: a per-conversation network namespace (veth into `br-ezcorp-mcp`, `10.42.0.0/24`, with nftables ingress rules from `buildIngressAllowRule`). Requires user/mount-namespace + `CAP_NET_ADMIN`. **Unavailable on standard Docker on this host**, so it is effectively not active in current deployments.
-- **`uid`** — the portable tier (the live default here): each conversation that runs a dev server gets a dedicated uid from the allowlisted range **90000–99000** (`preview-uid-pool.ts`). The uid is both the **fs-isolation** boundary (it cannot read `.ezcorp/data`, which is locked to 0700 app-uid-owned) and the **attribution** key (`/proc/net/tcp` exposes a uid column). Requires the setuid-root spawn helper.
+- **`uid`** — the hardened mode: each conversation that runs a dev server gets a dedicated uid from the allowlisted range **90000–99000** (`preview-uid-pool.ts`). The uid is both the **fs-isolation** boundary (it cannot read `.ezcorp/data`, which is locked to 0700 app-uid-owned) and the **attribution** key (`/proc/net/tcp` exposes a uid column). Requires the setuid-root spawn helper.
 - **`static`** — fail-closed: no dynamic previews; static-file previews still serve.
 
-`netns` falls through to `uid` if veth/CAP_NET_ADMIN is missing; `uid` falls through to `static` if the setuid helper is absent. No silent degradation — the chosen reason is logged.
+`uid` falls through to `static` if the setuid helper is absent. No silent degradation: the reason is logged at boot, and the shell tool tells the user when a dev server gets no preview link (see §2).
 
 ### 2. Detecting a dev-server launch in the shell tool
 
@@ -24,14 +23,14 @@ The `shell` tool (`src/runtime/tools/shell.ts`) is wired with an optional `Shell
 
 1. `detectDevServerCommand(command)` (`dev-command-detection.ts`) classifies the command string with a **pure, conservative allowlist** — package-manager scripts (`<pm> [run] dev|start|serve|preview`) and direct binaries (`vite`, `next dev`, `astro dev`, …), behind optional `npx`/`bunx`/`pnpm dlx` runners and `FOO=bar` env prefixes. It **bails on any shell metacharacter** (`| & ; < > \` $(...) ${...}`) — a compound command can't be safely run through the single-exec helper. When unsure it returns `null` and the shell runs the command exactly as before (fail-safe).
 2. On a match, `preview.launch(...)` → `launchPreviewDevServer` (`preview-spawn-orchestration.ts`): capability-gate to `uid` mode, allocate (or reuse) the conversation's preview uid, **register the conversation with the port watcher before spawning**, then spawn the dev server through the setuid helper (`spawnPreviewServer` → `/app/bin/preview-spawn`, which does setgid/setuid/setgroups/chdir/clearenv before `execvp`). The launched process is long-lived and supervised; the tool returns immediately ("a preview link will appear once it starts listening").
-3. Any refusal (`{ok:false}` — static mode, pool exhausted, missing helper, spawn failure) falls through to the normal shell execution path. A refusal is never a hard failure.
+3. Any refusal (`{ok:false}` — static mode, pool exhausted, missing helper, spawn failure) falls through to the normal shell execution path. A refusal is never a hard failure, but it is visible: the tool result ends with `No preview link: secure previews are unavailable here (<reason>)` and carries `preview: { launched: false, reason }`.
 
 ### 3. Auto-detecting the listen port (requester-scoped)
 
 `PreviewPortWatcher` (`preview-port-watcher.ts`) is a background daemon (PID lockfile, interval ticks, swallowed errors) wired in `src/startup/background-timers.ts`. It polls an injected `PreviewPortSource` per watched conversation:
 
 - `caps.mode === "uid"` → `ProcPortSource` (reads `/proc/net/tcp{,6}`, maps a LISTEN socket's uid column back to a conversation via `conversationForPreviewUid`).
-- otherwise → `NetnsPortSource` (hardened; yields nothing on a fail-closed host → the watcher is a logged no-op).
+- `static` → the watcher does not start (there are no preview uids to attribute); the reason is logged.
 
 Detection rules: a port must stay LISTENing for `stabilizeTicks` (default 2) consecutive ticks (debounce restart flapping), dedups per `(conversationId, port)` until the port fully disappears (a restart re-arms), and filters infra ports (`22`, `53`, `0`, plus any caller-supplied set). On a stable, new, non-infra port it fires `onDetected` with `{ userId, conversationId, port }` — **always requester-scoped**, never broadcast. It can also **idle-reap** a conversation that bound then lost its port for `idleReapTicks` (`EZCORP_PREVIEW_IDLE_REAP_TICKS`).
 
@@ -57,7 +56,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 
 ### 6. Reaping
 
-`reapPreviewConversation` (`preview-reaper.ts`) tears a conversation down (on conversation delete, idle-reap, or explicit stop), in order: **kill the dev-server processes first** (through the setuid helper's `--kill` group-kill — the app uid can't `kill(2)` a preview-uid process, EPERM), **revoke** the `preview_sessions` rows (proxy fails closed instantly), **release OR quarantine** the uid (quarantine when the kill could not be confirmed — a possible live orphan must never share its uid with a future conversation), release any netns, drop the watcher's watch, and forget the rate-limit accounting. `DELETE /api/conversations/[id]` calls this before the FK cascade.
+`reapPreviewConversation` (`preview-reaper.ts`) tears a conversation down (on conversation delete, idle-reap, or explicit stop), in order: **kill the dev-server processes first** (through the setuid helper's `--kill` group-kill — the app uid can't `kill(2)` a preview-uid process, EPERM), **revoke** the `preview_sessions` rows (proxy fails closed instantly), **release OR quarantine** the uid (quarantine when the kill could not be confirmed — a possible live orphan must never share its uid with a future conversation), drop the watcher's watch, and forget the rate-limit accounting. `DELETE /api/conversations/[id]` calls this before the FK cascade.
 
 ## Usage
 
@@ -95,9 +94,9 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 - `src/runtime/preview/preview-spawn-orchestration.ts` — `launchPreviewDevServer` (alloc uid → register watcher → spawn) + `killConversationProcesses` (confirmed/unconfirmed kill accounting).
 - `src/runtime/preview/preview-spawn.ts` — setuid-helper driver: uid-range allowlist (90000–99000), argv builders, `isPreviewSpawnHelperPresent`, `killPreviewProcess`.
 - `src/runtime/preview/preview-uid-pool.ts` — per-conversation uid alloc/reap/**quarantine** + the `.ezcorp/data` 0700 app-uid-owned **lockdown keystone** (`enforceDataDirLockdown`).
-- `src/runtime/preview/preview-netns.ts` — `previewCapabilities()` tiering + per-conversation netns scaffolding + `buildIngressAllowRule`.
+- `src/runtime/preview/preview-capabilities.ts` — `previewCapabilities()`: uid when the setuid helper works, else static.
 - `src/runtime/preview/preview-port-watcher.ts` — `PreviewPortWatcher` daemon (stabilize/dedup/infra-filter/idle-reap; emits `preview:detected`).
-- `src/runtime/preview/preview-port-source.ts` — `ProcPortSource` (/proc/net/tcp, uid attribution) + `NetnsPortSource` (hardened, fail-closed).
+- `src/runtime/preview/preview-port-source.ts` — `ProcPortSource` (/proc/net/tcp, uid attribution) + the test `StaticPortSource`.
 - `src/runtime/preview/preview-consent.ts` — `decideOnDetection`, `exposeDetectedPort`, the per-conversation "always expose" preference, consent-card payload.
 - `src/runtime/preview/preview-detection-bridge.ts` — push a decision onto the conversation SSE stream as an `ez-preview-consent` `tool:complete`; `buildPreviewOpenUrl`.
 - `src/runtime/preview/preview-token.ts` — one-time-code store (in-process) + `__ezpreview` JWT sign/verify.
@@ -111,7 +110,7 @@ Routing is by **wildcard subdomain `<id>.preview.<appHost>`** (LOCKED decision D
 - `web/src/routes/api/preview/[id]/token/+server.ts` — `POST` one-time-code mint for an owned live preview.
 - `web/src/lib/components/tool-cards/preview-consent-card-logic.ts` — pure consent-card parse and request-body helpers.
 - `src/db/queries/preview-sessions.ts` — `createPreviewSession`, `getServablePreview`, `touchPreview`, `revokePreview`, `reapPreviewIdsForConversation`, id minting (`generatePreviewId`/`isValidPreviewId`), `assertUnderSitesRoot`.
-- `src/db/schema.ts` — `preview_sessions` table (`kind`, `targetPort`, `staticPath`, `netnsId`, `status`, `expiresAt`, `lastSeenAt`, `revokedAt`; FKs SET NULL).
+- `src/db/schema.ts` — `preview_sessions` table (`kind`, `targetPort`, `staticPath`, `netnsId` (legacy, always null), `status`, `expiresAt`, `lastSeenAt`, `revokedAt`; FKs SET NULL).
 - `src/startup/background-timers.ts` — boots the watcher, selects the source by capability mode, wires `onPreviewDetected` + idle-reap; exposes `getPreviewPortWatcher()`.
 - `web/src/hooks.server.ts` — preview-origin dispatch entry (runs before payload/rate/auth).
 - `build/preview-spawn.c` — the setuid-root helper (privilege drop + `--kill` group-kill); installed 4755 by the Dockerfile.
@@ -141,7 +140,7 @@ Operator setup for the wildcard origin:
 
 ## Notes & gotchas
 
-- **netns mode is effectively dormant here.** Standard Docker on this host lacks the namespaces + `CAP_NET_ADMIN`, so `previewCapabilities()` resolves to `uid`. The netns alloc/nftables/veth code is fully built and tested but the live passthrough was Phase-3 wiring; the `uid` tier is the real path in current deployments. `static` is the fail-closed floor.
+- **There is no netns mode.** A per-conversation network-namespace tier was planned but never built (no veth pairs, no netns port reader). It was removed after it was found to win tier selection on hosts with `CAP_NET_ADMIN` and refuse every dev-server launch. `uid` is the hardened mode; `static` is the fail-closed floor.
 - **Preview origin is OFF unless `EZCORP_PREVIEW_APP_HOST` is set.** `parsePreviewHost` returns null for every host when it's unset, so a misconfigured deploy never accidentally serves untrusted content on an unexpected origin. It needs wildcard DNS + (in prod) a wildcard TLS cert for `*.preview.<host>`.
 - **The `.ezcorp/data` 0700 lockdown is load-bearing and fail-closed.** `enforceDataDirLockdown()` must run at boot and assert the dir is 0700 **and** app-uid-owned (create-and-lock if absent, so a later PGlite create can't leave it 0755). If it can't be enforced, the caller must refuse uid-mode dynamic previews — otherwise a preview uid could read the DB + encrypted JWT secret.
 - **uid quarantine on unconfirmed kill.** If the reaper can't confirm a dev-server tree is dead (helper non-zero, missing captured uid/pgid, thrown killer), the uid is **quarantined**, not returned to the pool — a future conversation must never inherit a uid a live orphan still owns. Quarantined uids are reclaimed only out-of-band (process exit / container teardown).

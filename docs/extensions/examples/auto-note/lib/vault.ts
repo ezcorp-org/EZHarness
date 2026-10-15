@@ -13,7 +13,7 @@ import {
   extractActionItems, findRelatedNotes,
 } from "./categorizer";
 import {
-  findProjectRoot as sdkFindProjectRoot,
+  resolveProjectRoot,
   fsRead,
   fsWrite,
   fsMkdir,
@@ -29,19 +29,11 @@ import {
 
 // ── Project Root Detection ──────────────────────────────────────
 //
-// Thin wrapper over the SDK helper. The SDK version throws when no `.git`
-// ancestor is found, but this module runs at import time (see
-// `const projectRoot = findProjectRoot()` below), so we preserve the
-// original silent-fallback-to-`from` semantics to keep module-load safe
-// for environments without a git repo (e.g. some test harnesses).
+// The SDK's non-throwing resolver: this module runs at import time, so it
+// falls back to `from` for environments without a git repo (e.g. some test
+// harnesses).
 
-export function findProjectRoot(from: string = process.cwd()): string {
-  try {
-    return sdkFindProjectRoot(from);
-  } catch {
-    return from;
-  }
-}
+export const findProjectRoot = resolveProjectRoot;
 
 // ── Vault Path Helpers ──────────────────────────────────────────
 //

@@ -27,8 +27,27 @@ import {
 	getShutdownSignal,
 	installShutdownHandlers,
 	__resetForTests,
+	DRAIN_TIMEOUT_MS,
 	HARD_TIMEOUT_MS,
+	TEARDOWN_TIMEOUT_MS,
 } from "$lib/server/shutdown";
+
+/** The shutdown logger's error lines, parsed from stderr. */
+function captureShutdownErrors(): Array<Record<string, unknown>> {
+	const lines: Array<Record<string, unknown>> = [];
+	vi.spyOn(process.stderr, "write").mockImplementation(((chunk: string | Uint8Array) => {
+		for (const line of String(chunk).split("\n").filter(Boolean)) {
+			try {
+				const parsed = JSON.parse(line) as Record<string, unknown>;
+				if (parsed.subsystem === "shutdown") lines.push(parsed);
+			} catch {
+				// not a logger line
+			}
+		}
+		return true;
+	}) as never);
+	return lines;
+}
 
 beforeEach(() => {
 	__resetForTests();
@@ -159,23 +178,57 @@ describe("failure isolation", () => {
 	});
 });
 
-describe("hard-timeout force-exit", () => {
-	test("force-exits with code 1 if teardown exceeds the hard timeout", async () => {
+describe("per-teardown deadline", () => {
+	test("a teardown that hangs past its deadline is named, and the later teardowns still run", async () => {
 		vi.useFakeTimers();
+		const errors = captureShutdownErrors();
+		const exitSpy = vi.spyOn(process, "exit").mockImplementation((() => undefined) as never);
+		const ran: string[] = [];
+		registerTeardown("pglite-close", () => {
+			ran.push("pglite-close");
+		});
+		registerTeardown("factory-runtime", () => new Promise<void>(() => {}));
+
+		const p = shutdown("deadline-test");
+		await vi.advanceTimersByTimeAsync(TEARDOWN_TIMEOUT_MS);
+		await p;
+
+		expect(ran).toEqual(["pglite-close"]);
+		expect(errors.find((line) => line.msg === "teardown timed out; continuing")).toMatchObject({
+			name: "factory-runtime",
+			timeoutMs: TEARDOWN_TIMEOUT_MS,
+		});
+		expect(exitSpy).not.toHaveBeenCalled();
+	});
+
+	test("the request drain plus one timed-out teardown stays under the hard timeout", () => {
+		expect(DRAIN_TIMEOUT_MS + TEARDOWN_TIMEOUT_MS).toBeLessThan(HARD_TIMEOUT_MS);
+	});
+});
+
+describe("hard-timeout force-exit", () => {
+	test("force-exits with code 1 if teardown exceeds the hard timeout, naming every unfinished teardown", async () => {
+		vi.useFakeTimers();
+		const errors = captureShutdownErrors();
 		const exitSpy = vi
 			.spyOn(process, "exit")
 			.mockImplementation((() => undefined) as never);
 
-		let release: () => void = () => {};
-		registerTeardown("hang", () => new Promise<void>((r) => (release = r)));
+		// Enough hung teardowns that their deadlines add up past the hard timeout.
+		const hung = Array.from({ length: Math.ceil(HARD_TIMEOUT_MS / TEARDOWN_TIMEOUT_MS) }, (_, index) => `hang-${index}`);
+		const releases: Array<() => void> = [];
+		registerTeardown("done-first", () => {});
+		for (const name of hung) registerTeardown(name, () => new Promise<void>((r) => releases.push(r)));
 
 		const p = shutdown("timeout-test");
-		// Advance past the hard timeout while the teardown is still pending.
+		// Advance past the hard timeout while the teardowns are still pending.
 		await vi.advanceTimersByTimeAsync(HARD_TIMEOUT_MS + 1);
 		expect(exitSpy).toHaveBeenCalledWith(1);
+		const forced = errors.find((line) => line.msg === "forced-exit — shutdown teardown exceeded hard timeout");
+		expect(forced?.pending).toEqual([...hung].reverse().concat("done-first"));
 
-		// Let the hung teardown finish so the promise settles cleanly.
-		release();
+		// Let the hung teardowns finish so the promise settles cleanly.
+		for (const release of releases) release();
 		await vi.runAllTimersAsync();
 		await p;
 	});

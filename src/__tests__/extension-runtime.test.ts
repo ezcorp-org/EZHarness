@@ -17,7 +17,7 @@ import {
   resetFailures,
   disableExtension,
 } from "../db/queries/extensions";
-import { ExtensionProcess } from "../extensions/subprocess";
+import { HostExtensionProcess } from "./helpers/host-extension-process";
 import { ExtensionRegistry } from "../extensions/registry";
 import { createAgentConfig } from "../db/queries/agent-configs";
 const MOCK_ENTRYPOINT = resolve(__dirname, "helpers/mock-extension/entrypoint.ts");
@@ -213,11 +213,11 @@ describe("JsonRpcTransport", () => {
   });
 });
 
-// ── ExtensionProcess Tests ───────────────────────────────────────────
+// ── HostExtensionProcess Tests ───────────────────────────────────────────
 
-describe("ExtensionProcess", () => {
+describe("HostExtensionProcess", () => {
   test("spawns subprocess with minimal env (not inheriting process.env)", async () => {
-    const ep = new ExtensionProcess(
+    const ep = new HostExtensionProcess(
       "test-id",
       MOCK_ENTRYPOINT,
       { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
@@ -231,7 +231,7 @@ describe("ExtensionProcess", () => {
   });
 
   test("call tools/call returns correct result via mock extension", async () => {
-    const ep = new ExtensionProcess(
+    const ep = new HostExtensionProcess(
       "test-id-2",
       MOCK_ENTRYPOINT,
       { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },
@@ -248,7 +248,7 @@ describe("ExtensionProcess", () => {
   });
 
   test("kills subprocess after idle timeout", async () => {
-    const ep = new ExtensionProcess(
+    const ep = new HostExtensionProcess(
       "test-id-3",
       MOCK_ENTRYPOINT,
       { PATH: process.env.PATH ?? "", HOME: process.env.HOME ?? "" },

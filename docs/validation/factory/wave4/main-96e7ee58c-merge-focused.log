@@ -1,0 +1,623 @@
+start=2026-09-24T10:26:49-04:00 head=6c8ec29c50c3edfa6b1aef31cf16f44c84de260d index-tree=755b86474f3f2f464825c778c652ec0e8ceebe2d umask=0077
+df: /dev/nvme0n1p2  1.8T  1.6T  100G  95% /
+cmd: bun test --timeout 30000 --coverage --coverage-reporter=lcov --coverage-dir=/tmp/factory-platform-evidence/w00/main96e-merge/focused-coverage ./src/__tests__/factory-run-lifecycle.test.ts ./src/factory/release-authority.integration.test.ts ./src/factory/executions.integration.test.ts ./src/factory/run-inputs.integration.test.ts ./src/db/migrations/add-factory-child-runs.test.ts ./src/db/migrations/bind-factory-child-definition-source.test.ts ./src/db/migrations/bind-factory-child-start-clock.test.ts ./scripts/factory-task-execution-admission-registration.test.ts ./src/db/migrations/add-factory-command-approvals.test.ts ./src/factory/release-application.test.ts ./src/factory/application.test.ts ./src/factory/private-commands.test.ts ./src/__tests__/factory-private-service.test.ts ./src/factory/validator-materials.test.ts ./src/factory/assurance.test.ts ./src/factory/releases.integration.test.ts ./src/factory/attempt-queue.integration.test.ts ./src/delivery-queue/durable-delivery-queue.test.ts ./scripts/factory-validator-materials-registration.test.ts ./src/factory/package-preparation.integration.test.ts ./src/db/migrations/add-factory-package-preparations.test.ts ./src/db/migrations/add-factory-task-outcomes.test.ts ./src/factory/artifacts.integration.test.ts ./src/factory/protected-command-provenance.test.ts ./scripts/factory-protected-command-effects-registration.test.ts ./src/db/factory-schema.test.ts ./src/__tests__/gate-scripts.test.ts ./packages/@ezcorp/extension-runner/tests/browser.test.ts ./packages/@ezcorp/extension-runner/tests/channel-identity.test.ts ./packages/@ezcorp/extension-runner/tests/ci-conmon.test.ts ./packages/@ezcorp/extension-runner/tests/ci-delegation.test.ts ./packages/@ezcorp/extension-runner/tests/core.test.ts ./packages/@ezcorp/extension-runner/tests/dependencies.test.ts ./packages/@ezcorp/extension-runner/tests/materials.test.ts ./packages/@ezcorp/extension-runner/tests/protocol.test.ts ./packages/@ezcorp/extension-runner/tests/service.test.ts ./packages/@ezcorp/extension-runner/tests/trusted-local.test.ts ./src/extensions/__tests__/project-pull-request-transport.test.ts ./src/extensions/__tests__/github-projects-handler.test.ts ./src/extensions/__tests__/github-projects-handler.integration.test.ts ./src/extensions/__tests__/github-projects-handler-default-db.test.ts ./src/extensions/__tests__/tool-executor.github-projects-rpc.test.ts ./src/factory/release-adapters.test.ts ./src/__tests__/workflow-release-assets.test.ts ./src/__tests__/workflow-release-consent.test.ts ./src/__tests__/workflow-service-release-authority.test.ts ./src/__tests__/workflow-run-persistence.test.ts ./src/__tests__/workflow-nesting.test.ts ./src/__tests__/workflow-capability-hash.test.ts ./src/__tests__/workflow-delegation-consent.test.ts ./src/__tests__/workflow-delegation-record.test.ts ./src/__tests__/workflow-consent-reconcile.test.ts ./src/__tests__/list-flags.test.ts ./src/__tests__/service-capabilities.test.ts ./src/extensions/v4/deliveries.test.ts ./src/__tests__/failover.test.ts ./src/__tests__/factory-service-token.test.ts ./src/__tests__/openapi.test.ts ./extensions/local-sandbox/extension.test.ts ./packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts ./packages/@ezcorp/extension-contract/src/provider-wire.test.ts ./packages/@ezcorp/extension-contract/src/providers.test.ts ./packages/@ezcorp/sdk/src/entities/__tests__/tools-rethrow.test.ts ./packages/@ezcorp/sdk/src/v4/mcp.test.ts ./src/__tests__/bundled-bootstrap-policy-change.test.ts ./src/__tests__/bundled-source-lock.test.ts ./src/__tests__/bundled-v4-bootstrap.test.ts ./src/__tests__/chat-tool-loop-e2e.test.ts ./src/__tests__/ci-required-aggregation.test.ts ./src/__tests__/container-engine.test.ts ./src/__tests__/dev-image-ownership.test.ts ./src/__tests__/dev-image-provenance.test.ts ./src/__tests__/gh-cli-in-images.test.ts ./src/__tests__/installer-core.test.ts ./src/__tests__/lcov-noise-filter.test.ts ./src/__tests__/local-podman-commands.test.ts ./src/__tests__/local-podman-driver-journal.test.ts ./src/__tests__/local-podman-files.test.ts ./src/__tests__/local-podman-journal.test.ts ./src/__tests__/local-podman-supervisor.test.ts ./src/__tests__/local-podman-workspace-image.test.ts ./src/__tests__/local-sandbox-startup.test.ts ./src/__tests__/mentions-search-symlink-integration.test.ts ./src/__tests__/mutation-nightly-workflow.test.ts ./src/__tests__/native-workspace-tools.test.ts ./src/__tests__/orchestration-single-source-wiring.test.ts ./src/__tests__/pluggable-workspace-routing.test.ts ./src/__tests__/podman-compose-wrapper.test.ts ./src/__tests__/prod-image-provenance.test.ts ./src/__tests__/production-image-lifecycle-launch.integration.test.ts ./src/__tests__/prune-images.test.ts ./src/__tests__/quality-report-fail-closed.test.ts ./src/__tests__/race-control.test.ts ./src/__tests__/runner-image-pin.test.ts ./src/__tests__/runner-profile-transition.test.ts ./src/__tests__/sandbox-controller.test.ts ./src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts ./src/__tests__/security/h1-local-provider-ssrf.test.ts ./src/__tests__/setup-podman.test.ts ./src/__tests__/subscribe-bridge-cardlayout.test.ts ./src/__tests__/subscribe-bridge-turn-saved-final.test.ts ./src/__tests__/task-tracking-concurrent-writes.test.ts ./src/extensions/__tests__/bundled-bootstrap-v4.test.ts ./src/extensions/__tests__/host-api-broker.test.ts ./src/extensions/__tests__/project-git-broker.test.ts ./src/extensions/__tests__/project-pr-broker.test.ts ./src/extensions/__tests__/release-process.test.ts ./src/extensions/lifecycle-blob-audit.test.ts ./src/extensions/v4/blob-diagnostics.test.ts ./src/runtime/sandbox/provider-invoker.test.ts
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-24T14:28:48.767Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.pullRequest","extensionId":"foreign","tokenActorExtensionId":"installation"}
+{"ts":"2026-09-24T14:28:48.804Z","level":"warn","msg":"ezcorp/github-projects rejected: extension not in bundled allowlist","subsystem":"ext.github-projects.handler","extensionName":"evil-lookalike"}
+{"ts":"2026-09-24T14:28:50.198Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-09-24T14:28:52.097Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"c599cb67-baae-4a4e-8c05-30c3862dc7ad","workflowRunId":"eccdc203-5f2d-4485-8a53-34713cacd5db","stepName":"gate"}
+{"ts":"2026-09-24T14:28:52.097Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-09-24T14:28:52.101Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"c599cb67-baae-4a4e-8c05-30c3862dc7ad","workflowRunId":"eccdc203-5f2d-4485-8a53-34713cacd5db","stepName":"gate"}
+{"ts":"2026-09-24T14:28:52.101Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-09-24T14:28:52.123Z","level":"warn","msg":"approval timed out — run cancelled","subsystem":"workflow.approval-timeout","approvalId":"c599cb67-baae-4a4e-8c05-30c3862dc7ad","workflowRunId":"eccdc203-5f2d-4485-8a53-34713cacd5db","stepName":"gate","reason":"its approval timed out"}
+{"ts":"2026-09-24T14:28:52.123Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":1,"deferred":0,"raced":0}
+{"ts":"2026-09-24T14:29:11.529Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"insert","error":"Error: Failed query: insert into \"workflow_runs\" (\"id\", \"workflow_definition_id\", \"workflow_name\", \"project_id\", \"user_id\", \"status\", \"input\", \"result\", \"started_at\", \"finished_at\", \"created_at\", \"cursor\", \"run_phase\", \"suspended_reason\", \"resumable\", \"claimed_by\", \"lease_expires_at\", \"definition_version_id\", \"definition_hash\", \"job_ref\", \"idempotency_key\", \"parent_run_id\", \"run_as_kind\", \"run_as\", \"delegation_id\") values ($1, $2, $3, $4, $5, $6, $7, default, $8, default, default, default, default, default, default, default, default, $9, $10, $11, $12, $13, $14, $15, $16)\nparams: 79b54d5d-efb2-4ba6-89bd-b2894440ff77,,fk-violating,no-such-project-id,,running,{},2026-09-24T14:29:11.527Z,,1fa87daeb21173c7f13a57a42d0de2b3932db80ea77464f7c0ae80d7576aad9c,,,,,,"}
+{"ts":"2026-09-24T14:29:11.532Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: 3f1a3d56-d2d7-4bb6-bc58-02fd566f89fc,79b54d5d-efb2-4ba6-89bd-b2894440ff77,t,,running,,,,,,,,,,,,,,running,,,,,,,,,,,,"}
+{"ts":"2026-09-24T14:29:11.533Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: 67467210-ef70-4e87-9c15-bfe67c7665f5,79b54d5d-efb2-4ba6-89bd-b2894440ff77,t,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,"}
+{"ts":"2026-09-24T14:29:27.255Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":234}
+{"ts":"2026-09-24T14:29:27.255Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.255Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"solo","model":"solo-model","retry":1,"backoffMs":178}
+{"ts":"2026-09-24T14:29:27.255Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.255Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":222}
+{"ts":"2026-09-24T14:29:27.256Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":188}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p2","model":"p2-model","retry":1,"backoffMs":180}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p2","failedModel":"p2-model","attempt":2}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":208}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":214}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":244}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.257Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.258Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.258Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":274}
+{"ts":"2026-09-24T14:29:27.258Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.258Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":152}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":254}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":193}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":190}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":171}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":236}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":294}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":187}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":154}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":192}
+{"ts":"2026-09-24T14:29:27.413Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.414Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":163}
+{"ts":"2026-09-24T14:29:27.414Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-24T14:29:27.414Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":235}
+{"ts":"2026-09-24T14:29:27.414Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-oyYPey/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-oyYPey/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-oyYPey/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-oyYPey/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-oyYPey/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-oyYPey/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-VWlIqe/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-VWlIqe/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-VWlIqe/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-VWlIqe/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-VWlIqe/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-VWlIqe/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-wVkNmq/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-YD75aS/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-TAA5Oc/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-n2iQ2I/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-n2iQ2I)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-n2iQ2I/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-bkARh4/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-bkARh4)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-bkARh4/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-bkARh4/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-bkARh4)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-bkARh4/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-WbrM6j/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+ai-kit: data directory initialized at /tmp/ai-kit-test-IT69kl/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-IT69kl)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-IT69kl/.ezcorp/extensions/ai-kit
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+{"ts":"2026-09-24T14:29:30.715Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"eab288ec-754c-4d54-93fb-5026620a5d5a","status":"queued"}
+{"ts":"2026-09-24T14:29:30.725Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"c0773aa0-5550-4f1c-aad3-d4575a378a08","status":"queued"}
+{"ts":"2026-09-24T14:29:31.281Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"65db1922-a5c3-4be1-bd39-c586dbee4c99","status":"queued"}
+{"ts":"2026-09-24T14:29:31.285Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"65db1922-a5c3-4be1-bd39-c586dbee4c99","status":"queued"}
+{"ts":"2026-09-24T14:29:31.290Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"15a637aa-0cdf-43ab-8b10-af6220613764","status":"queued"}
+{"ts":"2026-09-24T14:29:31.296Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"15a637aa-0cdf-43ab-8b10-af6220613764","status":"queued"}
+{"ts":"2026-09-24T14:29:31.300Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:31.302Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:31.302Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:31.302Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:31.302Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:31.302Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-24T14:29:32.375Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"ask-user","error":"Error: Source is unreadable"}
+{"ts":"2026-09-24T14:29:32.376Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"task-tracking","error":"Error: Source is unreadable"}
+{"ts":"2026-09-24T14:29:32.382Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"scratchpad","error":"Error: Source is unreadable"}
+{"ts":"2026-09-24T14:29:32.383Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.385Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.386Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.387Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.389Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.390Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.391Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.392Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.397Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.398Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.399Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.400Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.401Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.403Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.404Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.405Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.406Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.407Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.408Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.416Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.417Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.418Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.419Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.420Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.422Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.423Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.424Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.428Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.430Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.431Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.432Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.433Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.434Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.435Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.437Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.438Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.439Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.440Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.444Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.446Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.447Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.448Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.449Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.450Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.451Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.452Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.454Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.455Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.456Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.464Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.465Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.466Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.467Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.468Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.469Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.471Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.472Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.478Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.479Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.480Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-09-24T14:29:32.481Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.483Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.484Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-24T14:29:32.485Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-24T14:29:32.486Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-24T14:29:32.487Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.493Z","level":"warn","msg":"Bundled source owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-09-24T14:29:32.494Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.495Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.496Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.499Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.500Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.501Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.502Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.503Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.510Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.511Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Source is unreadable"}
+{"ts":"2026-09-24T14:29:32.513Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Bundled source path does not match the reviewed inventory"}
+{"ts":"2026-09-24T14:29:32.514Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"complete","status":"succeeded"}
+{"ts":"2026-09-24T14:29:32.515Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-24T14:29:32.515Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: runner unavailable"}
+{"ts":"2026-09-24T14:29:32.517Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.519Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.520Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-24T14:29:32.520Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-24T14:29:32.529Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.530Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-24T14:29:32.532Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.533Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-24T14:29:32.534Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.535Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-24T14:29:32.536Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.543Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-24T14:29:32.546Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.547Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"verified"}
+{"ts":"2026-09-24T14:29:32.548Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.549Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"active"}
+{"ts":"2026-09-24T14:29:32.551Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.552Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-24T14:29:32.552Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-24T14:29:32.557Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-09-24T14:29:32.557Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+{"ts":"2026-09-24T14:29:32.558Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.560Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-24T14:29:32.560Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-24T14:29:32.561Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-24T14:29:32.562Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-24T14:29:32.563Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-24T14:29:32.564Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-09-24T14:29:32.565Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+{"ts":"2026-09-24T14:29:33.086Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:29:33.096Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-24T14:29:33.116Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:29:33.118Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"ffd63077-74fe-4e28-9728-65cef598abe0","userId":"010983e8-af34-45bb-8f77-6776075ee83b","registered":4,"expected":4}
+{"ts":"2026-09-24T14:29:33.127Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"ffd63077-74fe-4e28-9728-65cef598abe0","userId":"010983e8-af34-45bb-8f77-6776075ee83b"}
+{"ts":"2026-09-24T14:29:33.164Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-24T14:29:33.173Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:29:33.177Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-24T14:29:33.178Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:29:33.178Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"64ee53ef-2c8f-4196-8fe7-74eda814384e","userId":"010983e8-af34-45bb-8f77-6776075ee83b","registered":4,"expected":4}
+{"ts":"2026-09-24T14:29:33.178Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"64ee53ef-2c8f-4196-8fe7-74eda814384e","userId":"010983e8-af34-45bb-8f77-6776075ee83b"}
+{"ts":"2026-09-24T14:29:33.193Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-24T14:29:33.199Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:29:33.202Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-24T14:29:33.203Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:29:33.203Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"174a5b35-000b-49f4-9285-24ded5d2d6b4","userId":"010983e8-af34-45bb-8f77-6776075ee83b","registered":4,"expected":4}
+{"ts":"2026-09-24T14:29:33.203Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"174a5b35-000b-49f4-9285-24ded5d2d6b4","userId":"010983e8-af34-45bb-8f77-6776075ee83b"}
+{"ts":"2026-09-24T14:29:33.218Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-24T14:29:33.226Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:29:33.230Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-24T14:29:33.230Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:29:33.230Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"dc5fb96b-d180-4b18-9fa5-a04d4b35ae58","userId":"010983e8-af34-45bb-8f77-6776075ee83b","registered":4,"expected":4}
+{"ts":"2026-09-24T14:29:33.230Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"dc5fb96b-d180-4b18-9fa5-a04d4b35ae58","userId":"010983e8-af34-45bb-8f77-6776075ee83b"}
+{"ts":"2026-09-24T14:29:33.247Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+
+src/__tests__/dev-image-provenance.test.ts:
+48 | const dockerRebuildCommand = (revision: string) =>
+49 |   `Docker: EZCORP_BUILD_COMMIT=${revision} EZCORP_BUILD_SOURCE_STATE=$(bash scripts/resolve-dev-image-source-state.sh) docker compose up -d --build`;
+50 | 
+51 | test("dev image provenance warns only when the image and bind-mounted checkout differ", async () => {
+52 |   expect(await Bun.file(script).exists()).toBe(true);
+53 |   expect(run(commit)).toEqual({ exitCode: 0, stderr: "" });
+                           ^
+error: expect(received).toEqual(expected)
+
+@@ -2,3 +2,9 @@
+    "exitCode": 0,
+-   "stderr": "",
++   "stderr": 
++ "WARNING: /repo has uncommitted Docker build-context changes; matching HEAD revisions cannot prove image-backed files match.
++          Rebuild the image, or restore the Docker build context to HEAD before relying on the revision comparison.
++          Docker: EZCORP_BUILD_COMMIT=2e191fa1ebdfe36d417dbd3e0d59a4ca4c68c5c2 EZCORP_BUILD_SOURCE_STATE=$(bash scripts/resolve-dev-image-source-state.sh) docker compose up -d --build
++          Rootless Podman: bun run podman up -d --build
++ "
++ ,
+  }
+
+- Expected  - 1
++ Received  + 7
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/dev-image-provenance.test.ts:53:23)
+(fail) dev image provenance warns only when the image and bind-mounted checkout differ [82.02ms]
+
+src/__tests__/local-sandbox-startup.test.ts:
+20 | 
+21 | test("loads only private operator configuration and available immutable artifacts", async () => {
+22 |   expect(await loadLocalSandboxConfig(await save("valid"))).toEqual(config);
+23 |   await expect(loadLocalSandboxConfig("relative")).rejects.toThrow("absolute");
+24 |   await expect(loadLocalSandboxConfig(await save("relative-state-root", { ...config, stateRoot: "relative" }))).rejects.toThrow("stateRoot must be absolute");
+25 |   await expect(loadLocalSandboxConfig(await save("public", config, 0o644))).rejects.toThrow("private");
+                                                                                         ^
+error: 
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/local-sandbox-startup.test.ts:25:85)
+(fail) loads only private operator configuration and available immutable artifacts [9.80ms]
+56 |   expect(await initializeLocalSandbox(join(root, "valid"))).toBe(true);
+57 |   expect(configured).toBe(1);
+58 |   const dispatcher = getSandboxWorkspaceDispatcher()!;
+59 |   const result = await dispatcher({ kind: "sandbox", projectId: "p", bindingId: "b", revision: 1 }, "readFile", { path: "hello" }, undefined, { userId: "u", conversationId: "c" });
+60 |   expect(result).toEqual({ content: [{ type: "text", text: "real route" }], details: {} });
+61 |   await expect(initializeLocalSandbox(join(root, "public"))).rejects.toThrow();
+                                                                          ^
+error: 
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/local-sandbox-startup.test.ts:61:70)
+(fail) startup installs the controller and native dispatcher only after verification [10.07ms]
+{"ts":"2026-09-24T14:30:38.663Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:30:38.674Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:30:38.674Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf"}
+{"ts":"2026-09-24T14:30:38.676Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"@Alpha do X","agents":["Alpha"],"teams":[],"depth":0}
+{"ts":"2026-09-24T14:30:38.677Z","level":"info","msg":"Scratchpad auto-wire skipped: not enabled or storage not granted","subsystem":"executor.streamChat.setup","exists":false,"enabled":false,"storageGranted":false}
+{"ts":"2026-09-24T14:30:38.677Z","level":"info","msg":"Injected orchestration tools","subsystem":"executor.streamChat.setup","agents":["Alpha"],"toolCount":10}
+{"ts":"2026-09-24T14:30:38.692Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:30:38.698Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:30:38.698Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf"}
+{"ts":"2026-09-24T14:30:38.698Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"is the background agent done yet?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-24T14:30:38.706Z","level":"warn","msg":"session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)","subsystem":"executor.loadHistory.rehydrate","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf","error":"SessionError: Entry msg-anchor-1 not found"}
+{"ts":"2026-09-24T14:30:38.708Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:30:38.712Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:30:38.712Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf"}
+{"ts":"2026-09-24T14:30:38.712Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the researcher","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-24T14:30:38.722Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:30:38.728Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:30:38.728Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf"}
+{"ts":"2026-09-24T14:30:38.728Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"plain follow-up","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-24T14:30:38.740Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-24T14:30:38.746Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-24T14:30:38.746Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1ad49a21-255c-41b1-a50e-2ec9258f1baf"}
+{"ts":"2026-09-24T14:30:38.746Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the nested task","agents":[],"teams":[],"depth":0}
+
+src/__tests__/podman-compose-wrapper.test.ts:
+592 |     const defaultResult = run(["up", "-d"]);
+593 |     const defaultBuild = defaultResult.invocation;
+594 |     expect(defaultBuild?.buildCommit).toBe("");
+595 |     expect(defaultBuild?.buildCommitDefault).toBe(DEFAULT_BUILD_COMMIT);
+596 |     expect(defaultBuild?.buildSourceState).toBe("");
+597 |     expect(defaultBuild?.buildSourceStateDefault, defaultResult.stderr).toBe("clean");
+                                                                              ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:597:73)
+(fail) podman wrapper — the invocation it guarantees > provides checkout defaults without replacing explicit shell provenance [882.30ms]
+607 |   });
+608 | 
+609 |   test.skipIf(!HAS_DOCKER_CLI)("the advertised Docker rebuild command renders complete clean provenance", () => {
+610 |     const args = advertisedDockerBuildArgs();
+611 |     expect(args.EZCORP_BUILD_COMMIT).toBe(DEFAULT_BUILD_COMMIT);
+612 |     expect(args.EZCORP_BUILD_SOURCE_STATE).toBe("clean");
+                                                 ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:612:44)
+(fail) podman wrapper — the invocation it guarantees > the advertised Docker rebuild command renders complete clean provenance [1056.86ms]
+619 |         "dirty",
+620 |       );
+621 |     } finally {
+622 |       writeFileSync(TRACKED_SOURCE, "clean source\n");
+623 |     }
+624 |     expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:624:65)
+(fail) podman wrapper — the invocation it guarantees > records tracked source changes in the Docker-context default [1735.23ms]
+625 |   });
+626 | 
+627 |   test("compares an assume-unchanged Docker input directly with HEAD", () => {
+628 |     sandboxGit("update-index", "--assume-unchanged", "image-backed-source.txt");
+629 |     try {
+630 |       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:630:67)
+(fail) podman wrapper — the invocation it guarantees > compares an assume-unchanged Docker input directly with HEAD [876.40ms]
+643 |   });
+644 | 
+645 |   test("compares present and sparse-absent skip-worktree inputs directly with HEAD", () => {
+646 |     sandboxGit("update-index", "--skip-worktree", "image-backed-source.txt");
+647 |     try {
+648 |       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:648:67)
+(fail) podman wrapper — the invocation it guarantees > compares present and sparse-absent skip-worktree inputs directly with HEAD [891.25ms]
+692 |   });
+693 | 
+694 |   test("ignores tracked changes that Docker excludes from the build context", () => {
+695 |     writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "changed but still not an image input\n");
+696 |     try {
+697 |       expect(run(["up", "-d", "--build"]).invocation?.buildSourceStateDefault).toBe(
+                                                                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:697:80)
+(fail) podman wrapper — the invocation it guarantees > ignores tracked changes that Docker excludes from the build context [806.45ms]
+706 | 
+707 |   test("ignores hidden-index changes and absence when Docker excludes the path", () => {
+708 |     sandboxGit("update-index", "--assume-unchanged", "tasks/audit-note.md");
+709 |     try {
+710 |       writeFileSync(TRACKED_DOCKER_EXCLUDED_SOURCE, "hidden excluded change\n");
+711 |       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:711:67)
+(fail) podman wrapper — the invocation it guarantees > ignores hidden-index changes and absence when Docker excludes the path [797.18ms]
+743 |       expect(imageSourceState).toBe("dirty");
+744 |     } finally {
+745 |       rmSync(UNTRACKED_BUILD_SOURCE, { force: true });
+746 |     }
+747 | 
+748 |     expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                      ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:748:65)
+(fail) podman wrapper — the invocation it guarantees > records an untracked Docker input and retains its warning after cleanup [2091.14ms]
+773 |     }
+774 | 
+775 |     const excluded = join(SANDBOX, "ignored-generated");
+776 |     mkdirSync(excluded);
+777 |     try {
+778 |       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:778:67)
+(fail) podman wrapper — the invocation it guarantees > records an included empty directory and ignores a Docker-excluded one [2040.14ms]
+843 |   test("ignores untracked generated and Docker-excluded files", () => {
+844 |     mkdirSync(join(SANDBOX, "ignored-generated"));
+845 |     writeFileSync(join(SANDBOX, "ignored-generated/cache.txt"), "generated\n");
+846 |     writeFileSync(join(SANDBOX, "excluded.test.ts"), "not copied by Docker\n");
+847 |     try {
+848 |       expect(run(["config"]).invocation?.buildSourceStateDefault).toBe("clean");
+                                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "clean"
+Received: "dirty"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/podman-compose-wrapper.test.ts:848:67)
+(fail) podman wrapper — the invocation it guarantees > ignores untracked generated and Docker-excluded files [964.14ms]
+
+src/__tests__/security/h1-local-provider-ssrf.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+SyntaxError: Export named 'requireAdmin' not found in module '$lib/server/security/api-keys'.
+-------------------------------
+
+
+src/__tests__/setup-podman.test.ts:
+486 |     const original = "EZCORP_ENCRYPTION_SECRET=keep-this-secret\n";
+487 |     writeFileSync(env.EZ_SETUP_ENV_FILE, original, { mode: 0o644 });
+488 | 
+489 |     const r = run(["--no-start", "--accept-unsandboxed-extensions"], env);
+490 | 
+491 |     expect(r.exitCode).toBe(1);
+                             ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 2
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/src/__tests__/setup-podman.test.ts:491:24)
+(fail) setup-podman.sh — the env file > refuses an existing env file with group or other access and changes nothing [360.94ms]
+{"ts":"2026-09-24T14:33:23.336Z","level":"error","msg":"DB error","subsystem":"executor.streamChat.subscribe","error":"LifecycleError: test persistence failure"}
+{"ts":"2026-09-24T14:33:23.342Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-24T14:33:23.342Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-24T14:33:23.344Z","level":"warn","msg":"turn_end message missing text blocks but turnText has content","subsystem":"executor.streamChat.subscribe","turnTextPreview":"streamed answer","contentTypes":"thinking"}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-24T14:33:23.344Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":2}]}
+{"ts":"2026-09-24T14:33:23.369Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-24T14:33:23.369Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-24T14:33:23.370Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"legacy","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-24T14:33:23.370Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-24T14:33:23.380Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/api.request","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-24T14:33:23.872Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.gitHead","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-24T14:33:23.896Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.openPr","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-24T14:33:23.926Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-24T14:33:23.926Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-24T14:33:23.928Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-24T14:33:23.928Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-24T14:33:23.960Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":2}
+{"ts":"2026-09-24T14:33:23.960Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":1}
+
+ 1760 pass
+ 1 skip
+ 15 fail
+ 1 error
+ 7685 expect() calls
+Ran 1776 tests across 110 files. [398.64s]
+end=2026-09-24T10:33:28-04:00 exit=1

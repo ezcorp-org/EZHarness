@@ -5,7 +5,7 @@
  * Covers: GET/POST /api/modes, GET/PUT/DELETE /api/modes/[id]
  */
 import { test, expect, describe, beforeAll, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { restoreModuleMocks, webLibModule } from "./helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "./helpers/test-pglite";
 import { mockServerAlias, createMockEvent, jsonFromResponse } from "./helpers/mock-request";
 import type { AuthUser } from "../auth/types";
@@ -20,7 +20,7 @@ mock.module("../../web/src/routes/api/modes/[id]/$types", () => ({}));
 mock.module("$lib/server/security/validation", () =>
   require("../../web/src/lib/server/security/validation"),
 );
-mock.module("$lib/server/security/api-keys", () => ({
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {
   requireScope: () => null,
 }));
 

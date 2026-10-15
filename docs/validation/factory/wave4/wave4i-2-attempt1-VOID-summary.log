@@ -1,0 +1,7 @@
+start 2026-10-05T08:51:11Z head 1c84df6d5d5aba0703ee433ae711450728d16d66
+head 1c84df6d5d5aba0703ee433ae711450728d16d66 bun 1.4.2 bunx 1.4.2 flag=1
+patch bases origin/main, quality base origin/main; integ/w00 merge base with origin/main beaff68c8a4aa53dd1ac9968b440efbb321923df
+resource-gate 2026-10-05T08:51:11Z combined disk=249G memAvailable=14GiB swapFreeKiB=3094672/17173956 floors disk>=100G swap>=2097152KiB
+runner --plan failed:     return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/factory-platform-evidence/postgres.env'

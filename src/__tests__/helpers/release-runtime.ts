@@ -1,5 +1,6 @@
 import { CANDIDATE_SANDBOX_QUALIFICATION_CASES, sandboxPresetDigest, type CandidateVerificationReport } from "@ezcorp/extension-contract";
 import { sandboxPresetQualificationReleaseDigest } from "../../extensions/v4/sandbox-preset-qualification";
+import { enforcingRunnerCapabilities } from "./runner-capabilities";
 import type { ExtensionManifestV4, InvocationContext, Runner, StartRequest } from "@ezcorp/extension-contract";
 import { configureReleaseRuntime, type ActiveExtensionRelease } from "../../extensions/release-process";
 import { digestObject } from "../../extensions/v4/blobs";
@@ -17,7 +18,7 @@ export function releaseRuntimeFixture(extensionId: string, manifest: ExtensionMa
     async build() { throw new Error("Not a build fixture"); },
     async cancel() {},
     async inspect() { return { id: "fixture", state: "running", diagnostics: [] }; },
-    async collectArtifacts() { throw new Error("Not an artifact collection fixture"); },
+    capabilities: enforcingRunnerCapabilities, async collectArtifacts() { throw new Error("Not an artifact collection fixture"); },
     async start(input) {
       await options.beforeStart?.(input);
       if (input.artifactDigest !== snapshot.release.artifactDigest) throw new Error("Artifact binding changed");

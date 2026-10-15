@@ -1,0 +1,738 @@
+head=dba08e4fd1438c8df2fa83b0d40cd6514e8c2ef1 start=2026-09-25T23:10:54Z
+bun test v1.3.14 (0d9b296a)
+{"ts":"2026-09-25T23:12:38.580Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.pullRequest","extensionId":"foreign","tokenActorExtensionId":"installation"}
+{"ts":"2026-09-25T23:12:38.599Z","level":"warn","msg":"ezcorp/github-projects rejected: extension not in bundled allowlist","subsystem":"ext.github-projects.handler","extensionName":"evil-lookalike"}
+{"ts":"2026-09-25T23:12:39.417Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-09-25T23:12:40.761Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"f6850480-142f-4e68-93aa-679549270740","workflowRunId":"4f00a8d4-4007-492c-8c10-de773b3251ab","stepName":"gate"}
+{"ts":"2026-09-25T23:12:40.761Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-09-25T23:12:40.766Z","level":"warn","msg":"approval expired but its policy is unreadable — left pending","subsystem":"workflow.approval-timeout","approvalId":"f6850480-142f-4e68-93aa-679549270740","workflowRunId":"4f00a8d4-4007-492c-8c10-de773b3251ab","stepName":"gate"}
+{"ts":"2026-09-25T23:12:40.766Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":0,"deferred":1,"raced":0}
+{"ts":"2026-09-25T23:12:40.769Z","level":"warn","msg":"approval timed out — run cancelled","subsystem":"workflow.approval-timeout","approvalId":"f6850480-142f-4e68-93aa-679549270740","workflowRunId":"4f00a8d4-4007-492c-8c10-de773b3251ab","stepName":"gate","reason":"its approval timed out"}
+{"ts":"2026-09-25T23:12:40.770Z","level":"info","msg":"approval timeout sweep","subsystem":"workflow.approval-timeout","scanned":1,"answered":0,"aborted":1,"deferred":0,"raced":0}
+{"ts":"2026-09-25T23:12:52.199Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"insert","error":"Error: Failed query: insert into \"workflow_runs\" (\"id\", \"workflow_definition_id\", \"workflow_name\", \"project_id\", \"user_id\", \"status\", \"input\", \"result\", \"started_at\", \"finished_at\", \"created_at\", \"cursor\", \"run_phase\", \"suspended_reason\", \"resumable\", \"claimed_by\", \"lease_expires_at\", \"definition_version_id\", \"definition_hash\", \"job_ref\", \"idempotency_key\", \"parent_run_id\", \"run_as_kind\", \"run_as\", \"delegation_id\") values ($1, $2, $3, $4, $5, $6, $7, default, $8, default, default, default, default, default, default, default, default, $9, $10, $11, $12, $13, $14, $15, $16)\nparams: 9c3e9cab-b84f-4e37-babc-e67e3812eb62,,fk-violating,no-such-project-id,,running,{},2026-09-25T23:12:52.198Z,,1fa87daeb21173c7f13a57a42d0de2b3932db80ea77464f7c0ae80d7576aad9c,,,,,,"}
+{"ts":"2026-09-25T23:12:52.200Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: ad1f535f-ee9e-4c42-9999-0ca63e977591,9c3e9cab-b84f-4e37-babc-e67e3812eb62,t,,running,,,,,,,,,,,,,,running,,,,,,,,,,,,"}
+{"ts":"2026-09-25T23:12:52.200Z","level":"warn","msg":"workflow run persistence failed","subsystem":"workflow","what":"step","error":"Error: Failed query: insert into \"workflow_step_runs\" (\"id\", \"workflow_run_id\", \"step_name\", \"run_id\", \"status\", \"iterations\", \"provider\", \"model\", \"output\", \"attempt\", \"input_tokens\", \"output_tokens\", \"cost_usd\", \"duration_ms\", \"error_code\", \"resolved_input\", \"skipped_reason\", \"created_at\", \"updated_at\") values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, default, default) on conflict (\"workflow_run_id\",\"step_name\") do update set \"run_id\" = $18, \"status\" = $19, \"iterations\" = $20, \"provider\" = $21, \"model\" = $22, \"output\" = $23, \"attempt\" = $24, \"input_tokens\" = $25, \"output_tokens\" = $26, \"cost_usd\" = $27, \"duration_ms\" = $28, \"error_code\" = $29, \"resolved_input\" = $30, \"skipped_reason\" = $31, \"updated_at\" = NOW()\nparams: ba315550-424d-48a2-a0d9-f9380ca49368,9c3e9cab-b84f-4e37-babc-e67e3812eb62,t,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,,,success,,,,{\"success\":true,\"output\":{\"a\":\"x\"}},,,,,0,,,"}
+{"ts":"2026-09-25T23:13:02.050Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":163}
+{"ts":"2026-09-25T23:13:02.050Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"solo","model":"solo-model","retry":1,"backoffMs":161}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":287}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":152}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p2","model":"p2-model","retry":1,"backoffMs":248}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p2","failedModel":"p2-model","attempt":2}
+{"ts":"2026-09-25T23:13:02.051Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":276}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":169}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"flaky","model":"flaky-model","retry":1,"backoffMs":275}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"flaky","failedModel":"flaky-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"solo","failedModel":"solo-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":170}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.052Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":197}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":186}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":227}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":200}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":170}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":206}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":176}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":257}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":252}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"prov","model":"prov-model","retry":1,"backoffMs":239}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"prov","failedModel":"prov-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":256}
+{"ts":"2026-09-25T23:13:02.251Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"ts":"2026-09-25T23:13:02.252Z","level":"info","msg":"provider failure before first token — same-provider retry","subsystem":"executor.streamChat.failover","provider":"p1","model":"p1-model","retry":1,"backoffMs":212}
+{"ts":"2026-09-25T23:13:02.252Z","level":"info","msg":"provider failure before first token — attempting failover","subsystem":"executor.streamChat.failover","failedProvider":"p1","failedModel":"p1-model","attempt":1}
+{"jsonrpc":"2.0","method":"ezcorp/state","params":{"title":"Auto Note","components":[{"type":"header","title":"Auto Note","subtitle":"Personal Knowledge Vault"},{"type":"status","label":"Status","state":"idle"},{"type":"counter","label":"Notes","value":0},{"type":"counter","label":"Action items","value":0},{"type":"divider"},{"type":"kv","pairs":[{"key":"ideas","value":"0 notes"},{"key":"tasks","value":"0 notes"},{"key":"decisions","value":"0 notes"},{"key":"references","value":"0 notes"},{"key":"journal","value":"0 notes"},{"key":"meetings","value":"0 notes"}]},{"type":"divider"},{"type":"text","content":"Recent captures","variant":"emphasis"},{"type":"list","items":[]},{"type":"divider"},{"type":"progress","value":0,"label":"0 of 0 action items done"},{"type":"badge","label":"yolo mode","color":"green"}]}}
+
+packages/@ezcorp/ai-kit/test/unit/cli-install.test.ts:
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-bpDRj6/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-bpDRj6/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-bpDRj6/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-bpDRj6/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-bpDRj6/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-bpDRj6/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+Installed: claude-code MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-TZfPxF/.claude.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-auth/SKILL.md -> /tmp/ai-kit-test-TZfPxF/.claude/skills/ezcorp-auth/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-orchestrate/SKILL.md -> /tmp/ai-kit-test-TZfPxF/.claude/skills/ezcorp-orchestrate/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-chat/SKILL.md -> /tmp/ai-kit-test-TZfPxF/.claude/skills/ezcorp-chat/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-projects/SKILL.md -> /tmp/ai-kit-test-TZfPxF/.claude/skills/ezcorp-projects/SKILL.md
+[dry-run] Would copy /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/skills/ezcorp-agents/SKILL.md -> /tmp/ai-kit-test-TZfPxF/.claude/skills/ezcorp-agents/SKILL.md
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+Installed: cursor MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-855XVN/.cursor/mcp.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+[dry-run] Would write /tmp/ai-kit-test-SKfkUs/.config/zed/settings.json:
+{
+  "context_servers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: zed context_servers config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+Installed: windsurf MCP config written.
+[dry-run] Would write /tmp/ai-kit-test-NdASdV/.codeium/windsurf/mcp_config.json:
+{
+  "mcpServers": {
+    "ezcorp-ai-kit": {
+      "command": "bunx",
+      "args": [
+        "@ezcorp/ai-kit",
+        "mcp"
+      ],
+      "env": {
+        "EZCORP_BASE_URL": "http://localhost:5173",
+        "EZCORP_API_KEY": "<your-api-key>"
+      }
+    }
+  }
+}
+
+Installed: windsurf MCP config written.
+ai-kit: data directory initialized at /tmp/ai-kit-test-J7tX4v/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-J7tX4v)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-J7tX4v/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-0JzOoH/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-0JzOoH)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-0JzOoH/.ezcorp/extensions/ai-kit
+ai-kit: data directory initialized at /tmp/ai-kit-test-0JzOoH/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-0JzOoH)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-0JzOoH/.ezcorp/extensions/ai-kit
+[dry-run] Would create symlink: /tmp/ai-kit-test-32IslB/.ezcorp/extensions/ai-kit -> /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit
+[dry-run] Would run: bun /home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/packages/@ezcorp/ai-kit/scripts/postinstall.ts
+ai-kit: data directory initialized at /tmp/ai-kit-test-l92PZH/.ezcorp/extension-data/ai-kit
+  (project root: /tmp/ai-kit-test-l92PZH)
+Installed: ezcorp extension symlinked at /tmp/ai-kit-test-l92PZH/.ezcorp/extensions/ai-kit
+Installed: claude-code MCP config written.
+Installed: cursor MCP config written.
+Installed: zed context_servers config written.
+Installed: windsurf MCP config written.
+{"ts":"2026-09-25T23:15:28.737Z","level":"info","msg":"preview conversation reaped","subsystem":"preview.reaper","conversationId":"eec2db4e-390f-4171-bc1c-72e9b5dc7092","processesKilled":0,"processesUnconfirmed":0,"previewsRevoked":0,"uidReleased":false,"uidQuarantined":false}
+{"ts":"2026-09-25T23:15:29.696Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"af9d7506-f885-4ecc-b42b-78b5effbdfb9","status":"queued"}
+{"ts":"2026-09-25T23:15:29.703Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"11c84cef-6392-4424-9687-8088f618adc9","status":"queued"}
+{"ts":"2026-09-25T23:15:30.003Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"7d58fa6a-10ea-4222-a6a5-5fe4e0f1fe73","status":"queued"}
+{"ts":"2026-09-25T23:15:30.006Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"7d58fa6a-10ea-4222-a6a5-5fe4e0f1fe73","status":"queued"}
+{"ts":"2026-09-25T23:15:30.010Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"142038f7-888d-4341-8d4e-9d11c6f403c3","status":"queued"}
+{"ts":"2026-09-25T23:15:30.013Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"142038f7-888d-4341-8d4e-9d11c6f403c3","status":"queued"}
+{"ts":"2026-09-25T23:15:30.015Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.016Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.016Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.016Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.016Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.016Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: PGlite is closed"}
+{"ts":"2026-09-25T23:15:30.595Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"ask-user","error":"Error: Source is unreadable"}
+{"ts":"2026-09-25T23:15:30.599Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"task-tracking","error":"Error: Source is unreadable"}
+{"ts":"2026-09-25T23:15:30.600Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"scratchpad","error":"Error: Source is unreadable"}
+{"ts":"2026-09-25T23:15:30.602Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.603Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"5031df87-0e77-445f-ae84-89a6b3e23095","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.604Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.605Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"orchestration","installationId":"legacy-orchestration","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.606Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.607Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"5a981a18-5e3d-429b-a2bc-b56949c875a7","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.608Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.610Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.611Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.614Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"9316857b-86b0-470f-a640-62fed76d735f","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.615Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.617Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"web-search","installationId":"legacy-web-search","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.618Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.619Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"ask-user","installationId":"legacy-ask-user","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.620Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.621Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"task-tracking","installationId":"legacy-task-tracking","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.622Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.623Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"scratchpad","installationId":"legacy-scratchpad","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.624Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.626Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.627Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.630Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.632Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.633Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.634Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.635Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.636Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.637Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.638Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.639Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.640Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.641Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.643Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.646Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.648Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.649Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.650Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.651Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.652Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.653Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.654Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.655Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.656Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.657Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.658Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.662Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.663Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.664Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.666Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.667Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.668Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.669Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.670Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.671Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.672Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.673Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.674Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.675Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.679Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.680Z","level":"warn","msg":"Bundled installation owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-09-25T23:15:30.681Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.683Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.684Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:15:30.685Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:15:30.686Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:15:30.687Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.688Z","level":"warn","msg":"Bundled source owner is inactive; manual ownership review required","subsystem":"ext.bundled.bootstrap","name":"candidate"}
+{"ts":"2026-09-25T23:15:30.689Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.690Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.694Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.696Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.697Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"legacy-id","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.698Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.700Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.701Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.702Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.703Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Source is unreadable"}
+{"ts":"2026-09-25T23:15:30.704Z","level":"error","msg":"Bundled source staging requires attention","subsystem":"ext.bundled.bootstrap","name":"candidate","error":"Error: Bundled source path does not match the reviewed inventory"}
+{"ts":"2026-09-25T23:15:30.705Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"complete","status":"succeeded"}
+{"ts":"2026-09-25T23:15:30.706Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-0","status":"queued"}
+{"ts":"2026-09-25T23:15:30.706Z","level":"error","msg":"Bundled isolated build failed","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","error":"Error: runner unavailable"}
+{"ts":"2026-09-25T23:15:30.710Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-workspace-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.711Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.713Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-25T23:15:30.713Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-25T23:15:30.714Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.715Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-25T23:15:30.716Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.717Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-25T23:15:30.718Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.719Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-25T23:15:30.720Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.721Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"failed"}
+{"ts":"2026-09-25T23:15:30.723Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.726Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"verified"}
+{"ts":"2026-09-25T23:15:30.727Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.729Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"active"}
+{"ts":"2026-09-25T23:15:30.730Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.731Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-25T23:15:30.731Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-25T23:15:30.732Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-09-25T23:15:30.732Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+{"ts":"2026-09-25T23:15:30.733Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.734Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-1"}
+{"ts":"2026-09-25T23:15:30.734Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-25T23:15:30.735Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-25T23:15:30.737Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-1","status":"queued"}
+{"ts":"2026-09-25T23:15:30.738Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-2","status":"queued"}
+{"ts":"2026-09-25T23:15:30.739Z","level":"info","msg":"Retrying a bundled build that failed before the extension runner was configured","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","previousOperationId":"operation-2"}
+{"ts":"2026-09-25T23:15:30.739Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"candidate","installationId":"e870e779-805c-40e8-a139-ffbf2e07f17e","operationId":"operation-3","status":"queued"}
+{"ts":"2026-09-25T23:15:31.063Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"f54eda06-9229-492b-9b00-76493aa48a28","unwired":2,"inserted":2}
+{"ts":"2026-09-25T23:15:31.379Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:31.386Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-25T23:15:31.387Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:15:31.406Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"38a44fe0-8506-4fb4-a2f4-935fa4b3d8e2","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f","registered":4,"expected":4}
+{"ts":"2026-09-25T23:15:31.410Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"38a44fe0-8506-4fb4-a2f4-935fa4b3d8e2","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f"}
+{"ts":"2026-09-25T23:15:31.428Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-25T23:15:31.435Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:31.438Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-25T23:15:31.438Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:15:31.438Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"a1436b1a-3fc2-4b2f-a73f-fa7e75a63052","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f","registered":4,"expected":4}
+{"ts":"2026-09-25T23:15:31.438Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"a1436b1a-3fc2-4b2f-a73f-fa7e75a63052","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f"}
+{"ts":"2026-09-25T23:15:31.448Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-25T23:15:31.453Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:31.456Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-25T23:15:31.456Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:15:31.456Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"a82184dd-47f4-428b-bd68-c44c3540f557","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f","registered":4,"expected":4}
+{"ts":"2026-09-25T23:15:31.456Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"a82184dd-47f4-428b-bd68-c44c3540f557","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f"}
+{"ts":"2026-09-25T23:15:31.466Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-25T23:15:31.471Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:31.474Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-25T23:15:31.475Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:15:31.475Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"b189967a-5d54-452a-af47-2481012b7cff","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f","registered":4,"expected":4}
+{"ts":"2026-09-25T23:15:31.475Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"b189967a-5d54-452a-af47-2481012b7cff","userId":"e4866841-880e-4e4b-ad95-dcddbd7b9b1f"}
+{"ts":"2026-09-25T23:15:31.486Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":15}
+{"ts":"2026-09-25T23:15:31.826Z","level":"error","msg":"clone failed","subsystem":"api.clone-turns","error":"database down"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.510Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_ENCRYPTION_SECRET is unset; falling back to auto-generated secret. Set EZCORP_ENCRYPTION_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"warn","msg":"EZCORP_JWT_SECRET is unset; falling back to auto-generated secret. Set EZCORP_JWT_SECRET explicitly (≥16 chars) for production / multi-instance deployments.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.511Z","level":"error","msg":"EZCORP_EXTENSION_RUNNER=trusted-local: extensions build and run WITHOUT a sandbox on this host — no filesystem, network, seccomp, or cgroup limits; the app itself is the blast radius. Every build and every release still requires a per-digest human acknowledgement.","subsystem":"env-validation"}
+{"ts":"2026-09-25T23:15:36.843Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.844Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"a3138fd6-fcaa-407b-b5e9-5b721929d7a8","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.855Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.856Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"a3138fd6-fcaa-407b-b5e9-5b721929d7a8","modeFound":true,"modeExtIds":["ext-attached"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.857Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached","toolCount":2,"toolNames":["ext-x__tool_a","ext-x__tool_b"]}
+{"ts":"2026-09-25T23:15:36.857Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-y__tool_c"]}
+{"ts":"2026-09-25T23:15:36.858Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.867Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.868Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"d6d509ea-aa76-4d6b-87fc-1361aa98b8e3","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.870Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.871Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"d6d509ea-aa76-4d6b-87fc-1361aa98b8e3","modeFound":true,"modeExtIds":["ext-1","ext-2"],"modeExtIdCount":2}
+{"ts":"2026-09-25T23:15:36.871Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-1","toolCount":2,"toolNames":["a_tool","b_tool"]}
+{"ts":"2026-09-25T23:15:36.871Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-2","toolCount":1,"toolNames":["c_tool"]}
+{"ts":"2026-09-25T23:15:36.871Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":4,"finalAgentToolNames":["a_tool","b_tool","c_tool","d_tool"]}
+{"ts":"2026-09-25T23:15:36.872Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.879Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.880Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"b364b1d4-6a94-4fe7-910b-4d10fab240ae","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.882Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.883Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"b364b1d4-6a94-4fe7-910b-4d10fab240ae","modeFound":true,"modeExtIds":["ext-a","ext-b"],"modeExtIdCount":2}
+{"ts":"2026-09-25T23:15:36.883Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-a","toolCount":2,"toolNames":["shared_tool","only_ext_1"]}
+{"ts":"2026-09-25T23:15:36.883Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-b","toolCount":1,"toolNames":["shared_tool"]}
+{"ts":"2026-09-25T23:15:36.883Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["shared_tool","only_ext_1"]}
+{"ts":"2026-09-25T23:15:36.884Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.891Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.892Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"478ad468-d254-423a-93ee-86b84450011e","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.894Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.895Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"478ad468-d254-423a-93ee-86b84450011e","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-09-25T23:15:36.895Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.903Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.904Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"fa4274e7-3e25-4087-a370-9ce9cb79992b","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.906Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.907Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"fa4274e7-3e25-4087-a370-9ce9cb79992b","modeFound":true,"modeExtIds":[],"modeExtIdCount":0}
+{"ts":"2026-09-25T23:15:36.907Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.914Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.915Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"96610c81-6ff2-4416-b202-4151046e089f","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.918Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.918Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"96610c81-6ff2-4416-b202-4151046e089f","modeFound":true,"modeExtIds":["ext-write-allowed"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.918Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-write-allowed","toolCount":1,"toolNames":["write_y"]}
+{"ts":"2026-09-25T23:15:36.919Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["read_x","write_y","write_z"]}
+{"ts":"2026-09-25T23:15:36.919Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.927Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.928Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"9fc79289-410e-408b-ae01-aaa057f9ebd3","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.930Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.931Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"9fc79289-410e-408b-ae01-aaa057f9ebd3","modeFound":true,"modeExtIds":["ext-missing"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.931Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-missing","toolCount":0,"toolNames":[]}
+{"ts":"2026-09-25T23:15:36.931Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["foo","bar"]}
+{"ts":"2026-09-25T23:15:36.931Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.939Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.940Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"50b23d94-cf71-4e93-95ad-c731aec0e356","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.942Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.943Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"50b23d94-cf71-4e93-95ad-c731aec0e356","modeFound":true,"modeExtIds":["ext-sub"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.943Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-sub","toolCount":3,"toolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-09-25T23:15:36.943Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-09-25T23:15:36.943Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.951Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.952Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"d1ab0730-8e7c-40ed-932b-d1db1f0870d8","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.954Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.955Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"d1ab0730-8e7c-40ed-932b-d1db1f0870d8","modeFound":true,"modeExtIds":["ext-empty"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.955Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-empty","toolCount":2,"toolNames":["p_tool","q_tool"]}
+{"ts":"2026-09-25T23:15:36.955Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["p_tool","q_tool"]}
+{"ts":"2026-09-25T23:15:36.955Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.963Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.964Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"2a572bb8-c05d-4ac5-a0c6-9a2511d38bd9","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.967Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.967Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"2a572bb8-c05d-4ac5-a0c6-9a2511d38bd9","modeFound":true,"modeExtIds":["ext-orig"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.967Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-orig","toolCount":2,"toolNames":["myext__alpha","myext__beta"]}
+{"ts":"2026-09-25T23:15:36.967Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["myext__alpha","myext__beta"]}
+{"ts":"2026-09-25T23:15:36.968Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.976Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.976Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"40d59e41-8f58-4952-adee-49593efa746e","source":"classifier"}
+{"ts":"2026-09-25T23:15:36.979Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.980Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"40d59e41-8f58-4952-adee-49593efa746e","modeFound":true,"modeExtIds":["ext-live"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:36.980Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-live","toolCount":2,"toolNames":["m_tool","n_tool"]}
+{"ts":"2026-09-25T23:15:36.980Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["m_tool","n_tool"]}
+{"ts":"2026-09-25T23:15:36.980Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.987Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.990Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:36.991Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:36.998Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:36.999Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"0cf0d43c-bfe8-414f-aa76-c8a596ca6345","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.002Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"1f15079e-4597-4a4a-b1f9-e544760b010d"}
+{"ts":"2026-09-25T23:15:37.002Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"0cf0d43c-bfe8-414f-aa76-c8a596ca6345","modeFound":true,"modeExtIds":["ext-mode-only"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.002Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-mode-only","toolCount":2,"toolNames":["mode_tool_alpha","mode_tool_beta"]}
+{"ts":"2026-09-25T23:15:37.002Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":9,"finalAgentToolNames":["readFile","listFiles","readDirectory","editFile","shell","grep","glob","mode_tool_alpha","mode_tool_beta"]}
+{"ts":"2026-09-25T23:15:37.003Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.012Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.013Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"bc4dd914-c787-4a9a-9adc-c81e777e457b","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.013Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-09-25T23:15:37.016Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"4c2e41e7-22fc-44a9-ab31-a9f87254df1a"}
+{"ts":"2026-09-25T23:15:37.017Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"bc4dd914-c787-4a9a-9adc-c81e777e457b","modeFound":true,"modeExtIds":["ext-conv"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.017Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-conv","toolCount":3,"toolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-09-25T23:15:37.017Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":3,"finalAgentToolNames":["ext-x__tool_a","ext-x__tool_b","ext-x__tool_c"]}
+{"ts":"2026-09-25T23:15:37.017Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.027Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.028Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"7fc9bf08-98ea-440f-8a50-d99c57aa4a91","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.028Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-09-25T23:15:37.030Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"70df432e-4b4e-42d4-9b6c-4ec6cecfc325"}
+{"ts":"2026-09-25T23:15:37.031Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"7fc9bf08-98ea-440f-8a50-d99c57aa4a91","modeFound":true,"modeExtIds":["ext-1","ext-2"],"modeExtIdCount":2}
+{"ts":"2026-09-25T23:15:37.031Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-1","toolCount":1,"toolNames":["e1__a"]}
+{"ts":"2026-09-25T23:15:37.031Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-2","toolCount":1,"toolNames":["e2__b"]}
+{"ts":"2026-09-25T23:15:37.031Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["e1__a","e2__b"]}
+{"ts":"2026-09-25T23:15:37.031Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.041Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.041Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"d991fb6c-8ce4-48ff-8a6a-ec51b88be228","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.044Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"67014d6c-44fd-433d-8747-0bf45ddadfaf"}
+{"ts":"2026-09-25T23:15:37.045Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"d991fb6c-8ce4-48ff-8a6a-ec51b88be228","modeFound":true,"modeExtIds":["ext-z"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.045Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-z","toolCount":2,"toolNames":["z__a","z__b"]}
+{"ts":"2026-09-25T23:15:37.045Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["z__a","z__b"]}
+{"ts":"2026-09-25T23:15:37.045Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.055Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.055Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"c7446466-624d-4a45-899c-365ad1c645f9","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.055Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-09-25T23:15:37.058Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"51f4c3ee-d670-44aa-b91e-2a2b4472d98a"}
+{"ts":"2026-09-25T23:15:37.059Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"c7446466-624d-4a45-899c-365ad1c645f9","modeFound":true,"modeExtIds":["ext-w"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.059Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-w","toolCount":2,"toolNames":["w__a","w__b"]}
+{"ts":"2026-09-25T23:15:37.059Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["w__a","w__b"]}
+{"ts":"2026-09-25T23:15:37.059Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.068Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.069Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"5a4ad06c-d605-49e7-b38d-dedeb05f70ee","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.069Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-09-25T23:15:37.072Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"eb3ee4f2-7efa-481e-b5f7-94f9c1d72a2c"}
+{"ts":"2026-09-25T23:15:37.072Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"5a4ad06c-d605-49e7-b38d-dedeb05f70ee","modeFound":true,"modeExtIds":["ext-cn"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.072Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-cn","toolCount":2,"toolNames":["conv__alpha","conv__beta"]}
+{"ts":"2026-09-25T23:15:37.072Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["conv__alpha","conv__beta"]}
+{"ts":"2026-09-25T23:15:37.073Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.082Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.083Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"5cee78f4-a387-41cb-9bb2-50b6cc4884fb","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.085Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"ac693552-e1b7-4919-af1c-55d318c3eb3c"}
+{"ts":"2026-09-25T23:15:37.086Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"5cee78f4-a387-41cb-9bb2-50b6cc4884fb","modeFound":true,"modeExtIds":["ext-n"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.086Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-n","toolCount":2,"toolNames":["n__a","n__b"]}
+{"ts":"2026-09-25T23:15:37.086Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["n__a","n__b"]}
+{"ts":"2026-09-25T23:15:37.086Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.095Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.095Z","level":"warn","msg":"tier classification failed — using default tier this turn","subsystem":"executor.streamChat.setup","err":"ExtensionRegistry.getInstance().getManifest is not a function. (In 'ExtensionRegistry.getInstance().getManifest(extId)', 'ExtensionRegistry.getInstance().getManifest' is undefined)"}
+{"ts":"2026-09-25T23:15:37.098Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"6ab2ea43-5ccc-4459-9ead-e83c325d3d24"}
+{"ts":"2026-09-25T23:15:37.098Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.106Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.109Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"33d8281f-3a94-4020-af4d-a765de4818d6"}
+{"ts":"2026-09-25T23:15:37.110Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.118Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.121Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"221815db-d11d-4e70-b102-0cf23d964a96"}
+{"ts":"2026-09-25T23:15:37.121Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.130Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.131Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"dc676a32-0755-43c8-9eaf-1d6da3f27974","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.133Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"e2b57024-e143-49be-a013-270b942c0dc1"}
+{"ts":"2026-09-25T23:15:37.134Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"dc676a32-0755-43c8-9eaf-1d6da3f27974","modeFound":true,"modeExtIds":["ext-attached2"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.134Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached2","toolCount":1,"toolNames":["ext-x__tool_a"]}
+{"ts":"2026-09-25T23:15:37.134Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["ext-x__tool_a","ask-user__ask_user_question"]}
+{"ts":"2026-09-25T23:15:37.135Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:37.143Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:15:37.144Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"dc676a32-0755-43c8-9eaf-1d6da3f27974","source":"classifier"}
+{"ts":"2026-09-25T23:15:37.147Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"15dc7d41-7995-4632-97b7-c30749a64a18"}
+{"ts":"2026-09-25T23:15:37.148Z","level":"info","msg":"mode-extensions wire","subsystem":"setup-tools.modeExtWire","modeId":"dc676a32-0755-43c8-9eaf-1d6da3f27974","modeFound":true,"modeExtIds":["ext-attached2"],"modeExtIdCount":1}
+{"ts":"2026-09-25T23:15:37.148Z","level":"info","msg":"mode-extensions resolveExt","subsystem":"setup-tools.modeExtWire","extId":"ext-attached2","toolCount":1,"toolNames":["ext-x__tool_a"]}
+{"ts":"2026-09-25T23:15:37.148Z","level":"info","msg":"mode-extensions wired","subsystem":"setup-tools.modeExtWire","finalAgentToolCount":2,"finalAgentToolNames":["ext-x__tool_a","ask-user__ask_user_question"]}
+{"ts":"2026-09-25T23:15:37.148Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"do something","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:15:43.983Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"5b54566c-b7a8-43bf-812e-e6e5d1c22059","code":"recovery_failed"}
+{"ts":"2026-09-25T23:15:43.983Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"7da2e470-2f22-4b00-a0c6-09df18572910","code":"recovery_failed"}
+{"ts":"2026-09-25T23:15:43.983Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+{"ts":"2026-09-25T23:16:56.399Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"1fccca8e-e43f-436f-b877-fbe20951cca0","operationId":"263b05f5-cabc-4084-908c-a6052d707bd4","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at processTicksAndRejections (native:7:39)"}
+{"ts":"2026-09-25T23:16:58.040Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"b708cf37-5664-4438-816c-2899a04d9362","operationId":"85214e84-d5d8-4155-bff9-3ecf793219b2","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:66:39)\n    at processTicksAndRejections (native:7:39)"}
+{"ts":"2026-09-25T23:16:58.705Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"5e392930-972c-419a-aae1-227ac635cb1a","operationId":"4074acd5-89d8-4a39-bf24-4d387d468f7f","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at processTicksAndRejections (native:7:39)"}
+{"ts":"2026-09-25T23:16:58.727Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"5e392930-972c-419a-aae1-227ac635cb1a","operationId":"23c87310-0019-4c46-9f98-f98e09a5989a","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:66:39)\n    at processTicksAndRejections (native:7:39)"}
+{"ts":"2026-09-25T23:17:00.027Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"e5edb58f-23f5-42b6-8a9d-8bbc74acac96","operationId":"cf91e10d-704c-45a2-9f4a-555b82233d33","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:66:39)\n    at processTicksAndRejections (native:7:39)"}
+
+src/__tests__/installer-idempotent-local.test.ts:
+37 |     const workspaceId = url.searchParams.get("workspace") ?? Object.values(state.workspaces).sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id;
+38 |     let source: Awaited<ReturnType<typeof lifecycle.readWorkspace>> | { workspace: null; files: Record<string, never> } = { workspace: null, files: {} };
+39 |     let sourceUnavailable: { workspaceId: string } | null = null;
+40 |     if (workspaceId) {
+41 |       try {
+42 |         source = await lifecycle.readWorkspace(actor, installationId, workspaceId);
+                                      ^
+TypeError: lifecycle.readWorkspace is not a function. (In 'lifecycle.readWorkspace(actor, installationId, workspaceId)', 'lifecycle.readWorkspace' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/web/src/routes/(app)/extensions/author/+page.server.ts:42:34)
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:321:24)
+{"ts":"2026-09-25T23:17:00.680Z","level":"error","msg":"Operation failed with an unclassified error","subsystem":"ext.lifecycle.operations","installationId":"1ae3a98e-0233-4101-9739-c93518d47c6e","operationId":"67654a15-a73b-4a6c-a977-171eb770e62a","kind":"build","error":"Fixture runner unavailable; no source executed","stack":"Error: Fixture runner unavailable; no source executed\n    at build (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:61:331)\n    at runBuild (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/extensions/v4/lifecycle.ts:268:81)\n    at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:66:39)\n    at processTicksAndRejections (native:7:39)"}
+(fail) a project member imports and opens the real scoped review loader without disclosing foreign source [345.99ms]
+37 |     const workspaceId = url.searchParams.get("workspace") ?? Object.values(state.workspaces).sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0]?.id;
+38 |     let source: Awaited<ReturnType<typeof lifecycle.readWorkspace>> | { workspace: null; files: Record<string, never> } = { workspace: null, files: {} };
+39 |     let sourceUnavailable: { workspaceId: string } | null = null;
+40 |     if (workspaceId) {
+41 |       try {
+42 |         source = await lifecycle.readWorkspace(actor, installationId, workspaceId);
+                                      ^
+TypeError: lifecycle.readWorkspace is not a function. (In 'lifecycle.readWorkspace(actor, installationId, workspaceId)', 'lifecycle.readWorkspace' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/web/src/routes/(app)/extensions/author/+page.server.ts:42:34)
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:336:16)
+(fail) the author loader keeps lifecycle history when its real workspace blob is missing [312.13ms]
+24 |   // the runner package both reach node builtins.
+25 |   const runner = { extensionRunnerMode: getExtensionRunnerMode(), trustedLocalProfile: TRUSTED_LOCAL_PROFILE, unsandboxedOmittedControls: [...TRUSTED_LOCAL_OMITTED_CONTROLS] };
+26 |   if (!installationId) {
+27 |     // The list renders a name per row, so it resolves them in bulk here rather
+28 |     // than inspecting each installation's state (one round-trip per row).
+29 |     const owned = await lifecycle.list(actor);
+                                       ^
+TypeError: lifecycle.list is not a function. (In 'lifecycle.list(actor)', 'lifecycle.list' is undefined)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/web/src/routes/(app)/extensions/author/+page.server.ts:29:35)
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/installer-idempotent-local.test.ts:349:24)
+(fail) the author loader names listed installations in bulk and leaves a fresh workspace unnamed [307.55ms]
+{"ts":"2026-09-25T23:17:01.615Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"c582e7b2-f9eb-4ad1-9415-9c80e4a9dc8b","unwired":3,"inserted":3}
+{"ts":"2026-09-25T23:17:01.617Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"06541074-8905-4eaf-a1fe-527f65290b8e","unwired":3,"inserted":3}
+{"ts":"2026-09-25T23:17:01.679Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"3d8518c5-8539-4b9b-809f-101130df4f0f","unwired":501,"inserted":501}
+{"ts":"2026-09-25T23:17:01.724Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"a694255e-7106-41fd-b59a-14791f65f62d","unwired":2,"inserted":2}
+{"ts":"2026-09-25T23:17:01.731Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"e7027aba-9398-4212-bfde-8ca66d5aca23","unwired":2,"inserted":2}
+{"ts":"2026-09-25T23:17:01.736Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"1028650d-84d1-4876-bf9f-89f4553bef5d","unwired":1,"inserted":1}
+{"ts":"2026-09-25T23:17:01.738Z","level":"info","msg":"reconciled bundled conversation wiring","subsystem":"auto-wire-bundled","extensionId":"6cf4af76-143b-47eb-9750-943eb11daa54","unwired":1,"inserted":1}
+{"ts":"2026-09-25T23:17:34.489Z","level":"warn","msg":"non-bundled extension attempted bundled-only runtime invoke","subsystem":"ext.runtime-invoke","method":"runtime.memory.dedupMemoryWrite","extensionId":"ext-memory-extractor","extensionName":"some-user-installed-ext"}
+{"ts":"2026-09-25T23:17:39.229Z","level":"warn","msg":"Model \"claude-sonnet-4-20250514\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-sonnet-4-20250514"}
+{"ts":"2026-09-25T23:17:39.964Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:17:39.968Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:17:39.968Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f"}
+{"ts":"2026-09-25T23:17:39.969Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"@Alpha do X","agents":["Alpha"],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:17:39.970Z","level":"info","msg":"Scratchpad auto-wire skipped: not enabled or storage not granted","subsystem":"executor.streamChat.setup","exists":false,"enabled":false,"storageGranted":false}
+{"ts":"2026-09-25T23:17:39.970Z","level":"info","msg":"Injected orchestration tools","subsystem":"executor.streamChat.setup","agents":["Alpha"],"toolCount":10}
+{"ts":"2026-09-25T23:17:39.977Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:17:39.981Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:17:39.981Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f"}
+{"ts":"2026-09-25T23:17:39.981Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"is the background agent done yet?","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:17:39.987Z","level":"warn","msg":"session history producer failed — using legacy branch for this turn (delete the conversation's agent_sessions row to force a fresh backfill)","subsystem":"executor.loadHistory.rehydrate","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f","error":"SessionError: Entry msg-anchor-1 not found"}
+{"ts":"2026-09-25T23:17:39.988Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:17:39.991Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:17:39.991Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f"}
+{"ts":"2026-09-25T23:17:39.991Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the researcher","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:17:39.997Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:17:40.000Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:17:40.000Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f"}
+{"ts":"2026-09-25T23:17:40.001Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"plain follow-up","agents":[],"teams":[],"depth":0}
+{"ts":"2026-09-25T23:17:40.006Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:17:40.010Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:17:40.010Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"dfbe33cf-2c37-429c-8b4a-42edd4be288f"}
+{"ts":"2026-09-25T23:17:40.010Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"continue the nested task","agents":[],"teams":[],"depth":0}
+
+src/__tests__/phase-2b-e2e.test.ts:
+166 | });
+167 | 
+168 | describe("Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch", () => {
+169 |   test("release publication grants the exact declared capabilities", async () => {
+170 |     await publish(true);
+171 |     const response = await permissionsGet(getEvent());
+                                 ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:171:28)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > release publication grants the exact declared capabilities [7.73ms]
+181 |     expect(activated[0]!.userId).toBe(ADMIN.id);
+182 |     expect(activated[0]!.metadata?.grants).toEqual(fixture.snapshot.installation.grants);
+183 |   });
+184 | 
+185 |   test("GET echoes the clamped grants", async () => {
+186 |     const res = await permissionsGet(getEvent());
+                            ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:186:23)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > GET echoes the clamped grants [0.08ms]
+190 |   });
+191 | 
+192 |   test("legacy PUT cannot add undeclared shell access or mutate current grants", async () => {
+193 |     const response = await permissionsPut(makeEvent({ permissions: { shell: true, taskEvents: true, agentConfig: "read" } }));
+194 |     expect(response.status).toBe(410);
+195 |     const grant = await (await permissionsGet(getEvent())).json() as ExtensionPermissions;
+                                     ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:195:32)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > legacy PUT cannot add undeclared shell access or mutate current grants [0.16ms]
+196 |     expect(grant.shell).toBeUndefined();
+197 |     expect(grant.taskEvents).toBe(true);
+198 |   });
+199 | 
+200 |   test("handleEmitTaskEventRpc routes off the granted permissions → bus fires", async () => {
+201 |     const res = await permissionsGet(getEvent());
+                            ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:201:23)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > handleEmitTaskEventRpc routes off the granted permissions → bus fires [0.10ms]
+213 |     expect(calls).toHaveLength(1);
+214 |     expect((calls[0]!.payload as { conversationId: string }).conversationId).toBe(CONV_ID);
+215 |   });
+216 | 
+217 |   test("handleAgentConfigsRpc routes off the granted permissions → returns user's configs", async () => {
+218 |     const res = await permissionsGet(getEvent());
+                            ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:218:23)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > handleAgentConfigsRpc routes off the granted permissions → returns user's configs [0.08ms]
+227 |   });
+228 | 
+229 |   test("disabling the release revokes grants and the next RPC call is refused (-32001)", async () => {
+230 |     // Revoke all.
+231 |     await publish(false);
+232 |     const getRes = await permissionsGet(getEvent());
+                               ^
+TypeError: Value is not JSON serializable
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/phase-2b-e2e.test.ts:232:26)
+(fail) Phase 2b e2e: install → clamp → audit → RPC routing → revoke → kill-switch > disabling the release revokes grants and the next RPC call is refused (-32001) [4.76ms]
+
+src/__tests__/run-visual-evidence.test.ts:
+[visual-evidence:mock] failed to start 79 | 
+80 | 	test("a command that cannot start does not hide the other group", async () => {
+81 | 		const calls: string[] = [];
+82 | 		const exit = await runEvidenceGroups(evidenceGroups({ mode: "all", specs: [] }, true), async (_command, group) => {
+83 | 			calls.push(group);
+84 | 			if (group === "mock") throw new Error("missing executable");
+                                    ^
+error: missing executable
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/run-visual-evidence.test.ts:84:32)
+      at runEvidenceGroups (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/scripts/run-visual-evidence.ts:73:18)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w18a3-merge-sweep/src/__tests__/run-visual-evidence.test.ts:82:22)
+
+{"ts":"2026-09-25T23:19:15.789Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:19:21.761Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:19:21.764Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:19:21.765Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:19:21.770Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:19:26.405Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-09-25T23:19:26.717Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":4}
+{"ts":"2026-09-25T23:19:27.035Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":6}
+{"ts":"2026-09-25T23:19:27.354Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-09-25T23:19:28.258Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":2}
+{"ts":"2026-09-25T23:19:28.556Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:19:57.595Z","level":"error","msg":"DB error","subsystem":"executor.streamChat.subscribe","error":"LifecycleError: test persistence failure"}
+{"ts":"2026-09-25T23:19:57.598Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-25T23:19:57.599Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-09-25T23:19:57.599Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-25T23:19:57.599Z","level":"warn","msg":"turn_end message missing text blocks but turnText has content","subsystem":"executor.streamChat.subscribe","turnTextPreview":"streamed answer","contentTypes":"thinking"}
+{"ts":"2026-09-25T23:19:57.599Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":5,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-09-25T23:19:57.599Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-25T23:19:57.600Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-25T23:19:57.600Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":5}
+{"ts":"2026-09-25T23:19:57.600Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0,"cachedTokens":0,"promptTokens":10,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":2}]}
+{"ts":"2026-09-25T23:19:58.110Z","level":"warn","msg":"No live trusted-local approval — the runner will refuse","subsystem":"ext.trusted-local.runner","phase":"build","digest":"30632b3abbdf7a2e10a5a8d9e456c6f863ca557b5360c52bc831a3da19aaa4d3"}
+{"ts":"2026-09-25T23:20:00.268Z","level":"warn","msg":"No live trusted-local approval — the runner will refuse","subsystem":"ext.trusted-local.runner","phase":"execute","digest":"06395e097a68701124dfae593f878702fe910d56d976c21ebcc7a278a0dee3dc"}
+{"ts":"2026-09-25T23:20:00.660Z","level":"warn","msg":"No live trusted-local approval — the runner will refuse","subsystem":"ext.trusted-local.runner","phase":"execute","digest":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}
+{"ts":"2026-09-25T23:20:14.171Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-25T23:20:14.171Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"fc78bb98-afa2-41b9-a70c-85644c097a18","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-25T23:20:14.171Z","level":"info","msg":"Bundled source staged; verified releases require human approval","subsystem":"ext.bundled.bootstrap","name":"test","installationId":"legacy","operationId":"operation","status":"awaiting_approval"}
+{"ts":"2026-09-25T23:20:14.171Z","level":"info","msg":"Bundled extensions await an active administrator before source staging","subsystem":"ext.bundled.bootstrap"}
+{"ts":"2026-09-25T23:20:14.177Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/api.request","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-25T23:20:14.935Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.gitHead","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-25T23:20:15.392Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/project.openPr","extensionId":"foreign","tokenActorExtensionId":"extension"}
+{"ts":"2026-09-25T23:20:15.408Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-25T23:20:15.408Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-25T23:20:15.409Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-25T23:20:15.409Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-09-25T23:20:15.427Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":2}
+{"ts":"2026-09-25T23:20:15.427Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":1}
+{"ts":"2026-09-25T23:24:53.229Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-09-25T23:24:53.230Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-09-25T23:24:53.231Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-09-25T23:24:53.231Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"42537e2f-2797-48a8-9774-942d3a90de87"}
+{"ts":"2026-09-25T23:24:53.236Z","level":"warn","msg":"context compaction applied","strategy":"trim","model":"model","budget":1,"before":1,"after":1,"droppedCount":0,"droppedTokens":0}
+{"ts":"2026-09-25T23:26:30.393Z","level":"info","msg":"refresh-columns: credential resolve failed","subsystem":"ext.github-projects.api.refresh-columns","projectId":"4a7cff47-9035-4cf4-8746-626889206698","authMode":"pat","error":"no PAT stored for board or project"}
+{"ts":"2026-09-25T23:26:34.918Z","level":"warn","msg":"Model \"claude-retired-0-0-19000101\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-retired-0-0-19000101"}
+
+ 5678 pass
+ 6 skip
+ 9 fail
+ 26413 expect() calls
+Ran 5693 tests across 405 files. [942.93s]

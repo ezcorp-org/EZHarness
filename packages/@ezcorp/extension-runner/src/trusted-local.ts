@@ -1,8 +1,9 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import type { ResourceLimits } from "@ezcorp/extension-contract";
+import { randomUUID } from "node:crypto";
+import type { ProcessSpawnPolicy, ResourceLimits } from "@ezcorp/extension-contract";
 import { PodmanRunner, type PodmanRunnerOptions } from "./podman";
-import { digest, RunnerError, sha256 } from "./core";
+import { capture, digest, executionLimits, RunnerError, sha256 } from "./core";
 
 export interface TrustedLocalApproval {
   digest: string;
@@ -42,11 +43,40 @@ export class TrustedLocalRunner extends PodmanRunner {
   protected override async probeSecurity(): Promise<void> {
     if (process.platform !== "linux" || !Number.isSafeInteger(this.trusted.dedicatedUid) || this.trusted.dedicatedUid === 0 || process.getuid?.() !== this.trusted.dedicatedUid) throw new RunnerError("trusted_account_required", "Trusted-local runner requires its configured non-root dedicated OS account");
     if (sha256(await readFile(this.trusted.bunPath)) !== this.trusted.bunDigest) throw new RunnerError("trusted_binary_changed", "Trusted-local Bun binary differs from pinned digest");
+    this.spawnGuardWorks = await this.parentAccessBlocked() && await this.localSpawnGuardWorks();
+  }
+  /**
+   * A guest here is a plain process of the runner's own account, beside the
+   * runner and every other guest, none of them non-dumpable. Only Yama scope 1
+   * or higher stops a guest that may not spawn from writing the memory of a
+   * process that may (`/proc/<pid>/mem`, which needs no ptrace syscall). Without
+   * it, "deny" cannot be kept, so non-shell starts are refused.
+   */
+  private async parentAccessBlocked(): Promise<boolean> {
+    try { return Number((await readFile("/proc/sys/kernel/yama/ptrace_scope", "utf8")).trim()) >= 1; } catch { return false; }
+  }
+  /** Runs the guard alone as a local guest: exit 0 means the filter installed and a process then failed to start. */
+  private async localSpawnGuardWorks(): Promise<boolean> {
+    const probeId = `probe-${randomUUID()}`;
+    try { await capture(this.launch(probeId, executionLimits, this.root, this.spawnGuardProbe()), 30_000, 1024 ** 2); return true; }
+    catch { return false; }
+    finally { await this.remove(probeId); }
   }
   protected override async authorize(phase: "build" | "execute", exactDigest: string): Promise<void> {
     const approval = await this.trusted.approvalFor(phase, digest(exactDigest));
     if (!approval || approval.digest !== exactDigest || approval.phase !== phase || !approval.approvedBy || approval.expiresAt <= Date.now() || TRUSTED_LOCAL_OMITTED_CONTROLS.some(control => !approval.omittedControls.includes(control))) throw new RunnerError("trusted_approval_required", "Admin approval for this exact digest and omitted controls is required");
     await this.trusted.audit({ mode: "trusted-local", approval });
+  }
+  /**
+   * The execution guest is this runner's own local process, not a container, so
+   * it launches through the same seam the build guests use. A device grant is
+   * refused rather than ignored: this mode omits every kernel control, so it
+   * cannot confine a guest to the device nodes an allocation authorized. The
+   * process policy is kept by the same guard a container worker loads.
+   */
+  protected override async launchDetached(id: string, limits: ResourceLimits, staged: string, devices: readonly string[], policy: ProcessSpawnPolicy): Promise<ChildProcessWithoutNullStreams> {
+    if (devices.length > 0) throw new RunnerError("device_unenforceable", "Trusted-local runner cannot confine a guest to an authorized device list");
+    return this.launch(id, limits, staged, this.workerArgs(policy));
   }
   protected override launch(id: string, _limits: ResourceLimits, staged: string, args: string[]): ChildProcessWithoutNullStreams {
     const child = spawn(this.trusted.setprivPath ?? "setpriv", ["--no-new-privs", "--inh-caps=-all", "--ambient-caps=-all", this.trusted.bunPath, ...args], { cwd: staged, detached: true, stdio: ["pipe", "pipe", "pipe"], env: { PATH: process.env.PATH, HOME: "/nonexistent", TMPDIR: "/tmp", LANG: "C.UTF-8" } });

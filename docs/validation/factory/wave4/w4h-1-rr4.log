@@ -1,0 +1,18 @@
+rev=d341d8690f63c7f46ff3fd396854577858c0a071 label=rr4 proofs=runtime-resources bun=1.4.2 runner_image=docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+gate 2026-10-05T00:24:37Z load1=3.09 mem=15GiB swap=3GiB
+== probe: git in the extension runner image
+git: not on PATH (/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/bun-node-fallback-bin)
+1.4.2
+gate 2026-10-05T00:24:37Z load1=3.09 mem=15GiB swap=3GiB
+context = git archive d341d8690f63c7f46ff3fd396854577858c0a071: 13371 files; dist dirs under packages: 0
+== build localhost/w4h1-img-production:d341d8690f63 start 2026-10-05T00:24:38Z
+build exit=0 end 2026-10-05T00:26:17Z
+--> 980b1918be2c
+Successfully tagged localhost/w4h1-img-production:d341d8690f63
+980b1918be2cb12f5856685ffeceaf30b36f01ac6a29fbdb1b3b0158cb6df08d
+image localhost/w4h1-img-production:d341d8690f63 id 980b1918be2cb12f5856685ffeceaf30b36f01ac6a29fbdb1b3b0158cb6df08d revision d341d8690f63c7f46ff3fd396854577858c0a071
+gate 2026-10-05T00:26:17Z load1=2.88 mem=15GiB swap=3GiB
+== proof runtime-resources start 2026-10-05T00:26:17Z
+proof runtime-resources exit=0 end 2026-10-05T00:34:06Z
+removed localhost/w4h1-img-production:d341d8690f63
+heavy exit=0

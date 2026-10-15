@@ -1,0 +1,65 @@
+W4H-15 report (written once) — hosted Per-file coverage gate: seven lcov-cov producers uploaded the same file name
+Owner: w4h-15. Worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-15, branch wp/w4h-15-coverage-artifact-names from integ/w00 1b96d2730.
+Head: f1774df59691fafb32efeac58e7697afd4bf7a4d (clean tree). Written 2026-10-08T08:22:12Z.
+Commits (author = committer = archy <281643943+EZArchy@users.noreply.github.com>):
+  28c04b874 ci(coverage): give each single-file lcov-cov producer a unique file name (W4H-15)   [hook: 6 mapped suites, all green; logs/commit-1.log]
+  f1774df59 docs(factory): W4H-15 gates and todo - ...  (gate file force-added: .gitignore:8 bare `tasks`, established practice; hook: no mapped test)
+Diff: .github/workflows/ci.yml, .github/workflows/db-postgres.yml (7 rename steps + 7 upload paths; gate job byte-unchanged),
+  scripts/lcov-artifact-names-registration.test.ts (new guard), scripts/lib/ci-registration.ts (type-only fields),
+  4 registration tests' path needles. No src/ or packages/ change.
+
+R1 red: logs/r1-red.log (1 pass 3 fail; names the seven) + logs/r1-merge-repro-as-is.log (6 overwrites, 40 SF lost, gate 70 files; hosted 72)
+R2 green: logs/r2-green.log (26 files, 296 pass 11 skip 0 fail; skips = db-migration-postgres without DATABASE_URL)
+          logs/r2-merge-repro-renamed.log (0 overwrites, 0 SF lost, gate 70 -> 4)
+R3: logs/final-legs.log at 28c04b874 (units 6/6, new-file + patch vs integ/w00 PASS, CRAP 0 touched, guard set 41 files 511 pass 2 skip 0 fail,
+    lint/boundaries/lanes rc=0, gate-integrity integ/w00 PASSED, origin/main = the 8 standing lines only, origin/main new-file/patch informational red,
+    no file of this diff listed); logs/r3-actionlint-compare.log (same 3 label findings base and head, none new);
+    logs/r3-typecheck.log (rc=0 at 16 GiB, no holder, low 12 GiB); logs/r3-prune-scan.log (clean).
+Gate file: tasks/factory/w4h-15-GATES.md G1-G9 all [x].
+Open, outside the package (reported to team-lead): with every record present the run's artifacts still fail check-coverage on 4 files:
+  src/factory/reference-data/pack.ts 50.44%, materials.ts 99.31% (line 91), src/factory/runner/uv-command.ts 91.30% (20-21),
+  src/factory/reference-data/publication.ts no lcov data (repro/check-coverage-renamed.log). The hosted gate stays red on them after merge.
+Scratch outside the evidence dir: /tmp/w4h-15-artifacts (downloaded artifacts, merge folders), /tmp/w4h-15-al-base (actionlint base copies).
+SHA256 of receipts:
+cdccb03fee8065a369fe557fdfd7060878b950de57173812df8d85480c47d6a8  logs/commit-1.log
+8f5d8baf764ee84d3c5e117e0abbd05ff0d0f930ea278f2180b6f921b341b093  logs/commit-2.log
+a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83  logs/final-boundaries.log
+7bc8bad2d995944d11ef3e9051ef763e47fe5fc1ac538fca7fcf18ddcd4fe4d2  logs/final-crap-changed.log
+b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda  logs/final-gate-integrity-integ_w00.log
+258f14dafba2b14d0837fbfdf266be035e6463b11355d35785f0f31501b21dea  logs/final-gate-integrity-origin_main.log
+c9692d06fcad54179f58bd118710fa5b10aa7d302574e354d62e3a49094b660c  logs/final-guard-set.log
+f9253f229d802c1d092186b2d0c300e8b0e672b4aec66dc35132d21b80b23e00  logs/final-lanes.log
+65f0f285d587f146dcd1426a2797be6ebf0179795d52f39653a33d4fc37368fa  logs/final-legs.log
+efd3daf7a81ae81353414e669ef7431c3c156a1250c9b4524f2cba6f587ba833  logs/final-lint.log
+7e45d9058a7ca246fe174ef67e9c57d2b29e9a8eb4efbbf2aab0481b39c6e943  logs/final-merge-lcov.log
+e28b0023d5751a32118479975f153f7aad1ccecbb3a502bea8766a7bb8655c87  logs/final-new-file-integ_w00.log
+871c1f5e13916313189007910feb4506f8ee293c46d8f3942b82225fdf32cdbb  logs/final-new-file-origin_main.log
+d76f470917bb573cfd618af4c418a3815e7477a3916b09f27a879cec29f832e2  logs/final-patch-integ_w00.log
+935ae3b32857074906d518f3cf13d2194b84178e49002e3d88bf0e0596973ec2  logs/final-patch-origin_main.log
+1e01209b451db69fbb69003910869dfc54de6fbc5016cf99747eecac2fdb56de  logs/final-unit-ci-registration.log
+5d449f617b3bde406765eafb338d2558c3c40d79db0cd3432388bedfe26e7823  logs/final-unit-factory-compute-admissions-registration.log
+dc1d262368e6ba4379aeaaa529be904664edf3d5e5c7187f7d1ea17805a60c40  logs/final-unit-factory-protected-command-effects-registration.log
+a9a1491dd99ac75227c025fa286bb2cee594f973a1ec80fe775ef3d460799e92  logs/final-unit-factory-provisioning-registration.log
+e9c7d137424063526f571363168ce03058bcbf80c7bad640b888e35aa7367429  logs/final-unit-factory-validator-materials-registration.log
+977609bbf598a783b2258b283fb5420c1ba3baa43bcc40d11f75f9ea5093008b  logs/final-unit-lcov-artifact-names-registration.log
+65b4acaa717459c49a272bbcadb34fa04cd410d9f6e3966c19823ebfffc7cf89  logs/installs.log
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  logs/r1-artifact-download.log
+ed6743b52691132ef7d7497cf4e241b469f4abb7500eb856a8da891e85c66d06  logs/r1-merge-repro-as-is.log
+1e17426f061d18ea5fef0a761cdab7f6a6d6c453d8348c19199719a26d5c4146  logs/r1-red.log
+7e97858f30be72dfe4fc1e3e7d78aad74fc2d161e9cafef221359e0befe3f104  logs/r2-green.log
+97675dcf624a29c650c3bc284d9ce74d768137444bb0c2bab9e5525a7c1aba0d  logs/r2-merge-repro-renamed.log
+b3277e15b4c96d397dcdf8e95fbbf0656de053288065b72bb2b604e7c179e17d  logs/r3-actionlint-compare.log
+0d3ab0443be1808be3e5466dfe027c7d25d15c861e7aa82714af8e8fd64b7e58  logs/r3-actionlint.log
+49b6008edafce692c981a26220a170b2b172b786ed6f47f74b410f3887404c0b  logs/r3-prune-scan.log
+495e77ce3ed7c63e46fffe5c2dc73d741d9e7ab80a08108190dbecf772f2feb9  logs/r3-typecheck.log
+3efc9f73c46f4f8c46eef76af359dba7c978eba787f7df4339f3caacd45fa203  logs/r3-typecheck-wait.log
+44a229a9b5ebb8364c660e66384ebce2328d366ce3894cea93dec32c8fb8f481  repro/check-coverage-as-is.log
+42a2d9f6289447071f577038948652264de5e04b0d50ab72d4eb18e383929d7b  repro/check-coverage-renamed.log
+686d52f7dded89da370df2540fb78090ee0d0991523a8b4d8723dd8e2ed678de  r1-red.sh
+ed908a306829c213837b7efaa4033c2c8f0b4a59cbb7eec2c282912538ab670f  r2-green.sh
+ca5b2ea7de1243b3fd164e700ac1a2213a4aa49936d7f29bd980257cafc9b5e0  merge-repro.sh
+b36095f300f06a8953139e6f4b09ebd9dae1961323963875ff5f0a47ae86f2cc  final-legs.sh
+ad80ebd4c0fc3dd7615bdddbe3bd931217b3e561c90e515c2f55a055cd0fa91a  typecheck.sh
+1bfbca73bc4e7dba391e9890278f5811e5b270513f67c8eedb46de6b4a3490be  installs.sh
+886a918b24729fdd9dab3a89d64d86fb57aac475c9255f595357bc924609d22d  workflow-readers.txt
+8d27869cc71ae5496081ddf47d254fb5a60d0fc208e2e844662bfe277a81b92c  guard-list.txt

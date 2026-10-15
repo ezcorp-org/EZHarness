@@ -1,0 +1,4 @@
+Checked 1 file in 1812µs. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  no test file maps to the staged changes — skipping
+[detached HEAD 0f9f538c8] merge: wp/w4g-9 393ca6386 into integ/w00 (W4G-9 hono, ip-address, qs, dompurify and fast-uri upgraded inside their parents' ranges; yaml pinned)

@@ -30,6 +30,15 @@
  *      (biome falls back to its built-in defaults), or a NESTED biome config
  *      added (biome resolves the nearest config, so one can un-lint a whole
  *      subtree without the root diff showing anything).
+ *  11. A coverage GATE TOOL changed — scripts/merge-lcov.ts and its noise
+ *      filter, the browser coverage merge, a raw-coverage-to-lcov converter
+ *      (browser, factory orchestrator, node), or a coverage gate checker
+ *      (per-file, global floor, new-file, patch, web vitest, CRAP). They decide what coverage counts
+ *      and how each gate judges it, so any edit, addition, deletion or rename
+ *      is a gate change (validator-5, 2026-09-28: two merge-lcov credits
+ *      passed this check unseen). The patch gate's attestation file
+ *      (scripts/coverage-attestations.json, W03g) is in the same set: an
+ *      attestation lets one uncovered line pass, so it un-gates as EXCLUDES does.
  *
  * All checks are DIFF-SCOPED (only what the PR adds is judged) so the 19
  * pre-existing `.skip`s and 365 mock files in the tree don't false-positive.
@@ -51,12 +60,30 @@
  * The pure detection helpers are exported for unit testing; main() only wires
  * git + the filesystem.
  */
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import ts from "typescript";
 import { REPO_ROOT } from "./coverage-config.ts";
 import { parseUnifiedDiff } from "./unified-diff.ts";
 export { parseUnifiedDiff, type DiffFile } from "./unified-diff.ts";
+
+/**
+ * A LOCAL copy of `@ezcorp/sdk/git`'s `currentRepositoryGitContext()` —
+ * deliberately not imported (item C2, W18 hygiene). This file is one of two
+ * (the other is `git-output.ts`) copied into a bare, `node_modules`-free
+ * scratch fixture by its own test (`src/__tests__/gate-scripts.test.ts`'s
+ * "isolated parser dependency" describe block, which explicitly asserts no
+ * `node_modules` exists there) — a workspace-package import cannot resolve
+ * in that context, which is exactly the regression importing
+ * `@ezcorp/sdk/git` here caused. The function is a one-line identity
+ * (`return env` unchanged); duplicating it carries no real drift risk, and
+ * keeping the SAME name here is what lets the repo-wide git-spawn guard
+ * (`src/__tests__/git-spawn-context-guard.test.ts`) still recognize this as
+ * a declared class-B (current-repository) spawn.
+ */
+export function currentRepositoryGitContext(
+  env: Record<string, string | undefined> = process.env,
+): Record<string, string | undefined> {
+  return env;
+}
 
 /**
  * The vacuous-test check needs TypeScript's AST, not a lossy text heuristic.
@@ -354,8 +381,12 @@ export function forbiddenTestAdditions(fileContent: string, addedLines: Set<numb
 // `expect(` plus Playwright's chained assertion forms `expect.poll(...)` /
 // `expect.soft(...)` (both produce real assertions; the bare `expect(` branch
 // alone misses them and flags a genuinely-asserting test as vacuous).
+// `expect(` may carry a type argument (`expect<Foo>(`, up to three levels of
+// nesting such as `expect<Map<string, Array<Foo>>>(`); TypeScript parses that
+// as the same assertion call. The argument may not contain `(`, `)` or `;`,
+// so it cannot span into another call or statement.
 const ASSERTION =
-	/\bexpect\s*\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
+	/\bexpect\s*(?:<(?:[^<>();]|<(?:[^<>();]|<[^<>();]*>)*>)*>\s*)?\(|\bexpect\s*\.\s*(?:poll|soft)\b|\bassert\b|\.\s*(?:rejects|resolves)\b|\btoThrow\b|\bexpectTypeOf\b/;
 const TEST_OPENER = /(?:^|[^.\w])(?:test|it)\s*\(/;
 
 /**
@@ -625,20 +656,37 @@ function testAssertionPaths(source: string): Map<number, boolean> {
   const parser = typeScriptParser();
   const file = parser.createSourceFile("gate-integrity-input.ts", source, parser.ScriptTarget.Latest, true, parser.ScriptKind.TS);
   const helpers = new Map<string, ts.FunctionDeclaration>();
+  // Local names of the known waitFor sources: Testing Library's `waitFor`
+  // and vitest's `vi` (called as `vi.waitFor`). Only these named imports
+  // count; a same-named function from any other module does not.
   const importedWaitFor = new Set<string>();
+  const importedVi = new Set<string>();
   for (const statement of file.statements) {
     if (ts.isFunctionDeclaration(statement) && statement.name && statement.body) helpers.set(statement.name.text, statement);
-    if (!ts.isImportDeclaration(statement)
-      || !ts.isStringLiteral(statement.moduleSpecifier)
-      || !statement.moduleSpecifier.text.startsWith("@testing-library/")) continue;
+    if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) continue;
+    const source = statement.moduleSpecifier.text;
+    const wanted = source.startsWith("@testing-library/") ? { name: "waitFor", into: importedWaitFor }
+      : source === "vitest" ? { name: "vi", into: importedVi }
+      : undefined;
     const bindings = statement.importClause?.namedBindings;
-    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    if (!wanted || !bindings || !ts.isNamedImports(bindings)) continue;
     for (const specifier of bindings.elements) {
-      if ((specifier.propertyName?.text ?? specifier.name.text) === "waitFor") {
-        importedWaitFor.add(specifier.name.text);
+      if ((specifier.propertyName?.text ?? specifier.name.text) === wanted.name) {
+        wanted.into.add(specifier.name.text);
       }
     }
   }
+  /** The local binding a known waitFor call depends on, or undefined:
+   *  `waitFor(` from Testing Library, or `vi.waitFor(` from vitest. */
+  const waitForBinding = (call: ts.CallExpression): string | undefined => {
+    const callee = call.expression;
+    if (ts.isIdentifier(callee)) return importedWaitFor.has(callee.text) ? callee.text : undefined;
+    if (ts.isPropertyAccessExpression(callee)
+      && callee.name.text === "waitFor"
+      && ts.isIdentifier(callee.expression)
+      && importedVi.has(callee.expression.text)) return callee.expression.text;
+    return undefined;
+  };
 
   const bindingNames = (name: ts.BindingName | undefined): string[] => {
     // A syntactically incomplete diff can produce a recovery declaration with
@@ -706,19 +754,20 @@ function testAssertionPaths(source: string): Map<number, boolean> {
     if (node !== root && ts.isFunctionLike(node)) return false;
     if (ts.isCallExpression(node)) {
       if (callIsAssertion(node)) return true;
+      // An imported waitFor (Testing Library or vitest's `vi`) is a known
+      // callback invoker, but only an awaited call proves the test waits for
+      // its assertion. Do not credit a same-named local binding or arbitrary
+      // callback helper.
+      const waitFor = waitForBinding(node);
+      const waitCallback = node.arguments[0];
+      if (waitFor
+        && ts.isAwaitExpression(node.parent)
+        && !shadowsFileHelper(root, waitFor)
+        && waitCallback
+        && ts.isFunctionLike(waitCallback)
+        && nodeHasAssertion(waitCallback, waitCallback)) return true;
       if (ts.isIdentifier(node.expression)) {
         const name = node.expression.text;
-        // Testing Library's imported waitFor is a known callback invoker, but
-        // only an awaited call proves the test waits for its assertion. Do not
-        // credit a same-named local binding or arbitrary callback helper.
-        const callback = node.arguments[0];
-        if (importedWaitFor.has(name)
-          && ts.isAwaitExpression(node.parent)
-          && !shadowsFileHelper(root, name)
-          && callback
-          && ts.isFunctionLike(callback)
-          && nodeHasAssertion(callback, callback)) return true;
-
         const helper = helpers.get(name);
         if (helper && !shadowsFileHelper(root, name)) {
           if (functionHasAssertion(name)) return true;
@@ -1287,10 +1336,46 @@ export function biomeConfigFileViolations(nameStatus: string): string[] {
   return out;
 }
 
+/** Check 11: the scripts that merge coverage or judge it. See the header. */
+export const COVERAGE_GATE_TOOLS = [
+  "scripts/merge-lcov.ts",
+  "scripts/lcov-noise-filter.ts",
+  "scripts/merge-browser-route-coverage.sh",
+  "scripts/browser-coverage-to-lcov.ts",
+  "scripts/factory-orchestrator-v8-to-lcov.mjs",
+  "scripts/node-v8-to-lcov.mjs",
+  "scripts/check-coverage.ts",
+  "scripts/check-global-coverage.ts",
+  "scripts/check-new-file-coverage.ts",
+  "scripts/check-patch-coverage.ts",
+  "scripts/coverage-attestations.json",
+  "scripts/check-web-vitest-coverage.ts",
+  "scripts/crap-score.ts",
+] as const;
+
+/** Every name-status row that touches a coverage gate tool, on either side of a rename. */
+export function coverageGateToolViolations(nameStatus: string): string[] {
+  const tools = new Set<string>(COVERAGE_GATE_TOOLS);
+  const out: string[] = [];
+  for (const line of nameStatus.split("\n")) {
+    const [status, ...rawPaths] = line.split("\t");
+    const touched = rawPaths.map(unquotePath).filter((path): path is string => path !== undefined && tools.has(path));
+    for (const path of touched) {
+      out.push(`coverage gate tool changed (${status}): ${path} — it decides what coverage counts or how a coverage gate judges it`);
+    }
+  }
+  return out;
+}
+
 // ── git wiring + main() ────────────────────────────────────────────────────
 
 async function gitRun(args: string[]): Promise<{ code: number; out: string; err: string }> {
-  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe" });
+  // Item C2 (W18 hygiene): this gate diffs/inspects the CURRENT checkout
+  // (including staged, not-yet-committed state under the pre-commit hook)
+  // as invoked, so it keeps the invoking git context
+  // (currentRepositoryGitContext(), never withoutGitContext() -- stripping
+  // GIT_INDEX_FILE here would make a staged-only check see the wrong tree).
+  const proc = Bun.spawn(["git", ...args], { cwd: REPO_ROOT, stdout: "pipe", stderr: "pipe", env: currentRepositoryGitContext(process.env) });
   const [out, err, code] = await Promise.all([
     new Response(proc.stdout).text(),
     new Response(proc.stderr).text(),
@@ -1314,6 +1399,25 @@ async function showAtBase(rev: string, path: string): Promise<string | null> {
   if (code === 0) return out;
   if (isPathAbsentAtRev(err)) return null;
   throw new Error(`git show ${rev}:${path} failed (exit ${code}): ${err.trim()}`);
+}
+
+/**
+ * The head side of every comparison is the file at HEAD, the revision whose
+ * `mergeBase...HEAD` diff numbers the added lines. Never the working tree: on
+ * a staged, uncommitted merge the numbers are HEAD's while the working-tree
+ * text is the staged tree's, and an old test that moved onto HEAD's added-line
+ * numbers read as a new vacuous test (integrator-2, the staged W16d merge,
+ * 2026-09-27). In CI the working tree is HEAD, so nothing changes there.
+ */
+async function showAtHead(path: string): Promise<string | null> {
+  return showAtBase("HEAD", path);
+}
+
+/** A head-side file the diff says changed and still exists: absent is an error, never "no data". */
+async function readAtHead(path: string): Promise<string> {
+  const content = await showAtHead(path);
+  if (content === null) throw new Error(`${path} is absent at HEAD`);
+  return content;
 }
 
 async function main(): Promise<void> {
@@ -1347,7 +1451,7 @@ async function main(): Promise<void> {
     // that split there is no coverage-config.ts, so fall back to the EXCLUDES at
     // their old inline home — otherwise a verbatim move reads as 100% "growth".
     if (baseSrc === null) baseSrc = await showAtBase(mergeBase, "scripts/check-coverage.ts");
-    const headSrc = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-config.ts")).text();
+    const headSrc = await readAtHead("scripts/coverage-config.ts");
     for (const p of addedExcludes(baseSrc ?? "", headSrc)) {
       violations.push(`EXCLUDES grew: "${p}" — un-gating a file needs the gate-change-approved label`);
     }
@@ -1357,7 +1461,7 @@ async function main(): Promise<void> {
   // every key is new — no ratchet to enforce.
   if (changed.includes("scripts/coverage-thresholds.json")) {
     const baseJson = await showAtBase(mergeBase, "scripts/coverage-thresholds.json");
-    const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/coverage-thresholds.json")).text();
+    const headJson = await readAtHead("scripts/coverage-thresholds.json");
     violations.push(...thresholdRatchetViolations(baseJson ?? "{}", headJson));
   }
 
@@ -1365,7 +1469,7 @@ async function main(): Promise<void> {
   // the mutation score. Same rule as 2, per-key direction (see the function).
   if (changed.includes("scripts/quality-gates.json")) {
     const baseJson = await showAtBase(mergeBase, "scripts/quality-gates.json");
-    const headJson = await Bun.file(resolve(REPO_ROOT, "scripts/quality-gates.json")).text();
+    const headJson = await readAtHead("scripts/quality-gates.json");
     violations.push(...qualityGateRatchetViolations(baseJson ?? "{}", headJson));
   }
 
@@ -1387,12 +1491,11 @@ async function main(): Promise<void> {
   // 9. biome.json content — the LINT gate's un-gating surface.
   if (changed.includes("biome.json")) {
     const baseSrc = await showAtBase(mergeBase, "biome.json");
-    const headPath = resolve(REPO_ROOT, "biome.json");
+    const headSrc = await showAtHead("biome.json");
     // Absent at the merge-base = this PR INTRODUCES the lint config; there is
     // no prior enforcement to weaken. Absent in HEAD = deleted, which check 10
-    // reports from the name-status (and reading it here would just throw).
-    if (baseSrc !== null && existsSync(headPath)) {
-      const headSrc = await Bun.file(headPath).text();
+    // reports from the name-status.
+    if (baseSrc !== null && headSrc !== null) {
       for (const v of biomeGateWeakenings(baseSrc, headSrc)) {
         violations.push(`${v} — needs the gate-change-approved label`);
       }
@@ -1401,6 +1504,11 @@ async function main(): Promise<void> {
 
   // 10. biome CONFIG FILE moves (root deleted/renamed, nested config added).
   for (const v of biomeConfigFileViolations(nameStatus)) {
+    violations.push(`${v} — needs the gate-change-approved label`);
+  }
+
+  // 11. Coverage gate tools (the lcov merge and the gate checkers).
+  for (const v of coverageGateToolViolations(nameStatus)) {
     violations.push(`${v} — needs the gate-change-approved label`);
   }
 
@@ -1416,9 +1524,8 @@ async function main(): Promise<void> {
   const perFile = parseUnifiedDiff(testDiff);
   for (const [file, info] of perFile) {
     if (!isTestFile(file)) continue;
-    const content = await Bun.file(resolve(REPO_ROOT, file))
-      .text()
-      .catch(() => "");
+    const headContent = await showAtHead(file);
+    const content = headContent ?? "";
     if (content) {
       // Both scans are content-aware so a construct SPLIT ACROSS LINES is still
       // seen; each stays diff-scoped by intersecting `addedLines`.
@@ -1434,7 +1541,7 @@ async function main(): Promise<void> {
     // that is genuinely GONE is check 7's finding, and reporting it twice
     // buries the real signal — retiring `ez-code-factory` produced 44
     // duplicate lines of it before this guard.
-    if (!existsSync(resolve(REPO_ROOT, file))) continue;
+    if (headContent === null) continue;
     const baseContent = await showAtBase(mergeBase, file);
     if (baseContent !== null) {
       const v = testGuttingViolation(info.addedTexts, info.removedTexts, baseContent);

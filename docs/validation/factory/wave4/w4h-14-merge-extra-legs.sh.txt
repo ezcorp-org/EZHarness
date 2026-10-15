@@ -1,0 +1,10 @@
+# W4H-14 main sync (integrator-5; lead's order 2026-10-08, the W-SYNC form, precedent W4H-10 w4h-merge/w4h-10-sync/extra-legs.sh).
+# Targeted binding set (unit.txt, one lcov leg each): the conflict-file readers (git-hooks; manifest-tamper, regenerate-manifest-lock,
+# bundled-source-lock; dependency-denylist, pi-package-pin-alignment, build-workspace-packages; root-dependency-security), main's touched
+# suite (git-hooks, #326), W4H-11's bootstrap suites. The hook maps 0 (lockfiles, manifests, one proof script, the gate file).
+# new-file and patch vs the first parent are INFORMATIONAL; gate-integrity both legs bind (base clean, origin/main = the 8).
+export MCG_COVERAGE_INFORMATIONAL="W4H-14 main sync (W-SYNC form, lead 2026-10-08; precedent W4H-10): partial lcov; the wave4i-3 combined run's final gates bind"
+tc_leg typecheck-all bun run typecheck
+NOTEST=1 leg manifest-lock-check bun scripts/regenerate-manifest-lock.ts --check
+leg web-bun-route-contract bash -c 'cd web && bun test --timeout 120000 ./src/__tests__/route-contract.test.ts'
+leg web-bun-dependency-security bash -c 'cd web && bun test --timeout 120000 ./src/__tests__/dependency-security.test.ts'

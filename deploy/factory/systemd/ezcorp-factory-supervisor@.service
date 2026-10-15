@@ -1,0 +1,45 @@
+# The factory host supervisor for one installation, as a systemd user unit.
+#
+# C05 places the supervisor OUTSIDE every container: it is the one factory
+# component with container-runtime access and the host identity, and it holds
+# no tenant secret, no attempt token, and no product authority. The self-hosted
+# Compose profile therefore runs it here, beside the containers, never among
+# them. The instance name is `<fleet>-<tenant>`.
+#
+# The provisioner starts the equivalent TRANSIENT unit with `systemd-run --user`
+# (src/factory/provisioning/compose-profile.ts, `factorySupervisorUnitArguments`);
+# the properties below are the same list. A transient unit does not survive a
+# reboot or a user-manager restart; for a host that must come back on its own,
+# install this unit instead, enable lingering (`loginctl enable-linger`), and
+# enable `podman-restart.service` for the containers. Install:
+#
+#   install -m 0644 ezcorp-factory-supervisor@.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now ezcorp-factory-supervisor@w16-tenant-01
+#
+# EnvironmentFile provides EZCORP_FACTORY_RELEASE (the checkout at the image's
+# revision), EZCORP_FACTORY_BUN, and EZCORP_FACTORY_SUPERVISOR_CONFIG (the
+# supervisor's private delivery: `<secrets>/<tenant>/deliver/supervisor/supervisor.json`).
+
+[Unit]
+Description=EZCorp factory host supervisor (%i)
+# A user manager cannot order against the system's network-online.target, so
+# no network ordering is declared: the supervisor retries its pool connection.
+
+[Service]
+Type=simple
+EnvironmentFile=%h/.config/ezcorp-factory/%i/supervisor.env
+Environment=BUN_RUNTIME_TRANSPILER_CACHE_PATH=0
+# WorkingDirectory does not expand environment variables; the shell does.
+ExecStart=/bin/sh -ec 'cd "$EZCORP_FACTORY_RELEASE" && exec "$EZCORP_FACTORY_BUN" src/factory/runner/supervisor-process.ts "$EZCORP_FACTORY_SUPERVISOR_CONFIG"'
+Restart=on-failure
+RestartSec=2
+KillMode=control-group
+Delegate=yes
+UMask=0077
+TimeoutStopSec=20
+MemoryMax=2G
+TasksMax=1024
+
+[Install]
+WantedBy=default.target

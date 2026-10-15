@@ -1,0 +1,32 @@
+Checked 29 files in 22ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  28 test files map to this commit (cap 12) — NOT running:
+    src/__tests__/extension-event-end-to-end.test.ts
+    src/__tests__/extensions-delete-route-policy.test.ts
+    src/__tests__/extensions-patch-route.test.ts
+    src/__tests__/local-model-test-endpoint.test.ts
+    src/__tests__/memory-list-derived-owner.integration.test.ts
+    src/__tests__/messages-multipart-route.test.ts
+    src/__tests__/messages-permission-mode-ceiling-route.test.ts
+    src/__tests__/mock-cleanup-coverage.test.ts
+    src/__tests__/security/c2-session-revocation.test.ts
+    src/__tests__/security/h1-local-provider-ssrf.test.ts
+    src/__tests__/security/kb-ownerless-rows-are-shared.test.ts
+    src/__tests__/security/project-permission-mode-authz.test.ts
+    web/src/routes/api/conversations/[id]/extension-toolbar/__tests__/list.test.ts
+    web/src/routes/api/extensions/[name]/uploads/__tests__/upload.test.ts
+    web/src/routes/api/extensions/__tests__/secrets-route.test.ts
+    web/src/routes/api/extensions/__tests__/triggers-route.test.ts
+    web/src/routes/api/import/__tests__/commit.test.ts
+    web/src/__tests__/agent-chat-api.test.ts
+    web/src/__tests__/ask-user-answer-route.test.ts
+    web/src/__tests__/extension-browser-isolation.test.ts
+    web/src/__tests__/extensions-api.test.ts
+    web/src/__tests__/extensions-data-route.test.ts
+    web/src/__tests__/extensions-events-route.test.ts
+    web/src/__tests__/messages-ownership-api.test.ts
+    web/src/__tests__/messages-ownership-baseline-api.test.ts
+    web/src/__tests__/tasks-assignment-api.test.ts
+    web/src/__tests__/tasks-stop-retry-api.test.ts
+    web/src/__tests__/team-panel-refresh-flow.test.ts
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 28 file(s) above; continuing with lint.

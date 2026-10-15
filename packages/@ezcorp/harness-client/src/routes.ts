@@ -25,6 +25,24 @@ export interface HarnessRoute {
 }
 
 export const HARNESS_ROUTES = {
+  // Factory definition authoring (human-only publish and grant mutations are
+  // deliberately absent because a HarnessClient authenticates with a key).
+  listFactoryDefinitions: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions" },
+  createFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions" },
+  importFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/import" },
+  getFactoryDraft: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  updateFactoryDraft: { httpMethod: "PUT", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  archiveFactoryDraft: { httpMethod: "DELETE", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId" },
+  exportFactoryDraft: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/export" },
+  validateFactoryDraft: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/validate" },
+  listFactoryVersions: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions" },
+  getFactoryVersion: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/versions/:version" },
+  listFactoryGrants: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/grants" },
+  startFactoryRun: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/definitions/:factoryId/runs" },
+  listFactoryRuns: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs" },
+  getFactoryRun: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs/:runId" },
+  controlFactoryRun: { httpMethod: "POST", pathTemplate: "/api/factories/projects/:projectId/runs/:runId/control" },
+  getFactoryCommand: { httpMethod: "GET", pathTemplate: "/api/factories/projects/:projectId/runs/:runId/commands/:commandId" },
   extensionControl: { httpMethod: "POST", pathTemplate: "/api/extensions/control" },
   // Configure
   getSetting: { httpMethod: "GET", pathTemplate: "/api/settings/:key" },
@@ -96,6 +114,11 @@ export function buildPath(template: string, params: Record<string, string> = {})
     const value = params[name];
     if (value === undefined) {
       throw new Error(`buildPath: missing route param ':${name}' for template ${template}`);
+    }
+    // The URL parser resolves `.` and `..` even when encoded, so a param that
+    // is a whole dot segment would leave its route; an empty one merges two.
+    if (value === "" || value === "." || value === "..") {
+      throw new Error(`buildPath: invalid route param ':${name}' for template ${template}`);
     }
     return encodeURIComponent(value);
   });

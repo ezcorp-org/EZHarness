@@ -1,0 +1,13 @@
+Dependency audit — floor: high | roots: ., web
+  · .: 2 advisory/advisories
+  · web: 4 advisory/advisories
+
+Below the high floor (6) — not blocking:
+  moderate esbuild  GHSA-67mh-4wv8-2f99
+  moderate uuid  GHSA-w5hq-g745-h8pq
+  moderate qs  GHSA-x5fp-wj9c-mxmx
+  moderate qs  GHSA-4mjr-xmp4-gh2g
+  moderate qs  GHSA-q8mj-m7cp-5q26
+  low      cookie  GHSA-pxg6-pf52-xh8x
+
+✔ dependency audit clean at the high floor (0 allowlisted, 6 below floor).

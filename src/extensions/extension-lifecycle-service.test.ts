@@ -10,6 +10,7 @@ import type { InstallationRecord, InstallationState } from "./v4";
 import type { RecoveryServices } from "./extension-lifecycle-service";
 
 import { installation, } from "../__tests__/helpers/lifecycle-policy-fixture";
+import { enforcingRunnerCapabilities } from "../__tests__/helpers/runner-capabilities";
 
 mockDbConnection();
 afterAll(closeTestDb);
@@ -232,7 +233,7 @@ test("service candidate verification executes the host workspace-routing proof",
   await setupTestDb();
   const lifecycle = await getExtensionLifecycle();
   const runner = await getExtensionRunner();
-  const originalStart = runner.start;
+  const capabilities = spyOn(runner, "capabilities").mockImplementation(enforcingRunnerCapabilities);
   const input = {
     installationId: "sandbox-installation", workspaceId: "sandbox-workspace", workspaceRevision: 1,
     sourceDigest: "a".repeat(64), artifactDigest: "b".repeat(64), imageDigest: "c".repeat(64),
@@ -244,7 +245,7 @@ test("service candidate verification executes the host workspace-routing proof",
   const release = { id: "sandbox-release", createdAt: new Date().toISOString(),
     ...input, releaseDigest: digestObject(input) } as ReleaseRecord;
   const dispatched: string[] = [];
-  runner.start = async request => ({
+  const start = spyOn(runner, "start").mockImplementation(async request => ({
     workerId: request.workerId,
     onNotification: () => () => {},
     close: async () => {},
@@ -264,19 +265,23 @@ test("service candidate verification executes the host workspace-routing proof",
         isolation: preset.requirements.isolation[0]!, nestedCompose: preset.requirements.nestedCompose,
       } };
     },
-  }) as RunnerExecution;
+  }) as RunnerExecution);
   try {
     const verifier = (lifecycle as unknown as { dependencies: {
       verifyCandidate: (release: ReleaseRecord) => Promise<CandidateVerificationReport>,
     } }).dependencies.verifyCandidate;
     const report = await verifier(release);
+    expect(capabilities).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start.mock.calls[0]?.[0].processSpawn).toBe("deny");
     expect(dispatched).toEqual(["incus/describe", "incus/preflight", "incus/preflight", "incus/preflight", "incus/preflight"]);
     expect(report.sandboxPresetQualifications).toHaveLength(INCUS_PRESETS.length);
     for (const qualification of report.sandboxPresetQualifications ?? []) {
       expect(qualification.cases).toContainEqual({ caseId: "SP05", status: "passed" });
     }
   } finally {
-    runner.start = originalStart;
+    start.mockRestore();
+    capabilities.mockRestore();
   }
 });
 

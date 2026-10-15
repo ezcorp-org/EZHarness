@@ -1,0 +1,12 @@
+  EZ_SKIP_HOOK_TESTS=1 set — skipping the 11 staged test file(s) below; continuing with lint:
+    src/__tests__/dev-image-provenance.test.ts
+    src/__tests__/executor-slash-command-expansion-e2e.test.ts
+    src/__tests__/gate-scripts.test.ts
+    src/__tests__/git-hooks.test.ts
+    src/__tests__/local-sandbox-startup.test.ts
+    src/__tests__/mentions-search-symlink-integration.test.ts
+    src/__tests__/mentions-search-workflow-branch.test.ts
+    src/__tests__/podman-compose-wrapper.test.ts
+    src/__tests__/security/cross-tenant-deletion-projects-kb-modes.test.ts
+    src/__tests__/setup-podman.test.ts
+    tests/postgres/factory-compute-admissions.test.ts

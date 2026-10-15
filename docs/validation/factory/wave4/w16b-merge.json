@@ -1,0 +1,216 @@
+{
+ "package": "w16b",
+ "branch": "wp/w16b-guest-brokers-keyed",
+ "head": "ea807dc81bcef12f8361fe8e410d42c7bb8387eb",
+ "codeHead": "fb3a990ee",
+ "branchBase": "27d957531",
+ "validatorVerdict": "ACCEPT at ea807dc81 by validator-2; W01 owner (w01g-fix) approved; copied as w16b-validation.txt",
+ "workerReport": "the gate file tasks/factory/w16b-GATES.md (copied as w16b-worker-report.txt)",
+ "mergeSha": "a7962f8e0eeab1de1ba1a6cc608e1c58fcff5945",
+ "tree": "8cf02007cc2cd23b3b078f87d07cc56e6aaa9ff3",
+ "parents": [
+  "0a95d765b933a81684d54132a70f9d9accee73bb",
+  "ea807dc81bcef12f8361fe8e410d42c7bb8387eb"
+ ],
+ "conflicts": {
+  "scripts/factory-graph-proof/stack.ts": "4 hunks",
+  "src/factory/startup-config.ts": "1 import hunk",
+  "tasks/todo.md": "union",
+  "hunks": "w16b-merge-conflict-hunks.txt"
+ },
+ "integrationFix": [
+  {
+   "id": "harness-builders",
+   "what": "W19b's builder structure kept (HEAD for all four stack.ts hunks: imports, the local issuer constant, the supervisor document, the startup document); W16b's document changes carried into scripts/factory-graph-proof/stack-documents.ts: supervisorDocument carries services.guestBrokers keyed by tenant ({ [TENANT]: { baseUrl, serviceTokenPath, tls } }, with W16b's one-tenant comment), startupDocument's guestBroker.tokens.audience is FACTORY_GUEST_BROKER_AUDIENCE, and the builder's local GUEST_BROKER_AUDIENCE constant is removed so the audience is defined once, in runner/guest-broker-contract.ts; stack.ts keeps W16b's contract import (its token mint already used the constant after the merge)",
+   "builderDiff": "w16b-merge-builder-diff.diff",
+   "ruling": "coordinator approved"
+  },
+  {
+   "id": "startup-config-imports",
+   "what": "union of HEAD's startup-values import and W16b's guest-broker-contract import",
+   "proof": "typecheck 0, lint 0",
+   "ruling": "coordinator approved"
+  }
+ ],
+ "diagnosticsAllowlist": "no change: diagnostics.ts, verify-diagnostics.ts and graph-proof-diagnostics.test.ts are byte-identical to HEAD; CONFIGURATION_KEYS and the Path rule untouched. The walk-every-document test passed as is: in the guestBrokers entry, baseUrl is an existing configuration key, serviceTokenPath and the tls *Path leaves fall under the Path rule, and the tenant id is a map key, not a string leaf.",
+ "C05": {
+  "measured": {
+   "fileCount": 15,
+   "bareImportCount": 11,
+   "srcDb": 0,
+   "srcProviders": 0,
+   "bareImports": [
+    "@ezcorp/extension-contract",
+    "@ezcorp/extension-runner",
+    "@ezcorp/factory-sdk",
+    "@ezcorp/factory-sdk/compiler",
+    "@ezcorp/factory-transport",
+    "node:crypto",
+    "node:fs",
+    "node:fs/promises",
+    "node:http",
+    "node:path",
+    "node:url"
+   ]
+  },
+  "expected": "15 files / 11 bare imports (unchanged)",
+  "receipt": "w16b-merge-c05-closure.json"
+ },
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:01Z",
+   "end": "2026-09-25T11:23:02Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "0edd9ee5e57063ac842e542932269943bb4a6660adc8cdd09a16d3c3dfdc9c0b"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:02Z",
+   "end": "2026-09-25T11:23:48Z",
+   "command": "bun run typecheck",
+   "logSha256": "705a93a4141081b31a8bdf8d698762c3159d5386f2da715135b6a71d7b9d5d73"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:48Z",
+   "end": "2026-09-25T11:23:50Z",
+   "command": "bun run lint",
+   "logSha256": "f2d32acbf54769b09a4834ec3ac3a9b652527bce0da1316dddee98a96fc88390"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:50Z",
+   "end": "2026-09-25T11:23:52Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:52Z",
+   "end": "2026-09-25T11:23:53Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:53Z",
+   "end": "2026-09-25T11:23:58Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-process-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:23:58Z",
+   "end": "2026-09-25T11:24:00Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-process.test.ts",
+   "logSha256": "3a25d8d10ccfde75d3bccca3793745a31c91c2da78fbec2d5216043234da2d71"
+  },
+  {
+   "name": "focused-src-factory-runner-supervisor-services-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:00Z",
+   "end": "2026-09-25T11:24:11Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/supervisor-services.test.ts",
+   "logSha256": "0ca0c825d8a673bfbc25f451a60248d16dcbc25a7b308893030c5ea9e877dd5f"
+  },
+  {
+   "name": "focused-src-factory-startup-config-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:11Z",
+   "end": "2026-09-25T11:24:12Z",
+   "command": "bun test --timeout 60000 ./src/factory/startup-config.test.ts",
+   "logSha256": "df55c7a7377ae66ef1b5e7045a2ffbbe1dcc9af2cf7167877b31162f1dcac6bb"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-diagnostics-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:12Z",
+   "end": "2026-09-25T11:24:13Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-diagnostics.test.ts",
+   "logSha256": "002e064f12dc5f6453438edddc664dbb9b602fceaa439a0a585419acc1ee0d2c"
+  },
+  {
+   "name": "focused-src-factory-graph-proof-definition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:13Z",
+   "end": "2026-09-25T11:24:13Z",
+   "command": "bun test --timeout 60000 ./src/factory/graph-proof-definition.test.ts",
+   "logSha256": "7c4bce8ebc31a88da3055f57249e57e00fcb8b7e07c31128ed0ecd6bfaf4cec7"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:13Z",
+   "end": "2026-09-25T11:24:17Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "005944cbf4936151c68c7036b0242babd6dcd71b4d5245abbbf6447e94ec186d"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T11:24:17Z",
+   "end": "2026-09-25T11:24:19Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "a8c3202163dbe3d2f449e85bc63d86c6b09d415043a564995cffa077ed8cab40"
+  }
+ ],
+ "heavy": {
+  "summary": [
+   "lock 2026-09-25T11:40:33Z free 147G index-tree 8cf02007cc2cd23b3b078f87d07cc56e6aaa9ff3",
+   "batch exit=0",
+   "web build exit=0",
+   "mock pass exit=0 {\"label\":\"w16b-mock-1\",\"mode\":\"mock\",\"control\":\"none\",\"outcome\":\"passed\",\"failure\":null}",
+   "DONE status=0"
+  ],
+  "batch": [
+   "=== heavy batch 2026-09-25T11:40:34Z",
+   "HEAD 0a95d765b933a81684d54132a70f9d9accee73bb MERGE_HEAD ea807dc81bcef12f8361fe8e410d42c7bb8387eb index-tree 8cf02007cc2cd23b3b078f87d07cc56e6aaa9ff3 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  147G  92% /",
+   "--- START pg-factory-guest-model-route 2026-09-25T11:40:34Z",
+   "--- END   pg-factory-guest-model-route 2026-09-25T11:40:39Z exit=0  17 pass 0 fail ",
+   "--- START podman-supervisor-process.podman.integration 2026-09-25T11:40:39Z",
+   "--- END   podman-supervisor-process.podman.integration 2026-09-25T11:40:42Z exit=0  3 pass 0 fail ",
+   "--- START podman-guest-broker-transport.integration 2026-09-25T11:40:42Z",
+   "--- END   podman-guest-broker-transport.integration 2026-09-25T11:40:57Z exit=0  13 pass 0 fail ",
+   "--- START podman-guest-model-route.integration 2026-09-25T11:40:57Z",
+   "--- END   podman-guest-model-route.integration 2026-09-25T11:41:01Z exit=0  17 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-25T11:41:01Z"
+  ],
+  "mockPass": {
+   "label": "w16b-mock-1",
+   "outcome": "passed",
+   "startedAt": "2026-09-25T11:41:39.116Z",
+   "finishedAt": "2026-09-25T11:42:15.704Z",
+   "document": "per-tenant services.guestBrokers through the builders, end to end"
+  },
+  "storeOutageCheck": "the archive store was down 2026-09-25 12:04-12:47Z; this heavy turn ran 11:40:33-11:42:16Z (batch 11:40:34-11:41:01, web build to 11:41:38, mock pass 11:41:39-11:42:15), entirely before the window, so no leg is void"
+ },
+ "coverage": {
+  "proofCommit": "proof/w16b-merge-staged f2dd203af49ac612fd070288bf51f8e6ada74593 (tree 8cf02007c = the merge tree)",
+  "baseRef": "0a95d765b",
+  "producers": [
+   {
+    "producer": "focused 7 suites",
+    "result": "180/0"
+   },
+   {
+    "producer": "guest-broker-transport + guest-model-route integration",
+    "result": "30/0",
+    "why": "the transport and route changes run there"
+   }
+  ],
+  "newFile": "PASSED: no new source files",
+  "patch": "PASSED: all changed executable lines covered (6 files)"
+ },
+ "commitHook": "the hook ran its staged suites (below the cap), all pass; git environment variables unset for the commit",
+ "sharedConfigIncident": "the shared .git/config holds core.bare=true since 07:23 local (another worktree's test); staging's config.worktree false wins (is-bare false) and was checked before the commit",
+ "standingSteps": "df 149G before the heavy step, 147G in the lock and at commit"
+}

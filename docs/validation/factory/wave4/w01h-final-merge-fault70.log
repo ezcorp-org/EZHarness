@@ -1,0 +1,16 @@
+start 2026-09-27T12:24:56-04:00 staged merge 6711542781ae453b2d8299d44c3caf3e9f7d9c5a tree 79c770977c8fe9aea07e201bc867bbca27abbd27
+gate start: df 121G avail 16G swapfree 6851872kB
+Preparing worktree (detached HEAD 671154278)
+HEAD is now at 671154278 proof(w00): W01h 5296c2ef0 merge staged on integ/w00 1a80d3977 (tasks unions, L1 table, lock-order suite registered in db-postgres.yml)
+proof ref proof/w01h-merge3-delay70 af22f13fe2d9706dbb24067249ea8fe38af2c3c8 parent 671154278 author archy <281643943+EZArchy@users.noreply.github.com>; dirty-vs-proof 
+gate install: df 120G avail 16G swapfree 6851908kB
+proof install exit=0
+gate web-build: df 120G avail 16G swapfree 6851924kB
+web build exit=0
+gate pass: df 120G avail 15G swapfree 6842520kB
+delay70 exit=1 start=2026-09-27T12:25:42-04:00 end=2026-09-27T12:27:19-04:00
+dump exit=0 -> /tmp/factory-platform-evidence/w00/w01h-merge3/graph/merge3-delay70.rows.json
+drop exit=0 remaining=0
+proof tree removed
+done 2026-09-27T12:27:21-04:00
+ 121G

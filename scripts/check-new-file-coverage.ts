@@ -13,7 +13,11 @@
  *       it), AND
  *   (b) matched by a threshold key in coverage-thresholds.json (so
  *       check-coverage.ts actually enforces a percentage on it).
- * A file that legitimately can't be line-measured goes in EXCLUDES instead
+ * A type-only TypeScript file (no executable statement; the shared
+ * isDeclarationOnlyTypeScript test, as check-coverage.ts and
+ * check-patch-coverage.ts apply it) has no lines to measure and passes on its
+ * own; any enum, const, or function in it makes it executable and gated again.
+ * Any other file that legitimately can't be line-measured goes in EXCLUDES
  * (which gate-integrity.ts then routes through human review).
  *
  * The default policy floor for a new file is 100%; the actual value lives in
@@ -27,6 +31,7 @@ import { resolve } from "node:path";
 import {
   CATCHALL_THRESHOLD_KEYS,
   escapeGlob,
+  isDeclarationOnlyTypeScript,
   isExcluded,
   isSourceFile,
   parseLcov,
@@ -43,11 +48,15 @@ import { gitOutput } from "./git-output.ts";
  * NOT count as "gated": they exist to floor the pre-existing unkeyed
  * remainder, and letting them satisfy this gate would silently retire the
  * every-new-file-gets-its-own-100-key policy.
+ *
+ * `isDeclarationOnly` answers for a `.ts` file with no measured lines; main()
+ * passes the shared structural test over the file's source.
  */
 export function newFileViolations(
   addedSourceFiles: readonly string[],
   perFile: Map<string, FileCov>,
   thresholdKeys: readonly string[],
+  isDeclarationOnly: (file: string) => boolean = () => false,
 ): string[] {
   const catchalls = new Set<string>(CATCHALL_THRESHOLD_KEYS);
   const globs = thresholdKeys.filter((k) => !catchalls.has(k)).map((k) => new Glob(escapeGlob(k)));
@@ -56,6 +65,7 @@ export function newFileViolations(
     const cov = perFile.get(file);
     const matched = globs.some((g) => g.match(file));
     if (!cov || cov.totalLines === 0) {
+      if (file.endsWith(".ts") && isDeclarationOnly(file)) continue;
       out.push(
         `${file}: new source file with no measured coverage — add a test that exercises it ` +
           `(or, if it genuinely can't be line-measured, add it to EXCLUDES in ` +
@@ -126,7 +136,14 @@ async function main(): Promise<void> {
     await Bun.file(resolve(REPO_ROOT, "scripts/coverage-thresholds.json")).text(),
   ) as Record<string, number>;
 
-  const violations = newFileViolations(added, perFile, Object.keys(thresholds));
+  const sources = new Map<string, string>();
+  for (const file of added) {
+    if (file.endsWith(".ts")) sources.set(file, await Bun.file(resolve(REPO_ROOT, file)).text().catch(() => ""));
+  }
+  const violations = newFileViolations(added, perFile, Object.keys(thresholds), (file) => {
+    const source = sources.get(file);
+    return source !== undefined && source !== "" && isDeclarationOnlyTypeScript(source);
+  });
   if (violations.length === 0) {
     console.log(`New-file coverage gate PASSED: ${added.length} new source file(s) gated.`);
     return;

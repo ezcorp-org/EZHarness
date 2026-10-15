@@ -1,0 +1,44 @@
+VERDICT (validator-6) — W4H-3b at 91351d6b5 (wp/w4h-3b, owner w4h-3), base integ/w00 edd373c59: ACCEPT
+
+1 commit, archy noreply as author and committer. Files: scripts/lib/ci-registration.ts, scripts/lib/ci-registration.test.ts,
+scripts/setup-factory-python-base.test.ts (+37 −22). No workflow, action, script body or gate change.
+Where: a clean snapshot (validator-5/lib.sh v5_snapshot) after wait_gate; hold record w4g-validation/w4h3b/hold-91351d6b5/results.jsonl.
+Shared config (config-check.py --check-only): start and end exit 0, "888c78b9e94ea660 = accepted baseline".
+
+REVIEW (DRY): the placement test drops its own ci.yml parse and reads every workflow with readWorkflows; stepsNeedingAction now
+passes the step to `needs` as a second argument and WorkflowStep gains `env`, so a host-shard coverage step (env SHARD_INDEX) is
+told apart from the legs-only step with the same command. The old per-job rule (base after podman, before the tests) is split
+into two tests that together cover it: every host-shard step is preceded by the base action, and every job with the action runs
+the podman setup first. "No workflow step restates a Python image" now reads every workflow, not only ci.yml.
+
+(a) EXISTING CALLERS: scripts/gate-integrity-deps-registration.test.ts and scripts/uv-toolchain-registration.test.ts are
+  byte-unchanged (git diff edd373c59 HEAD on them: exit 0) and green (7 pass, 0 fail). The helper test's two existing cases keep
+  their lines.
+(b) MUTANTS:
+  - `needs(step.run, step)` → `needs(step.run)` (the second argument dropped): RED by assertion, 2 tests: the new helper case
+    "the selection also sees the step, so it can tell two steps with the same command apart by their env" and the placement test
+    "every host-shard coverage step runs after the base action".
+  - `- uses: ./.github/actions/factory-python-base` removed from ci.yml (its only occurrence, line 1061): RED, both placement
+    tests ("every host-shard coverage step runs after the base action", "the base action runs after the podman setup in its job").
+    Restored clean.
+  - `env` dropped from WorkflowStep: SURVIVES every gate. The field is type-only (readWorkflows keeps each step's parsed YAML
+    whole, so runtime behaviour does not change), and `bun run typecheck` stays 0: tsconfig.typecheck.json excludes **/*.test.ts,
+    and tsconfig.tests.json includes src/, tests/postgres/, extensions/ and one SDK test, but no scripts/**/*.test.ts, where the only
+    users of `step.env` live. FINDING (pre-existing gap, not this change's defect; not blocking): scripts/**/*.test.ts are typechecked
+    by no program, so the type of this field is unchecked. The behaviour it carries is held by the second-argument mutant above.
+    Suggested follow-up: add scripts/**/*.test.ts to tsconfig.tests.json (with the ratchet if needed).
+(c) LCOV from the hook-mapped run (scripts/lib/hook-lib.sh: ci-registration.test.ts and setup-factory-python-base.test.ts, each
+  run alone first, none VOID; 24 pass, 0 fail): scripts/lib/ci-registration.ts LF 44 LH 44; scripts/setup-factory-python-base.ts
+  LF 18 LH 18.
+(d) COVERAGE vs edd373c59: new-file gate PASSED (no new source file); patch gate PASSED (1 file, all changed executable lines
+  covered). CRAP: 0 measured functions. vs origin/main (measure only, with this run's lcov): both gates fail on the whole feature
+  branch, and neither output names a file of this change (0 lines naming scripts/lib/ci-registration.ts or
+  scripts/setup-factory-python-base*).
+(e) typecheck, lint, check-factory-boundaries, check-boundaries 0; gate-integrity: base leg clean against edd373c59, origin/main
+  leg equals the 8 expected paths; guard set (w00/guard-suites.sh, 39 files) 477 pass, 2 skip (BPF), 0 fail; prune scan
+  (w00/prune-scan.sh sha256 efffa0178530c74a): "prune scan: clean (0 hit(s))".
+  SDK leg (packages/@ezcorp/factory-sdk/src): first run 245 pass, 1 fail — "generated definition schema > matches every
+  authoritative TypeScript wire definition" timed out at 7.1 s against its 5 s limit under host load; this change does not touch
+  the SDK. Rerun once in the same snapshot (1-minute load 10.7): 246 pass, 0 fail. Recorded as a load-sensitive test, not a W4H-3b
+  finding.
+IDENTITY: 1/1 archy noreply. The snapshot is removed after this verdict.

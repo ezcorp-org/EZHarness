@@ -1,0 +1,1 @@
+src/__tests__/git-hooks.test.ts

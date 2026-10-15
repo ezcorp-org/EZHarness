@@ -1,0 +1,8 @@
+no dir /tmp/factory-platform-evidence/w10c-codex-pin
+allowed (comment): scripts/factory-graph-proof/harness-hygiene.test.ts: * The graph-proof harness runs on a shared host. A prune there is host-wide: `podman image prune`
+candidate (test file): validator reads: scripts/factory-graph-proof/harness-hygiene.test.ts: for (const line of ["podman image prune -f", "podman system prune -af", "docker image prune", "podman prune", "  podman volume prune --force"]) expect(PRUNE.tes
+candidate only (no prune subcommand): scripts/factory-graph-proof/harness-hygiene.test.ts: for (const line of ["podman rmi localhost/w10c-guest", "podman image ls", "# never run an image-prune here", "pruneOld()"]) expect(PRUNE.test(line)).toBe(false)
+STOP: tasks/factory/w10c-GATES.md: (`run.sh:84: podman image prune -f > "$W19A_OUT/image-prune.log" 2>&1`), `logs/g9-green.log`, `logs/g9-diff.txt`.
+STOP: tasks/factory/w10c-GATES.md: -    podman image prune -f > "$W19A_OUT/image-prune.log" 2>&1
+STOP: tasks/factory/w10c-GATES.md: - The `podman image prune -f` at the end of `run.sh all` is removed (G9).
+prune scan: STOP (6 hit(s))

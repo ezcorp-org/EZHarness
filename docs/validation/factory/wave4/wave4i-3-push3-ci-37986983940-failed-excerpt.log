@@ -1,0 +1,251 @@
+# excerpt of `gh run view 37986983940 --log-failed` (integrator-5, push-log-excerpt.py)
+# full log: /tmp/factory-platform-evidence/w00/wave4i-3/push3/ci-37986983940/all-failed.log sha256 778ae8d73ddf9a9008ac0b2e7deee39521fe9fdde8d651150f91e1992205c203 bytes 266975 lines 2081
+
+## Production proof (resources) (84 lines; 38 kept)
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7250504Z dbus-user-session set to manually installed.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7250938Z python3 is already the newest version (3.12.3-0ubuntu2.1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7251421Z util-linux is already the newest version (2.39.3-9ubuntu6.6).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7251935Z ca-certificates is already the newest version (20260601~24.04.1).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7252434Z curl is already the newest version (8.5.0-2ubuntu10.15).
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7253048Z 0 upgraded, 0 newly installed, 0 to remove and 23 not upgraded.
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7365182Z   % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7366427Z                                  Dload  Upload   Total   Spent    Left  Speed
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7367365Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.7865001Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.9549725Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:10.9550614Z   0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:11.0534456Z 
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:11.0535039Z 100 1939k  100 1939k    0     0  6118k      0 --:--:-- --:--:-- --:--:-- 6118k
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:11.0593331Z /tmp/tmp.igeBOHVRmb/conmon: OK
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:16.9466064Z Trying to pull docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895...
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:58:48.3431856Z time="2026-10-09T20:58:48Z" level=warning msg="Failed, retrying in 1s ... (1/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:59:25.6741303Z time="2026-10-09T20:59:25Z" level=warning msg="Failed, retrying in 1s ... (2/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T20:59:58.0354146Z time="2026-10-09T20:59:58Z" level=warning msg="Failed, retrying in 1s ... (3/3). Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit"
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T21:00:30.4497155Z Error: initializing source docker://oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895: reading manifest sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895 in docker.io/oven/bun: toomanyrequests: You have reached your unauthenticated pull rate limit. https://www.docker.com/increase-rate-limit
+Production proof (resources)	Run bash scripts/setup-extension-runner-ci.sh --install	2026-10-09T21:00:30.4537976Z ##[error]Process completed with exit code 125.
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	﻿2026-10-09T21:00:30.4630207Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4630631Z with:
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4630850Z   name: production-proof-resources
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4631151Z   path: .cache/production-lifecycle/
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4631419Z   retention-days: 3
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4631651Z   if-no-files-found: error
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4631891Z   compression-level: 6
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4632295Z   overwrite: false
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4632521Z   include-hidden-files: false
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4632761Z   archive: true
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4632953Z env:
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4633184Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4633502Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4633784Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4634093Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.4634411Z ##[endgroup]
+Production proof (resources)	Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a	2026-10-09T21:00:30.6062958Z ##[error]No files were found with the provided path: .cache/production-lifecycle/. No artifacts will be uploaded.
+
+## Production proof (content) (679 lines; 41 kept)
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0700987Z 
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0701227Z #5 [internal] load metadata for docker.io/oven/bun:1.3.14-slim
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0702408Z #5 ERROR: unexpected status from HEAD request to https://registry-1.docker.io/v2/oven/bun/manifests/1.3.14-slim: 429 Too Many Requests
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0702994Z 
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0703124Z #3 [internal] load metadata for docker.io/oven/bun:1.3.14
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0703394Z #3 CANCELED
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0703556Z ------
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0703795Z  > [internal] load metadata for docker.io/oven/bun:1.3.14-slim:
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704082Z ------
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704243Z Dockerfile:32
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704420Z --------------------
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704604Z   30 |     
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704769Z   31 |     # Stage 2: Runtime
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0704984Z   32 | >>> FROM oven/bun:1.3.14-slim
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0705206Z   33 |     WORKDIR /app
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0705387Z   34 |     
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0705546Z --------------------
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.0706265Z ERROR: failed to build: failed to solve: oven/bun:1.3.14-slim: failed to resolve source metadata for docker.io/oven/bun:1.3.14-slim: unexpected status from HEAD request to https://registry-1.docker.io/v2/oven/bun/manifests/1.3.14-slim: 429 Too Many Requests
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1010006Z Legacy adoption receipts: .cache/production-lifecycle/legacy-adoption/legacy
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1051159Z legacy-adoption	1	2026-10-09T20:49:00.480Z	2026-10-09T20:49:06.102Z	5622	legacy-adoption
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1070013Z ##[error]Process completed with exit code 1.
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1134845Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1135248Z with:
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1135480Z   name: production-proof-content
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1135730Z   path: .cache/production-lifecycle/
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1135971Z   retention-days: 3
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1136243Z   if-no-files-found: error
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1136463Z   compression-level: 6
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1136659Z   overwrite: false
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1136924Z   include-hidden-files: false
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1137154Z   archive: true
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1137330Z env:
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1137533Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1137904Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1138147Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1138465Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.1138757Z ##[endgroup]
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.4103608Z With the provided path, there will be 13 files uploaded
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.4107813Z Artifact name is valid!
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.4108139Z Root directory input is valid!
+Production proof (content)	UNKNOWN STEP	2026-10-09T20:49:06.7307654Z Uploading artifact: production-proof-content.zip
+
+## Production proof (recovery) (620 lines; 41 kept)
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.1863688Z  Network ezcorp-upgrade-semantic-restore-97c9eb2df33b_default  Creating
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.2214667Z  Network ezcorp-upgrade-semantic-restore-97c9eb2df33b_default  Created
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.2218015Z  Container ezcorp-upgrade-semantic-restore-97c9eb2df33b-app  Creating
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.2431504Z  Container ezcorp-upgrade-semantic-restore-97c9eb2df33b-app  Created
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.2440428Z  Container ezcorp-upgrade-semantic-restore-97c9eb2df33b-app  Starting
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:53:54.3656920Z  Container ezcorp-upgrade-semantic-restore-97c9eb2df33b-app  Started
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:22.1818080Z RUNNER_PROFILE_REBUILT docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834 -> docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:25.7309220Z UPGRADE_STATE_ASSERTED
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:26.4125280Z   ✓ Separate restored instance repeated the runner-profile rebuild and preserved the same lifecycle sentinel
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:26.4127976Z 
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:26.4128329Z ==> Phase 1: Start container A
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:26.5617251Z curl: (56) Recv failure: Connection reset by peer
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:27.5740521Z curl: (52) Empty reply from server
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:28.5865428Z curl: (56) Recv failure: Connection reset by peer
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:29.5997881Z curl: (56) Recv failure: Connection reset by peer
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:30.6111252Z curl: (56) Recv failure: Connection reset by peer
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:31.6236065Z   ✓ A booted, /api/ready=200
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:31.6356647Z   ✓ /api/version reports a previous-image version
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5307421Z upgrade_command_exit=125 upgrade_cleanup_exit=0
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5360769Z historical-upgrade	125	2026-10-09T20:49:08.434Z	2026-10-09T20:54:33.532Z	325098	historical-upgrade
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5383467Z ##[error]Process completed with exit code 1.
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5460214Z ##[group]Run actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5460693Z with:
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5460931Z   name: production-proof-recovery
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5461228Z   path: .cache/production-lifecycle/
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5461513Z   retention-days: 3
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5461759Z   if-no-files-found: error
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5462011Z   compression-level: 6
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5462240Z   overwrite: false
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5462466Z   include-hidden-files: false
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5462717Z   archive: true
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5462915Z env:
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5463145Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5463472Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5463757Z   XDG_RUNTIME_DIR: /run/user/1001
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5464070Z   DBUS_SESSION_BUS_ADDRESS: unix:path=/run/user/1001/bus
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.5464394Z ##[endgroup]
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.9243824Z With the provided path, there will be 29 files uploaded
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.9248995Z Artifact name is valid!
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:33.9249535Z Root directory input is valid!
+Production proof (recovery)	UNKNOWN STEP	2026-10-09T20:54:34.1629176Z Uploading artifact: production-proof-recovery.zip
+
+## Gate integrity (394 lines; 41 kept)
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5578891Z ^[[36;1mbun scripts/gate-integrity.ts^[[0m
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5643440Z shell: /usr/bin/bash -e {0}
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5643738Z env:
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5644000Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5644351Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5644643Z   BASE_REF: origin/main
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5644893Z   GATE_CHANGE_APPROVED: 
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5645333Z   NODE_PATH: /home/runner/work/EZHarness/EZHarness/.github/gate-integrity-deps/node_modules
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:35.5645803Z ##[endgroup]
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8346516Z Gate integrity FAILED (8 finding(s)):
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8348503Z   coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8350023Z   coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8351328Z   coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8352615Z   coverage gate tool changed (A): scripts/coverage-attestations.json — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8353981Z   coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8355320Z   coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8356560Z   coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8357966Z   coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8358907Z 
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8359284Z If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8503179Z ##[error]Process completed with exit code 1.
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.8638355Z Post job cleanup.
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9549874Z [command]/usr/bin/git version
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9602246Z git version 2.55.0
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9645343Z Temporarily overriding HOME='/home/runner/work/_temp/fb67c836-3ced-4cf4-934a-4005950e4666' before making global git config changes
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9646843Z Adding repository directory to the temporary git global config as a safe directory
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9651896Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9691527Z Removing SSH command configuration
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9699594Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:41.9746299Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0090347Z Removing HTTP extra header
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0097492Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0180902Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0506736Z Removing includeIf entries pointing to credentials config files
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0518973Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0562380Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0588472Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0593897Z includeif.gitdir:/github/workspace/.git.path
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0595003Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0597167Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Gate integrity	UNKNOWN STEP	2026-10-09T20:26:42.0640914Z /home/runner/work/_temp/git-credentials-2a84cd02-b32a-494c-90bb-1568e6d7356c.config
+
+## Factory runner readiness precheck (276 lines; 46 kept)
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9120840Z ##[group]Run bun scripts/check-factory-runners.ts
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9121317Z ^[[36;1mbun scripts/check-factory-runners.ts^[[0m
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9385945Z shell: /usr/bin/bash -e {0}
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9386220Z env:
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9386474Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9386815Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9387106Z   FACTORY_RUNNER_READ_TOKEN: 
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9387373Z   FACTORY_TEST_TENANT_COUNT: 10
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9387638Z ##[endgroup]
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9555472Z 124 |   inspect?: typeof inspectFactoryRunners;
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9556493Z 125 |   log?: Pick<Console, "log">;
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9556788Z 126 | } = {}): Promise<number> {
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9557164Z 127 |   const env = options.env ?? process.env;
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9557608Z 128 |   const token = env.FACTORY_RUNNER_READ_TOKEN;
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9558496Z 129 |   if (!token) throw new Error("FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners");
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9559174Z                               ^
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9559708Z error: FACTORY_RUNNER_READ_TOKEN is required; readiness cannot pass without reading registered runners
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9560532Z       at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9561359Z       at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9561712Z 
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9582508Z ##[error]
+Factory runner readiness precheck	UNKNOWN STEP	      at runFactoryRunnerCheck (/home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:129:25)
+Factory runner readiness precheck	UNKNOWN STEP	      at /home/runner/work/EZHarness/EZHarness/scripts/check-factory-runners.ts:137:68
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9590803Z 
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9590946Z Bun v1.4.2 (Linux x64)
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9594765Z ##[error]Process completed with exit code 1.
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:30.9746730Z Post job cleanup.
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0555939Z [command]/usr/bin/git version
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0602551Z git version 2.55.0
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0642119Z Temporarily overriding HOME='/home/runner/work/_temp/624ef847-e045-46ca-94b5-c18ff2c20172' before making global git config changes
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0643750Z Adding repository directory to the temporary git global config as a safe directory
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0647864Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/EZHarness/EZHarness
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0680702Z Removing SSH command configuration
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0687472Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0723898Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0984929Z Removing HTTP extra header
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.0991859Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1027949Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1298032Z Removing includeIf entries pointing to credentials config files
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1304866Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1338038Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1339257Z includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git/worktrees/*.path
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1340415Z includeif.gitdir:/github/workspace/.git.path
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1341267Z includeif.gitdir:/github/workspace/.git/worktrees/*.path
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1346756Z [command]/usr/bin/git config --local --get-all includeif.gitdir:/home/runner/work/EZHarness/EZHarness/.git.path
+Factory runner readiness precheck	UNKNOWN STEP	2026-10-09T20:26:31.1373272Z /home/runner/work/_temp/git-credentials-5c1ee992-be97-4fe5-83d5-106188d5717a.config
+
+## Production image extension lifecycle (14 lines; 14 kept)
+Production image extension lifecycle	Require the candidate and every proof runner	﻿2026-10-09T21:00:39.6613135Z ##[group]Run if [[ "$CANDIDATE_RESULT" != success || "$PROOFS_RESULT" != success ]]; then
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.6614854Z ^[[36;1mif [[ "$CANDIDATE_RESULT" != success || "$PROOFS_RESULT" != success ]]; then^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.6616656Z ^[[36;1m  echo "::error::Candidate image or production proof runners did not all succeed."^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.6617921Z ^[[36;1m  exit 1^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.6618570Z ^[[36;1mfi^[[0m
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7576764Z shell: /usr/bin/bash -e {0}
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7577894Z env:
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7578632Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7579653Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7580521Z   CANDIDATE_RESULT: success
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7581277Z   PROOFS_RESULT: failure
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7581989Z ##[endgroup]
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7749218Z ##[error]Candidate image or production proof runners did not all succeed.
+Production image extension lifecycle	Require the candidate and every proof runner	2026-10-09T21:00:39.7761243Z ##[error]Process completed with exit code 1.
+
+## E2E (mock, no Docker) (14 lines; 14 kept)
+E2E (mock, no Docker)	Aggregate required browser results	﻿2026-10-09T21:00:45.7300716Z ##[group]Run echo "mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success"
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.7304121Z ^[[36;1mecho "mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success"^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.7307445Z ^[[36;1mif [ "success" != success ] || [ "success" != success ] || [ "success" != success ] || [ "failure" != success ] || [ "success" != success ] || [ "success" != success ]; then^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.7311276Z ^[[36;1m  echo "::error::A required browser lane, route coverage, production-image verification, or extension browser engine validation failed."^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.7313492Z ^[[36;1m  exit 1^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.7314511Z ^[[36;1mfi^[[0m
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8549669Z shell: /usr/bin/bash -e {0}
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8550622Z env:
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8551407Z   BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING: 1
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8552158Z   BUN_RUNTIME_TRANSPILER_CACHE_PATH: 0
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8552849Z ##[endgroup]
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8763634Z mock=success mock_full=success evidence=success production=failure engines=success route_coverage=success
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8795170Z ##[error]A required browser lane, route coverage, production-image verification, or extension browser engine validation failed.
+E2E (mock, no Docker)	Aggregate required browser results	2026-10-09T21:00:45.8812925Z ##[error]Process completed with exit code 1.

@@ -1,0 +1,29 @@
+[
+ {
+  "head": "e4cb1c369e72bb8aaa30f1ccb8ffdb47847b653e",
+  "dirty": false,
+  "name": "orchestrator-build",
+  "exitCode": 0,
+  "start": "2026-09-13T20:26:54",
+  "end": "2026-09-13T20:26:54",
+  "command": [
+   "bun",
+   "run",
+   "--cwd",
+   "packages/@ezcorp/factory-orchestrator",
+   "build"
+  ]
+ },
+ {
+  "head": "e4cb1c369e72bb8aaa30f1ccb8ffdb47847b653e",
+  "dirty": false,
+  "name": "node-coverage",
+  "exitCode": 0,
+  "start": "2026-09-13T20:26:54",
+  "end": "2026-09-13T20:28:50",
+  "command": [
+   "bash",
+   "scripts/factory-orchestrator-coverage.sh"
+  ]
+ }
+]

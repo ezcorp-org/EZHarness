@@ -1,0 +1,8 @@
+nproc=4 bun=1.4.2 start=2026-10-04T20:54:10Z
+== host-shard mode (HOST_FILES_OVERRIDE, dev-only): 167 files ==
+merged 969 source files → coverage-shard/lcov_shard_2.info
+pre-merged 167 per-file lcov(s) → coverage-shard/lcov_shard_2.info
+emitted per-file timings → coverage-shard/timings-shard-2.json
+
+  2300 pass | 0 fail | 167 files (shard 2/12)
+shard rc=0 end=2026-10-04T20:56:15Z

@@ -1,0 +1,74 @@
+scripts/lcov-artifact-names-registration.test.ts:126:43 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    124 │           caller: { uses: "./.github/workflows/called.yml" },
+    125 │           one: { steps: [upload("cov-one", "c/lcov.info"), upload("other-one", "d/lcov.info"), upload("cov-dir", "coverage-shard")] },
+  > 126 │           matrix: { steps: [upload("cov-m-${{ matrix.i }}", "e/lcov_m.info"), upload("cov-n", "f/lcov.json")] },
+        │                                           ^^^^^^^^^^^^^^
+    127 │           merged: download({ pattern: "cov-*", "merge-multiple": true }),
+    128 │           apart: download({ pattern: "cov-*", "merge-multiple": false }),
+  
+  i Turn the string into a template string.
+  
+
+scripts/lcov-artifact-names-registration.test.ts:136:78 lint/suspicious/noTemplateCurlyInString ━━━━━━━━━━
+
+  ! Unexpected template string placeholder.
+  
+    134 │     expect(lcovNameCollisions(runs)).toEqual([
+    135 │       "main.yml merged (merged): lcov.info is written into merged by cov-called, cov-one",
+  > 136 │       "main.yml merged (merged): lcov_m.info is written into merged by cov-m-${{ matrix.i }} (every matrix entry)",
+        │                                                                              ^^^^^^^^^^^^^^
+    137 │     ]);
+    138 │   });
+  
+  i Turn the string into a template string.
+  
+
+Checked 6 files in 5ms. No fixes applied.
+Found 2 warnings.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/factory-compute-admissions-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [391.00ms]
+  bun: scripts/factory-protected-command-effects-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 3 expect() calls
+Ran 2 tests across 1 file. [375.00ms]
+  bun: scripts/factory-provisioning-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 5 expect() calls
+Ran 2 tests across 1 file. [371.00ms]
+  bun: scripts/factory-validator-materials-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 4 expect() calls
+Ran 2 tests across 1 file. [378.00ms]
+  bun: scripts/lcov-artifact-names-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 4 pass
+ 0 fail
+ 10 expect() calls
+Ran 4 tests across 1 file. [369.00ms]
+  bun: scripts/lib/ci-registration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 28 expect() calls
+Ran 16 tests across 1 file. [385.00ms]
+[detached HEAD cf9f5927e] merge: wp/w4h-15-coverage-artifact-names f1b9efe1b into integ/w00 (coverage artifact names: one lcov file name per producer)

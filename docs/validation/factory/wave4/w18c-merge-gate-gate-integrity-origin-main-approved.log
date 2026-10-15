@@ -1,0 +1,8 @@
+Gate integrity: 7 finding(s) BYPASSED via GATE_CHANGE_APPROVED (maintainer label):
+  (bypassed) coverage gate tool changed (M): scripts/check-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/check-new-file-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/check-patch-coverage.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (A): scripts/factory-orchestrator-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/merge-browser-route-coverage.sh — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (M): scripts/merge-lcov.ts — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label
+  (bypassed) coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs — it decides what coverage counts or how a coverage gate judges it — needs the gate-change-approved label

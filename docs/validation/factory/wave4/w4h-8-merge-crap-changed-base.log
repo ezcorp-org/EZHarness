@@ -1,0 +1,22 @@
+CRAP: --changed against 87e1e197c17e425ceed0d50da8ede74da26b7811 → 5 measured file(s) in diff
+
+CRAP: 32 functions in 5 files (max 30, warn 15)
+
+Worst 15:
+      6.0  cc=  6 cov=100%  src/delivery-queue/durable-delivery-queue.ts:181 dispatchDurableDelivery
+      5.0  cc=  5 cov=100%  src/delivery-queue/durable-delivery-queue.ts:97 owned
+      5.0  cc=  5 cov=100%  src/delivery-queue/durable-delivery-queue.ts:106 settle
+      4.0  cc=  4 cov=100%  src/delivery-queue/durable-delivery-queue.ts:193 <anonymous@193>
+      4.0  cc=  4 cov=100%  src/extensions/v4/deliveries.ts:120 dispatchDurableDelivery() callback
+      3.0  cc=  3 cov=100%  src/extensions/delivery-runtime.ts:59 ticker() callback
+      3.0  cc=  3 cov=100%  src/factory/outbox.ts:230 assertOwnScope
+      2.0  cc=  2 cov=100%  src/extensions/delivery-runtime.ts:64 <anonymous@64>
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:123 renew
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:173 intervalHeartbeat
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:174 <anonymous@174>
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:175 setInterval() callback
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:177 <anonymous@177>
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:195 <anonymous@195>
+      1.0  cc=  1 cov=100%  src/delivery-queue/durable-delivery-queue.ts:195 <anonymous@195>
+
+✓ no touched function exceeds CRAP 30

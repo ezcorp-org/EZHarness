@@ -1,0 +1,8 @@
+# W4H-20 (integrator-5; lead's prep order 2026-10-09): the four pre-existing biome warnings cleared at their root (scripts/lib/ci-registration.ts,
+# scripts/lcov-artifact-names-registration.test.ts, scripts/setup-factory-python-base.test.ts, tests/postgres/helpers/factory-recovery-databases.ts).
+# Light hold; no full combined run (lead's ruling); merge gates BIND. The PostgreSQL leg (pg.txt: tests/postgres/factory-restore.test.ts, the
+# helper's only importer) runs on the hold's OWN pg15 through hold-own-pg.sh.
+tc_leg typecheck-all bun run typecheck        # w00/tc-gate.sh 7678da69afb1c809 (the sampler lock-fd fix; was 84f8b66f0bd3faf0)
+# Binding: the whole-repo lint as package.json runs it ends with 0 errors and 0 warnings: exit 0, the "Checked N files" count line, and NO
+# "Found N warnings/errors" line (at 31b9a8d93 it reads "Found 4 warnings.").
+NOTEST=1 leg lint-zero-warnings bash -c 'bun run lint > "$0" 2>&1; rc=$?; grep -E "^Checked [0-9]+ files|^Found " "$0"; [ "$rc" = 0 ] && grep -qE "^Checked [0-9]+ files" "$0" && ! grep -qE "^Found [0-9]+ (warning|error)" "$0" && echo "lint: 0 errors, 0 warnings"' $D/lint-whole-repo.log

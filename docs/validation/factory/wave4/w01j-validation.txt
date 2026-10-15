@@ -1,0 +1,18 @@
+W01j: ACCEPT at a55bfe3e8 (code head 65f250465), validator-2, 2026-09-27.
+- Identity: both commits over a24a619ad (65f250465, a55bfe3e8) are archy <281643943+EZArchy@users.noreply.github.com> for author and committer. a55bfe3e8 changes only tasks/factory/w01j-GATES.md (+13, -4).
+- Tree: the files outside scripts/check-factory-boundaries.ts and tasks/factory/w01j-GATES.md number 0. The code diff is exactly one added REQUIRED_SHARED_IMPORTS row, { factoryPath: "src/factory/runner/attempt-runtime.ts", sharedModule: "src/db/queries/audit-log.ts" }, in path order. It matches C13's intent: a declared shared import of the audit module that 16 factory files already use the same way; there is no factory audit writer to route through.
+- Hold: worktree .worktrees/val-w01j, one hold under the lock, ended 23:48:57Z; bun 1.3.14 and bunx 1.3.14 asserted; gates logged before every leg. Shared .git/config sha256 was 44962525f1ca1a8b before and after.
+- Red at the base a24a619ad: scripts/factory-c13-inventory.test.ts 12 pass, 1 fail, with the line "src/factory/runner/attempt-runtime.ts imports C13 shared module src/db/queries/audit-log.ts without a REQUIRED_SHARED_IMPORTS row".
+- Suite legs at a55bfe3e8, all nonzero:
+  - C13 inventory 13 pass, 0 fail
+  - the standing guard set (w00/guard-suites.sh, 12 files) 59 pass, 0 fail
+  - check-factory-boundaries.test 31 pass, 0 fail
+  - W01h's attempt-runtime suites (factory-stop-after-loss, attempt-runtime, factory-task-stops) 53 pass, 0 fail
+  - coverage producers (inventory plus boundaries test) 44 pass, 0 fail
+- Static: lint 0; check-factory-boundaries.ts 0; check-boundaries.ts 0.
+  - typecheck: the hold's leg exited 1 because my worktree lacked the web install ("Cannot read file web/.svelte-kit/tsconfig.json"), a harness fault of mine. After `bun install --frozen-lockfile` in web, typecheck at a55bfe3e8 exits 0 with 0 errors (hold-a55bfe3e8/typecheck-rerun.log, 23:52:44 to 23:53:26Z, outside the lock as a static check). The config hash was unchanged after it.
+- Gates: gate-integrity against origin/main PASSED; against a24a619ad PASSED. New-file coverage PASSED (no new source files). Patch coverage PASSED (1 file, every changed executable line covered) against a24a619ad.
+- Secrets: gitleaks (digest-pinned image) over the changed files: no leaks found.
+- Receipts: /tmp/factory-platform-evidence/w01j-validation/hold-a55bfe3e8/ (results.jsonl, per-leg logs, typecheck-rerun.log) and hold-a55bfe3e8.log.
+
+[Filed verbatim by the coordinator (ezcorp-3a) from validator-2's message, 2026-09-27; validator-2 cannot write to this directory.]

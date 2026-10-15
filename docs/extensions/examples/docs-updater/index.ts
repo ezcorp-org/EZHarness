@@ -45,6 +45,7 @@
 import { normalize } from "node:path";
 import { getToolContext } from "@ezcorp/sdk/runtime";
 import { getInvocationContext } from "@ezcorp/sdk/v4";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 import {
   approveRun,
   declineRun,
@@ -136,11 +137,25 @@ export function parseCommitSubjects(stdout: string, exitCode: number): string[] 
     .filter((s) => s.length > 0);
 }
 
-/** Hermetic git env — never read the host user's global/system config. */
-const HERMETIC_GIT_ENV = {
-  GIT_CONFIG_GLOBAL: "/dev/null",
-  GIT_CONFIG_SYSTEM: "/dev/null",
-} as const;
+/**
+ * Hermetic git env: never read the host user's global/system config, AND
+ * (item C, W18 hygiene GC5) never honor an inherited GIT_DIR/GIT_WORK_TREE/
+ * friends, which would otherwise silently redirect one of these `-C
+ * repoPath`-scoped commands onto a poisoned ambient repository instead of
+ * `repoPath` — see @ezcorp/sdk/git's `withoutGitContext` docblock for the
+ * full threat model. Deliberately does NOT touch HOME: this same env is
+ * reused by `makeProductionShell` below for `gh` calls too, and `gh`'s own
+ * auth config lives under the real HOME — only the git-specific
+ * repository/config vectors are neutralized here, so `gh` keeps working
+ * unchanged.
+ */
+function hermeticGitEnv(): Record<string, string> {
+  return {
+    ...withoutGitContext(process.env),
+    GIT_CONFIG_GLOBAL: "/dev/null",
+    GIT_CONFIG_SYSTEM: "/dev/null",
+  };
+}
 
 /**
  * Read `<repo>`'s HEAD commit via `git log -1`. Deterministic + read-only —
@@ -152,7 +167,7 @@ export async function readGitHead(repoPath: string): Promise<GitHead | null> {
   if (getInvocationContext()) return getChannel().request<GitHead | null>("ezcorp/project.gitHead", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", "-1", "--format=%H%x00%s"],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...HERMETIC_GIT_ENV } },
+    { stdout: "pipe", stderr: "pipe", env: hermeticGitEnv() },
   );
   const [out, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -175,7 +190,7 @@ export async function readCommitSubjects(
   const range = sinceHash ? [`${sinceHash}..HEAD`] : ["-1"];
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "log", ...range, "--format=%s"],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...HERMETIC_GIT_ENV } },
+    { stdout: "pipe", stderr: "pipe", env: hermeticGitEnv() },
   );
   const [out, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -219,7 +234,7 @@ export async function readOriginUrl(repoPath: string): Promise<string | null> {
   if (getInvocationContext()) return getChannel().request<string | null>("ezcorp/project.origin", {});
   const proc = Bun.spawn(
     ["git", "-C", repoPath, "remote", "get-url", "origin"],
-    { stdout: "pipe", stderr: "pipe", env: { ...process.env, ...HERMETIC_GIT_ENV } },
+    { stdout: "pipe", stderr: "pipe", env: hermeticGitEnv() },
   );
   const [out, code] = await Promise.all([
     new Response(proc.stdout).text(),
@@ -581,7 +596,7 @@ export function makeProductionShell(_repo: string): ShellRunner {
   return async (cmd, cwd) => {
     const proc = Bun.spawn(cmd, {
       cwd,
-      env: { ...process.env, ...HERMETIC_GIT_ENV },
+      env: hermeticGitEnv(),
       stdout: "pipe",
       stderr: "pipe",
     });

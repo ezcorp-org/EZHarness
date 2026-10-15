@@ -29,6 +29,7 @@
  * (caller × file) pair and asserts ADVERTISED === ENFORCED by executing both.
  */
 import { test, expect, describe, beforeAll, beforeEach, afterAll, mock } from "bun:test";
+import { webLibModule } from "../helpers/mock-cleanup";
 import { setupTestDb, closeTestDb, mockDbConnection } from "../helpers/test-pglite";
 import { mockEmbeddingsModule } from "../helpers/mock-vectors";
 import { mockServerAlias, createMockEvent } from "../helpers/mock-request";
@@ -46,9 +47,7 @@ mock.module("../../../web/src/routes/api/knowledge-base/$types", () => ({}));
 mock.module("$lib/server/http-errors", () =>
   require("../../../web/src/lib/server/http-errors"),
 );
-mock.module("$lib/server/security/api-keys", () =>
-  require("../../../web/src/lib/server/security/api-keys"),
-);
+mock.module("$lib/server/security/api-keys", () => webLibModule("server/security/api-keys", {}));
 mock.module("$lib/server/security/resource-quotas", () =>
   require("../../../web/src/lib/server/security/resource-quotas"),
 );

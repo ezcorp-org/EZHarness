@@ -1,0 +1,26 @@
+#!/usr/bin/env python3
+"""standalone-records.py: the two wave4i-2 producers' standalone runs as runner leg records (for combined-integration.py
+--merge-only). Read from each producer's own evidence only: heavy-batch.log (START/END lines, leg exit, the resource-gate line
+before START), heavy-<leg>.log (test count by w00/test-count.sh), heavy.exit (gated-flock's final exit), gate.log (outside wait).
+A leg without a START/END pair, or whose heavy.exit is missing, is refused by name. Prints the JSON list to stdout."""
+import json, re, subprocess, sys
+from pathlib import Path
+E = Path('/tmp/factory-platform-evidence'); W = E / 'w00/wave4i-2/producers'
+plan = {c['name']: c['command'] for c in json.loads((E / 'wave4i-2-plan.json').read_text())['checks']}
+head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd='/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration', text=True).strip()
+out = []
+for leg in ('manifest-cov-shard', 'manifest-cov-extras'):
+    d = W / leg; b = (d / 'heavy-batch.log').read_text() if (d / 'heavy-batch.log').exists() else ''
+    st = re.findall(rf'^--- START {leg} (\S+)$', b, re.M); en = re.findall(rf'^--- END   {leg} (\S+) exit=(\d+)', b, re.M)
+    hx = (d / 'heavy.exit').read_text().strip() if (d / 'heavy.exit').exists() else ''
+    if len(st) != 1 or len(en) != 1 or not hx: sys.exit(f'{leg}: no single START/END pair or no heavy.exit; refused')
+    hg = re.search(r'^HEAD (\w+)', b, re.M).group(1)
+    gate = [l for l in b.splitlines() if l.startswith('resource-gate ') and f' {leg} ' in l + ' ']
+    n = subprocess.run(['bash', '-c', 'source /tmp/factory-platform-evidence/w00/test-count.sh; test_count "$1"', '_', str(d / f'heavy-{leg}.log')], capture_output=True, text=True).stdout.strip()
+    outside = [l for l in (d / 'gate.log').read_text().splitlines() if 'outside-lock' in l]
+    out.append({'head': hg, 'dirty': False, 'name': leg, 'exitCode': int(en[0][1]), 'testsRan': int(n) if n.isdigit() else 0,
+                'gate': gate[-1] if gate else None, 'outsideGateAtStart': outside[-1] if outside else None, 'start': st[0], 'end': en[0][0],
+                'command': plan[leg], 'heavyExit': int(hx), 'log': str(d / f'heavy-{leg}.log'),
+                'runBy': 'w00/wave4i-2/producers/producer-leg.sh through w00/gated-flock.sh (GATED_FLOCK_START_MEM_GIB=15; inner gate 15 GiB / 120 GB)'})
+    if hg != head: sys.exit(f'{leg}: ran at {hg}, HEAD is {head}; refused')
+print(json.dumps(out, indent=1))

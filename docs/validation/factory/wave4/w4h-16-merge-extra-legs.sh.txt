@@ -1,0 +1,29 @@
+# W4H-16 (integrator-5; lead's prep order 2026-10-08): hosted coverage for pack.ts, materials.ts, publication.ts, uv-command.ts plus two source
+# fixes (pack.ts attempt-directory removal on refusal; uv-command.ts default probe). Sourced by hold-w4f.sh after the unit legs ($C, $M, $REPO, leg, pg).
+# No full combined run (lead's ruling); merge gates BIND (MCG_COVERAGE_INFORMATIONAL not set).
+tc_leg typecheck-all bun run typecheck
+# (b) the REAL journey, EXACTLY the manifest command (scripts/combined-runner-legs.json:35-36; lead's ruling 2026-10-08): it runs the reference-data
+# unit suites, journey.integration.test.ts (imports factory-reference-data-suite.ts) with the pinned data image, and tests/postgres/factory-reference-data.test.ts
+# on the hold's OWN PostgreSQL (pg() exports FACTORY_TEST_POSTGRES_URL from own-pg's env file). coverage-shard/ is git-ignored (.gitignore:126); it is
+# cleared first and its lcov copied into the hold's coverage dir afterwards so it joins the merge.
+rm -rf coverage-shard
+leg manifest-factory-reference-data pg env -u DATABASE_URL bash -c 'COV_OUT=coverage-shard bash scripts/factory-reference-data-coverage.sh'   # DATABASE_URL only for tests/postgres suites (common.md); the script needs FACTORY_TEST_POSTGRES_URL
+mkdir -p $C/reference-data && cp coverage-shard/lcov.info $C/reference-data/lcov.info 2>/dev/null || echo "reference-data producer: no coverage-shard/lcov.info" >> "$S"
+# (c) ci.yml:126-130, the Bun and Python runner conformance suites in one step, with lcov.
+leg python-runner-conformance bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir=$C/runner-conformance ./src/factory/runner/native.integration.test.ts ./src/factory/runner/python-runner.integration.test.ts
+# the other Podman importer of the changed helpers
+leg podman-reference-code-guest bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=$C/reference-code-guest ./src/factory/reference-code/guest.podman.integration.test.ts
+# (h) the hosted coverage gate's shape (lead's ruling 2026-10-08): validator-8's lcov-merge-repro.sh 7a3571b755bced17 in head mode over hosted run
+# 37743486763's 24 lcov-cov-* artifacts (read-only; the script copies them first), REWRITE_ROOT=1, that run's browser lcov, and STRIP_SF = the two
+# changed sources, so the stale hosted records (pack.ts from shard 5; uv-command.ts from shards 3 and 6) are removed before the merge and
+# EXTRA_LCOV supplies THIS tree's records only: one merged lcov of the 11 unit legs and the reference-data producer. The leg log prints every
+# stripped record (out/strip.txt). Pass only on "Coverage gate PASSED" with scripts/coverage-thresholds.json unchanged at the merge.
+rm -rf /tmp/w4h16-extra && mkdir -p /tmp/w4h16-extra
+for f in $C/unit-*/lcov.info $C/reference-data/lcov.info; do [ -f "$f" ] && cp "$f" /tmp/w4h16-extra/$(echo "${f#$C/}" | tr '/' '_'); done
+NOTEST=1 leg extra-lcov-merge bun scripts/merge-lcov.ts "/tmp/w4h16-extra/*.info" $D/extra-this-tree.lcov
+NOTEST=1 leg hosted-shape-check-coverage env REWRITE_ROOT=1 BROWSER_LCOV=/tmp/w4h-15-artifacts/run-37743486763-browser/lcov.info \
+  STRIP_SF="src/factory/reference-data/pack.ts src/factory/runner/uv-command.ts" EXTRA_LCOV=$D/extra-this-tree.lcov CHECK_COVERAGE=1 \
+  bash /tmp/factory-platform-evidence/validator-8/lcov-merge-repro.sh head "$REPO" "$M" /tmp/integrator-5-ci-artifacts/all /tmp/w4h16-hold-repro
+NOTEST=1 leg hosted-shape-check-coverage-result bash -c 'echo "stripped records:"; cat /tmp/w4h16-hold-repro/strip.txt; tail -25 /tmp/w4h16-hold-repro/check-coverage.log;
+  git diff --quiet HEAD^1 HEAD -- scripts/coverage-thresholds.json && git diff --quiet HEAD -- scripts/coverage-thresholds.json && echo "coverage-thresholds.json unchanged: first parent = merge = worktree" &&
+  grep -q "Coverage gate PASSED" /tmp/w4h16-hold-repro/check-coverage.log'

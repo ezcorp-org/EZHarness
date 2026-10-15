@@ -1,0 +1,1 @@
+shared .git/config 888c78b9e94ea660 -> 29e61b63b05624e9 accepted as the baseline by the lead's rule (2026-10-03): only branch/remote sections changed; added ['branch "fix/auth-invite-signup-link-oct08"']; removed []; changed []; no [user]; [core]/[extensions] unchanged

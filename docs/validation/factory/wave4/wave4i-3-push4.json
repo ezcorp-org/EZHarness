@@ -1,0 +1,31 @@
+{
+  "push": "fifth push of the wave, the W4H-18 + W4H-20 batch: feat/composable-factory-platform 6df16debf -> fe445d241f2cd6e76fc242c621bf6ac5f7ae2ba5 (plain git push, exit 0 at 22:52:25Z 2026-10-09, first try; lock-free tc_run GREEN at 19.0 GiB, lowest 15.5; pre-push hook lint, typecheck, svelte-check 620 files 0 errors; never --no-verify or --force). 10 commits (W4H-18 and W4H-20 merges and receipts, the fourth-push receipts, docs line v5). No W4H-19 (no user word on Docker Hub).",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 22:50:41Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch rc 0; HEAD = origin/feat = 6df16debf; ancestor of integ/w00 fe445d241; origin/main e3309906d unchanged; config-check rc 0 (29e61b63b05624e9); 10 commits ahead; disk 182G, MemAvailable 19.0 GiB, SwapFree 8.7 GiB",
+    "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating 6df16debf..fe445d241 Fast-forward",
+    "3 installs": "frozen_installs exit 0 (w00/installs-lib.sh 36e14c55cd666ed0, every install --ignore-scripts; root, web + svelte-kit sync, gate-integrity deps: no changes; package builds); status empty",
+    "4 push": "push.sh af818f5ad8ee0d5a through w00/tc-gate.sh 7678da69afb1c809 lock-free; push exit 0; HEAD = origin/feat = fe445d241",
+    "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid fe445d241, MERGEABLE, BLOCKED (checks running)",
+    "6 hosted": "ci 38001537073 (started 22:52:32Z) and deps-audit 38001536539 (success). Three attempts, the second and third single-job re-runs on the coordinator's orders."
+  },
+  "attempt1": "58 jobs; the Docker Hub pulls all went through (no 429). vs 37986983940: red 7 -> 6 + 1 cancelled; fixed: Production proof resources (W4H-18's settle) and recovery. Factory Temporal integration CANCELLED (step 7 `bash scripts/factory-orchestrator-coverage.sh` silent from 22:53:09Z to the 10-minute job timeout at 23:02:49Z; an orphan temporal-test-server killed) -> Per-file coverage gate failed at 'Require coverage producers to have succeeded' (B). Production proof (content): e2e/file-organizer-real.spec.ts:516 'UI: a refused add surfaces a real error toast in the browser' timed out at 5000 ms on toBeVisible (the assertion at :521:56; 8 passed, 4 did not run; legacy adoption passed) -> the two aggregators red (B).",
+  "attempt2": "single-job re-run of Factory Temporal integration (job 114060507653): job 114069878723, 23:26:40-23:29:40Z, SUCCESS (tests 92, pass 92, fail 0). The Per-file coverage gate re-evaluated GREEN (job 114070657931, 23:30:28Z): 'Coverage gate PASSED: 2234 enforced file(s)'; new-file 460; patch 518; global line coverage 98.09% (margin 8.09); CRAP --changed measured. The batch's hosted coverage reading. Normal output of the step (green run 37986983940, job 114022865570): silent 2 m 33 s, then only 'tests 92 / pass 92 / fail 0' (the spec reporter writes to a file) - the reason for W4H-21.",
+  "attempt3": "single-job re-run of Production proof (content) (job 114069881534): job 114071279903, 23:32:02-23:57:11Z, SUCCESS: the oven/bun pull went through; file-organizer 13 passed (9.7 m) including :516; legacy adoption verified. The aggregators re-evaluated GREEN: Production image extension lifecycle (23:57:31Z), E2E (mock, no Docker) (23:57:37Z). W4H-22 is open for the toast test.",
+  "final": "run 38001537073 after attempt 3: vs 37986983940 red 7 -> 2 (fixed 5, same 51); vs 37138524741 20 -> 2 (fixed 18). Still red ONLY the two expected A jobs: Gate integrity ('FAILED (8 finding(s))', findings-match PASS; the gate-change-approved label) and Factory runner readiness precheck (FACTORY_RUNNER_READ_TOKEN). Classes: Temporal attempt 1 = E (intermittent hang), content attempt 1 = E (toast timing flake).",
+  "logs": "committed: the ruled excerpt of attempt 1's --log-failed (full log 31106a300f3858e7 in the evidence dir), the Temporal job logs of attempt 1 (the silent step) and attempt 2 and the green reference, the content attempt-3 log, the Per-file gate attempt-2 log, the steps json of each re-run, and the jobs json of attempts 1 and 3",
+  "hostEvents": [
+    "none during the push window (22:50 - 23:58Z 2026-10-09); shared .git/config at the accepted baseline 29e61b63b05624e9 at every step"
+  ],
+  "tooling": {
+    "push.sh": "af818f5ad8ee0d5a",
+    "installs.sh": "ff30b3cd81da7af2",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/tc-gate.sh": "7678da69afb1c809",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "w00/push-log-excerpt.py": "887368f0ceffe11e",
+    "w00/findings-match.py": "de57fcec5cdcef56",
+    "baseline 37986983940 (made from its jobs json)": "f1c023eee91d9b8f",
+    "baseline 37138524741": "074c4b968060d499"
+  },
+  "receiptsBy": "integrator-5"
+}

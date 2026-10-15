@@ -217,4 +217,80 @@ describe("TeamChatPanel", () => {
 		await screen.findByText("Please publish now");
 		expect(screen.getByText("You")).toBeInTheDocument();
 	});
+
+	test("a rejected team message shows the server's reason and is not marked as thinking", async () => {
+		userFetch.mockImplementation(async (_url: string, options?: RequestInit) =>
+			options?.method === "POST"
+				? jsonResponse({ error: "Agent is busy" }, 409)
+				: jsonResponse(overview),
+		);
+		render(TeamChatPanel);
+		const input = await screen.findByRole("combobox");
+		await fireEvent.input(input, { target: { value: "Status?" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(await screen.findByText("Agent is busy")).toBeInTheDocument();
+		expect(screen.queryByText("Agents are thinking")).toBeNull();
+	});
+
+	test("a rejected team message without a JSON body falls back to a generic error", async () => {
+		userFetch.mockImplementation(async (_url: string, options?: RequestInit) =>
+			options?.method === "POST" ? new Response("<html>", { status: 502 }) : jsonResponse(overview),
+		);
+		render(TeamChatPanel);
+		const input = await screen.findByRole("combobox");
+		await fireEvent.input(input, { target: { value: "Status?" } });
+		await fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+		expect(await screen.findByText("Failed to send")).toBeInTheDocument();
+	});
+
+	test("shows the team as processing while its assignment runs", async () => {
+		getTaskSnapshot.mockReturnValue({
+			tasks: [
+				{ assignments: [{ agentConfigId: "other-team", status: "running" }] },
+				{ assignments: [{ agentConfigId: "team-1", status: "running" }] },
+			],
+		});
+		userFetch.mockResolvedValue(jsonResponse(overview));
+		render(TeamChatPanel);
+		expect(await screen.findByText(/is processing|Processing/)).toBeInTheDocument();
+	});
+
+	test("an idle team with no messages says there is no activity yet", async () => {
+		getTaskSnapshot.mockReturnValue({ tasks: [{ assignments: [{ agentConfigId: "team-1", status: "completed" }] }] });
+		userFetch.mockResolvedValue(jsonResponse({ team: overview.team, orchestrator: null, streams: [] }));
+		render(TeamChatPanel);
+		expect(await screen.findByText("No activity yet")).toBeInTheDocument();
+		expect(screen.queryByText(/is processing|Processing/)).toBeNull();
+	});
+
+	test("the timeline scroll offset is saved and restored when the panel reopens", async () => {
+		const { readScroll } = await import("$lib/panel-persistence.js");
+		// A fresh Response per load: the reopen reads the body again.
+		userFetch.mockImplementation(async () => jsonResponse(overview));
+		const first = render(TeamChatPanel);
+		const timeline = (await screen.findByText("I will coordinate")).closest(".overflow-y-auto") as HTMLElement;
+		timeline.scrollTop = 120;
+		timeline.dispatchEvent(new Event("scroll"));
+		await waitFor(() => expect(readScroll("team:conversation-1")).toMatchObject({ timeline: 120 }));
+		first.unmount();
+
+		render(TeamChatPanel);
+		const reopened = (await screen.findByText("I will coordinate")).closest(".overflow-y-auto") as HTMLElement;
+		await waitFor(() => expect(reopened.scrollTop).toBe(120));
+	});
+
+	test("the drill-down restores its saved offset before jumping to a turn", async () => {
+		const { writeScroll } = await import("$lib/panel-persistence.js");
+		writeScroll("team:conversation-1", { drill: 80 });
+		teamPanel.drillDownAgent = { subConversationId: "sub-1", agentName: "Builder", turnIndex: 1 };
+		userFetch.mockImplementation(async (url: string) =>
+			url.includes("sub-1") ? jsonResponse({ messages: drillMessages }) : jsonResponse(overview),
+		);
+		render(TeamChatPanel);
+		const drill = (await screen.findByText("The changelog is ready.")).closest(".overflow-y-auto") as HTMLElement;
+		await waitFor(() => expect(drill.scrollTop).toBe(80));
+	});
 });
+

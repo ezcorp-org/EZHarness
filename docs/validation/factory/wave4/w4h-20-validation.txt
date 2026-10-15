@@ -1,0 +1,44 @@
+ACCEPT wp/w4h-20-lint-warnings at 6e9f8a2c6
+W4H-20 verdict (the four biome lint warnings), validator-8 (lane validator-8), 2026-10-09T22:4xZ
+
+VERDICT: ACCEPT wp/w4h-20-lint-warnings at 6e9f8a2c6. Every leg of the accepted plan passes; the open item is judged below (a leftover).
+Commits on base 95bc71b20 (archy noreply, 2 of 2): ae1612f2f (the fix), 6e9f8a2c6 (the gate file). Owner report sha256 06dbbc007127ab60.
+`git merge-tree --write-tree 31b9a8d93 6e9f8a2c6` (the current integ, after W4H-18) is clean: tree 20ac57df2205ddfe (equal to the owner's).
+Tooling: my typecheck legs use validator-8/lib.sh typecheck_gated, not w00/tc-gate.sh (84f8b66f0bd3faf0 -> 7678da69afb1c809, the
+sampler fd fix); that race could not affect them. Every hold ran on a git-archive snapshot outside the evidence dir, removed after.
+
+1. Scope: changed scripts/lcov-artifact-names-registration.test.ts, scripts/setup-factory-python-base.test.ts,
+   tests/postgres/helpers/factory-recovery-databases.ts, scripts/lib/ci-registration.ts (ghExpr, the shared module both test files already
+   import: one definition, the DRY choice the brief asked for) and the gate file. biome.json, .github, src, web and packages byte-unchanged.
+   No biome-ignore line. Identity 2/2; prune clean (0 hits); config baseline.
+2. Lint: at base the four files give exactly the 4 warnings (lcov-artifact-names :126 and :136 and setup-factory-python-base :101
+   noTemplateCurlyInString; factory-recovery-databases :50 noCommaOperator); at head the files are 0/0, and `bun run lint` over the repo
+   (6145 files) prints no warning and no error.
+3. Fixture strings unchanged at runtime: ghExpr("matrix.i") = "${{ matrix.i }}" and ghExpr("matrix.shard") = "${{ matrix.shard }}",
+   each equal to the base literal; the expected collision line renders byte-equal to the base text. Mutant m1 (ghExpr without the spaces,
+   "${{matrix.i}}") is RED by assertion in setup-factory-python-base ("every host-shard coverage step runs after the base action": it
+   compares with the real ci.yml text); the lcov-artifact-names suite builds both its fixture and its expected line with ghExpr, so a
+   spacing change is self-consistent there and invisible (correct: that fixture is synthetic workflow text). The runtime equality above
+   is the proof that its strings are unchanged.
+4. The admin client (adminSql): static read — assertBunSqlPipeliningOff() precedes `return new SQL(adminUrl(), { max: 1 })`, the private
+   readonly field initialiser calls adminSql() (the same moment as before), no comma operator left.
+   Probes with the flag BUN_FEATURE_FLAG_DISABLE_SQL_AUTO_PIPELINING removed and a dead URL (Bun 1.4.2 is on the affected list):
+   - under `bun test`, factory-restore.test.ts fails by the guard's name at head, with the base helper, AND with the helper's assertion
+     dropped: the test preload (src/__tests__/preload.ts:12) runs the same guard first, so the test runner cannot see the helper's own guard;
+   - without the preload (`bun -e`, import the helper, construct FactoryRecoveryDatabases): head and the base helper fail by the guard's
+     name before any client is made; with the assertion dropped (mutant m2) it constructs with no guard. Behaviour unchanged, and the probe
+     shows the helper's guard is real. (No test pins the helper's own guard; the preload masks it. Pre-existing; a leftover candidate.)
+5. Tests: each file alone with lcov — lcov-artifact-names-registration 4/0, setup-factory-python-base 10/0, ci-registration 16/0 (none VOID);
+   tests/postgres/factory-restore.test.ts on MY own PostgreSQL (pgvector pg15, removed after; the flag at process start; the shared S3
+   secrets dir) 17/0 with lcov. Changed executable lines: ci-registration.ts 56, 57 hit; factory-recovery-databases.ts 42, 43, 44, 55 hit
+   (files 48/48 and 84/84 DA). new-file and patch vacuous outside SOURCE_GLOBS (the owner's patch gate also PASSED on 1 file).
+6. gate-integrity base PASSED (95bc71b20); main pinned at e3309906d = exactly the 8. Boundaries 0; gitleaks 0. Typecheck (all programs) 0
+   in-lock, pinned Node. Guard set 41 files 511 pass 0 fail.
+
+JUDGEMENT on the open item: ci-registration.test.ts alone leaves ghExpr's body at DA:56,0 (DA:57,1 is the declaration); the two consumer
+suites hit it (DA:56,21; DA:57,31 in each). The 100-percent rule for changed lines is met by the per-file lcov over the union of the
+suites that read the changed file (the plan's and the brief's form), so it is MET; the direct ci-registration test for ghExpr goes to the
+leftover list, as ruled.
+OUTSIDE SCOPE (seen, not judged): the owner's note that web's Vite config prints a configLoader 'native' warning (vite.config.ts:6,
+an import without a file extension); my own svelte-check logs show the same warning.
+Evidence: /tmp/factory-platform-evidence/validator-8/ w4h-20-light/, w4h-20-heavy/, w4h-20-probe/; hold-w4h-20-{light,heavy,probe}.sh.

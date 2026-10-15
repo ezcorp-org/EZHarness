@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# integrator-5 copy of w4h-11/heavy.sh (ad785a7709865c10), the full harness (legacy and previous-release commits fetched into the snapshot):
+# E = this folder, R = the integ worktree, veto lane integrator-2, own names (i5-<label> container, i5-storage-<label>, /tmp/i5-home-snap-<label>,
+# image localhost/i5-runner:24.04, removed by name by the caller). Logic otherwise unchanged. Run inside a merge hold as a NOTEST leg.
+# W4H-11 heavy leg. Run ONLY as: GATED_FLOCK_EXIT_FILE=<out>/heavy.exit bash w00/gated-flock.sh w4h-11 <log> timeout <s> bash heavy.sh <rev> <label> <shard>...
+# 1) a clean `git archive` snapshot of <rev> as a one-commit repository under /tmp/w4h-11-home-snap-<label> (plus the legacy
+#    source commit fetched from the local repository, so legacy-adoption needs no network fetch); 2) the runner-shaped image
+#    localhost/w4h-11-runner:24.04 (built if absent); 3) the container (4 CPUs, 16 GiB, as W4H-6); 4) job-setup.sh; 5) each shard
+#    through job-proof.sh, with a 5 s resource sampler; receipts copied to the evidence dir. Removes only its own container and
+#    volume. Never prunes.
+set -u
+. /tmp/factory-platform-evidence/w00/lock-veto.sh; lock_veto integrator-2
+. /tmp/factory-platform-evidence/w00/resource-gate.sh
+E=/tmp/factory-platform-evidence/integrator-5/harness; R=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration
+REV=${1:?rev} LABEL=${2:?label}; shift 2; [ $# -gt 0 ] || { echo "no shard named"; exit 2; }
+OUT=$E/$LABEL/hold-$(date -u +%Y%m%dT%H%M%SZ); mkdir -p "$OUT"; S=/tmp/i5-home-snap-$LABEL; C=i5-$LABEL; VOL=i5-storage-$LABEL; IMG=localhost/i5-runner:24.04
+RESUME=$E/$LABEL/resume.env; SETUP_DONE=0; SETUP_HOLD=; VOID=0
+if [ "${W4H11_RESUME:-0}" = 1 ] && [ -s "$RESUME" ] && podman container exists "$C"; then . "$RESUME"; SETUP_DONE=1; fi
+LEGACY=537f074e7303ecdf3cbef1a7af4fd60a3244b0a3; PREVIOUS=3ec53eaa66409a39d66b502f79d74139ec94dcf2  # legacy-adoption and historical-upgrade archived sources
+# A gate release after a green setup STOPS the container and keeps it, its volume and the snapshot (disk only, no memory), so the next
+# hold resumes at the first proof instead of repeating a 15-20 min setup. Any other end removes all three.
+gate_or_release() { RESOURCE_GATE_MAX_WAIT_S=0 resource_gate "w4h-11 $LABEL $1" "$OUT/gate.log" && return 0; echo "gate red inside the lock before $1: exit 75 (void)"
+  disk_gb=$(df -BG --output=avail / | tail -1 | tr -dc 0-9)
+  if [ "${W4H11_RESUME:-0}" = 1 ] && [ "$SETUP_DONE" = 1 ] && [ "$disk_gb" -lt 115 ]; then echo "disk ${disk_gb} GB under 115: no kept state (coordinator rule)"; fi
+  if [ "${W4H11_RESUME:-0}" = 1 ] && [ "$SETUP_DONE" = 1 ] && [ "$disk_gb" -ge 115 ]; then podman stop -t 30 "$C" >/dev/null 2>&1; printf 'SETUP_HOLD=%s\n' "$SETUP_HOLD" > "$RESUME"; echo "kept $C (stopped), $VOL, $S for resume"; else cleanup; fi; exit 75; }
+cleanup() { podman rm -f -v "$C" >/dev/null 2>&1; podman volume rm "$VOL" >/dev/null 2>&1; podman unshare rm -rf "$S" 2>/dev/null || rm -rf "$S"; rm -f "$RESUME"; }
+# A leg killed by a signal while the host OOM killer ran is VOID (common.md "Heavy work runs only under the heavy lock", rule 3): never a
+# setup failure, never a red, and never re-queued by itself. Exit 5 (gated-flock re-queues only 75); the coordinator decides the rerun.
+void_exit() { echo "VOID: $1 killed during a host OOM; nothing restarts without the coordinator's word"; cleanup; echo "removed $C $VOL $S"; echo "heavy exit=5 $(date -u +%FT%TZ)"; exit 5; }
+echo "hold acquired $(date -u +%FT%TZ) out=$OUT setup=${W4H11_SETUP:-full} rev=$REV label=$LABEL shards=$* cpus=${W4H11_CPUS:-4} mem=${W4H11_MEM:-16g} load=$(cut -d' ' -f1-3 /proc/loadavg)"
+gate_or_release start
+X=(podman exec -u runner -e HOME=/home/runner -e XDG_RUNTIME_DIR=/run/user/1001 -e DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1001/bus -w /home/runner/work/EZHarness/EZHarness "$C")
+# timeout: under host thrash `podman stats` hung and the r5 sampler went silent two minutes before the kill
+sampler() { while true; do echo "$(date -u +%T) host_avail=$(awk '/MemAvailable/{print int($2/1024)}' /proc/meminfo)M swapfree=$(awk '/SwapFree/{print int($2/1024)}' /proc/meminfo)M ctr=$(timeout 10 podman stats --no-stream --format '{{.MemUsage}} cpu={{.CPUPerc}}' "$C" 2>/dev/null) load=$(cut -d' ' -f1-3 /proc/loadavg) inner=$(timeout 10 "${X[@]}" podman ps -q 2>/dev/null | wc -l)"; sleep 5; done; }
+leg() { local n=$1; shift; gate_or_release "$n"; sampler > "$OUT/$n.resources.log" 2>&1 & local sp=$!; local since; since=$(date "+%F %T"); local t0; t0=$(date -u +%FT%TZ)
+  "${X[@]}" "$@" > "$OUT/$n.log" 2>&1; local rc=$?; kill $sp 2>/dev/null; wait $sp 2>/dev/null
+  local oom; oom=$(journalctl -k --since "$since" 2>/dev/null | grep -c -E 'Out of memory: Killed|oom_kill_process: [0-9]+ callbacks suppressed')
+  echo "leg=$n rc=$rc start=$t0 end=$(date -u +%FT%TZ) host_oom=$oom load=$(cut -d' ' -f1-3 /proc/loadavg)"
+  if [ "$rc" -gt 128 ] && [ "$oom" -gt 0 ]; then VOID=1; fi; return $rc; }
+if [ "${W4H11_RESUME:-0}" = 1 ] && [ -s "$RESUME" ] && podman container exists "$C" && [ -d "$S" ]; then
+  . "$RESUME"; H=$(git -C "$R" rev-parse "$REV^{commit}") || exit 2
+  # setup made the snapshot the container runner's (a subordinate id): read it inside the user namespace
+  ST=$(podman unshare git -c safe.directory='*' -C "$S" rev-parse HEAD^{tree}); SRC=$(git -C "$R" rev-parse "$H^{tree}"); [ "$ST" = "$SRC" ] || { echo "resume: snapshot tree $ST differs from $SRC"; cleanup; exit 3; }
+  podman start "$C" >/dev/null || { echo "resume: start failed"; cleanup; exit 3; }
+  for i in $(seq 1 60); do state=$(podman exec "$C" systemctl is-system-running 2>/dev/null); case "$state" in running|degraded) break;; esac; sleep 1; done
+  podman exec "$C" systemctl start user@1001.service
+  "${X[@]}" systemctl --user start podman.socket
+  echo "resume: restarted $C (setup from $SETUP_HOLD, snapshot tree $ST); setup skipped"; SETUP_DONE=1
+else
+  H=$(git -C "$R" rev-parse "$REV^{commit}") || exit 2
+  cleanup; mkdir -p "$S"
+  git -C "$R" archive "$H" | tar -x -C "$S"
+  # Coordinator audit 2026-10-06: the init/config chain below must never reach another repository through the environment.
+  for v in GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR; do [ -z "${!v:-}" ] || { echo "ABORT: $v is set; the snapshot git chain refuses to run"; cleanup; exit 9; }; done
+  # gc.auto/maintenance.auto off: a background auto-maintenance from commit/fetch raced the container's chown -R (r5: maintenance.lock)
+  ( cd "$S" && git init -q -b main && git config gc.auto 0 && git config maintenance.auto false && git config user.name archy && git config user.email 281643943+EZArchy@users.noreply.github.com \
+    && git add -A --force && git commit -q -m "snapshot of $H" && git fetch -q --no-tags /home/dev/work/EZCorp/EZHarness "$LEGACY" "$PREVIOUS" && git cat-file -e "$LEGACY^{commit}" && git cat-file -e "$PREVIOUS^{commit}" ) || { echo "snapshot failed"; cleanup; exit 3; }
+  ST=$(git -C "$S" rev-parse HEAD^{tree}); SRC=$(git -C "$R" rev-parse "$H^{tree}"); echo "snapshot $S source=$H snapshot_tree=$ST source_tree=$SRC"; [ "$ST" = "$SRC" ] || { echo "snapshot tree differs from the source tree"; cleanup; exit 3; }
+  if ! podman image exists "$IMG"; then
+    podman build -t "$IMG" "$E/image" > "$OUT/image-build.log" 2>&1 || { echo "image build failed"; tail -5 "$OUT/image-build.log"; cleanup; exit 3; }
+  fi
+  echo "image $IMG id=$(podman image inspect "$IMG" --format '{{.Id}}')"
+  podman volume create "$VOL" >/dev/null
+  podman run -d --name "$C" --systemd=always --privileged --hostname fv-az-runner \
+    --cpus="${W4H11_CPUS:-4}" --memory="${W4H11_MEM:-16g}" --memory-swap="${W4H11_MEM:-16g}" --device /dev/fuse \
+    -v "$S:/home/runner/work/EZHarness/EZHarness" -v /tmp/factory-tools/bun-$(cat "$S/.bun-version")/bun-linux-x64:/opt/bun:ro \
+    -v "$VOL":/home/runner/.local/share/containers \
+    -v "$E/docker-load-shim.sh:/usr/local/bin/docker:ro" -v "$E/registries-docker-hub.conf:/etc/containers/registries.conf.d/50-w4h11-docker-hub.conf:ro" -v "$E/job-diag.sh:/usr/local/bin/job-diag.sh:ro" -v "$E/containers-log-driver.conf:/etc/containers/containers.conf.d/91-w4h11-log-driver.conf:ro" -v "$E/job-setup.sh:/usr/local/bin/job-setup.sh:ro" -v "$E/job-proof.sh:/usr/local/bin/job-proof.sh:ro" "$IMG" >/dev/null || { echo "container start failed"; cleanup; exit 3; }
+  for i in $(seq 1 60); do state=$(podman exec "$C" systemctl is-system-running 2>/dev/null); case "$state" in running|degraded) break;; esac; sleep 1; done
+  podman exec "$C" bash -c 'chown -R runner:runner /home/runner/.local /home/runner/work; systemctl start user@1001.service'
+  leg setup env W4H11_SETUP="${W4H11_SETUP:-full}" taskset -c 0-3 bash /usr/local/bin/job-setup.sh || { [ "$VOID" = 1 ] && void_exit setup; echo "setup failed"; tail -15 "$OUT/setup.log"; cleanup; exit 4; }
+  grep -E 'candidate|nproc|SETUP-OK' "$OUT/setup.log"; SETUP_DONE=1; SETUP_HOLD=$OUT
+fi
+status=0; CUR=${W4H11_CPUS:-4}
+for shard in "$@"; do
+  if [ "$shard" = diag ]; then leg diag bash /usr/local/bin/job-diag.sh || status=1; continue; fi
+  # guard: the standing guard set (w00/guard-suites.sh) on the HOST worktree, which must sit clean at the hold's revision
+  if [ "$shard" = guard ]; then gate_or_release guard
+    [ "$(git -C "$R" rev-parse HEAD)" = "$H" ] && [ -z "$(git -C "$R" status --porcelain)" ] || { echo "guard: worktree is not clean at $REV"; status=1; continue; }
+    mapfile -t G < <(bash /tmp/factory-platform-evidence/w00/guard-suites.sh "$R"); echo "guard files=${#G[@]}"
+    bash "$E/unit.sh" "$OUT/guard.log" "${G[@]}" || status=1; echo "leg=guard rc=$(awk '/^exit=/{print substr($1,6)}' "$OUT/guard.log") $(date -u +%FT%TZ)"; continue; fi
+  # cpus=N: resize the running container's CPU quota between legs (one setup, several quotas)
+  case "$shard" in cpus=*) CUR=${shard#cpus=}; podman update --cpus "$CUR" "$C" >/dev/null && echo "quota now $CUR CPUs: $(podman inspect "$C" --format '{{.HostConfig.NanoCpus}}') nanocpus" || { echo "podman update failed"; status=1; break; }; continue;; esac
+  n="$shard-c$CUR"
+  leg "proof-$n" bash /usr/local/bin/job-proof.sh "$shard" || { [ "$VOID" = 1 ] && void_exit "proof-$n"; status=1; }
+  mkdir -p "$OUT/receipts-$n"; podman unshare cp -r "$S/.cache/production-lifecycle/." "$OUT/receipts-$n/" 2>/dev/null; podman unshare chown -R 0:0 "$OUT/receipts-$n" 2>/dev/null
+  tail -3 "$OUT/proof-$n.log"
+done
+cleanup; echo "removed $C $VOL $S; kept image $IMG for the next leg"
+echo "heavy exit=$status $(date -u +%FT%TZ)"; exit $status

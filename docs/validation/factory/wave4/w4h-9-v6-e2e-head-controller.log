@@ -1,0 +1,48 @@
+archived_image=localhost/ezcorp-extension-v4:audit-final-3ec53eaa
+archived_source=3ec53eaa66409a39d66b502f79d74139ec94dcf2
+archived_build_log=/tmp/v6-w4h9-hold-138ace386/e2e-head/upgrade/upgrade-642111190482-previous-archive-build.log
+
+[1m==> Use supplied candidate image for semantic retry(B[m
+  [32m✓(B[m Previous image source=3ec53eaa66409a39d66b502f79d74139ec94dcf2; candidate image source=138ace386a65bc5a127b1f8c527ac3421f56da7c; driver source=138ace386a65bc5a127b1f8c527ac3421f56da7c
+  [32m✓(B[m Runner profile transition prepared: previous=docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834; candidate=docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+
+[1m==> Semantic lifecycle seed on the previous image(B[m
+ Network ezcorp-upgrade-semantic-old-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-old-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-old-642111190482_default Created 
+ Network ezcorp-upgrade-semantic-old-642111190482_default Created 
+ Container ezcorp-upgrade-semantic-old-642111190482-app Creating 
+ Container ezcorp-upgrade-semantic-old-642111190482-app Created 
+ Container ezcorp-upgrade-semantic-old-642111190482-app Starting 
+ Container ezcorp-upgrade-semantic-old-642111190482-app Started 
+UPGRADE_STATE_SEEDED
+  [32m✓(B[m Previous image created user-owned extension, exact human approval, conversation and tool sentinel
+
+[1m==> Semantic lifecycle upgrade to the candidate(B[m
+ Network ezcorp-upgrade-semantic-candidate-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-candidate-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-candidate-642111190482_default Created 
+ Network ezcorp-upgrade-semantic-candidate-642111190482_default Created 
+ Container ezcorp-upgrade-semantic-candidate-642111190482-app Creating 
+ Container ezcorp-upgrade-semantic-candidate-642111190482-app Created 
+ Container ezcorp-upgrade-semantic-candidate-642111190482-app Starting 
+ Container ezcorp-upgrade-semantic-candidate-642111190482-app Started 
+RUNNER_PROFILE_REBUILT docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834 -> docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+UPGRADE_STATE_ASSERTED
+  [32m✓(B[m Candidate preserved installation identity, approval boundaries, conversation, and tool sentinel across the runner-profile rebuild
+
+[1m==> Semantic backup restore into a separate owned candidate instance(B[m
+ Network ezcorp-upgrade-semantic-restore-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-restore-642111190482_default Creating 
+ Network ezcorp-upgrade-semantic-restore-642111190482_default Created 
+ Network ezcorp-upgrade-semantic-restore-642111190482_default Created 
+ Container ezcorp-upgrade-semantic-restore-642111190482-app Creating 
+ Container ezcorp-upgrade-semantic-restore-642111190482-app Created 
+ Container ezcorp-upgrade-semantic-restore-642111190482-app Starting 
+ Container ezcorp-upgrade-semantic-restore-642111190482-app Started 
+RUNNER_PROFILE_REBUILT docker.io/oven/bun@sha256:50317d83cd5a5ae1d8b35b3379c69f57ce1a0dbf4def91f0965653d767851834 -> docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895
+UPGRADE_STATE_ASSERTED
+  [32m✓(B[m Separate restored instance repeated the runner-profile rebuild and preserved the same lifecycle sentinel
+
+[1m[32mUPGRADE SEMANTIC STATE VERIFIED(B[m — supplied candidate preserved exact owner, release, approval, link, and stored output.
+upgrade_command_exit=0 upgrade_cleanup_exit=0

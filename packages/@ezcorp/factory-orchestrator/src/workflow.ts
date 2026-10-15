@@ -1,0 +1,348 @@
+import type { JsonValue } from "@ezcorp/factory-sdk";
+import { factoryChildRunId } from "@ezcorp/factory-sdk/transport-types";
+import { canonicalizeJson } from "@ezcorp/factory-sdk/canonical";
+import type { KernelCommand, KernelEvent, KernelFactoryPlan, KernelState } from "@ezcorp/factory-sdk/kernel-types";
+import { advanceKernel, assertKernelContinuationState, createKernelState, createPartitionKernelState, factoryCommandFailedEvent } from "@ezcorp/factory-sdk/kernel";
+import {
+  condition,
+  ActivityCancellationType,
+  ApplicationFailure,
+  CancellationScope,
+  ChildWorkflowCancellationType,
+  continueAsNew,
+  defineQuery,
+  defineSignal,
+  executeChild,
+  proxyActivities,
+  setHandler,
+  sleep,
+  isCancellation,
+} from "@temporalio/workflow";
+import {
+  CONTINUE_AFTER_EVENTS,
+  FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
+  FACTORY_INBOX_RECEIPT_QUERY,
+  FACTORY_INBOX_SIGNAL,
+  FACTORY_STATE_QUERY,
+  FACTORY_WORKFLOW_TYPE,
+  factoryWorkflowId,
+  MAX_INBOX_EVENTS,
+  MAX_INFLIGHT_COMMANDS,
+  type FactoryActivities,
+  type FactoryDefinitionSource,
+  type FactoryInboxEnvelope,
+  type FactoryIdentity,
+  type FactoryInboxReceipt,
+  type FactoryWorkflowInput,
+  type FactoryWorkflowResult,
+} from "./contracts.ts";
+import { loadCompiledFactory } from "./definition-pages.ts";
+import { acceptFactoryInbox } from "./inbox.ts";
+import { loadPartitionKernelPlan } from "./partition-plan.ts";
+import { loadTransitionArtifact, persistTransition } from "./transition-pages.ts";
+import { assertCommandBatchSize, assertContinuationSize, isPartitionSource, validateCompiledFactoryShape, validateInboxEvent, validateWorkflowInput } from "./validation.ts";
+
+const inboxSignal = defineSignal<[FactoryInboxEnvelope]>(FACTORY_INBOX_SIGNAL);
+const stateQuery = defineQuery<KernelState>(FACTORY_STATE_QUERY);
+const inboxReceiptQuery = defineQuery<FactoryInboxReceipt>(FACTORY_INBOX_RECEIPT_QUERY);
+const audit = proxyActivities<Pick<FactoryActivities, "stageTransitionPage" | "finalizeTransitionArtifact" | "recordTransition">>({
+  startToCloseTimeout: FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
+  retry: { maximumAttempts: 3 },
+});
+const reads = proxyActivities<Pick<FactoryActivities, "resolveFactory" | "loadManifestPage" | "loadDefinitionPage" | "loadExecutionManifest" | "loadPartitionArtifact" | "loadTransitionManifest" | "loadTransitionPage">>({
+  startToCloseTimeout: FACTORY_GATEWAY_ACTIVITY_TIMEOUT_MS,
+  retry: { maximumAttempts: 3 },
+});
+const effects = proxyActivities<Pick<FactoryActivities, "executeCommand">>({
+  startToCloseTimeout: "24 hours",
+  heartbeatTimeout: "20 seconds",
+  retry: { maximumAttempts: 1 },
+  cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
+});
+
+type TerminalCommand = Extract<KernelCommand, { readonly kind: "complete-run" | "complete-partition" | "fail-run" | "cancel-run" }>;
+type TimerCommand = Extract<KernelCommand, { readonly kind: "start-timer" }>;
+/** A command the workflow runs as an activity or a child workflow. */
+type ExecutableCommand = Exclude<KernelCommand, TerminalCommand | TimerCommand>;
+
+function isTerminal(command: KernelCommand): command is TerminalCommand {
+  return command.kind === "complete-run" || command.kind === "complete-partition" || command.kind === "fail-run" || command.kind === "cancel-run";
+}
+
+/**
+ * Why an activity failed, as specific as Temporal kept it.
+ *
+ * Temporal wraps the activity's own error in an `ActivityFailure` whose message is only
+ * "Activity task failed"; the cause carries the message the activity threw.
+ */
+function activityFailureDetail(error: unknown): string {
+  const cause = (error as { readonly cause?: unknown } | null | undefined)?.cause;
+  const source = cause instanceof Error ? cause : error;
+  return source instanceof Error ? source.message : String(source);
+}
+
+function workflowFailure(error: unknown, type: string): ApplicationFailure {
+  return ApplicationFailure.nonRetryable(error instanceof Error ? error.message : String(error), type);
+}
+
+function terminal(command: TerminalCommand, state: KernelState): FactoryWorkflowResult {
+  if (command.kind === "complete-run") return { status: "completed", output: command.output, state };
+  if (command.kind === "complete-partition") return { status: "completed", state };
+  if (command.kind === "fail-run") return { status: "failed", error: command.error, state };
+  return { status: "cancelled", error: command.reason, state };
+}
+
+function childInput(parent: FactoryWorkflowInput, command: Extract<KernelCommand, { readonly kind: "run-child" }>, definition: FactoryDefinitionSource): FactoryWorkflowInput {
+  return {
+    tenantId: parent.tenantId,
+    projectId: parent.projectId,
+    logicalRunId: factoryChildRunId(parent.logicalRunId, command),
+    interpreterId: parent.interpreterId,
+    startedAtMs: parent.startedAtMs,
+    deadlineAtMs: command.deadlineAtMs,
+    definition,
+    input: command.input,
+    ...(command.durableInput === undefined ? {} : { durableInput: command.durableInput }),
+  };
+}
+
+function childEvent(command: Extract<KernelCommand, { readonly kind: "run-child" }>, result: FactoryWorkflowResult, completedAtMs: number): KernelEvent {
+  if (result.status === "completed") {
+    return { kind: "node-result", id: `${command.id}:child-result`, atMs: completedAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, output: result.output ?? null };
+  }
+  return { kind: "node-failed", id: `${command.id}:child-failed`, atMs: completedAtMs, nodeId: command.nodeId, commandId: command.id, candidateGeneration: command.candidateGeneration, attempt: 1, error: result.error ?? result.status };
+}
+
+async function runCommand(
+  input: FactoryWorkflowInput,
+  command: ExecutableCommand,
+  scope: CancellationScope,
+): Promise<KernelEvent | null> {
+  if (command.kind === "run-child") {
+    try {
+      return await scope.run(async () => {
+        const definition = await reads.resolveFactory({ ...workflowIdentity(input), commandId: command.id, factory: command.factory });
+        const result = await executeChild<typeof factoryWorkflow>(FACTORY_WORKFLOW_TYPE, {
+          workflowId: factoryWorkflowId(input.tenantId, factoryChildRunId(input.logicalRunId, command)),
+          args: [childInput(input, command, definition)],
+          retry: { maximumAttempts: 1 },
+          cancellationType: ChildWorkflowCancellationType.WAIT_CANCELLATION_COMPLETED,
+        });
+        return childEvent(command, result, Date.now());
+      });
+    } catch (error) {
+      if (!isCancellation(error)) throw error;
+      return null;
+    }
+  }
+  try {
+    return await scope.run(() => effects.executeCommand({ tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId, command }));
+  } catch (error) {
+    if (!isCancellation(error)) throw error;
+    return null;
+  }
+}
+
+function workflowIdentity(input: FactoryWorkflowInput): FactoryIdentity {
+  return { tenantId: input.tenantId, projectId: input.projectId, logicalRunId: input.logicalRunId, interpreterId: input.interpreterId };
+}
+
+function durableInputJson(value: FactoryWorkflowInput["durableInput"]): JsonValue {
+  // Both sources were schema-validated before this comparison; this preserves a canonical transport snapshot.
+  return (value ?? null) as unknown as JsonValue;
+}
+
+function assertDurableInputContinuity(input: FactoryWorkflowInput, state: KernelState): void {
+  if (canonicalizeJson(durableInputJson(state.durableInput)) !== canonicalizeJson(durableInputJson(input.durableInput))) {
+    throw workflowFailure(new Error("continuation durable input does not match workflow input"), "FACTORY_INPUT_INVALID");
+  }
+}
+
+/**
+ * Resolve the compiled plan and the state a fresh run would start from.
+ *
+ * Every failure here is non-retryable and keeps the exact failure type the
+ * caller used to raise: a bad input never reads as a bad definition.
+ */
+async function loadWorkflowPlan(input: FactoryWorkflowInput): Promise<{ readonly factory: KernelFactoryPlan; readonly created: KernelState }> {
+  try {
+    validateWorkflowInput(input);
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_INPUT_INVALID");
+  }
+  let factory: KernelFactoryPlan;
+  try {
+    if (isPartitionSource(input.definition)) factory = await loadPartitionKernelPlan(workflowIdentity(input), input.definition, reads);
+    else {
+      const compiled = await loadCompiledFactory(workflowIdentity(input), input.definition, reads);
+      validateCompiledFactoryShape(compiled);
+      factory = compiled;
+    }
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_DEFINITION_INVALID");
+  }
+  let created: KernelState;
+  try {
+    created = isPartitionSource(input.definition)
+      ? createPartitionKernelState(factory, input.definition.partition.partitionId, input.logicalRunId, input.input, input.startedAtMs, input.durableInput)
+      : createKernelState(factory, input.logicalRunId, input.input, input.startedAtMs, input.durableInput);
+  } catch (error) {
+    throw workflowFailure(error, "FACTORY_INPUT_INVALID");
+  }
+  return { factory, created };
+}
+
+/**
+ * The state this execution begins from, and the four identities a continuation
+ * must still agree with: the plan, the definition digest, the durable input,
+ * and the partition it belongs to.
+ */
+function resolveStartState(input: FactoryWorkflowInput, factory: KernelFactoryPlan, created: KernelState, restored: KernelState | undefined): KernelState {
+  const state = input.continuation?.state ?? restored ?? (input.deadlineAtMs === undefined ? created : { ...created, runDeadlineAtMs: Math.min(created.runDeadlineAtMs, input.deadlineAtMs) });
+  assertKernelContinuationState(factory, state);
+  if (state.definitionDigest !== input.definition.definitionDigest) throw workflowFailure(new Error("continuation definition digest does not match input"), "FACTORY_INPUT_INVALID");
+  if (input.continuation) assertDurableInputContinuity(input, state);
+  if (isPartitionSource(input.definition) && state.partition?.id !== input.definition.partition.partitionId) throw workflowFailure(new Error("continuation partition ID does not match input"), "FACTORY_INPUT_INVALID");
+  return state;
+}
+
+/** Re-arm the run timer and every node timer a continuation inherited. */
+function rearmContinuationTimers(state: KernelState, scheduleTimer: (command: TimerCommand) => void): void {
+  if (state.runTimerId) scheduleTimer({ kind: "start-timer", id: state.runTimerId, deadlineAtMs: state.runDeadlineAtMs });
+  for (const [nodeId, runtime] of Object.entries(state.nodes)) {
+    if (runtime.timer) scheduleTimer({ kind: "start-timer", id: runtime.timer.id, nodeId, deadlineAtMs: runtime.timer.deadlineAtMs });
+  }
+}
+
+/**
+ * The next event to apply. Local events (timer expiries, command results) drain
+ * first; a signalled delivery is taken only once the local inbox is empty, so
+ * the acknowledged sequence never advances past work still in hand.
+ */
+function selectNextEvent(inbox: KernelEvent[], delivery: FactoryInboxEnvelope | undefined): { readonly event: KernelEvent; readonly delivery?: FactoryInboxEnvelope } {
+  const selected = inbox.length > 0 ? undefined : delivery!;
+  return { event: selected ? selected.event : inbox.shift()!, delivery: selected };
+}
+
+/** Sort one command batch: timers are armed, terminals are recorded, the rest queue. */
+function routeCommands(commands: readonly KernelCommand[], state: KernelState, scheduleTimer: (command: TimerCommand) => void, pendingCommands: ExecutableCommand[]): FactoryWorkflowResult | undefined {
+  let terminalResult: FactoryWorkflowResult | undefined;
+  for (const command of commands) {
+    if (command.kind === "start-timer") { scheduleTimer(command); continue; }
+    if (isTerminal(command)) { terminalResult = terminal(command, state); continue; }
+    pendingCommands.push(command);
+  }
+  return terminalResult;
+}
+
+export async function factoryWorkflow(input: FactoryWorkflowInput): Promise<FactoryWorkflowResult> {
+  const { factory, created } = await loadWorkflowPlan(input);
+  const restored = input.continuation?.stateArtifact
+    ? await loadTransitionArtifact(workflowIdentity(input), input.continuation.stateArtifact.sourceSequence, input.continuation.stateArtifact.manifest, reads)
+    : undefined;
+  let state = resolveStartState(input, factory, created, restored?.nextState);
+  const inbox = [...(input.continuation?.inbox ?? [{ kind: "start", id: `${input.logicalRunId}:start`, atMs: input.startedAtMs } as KernelEvent])];
+  const pendingInbox = new Map((input.continuation?.pendingInbox ?? []).map((delivery) => [delivery.sequence, delivery]));
+  let sourceSequence = input.continuation?.sourceSequence ?? 0;
+  let handled = input.continuation?.handledSinceContinuation ?? 0;
+  let acknowledgedInboxSequence = input.continuation?.acknowledgedInboxSequence ?? 0;
+  let stateArtifact = input.continuation?.stateArtifact;
+  let overflow = false;
+  let workflowError: Error | undefined;
+  let terminalResult: FactoryWorkflowResult | undefined;
+  const pendingCommands: ExecutableCommand[] = [];
+  const activeScopes = new Map<string, CancellationScope>();
+  const knownIds = new Set([...state.appliedEventIds, ...inbox.map((event) => event.id)]);
+  /** Nothing is in flight and nothing is queued, so a terminal result is final. */
+  const drained = (): boolean => activeScopes.size === 0 && pendingCommands.length === 0;
+
+  const scheduleTimer = (command: TimerCommand) => {
+    const eventId = `${command.id}:expired`;
+    void sleep(Math.max(0, command.deadlineAtMs - Date.now()))
+      .then(() => {
+        if (knownIds.has(eventId)) return;
+        knownIds.add(eventId);
+        inbox.push({ kind: "timer-expired", id: eventId, atMs: command.deadlineAtMs, nodeId: command.nodeId, commandId: command.id });
+      })
+      .catch((error) => { if (!isCancellation(error)) throw error; });
+  };
+
+  const launchCommand = (command: ExecutableCommand) => {
+    const scope = new CancellationScope();
+    activeScopes.set(command.id, scope);
+    void runCommand(input, command, scope)
+      .then((result) => {
+        if (result && !knownIds.has(result.id)) { knownIds.add(result.id); inbox.push(result); }
+      })
+      .catch((error) => {
+        // A command the gateway refused used to throw the whole workflow away,
+        // leaving the product run `running` forever: nothing projects a failed
+        // workflow. The failure now becomes a recorded kernel event, so the run
+        // stops and fails with a typed reason through its own transitions.
+        // No patch marker: a workflow whose effect failed under the old code
+        // threw and closed at that point, so no live history can replay into
+        // this branch with the old outcome.
+        const failed = factoryCommandFailedEvent(command, activityFailureDetail(error), Date.now());
+        if (!knownIds.has(failed.id)) { knownIds.add(failed.id); inbox.push(failed); }
+      })
+      .finally(() => { activeScopes.delete(command.id); });
+  };
+
+  const pumpCommands = () => {
+    while (activeScopes.size < MAX_INFLIGHT_COMMANDS && pendingCommands.length > 0) launchCommand(pendingCommands.shift()!);
+  };
+
+  if (input.continuation) rearmContinuationTimers(state, scheduleTimer);
+
+  setHandler(inboxSignal, (delivery) => {
+    const accepted = acceptFactoryInbox(delivery, acknowledgedInboxSequence, pendingInbox);
+    workflowError = accepted.error ? ApplicationFailure.nonRetryable(accepted.error, "FACTORY_INBOX_CONFLICT") : workflowError;
+    overflow = overflow || accepted.overflow;
+    if (accepted.accepted?.event.kind === "cancel") for (const scope of activeScopes.values()) scope.cancel();
+  });
+  setHandler(stateQuery, () => state);
+  setHandler(inboxReceiptQuery, () => ({
+    acknowledgedSequence: acknowledgedInboxSequence,
+    pending: [...pendingInbox.values()].map(({ sequence, eventId, eventHash }) => ({ sequence, eventId, eventHash })),
+  }));
+
+  for (;;) {
+    if (workflowError) throw workflowError;
+    if (overflow) throw new Error(`factory inbox exceeds ${MAX_INBOX_EVENTS} distinct events`);
+    pumpCommands();
+    if (terminalResult && drained()) return terminalResult;
+    const delivery = pendingInbox.get(acknowledgedInboxSequence + 1);
+    if (inbox.length === 0 && !delivery) {
+      const arrived = await condition(() => inbox.length > 0 || pendingInbox.has(acknowledgedInboxSequence + 1) || overflow || workflowError !== undefined || (pendingCommands.length > 0 && activeScopes.size < MAX_INFLIGHT_COMMANDS) || (terminalResult !== undefined && activeScopes.size === 0), Math.max(0, state.runDeadlineAtMs - Date.now()));
+      if (!arrived) inbox.push({ kind: "timer-expired", id: `${input.logicalRunId}:run-deadline`, atMs: state.runDeadlineAtMs, commandId: state.runTimerId });
+      continue;
+    }
+    const { event, delivery: selectedDelivery } = selectNextEvent(inbox, delivery);
+    if (selectedDelivery) pendingInbox.delete(selectedDelivery.sequence);
+    validateInboxEvent(event as unknown as JsonValue);
+    const advanced = advanceKernel(factory, state, event);
+    assertCommandBatchSize(advanced.commands);
+    const finalized = await persistTransition(
+      workflowIdentity(input),
+      sourceSequence + 1,
+      event,
+      advanced.nextState,
+      advanced.commands,
+      selectedDelivery ? { sequence: selectedDelivery.sequence, eventId: selectedDelivery.eventId, eventHash: selectedDelivery.eventHash } : undefined,
+      audit,
+    );
+    state = advanced.nextState;
+    sourceSequence += 1;
+    stateArtifact = { sourceSequence, manifest: finalized.manifest };
+    handled += 1;
+    if (selectedDelivery) acknowledgedInboxSequence = selectedDelivery.sequence;
+    terminalResult = routeCommands(advanced.commands, state, scheduleTimer, pendingCommands) ?? terminalResult;
+    pumpCommands();
+    if (terminalResult && drained()) return terminalResult;
+    if (handled >= CONTINUE_AFTER_EVENTS && inbox.length === 0 && drained()) {
+      const continuation = { stateArtifact: stateArtifact!, inbox, pendingInbox: [...pendingInbox.values()], sourceSequence, handledSinceContinuation: 0, acknowledgedInboxSequence };
+      assertContinuationSize(continuation);
+      await continueAsNew<typeof factoryWorkflow>({ ...input, continuation });
+    }
+  }
+}

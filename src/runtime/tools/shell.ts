@@ -12,6 +12,8 @@ import {
   DEFAULT_RUNTIME_RO_DIRS,
   runtimeExecRoDirs,
 } from "../../extensions/sandbox/landlock";
+import { factoryBootConfig } from "../../factory/boot";
+import { isSensitiveEnvironmentEntry } from "../../extensions/sensitive-environment";
 import { raceControlled } from "./race-control";
 
 const log = logger.child("shell-tool");
@@ -59,8 +61,8 @@ export interface ShellPreviewWiring {
  * exclusion (never granted). Omitted by callers without a per-run context;
  * the shell tool then behaves exactly as before (jail off).
  *
- * Fail-safe: a jail-build error logs + falls back to the unjailed spawn — a
- * host that can't jail behaves as before, never a hard failure.
+ * Factory-enabled boots require a jail. Other installs preserve the legacy
+ * fail-safe fallback for a missing or failed jail.
  */
 export interface ShellSandboxWiring {
   /** The per-run writable workspace (the ONLY rw host path in the jail).
@@ -83,9 +85,15 @@ export function resolveShellSandbox(
   command: string,
   sandbox: ShellSandboxWiring | undefined,
 ): { argv: string[]; env: Record<string, string> } | null {
-  if (!sandbox) return null;
+  if (!sandbox) {
+    if (factoryBootConfig.requireSandbox) throw new Error("Required shell sandbox wiring is unavailable.");
+    return null;
+  }
   const tier = getSandboxTier();
-  if (tier === "advisory") return null;
+  if (tier === "advisory") {
+    if (factoryBootConfig.requireSandbox) throw new Error("Required shell sandbox isolation is unavailable.");
+    return null;
+  }
   try {
     mkdirSync(sandbox.workspaceDir, { recursive: true });
     const built = buildSandboxArgv({
@@ -103,6 +111,9 @@ export function resolveShellSandbox(
     });
     return { argv: built.argv, env: built.env };
   } catch (err) {
+    if (factoryBootConfig.requireSandbox) {
+      throw new Error(`Required shell sandbox isolation is unavailable: ${(err as Error).message}`);
+    }
     log.warn("shell sandbox skipped (jail build failed)", {
       error: (err as Error).message,
     });
@@ -110,12 +121,10 @@ export function resolveShellSandbox(
   }
 }
 
-const SENSITIVE_ENV_PATTERNS = /SECRET|TOKEN|PASSWORD|CREDENTIAL|API_KEY|PRIVATE_KEY/i;
-
 function sanitizeEnv(): Record<string, string | undefined> {
   const env: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (!SENSITIVE_ENV_PATTERNS.test(key)) {
+    if (!isSensitiveEnvironmentEntry(key, value)) {
       env[key] = value;
     }
   }
@@ -179,6 +188,9 @@ export function createShellTool(
       // preview uid (fs-isolated + uid-attributed) via the orchestration. A
       // refusal (static mode / pool exhausted / missing helper) falls back to
       // the normal Bun.spawn path below — fail-safe, never a hard failure.
+      // The refusal is reported in the result so the user knows no preview
+      // link will appear.
+      let previewRefusal: string | undefined;
       if (preview) {
         const detected = detectDevServerCommand(params.command);
         if (detected) {
@@ -222,8 +234,11 @@ export function createShellTool(
             conversationId: preview.conversationId,
             reason: launched.reason,
           });
+          previewRefusal = launched.reason;
         }
       }
+
+      const note = previewRefusalNote(previewRefusal);
 
       try {
         // Phase A4 (Seam B) — jail the spawn to the per-run workspace when
@@ -267,29 +282,44 @@ export function createShellTool(
         if (result.type === "timeout") {
           proc.kill();
           return {
-            content: [{ type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}` }],
-            details: { exitCode: -1, stdout: output, stderr, streaming: false, timeout: true },
+            content: [{ type: "text" as const, text: `Command timed out after ${timeout}ms\n${output}${note.text}` }],
+            details: { exitCode: -1, stdout: output, stderr, streaming: false, timeout: true, ...note.details },
           };
         }
 
         if (result.type === "aborted") {
           proc.kill();
           return {
-            content: [{ type: "text" as const, text: `Command aborted\n${output}` }],
-            details: { exitCode: -1, stdout: output, stderr, streaming: false, aborted: true },
+            content: [{ type: "text" as const, text: `Command aborted\n${output}${note.text}` }],
+            details: { exitCode: -1, stdout: output, stderr, streaming: false, aborted: true, ...note.details },
           };
         }
 
         const fullOutput = stderr ? `${output}\n${stderr}` : output;
         return {
-          content: [{ type: "text" as const, text: fullOutput || "(no output)" }],
-          details: { exitCode: result.value.exitCode, stdout: output, stderr, streaming: false, truncated },
+          content: [{ type: "text" as const, text: (fullOutput || "(no output)") + note.text }],
+          details: { exitCode: result.value.exitCode, stdout: output, stderr, streaming: false, truncated, ...note.details },
         };
       } catch (e) {
         const message = errorMessage(e);
         return toolError(message, { exitCode: -1, stdout: "", stderr: message, streaming: false });
       }
     },
+  };
+}
+
+/** Result additions when a dev-server launch was refused: a line for the
+ *  user/LLM and a `preview` detail. Empty when there was no refusal. */
+function previewRefusalNote(reason: string | undefined): {
+  text: string;
+  details: { preview?: { launched: false; reason: string } };
+} {
+  if (reason === undefined) return { text: "", details: {} };
+  return {
+    text:
+      `\n\nNo preview link: secure previews are unavailable here (${reason}). ` +
+      "The command ran as a normal shell command.",
+    details: { preview: { launched: false, reason } },
   };
 }
 

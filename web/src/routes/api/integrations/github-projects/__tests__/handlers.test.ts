@@ -8,8 +8,8 @@
  * (handlers return via errorJson() / json()), and we assert that NOTHING is
  * persisted when validation fails and that the plaintext token is never echoed.
  */
-import { test, expect, describe, beforeEach, afterAll, mock } from "bun:test";
-import { restoreModuleMocks } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
+import { test, expect, describe, beforeEach, beforeAll, afterAll, mock } from "bun:test";
+import { restoreModuleMocks, webLibModule, serverModule } from "../../../../../../../src/__tests__/helpers/mock-cleanup";
 import {
   mockServerAlias,
   MEMBER_USER,
@@ -30,14 +30,22 @@ for (const seg of ["connect", "link", "link/refresh-columns", "proposals", "prop
 // Real pass-through for the response/scope helpers — we inspect statuses.
 import * as httpErrorsActual from "../../../../../lib/server/http-errors";
 mock.module("$lib/server/http-errors", () => httpErrorsActual);
-mock.module("$lib/server/security/api-keys", () => ({
+const apiKeysExports = webLibModule("server/security/api-keys", {
   // Default: scope allowed (cookie-style). Overridden per-test via setScope().
   requireScope: () => scopeResponse,
-}));
+});
+mock.module("$lib/server/security/api-keys", () => apiKeysExports);
 
 // requireAuth real impl throws a 401 Response when no user — keep it real.
-import * as middlewareActual from "../../../../../../../src/auth/middleware";
-mock.module("$server/auth/middleware", () => middlewareActual);
+// auth/middleware: registered in beforeAll below, not here at module top
+// level — item C2 (W18 hygiene). The $server/auth/middleware alias is
+// claimed by dozens of files repo-wide, so whichever file's registration is
+// active when a shared-process run resolves the alias wins for every OTHER
+// file too. beforeAll (test-execution time) makes THIS file's own (real,
+// unmodified) module active for THIS file's own tests, and afterAll hands
+// the alias back to the real module so a later file in the same process
+// starts from a clean slate.
+const realAuthMiddleware = serverModule("auth/middleware", {});
 
 // Boundary 3 (`runStartToolPolicyOptions`, which the approve route calls) is
 // deliberately NOT mocked: `$server/*` resolves through the SvelteKit tsconfig
@@ -337,7 +345,13 @@ const { requireGithubScope } = await import(
   "../../../../../../../web/src/routes/api/integrations/github-projects/_shared"
 );
 
-afterAll(() => restoreModuleMocks());
+beforeAll(() => {
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
+afterAll(() => {
+  restoreModuleMocks();
+  mock.module("$server/auth/middleware", () => realAuthMiddleware);
+});
 
 beforeEach(() => {
   scopeResponse = null;

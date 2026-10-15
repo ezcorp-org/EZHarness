@@ -1,0 +1,29 @@
+W09d-2 report: named refusals on the executions route
+Branch wp/w09d2-named-refusals from wp/w02c-quarantine daf5203cc. Head 5e5161905 (docs). Code under test 295ced6b8.
+
+Result
+- Base daf5203cc: red. W02c's run B stays "running". The dispatch refusal reaches the orchestrator as an opaque 500 (proof/receipt-base.json).
+- Head 295ced6b8: green. Run B ends "failed" with factory_package_quarantined, and no cancel or stop is issued. All 10 harness checks hold (proof/receipt-head.json).
+
+What changed
+1. The one named-refusal answer moved from the private-service composition into FactoryPrivateCommands.execute. It covers the executions route (dispatch-node, cancel-node) and every effect. It is moved, not copied. Any other error still throws and stays an opaque {"error":"request_failed"} 500, and the reporter still receives it.
+2. The name alone did not end run B (attempts/head-7b27324f1). The kernel answers a failed dispatch with cancel-node. The stop path refuses that cancel as factory_task_stop_stale, because nothing was queued. The run then waits in "stopping" for ever. A kernel replay confirmed this.
+3. Safety condition (coordinator ruling 2026-09-24). FactoryTaskExecutionAdmission.dispatch() runs the admission under a savepoint in its run-locked transaction. A named refusal rolls back to the savepoint, and the queue is read in the same transaction under the same lock, which returns { refused, queued }. The later-lookup version (attempts/head-2f2b47a17) was replaced.
+4. The router sends node-failed with failureKind "admission_denied" (factoryAdmissionRefusedEvent) only when queued is false. The kernel then fails a running task node in place with the name and no cancel. A refusal after queueing, a refusal before the savepoint, a lost response, and a router without dispatch() all keep command-failed and the cancel.
+
+Evidence (all at 295ced6b8, clean)
+- Router 7 tests, route and composition 18 tests (receipts/light-legs.txt). A named dispatch refusal is answered 200 with admission_denied. A non-refusal is a 500 with no internal text.
+- Real-store dispatch cases in the lifecycle suite, on PGlite and on PostgreSQL 66/66. A refusal after the write rolls back and answers queued:false with no row left. A refusal after queueing answers queued:true. An unnamed error throws.
+- Kernel 27 tests. The Temporal node leg passes 87 of 87, including the new in-place case, which replays.
+- W09d and W02c suites: 20 light files and 11 PostgreSQL files, all green (receipts/light-legs.txt, receipts/postgres.txt).
+- Coverage with BASE_REF=wp/w02c-quarantine over 32 LCOV inputs: new-file 0, patch 0 (receipts/final-gates.txt).
+- Typecheck, lint, boundaries, and gate-integrity all exit 0.
+
+Files outside W09d, disclosed in tasks/factory/w09d2-GATES.md
+- kernel.ts and index.ts (Sol controls; ruled as an extension of W09d's command-failed ruling).
+- private-commands.ts (the private command dispatch package; disclosed under its gate file).
+- task-execution-admission.ts (W01): dispatch() added; admit() unchanged.
+- factory-run-lifecycle-suite.ts (W06): test cases only.
+- temporal-replay.test.ts (W09): one test case.
+
+Open (measured, not fixed): in the head run, run B's compute admission stays "admitted", its dispatch-node budget reservation stays "running", and the root envelope stays open with the allocation held. Nothing releases them. The pool call cannot be atomic with the refusal's transaction. Owners: pool lease W02, budget hold W03.

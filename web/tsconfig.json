@@ -2,6 +2,13 @@
 	"extends": "./.svelte-kit/tsconfig.json",
 	"compilerOptions": {
 		"rewriteRelativeImportExtensions": true,
+		// The web program now reaches `src/factory/**` through the factory
+		// composition that `$lib/server/context.ts` starts. Several of those files
+		// use `./x.ts` specifiers, which the ROOT tsconfig already permits with this
+		// same option; without it here the two programs disagree about files that
+		// are valid in one of them. Paired with `rewriteRelativeImportExtensions`
+		// above, which rewrites the specifier on emit.
+		"allowImportingTsExtensions": true,
 		"allowJs": true,
 		"checkJs": true,
 		"esModuleInterop": true,

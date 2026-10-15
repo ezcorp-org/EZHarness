@@ -1,0 +1,46 @@
+VERDICT (validator-6) — W4G-1 at a6de7a0cf (wp/w4g-1, owner w4f-3, code head 31d87fb1e), base 842ad9fe1: ACCEPT
+
+This replaces my REJECT at db95d6a3e (verdict-validator-6-w4g1.txt). 6 commits over 842ad9fe1, all archy noreply as author and
+committer: 94d23c2a7, db95d6a3e (round 1), 42f58e696 (interim), 73840c57c (the root build:packages script, the ignore rules, the
+guard), 31d87fb1e (guard scope), a6de7a0cf (gates).
+CARRY: `git diff --name-only 31d87fb1e a6de7a0cf` = tasks/factory/w4g-1-GATES.md only. The heavy phase, the image builds and the
+guard leg ran at 31d87fb1e; the static phase ran again at a6de7a0cf. Config hash 44962525f1ca1a8b at the start and end of every
+phase. Bun and bunx 1.4.2, with the pipelining flag.
+
+REVIEW
+  - scripts/build-workspace-packages.ts: the workspaces come from bun.lock, the order from each package's workspace dependencies
+    (dependencies, devDependencies, peerDependencies), ties broken by path; a cycle is refused by name. Only packages with a build
+    script are built; the first failure stops the run with its exit code.
+  - package.json: `build:packages` runs it; the postinstall calls it. Dockerfile, Dockerfile.dev, Dockerfile.test and
+    deploy/factory/Dockerfile call `bun run build:packages` before any web build; no image builds a package by hand.
+  - .dockerignore and Dockerfile.test.dockerignore exclude packages/@ezcorp/*/dist and packages/@ezcorp/*/*.tsbuildinfo, so a
+    local build output cannot hide a missing build step.
+  - The guard (scripts/container-workspace-registration.test.ts) checks all of the above for every tracked container file,
+    with the ignore file beside each container file, and has its own reader tests.
+  - Outside the images, single-package builds remain in ci.yml lane steps (pinned by check-factory-lanes) and release-sdk.yml.
+    They build one package each and keep no order; they are not image builds.
+
+IMAGES, re-run by me (w4g-validation/repro-w4g1.sh): podman builds from a git-archive snapshot (no dist/ in either snapshot),
+  context = the snapshot root, each to the end; every image tagged localhost/v6-w4g1-* and removed by name; no image prune.
+  - At 842ad9fe1, RED: Dockerfile, Dockerfile.dev and Dockerfile.test fail at the frozen install ("listed in bun.lock but not on
+    disk"); deploy/factory/Dockerfile builds.
+  - At 31d87fb1e, GREEN: all four build to the end (Dockerfile, Dockerfile.dev, Dockerfile.test, deploy/factory/Dockerfile). The
+    build order the script printed: extension-contract, sdk, factory-sdk, factory-transport, factory-orchestrator, harness-client
+    (the order the gates doc states).
+  - Boot: the production image starts, and GET /api/health answers 200 {"status":"healthy"}.
+  - The --no-cache production build and the dev provenance check are the owner's (w4g-1/report.txt, ROUND 2); I did not repeat them.
+
+GUARD LEG, by me (w4g-validation/guard-w4g1.sh, under the lock): the head's guard test in a git-archive snapshot of each revision.
+  - db95d6a3e: 19 pass, 7 fail (the root script, the four images, the ignore rule).
+  - 31d87fb1e: 29 pass, 0 fail.
+
+RERUN RESULTS
+  Static at a6de7a0cf (hold-v6-w4g1-a6de7a0cf): frozen installs and the six package builds 0; identity 6/6; receipts 66 scanned,
+    0 missing; typecheck, lint, both boundary checks 0; gate-integrity: the base leg against 842ad9fe1 is clean, the origin/main
+    leg equals the 8-path set; gitleaks 0.
+  Heavy at 31d87fb1e (hold-v6-w4g1-31d87fb1e), under the lock:
+    - the image reproduction red and green as above;
+    - unit leg (build-workspace-packages.test.ts and the guard): 2 files, 35/0; no file VOID, no skip;
+    - SDK 246/0; guard set 89/0 across 13 files;
+    - lcov merge 0; the new-file gate (scripts/build-workspace-packages.ts, threshold 100) and the patch gate pass.
+  The podman suites of the combined run (19, 7, 2, 1 pass, 0 fail) are the owner's (green3-podman-*.log); my hold did not run them.

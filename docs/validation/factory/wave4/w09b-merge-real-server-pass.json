@@ -1,0 +1,115 @@
+{
+  "receipt": "w09b-merge-real-server-pass",
+  "producingCommit": "bcd97df484375880035fb7d668c6d297a03350c5",
+  "mergeStaged": true,
+  "startedAt": "2026-09-22T13:01:07-04:00",
+  "finishedAt": "2026-09-22T13:01:47-04:00",
+  "exitCode": 0,
+  "recordStartedAt": "2026-09-22T17:01:07.671Z",
+  "recordFinishedAt": "2026-09-22T17:01:47.103Z",
+  "recordFresh": true,
+  "outcome": "passed",
+  "failure": null,
+  "readyStatus": 200,
+  "rolesRunning": [
+    "compute-admission-dispatch",
+    "compute-admission-poll",
+    "attempt-dispatch",
+    "run-projection",
+    "notification-inbox-delivery",
+    "child-settlement",
+    "release-outcome",
+    "usage-reconciliation",
+    "stop-settlement"
+  ],
+  "rolesRunningCount": 9,
+  "rolesHeld": [
+    {
+      "role": "notification-send",
+      "workPackage": "W17"
+    }
+  ],
+  "rolesHeldCount": 1,
+  "sharedStores": {
+    "statuses": [
+      {
+        "store": "ordinary",
+        "port": 18333,
+        "reachable": true,
+        "detail": "http 403"
+      },
+      {
+        "store": "archive",
+        "port": 18334,
+        "reachable": true,
+        "detail": "http 403"
+      }
+    ],
+    "unreachable": []
+  },
+  "temporal": {
+    "port": 44377,
+    "tlsPort": 45621,
+    "reachable": true
+  },
+  "privateService": {
+    "port": 39303,
+    "accepting": true
+  },
+  "orchestrationLifecycle": "ready",
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "guestPackage": {
+    "reference": {
+      "package": "@ezcorp/w09b-guest",
+      "manifestName": "w09b-guest",
+      "version": "1.0.0",
+      "digest": "sha256:c429b84ec4dbed709188115598db538a06f07887d9b900bd8cdc7c188c531121",
+      "export": "run"
+    },
+    "artifactDigest": "c429b84ec4dbed709188115598db538a06f07887d9b900bd8cdc7c188c531121",
+    "sourceDigest": "cf8c739fdf0251175cc4f59db64d751bc288a0b5851d84118cf376df388d496c",
+    "buildMs": 3512
+  },
+  "durableRun": {
+    "runId": "fa3dbef7-3f82-4008-b75e-8c6077bc92ae",
+    "startedStatus": 202,
+    "readBackStatus": 200,
+    "readBackStatusValue": "queued",
+    "terminal": {
+      "status": "failed",
+      "at": 6
+    },
+    "restart": {
+      "readyState": "ready",
+      "runStatus": "failed",
+      "runId": "fa3dbef7-3f82-4008-b75e-8c6077bc92ae",
+      "firstExit": {
+        "code": 0,
+        "signal": null
+      }
+    }
+  },
+  "notProven": [
+    "a COMPLETED runner result: the completed variant carries a staged output artifact, and staging one needs the auxiliary material service a minimal guest has no mount for (W01c/W04). The guest here returns the canonical `cancelled` result \u2014 the one member of the union that needs no staged artifact \u2014 which the dispatcher records and the projector projects.",
+    "a PUBLISHED release: `release-outcome` runs here and its scan finds nothing, because this guest's definition carries no release node and no approval or policy was written. What is proved is that the role composes from the declared destination and runs; what is not is a claimable operation being claimed and published, which needs a release node in the definition plus an approval or policy through W05's production writers. The declared destination itself is proved to reach the real store by the s3-destination-proof receipt.",
+    "notification-send: W17, as planned."
+  ],
+  "shutdown": {
+    "exited": {
+      "code": 0,
+      "signal": null
+    },
+    "childrenAtRun": 0,
+    "survivors": [],
+    "portAfterStop": "refused",
+    "teardownLog": [
+      "{\"ts\":\"2026-09-22T17:01:45.569Z\",\"level\":\"info\",\"msg\":\"graceful shutdown begin\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\",\"teardownCount\":14}",
+      "{\"ts\":\"2026-09-22T17:01:45.572Z\",\"level\":\"info\",\"msg\":\"teardown ok\",\"subsystem\":\"shutdown\",\"name\":\"factory-runtime\",\"ms\":1}",
+      "{\"ts\":\"2026-09-22T17:01:45.573Z\",\"level\":\"info\",\"msg\":\"graceful shutdown complete\",\"subsystem\":\"shutdown\",\"reason\":\"SIGTERM\"}"
+    ]
+  },
+  "recordSha256": "12ca69f57cd8b3f179d228e252192927c8fad085624f70875547f71ca4ed64dd"
+}

@@ -51,6 +51,7 @@ test("Unix API checks peer UID and bearer and carries bidirectional RPC", async 
     const notification = new Promise(resolve => { const unsubscribe = execution.onNotification((method, params) => { unsubscribe(); resolve({ method, params }); }); });
     await execution.request("notify", { key: "updated" });
     expect(await notification).toEqual({ method: "changed", params: { key: "updated" } });
+    await expect(new RunnerClient({ socketPath, token }).attach({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async () => null)).rejects.toThrow("already attached");
     await execution.close();
     expect(closed).toBe(true);
   } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
@@ -87,7 +88,9 @@ sys.exit(1)
       allowedUid: process.getuid!(),
       python: wrapperPath,
     })).rejects.toThrow("Unix peer gateway exited");
-    const [privatePath, owner, mode] = (await readFile(observationPath, "utf8")).trim().split("\n");
+    const observed = (await readFile(observationPath, "utf8")).trim().split("\n");
+    expect(observed).toHaveLength(3);
+    const [privatePath, owner, mode] = observed as [string, string, string];
     expect(owner).toBe(String(process.getuid!()));
     expect(mode).toBe("700");
     await expect(lstat(privatePath)).rejects.toThrow();
@@ -131,4 +134,31 @@ test("a rejected duplicate service preserves the active public socket", async ()
     await service.close();
     await rm(directory, { recursive: true, force: true });
   }
+});
+
+test("capabilities: a runner advertises process-spawn enforcement, and a runner or service without it reads as not enforced", async () => {
+  const directory = await mkdtemp("/tmp/ez-runner-caps-");
+  const token = "test-service-credential-32-bytes-minimum";
+  const base: Runner = {
+    build: async () => { throw new Error("unused"); },
+    start: async () => { throw new Error("unused"); },
+    cancel: async () => {},
+    inspect: async id => ({ id, state: "unknown", diagnostics: [] }),
+    collectArtifacts: async () => ({}),
+  };
+  const ask = async (runner: Runner, name: string) => {
+    const socketPath = join(directory, `${name}.sock`);
+    const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+    try { return await new RunnerClient({ socketPath, token }).capabilities(); } finally { await server.close(); }
+  };
+  // A service from before /v4/capabilities answers unknown_method for it.
+  const oldSocket = join(directory, "old.sock");
+  const old = Bun.serve({ unix: oldSocket, fetch: () => Response.json({ error: { code: "unknown_method", message: "Unknown runner endpoint" } }, { status: 404 }) });
+  try {
+    expect(await ask({ ...base, capabilities: async () => ({ processSpawnEnforcement: true }) }, "enforcing")).toEqual({ processSpawnEnforcement: true });
+    expect(await ask({ ...base, capabilities: async () => ({ processSpawnEnforcement: false }) }, "unguarded")).toEqual({ processSpawnEnforcement: false });
+    expect(await ask(base, "legacy")).toEqual({ processSpawnEnforcement: false });
+    expect(await new RunnerClient({ socketPath: oldSocket, token }).capabilities()).toEqual({ processSpawnEnforcement: false });
+    await expect(new RunnerClient({ socketPath: join(directory, "absent.sock"), token }).capabilities()).rejects.toThrow();
+  } finally { await old.stop(true); await rm(directory, { recursive: true, force: true }); }
 });

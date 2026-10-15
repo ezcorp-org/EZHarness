@@ -1,0 +1,212 @@
+{
+ "package": "w02c",
+ "branch": "wp/w02c-quarantine",
+ "head": "383bd60ffdf0cf8ef579a467284774996822583a",
+ "validatorVerdict": "ACCEPT (independent validator at daf5203cc; F3 delta re-check ACCEPT at 383bd60ff, code c17ea2aa9; report copied as w02c-validation-report.txt)",
+ "mergeSha": "3473fa57843b8fa13340995f7ff226459f50d623",
+ "tree": "2a9506515e7963eb73158c5a57a5811ed8c6600b",
+ "parents": [
+  "7a87aed5ea8e898019d18bb80558deeafacbf6cf",
+  "383bd60ffdf0cf8ef579a467284774996822583a"
+ ],
+ "conflicts": {
+  "tasks/todo.md": "union",
+  "tasks/lessons.md": "union",
+  "src/db/migrate.ts": "registration, both sides kept: W02c's add-factory-package-fence-runs runs before add-factory-recovery, which stays last on purpose (the checkpoint barrier attaches to every factory table that exists)"
+ },
+ "integrationFix": [],
+ "rulings": {
+  "OPEN1": "the settlement rule for a stopped attempt with no operations is assigned to W03e",
+  "OPEN2": "answered by W09d's fail-in-place path (command-failed event with the named refusal; the kernel fails the run in place); on the merged tree run B ends failed with factory_package_quarantined",
+  "OPEN3": "accepted: the host stop receipt records the physical fact (cancelled); the typed reason lives on the run and the affected-run record; dated deviation from freeze section 3 (no second W03-owned stop path)",
+  "F1": "stale-evidence finding closed by the validator's own passes at daf5203cc; the executions-route named refusal belongs to the effect protocol follow-up (W09d-2)",
+  "F2": "ownership of small changes to run-lifecycle.ts (W06), attempt-dispatcher.ts and native-runner-policy.ts (W01), factory-task-stops-suite.ts (W03): disclosed in the gate file, behavior verified by the validator",
+  "F3": "closed at 383bd60ff: the admission fence is required in FactoryNativeRunnerPolicy",
+  "F4": "LOW: no gate stops production src/** from importing src/__tests__/**; owner W18a-3 (test-path import boundary rule)",
+  "W14": "W14's src/factory/console.ts:78 builds FactoryPackageTrusts without a fence; it must switch to createFactoryPackageTrusts when W14 merges (quarantine otherwise refuses factory_package_fence_unavailable, fail closed)",
+  "tmpfiles": "the tmpfiles exclusion is the USER's decision"
+ },
+ "integrationChecks": "new PostgreSQL suite tests/postgres/factory-package-fence.test.ts is registered in db-postgres.yml (registration exit 0); no new /api route; the new migration is registered in migrate.ts, mirrored in schema.ts, in schema parity (pg-factory-schema 2/0) and schema-drift exit 0. No workspace package changed, so no rebuild.",
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-24T16:20:35Z",
+   "end": "2026-09-24T16:20:36Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "e301ddc0f4ea234f9104aa26ea21d0317e7a51a8ecbcc363cf5939ef9560f4e0"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-24T16:20:36Z",
+   "end": "2026-09-24T16:21:25Z",
+   "command": "bun run typecheck",
+   "logSha256": "46896367bfe070313186e0224d7c671fe2fd52cb6bdd38833275cc6220a992f5"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:25Z",
+   "end": "2026-09-24T16:21:26Z",
+   "command": "bun run lint",
+   "logSha256": "46907bfacf5f897fc229dbad38f0d9b4c3d0ad6574ad1acb9b6f978698bf82bc"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:26Z",
+   "end": "2026-09-24T16:21:28Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:29Z",
+   "end": "2026-09-24T16:21:29Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "7bc27ebaae7b275fdd2403a02dc60c70eb94d07e269401e006b56590502d16e7"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:29Z",
+   "end": "2026-09-24T16:21:34Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "bf54d71df4bb820ddd5c50188d70a55f86e50dcea637f3af20599f18a8d2dabc"
+  },
+  {
+   "name": "focused-src-__tests__-factory-package-fence-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:34Z",
+   "end": "2026-09-24T16:21:49Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-package-fence.test.ts",
+   "logSha256": "4cd7419ac3571bb04205ba88c7feeda0459c5395c8d8314655bbdd4456c44479"
+  },
+  {
+   "name": "focused-src-__tests__-factory-run-lifecycle-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:21:49Z",
+   "end": "2026-09-24T16:22:17Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-run-lifecycle.test.ts",
+   "logSha256": "0ac67c3cfeb1ccdb433839cd19672f491ef0dceab1dd1ed7c1eef67f763e051c"
+  },
+  {
+   "name": "focused-src-__tests__-factory-task-stops-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:17Z",
+   "end": "2026-09-24T16:22:25Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-task-stops.test.ts",
+   "logSha256": "095c96fbb6cc14f2a748886a821493a81c5c0663f6eb055f3bfdf93f4b3ad84a"
+  },
+  {
+   "name": "focused-src-__tests__-factory-migration-restart-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:25Z",
+   "end": "2026-09-24T16:22:32Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-migration-restart.test.ts",
+   "logSha256": "7544f9012170c7532aeeeed6d2c16b47957c510f81f5a29fc6fdc52c26e7c752"
+  },
+  {
+   "name": "focused-src-factory-attempt-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:32Z",
+   "end": "2026-09-24T16:22:37Z",
+   "command": "bun test --timeout 60000 ./src/factory/attempt-composition.test.ts",
+   "logSha256": "fd550f58950e6ab40f988a5f9c1150fdc65cbfb1a18d56a3ee524e075ce8afbc"
+  },
+  {
+   "name": "focused-src-factory-lazy-input-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:37Z",
+   "end": "2026-09-24T16:22:39Z",
+   "command": "bun test --timeout 60000 ./src/factory/lazy-input.test.ts",
+   "logSha256": "d41fcd85966ce25f35dbaae1495cb8c680d1fde89391a94b5e6b48eda8254780"
+  },
+  {
+   "name": "focused-src-factory-package-preparation-integration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:39Z",
+   "end": "2026-09-24T16:22:48Z",
+   "command": "bun test --timeout 60000 ./src/factory/package-preparation.integration.test.ts",
+   "logSha256": "967f8e8374effd9ca5bebba2fc8220f23011f41721facea5cae916018fb0f8cc"
+  },
+  {
+   "name": "focused-src-factory-private-service-composition-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:48Z",
+   "end": "2026-09-24T16:22:51Z",
+   "command": "bun test --timeout 60000 ./src/factory/private-service-composition.test.ts",
+   "logSha256": "a79d1b373d848b1521ff3c2730c7457f5b8ddb87d9e123bbc3aa2a762ad06434"
+  },
+  {
+   "name": "focused-src-factory-release-fence-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:51Z",
+   "end": "2026-09-24T16:22:51Z",
+   "command": "bun test --timeout 60000 ./src/factory/release-fence.test.ts",
+   "logSha256": "1cee8b180025160bbf82fe52554bb8c3b240e59e09478faa3e0fd1d7fcbafc28"
+  },
+  {
+   "name": "focused-src-factory-runner-attempt-dispatch-driver-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:51Z",
+   "end": "2026-09-24T16:22:59Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/attempt-dispatch-driver.test.ts",
+   "logSha256": "ba26264729ac44c27000a1e3059d078f3914307869096e9924f3536b588c9101"
+  },
+  {
+   "name": "focused-src-factory-runner-attempt-recovery-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:22:59Z",
+   "end": "2026-09-24T16:23:27Z",
+   "command": "bun test --timeout 60000 ./src/factory/runner/attempt-recovery.test.ts",
+   "logSha256": "b977d6aadeb933af2e57970f8bc5c85b92a5953cf65f778b852d4da69e254441"
+  },
+  {
+   "name": "focused-src-db-factory-schema-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-24T16:23:27Z",
+   "end": "2026-09-24T16:23:27Z",
+   "command": "bun test --timeout 60000 ./src/db/factory-schema.test.ts",
+   "logSha256": "1ed96d185a35b5ef407ba9a121b7fd1cf696d9188ed17109e6c3be0a6a789e94"
+  },
+  {
+   "name": "focused-web-factories-server (vitest)",
+   "exitCode": 0,
+   "command": "cd web && bunx vitest run src/routes/api/factories/factories.server.test.ts",
+   "note": "first attempt used bun test (wrong runner, vi.hoisted undefined); kept as focused-web-factories-server-wrong-runner.log",
+   "logSha256": "4058ac5dd927e6ceb398402208c9ce347dd37522000ddab1e55673fcba4df2cb"
+  }
+ ],
+ "heavy": {
+  "script": "w00/merge-heavy-batch.sh (flock --close, timeout 5400)",
+  "summary": [
+   "=== heavy batch 2026-09-24T17:55:37Z",
+   "HEAD 7a87aed5ea8e898019d18bb80558deeafacbf6cf MERGE_HEAD 383bd60ffdf0cf8ef579a467284774996822583a index-tree 2a9506515e7963eb73158c5a57a5811ed8c6600b umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.5T  200G  89% /",
+   "--- START pg-factory-package-fence 2026-09-24T17:55:37Z",
+   "--- END   pg-factory-package-fence 2026-09-24T17:58:23Z exit=0  17 pass 0 fail ",
+   "--- START pg-factory-schema 2026-09-24T17:58:23Z",
+   "--- END   pg-factory-schema 2026-09-24T17:58:33Z exit=0  2 pass 0 fail ",
+   "--- START pg-factory-migration-restart 2026-09-24T17:58:33Z",
+   "--- END   pg-factory-migration-restart 2026-09-24T17:59:12Z exit=0  16 pass 0 fail ",
+   "--- START pg-factory-package-preparation 2026-09-24T17:59:12Z",
+   "--- END   pg-factory-package-preparation 2026-09-24T18:02:38Z exit=0  22 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle 2026-09-24T18:02:38Z",
+   "--- END   pg-factory-run-lifecycle 2026-09-24T18:03:30Z exit=0  66 pass 0 fail ",
+   "--- START pg-factory-run-lifecycle-s3 2026-09-24T18:03:30Z",
+   "--- END   pg-factory-run-lifecycle-s3 2026-09-24T18:04:37Z exit=0  66 pass 0 fail ",
+   "--- START pg-factory-task-stops 2026-09-24T18:04:37Z",
+   "--- END   pg-factory-task-stops 2026-09-24T18:05:00Z exit=0  18 pass 0 fail ",
+   "--- START podman-package-preparation.podman.integration 2026-09-24T18:05:00Z",
+   "--- END   podman-package-preparation.podman.integration 2026-09-24T18:05:22Z exit=0  1 pass 0 fail ",
+   "--- START podman-attempt-runtime.integration 2026-09-24T18:05:22Z",
+   "--- END   podman-attempt-runtime.integration 2026-09-24T18:05:43Z exit=0  7 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-24T18:05:43Z"
+  ]
+ },
+ "commitHook": "the pre-commit hook ran its staged suites with the real PostgreSQL URL: all pass (w00/w02c-merge/commit.log)",
+ "standingSteps": "df 113G at merge start, 112G before the heavy batch, 198G at commit"
+}

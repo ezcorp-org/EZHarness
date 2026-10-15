@@ -1,0 +1,5 @@
+hold dir /tmp/factory-platform-evidence/integrator-5/harness/w4h22/hold-20261010T043710Z
+  ✓   9 [chromium] › e2e/file-organizer-real.spec.ts:516:5 › file-organizer real-backend › UI: a refused add surfaces a real error toast in the browser (3.5s)
+  13 passed (7.7m)
+LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED
+shard=content exit=0 end=2026-10-10T05:03:15Z

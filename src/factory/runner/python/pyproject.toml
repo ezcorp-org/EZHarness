@@ -1,0 +1,51 @@
+[project]
+name = "ezcorp-factory-runner"
+version = "0.0.0"
+requires-python = "==3.13.*"
+dependencies = ["jsonschema==4.25.1", "pyarrow==25.0.1"]
+
+[dependency-groups]
+dev = [
+    "coverage==7.13.1",
+    "mypy==1.18.2",
+    "ruff==0.12.11",
+    "types-jsonschema>=4.26.0.20260518",
+]
+
+[tool.ruff]
+line-length = 120
+
+# Correctness-first selection. `I` (import order), `S` (subprocess heuristics)
+# and `E5` (line length) were W18 backlog because the old c02_runner.py shelled
+# out to a Node bridge and failed all three. W02 removed that shell-out for the
+# Python-native validator C07 requires, so the lane now enforces them.
+[tool.ruff.lint]
+select = ["E4", "E5", "E7", "E9", "W", "F", "I", "S", "UP", "B", "C4", "SIM", "RET", "PIE", "PTH", "ANN", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+
+# `relative_files` makes coverage.py record repository-relative paths, so the
+# emitted LCOV carries `SF:src/factory/runner/python/...` and merges with the
+# Bun and Node reports without a path-rewriting step. scripts/python-quality.sh
+# runs coverage from the repository root for exactly this reason.
+[tool.coverage.run]
+branch = true
+relative_files = true
+source = ["src/factory/runner/python"]
+omit = ["src/factory/runner/python/tests/*", "*/.venv/*"]
+
+[tool.coverage.report]
+show_missing = true
+
+[tool.mypy]
+strict = true
+
+# PyArrow ships no `py.typed` marker and no stub package exists for it, so
+# strict mypy cannot follow `import pyarrow` at all. The override is scoped to
+# that one distribution: everything this repository writes stays strictly
+# typed, and the untyped surface is the third-party library, named here rather
+# than silenced with a per-line comment in every file that uses it.
+[[tool.mypy.overrides]]
+module = ["pyarrow", "pyarrow.*"]
+ignore_missing_imports = true

@@ -1,0 +1,379 @@
+{
+ "package": "w03e",
+ "branch": "wp/w03e-usage-settle",
+ "head": "c6dbc321ce88f8806fe2895ed0e901d2026acf42",
+ "validatorVerdict": "ACCEPT by validator-4 (all three held-open legs run at proof merge 6943985ff = ref proof/w03e-integ-2b2e12550); copied as w03e-validation.txt",
+ "workerReport": "w03e/report.txt (copied as w03e-worker-report.txt)",
+ "mergeSha": "7a9dd52875d25bd3a3c19ea407421cbb0498cf75",
+ "tree": "ee1846d82f2068520b40f8c58eb10578f4f4bd06",
+ "parents": [
+  "97423ce17c44c165cc060473b0bc0cbd9d693f27",
+  "c6dbc321ce88f8806fe2895ed0e901d2026acf42"
+ ],
+ "conflicts": {
+  "src/__tests__/helpers/factory-task-stops-suite.ts": "2 import hunks",
+  "src/__tests__/helpers/factory-migration-restart-suite.ts": "1 hunk",
+  "tasks/lessons.md": "union",
+  "tasks/todo.md": "union",
+  "resolution": "our side of both helpers is byte-identical to 2b2e12550 and W03e's side is the same commit, so validator-4's resolved blobs from proof merge 6943985ff were taken verbatim (task-stops suite: the names W03e's tests use on the W02c-refactored suite; restart suite: all three appended tests); hunks in w03e-merge-conflict-hunks.txt",
+  "migrationOrder": "add-factory-usage-no-operations registers before add-factory-recovery, which stays last"
+ },
+ "integrationFix": [],
+ "checks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-25T23:41:06Z",
+   "end": "2026-09-25T23:41:06Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "ec2ac6838f9209cbeedc0681774b54c5abdf24b1b339d144982ef160f1ce3850"
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-25T23:41:06Z",
+   "end": "2026-09-25T23:41:54Z",
+   "command": "bun run typecheck",
+   "logSha256": "aaae8b4e0e3d03c210feaac34ce4f7d31af6e39580095d51b8486f5c9ea26caa"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-25T23:41:54Z",
+   "end": "2026-09-25T23:41:56Z",
+   "command": "bun run lint",
+   "logSha256": "b8529ef11661117004f41f59f8bab78fe7e274edf0a475f4edfb87cbf8663ee2"
+  },
+  {
+   "name": "gate-integrity",
+   "exitCode": 0,
+   "start": "2026-09-25T23:41:56Z",
+   "end": "2026-09-25T23:41:58Z",
+   "command": "bun scripts/gate-integrity.ts",
+   "logSha256": "b1a0297506aab4a182c44b23c41d861c6f4ae88da68848497d810bb39bff6bda"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-25T23:41:59Z",
+   "end": "2026-09-25T23:42:00Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:00Z",
+   "end": "2026-09-25T23:42:04Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:04Z",
+   "end": "2026-09-25T23:42:07Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "d508db7ebe45c8ed0309d69af156774d699d30a628c2dc8348ad5920dca651a9"
+  },
+  {
+   "name": "focused-src-db-factory-schema-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:07Z",
+   "end": "2026-09-25T23:42:07Z",
+   "command": "bun test --timeout 60000 ./src/db/factory-schema.test.ts",
+   "logSha256": "90a490475ed5121db0d3b15935e9406d188f8c0f106ede450b41882e735d8945"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-task-stops-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:07Z",
+   "end": "2026-09-25T23:42:10Z",
+   "command": "bun test --timeout 60000 ./src/db/migrations/add-factory-task-stops.test.ts",
+   "logSha256": "1539a5a9639ecbc67bdbb65fa2837fbbf297a64540deef4060957c2509b36783"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-usage-no-operations-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:10Z",
+   "end": "2026-09-25T23:42:12Z",
+   "command": "bun test --timeout 60000 ./src/db/migrations/add-factory-usage-no-operations.test.ts",
+   "logSha256": "78736e9de8b2f60616a9df7b4871b84a13527568f7bda8ee99947d8c05ac4aa2"
+  },
+  {
+   "name": "focused-src-db-migrations-add-factory-usage-settlements-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:12Z",
+   "end": "2026-09-25T23:42:13Z",
+   "command": "bun test --timeout 60000 ./src/db/migrations/add-factory-usage-settlements.test.ts",
+   "logSha256": "fd276cf8e39f4a55d4248e43c2ccf3868acaa6768c3166a51aaf59323bd4ed96"
+  },
+  {
+   "name": "focused-src-factory-usage-settlement-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:13Z",
+   "end": "2026-09-25T23:42:14Z",
+   "command": "bun test --timeout 60000 ./src/factory/usage-settlement.test.ts",
+   "logSha256": "62d801d8ab865185589f03527f06dc546a7bb0349ebab1412c50ba64ce320bd0"
+  },
+  {
+   "name": "focused-src-__tests__-factory-compute-admissions-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:14Z",
+   "end": "2026-09-25T23:42:20Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-compute-admissions.test.ts",
+   "logSha256": "8239fc0c7f974f6e74b19ff4f800a114a18eca77851dc78d806bb17972475c78"
+  },
+  {
+   "name": "focused-src-__tests__-factory-migration-restart-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:20Z",
+   "end": "2026-09-25T23:42:27Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-migration-restart.test.ts",
+   "logSha256": "04723dbe88ff4b9593f46a7d008038c66a0f32bf4763bb3bb422a0e9e61b7be7"
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:27Z",
+   "end": "2026-09-25T23:42:31Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "9b3e6d09b6e63803cf2b5d7e52ccc8b8b347c41971869e63aba439a01d83c74f"
+  },
+  {
+   "name": "focused-src-__tests__-factory-task-stops-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-25T23:42:31Z",
+   "end": "2026-09-25T23:42:40Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-task-stops.test.ts",
+   "logSha256": "dbb199d535efb5936ce90259e5cd89400ef6b53901ddf1621d347588cf4355b7"
+  }
+ ],
+ "heavy": {
+  "where": "proof/w03e-merge-staged f2734f574df427f16434ba1d422862d6fdce1073 (tree ee1846d82 = the merge tree) in a worktree with a real frozen install; PostgreSQL suites in staging (same tree)",
+  "summary": [
+   "lock 2026-09-26T00:29:36Z proof f2734f574df427f16434ba1d422862d6fdce1073 tree ee1846d82f2068520b40f8c58eb10578f4f4bd06",
+   "resource-gate 2026-09-26T00:29:36Z pg-suites disk=113G memAvailable=17GiB swapFreeKiB=7153792/17173956",
+   "pg batch exit=0",
+   "resource-gate 2026-09-26T00:30:17Z web-build disk=113G memAvailable=17GiB swapFreeKiB=7154784/17173956",
+   "web build exit=0",
+   "resource-gate 2026-09-26T00:30:57Z pass-1 disk=112G memAvailable=17GiB swapFreeKiB=7146580/17173956",
+   "pass-1 exit=0 passed 10 / 10 held timeouts None",
+   "resource-gate 2026-09-26T00:31:46Z pass-2 disk=112G memAvailable=17GiB swapFreeKiB=7145072/17173956",
+   "pass-2 exit=0 passed 10 / 10 held timeouts None",
+   "resource-gate 2026-09-26T00:32:35Z pass-3 disk=112G memAvailable=16GiB swapFreeKiB=7119148/17173956",
+   "pass-3 exit=0 passed 10 / 10 held timeouts None",
+   "resource-gate 2026-09-26T00:33:25Z backend-pool disk=112G memAvailable=15GiB swapFreeKiB=7090708/17173956",
+   "backend-pool exit=0",
+   "DONE status=0 end=2026-09-26T00:47:16Z dirty=0",
+   "INCIDENT (coordinator, 2026-09-26): host-wide OOM during this hold. Kernel log: 00:36:07Z and 00:36:23Z memory-cgroup kills of two bun processes inside podman containers (cgroups libpod-4d033c..., libpod-782c0e...; UID 231069; anon-rss ~120 MiB each); 00:37:13Z the global OOM killed searxng and the node process of ezharness-app-1 (both restarted). Extra pressure from a W18c 178-file bisect outside the lock. This hold's backend pool (00:33:25-00:47Z) shows no SIGKILL/137/OOM and 0 fails; the killed containers were io.ezcorp.runner containers ez-v4-02cdbb97... and ez-v4-b4e1ee35... (lived <1 s, exit 1), not attributable to a suite of this hold from its records. No leg void."
+  ],
+  "pg": [
+   "=== heavy batch 2026-09-26T00:29:36Z",
+   "HEAD 97423ce17c44c165cc060473b0bc0cbd9d693f27 MERGE_HEAD c6dbc321ce88f8806fe2895ed0e901d2026acf42 index-tree ee1846d82f2068520b40f8c58eb10578f4f4bd06 umask 0077",
+   "df: /dev/nvme0n1p2  1.8T  1.6T  113G  94% /",
+   "resource-gate 2026-09-26T00:29:36Z pg-factory-task-stops disk=113G memAvailable=17GiB swapFreeKiB=7153792/17173956",
+   "--- START pg-factory-task-stops 2026-09-26T00:29:36Z",
+   "--- END   pg-factory-task-stops 2026-09-26T00:29:47Z exit=0  25 pass 0 fail ",
+   "resource-gate 2026-09-26T00:29:47Z pg-factory-migration-restart disk=113G memAvailable=17GiB swapFreeKiB=7154048/17173956",
+   "--- START pg-factory-migration-restart 2026-09-26T00:29:47Z",
+   "--- END   pg-factory-migration-restart 2026-09-26T00:30:06Z exit=0  18 pass 0 fail ",
+   "resource-gate 2026-09-26T00:30:06Z pg-factory-schema disk=113G memAvailable=17GiB swapFreeKiB=7154404/17173956",
+   "--- START pg-factory-schema 2026-09-26T00:30:06Z",
+   "--- END   pg-factory-schema 2026-09-26T00:30:12Z exit=0  2 pass 0 fail ",
+   "resource-gate 2026-09-26T00:30:12Z pg-factory-budgets disk=113G memAvailable=17GiB swapFreeKiB=7154456/17173956",
+   "--- START pg-factory-budgets 2026-09-26T00:30:12Z",
+   "--- END   pg-factory-budgets 2026-09-26T00:30:17Z exit=0  13 pass 0 fail ",
+   "BATCH DONE status=0 2026-09-26T00:30:17Z"
+  ],
+  "realPasses": {
+   "harness": "copy of validator-4's usage-settle harness (w03e-validation/legs-validator-4/harness; temporalHttp declared; OUT repointed to w00/w03e-merge/legs)",
+   "passes": [
+    {
+     "label": "merge-pass-1",
+     "exitCode": 0,
+     "outcome": "passed",
+     "held": 10,
+     "checks": 10,
+     "timeouts": null,
+     "startedAt": "2026-09-25T20:30:57-04:00",
+     "finishedAt": "2026-09-25T20:31:46-04:00",
+     "recordSha256": "393bd260bacf301acc04f6426c3b49f5bbc691496f635824fa9150513c97e7af",
+     "checkList": [
+      {
+       "check": "the stack reached ready and both runs launched a real guest",
+       "held": true
+      },
+      {
+       "check": "run O was cancelled by the operator through the product route",
+       "held": true
+      },
+      {
+       "check": "run O's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run O reached the terminal cancelled status",
+       "held": true
+      },
+      {
+       "check": "run O settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      },
+      {
+       "check": "the package was quarantined while run A's guest was running, and the server was killed mid-stop and came back ready",
+       "held": true
+      },
+      {
+       "check": "run A was cancelled once by the fence with the typed reason and is in the affected-run record",
+       "held": true
+      },
+      {
+       "check": "run A's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run A reached the terminal cancelled status with the typed reason",
+       "held": true
+      },
+      {
+       "check": "run A settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      }
+     ]
+    },
+    {
+     "label": "merge-pass-2",
+     "exitCode": 0,
+     "outcome": "passed",
+     "held": 10,
+     "checks": 10,
+     "timeouts": null,
+     "startedAt": "2026-09-25T20:31:47-04:00",
+     "finishedAt": "2026-09-25T20:32:35-04:00",
+     "recordSha256": "cef68b5b6f7dbca29de2a5d099bcd6f0f7257eab1a73b258a010b515b7b676db",
+     "checkList": [
+      {
+       "check": "the stack reached ready and both runs launched a real guest",
+       "held": true
+      },
+      {
+       "check": "run O was cancelled by the operator through the product route",
+       "held": true
+      },
+      {
+       "check": "run O's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run O reached the terminal cancelled status",
+       "held": true
+      },
+      {
+       "check": "run O settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      },
+      {
+       "check": "the package was quarantined while run A's guest was running, and the server was killed mid-stop and came back ready",
+       "held": true
+      },
+      {
+       "check": "run A was cancelled once by the fence with the typed reason and is in the affected-run record",
+       "held": true
+      },
+      {
+       "check": "run A's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run A reached the terminal cancelled status with the typed reason",
+       "held": true
+      },
+      {
+       "check": "run A settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      }
+     ]
+    },
+    {
+     "label": "merge-pass-3",
+     "exitCode": 0,
+     "outcome": "passed",
+     "held": 10,
+     "checks": 10,
+     "timeouts": null,
+     "startedAt": "2026-09-25T20:32:35-04:00",
+     "finishedAt": "2026-09-25T20:33:25-04:00",
+     "recordSha256": "ab61662c80579c55200ebd51016911d802f3c76b2b43ce122c72ff0261dd2699",
+     "checkList": [
+      {
+       "check": "the stack reached ready and both runs launched a real guest",
+       "held": true
+      },
+      {
+       "check": "run O was cancelled by the operator through the product route",
+       "held": true
+      },
+      {
+       "check": "run O's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run O reached the terminal cancelled status",
+       "held": true
+      },
+      {
+       "check": "run O settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      },
+      {
+       "check": "the package was quarantined while run A's guest was running, and the server was killed mid-stop and came back ready",
+       "held": true
+      },
+      {
+       "check": "run A was cancelled once by the fence with the typed reason and is in the affected-run record",
+       "held": true
+      },
+      {
+       "check": "run A's guest was stopped through W03's stop path, with no operation journaled",
+       "held": true
+      },
+      {
+       "check": "run A reached the terminal cancelled status with the typed reason",
+       "held": true
+      },
+      {
+       "check": "run A settled exactly once as a typed no-operations zero, with one usage-settled event and a settled reservation",
+       "held": true
+      }
+     ]
+    }
+   ]
+  },
+  "backendPool": "umask 022, DATABASE_URL unset: 29043 pass, 0 fail, 1958 files (00:33:25-00:47Z)"
+ },
+ "oomIncident": {
+  "coordinatorRecord": "host-wide OOM during this hold: 00:36:07Z and 00:36:23Z memory-cgroup kills of two bun processes inside podman containers (cgroups libpod-4d033c..., libpod-782c0e...; UID 231069; anon-rss ~120 MiB each); 00:37:13Z the global OOM killed searxng and the node process of ezharness-app-1 (both restarted); extra pressure from a W18c 178-file bisect outside the lock",
+  "integratorCheck": "the three passes ended by 00:33:25Z, before the window; the backend pool log has no SIGKILL/137/killed/OOM line and 0 fails, so no leg is void and none was rerun; the memcg-killed containers were io.ezcorp.runner containers ez-v4-02cdbb97... (00:36:06-07Z) and ez-v4-b4e1ee35... (00:36:23Z), each alive under a second, exit 1; not attributable to a suite of this hold from its records (the pool log lists only failures), so not claimed as a test's memory-limit scenario"
+ },
+ "coverage": {
+  "proofCommit": "proof/w03e-merge-staged f2734f574",
+  "baseRef": "97423ce17",
+  "producers": [
+   {
+    "producer": "focused 10 suites",
+    "result": "121/0"
+   },
+   {
+    "producer": "PostgreSQL budgets + task-stops with coverage",
+    "result": "38/0",
+    "why": "first patch run: budgets.ts:267 uncovered; the PostgreSQL legs reach it (DA:267,39)"
+   }
+  ],
+  "newFile": "PASSED (1 file)",
+  "patch": "PASSED: all changed executable lines covered (6 files)"
+ },
+ "resourceRule": "from 2026-09-26: every leg requires >= 6 GiB available AND >= 2 GiB swap free AND >= 100 GB disk (resource-gate.sh); gates recorded at each step",
+ "commitHook": "the hook ran its staged suites itself (under the cap), all pass",
+ "standingSteps": "disk 111-127G, MemAvailable 15-18 GiB, swap free >= 7.0 GB at every gate; config hash 44962525f1ca1a8b"
+}

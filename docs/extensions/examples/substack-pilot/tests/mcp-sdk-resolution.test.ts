@@ -23,7 +23,7 @@
 // spawn `npx -y substack-mcp@latest` and timing out — that's a louder
 // signal than a silent skip.
 
-import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach, afterAll, mock } from "bun:test";
 
 // ── Fake SDK plumbing ──────────────────────────────────────────
 //
@@ -71,6 +71,19 @@ class FakeClient {
     return { content: [{ type: "text", text: "OK" }], isError: false };
   }
 }
+
+// Bun's mock.module() replaces a module for the WHOLE process, and mock.restore()
+// does not undo it, so the real SDK exports are kept here and registered back in
+// afterAll. Without that, every later test file in the same process that builds a
+// real MCP client got FakeClient (W4G-11: 57 failures across 7 files). The exports
+// are COPIED now: mock.module() patches the cached module in place, so a kept
+// namespace would read the fakes by the time afterAll runs.
+const realSdkClient = { ...(await import("@modelcontextprotocol/sdk/client/index.js")) };
+const realSdkStdio = { ...(await import("@modelcontextprotocol/sdk/client/stdio.js")) };
+afterAll(() => {
+  mock.module("@modelcontextprotocol/sdk/client/index.js", () => realSdkClient);
+  mock.module("@modelcontextprotocol/sdk/client/stdio.js", () => realSdkStdio);
+});
 
 // IMPORTANT: register the SDK module mocks BEFORE any import that
 // reaches into lib/substack.ts. Bun's mock.module hoists its

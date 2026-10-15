@@ -1,0 +1,683 @@
+{
+ "package": "w18c",
+ "branch": "wp/w18c-mainline-gates",
+ "head": "f3027d991317a968943d7b08813872749fd2fa87",
+ "codeHead": "82ddcc147",
+ "base": "e92d34d45ff12b38d45b75892171c7bed9f53987",
+ "validatorVerdict": "validator-5: ACCEPT at f3027d991 (code head 82ddcc147); w18c-validation/verdict-validator-5.txt, copied as w18c-validation.txt",
+ "conflicts": {},
+ "integrationFixes": "none (auto-merged: scripts/coverage-thresholds.json checked valid with every change of both sides kept, scripts/web-vitest-coverage-includes.sh, tasks/lessons.md, web/e2e/factory-services/stack.ts with both sides whole)",
+ "mergeForm": "lead ruling 2026-09-28: the merge commit was made on a DETACHED HEAD at e92d34d45; integ/w00 moved only after every check was green, by `git update-ref refs/heads/integ/w00 dbb2c71d2 e92d34d45` (compare-and-swap)",
+ "runs": {
+  "run1": {
+   "result": "RED, not published",
+   "red": "patch gate: packages/@ezcorp/factory-sdk/src/validation.ts 1251,1252,1254 uncovered (w18c-merge-run1-patch-red.log)",
+   "cause": "integrator batch gap: only the hook-mapped validation.test.ts ran; the full factory-sdk suite covers the lines (validator-5 sdk.lcov DA 28/53/212); same red under the old tooling",
+   "proofRef": "proof/w18c-merge-r1 -> dbb2c71d2"
+  },
+  "run2": {
+   "result": "green, published",
+   "ruling": "lead: same commit dbb2c71d2 (same tree, list, decision file); run 1's green leg receipts carry over because they are bound to this same commit; rerun only the full factory-sdk suite with coverage, the final lcov merge with both SF guards, merge-commit-gates.sh with the decision file, and the cross-check"
+  }
+ },
+ "rulings": {
+  "hook": "EZ_SKIP_HOOK_TESTS=1 for this one commit, list-bound (w18c-merge-hook-ruling.txt verbatim in the commit message, sha256 913a8b207aded9af7f5d581b51120d8f335f86015e0454f90a24655efb594f50); the mapping on the staged merge and the hook's printed list were both equal to the ruled 25-file list (sha256 ed45a856cd15831c)",
+  "gateChange": "GATE_CHANGE_APPROVED=1 for this one commit under w18c-merge-gate-change-decision.txt (sha256 97801438ee34dc00455e60c643f4903f598c0774847fd1e9af1ee30086470ecb), the user's decision of 2026-09-28 ~06:45Z cited by path and hash (w00/user-decisions-2026-09-28T0645Z.txt)",
+  "approvedFindingsBase": [
+   "R097 web/e2e/real-auth/factory-authoring-flow.spec.ts -> web/e2e/factory-authoring-flow.spec.ts",
+   "scripts/merge-lcov.ts (FN-header and catch-clause credits)",
+   "scripts/check-coverage.ts (33a765974)",
+   "scripts/check-new-file-coverage.ts (a927c4bca)"
+  ],
+  "inheritedFindingsOriginMain": "scripts/check-patch-coverage.ts, scripts/merge-browser-route-coverage.sh, scripts/factory-orchestrator-v8-to-lcov.mjs, scripts/node-v8-to-lcov.mjs: inherited through integ, attributed to their owners (w18c-merge-inherited-findings.txt), covered mechanically by the one-commit approval, carried to the PR-level label under their owners' names",
+  "xcheckLines": "accepted by the lead: the binding rule is the shape: a bare catch clause or an FN header at 0 takes its body's first count, and 0 OTHER; W18c's documented lists were the lines its own inputs exposed, not an exhaustive set (w18c-merge-xcheck-lcov-differential.txt)"
+ },
+ "commitHook": {
+  "mappedCount": 25,
+  "mappedSuites": [
+   "packages/@ezcorp/factory-sdk/src/validation.test.ts",
+   "packages/@ezcorp/sdk/test/filesystem-harness.test.ts",
+   "packages/@ezcorp/sdk/test/fs-host-mediated.test.ts",
+   "packages/@ezcorp/sdk/test/fs.test.ts",
+   "scripts/factory-postgres-suite-registration.test.ts",
+   "src/factory/runner/guest-broker-transport.integration.test.ts",
+   "src/runtime/factory-execution.test.ts",
+   "src/__tests__/auth-jwt-password.test.ts",
+   "src/__tests__/combined-runner-legs.test.ts",
+   "src/__tests__/compose-podman-masks.test.ts",
+   "src/__tests__/coverage-gate.test.ts",
+   "src/__tests__/e2e-lanes.test.ts",
+   "src/__tests__/factory-shell-required.test.ts",
+   "src/__tests__/gate-scripts.test.ts",
+   "src/__tests__/hooks-public-path-identity.test.ts",
+   "src/__tests__/test-totals.test.ts",
+   "src/__tests__/web-vitest-coverage-guard.test.ts",
+   "web/src/lib/factory/client-requests.unit.test.ts",
+   "web/src/lib/factory/client.unit.test.ts",
+   "web/src/lib/factory/download.unit.test.ts",
+   "web/src/lib/factory/FactoryGraph.component.test.ts",
+   "web/src/lib/factory/layout.unit.test.ts",
+   "web/src/lib/factory/model.unit.test.ts",
+   "web/src/routes/(app)/factories/factories-page.component.test.ts",
+   "web/src/__tests__/context-register-preview-bus.server.test.ts"
+  ],
+  "skip": "EZ_SKIP_HOOK_TESTS=1 on the merge commit only, by the ruling"
+ },
+ "browserPart": {
+  "script": "w00/browser-part.sh sha256 c6edb4843f272b3b52cffec444e4753c22e40cd4f7be6d89d387696de20b17d7",
+  "lanes": {
+   "build": {
+    "exit": 0
+   },
+   "transfer-roundtrip": {
+    "exit": 0
+   },
+   "transfer-check": {
+    "exit": 0
+   },
+   "mock-gate": {
+    "exit": 0,
+    "passed": 259
+   },
+   "mock-full": {
+    "exit": 0,
+    "passed": 1449
+   },
+   "evidence": {
+    "exit": 0,
+    "passed": 393
+   },
+   "fresh-setup": {
+    "exit": 0,
+    "passed": 7
+   },
+   "real-auth": {
+    "exit": 0,
+    "passed": 107
+   },
+   "merge": {
+    "exit": 0
+   },
+   "factory-services": {
+    "exit": 0,
+    "passed": 13
+   }
+  },
+  "headTxtEqualsMerge": "dbb2c71d2a83bdc2a434314379bb8903506e50c7",
+  "leftoverIgnoredFiles": "none under web/e2e"
+ },
+ "crossCheck": {
+  "reproducesMergedFinalLcov": true,
+  "lcov": "catch-clause 51, fn-header 17, OTHER 0 (58 not in W18c's documented lists: accepted, see rulings.xcheckLines)",
+  "gateIntegrityBase": "new tooling adds exactly findings 2-4 over R097",
+  "gateIntegrityOriginMain": "old PASSED; new = W18c's 3 + the inherited 4",
+  "newFileAndPatch": "same verdicts under old and new tooling",
+  "review": "w18c-merge-xcheck-reviewed.txt"
+ },
+ "configHash": {
+  "before": "44962525f1ca1a8b",
+  "after": "44962525f1ca1a8b"
+ },
+ "standingSteps": "pinned Bun 1.3.14 via bun_pin (bun and bunx); lock_veto integrator-2 first in both holds; resource gate before every leg; URL only inside pg()/browser-part; browser SF guards: 0 foreign, 0 absolute outside /tmp",
+ "receiptsBy": "integrator-3",
+ "mergeSha": "dbb2c71d2a83bdc2a434314379bb8903506e50c7",
+ "tree": "3cc0e7134802d5b4cd6a3a2cf0df4f95619a15da",
+ "parents": [
+  "e92d34d45ff12b38d45b75892171c7bed9f53987",
+  "f3027d991317a968943d7b08813872749fd2fa87"
+ ],
+ "fastChecks": [
+  {
+   "name": "registration",
+   "exitCode": 0,
+   "start": "2026-09-28T21:46:42Z",
+   "end": "2026-09-28T21:46:43Z",
+   "command": "bun test --timeout 30000 ./scripts/factory-postgres-suite-registration.test.ts ./src/__tests__/factory-ci-registration.test.ts ./scripts/check-required-checks.test.ts",
+   "logSha256": "a536041f25acfa4a31a6ffb89dde7ea533bf22f209cea306f88b17da28a9a3ab",
+   "tests": {
+    "pass": 16,
+    "fail": 0
+   }
+  },
+  {
+   "name": "typecheck",
+   "exitCode": 0,
+   "start": "2026-09-28T21:46:43Z",
+   "end": "2026-09-28T21:47:27Z",
+   "command": "bun run typecheck",
+   "logSha256": "28ea8c327d3928a4883e80205be8d64ac31256144b3aee71e4f51d7d3abdb13e"
+  },
+  {
+   "name": "lint",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:27Z",
+   "end": "2026-09-28T21:47:28Z",
+   "command": "bun run lint",
+   "logSha256": "5339a22394d25bb32573d256958b24f92cdab3b2a278b968c7f45b057f0f5b05"
+  },
+  {
+   "name": "boundaries",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:33Z",
+   "end": "2026-09-28T21:47:34Z",
+   "command": "bun scripts/check-factory-boundaries.ts",
+   "logSha256": "a701e3a2106adf5e27905c6b5ba03385c3e8490562ff4d2e98236c0403caaf83"
+  },
+  {
+   "name": "check-boundaries",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:34Z",
+   "end": "2026-09-28T21:47:34Z",
+   "command": "bun scripts/check-boundaries.ts",
+   "logSha256": "1249d38476691b8b6add358231295018d8778d40baeafa8e26f5cd71ea7a4633"
+  },
+  {
+   "name": "guard-scripts-factory-attempt-queue-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:34Z",
+   "end": "2026-09-28T21:47:35Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-attempt-queue-registration.test.ts",
+   "logSha256": "1d13e80a4ab6b1bb53a3c3876195f857e7b7dc5c73c43a144c27a04cf77721cc",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-c13-inventory-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:35Z",
+   "end": "2026-09-28T21:47:35Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-c13-inventory.test.ts",
+   "logSha256": "49653c328d217763e5bedc9f9ade5e95f230474161b56c88ede2e03cfcd8bd17",
+   "tests": {
+    "pass": 13,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-compute-admissions-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:35Z",
+   "end": "2026-09-28T21:47:36Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-compute-admissions-registration.test.ts",
+   "logSha256": "f9eb4330f5bc79a89b6f266b486eb68eafa42998fce37b8cfe709ac440d1603f",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-execution-admission-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:36Z",
+   "end": "2026-09-28T21:47:36Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-execution-admission-registration.test.ts",
+   "logSha256": "a068fce18171dbe883372b0d33d697772850d437a50a8f5e9ad7f61cff7033cc",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-orchestrator-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:36Z",
+   "end": "2026-09-28T21:47:37Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-orchestrator-registration.test.ts",
+   "logSha256": "c72511d10cefa7c41395ff862b2e4585f657134abc02f7eb4b33e0eae3d70e3e",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-postgres-suite-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:37Z",
+   "end": "2026-09-28T21:47:38Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-postgres-suite-registration.test.ts",
+   "logSha256": "fa90de0a2873134a41cb9697a145fa56537b8d2253e8c6f048609de7d28b791a",
+   "tests": {
+    "pass": 6,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-protected-command-effects-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:38Z",
+   "end": "2026-09-28T21:47:38Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-protected-command-effects-registration.test.ts",
+   "logSha256": "75580fbdfdc02047b4ca8f6b8d3fa6c587607759cdf3f4f061e11adc620b2eda",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-provisioning-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:38Z",
+   "end": "2026-09-28T21:47:39Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-provisioning-registration.test.ts",
+   "logSha256": "3b87a8042741e7e802f088d8ee1b70e49436b4b9e8a1a4f2ab5e14f8b54182e1",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-task-execution-admission-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:39Z",
+   "end": "2026-09-28T21:47:39Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-task-execution-admission-registration.test.ts",
+   "logSha256": "37c0e02a9805dec446015ade1ad60326a372e9ed58c5ddd0394dd938b85de69e",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-factory-validator-materials-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:39Z",
+   "end": "2026-09-28T21:47:40Z",
+   "command": "bun test --timeout 60000 ./scripts/factory-validator-materials-registration.test.ts",
+   "logSha256": "2298ef244fae9f522a6f4831143b097dc0a1c4b57fc300a1a31bf6475ed7c483",
+   "tests": {
+    "pass": 2,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-scripts-python-quality-registration-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:40Z",
+   "end": "2026-09-28T21:47:40Z",
+   "command": "bun test --timeout 60000 ./scripts/python-quality-registration.test.ts",
+   "logSha256": "805452442973bd35b29dfbd6a80dc1ff541685285d58f52b1e63a6b7f9ee1a52",
+   "tests": {
+    "pass": 8,
+    "fail": 0
+   }
+  },
+  {
+   "name": "guard-src-__tests__-ci-test-set-drift-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:40Z",
+   "end": "2026-09-28T21:47:42Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/ci-test-set-drift.test.ts",
+   "logSha256": "71dea197bb2a7be16fc1174895e9bcef8bada096cd9bfeabd5c2de39045c293c",
+   "tests": {
+    "pass": 17,
+    "fail": 0
+   }
+  },
+  {
+   "name": "schema-drift",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:42Z",
+   "end": "2026-09-28T21:47:46Z",
+   "command": "bun scripts/check-schema-generate-drift.ts",
+   "logSha256": "58e4fb0d5102f899bd14326e7b9fcbaee5ad91491dec01c137198838c9b29f15"
+  },
+  {
+   "name": "focused-scripts-check-factory-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:46Z",
+   "end": "2026-09-28T21:47:48Z",
+   "command": "bun test --timeout 60000 ./scripts/check-factory-boundaries.test.ts",
+   "logSha256": "508ddd75ff6c6c4abccd9d0c5b3b3f3fbfcf0d27cf48f2b73c00955b8156bf6e",
+   "tests": {
+    "pass": 31,
+    "fail": 0
+   }
+  },
+  {
+   "name": "focused-src-__tests__-factory-process-boundaries-test-ts",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:48Z",
+   "end": "2026-09-28T21:47:52Z",
+   "command": "bun test --timeout 60000 ./src/__tests__/factory-process-boundaries.test.ts",
+   "logSha256": "09a7153bc21ca3b73f2343fbe44d23d6f2fd8e9709a71c1b3c92b5dfcec0590c",
+   "tests": {
+    "pass": 17,
+    "fail": 0
+   }
+  },
+  {
+   "name": "web-check",
+   "exitCode": 0,
+   "start": "2026-09-28T21:47:52Z",
+   "end": "2026-09-28T21:47:59Z",
+   "command": "bash -c cd web && bun run check",
+   "logSha256": "78f50fa75b81467c9bb9a47d1eebc17857923bd5c92458eb0d6aa12800314ede"
+  }
+ ],
+ "guardSet": {
+  "files": [
+   "./scripts/factory-attempt-queue-registration.test.ts",
+   "./scripts/factory-c13-inventory.test.ts",
+   "./scripts/factory-compute-admissions-registration.test.ts",
+   "./scripts/factory-execution-admission-registration.test.ts",
+   "./scripts/factory-orchestrator-registration.test.ts",
+   "./scripts/factory-postgres-suite-registration.test.ts",
+   "./scripts/factory-protected-command-effects-registration.test.ts",
+   "./scripts/factory-provisioning-registration.test.ts",
+   "./scripts/factory-task-execution-admission-registration.test.ts",
+   "./scripts/factory-validator-materials-registration.test.ts",
+   "./scripts/python-quality-registration.test.ts",
+   "./src/__tests__/ci-test-set-drift.test.ts"
+  ],
+  "count": 12,
+  "total": {
+   "pass": 60,
+   "fail": 0
+  }
+ },
+ "checkBoundaries": "Dependency boundaries OK \u2014 5933 source files, 0 violations.",
+ "heavy": {
+  "batch": [
+   "=== heavy 2026-09-28T21:48:14Z",
+   "HEAD dbb2c71d2a83bdc2a434314379bb8903506e50c7 MERGE_HEAD  index-tree 3cc0e7134802d5b4cd6a3a2cf0df4f95619a15da",
+   "resource-gate 2026-09-28T21:48:14Z build-factory-sdk disk=156G memAvailable=15GiB swapFreeKiB=5707460/17173956",
+   "--- START build-factory-sdk 2026-09-28T21:48:14Z",
+   "--- END   build-factory-sdk 2026-09-28T21:48:15Z exit=0 ",
+   "resource-gate 2026-09-28T21:48:15Z bun-packages--ezcorp-factory-sdk-src-validation-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707464/17173956",
+   "--- START bun-packages--ezcorp-factory-sdk-src-validation-test-ts 2026-09-28T21:48:15Z",
+   "--- END   bun-packages--ezcorp-factory-sdk-src-validation-test-ts 2026-09-28T21:48:15Z exit=0  7 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:15Z bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707464/17173956",
+   "--- START bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts 2026-09-28T21:48:15Z",
+   "--- END   bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts 2026-09-28T21:48:16Z exit=0  9 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:16Z bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707484/17173956",
+   "--- START bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts 2026-09-28T21:48:16Z",
+   "--- END   bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts 2026-09-28T21:48:17Z exit=0  25 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:17Z bun-packages--ezcorp-sdk-test-fs-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707484/17173956",
+   "--- START bun-packages--ezcorp-sdk-test-fs-test-ts 2026-09-28T21:48:17Z",
+   "--- END   bun-packages--ezcorp-sdk-test-fs-test-ts 2026-09-28T21:48:18Z exit=0  29 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:18Z bun-scripts-factory-postgres-suite-registration-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707484/17173956",
+   "--- START bun-scripts-factory-postgres-suite-registration-test-ts 2026-09-28T21:48:18Z",
+   "--- END   bun-scripts-factory-postgres-suite-registration-test-ts 2026-09-28T21:48:19Z exit=0  6 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:19Z bun-src-runtime-factory-execution-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707500/17173956",
+   "--- START bun-src-runtime-factory-execution-test-ts 2026-09-28T21:48:19Z",
+   "--- END   bun-src-runtime-factory-execution-test-ts 2026-09-28T21:48:19Z exit=0  22 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:19Z bun-src-__tests__-auth-jwt-password-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707524/17173956",
+   "--- START bun-src-__tests__-auth-jwt-password-test-ts 2026-09-28T21:48:19Z",
+   "--- END   bun-src-__tests__-auth-jwt-password-test-ts 2026-09-28T21:48:20Z exit=0  21 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:20Z bun-src-__tests__-combined-runner-legs-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707544/17173956",
+   "--- START bun-src-__tests__-combined-runner-legs-test-ts 2026-09-28T21:48:20Z",
+   "--- END   bun-src-__tests__-combined-runner-legs-test-ts 2026-09-28T21:48:21Z exit=0  8 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:21Z bun-src-__tests__-compose-podman-masks-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707600/17173956",
+   "--- START bun-src-__tests__-compose-podman-masks-test-ts 2026-09-28T21:48:21Z",
+   "--- END   bun-src-__tests__-compose-podman-masks-test-ts 2026-09-28T21:48:24Z exit=0  13 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:24Z bun-src-__tests__-coverage-gate-test-ts disk=156G memAvailable=14GiB swapFreeKiB=5707620/17173956",
+   "--- START bun-src-__tests__-coverage-gate-test-ts 2026-09-28T21:48:24Z",
+   "--- END   bun-src-__tests__-coverage-gate-test-ts 2026-09-28T21:48:29Z exit=0  18 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:29Z bun-src-__tests__-e2e-lanes-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707696/17173956",
+   "--- START bun-src-__tests__-e2e-lanes-test-ts 2026-09-28T21:48:29Z",
+   "--- END   bun-src-__tests__-e2e-lanes-test-ts 2026-09-28T21:48:35Z exit=0  31 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:35Z bun-src-__tests__-factory-shell-required-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707780/17173956",
+   "--- START bun-src-__tests__-factory-shell-required-test-ts 2026-09-28T21:48:35Z",
+   "--- END   bun-src-__tests__-factory-shell-required-test-ts 2026-09-28T21:48:35Z exit=0  3 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:35Z bun-src-__tests__-gate-scripts-test-ts disk=156G memAvailable=13GiB swapFreeKiB=5707780/17173956",
+   "--- START bun-src-__tests__-gate-scripts-test-ts 2026-09-28T21:48:35Z",
+   "--- END   bun-src-__tests__-gate-scripts-test-ts 2026-09-28T21:48:42Z exit=0  233 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:42Z bun-src-__tests__-hooks-public-path-identity-test-ts disk=156G memAvailable=16GiB swapFreeKiB=5707812/17173956",
+   "--- START bun-src-__tests__-hooks-public-path-identity-test-ts 2026-09-28T21:48:42Z",
+   "--- END   bun-src-__tests__-hooks-public-path-identity-test-ts 2026-09-28T21:48:44Z exit=0  19 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:44Z bun-src-__tests__-test-totals-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707824/17173956",
+   "--- START bun-src-__tests__-test-totals-test-ts 2026-09-28T21:48:44Z",
+   "--- END   bun-src-__tests__-test-totals-test-ts 2026-09-28T21:48:44Z exit=0  3 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:44Z bun-src-__tests__-web-vitest-coverage-guard-test-ts disk=156G memAvailable=15GiB swapFreeKiB=5707824/17173956",
+   "--- START bun-src-__tests__-web-vitest-coverage-guard-test-ts 2026-09-28T21:48:44Z",
+   "--- END   bun-src-__tests__-web-vitest-coverage-guard-test-ts 2026-09-28T21:48:47Z exit=0  8 pass 0 fail ",
+   "resource-gate 2026-09-28T21:48:47Z podman-guest-broker-transport.integration disk=156G memAvailable=16GiB swapFreeKiB=5707852/17173956",
+   "--- START podman-guest-broker-transport.integration 2026-09-28T21:48:47Z",
+   "--- END   podman-guest-broker-transport.integration 2026-09-28T21:49:03Z exit=0  13 pass 0 fail ",
+   "resource-gate 2026-09-28T21:49:03Z web-w18c-lcov disk=156G memAvailable=16GiB swapFreeKiB=5708128/17173956",
+   "--- START web-w18c-lcov 2026-09-28T21:49:03Z",
+   "--- END   web-w18c-lcov 2026-09-28T21:49:14Z exit=0  Tests 95 passed (95) ",
+   "resource-gate 2026-09-28T21:49:14Z python-guest disk=156G memAvailable=17GiB swapFreeKiB=5708228/17173956",
+   "--- START python-guest 2026-09-28T21:49:14Z",
+   "--- END   python-guest 2026-09-28T21:49:20Z exit=0 ",
+   "resource-gate 2026-09-28T21:49:20Z web-server-lcov disk=156G memAvailable=17GiB swapFreeKiB=5708352/17173956",
+   "--- START web-server-lcov 2026-09-28T21:49:20Z",
+   "--- END   web-server-lcov 2026-09-28T21:49:40Z exit=0  Tests 179 passed (179) ",
+   "resource-gate 2026-09-28T21:49:40Z web-build disk=156G memAvailable=17GiB swapFreeKiB=5707028/17173956",
+   "--- START web-build 2026-09-28T21:49:40Z",
+   "--- END   web-build 2026-09-28T21:50:20Z exit=0 ",
+   "resource-gate 2026-09-28T21:50:20Z graph-mock-pass disk=156G memAvailable=17GiB swapFreeKiB=5707572/17173956",
+   "--- START graph-mock-pass 2026-09-28T21:50:20Z",
+   "--- END   graph-mock-pass 2026-09-28T21:51:08Z exit=0 ",
+   "no retained database or run in /tmp/factory-platform-evidence/w00/w18c-merge/graph/w18c-merge-mock.json; nothing to dump",
+   "mock pass w18c-merge-mock outcome: passed",
+   "resource-gate 2026-09-28T21:51:08Z browser-part disk=156G memAvailable=15GiB swapFreeKiB=5709240/17173956",
+   "--- START browser-part 2026-09-28T21:51:08Z",
+   "--- END   browser-part 2026-09-28T22:30:13Z exit=0 ",
+   "browser lane mock-gate: 259 passed",
+   "browser lane mock-full: 1449 passed",
+   "browser lane evidence: 393 passed",
+   "browser lane fresh-setup: 7 passed",
+   "browser lane real-auth: 107 passed",
+   "browser lane factory-services: 13 passed",
+   "browser inputs added: 1",
+   "resource-gate 2026-09-28T22:30:13Z coverage-merge-final disk=154G memAvailable=14GiB swapFreeKiB=5377260/17173956",
+   "--- START coverage-merge-final 2026-09-28T22:30:13Z",
+   "--- END   coverage-merge-final 2026-09-28T22:30:15Z exit=0 ",
+   "absolute SF outside /tmp after the final merge: 0",
+   "resource-gate 2026-09-28T22:30:15Z merge-commit-gates disk=154G memAvailable=14GiB swapFreeKiB=5377416/17173956",
+   "--- START merge-commit-gates 2026-09-28T22:30:15Z",
+   "--- END   merge-commit-gates 2026-09-28T22:30:26Z exit=1 ",
+   "resource-gate 2026-09-28T22:30:26Z old-tooling-xcheck disk=154G memAvailable=16GiB swapFreeKiB=5381412/17173956",
+   "--- START old-tooling-xcheck 2026-09-28T22:30:26Z",
+   "--- END   old-tooling-xcheck 2026-09-28T22:30:43Z exit=0 ",
+   "HEAVY DONE status=1 dirty=0 2026-09-28T22:30:43Z",
+   "=== heavy 2026-09-28T22:40:45Z",
+   "HEAD dbb2c71d2a83bdc2a434314379bb8903506e50c7 MERGE_HEAD  index-tree 3cc0e7134802d5b4cd6a3a2cf0df4f95619a15da",
+   "=== run 2 (same commit dbb2c71d2a83bdc2a434314379bb8903506e50c7; run 1 leg receipts carry over)",
+   "resource-gate 2026-09-28T22:40:45Z sdk-lcov disk=153G memAvailable=13GiB swapFreeKiB=5468756/17173956",
+   "--- START sdk-lcov 2026-09-28T22:40:45Z",
+   "--- END   sdk-lcov 2026-09-28T22:41:02Z exit=0  236 pass 0 fail ",
+   "final merge inputs: 21",
+   "resource-gate 2026-09-28T22:41:02Z coverage-merge-final disk=153G memAvailable=16GiB swapFreeKiB=5470168/17173956",
+   "--- START coverage-merge-final 2026-09-28T22:41:02Z",
+   "--- END   coverage-merge-final 2026-09-28T22:41:03Z exit=0 ",
+   "absolute SF outside /tmp after the final merge: 0",
+   "resource-gate 2026-09-28T22:41:03Z merge-commit-gates disk=153G memAvailable=17GiB swapFreeKiB=5470172/17173956",
+   "--- START merge-commit-gates 2026-09-28T22:41:03Z",
+   "--- END   merge-commit-gates 2026-09-28T22:41:14Z exit=0 ",
+   "resource-gate 2026-09-28T22:41:14Z old-tooling-xcheck disk=153G memAvailable=16GiB swapFreeKiB=5470520/17173956",
+   "--- START old-tooling-xcheck 2026-09-28T22:41:14Z",
+   "--- END   old-tooling-xcheck 2026-09-28T22:41:30Z exit=0 ",
+   "HEAVY DONE status=0 dirty=0 2026-09-28T22:41:30Z"
+  ],
+  "legs": {
+   "build-factory-sdk": {
+    "exit": 0
+   },
+   "bun-packages--ezcorp-factory-sdk-src-validation-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 7,
+     "fail": 0
+    }
+   },
+   "bun-packages--ezcorp-sdk-test-filesystem-harness-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 9,
+     "fail": 0
+    }
+   },
+   "bun-packages--ezcorp-sdk-test-fs-host-mediated-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 25,
+     "fail": 0
+    }
+   },
+   "bun-packages--ezcorp-sdk-test-fs-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 29,
+     "fail": 0
+    }
+   },
+   "bun-scripts-factory-postgres-suite-registration-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 6,
+     "fail": 0
+    }
+   },
+   "bun-src-runtime-factory-execution-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 22,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-auth-jwt-password-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 21,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-combined-runner-legs-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 8,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-compose-podman-masks-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 13,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-coverage-gate-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 18,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-e2e-lanes-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 31,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-factory-shell-required-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 3,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-gate-scripts-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 233,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-hooks-public-path-identity-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 19,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-test-totals-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 3,
+     "fail": 0
+    }
+   },
+   "bun-src-__tests__-web-vitest-coverage-guard-test-ts": {
+    "exit": 0,
+    "tests": {
+     "pass": 8,
+     "fail": 0
+    }
+   },
+   "podman-guest-broker-transport.integration": {
+    "exit": 0,
+    "tests": {
+     "pass": 13,
+     "fail": 0
+    }
+   },
+   "web-w18c-lcov": {
+    "exit": 0,
+    "tests": {
+     "pass": 95,
+     "fail": 0
+    }
+   },
+   "python-guest": {
+    "exit": 0
+   },
+   "web-server-lcov": {
+    "exit": 0,
+    "tests": {
+     "pass": 179,
+     "fail": 0
+    }
+   },
+   "web-build": {
+    "exit": 0
+   },
+   "graph-mock-pass": {
+    "exit": 0
+   },
+   "browser-part": {
+    "exit": 0
+   },
+   "coverage-merge-final": {
+    "exit": 0
+   },
+   "merge-commit-gates": {
+    "exit": 0
+   },
+   "old-tooling-xcheck": {
+    "exit": 0
+   },
+   "sdk-lcov": {
+    "exit": 0,
+    "tests": {
+     "pass": 236,
+     "fail": 0
+    }
+   }
+  },
+  "exit": 0
+ },
+ "coverageGates": {
+  "where": "merge-commit-gates.sh at the merge commit dbb2c71d2",
+  "gate-integrity-base-approved": "  (bypassed) coverage gate tool changed (M): scripts/merge-lcov.ts \u2014 it decides what coverage counts or how a coverage gate judges it \u2014 needs the gate-change-approved label",
+  "gate-integrity-base": "If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+  "gate-integrity-origin-main-approved": "  (bypassed) coverage gate tool changed (A): scripts/node-v8-to-lcov.mjs \u2014 it decides what coverage counts or how a coverage gate judges it \u2014 needs the gate-change-approved label",
+  "gate-integrity-origin-main": "If a change here is legitimate, a maintainer must apply the `gate-change-approved` label (sets GATE_CHANGE_APPROVED=1).",
+  "new-file": "New-file coverage gate PASSED: no new source files in this diff.",
+  "patch": "Patch coverage gate PASSED: all changed executable lines covered (3 file(s))."
+ },
+ "commitHookOutput": [
+  "Checked 44 files in 42ms. No fixes applied.",
+  "  25 test files map to this commit (cap 12) \u2014 NOT running:",
+  "  EZ_SKIP_HOOK_TESTS=1 set \u2014 skipping the 25 file(s) above; continuing with lint."
+ ],
+ "pythonGuest": {
+  "unittestRan": 872,
+  "failedLines": 0,
+  "source": "heavy-python-guest.log: the sum of every unittest 'Ran N tests' line over python-quality.sh all's test and coverage modes, all OK"
+ }
+}

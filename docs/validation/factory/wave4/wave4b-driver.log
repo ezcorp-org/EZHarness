@@ -1,0 +1,27 @@
+focused files: 231 auto-added: 190
+{"name": "sdk-build", "exitCode": 0, "start": "2026-09-21T21:27:15", "end": "2026-09-21T21:27:15"}
+{"name": "transport-build", "exitCode": 0, "start": "2026-09-21T21:27:15", "end": "2026-09-21T21:27:15"}
+{"name": "sdk-tests", "exitCode": 0, "start": "2026-09-21T21:27:15", "end": "2026-09-21T21:27:32"}
+{"name": "focused", "exitCode": 0, "start": "2026-09-21T21:27:32", "end": "2026-09-21T21:35:42"}
+{"name": "web-coverage", "exitCode": 0, "start": "2026-09-21T21:35:42", "end": "2026-09-21T21:40:42"}
+{"name": "postgres", "exitCode": 0, "start": "2026-09-21T21:40:42", "end": "2026-09-21T21:49:37"}
+{"name": "types", "exitCode": 0, "start": "2026-09-21T21:49:37", "end": "2026-09-21T21:50:14"}
+{"name": "lint", "exitCode": 0, "start": "2026-09-21T21:50:14", "end": "2026-09-21T21:50:16"}
+{"name": "gate-integrity", "exitCode": 0, "start": "2026-09-21T21:50:16", "end": "2026-09-21T21:50:17"}
+{"name": "boundaries", "exitCode": 0, "start": "2026-09-21T21:50:17", "end": "2026-09-21T21:50:18"}
+{"name": "orchestrator-build", "exitCode": 0, "start": "2026-09-21T21:50:18", "end": "2026-09-21T21:50:18"}
+{"name": "node-coverage", "exitCode": 0, "start": "2026-09-21T21:50:18", "end": "2026-09-21T21:52:13"}
+{"name": "pool-coverage", "exitCode": 0, "start": "2026-09-21T21:52:13", "end": "2026-09-21T21:52:30"}
+{"name": "compute-coverage", "exitCode": 0, "start": "2026-09-21T21:52:30", "end": "2026-09-21T21:53:03"}
+{"name": "provisioning-coverage", "exitCode": 0, "start": "2026-09-21T21:53:03", "end": "2026-09-21T21:53:05"}
+{"name": "python-coverage", "exitCode": 0, "start": "2026-09-21T21:53:05", "end": "2026-09-21T21:53:12"}
+{"name": "podman-podman", "exitCode": 0, "start": "2026-09-21T21:53:12", "end": "2026-09-21T21:54:32"}
+{"name": "podman-attempt-runtime", "exitCode": 0, "start": "2026-09-21T21:54:32", "end": "2026-09-21T21:54:46"}
+{"name": "podman-supervisor", "exitCode": 0, "start": "2026-09-21T21:54:46", "end": "2026-09-21T21:54:58"}
+{"name": "podman-package-preparation", "exitCode": 0, "start": "2026-09-21T21:54:58", "end": "2026-09-21T21:55:08"}
+{"name": "new-file", "base": "bd6fd9714", "exitCode": 1}
+{"name": "patch", "base": "bd6fd9714", "exitCode": 1}
+{"name": "global-floor", "base": null, "exitCode": 1, "blocking": false}
+{"name": "crap-changed", "base": "origin/main", "exitCode": 1, "blocking": false}
+DONE failed=True
+combined exit 1

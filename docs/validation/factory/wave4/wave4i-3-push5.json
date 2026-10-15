@@ -1,0 +1,34 @@
+{
+  "push": "sixth push of the wave, the W4H-21 + W4H-22 batch: feat/composable-factory-platform fe445d241 -> c786088df569aacede2f2215e07f6b43a67b92ae (plain git push, exit 0 at 05:10:53Z 2026-10-10, first try; lock-free tc_run GREEN at 19.0 GiB with no holder, lowest 15.4; pre-push hook typecheck (44 s) and svelte-check 620 files 0 errors; not OOM-killed; never --no-verify or --force). 12 commits (the W4H-21 and W4H-22 branch commits, merges fa25ce42f and c329cb4f7, receipts 7f641a70c and 06da341d7, the fifth-push receipts fdc1a2de9, docs line v6 c786088df). No W4H-19 (no user word on Docker Hub).",
+  "steps": {
+    "1 pre-checks": "pre-checks.log 05:09:09Z: F clean on feat/composable-factory-platform; core.bare false; archy; fetch rc 0; HEAD = origin/feat = fe445d241; ancestor of integ/w00 c786088df; origin/main e3309906d unchanged; config-check rc 0 (29e61b63b05624e9); 12 commits ahead; disk 181G, MemAvailable 18.9 GiB, SwapFree 8.8 GiB",
+    "2 ff": "ff.log: git merge --ff-only integ/w00, rc 0, Updating fe445d241..c786088df Fast-forward; status 0",
+    "3 installs": "frozen_installs exit 0 at 05:09:16Z (w00/installs-lib.sh 36e14c55cd666ed0, bun 1.4.2, every install --ignore-scripts; root, web, gate-integrity deps: no changes); status empty",
+    "4 push": "push.sh 41f778f1c881dd83 through w00/tc-gate.sh 7678da69afb1c809 lock-free; push exit 0; HEAD = origin/feat = c786088df",
+    "5 PR": "pr-318.json: PR 318 OPEN, draft, headRefOid c786088df, MERGEABLE, BLOCKED (checks running)",
+    "6 hosted": "ci 38026634201 (05:10:58Z - 05:42:58Z, one attempt, no re-run) and deps-audit 38026633982 (success)."
+  },
+  "result": "58 jobs; red 2, no cancel, no timeout, no Docker Hub 429. vs 38001537073 attempt 3: red 2 -> 2, same 56, no new red. vs 37138524741: red 20 -> 2, fixed 18. Both reds A: Factory runner readiness precheck ('FACTORY_RUNNER_READ_TOKEN is required'; the secret is unset) and Gate integrity ('Gate integrity FAILED (8 finding(s))'; findings-match vs w00/expected-integ-findings-vs-main.txt PASS on the timestamp-stripped job log; the gate-change-approved label). Skipped as before: Factory isolation, deployment and operations, product and domain E2E.",
+  "targets": {
+    "Factory Temporal integration (W4H-21)": "05:11:01-05:14:21Z SUCCESS; the job log now carries the per-test lines (102 '\u2714' lines) before '\u2139 tests 92 / \u2139 suites 10 / \u2139 pass 92 / \u2139 fail 0 / \u2139 cancelled 0', duration 153 s; the 60 s quiescent-state test 60044.5 ms (the W4H-21 leftover).",
+    "Production proof (content) (W4H-22)": "05:15:49-05:40:48Z SUCCESS: file-organizer '13 passed (9.5m)' including ':516 UI: a refused add surfaces a real error toast in the browser (4.7s)'; LEGACY_MAIN_TO_V4_ADOPTION_VERIFIED.",
+    "Per-file coverage gate": "05:38:38-05:39:16Z SUCCESS: 'Coverage gate PASSED: 2234 enforced file(s)'; new-file PASSED (460); patch PASSED (518 files); global line coverage 98.09% (213694/217855 lines, 2368 files), floor 90%."
+  },
+  "logs": "committed: the ruled excerpt of --log-failed (full log 1557d2e6d620fd95 in the evidence dir), the Temporal job log (the W4H-21 proof), the content proof log, the per-file coverage gate log, the Gate integrity job log and its findings-match result; all ANSI-stripped.",
+  "hostEvents": [
+    "none during the push window (05:09 - 05:45Z 2026-10-10); shared .git/config at the accepted baseline 29e61b63b05624e9 at every step"
+  ],
+  "tooling": {
+    "push.sh": "41f778f1c881dd83",
+    "installs.sh": "0342ea790de12c79",
+    "w00/installs-lib.sh": "36e14c55cd666ed0",
+    "w00/tc-gate.sh": "7678da69afb1c809",
+    "w00/wave4i-2/hosted-compare.py": "010f4a93d7110fb2",
+    "w00/push-log-excerpt.py": "887368f0ceffe11e",
+    "w00/findings-match.py": "de57fcec5cdcef56",
+    "baseline 38001537073 attempt 3 (made from its jobs json)": "738c85f47d940091",
+    "baseline 37138524741": "074c4b968060d499",
+    "integrator-5/poll-ci.sh": "1ecfc487f0b88a0b"
+  },
+  "receiptsBy": "integrator-5"
+}

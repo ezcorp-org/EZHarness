@@ -1,0 +1,190 @@
+{
+  "label": "wave4i-2-mock",
+  "mode": "mock",
+  "control": "none",
+  "startedAt": "2026-10-05T10:50:36.121Z",
+  "harnessSuppliedDeploymentFacts": [
+    "a TLS-terminating sidecar in front of the Temporal dev server; the orchestrator's own mutual TLS is unrelaxed",
+    "the runner package installation (bind, trust, prepare) through the product's own classes, because no product route owns it yet (W02)"
+  ],
+  "steps": [],
+  "pin": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a",
+    "configuration": {
+      "temperature": 0,
+      "seed": 42,
+      "reasoningEffort": "none"
+    },
+    "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+    "policy": {
+      "tools": false
+    },
+    "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+  },
+  "installationModelProvider": {
+    "provider": "ezcorp-mock",
+    "model": "prompt-digest:w19a"
+  },
+  "sharedStores": [
+    {
+      "store": "ordinary",
+      "port": 18333,
+      "reachable": true,
+      "detail": "http 403"
+    },
+    {
+      "store": "archive",
+      "port": 18334,
+      "reachable": true,
+      "detail": "http 403"
+    }
+  ],
+  "deployment": {
+    "mode": "per-start"
+  },
+  "databases": {
+    "pool": "w19a_pool_1791197436481_7a469b",
+    "product": "w19a_product_1791197436481_7a469b"
+  },
+  "guestBuild": {
+    "guest": {
+      "package": "@ezcorp/w19a-graph-guest",
+      "manifestName": "w19a-graph-guest",
+      "version": "1.0.0",
+      "digest": "sha256:c399e21dd239b679c828df56c3107d1b9efe07042f66b81d31fcb4706499b278"
+    },
+    "sourceDigest": "c4b92f9151867a32d513ebfbf955760fc1a895188e7b2dfc71c8f260a8f09510"
+  },
+  "startupDocument": {
+    "runnerProfiles": {
+      "brokerAudience": "factory-gateway",
+      "profiles": [
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:c399e21dd239b679c828df56c3107d1b9efe07042f66b81d31fcb4706499b278",
+            "export": "prepare"
+          },
+          "resourceClass": "cpu",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:c399e21dd239b679c828df56c3107d1b9efe07042f66b81d31fcb4706499b278",
+            "export": "infer",
+            "model": "prompt-digest:w19a",
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c"
+          },
+          "resourceClass": "cpu-infer",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": [],
+          "model": {
+            "provider": "ezcorp-mock",
+            "model": "prompt-digest:w19a",
+            "configuration": {
+              "temperature": 0,
+              "seed": 42,
+              "reasoningEffort": "none"
+            },
+            "configurationDigest": "sha256:5aa469ad9a877ca0f293c38a0d5ff9a5cb4ff39fd159d8f5da58d44ccdb9329c",
+            "policy": {
+              "tools": false
+            },
+            "policyDigest": "sha256:889c786e2c05705f46dd143902989266c33d001197dce8f3f387342fce09dbe4"
+          }
+        },
+        {
+          "runner": {
+            "package": "@ezcorp/w19a-graph-guest",
+            "manifestName": "w19a-graph-guest",
+            "version": "1.0.0",
+            "digest": "sha256:c399e21dd239b679c828df56c3107d1b9efe07042f66b81d31fcb4706499b278",
+            "export": "combine"
+          },
+          "resourceClass": "cpu-combine",
+          "allocation": {
+            "resources": {
+              "cpu": 1
+            },
+            "memoryBytes": 1073741824,
+            "budget": {
+              "costMicros": "1000000",
+              "tokens": 10000,
+              "computeMs": 600000
+            }
+          },
+          "allowedCapabilities": []
+        }
+      ]
+    },
+    "modelProvider": {
+      "provider": "ezcorp-mock",
+      "model": "prompt-digest:w19a"
+    },
+    "guestBroker": {
+      "port": 42955,
+      "hosts": {
+        "supervisor-w19a": "host-w19a"
+      }
+    }
+  },
+  "hostProcesses": {
+    "pool": "ready",
+    "supervisor": "ready"
+  },
+  "orchestration": "failed",
+  "ready": null,
+  "outcome": "failed",
+  "failure": "the server never reported ready: {\"orchestration\":\"failed\",\"hostProcesses\":{\"pool\":\"ready\",\"supervisor\":\"ready\"}}",
+  "finishedAt": "2026-10-05T10:57:19.330Z",
+  "diagnostics": {
+    "processLogs": [
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-pool.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-supervisor.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-temporal.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-temporal-tls.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-gateway-stub.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-web.log",
+      "/tmp/factory-platform-evidence/w00/wave4i-2/after/graph/wave4i-2-mock.process-orchestrator.log"
+    ],
+    "redactions": {},
+    "stack": {
+      "copied": [
+        "readiness/supervisor.json",
+        "readiness/orchestration.json",
+        "readiness/pool.json"
+      ],
+      "refused": [],
+      "oversize": {},
+      "unreadable": []
+    }
+  },
+  "retainedProductDatabase": "w19a_product_1791197436481_7a469b"
+}

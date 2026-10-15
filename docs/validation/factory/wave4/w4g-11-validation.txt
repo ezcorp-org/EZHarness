@@ -1,0 +1,42 @@
+VERDICT (validator-6) — W4G-11 at 4c6057aad (wp/w4g-11, owner w16-2), base a818ff85d: ACCEPT
+
+1 commit, archy noreply as author and committer. Files changed:
+  - docs/extensions/examples/substack-pilot/tests/mcp-sdk-resolution.test.ts: copies the real @modelcontextprotocol/sdk client
+    and stdio exports before it mocks them, and registers the copies back in afterAll;
+  - src/__tests__/web-mock-pair-pollution.test.ts: the pair (substack-pilot mcp-sdk-resolution, then ai-kit mcp-server) runs in
+    one process from the repository root, with a cwd per pair;
+  - manifest.lock.json: substack-pilot's bytes and sourceDigest (2 lines);
+  - tasks/factory/w4g-11-GATES.md.
+No product source changes. Config hash 44962525f1ca1a8b at the start and end of both phases. Bun and bunx 1.4.2, with the flag.
+
+REVIEW
+  - Bun's mock.module() replaces a module for the whole process, and mock.restore() does not undo it. The exports are copied
+    (spread) before the mock, because the mock patches the cached module in place.
+  - The regression pair fails without the fix (the owner's logs/regression-red.log, 6 fails) and passes with it.
+
+REPRODUCTION, re-run by me (w4g-validation/repro-w4g11.sh): a git-archive snapshot of each revision, frozen install, the MCP SDK
+  test files of w4g-9/mcp-tests.txt in ONE bun test process.
+  - Of record (amended 2026-10-02, the lead's ruling (a) and the nonzero-pass rule): 13 files. The opt-in file
+    packages/@ezcorp/ai-kit/test/e2e/real-subprocess-obo.test.ts (EZCORP_E2E_SUBPROCESS=1, pgvector) is dropped from the set.
+    - At a818ff85d, RED: 81 pass, 57 fail, 0 skip.
+    - At 4c6057aad, GREEN: 138 pass, 0 fail, 0 skip.
+    (w4g-validation/repro11-13files-<rev>/one-process.log)
+  - My first run held 14 files, the opt-in file among them: 81/57 and 138/0 with 6 skip at both revisions. The 6 skips were that
+    file, VOID (zero tests executed), not a pass. The 13-file counts are the same, so the opt-in file contributed no result.
+  - My wider set in one process at 4c6057aad (my W4G-9 set, root and web installed): 180 pass, 6 skip, 0 fail
+    (w4g-validation/w4g9-unit-ab/w4g11-combined.log). 17 of its 18 files executed tests; the 6 skips are the same opt-in file,
+    VOID. No second polluter remains in the 17 files that ran.
+  - No other leg of this hold has a skip: unit 163 pass, 0 skip; guard set 62 pass, 0 skip; SDK 246 pass, 0 skip.
+
+RERUN RESULTS (hold-v6-w4g11-4c6057aad/results.jsonl)
+  Static (the second run at 02:00Z; the first had its gate-integrity deps install refused by the resource gate):
+    - frozen installs clean (root, web, gate-integrity deps); all six package builds 0;
+    - identity 1/1; receipts 22 scanned, 0 missing;
+    - typecheck, lint and both boundary checks 0;
+    - gate-integrity: the base leg against a818ff85d is clean; the origin/main leg equals the 8-path set;
+    - gitleaks 0.
+  Heavy, under the lock (lock_veto validator-6):
+    - reproduction red and green as above;
+    - unit leg (all substack-pilot tests, the pollution test and the five manifest-lock tests): 17 files, 163/0;
+    - SDK 246/0; guard set 62/0;
+    - the new-file and patch gates against a818ff85d pass.

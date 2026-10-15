@@ -1,0 +1,60 @@
+{
+  "package": "w08",
+  "verdict": "ACCEPT",
+  "validatedAt": "2026-09-14T07:56:00Z",
+  "headCommit": "61250158759b9521bbed7805eedc56b18227db04",
+  "baseRefUsed": "1dc9a0226 (fixed SHA; the mutable integ/w00 branch ref had moved forward to 622161a69 after the worker branched, which made a naive diff against the branch name show spurious deletions of unrelated wave2 docs -- resolved by diffing against the SHA the brief and worker both named)",
+  "treeClean": true,
+  "commitsVerified": [
+    "97ab31840", "3c3bb96ff", "77ab2da1a", "da556e9c9", "cb3f194b5", "2827c268a", "612501587"
+  ],
+  "reruns": [
+    { "gate": "G1", "command": "bun test --timeout 60000 ./src/factory/release-s3-publication.test.ts", "expected": "18 pass, 0 fail, 172 assertions", "actual": "18 pass, 0 fail, 172 assertions", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/unit.log" },
+    { "gate": "G4", "command": "bun test --timeout 120000 ./src/factory/release-s3-publication.integration.test.ts", "expected": "12 pass, 0 fail, 134 assertions", "actual": "12 pass, 0 fail, 134 assertions", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/pglite.log" },
+    { "gate": "G2/G10", "command": "bun test --timeout 120000 --coverage --coverage-reporter=lcov -- 7 focused files", "expected": "80 pass, 0 fail, 953 assertions", "actual": "80 pass, 0 fail, 953 assertions", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/focused.log" },
+    { "gate": "G13 (pglite leg)", "command": "bun test --timeout 120000 -- 8 neighbour files", "expected": "92 pass, 0 fail, 631 assertions", "actual": "92 pass, 0 fail, 631 assertions", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/neighbour-units.log" },
+    { "gate": "G11", "command": "bun run typecheck", "expected": "exit 0", "actual": "exit 0", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/typecheck.log" },
+    { "gate": "G11", "command": "bun run lint", "expected": "8 pre-existing infos, 0 errors", "actual": "8 infos, 0 errors", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/lint.log" },
+    { "gate": "G11", "command": "bun scripts/check-factory-boundaries.ts", "expected": "exit 0", "actual": "exit 0, F07/F13 pass", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/boundaries.log" },
+    { "gate": "G11", "command": "bun scripts/gate-integrity.ts", "expected": "exit 0", "actual": "exit 0, no gate-weakening detected", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/gate-integrity.log" },
+    { "gate": "G12", "command": "bun scripts/merge-lcov.ts + BASE_REF=1dc9a0226 check-new-file-coverage.ts", "expected": "2 new source files gated, exit 0", "actual": "2 new source files gated, exit 0", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/new-file-coverage.log" },
+    { "gate": "G12", "command": "BASE_REF=1dc9a0226 bun scripts/check-patch-coverage.ts", "expected": "4 changed files fully covered, exit 0", "actual": "4 changed files fully covered, exit 0", "match": true, "log": "/tmp/factory-platform-evidence/w08-validation/logs/patch-coverage.log" },
+    { "gate": "G2 per-file", "command": "line-count query against merged coverage/lcov.info", "expected": "release-s3-publication.ts 296/296, release-s3-scope.ts 163/163, release-adapters.ts 101/101, check-factory-boundaries.ts 320/320", "actual": "296/296, 163/163, 101/101, 320/320", "match": true },
+    { "gate": "G7", "command": "flock ... bun test --timeout 900000 ./tests/postgres/factory-s3-publication.test.ts", "expected": "12 pass, 0 fail, 139 assertions", "actual": "NOT REPRODUCIBLE: 10 pass/2 fail then 0 pass/10 fail on retry, all failures are SeaweedFS 'InternalError' HTTP 500 'No writable volumes and no free volumes left' for tenant-01", "match": "environment-blocked, not a code finding", "log": "/tmp/factory-platform-evidence/w08-validation/logs/postgres.log, postgres-retry1.log" },
+    { "gate": "G8", "command": "flock ... bun scripts/verify-factory-s3-publication.ts", "expected": "tenants:10, crossTenantDenialStatuses {403:70}, etc.", "actual": "NOT REPRODUCIBLE: fails immediately on tenant-01 with the same SeaweedFS volume-exhaustion InternalError", "match": "environment-blocked, not a code finding", "log": "/tmp/factory-platform-evidence/w08-validation/logs/verify-publication-retry.log" },
+    { "gate": "G9", "command": "flock ... bun test --timeout 900000 ./tests/postgres/factory-s3-publication.test.ts", "expected": "12 pass, 0 fail, 139 assertions", "actual": "same as G7; not independently reproducible right now", "match": "environment-blocked, not a code finding" },
+    { "gate": "G13 (real-S3 leg)", "command": "flock ... bun test --timeout 300000 ./tests/postgres/factory-archive-writer.test.ts (control: a different package's, W04a's, real-S3 suite)", "expected": "10 pass (per W04a's own gate file)", "actual": "0 pass, 10 fail, identical SeaweedFS volume-exhaustion InternalError on tenant-01", "match": "confirms the exhaustion is a session-wide environment condition, not specific to W08's code", "log": "/tmp/factory-platform-evidence/w08-validation/logs/postgres-neighbour-check.log" }
+  ],
+  "environmentFinding": {
+    "title": "Shared local S3 test fixture (SeaweedFS 'ordinary' service) is capacity-exhausted at validation time",
+    "evidence": [
+      "curl http://127.0.0.1:19333/dir/status -> Topology.Max=100, Topology.Free=0; tenant-01 collection has writables:[] (empty)",
+      "compose.factory-storage.local.yml caps the service at -master.volumeSizeLimitMB=64 -volume.max=100, i.e. ~6.4 GiB total across all 10 tenants, shared by every concurrent work-package worker and validator on this host",
+      "docker logs ezcorp-factory-storage-1001-factory-storage-ordinary-1 shows repeated 'No writable volumes and no free volumes left for tenant-01' starting ~2026-09-14T07:47Z",
+      "the worker's own real-S3 receipts for G7/G8/G9 are timestamped 2026-09-14T07:28-07:31Z (03:28-03:31 local), about 20-25 minutes before the exhaustion began, and are internally consistent (correct commit 2827c268a, clean tree, exit 0, exact expected counts)",
+      "a control run of a different work package's real-S3 suite (W04a's tests/postgres/factory-archive-writer.test.ts) fails identically right now, proving the exhaustion is session-wide and not introduced by W08",
+      "/tmp/ezcorp-validation-heavy.lock shows multiple other agents' heavy producers queued/holding concurrently (W06, W07 runs observed), consistent with swarm-wide contention driving the exhaustion"
+    ],
+    "conclusion": "Not a W08 code defect. The adapter's own logic (conflict/resume/uncertain-recovery/multipart-abort/cancellation) is independently proven against an in-memory S3 double by the reproduced unit+pglite legs (30 tests, 306 assertions). What could not be independently re-confirmed by this validation is specifically: real network multipart byte movement at 256 MiB, and real SeaweedFS authorization/conditional-write semantics for the ten-tenant isolation count. Code review of release-s3-publication.ts and the test logic in factory-s3-publication-suite.ts shows the proofs are genuine (real SHA-256 over real bytes, real composite multipart ETag part-count parsing, real per-tenant credentials and real HTTP status capture) and not shortcut. Recommend the coordinator expand local SeaweedFS capacity (raise -volume.max/-master.volumeSizeLimitMB) or reserve a validation window, and have a validator re-run G7/G8/G9 once the shared fixture has headroom."
+  },
+  "interfaceConformance": {
+    "FactoryReleaseProvider.publish signature": "matches frozen type exactly (claim, signal?) -> Promise<Receipt>",
+    "releases.ts": "untouched (verified empty diff against base), respecting W07 ownership",
+    "release-adapters.ts": "additive only: two functions and one interface exported, four call sites renamed to use them, zero behavior change; consistent with 'W07 owns the file's shape'",
+    "FactoryScopedArtifactReader / FactoryMaterialScope": "consumed exactly as W04 froze them",
+    "FactoryArchivePublicationSet resolver (W04a handover)": "implemented; attempt id is derived only from three verified DB hops (factory_release_operations -> factory_protected_command_effects -> factory_task_completions, cross-checked against factory_executions), never from caller/request input",
+    "FactoryAsyncReleaseProfile.resolve": "runs outside any transaction opened by this package (only reads via provenance.attemptForDecision and materials.list, each independently transactional)"
+  },
+  "dryChecks": {
+    "sharedS3ClientLike/errorClassifiers": "s3ErrorIsMissing/s3ErrorIsConflict newly exported from release-adapters.ts and reused by release-s3-publication.ts, no duplicate",
+    "FactoryMemoryS3Store": "single definition in src/__tests__/helpers/factory-s3-memory-store.ts, replaces a prior file-local duplicate in release-adapters.test.ts; a separate unrelated MemoryS3 in blobs-s3.test.ts is pre-existing and untouched by this branch",
+    "coverage-thresholds.json diff": "strictly additive, two new 100% keys",
+    "boundaries/db-postgres.yml diffs": "each a single additive row, matching the gate file's claims"
+  },
+  "gateIntegrityChecks": {
+    "skipOnlyTodo": "none found in any new test file",
+    "emptyCatchInTests": "none found",
+    "lowerThresholds": "none",
+    "newExcludes": "none"
+  }
+}

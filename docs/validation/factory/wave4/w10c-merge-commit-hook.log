@@ -1,0 +1,96 @@
+Checked 23 files in 13ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: packages/@ezcorp/factory-sdk/src/reference-execution.test.ts
+bun test v1.4.2 (744846f84)
+
+ 3 pass
+ 0 fail
+ 43 expect() calls
+Ran 3 tests across 1 file. [424.00ms]
+  bun: scripts/factory-graph-proof/deployment.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 32 expect() calls
+Ran 9 tests across 1 file. [379.00ms]
+  bun: scripts/factory-graph-proof/harness-hygiene.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 11 expect() calls
+Ran 2 tests across 1 file. [352.00ms]
+  bun: scripts/verify-factory-reference-code-provider.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 32 expect() calls
+Ran 9 tests across 1 file. [2.93s]
+  bun: src/factory/reference-code/generate.test.ts
+bun test v1.4.2 (744846f84)
+
+ 16 pass
+ 0 fail
+ 52 expect() calls
+Ran 16 tests across 1 file. [376.00ms]
+  bun: src/factory/reference-code/pack.test.ts
+bun test v1.4.2 (744846f84)
+
+ 17 pass
+ 0 fail
+ 139 expect() calls
+Ran 17 tests across 1 file. [504.00ms]
+  bun: src/factory/reference-code/repair.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 41 expect() calls
+Ran 7 tests across 1 file. [4.77s]
+  bun: src/factory/reference-code/review.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 63 expect() calls
+Ran 9 tests across 1 file. [393.00ms]
+  bun: src/factory/reference-image/lock.test.ts
+bun test v1.4.2 (744846f84)
+
+ 54 pass
+ 0 fail
+ 188 expect() calls
+Ran 54 tests across 1 file. [380.00ms]
+  bun: src/factory/reference-image/publication.test.ts
+bun test v1.4.2 (744846f84)
+
+ 19 pass
+ 0 fail
+ 30 expect() calls
+Ran 19 tests across 1 file. [398.00ms]
+  bun: src/factory/reference-image/semantic-quorum.test.ts
+bun test v1.4.2 (744846f84)
+
+ 33 pass
+ 0 fail
+ 57 expect() calls
+Ran 33 tests across 1 file. [380.00ms]
+  bun: src/providers/factory-broker.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-04T18:07:21.857Z","level":"warn","msg":"Model \"claude-retired-0-0-19000101\" is pinned for provider \"anthropic\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to anthropic, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"anthropic","modelId":"claude-retired-0-0-19000101"}
+{"ts":"2026-10-04T18:07:21.944Z","level":"warn","msg":"Model \"gpt-6-lunna\" is pinned for provider \"openai\" (pinned by conversation pin) but is not in the installed pi-ai catalog. The request still goes to openai, but the context window and per-token pricing are ESTIMATES (128k, unpriced), so long threads may be compacted more aggressively and spend will report as unmeasured. Re-pin the conversation to a listed model, or run refresh-models if the provider still serves this id.","subsystem":"providers.router","provider":"openai","modelId":"gpt-6-lunna"}
+
+ 22 pass
+ 0 fail
+ 58 expect() calls
+Ran 22 tests across 1 file. [970.00ms]
+  bun: src/__tests__/registry-oauth-model-resolution.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 35 expect() calls
+Ran 11 tests across 1 file. [384.00ms]
+[detached HEAD 49dbcc562] merge: wp/w10c-codex-pin 8141f423c into integ/w00 (the factory pins move to openai gpt-6-luna under the Codex OAuth credential (C10 revision))

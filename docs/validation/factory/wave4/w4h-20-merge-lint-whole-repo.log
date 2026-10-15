@@ -1,0 +1,2 @@
+$ bash -O nullglob -c 'biome check --no-errors-on-unmatched src web packages scripts extensions worker services docs tests .github index.ts drizzle.config.ts .*.json *.json "$@"' --
+Checked 6148 files in 1222ms. No fixes applied.

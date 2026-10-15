@@ -1,0 +1,7 @@
+per-file lcov proof: merge 000f75d10 vs base 0363f883a; lcov /tmp/factory-platform-evidence/w00/w4h-merge/w4h-11-bootstrap-deadline/merged.lcov
+scripts/lib/bundled-bootstrap-progress.ts: file 71/71 lines hit; added lines 163, instrumented 71, uncovered 0
+scripts/lib/production-lifecycle-client.ts: NO LCOV RECORD in this hold (3 added lines)
+scripts/lib/shipping-bootstrap-state.ts: file 116/116 lines hit; added lines 101, instrumented 61, uncovered 0
+scripts/verify-shipping-delivery.ts: NO LCOV RECORD in this hold (2 added lines)
+web/e2e/fixtures/bundled-bootstrap.ts: file 47/47 lines hit; added lines 25, instrumented 13, uncovered 0
+TOTAL instrumented added lines 145, uncovered 0

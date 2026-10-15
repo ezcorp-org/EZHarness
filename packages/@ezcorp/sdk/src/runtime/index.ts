@@ -4,6 +4,7 @@
 
 export {
   findProjectRoot,
+  resolveProjectRoot,
   getExtensionDataDir,
   atomicWrite,
   atomicRead,

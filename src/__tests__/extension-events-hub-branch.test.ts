@@ -8,8 +8,10 @@
  * gate, 10/min/user rate limit, spawn+wire, `ezcorp/event/<ext>:<event>`
  * notification with host-stamped userId, page-cache invalidation.
  */
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 import { restoreModuleMocks } from "./helpers/mock-cleanup";
+import { ExtensionRegistry } from "../extensions/registry";
+import type { ExtensionProcess } from "../extensions/subprocess";
 
 import {
   registerExtensionEvent,
@@ -72,16 +74,20 @@ const fakeProc = {
   },
 };
 
-mock.module("$server/extensions/registry", () => ({
-  ExtensionRegistry: {
-    getInstance: () => ({
-      getProcess: async (_id: string) => {
-        if (spawnShouldFail) throw new Error("spawn exploded");
-        return fakeProc;
-      },
-    }),
-  },
-}));
+// ExtensionRegistry.getInstance() is a cheap in-memory singleton (no I/O) —
+// never replace the class/module (item C, W18 hygiene): a $server/* alias
+// registration can never be withdrawn, so it freezes on whichever file's
+// registration is active when another file's already-loaded consumer next
+// resolves it. spyOn() the real instance's getProcess() instead, fetched in
+// beforeAll (test-execution time), not at this file's own top level — see
+// hub-render-pull.test.ts's identical comment for why.
+let getProcessSpy: ReturnType<typeof spyOn>;
+beforeAll(() => {
+  getProcessSpy = spyOn(ExtensionRegistry.getInstance(), "getProcess").mockImplementation(async (_id: string) => {
+    if (spawnShouldFail) throw new Error("spawn exploded");
+    return fakeProc as unknown as ExtensionProcess;
+  });
+});
 mock.module("$server/extensions/tool-executor", () => ({
   ToolExecutor: class {
     async ensureSubprocessRpcWired() {
@@ -206,6 +212,8 @@ afterAll(() => {
   mock.module("$lib/server/hub-extension-pages", () => require("../../web/src/lib/server/hub-extension-pages"));
   mock.module("$server/logger", () => realLogger);
   restoreModuleMocks();
+  getProcessSpy.mockRestore();
+  ExtensionRegistry.resetInstance();
 });
 
 const EXT_NAME = "cron-dashboard";

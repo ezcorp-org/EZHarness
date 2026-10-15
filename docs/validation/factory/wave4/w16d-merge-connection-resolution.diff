@@ -1,0 +1,16 @@
+--- /tmp/factory-platform-evidence/w00/w16d-merge/rehearsal/conflicted/src/db/connection.ts	2026-09-27 15:21:52.427443611 -0400
++++ /tmp/factory-platform-evidence/w00/w16d-merge/rehearsal/resolved/src/db/connection.ts	2026-09-27 15:22:15.156412803 -0400
+@@ -800,13 +800,9 @@
+   // swappable-bun-sql.ts and recoverFromDriverDesync below).
+   // The class is resolved inside the default opener, so a test's pool override never needs the Bun runtime.
+   const poolOptions = { url: DATABASE_URL!, max: poolMax };
+-<<<<<<< c9b7bab5b
+   const openPool =
+     openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new (bunSqlClass())(options) as unknown as BunSqlLike);
+-=======
+-  const openPool = openBunSqlPoolOverride ?? ((options: typeof poolOptions) => new SQL(options) as unknown as BunSqlLike);
+   _openDiagnosticPool = () => openPool({ ...poolOptions, max: 1 });
+->>>>>>> df37f77ef
+   const externalPool = swappableBunSql(() => openPool(poolOptions), {
+     drainSeconds: REPLACED_POOL_DRAIN_SECONDS,
+     onCloseError: (err) => log.warn("replaced Bun.sql pool did not close cleanly", { error: String(err) }),

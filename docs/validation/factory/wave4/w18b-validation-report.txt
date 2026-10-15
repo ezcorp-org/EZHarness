@@ -1,0 +1,125 @@
+W18b independent validation — six pre-existing backend pool failures
+Branch wp/w18b-pool-fixes, head 672b3282e (code 2d33f46d7), integ/w00 6055bffc6 merged at bceb9b2b5.
+Validator evidence: /tmp/factory-platform-evidence/w18b-validation/ (results.json, receipts/, logs/).
+
+VERDICT: ACCEPT-WITH-FIXES
+
+All three fixes are correct at the root, each is pinned by a test that fails on the old code, and the
+full backend pool passes: 28093 pass, 0 fail, 1895 files. One requested property is missing from the
+committed tests: the new calendar-literal gate has no positive control in its file. I proved it by hand
+against the base hook. The fix is one assertion. The other findings are Low and need no code change
+before integration.
+
+FINDINGS (by severity)
+
+F1 (Medium, fix before integration). The new m4 gate has no committed positive control.
+  src/__tests__/security/m4-hooks-cors-pi-session.test.ts:208-211 only asserts that the hook does NOT
+  match /(?:Date\.parse|new Date)\(\s*["'`]\d{4}-\d{2}-\d{2}/. A regex that can never match would also
+  pass. No test shows it matches the removed literal.
+  My ad hoc control: the gate against the integ/w00 hook fails, and the regex matches that source.
+    git show integ/w00:web/src/hooks.server.ts > <copy>/web/src/hooks.server.ts
+    bun test --timeout 30000 ./src/__tests__/security/m4-hooks-cors-pi-session.test.ts   # 12 pass, 3 fail
+  (logs/mutant-m4-base-hook.log). The two other new source gates fail at base only because the name
+  retireLegacySessionCookie is absent. The real proof of "never promoted" is the web Vitest test (F-OK below).
+  Fix: in the same test, assert the regex matches the removed line, for example
+    expect('const X = Date.parse("2026-06-01T00:00:00Z");').toMatch(<same regex>)
+  and share the regex through one constant.
+
+F2 (Low, report overstatement). "Every .git walk" was not replaced.
+  src/extensions/project-root.ts:131-139 (walkUpForGit) still accepts any .git entry. It cannot anchor at
+  the empty /tmp/.git, because the caller also requires docs/extensions/examples under the root
+  (isProjectRootCandidate). So it is not a live defect. It is a second marker rule next to the SDK's
+  isGitRepositoryMarker (packages/@ezcorp/sdk/src/runtime/fs.ts:50). A follow-up could share one rule.
+
+F3 (Low, report wording). "One readiness budget" is one constant, not one shared deadline.
+  scripts/verify-production-image-lifecycle.sh:55 sets readiness_seconds=120. The socket wait (:193),
+  the probe (:203, AbortSignal.timeout(120000) via scripts/lib/production-lifecycle-client.ts:54) and the
+  health wait (:212) each get 120 s. The total is bounded: about 360 s plus loop overhead. Before, it was
+  about 241 s. Pre-existing and not changed: the health loop's curl has no --max-time.
+
+F4 (Low, DRY, justified). The GIT_* env filter exists twice in new code:
+  packages/@ezcorp/ai-kit/src/cli/install.ts:134 and packages/@ezcorp/sdk/src/test/filesystem.ts:274.
+  ai-kit keeps the SDK as a peer only and cannot import the SDK test helpers at run time, so the copy is
+  acceptable. The report names the reason.
+
+INFO. resolveProjectRoot inherits findProjectRoot's "/project" answer inside a tool invocation. The two
+  examples that used private walks (claude-design lib/project.ts:18-25, task-stack index.ts:67-73) check the
+  host-injected root first, so production behaviour does not change.
+INFO. The new launcher test injects `sleep 2` through a podman shim. That is fault injection, not a
+  sleep used as proof. The test also proves the delayed path was taken (the readiness container name
+  appears in the shim log).
+
+JUDGMENT PER FIX AREA
+
+1. Project-root resolver: CORRECT.
+   - Linked worktree: this worktree's .git is a file "gitdir: …/worktrees/w18b-pool-fixes".
+     findProjectRoot(<worktree>/src/__tests__) returns the worktree root. The main checkout resolves too.
+   - A stray empty ancestor .git is rejected (throws, resolveProjectRoot returns the start). A .git file
+     without "gitdir:" is rejected. A real `git init` repo below a stray marker resolves to the real repo.
+     A path below /tmp is not anchored at the host's empty /tmp/.git.
+     (logs/resolver-probe.log, probe/resolver-probe.ts)
+   - Mutation rerun (old existsSync walk restored in a scratch copy): 9 tests fail across 7 files. That is
+     the worker's 6 across 4 files plus the three new postinstall scaffold tests. (logs/mutant-walk.log)
+   - Only two .git probes remain outside tests: the SDK marker and the host walk in F2.
+2. Session hook (web/src/hooks.server.ts): CORRECT, follows the cited policy.
+   - Policy: docs/features/platform/authentication.md at integ/w00, line 122: "Past that date the old cookie
+     is purged, not promoted — clients must re-authenticate." The new retireLegacySessionCookie (:619) is
+     exactly the old post-expiry branch: warn once, purge pi_session, return nothing. Only the log text changed.
+   - No authentication check is removed. The diff touches only the migration constant, the bridge
+     function, and two lines in enforceRequestAuth (:834-835). The cookie branch, Bearer branch, and
+     first-user gate are unchanged. The change only removes a (dead) promotion path.
+   - Behaviour is pinned on the real hook. Two promotion mutants in a scratch copy both fail the web Vitest
+     test: re-issuing the legacy value as ezcorp_session (logs/vitest-hook-mutantA-reissue.log) and accepting
+     pi_session as the session token (logs/vitest-hook-mutantB-accept.log). The head control passes 6/6.
+   - The gate's positive control is missing from the test file (F1).
+3. Launcher readiness probe: CORRECT, bounded.
+   - The probe reuses inspectProductionRunner (the inline transport copy is gone) with a 120 s abort. A
+     refused connection or wrong state still fails at once.
+   - Mutation rerun: the new test against the integ/w00 launcher script fails with TimeoutError (4 pass,
+     1 fail); the head control in the same copy passes 5/5. (logs/mutant-launcher.log,
+     logs/copy-launcher-head-control.log)
+   - At head, 12 concurrent copies (6 x 2): 0 failed, 0 TimeoutError. (stress/)
+
+RERUN RESULTS (my runs at 672b3282e, clean tree)
+
+  Command                                                            Exit  Result
+  flock --close ... timeout 5400 bun run test (full backend pool)     0    28093 pass, 0 fail, 1895 files
+  claude-design/lib/project.test.ts alone                             0    5 pass, 0 fail
+  graded-card-scanner/postinstall.test.ts alone                       0    4 pass, 0 fail
+  build-allowed-env-injection.test.ts alone                           0    29 pass, 0 fail
+  security/m4-hooks-cors-pi-session.test.ts alone                     0    15 pass, 0 fail
+  production-image-lifecycle-launch.integration.test.ts alone (lock)  0    5 pass, 0 fail
+  sdk test/fs.test.ts                                                  0    28 pass, 0 fail
+  ai-kit test/unit/cli-install.test.ts                                 0    28 pass, 0 fail
+  bun run typecheck                                                    0
+  bun run lint                                                         0
+  bun scripts/check-boundaries.ts                                      0
+  bun scripts/check-factory-boundaries.ts                              0
+  bun scripts/gate-integrity.ts                                        0
+  bun run scripts/regenerate-manifest-lock.ts --check                  0
+  coverage producers (19 bun + web Vitest hook), merge-lcov            0    all 0 fail; 543 files merged
+  BASE_REF=integ/w00 check-new-file-coverage.ts                        0    PASSED (no new source files)
+  BASE_REF=integ/w00 check-patch-coverage.ts                           0    PASSED (13 files)
+  Merged lcov copy: coverage/merged-lcov.info. tests/postgres/factory-*: not affected (no factory code
+  touched). Podman runner suites: not run, because the package changed the launcher script, not runner code.
+
+TREE, COMMITS, RECEIPTS
+  git status --porcelain is empty. All seven named SHAs are on the branch; integ/w00 6055bffc6 is an
+  ancestor. 672b3282e changes only tasks/factory/w18b-GATES.md and tasks/todo.md.
+  Every worker receipt matches the report: head runs at 2d33f46d7 exit 0; base runs at 94fb95b6a show the
+  claimed failures; base stress 1/24 TimeoutError, fixed stress 0/24. No receipt shows a failure the report
+  calls a pass. The report's own disclosure of the first failed patch-coverage run is accurate.
+
+GATE INTEGRITY AND DRY
+  No .skip/.only/.todo, empty catch in tests, lowered threshold, new EXCLUDES, biome opt-out, or wall-clock
+  assertion in the diff. coverage-thresholds.json and the gate scripts are untouched. Five private example
+  walks now route through the SDK (DRY improvement). Remaining duplication: F2, F4.
+
+SECURITY POSTURE
+  No authority check removed (see fix 2). The only auth change removes a promotion path. No credential
+  values in the diff, the worker evidence, or my logs (pattern scan for bearer tokens, ezk_ keys, and
+  password and secret assignments).
+
+OVERSTATED IN THE WORKER REPORT
+  - "Every .git walk" (F2).
+  - "the launcher's single readiness budget" (F3).

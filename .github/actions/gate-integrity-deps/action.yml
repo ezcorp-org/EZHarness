@@ -1,0 +1,13 @@
+name: "Install the gate-integrity parser"
+description: >
+  The locked TypeScript parser that scripts/gate-integrity.ts uses for its assertion-path detector, isolated from the
+  workspace install and locked to its own manifest. scripts/gate-integrity.ts fails closed without it, and the backend
+  suites spawn the gate (scripts/gate-integrity-rule11.test.ts), so the Gate integrity job and every job that runs those
+  suites install it from this one definition (W4G-6; scripts/gate-integrity-deps-registration.test.ts holds the rule).
+
+runs:
+  using: composite
+  steps:
+    - name: Install gate-integrity parser
+      shell: bash
+      run: bun install --cwd .github/gate-integrity-deps --frozen-lockfile --ignore-scripts
