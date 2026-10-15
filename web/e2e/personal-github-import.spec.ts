@@ -30,6 +30,16 @@ test("creates a new Incus source workspace and preserves uncertain import recove
 	await expect(importer.getByRole("link", { name: "Inspect saved operation in Incus management" })).toHaveAttribute("href", "/extensions/incus-management");
 	await expect(importer.getByLabel("Repository", { exact: true })).toBeDisabled();
 	await captureEvidence(page, testInfo, "personal-github-incus-unknown-mobile", { fullPage: true });
+	// This check owns only the link handoff; management backend behavior has its own lane.
+	await page.context().route("**/extensions/incus-management", (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><title>Incus management fixture</title>" }));
+	const [managementPage] = await Promise.all([
+		page.waitForEvent("popup", { timeout: 5_000 }),
+		importer.getByRole("link", { name: "Inspect saved operation in Incus management" }).click(),
+	]);
+	await expect(managementPage).toHaveURL(/\/extensions\/incus-management$/);
+	await managementPage.close();
+	await expect(page).toHaveURL(/\/project\/source-project\/settings/);
+	await expect(importer.getByLabel("Repository", { exact: true })).toBeDisabled();
 	await importer.getByRole("button", { name: "Retry saved import" }).click();
 	await expect.poll(() => requests.length).toBe(2);
 	expect(requests[1]).toEqual(requests[0]);

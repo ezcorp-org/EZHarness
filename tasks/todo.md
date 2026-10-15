@@ -8936,3 +8936,13 @@ Review: All three regression cases failed before the fix: both submitted names e
 - Evidence: final-coverage-review.json SHA62ea07f73d7c37bd33d2283cacda5985a64eacbd3e7abc99394e3520eadcf7e5; source-review-v3.json SHA5001ad603e2336181969a7530ba8d927af7ee1673858e12b587d05d3080b6ff5 (under .cache/incus-transfer-validation).
 - Commit uses approved EZ_SKIP_HOOK_TESTS=1 only: unchanged focused suites already passed; the first redundant hook stopped at its memory floor. Lint/manifest hooks remain active. Final combined fast and hosted gates remain required.
 - This leaf depends on service-owned incus-workspace-import-authority.ts; the copied dependency is excluded from this commit and standalone typecheck is not claimed.
+
+## Preserve import recovery while inspecting management
+
+- [x] Run the canonical one-file mock browser lane and inspect the mobile evidence.
+- [x] Reproduce that the same-tab management link closes the saved import form.
+- [x] Open management in a separate tab with the existing safe-link convention.
+- [x] Verify actual popup behavior and the original request/key retry in the focused browser case.
+- [x] Obtain independent review before committing the small correction.
+
+Review: Initial clean 5ed browser proof passed 3/0 with six images (native 0, 58.0 seconds). The focused browser regression then failed because the management click replaced the original page and no popup opened. The safe-link correction passed the same focused case (native 0, 51.4 seconds including canonical web build): management opens separately, the original form stays disabled, and retry sends the identical request and key. Both final mobile images were inspected; no clipping or overlap found. Biome and diff checks pass. All owned process groups closed and preview port 4187 is free. No real backend, Incus, or GitHub proof is claimed. Independent review cleared the exact code, browser proof, visual evidence, and all 36 receipt hashes. Normal commit is authorized.

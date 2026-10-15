@@ -2569,3 +2569,7 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 
 - A targeted TypeScript command without the repository's strict settings can pass a fixture union that the real backend-tests leg rejects. Use the repository typecheck command before reporting type safety.
 - When main adds a runner capability check, update merged test runners with the canonical capability fixture. Keep tests for absent or denied enforcement intact; do not weaken the production check to accommodate an incomplete mock.
+
+## 2026-10-15 — Separate serial and parallel resource admission
+
+- A memory threshold approved for overlapping jobs is not a universal start limit. Confirm which owned child is active. When the other lane yields, use the agreed serial threshold and keep the original runtime bound and owned stop floor. Do not wait repeatedly on the parallel threshold while running alone.
