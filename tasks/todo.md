@@ -9002,3 +9002,10 @@ Fixture repair review: The unchanged f2d216 test reproduced the exact guest-read
 Related caller audit: the separate transfer owner found no second missing-schema consumer. Host-live-preview uses the canonical DB helper; caller unit fixtures already define both guard tables. Its review is preserved at incus-personal-pr-transfer-sol61-oct15/.cache/incus-transfer-validation/import-guard-fixture-audit/REVIEW.md.
 
 Full-run truth: mandatory fast45012 on f2d2169 stopped with actual exit70 after the real file1984 fixture failure;1994 other file receipts were0. That failed full run is preserved and is not a passing gate. Root must run the next required fast gate on the integrated repair head.
+
+## Authority fixture assertion scanner repair
+- [x] Reproduce exact assertion scanner finding.
+- [x] Keep failed/unknown denial checks with direct awaited assertions.
+- [x] Run focused authority consumer and scanner; obtain independent review.
+
+Review: canonical scanner RED1 before / GREEN0 after; authority consumer8pass/0fail/19assertions; Biome and diff-check0. Independent pg_context review CLEAR: scanner0, focused8pass/19assertions. No production or gate source changed.

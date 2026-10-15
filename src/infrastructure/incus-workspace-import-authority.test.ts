@@ -35,9 +35,11 @@ test("ready private import keeps owner and sole membership checks", async () => 
 });
 
 test("partial and unknown import cannot use even matching internal authority", async () => {
-  await withIncusWorkspaceImportAuthority(identity, permits, async () => {
-    for (const state of ["failed", "unknown"]) await expect(assertIncusWorkspaceImportAuthority(input, database({ rows: [{ ...row, state }] }))).rejects.toThrow();
-  });
+  for (const state of ["failed", "unknown"]) {
+    await expect(withIncusWorkspaceImportAuthority(identity, permits, () =>
+      assertIncusWorkspaceImportAuthority(input, database({ rows: [{ ...row, state }] })),
+    )).rejects.toThrow();
+  }
 });
 
 test("detached asynchronous work cannot retain import authority after callback finishes", async () => {

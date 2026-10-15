@@ -2591,3 +2591,5 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Bun runtime tests do not typecheck fixtures. Before reporting an integrated feature ready, require the full strict compiler and Svelte surface on the exact combined source. Use real contract-shaped fixtures, typed transaction callbacks, and explicit null narrowing.
 
 - When a transport guard adds a schema dependency, inspect real-caller integration fixtures. Prefer the existing isolated fully migrated DB helper over an obsolete hand-built subset. Reproduce the actual consumer failure; never suppress a missing-table authority error.
+
+- Put awaited denial assertions directly in the test body when the operation uses an imported callback helper. Runtime success alone does not prove the canonical assertion scanner sees the assertion. Reproduce its exact exported check before changing the fixture.
