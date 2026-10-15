@@ -1,7 +1,8 @@
 import { getModel, streamSimple } from "@earendil-works/pi-ai/compat";
 import type { Api, AssistantMessageEventStream, Model } from "@earendil-works/pi-ai";
 import type { FactoryBroker, FactoryBrokerRequest } from "../runtime/factory-execution";
-import { authCallOptions, getCredential, ProviderCredentialUnusableError, type ProviderCredential } from "./credentials";
+import { authCallOptions, getCredential, ProviderCredentialUnusableError, ProviderNotConfiguredError, type ProviderCredential } from "./credentials";
+import { errorShape } from "./error-shape";
 import { isBrokenOAuth } from "./credential-store";
 import { resolveModelForCredential, resolveOAuthModel } from "./registry";
 import { resolvePinnedModel, type PinnedModelResolution } from "./router";
@@ -27,6 +28,7 @@ export const FACTORY_PROVIDER_READINESS_SCHEMA_VERSION = "factory.provider-readi
 export type FactoryProviderReadinessFailure =
   | "provider_not_configured"
   | "provider_credential_unusable"
+  | "provider_readiness_error"
   | "model_not_available"
   | "model_pin_mismatch"
   | "credential_kind_required";
@@ -55,6 +57,8 @@ export interface FactoryProviderReadiness {
   readonly failures: readonly FactoryProviderReadinessFailure[];
   /** Why a stored credential is unusable: its error class and code, never its message (it may quote a provider reply). */
   readonly credentialFailure?: FactoryCredentialFailure;
+  /** Why the credential could not be read at all (a database or store error): class and code, never its message. */
+  readonly readinessFailure?: FactoryCredentialFailure;
   readonly checkedAtMs: number;
 }
 
@@ -98,7 +102,15 @@ export function isServableResolution(resolution: PinnedModelResolution): boolean
 export type FactoryPinCredential =
   | { readonly credential: ProviderCredential; readonly failure?: undefined }
   | { readonly credential: ProviderCredential | null; readonly failure: "provider_not_configured" | "credential_kind_required" }
-  | { readonly credential: null; readonly failure: "provider_credential_unusable"; readonly credentialFailure: FactoryCredentialFailure };
+  | { readonly credential: null; readonly failure: "provider_credential_unusable"; readonly credentialFailure: FactoryCredentialFailure }
+  | { readonly credential: null; readonly failure: "provider_readiness_error"; readonly readinessFailure: FactoryCredentialFailure };
+
+/** The failure's own detail for a readiness document: why a credential is unusable, or why none could be read. */
+function failureDetail(resolved: FactoryPinCredential): Pick<FactoryProviderReadiness, "credentialFailure" | "readinessFailure"> {
+  if (resolved.failure === "provider_credential_unusable") return { credentialFailure: resolved.credentialFailure };
+  if (resolved.failure === "provider_readiness_error") return { readinessFailure: resolved.readinessFailure };
+  return {};
+}
 
 /** The class and code of a stored credential's failure, or undefined when the error is not one. */
 function unusableCredential(error: unknown): FactoryCredentialFailure | undefined {
@@ -121,9 +133,14 @@ export async function resolveCredentialForPin(
   try {
     credential = await resolve(pin.provider);
   } catch (error) {
-    // A stored credential that fails is named for what it is; any other error means nothing usable is configured.
+    // A stored credential that fails is named for what it is. Only the ladder's typed "nothing configured" is not
+    // configured; any other error (a database or store error) is a readiness error, never "connect a provider" (C10).
     const credentialFailure = unusableCredential(error);
     if (credentialFailure !== undefined) return { credential: null, failure: "provider_credential_unusable", credentialFailure };
+    if (!(error instanceof ProviderNotConfiguredError)) {
+      const { errorClass, errorCode } = errorShape(error);
+      return { credential: null, failure: "provider_readiness_error", readinessFailure: { errorClass, ...(errorCode === undefined ? {} : { code: errorCode }) } };
+    }
     credential = null;
   }
   if (credential === null) return { credential, failure: "provider_not_configured" };
@@ -159,7 +176,7 @@ export async function factoryProviderReadiness(
     credentialKind: credential?.type ?? null,
     ...(pin.credentialKind === undefined ? {} : { requiredCredentialKind: pin.credentialKind }),
     failures,
-    ...(resolved.failure === "provider_credential_unusable" ? { credentialFailure: resolved.credentialFailure } : {}),
+    ...failureDetail(resolved),
     checkedAtMs: now(),
   };
 }
@@ -213,6 +230,7 @@ export function factoryProviderReadinessRecord(readiness: FactoryProviderReadine
     ...(readiness.requiredCredentialKind === undefined ? {} : { requiredCredentialKind: readiness.requiredCredentialKind }),
     failures: [...readiness.failures],
     ...(readiness.credentialFailure === undefined ? {} : { credentialFailure: { ...readiness.credentialFailure } }),
+    ...(readiness.readinessFailure === undefined ? {} : { readinessFailure: { ...readiness.readinessFailure } }),
     checkedAt: new Date(readiness.checkedAtMs).toISOString(),
   };
 }
@@ -250,7 +268,7 @@ export function createFactoryProviderBroker(options: FactoryProviderBrokerOption
       if (resolved.failure !== undefined) {
         throw new FactoryProviderReadinessError({
           ...readiness, ready: false, credentialKind: resolved.credential?.type ?? null, failures: [resolved.failure],
-          ...(resolved.failure === "provider_credential_unusable" ? { credentialFailure: resolved.credentialFailure } : {}),
+          ...failureDetail(resolved),
         });
       }
       const { credential } = resolved;

@@ -1352,5 +1352,6 @@
   "src/factory/runner/guest-repository-read.ts": 100,
   "src/factory/s3-release-adapter/guest.ts": 100,
   "src/factory/s3-release-adapter/package.ts": 100,
-  "src/providers/codex-login-import.ts": 100
+  "src/providers/codex-login-import.ts": 100,
+  "src/providers/error-shape.ts": 100
 }

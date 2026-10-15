@@ -21,7 +21,7 @@ import {
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { KEYLESS_TOKEN, ProviderCredentialUnusableError, type ProviderCredential } from "./credentials";
+import { KEYLESS_TOKEN, ProviderCredentialUnusableError, ProviderNotConfiguredError, type ProviderCredential } from "./credentials";
 import { oauthSettingKey } from "./credential-store";
 import { encrypt } from "./encryption";
 import { deleteSetting, upsertSetting } from "../db/queries/settings";
@@ -322,10 +322,40 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw unusable; } });
     expect(readiness).toMatchObject({ failures: ["provider_credential_unusable"], credentialFailure: { errorClass: "ModelsError", code: "oauth" } });
     expect(JSON.stringify(factoryProviderReadinessRecord(readiness))).not.toContain(OAUTH_TOKEN);
-    // Any other resolver error is still "not configured": only a stored, failing credential is unusable.
-    const absent = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw new Error("No credentials available for openai."); } });
+    // Only the ladder's typed "nothing configured" refusal is "not configured".
+    const absent = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw new ProviderNotConfiguredError("openai"); } });
     expect(absent).toMatchObject({ failures: ["provider_not_configured"] });
     expect(absent).not.toHaveProperty("credentialFailure");
+    expect(absent).not.toHaveProperty("readinessFailure");
+  });
+
+  test("an error reading the credential is a readiness error with its deepest class and code, never \"not configured\" (W4H-28, C10)", async () => {
+    const refused = Object.assign(new Error("connect ECONNREFUSED postgres://admin:fixture-pw@127.0.0.1:5432"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" });
+    const failed = new Error("Failed query: select value from settings where key = $1", { cause: refused });
+    const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw failed; } });
+    expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" } });
+    expect(readiness).not.toHaveProperty("credentialFailure");
+    const record = factoryProviderReadinessRecord(readiness);
+    expect(record).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_REFUSED" } });
+    expect(JSON.stringify(record)).not.toContain("fixture-pw");
+    expect(JSON.stringify(record)).not.toContain("Failed query");
+    // A thrown non-Error has a class and no code.
+    const odd = await factoryProviderReadiness(LUNA, { now: () => NOW, resolveCredential: async () => { throw "store down"; } });
+    expect(odd).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "string" } });
+    expect(odd.readinessFailure).not.toHaveProperty("code");
+  });
+
+  test("the broker's call-time read names a readiness error the same way, and sends nothing", async () => {
+    let reads = 0;
+    const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+    const broker = createFactoryProviderBroker({
+      pin: LUNA, now: () => NOW, stream: capturing(sent),
+      resolveCredential: async () => { reads += 1; if (reads === 1) return { type: "oauth", token: OAUTH_TOKEN }; throw Object.assign(new Error("Connection closed"), { name: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" }); },
+    });
+    const error = await broker.stream(request({ model: model(LUNA.provider, LUNA.model) })).then(() => undefined, (e: unknown) => e);
+    expect(error).toBeInstanceOf(FactoryProviderReadinessError);
+    expect((error as FactoryProviderReadinessError).readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
+    expect(sent).toHaveLength(0);
   });
 
   test("with no stored credential names the missing credential only, because the model is in the catalog", async () => {

@@ -302,6 +302,18 @@ export class ProviderCredentialUnusableError extends Error {
   }
 }
 
+/**
+ * The ladder positively found nothing for the provider: no OAuth login, no key, no keyless tier. The
+ * only error readiness reads as `provider_not_configured` (C10, W4H-28); any other error while the
+ * ladder reads the store (a database error) is a readiness error, never "connect a provider".
+ */
+export class ProviderNotConfiguredError extends Error {
+  constructor(readonly provider: string) {
+    super(`No credentials available for ${provider}. Connect via OAuth or add an API key.`);
+    this.name = "ProviderNotConfiguredError";
+  }
+}
+
 export async function tryGetCredential(
   provider: string,
   conversationId?: string,
@@ -399,8 +411,6 @@ export async function getCredential(
 
     if (oauthFailure) throw new ProviderCredentialUnusableError(provider, oauthFailure);
 
-    throw new Error(
-      `No credentials available for ${provider}. Connect via OAuth or add an API key.`,
-    );
+    throw new ProviderNotConfiguredError(provider);
   }
 }
