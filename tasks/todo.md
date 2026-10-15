@@ -8966,3 +8966,12 @@ Review: The eight focused backend children passed. The affected Incus import sui
 Canonical coverage merge reports all seven new service files at100%: migration3/3, runtime8/8, import guard38/38, port35/35, source11/11, Incus workspace95/95, import129/129. Canonical patch coverage passes all changed executable lines in17 files. Canonical changed-function CRAP scores17 files/106 functions, zero violations, maximum complexity25. Its detached diagnostic commit is labelled NOT RELEASE; no branch or coordinator index was changed. Existing canonical merge removes Bun import-only span-fill noise; no custom line exclusion or threshold change was used.
 
 Receipts: `.cache/incus-personal-pr/focused-20261015T030030Z`, corrected PostgreSQL `remaining-20261015T030413Z/postgres-upgrade`, affected import `final-remaining-20261015T032328Z`, route/prerequisites `web-final-20261015T032449Z`, and `ast-final`. Earlier product RED, fixture failures, missing prerequisites, and resource stops remain preserved. No whole gate or live acceptance is claimed. Root owns integration, hosted gates, and live deployment.
+
+## Incus transfer mock typing repair
+
+- [x] Preserve unknown-valued payload fields in the mock wire envelope; protocol checks unchanged.
+- [x] Actual adapter test: 16 pass, 0 fail, 222 assertions.
+- [x] Combined service canonical full typecheck native0 includes exact test SHA256 239a34c0f3fc321eebae8bec67186db8b43d3a699cb46e1e72eff3b72de06816. Own scoped compiler environment failure retained.
+- [x] Independent source review clear. Root authorized TEST-ONLY EZ_SKIP_HOOK_TESTS=1 for commit; normal lint/manifest hooks retained.
+
+Evidence: transfer focused-20261015T034041Z; own compiler focused-20261015T034053Z; service type-repair-20261015T034154Z/typecheck.

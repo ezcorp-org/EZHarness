@@ -35,7 +35,7 @@ async function fixture(pageLimit = 100) {
   const caller: ProviderSandboxWorkspaceCaller = { async call(request) {
     calls.push(request);
     const operation = operations[request.action];
-    const input = { ...request.payload, providerId: "incus", connectionId: binding.connectionId, sandboxId: binding.workspaceId,
+    const input: Record<string, unknown> = { ...request.payload, providerId: "incus", connectionId: binding.connectionId, sandboxId: binding.workspaceId,
       rpcDeadlineMs: request.action === "process.start" ? Math.min(Date.now() + 30_000, Number(request.payload.processDeadlineMs)) : Date.now() + 30_000, ...(["file.writeAtomic", "process.start", "process.cancel"].includes(request.action) ? { requestId: `call-${calls.length}`, idempotencyKey: `call-${calls.length}` } : {}) };
     validateSandboxProviderMethodValue(operation, "input", input);
     const result = await transport(operation, request.action === "file.list" ? { ...input, limit: Math.min(Number(input.limit), pageLimit) } : input) as Record<string, unknown>;
