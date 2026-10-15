@@ -199,3 +199,69 @@ describe("lease heartbeat during dispatch", () => {
   });
 });
 
+
+/** One-record store whose claim offers the current record when it is due or its lease ran out. */
+function singleStore(initial: Record): { store: DurableDeliveryStore<Record>; current: () => Record } {
+  let current = { ...initial };
+  return {
+    current: () => current,
+    store: {
+      findDuplicate: async () => null,
+      insert: async () => false,
+      claimCandidate: async (_scope, now) => (current.state === "queued" && current.availableAt <= now) || (current.state === "leased" && current.leaseUntil <= now) ? { ...current } : null,
+      findById: async () => ({ ...current }),
+      write: async value => { current = { ...value }; },
+      inspect: async () => ({ ...current }),
+    },
+  };
+}
+
+describe("an expired lease (C11 N7)", () => {
+  const expired: Record = { ...record, state: "leased", attempts: 1, leaseUntil: 50, leaseToken: "crashed" };
+
+  test("by default becomes outcome_unknown and is never re-driven", async () => {
+    const { store, current } = singleStore(expired);
+    expect(await queue.claim(store, "scope", 100)).toBeNull();
+    expect(current()).toMatchObject({ state: "outcome_unknown", failureCode: "worker_lease_expired", leaseUntil: 0, attempts: 1 });
+    expect(await queue.claim(store, "scope", 200)).toBeNull();
+  });
+
+  test("with expiredLease 'reclaim' is leased again as a new attempt with a new token", async () => {
+    const { store, current } = singleStore(expired);
+    const claimed = await queue.claim(store, "scope", 100, 30_000, { expiredLease: "reclaim" });
+    expect(claimed).toMatchObject({ id: "kept", state: "leased", attempts: 2, leaseUntil: 30_100, leaseToken: "lease-token" });
+    expect(current()).toMatchObject({ state: "leased", attempts: 2 });
+  });
+
+  test("with expiredLease 'reclaim' still stops at maxAttempts", async () => {
+    const { store, current } = singleStore({ ...expired, attempts: 3 });
+    expect(await queue.claim(store, "scope", 100, 30_000, { expiredLease: "reclaim" })).toBeNull();
+    expect(current()).toMatchObject({ state: "dead_letter", failureCode: "attempts_exhausted", leaseUntil: 0 });
+  });
+
+  test("the crashed owner cannot settle after another worker reclaimed it", async () => {
+    const { store } = singleStore(expired);
+    await queue.claim(store, "scope", 100, 30_000, { expiredLease: "reclaim" });
+    await expect(queue.settle(store, "scope", expired, 101, "delivered")).rejects.toMatchObject({ code: "delivery_lease_lost" });
+  });
+});
+
+describe("a terminal rejection settles as dead letter", () => {
+  test("settle accepts dead_letter with its code and clears the lease", async () => {
+    const { store } = singleStore({ ...record, state: "leased", attempts: 1, leaseUntil: 1000, leaseToken: "lease-token" });
+    const settled = await queue.settle(store, "scope", { ...record, leaseToken: "lease-token" }, 10, "dead_letter", "webhook_rejected_4xx");
+    expect(settled).toMatchObject({ state: "dead_letter", failureCode: "webhook_rejected_4xx", leaseUntil: 0 });
+  });
+
+  test("dispatch settles dead_letter when the classifier names a terminal code", async () => {
+    const settled: unknown[] = [];
+    const result = await dispatchDurableDelivery<Record, "dead_letter">(
+      async () => ({ ...record, state: "leased" as const }),
+      async (value, outcome, code) => { settled.push([outcome, code]); return value; },
+      async () => { throw new Error("rejected"); },
+      (): { deadLetter: string } => ({ deadLetter: "webhook_rejected_4xx" }),
+    );
+    expect(result).not.toBeNull();
+    expect(settled).toEqual([["dead_letter", "webhook_rejected_4xx"]]);
+  });
+});

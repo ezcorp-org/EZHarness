@@ -38,6 +38,22 @@ function validateLease(leaseMs: number, error: DeliveryErrorFactory): void {
   }
 }
 
+/**
+ * What a claim does with a lease that ran out. `outcome_unknown` is the C02
+ * rule and the default: the work may have happened, so it is never re-driven.
+ * `reclaim` is only for a destination that deduplicates on a stable key (C11
+ * N7): the same record is leased again as a new attempt, bounded by
+ * `maxAttempts` like any other attempt.
+ */
+export interface DurableClaimOptions {
+  readonly expiredLease?: "outcome_unknown" | "reclaim";
+}
+
+/** A classifier's answer for an error that must not be retried or left uncertain. */
+export interface DurableDeadLetter {
+  readonly deadLetter: string;
+}
+
 export interface EnqueueRecord<Record extends DurableDeliveryRecord> {
   scope: string;
   deduplicationId: string;
@@ -68,11 +84,11 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return raced;
   }
 
-  async claim(store: DurableDeliveryStore<Record>, scope: string | null, now: number, leaseMs = 60_000): Promise<Record | null> {
+  async claim(store: DurableDeliveryStore<Record>, scope: string | null, now: number, leaseMs = 60_000, options: DurableClaimOptions = {}): Promise<Record | null> {
     validateLease(leaseMs, this.error);
     const record = await store.claimCandidate(scope, now);
     if (!record) return null;
-    if (record.state === "leased") {
+    if (record.state === "leased" && options.expiredLease !== "reclaim") {
       record.state = "outcome_unknown";
       record.failureCode = "worker_lease_expired";
       record.leaseUntil = 0;
@@ -82,6 +98,7 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     if (record.attempts >= record.maxAttempts) {
       record.state = "dead_letter";
       record.failureCode = "attempts_exhausted";
+      record.leaseUntil = 0;
       await store.write(record);
       return null;
     }
@@ -103,7 +120,7 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return current;
   }
 
-  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown", failureCode?: string): Promise<Record> {
+  async settle(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number, outcome: "delivered" | "retry" | "cancelled" | "outcome_unknown" | "dead_letter", failureCode?: string): Promise<Record> {
     const current = await this.owned(store, scope, claimed, now);
     current.state = outcome === "retry"
       ? current.attempts >= current.maxAttempts ? "dead_letter" : "queued"
@@ -178,11 +195,15 @@ export function intervalHeartbeat(leaseMs: number): LeaseHeartbeat<never>["start
   };
 }
 
-export async function dispatchDurableDelivery<Record extends DurableDeliveryRecord>(
+/**
+ * `DeadLetter` is `never` unless a caller opts in, so a queue user whose
+ * settle knows only the three ordinary outcomes keeps its exact type.
+ */
+export async function dispatchDurableDelivery<Record extends DurableDeliveryRecord, DeadLetter extends "dead_letter" = never>(
   claim: () => Promise<Record | null>,
-  settle: (record: Record, outcome: "delivered" | "retry" | "outcome_unknown", failureCode?: string) => Promise<Record>,
+  settle: (record: Record, outcome: "delivered" | "retry" | "outcome_unknown" | DeadLetter, failureCode?: string) => Promise<Record>,
   handler: (record: Record) => Promise<void>,
-  retryCode: (error: unknown) => string | null,
+  retryCode: (error: unknown) => string | ([DeadLetter] extends [never] ? never : DurableDeadLetter) | null,
   heartbeat?: LeaseHeartbeat<Record>,
 ): Promise<Record | null> {
   const record = await claim();
@@ -207,5 +228,6 @@ export async function dispatchDurableDelivery<Record extends DurableDeliveryReco
   }
   if (!failure) return settle(record, "delivered");
   const code = retryCode(failure.error);
+  if (code !== null && typeof code === "object") return settle(record, "dead_letter" as DeadLetter, code.deadLetter);
   return settle(record, code ? "retry" : "outcome_unknown", code ?? "external_outcome_unknown");
 }

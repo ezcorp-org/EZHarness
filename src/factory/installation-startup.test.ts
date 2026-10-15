@@ -170,6 +170,15 @@ function bindingDatabase(tenantId = "tenant-01"): TransactionalDb {
   } as unknown as TransactionalDb;
 }
 
+/** The binding read-back as above, and no confirmed notification send (C11 N8). */
+function unconfirmedDatabase(): TransactionalDb {
+  const execute = async (query: { queryChunks?: unknown[] }) => JSON.stringify(query.queryChunks ?? []).includes("factory_notification_sends") ? [] : [{ tenant_id: "tenant-01" }];
+  return {
+    execute,
+    async transaction<Result>(work: (transaction: { execute: typeof execute }) => Promise<Result>): Promise<Result> { return work({ execute }); },
+  } as unknown as TransactionalDb;
+}
+
 function host(overrides: Partial<FactoryInstallationHost> = {}): FactoryInstallationHost {
   return {
     database: bindingDatabase(),
@@ -499,6 +508,35 @@ describe("startFactoryInstallation", () => {
     await startup.stop();
     expect(getFactoryApplication()).toBeNull();
     expect(startup.runtime.report().workers.every((worker) => !worker.running)).toBe(true);
+  });
+
+  test("a declared notification destination runs the sender held until a delivery is confirmed, and an unreadable one holds on its cause (C11 N8)", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const secretPath = join(root, "secrets", "notify-operators");
+    await writeFile(secretPath, "k".repeat(32), { mode: 0o600 });
+    const destination = { name: "operators", kind: "webhook", url: "https://receiver.test/hook", secretPath };
+    const boot = async (destinations: unknown[]) => {
+      const reports: string[] = [];
+      const startup = await startFactoryInstallation({
+        host: { ...host(), database: unconfirmedDatabase(), report: (role: string) => { reports.push(role); } },
+        blobs: memoryBlobs(),
+        databaseUrl: "postgres://product",
+        signal: new AbortController().signal,
+        configPath: await writeConfig(root, { notifications: { destinations } }),
+        boot: bootConfig(root),
+        dependencies: { gateway: { health: async () => true } },
+      });
+      started.push(startup);
+      return { report: startup.runtime.report(), reports };
+    };
+    const declared = await boot([destination]);
+    expect(declared.report.workers.map((worker) => worker.name)).toContain("notification-send");
+    expect(declared.report.heldWorkers.find((held) => held.role === "notification-send")!.reason).toContain("no receiver has confirmed");
+    const unreadable = await boot([{ ...destination, secretPath: join(root, "secrets", "missing") }]);
+    expect(unreadable.report.workers.map((worker) => worker.name)).not.toContain("notification-send");
+    expect(unreadable.report.heldWorkers.find((held) => held.role === "notification-send")!.reason).toContain("factory_notification_secret_unreadable");
+    expect(unreadable.reports).toContain("notification-sender");
   });
 
   test("supplying a seam registers its role through the installation path too", async () => {

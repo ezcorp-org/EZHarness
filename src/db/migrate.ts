@@ -3177,6 +3177,9 @@ export async function migrate(db: MigrateDb): Promise<void> {
   // W09h: the no-operations basis "nothing launched, all zero". Depends only on add-factory-usage-no-operations, registered above.
   const { up: addFactoryUsageNothingLaunchedBasis } = await import("./migrations/add-factory-usage-nothing-launched-basis");
   await addFactoryUsageNothingLaunchedBasis(db);
+  // C11 N1 (W4H-34): outbound notification sends. Depends only on add-factory-releases, registered above.
+  const { up: addFactoryNotificationSends } = await import("./migrations/add-factory-notification-sends");
+  await addFactoryNotificationSends(db);
   // Last on purpose: the checkpoint barrier gate attaches to every factory table that exists.
   const { up: addFactoryRecovery } = await import("./migrations/add-factory-recovery");
   await addFactoryRecovery(db);

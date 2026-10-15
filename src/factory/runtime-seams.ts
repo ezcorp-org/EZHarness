@@ -65,6 +65,19 @@ export function factorySeam<Value>(seam: string, workPackage: string, value?: Va
 export interface FactoryRoleDriver {
   /** Resolves true when it did work, false when there was none. */
   step(signal: AbortSignal): Promise<boolean>;
+  /**
+   * Present when running the loop is not yet proof the role works (C11 N8):
+   * the role runs, and readiness keeps it held under `pendingReason` until
+   * `confirmed()` is true. A driver without one is running once registered.
+   */
+  readonly confirmation?: FactoryRoleConfirmation;
+}
+
+export interface FactoryRoleConfirmation {
+  confirmed(): boolean;
+  /** Called once when the role becomes confirmed. Returns the unsubscribe. */
+  onConfirmed(listener: () => void): () => void;
+  readonly pendingReason: string;
 }
 
 /**
