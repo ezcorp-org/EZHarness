@@ -9009,3 +9009,29 @@ Full-run truth: mandatory fast45012 on f2d2169 stopped with actual exit70 after 
 - [x] Run focused authority consumer and scanner; obtain independent review.
 
 Review: canonical scanner RED1 before / GREEN0 after; authority consumer8pass/0fail/19assertions; Biome and diff-check0. Independent pg_context review CLEAR: scanner0, focused8pass/19assertions. No production or gate source changed.
+
+## Session refresh hook fixture repair
+
+- [x] Read the actual server hook, permanent legacy-cookie retirement, and nearby session fixtures.
+- [x] Reproduce the unchanged failing server-hook request sequence in this isolated tree.
+- [x] Reset JWT-secret mock state for each request case and replace obsolete migration expectations with permanent-retirement checks.
+- [x] Verify focused RED/GREEN through the real handle consumer and touched checks.
+- [x] Obtain independent review before normal commit.
+
+Review: The unchanged actual hook request sequence reproduced 2 failures and 15 passes (native 1, 6.80 seconds). The fixed file passes 17/0 (native 0, 5.06 seconds). The backdated legacy-cookie request now proves permanent retirement: purge only, redirect to login, no session authority, no JWT or database-session lookup, no signing or rotation. The valid-session case passes after secret mocks reset per test. Production auth, security retirement, gates, and timeouts are unchanged. Dependencies and Vite cache are private. Generated package outputs were copied only after package, lock and compiler inputs matched the earlier reviewed build; no build ran here. Base 42505d0fa8deaaf0787c76a9f55a06baa4b926bc. Independent review remains pending.
+
+Integration review: Independent real-consumer rerun passed17/0; unchanged production security behavior and mock isolation reviewed clear. Author normal hooks passed17/0 and Biome. The prior resource-interrupted independent attempt remains an unknown test verdict, not a production failure. Root preserved both repair histories when resolving this notes-only conflict.
+
+## Final Incus completion — current work
+
+- [x] Finish and review canonical425 run: backend32,118/0; whole gate RED on two web cases and one assertion rule.
+- [x] Independently review and integrate the session fixture and authority assertion repairs.
+- [ ] Run the required combined fast check on one frozen final source; preserve actual exit and cleanup evidence.
+- [ ] Push PR303 normally and verify final hosted browser, coverage, complexity, database, and production checks.
+- [ ] Complete paired deployment bindings; stage, verify, and smoke the immutable release.
+- [ ] Update the isolated app and worker with existing recovery and database safeguards.
+- [ ] Complete live qualification, ten lifecycle runs, same-workspace AI edits/tests, restart/reconnect, previews, cleanup, and owner access.
+- [ ] Complete the GitHub import-to-draft-PR journey after the pending repository choice.
+- [ ] Obtain required non-author review and report the exact merge/readiness state.
+
+Current review: Both remaining test fixes reproduced RED and passed focused tests, independent review, and normal author hooks. No production authentication or authority rule is relaxed. Installation bindings are preparation only. Provider0.1.6 approval remains active. No final live or whole-gate pass is claimed. Leave unrelated healthy TypeScript work alone.

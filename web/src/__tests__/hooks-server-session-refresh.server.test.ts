@@ -108,12 +108,14 @@ describe("hooks.server.ts — sliding session refresh", () => {
   beforeEach(() => {
     vi.mocked(verifyJWT).mockReset();
     vi.mocked(signJWT).mockReset();
+    vi.mocked(getJwtSecret).mockReset();
     vi.mocked(rotateSessionToken).mockReset();
     vi.mocked(lookupSessionByTokenHash).mockReset();
 
     // Defaults: rotated row, fresh signed token, present session row matched
     // on the current tokenHash (not via the rotation grace window).
     vi.mocked(signJWT).mockResolvedValue("rotated-token");
+    vi.mocked(getJwtSecret).mockResolvedValue("secret");
     vi.mocked(rotateSessionToken).mockResolvedValue({
       id: "sess-1",
       tokenHash: "hash:rotated-token",
@@ -205,19 +207,29 @@ describe("hooks.server.ts — sliding session refresh", () => {
     expect(resolve).not.toHaveBeenCalled();
   });
 
-  test("legacy cookie migrates only within its original window", async () => {
+  test("retired legacy cookie cannot authenticate even before its former cutoff", async () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-05-01T00:00:00Z"));
     try {
-      vi.mocked(getJwtSecret).mockRejectedValueOnce(new Error("secret unavailable"));
       const event = makeEvent({ cookie: "" });
       event.cookies.get = vi.fn((name: string) => name === "pi_session" ? "old-token" : undefined);
       const resolve = vi.fn(async () => new Response("ok"));
-      const response = (await handle({ event, resolve } as any)) as Response;
-      expect(response.status).toBe(200);
-      expect(event.cookies.set).toHaveBeenCalledWith("pi_session", "", expect.objectContaining({ maxAge: 0 }));
-      expect(event.cookies.set).toHaveBeenCalledWith("ezcorp_session", "old-token", expect.anything());
-      expect(resolve).toHaveBeenCalledTimes(1);
+      await expect(handle({ event, resolve } as any)).rejects.toMatchObject({
+        status: 302,
+        location: "/login?returnTo=%2Fprojects%2Fabc",
+      });
+      expect(event.cookies.set.mock.calls).toEqual([
+        ["pi_session", "", { path: "/", httpOnly: true, sameSite: "lax", maxAge: 0 }],
+      ]);
+      expect(event.locals.user).toBeUndefined();
+      expect(event.locals.authMethod).toBeUndefined();
+      expect(event.locals.sessionId).toBeUndefined();
+      expect(vi.mocked(getJwtSecret)).not.toHaveBeenCalled();
+      expect(vi.mocked(verifyJWT)).not.toHaveBeenCalled();
+      expect(vi.mocked(lookupSessionByTokenHash)).not.toHaveBeenCalled();
+      expect(vi.mocked(signJWT)).not.toHaveBeenCalled();
+      expect(vi.mocked(rotateSessionToken)).not.toHaveBeenCalled();
+      expect(resolve).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
