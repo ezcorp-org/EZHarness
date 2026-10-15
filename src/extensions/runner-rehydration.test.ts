@@ -38,7 +38,13 @@ function fakeRunner(options: { restore?: false | ((digest: string, given: Worksp
   const calls = { start: 0, collect: 0, restore: [] as [string, WorkspaceFiles][] };
   const runner: Runner = {
     build: async () => { throw new Error("unused"); },
-    async start(input) { calls.start++; if (options.alwaysMissing || !held.has(input.artifactDigest)) throw missing(); return execution; },
+    async start(input) {
+      calls.start++;
+      // A third start means the wrapper retried more than once; stop a runaway loop here, by name.
+      if (calls.start > 2 && options.alwaysMissing) throw new Error("retried more than once");
+      if (options.alwaysMissing || !held.has(input.artifactDigest)) throw missing();
+      return execution;
+    },
     cancel: async () => {},
     inspect: async id => ({ id, state: "unknown", diagnostics: [] }),
     async collectArtifacts(digest) { calls.collect++; if (options.alwaysMissing || !held.has(digest)) throw missing(); return structuredClone(files); },
