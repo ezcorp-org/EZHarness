@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, expect, spyOn, test } from "bun:test";
+import { RunnerError } from "@ezcorp/extension-runner";
 import { canonicalJson, type ReleaseRecord, type ResourceLimits, type Runner, type WorkspaceFiles } from "@ezcorp/extension-contract";
 import type { RunnerReference } from "@ezcorp/factory-sdk";
 import { sql } from "drizzle-orm";
@@ -9,7 +10,7 @@ import { digestObject } from "../../extensions/v4/blobs";
 import type { BlobStore } from "../../extensions/v4/types";
 import { FactoryGrants, type FactoryPrincipal } from "../../factory/grants";
 import { isManifestName } from "@ezcorp/factory-sdk";
-import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition, factoryPackagePreparationDriver } from "../../factory/package-preparation";
+import { FactoryHostPreparationError, FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog, factoryPackageDispatchDisposition, factoryPackagePreparationDriver } from "../../factory/package-preparation";
 import { FactoryRecords } from "../../factory/records";
 
 export interface FactoryPackagePreparationFixture { readonly db: TransactionalDb; readonly blobs: BlobStore; close(): Promise<void>; }
@@ -146,7 +147,7 @@ test("a build that is not the binding's is refused by name and writes no receipt
   const context = await packageContext();
   const build = (answer: Partial<Awaited<ReturnType<Runner["build"]>>>): Pick<Runner, "build" | "collectArtifacts"> => ({
     async build(input) { return { operationId: input.operationId, state: "succeeded", sourceDigest: input.sourceDigest, artifactDigest: context.artifactDigest, imageDigest: context.current.imageDigest, manifest: context.current.manifest, evidence: context.current.evidence, diagnostics: [], ...answer }; },
-    async collectArtifacts() { throw new Error("nothing is built yet"); },
+    async collectArtifacts() { throw new FactoryHostPreparationError("host_preparation_not_built", "this process has no prepared build of that artifact yet"); },
   });
   const bind = context.preparations(build({}));
   await bind.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-mismatch");
@@ -161,6 +162,59 @@ test("a build that is not the binding's is refused by name and writes no receipt
   const tampered: Pick<Runner, "build" | "collectArtifacts"> = { build: build({}).build, async collectArtifacts() { return { ...structuredClone(context.artifacts), "extension.ts": "export const tampered = 1;" }; } };
   await expect(context.preparations(tampered).prepare(projectId, reference)).rejects.toMatchObject({ code: "factory_package_artifact_corrupt" });
   expect(await bind.pendingPreparations()).toEqual([{ projectId, reference }]);
+});
+
+test("a rebuild is never an error handler: an artifact read error other than 'not built yet' refuses by name with the runner's code and class, never its message, and never builds (W4H-32)", async () => {
+  const context = await packageContext();
+  let builds = 0;
+  const reading = (error: unknown): Pick<Runner, "build" | "collectArtifacts"> => ({ async build() { builds++; throw new Error("must not build"); }, async collectArtifacts() { throw error; } });
+  await context.preparations(reading(undefined)).bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-unavailable");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-unavailable");
+  const cases: [unknown, Record<string, string>][] = [
+    [new RunnerError("runner_internal_error", "Runner failed at /srv/store/secret-path", "runner", false, { errorClass: "Error", errorCode: "EACCES" }), { code: "runner_internal_error", errorClass: "Error", errorCode: "EACCES" }],
+    [Object.assign(new Error("ENOENT: open '/home/operator/private'"), { code: "ENOENT" }), { errorClass: "Error", errorCode: "ENOENT" }],
+    [new TypeError("socket path /run/private.sock refused"), { errorClass: "TypeError" }],
+  ];
+  for (const [error, named] of cases) {
+    const refusal = await context.preparations(reading(error)).prepare(projectId, reference).catch((caught: unknown) => caught);
+    expect(refusal).toBeInstanceOf(FactoryPackagePreparationError);
+    expect(refusal).toMatchObject({ code: "factory_package_artifact_unavailable" });
+    expect(JSON.parse((refusal as FactoryPackagePreparationError).detail!)).toEqual(named);
+    expect(String((refusal as Error).message)).not.toMatch(/secret-path|private/);
+  }
+  expect(builds).toBe(0);
+  expect(await context.preparations(reading(undefined)).pendingPreparations()).toEqual([{ projectId, reference }]);
+});
+
+test("an artifact the product runner cannot restore refuses by name with its reason, and never builds (W4H-32)", async () => {
+  const context = await packageContext();
+  let builds = 0;
+  const { ArtifactUnrecoverableError } = await import("../../extensions/runner-rehydration");
+  const runner: Pick<Runner, "build" | "collectArtifacts"> = { async build() { builds++; throw new Error("must not build"); }, async collectArtifacts(digest) { throw new ArtifactUnrecoverableError(digest, "blob_missing"); } };
+  const preparations = context.preparations(runner);
+  await preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, "bind-unrecoverable");
+  await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, "trust-unrecoverable");
+  const refusal = await preparations.prepare(projectId, reference).catch((caught: unknown) => caught) as FactoryPackagePreparationError;
+  expect(refusal).toMatchObject({ code: "factory_package_artifact_unavailable" });
+  expect(JSON.parse(refusal.detail!)).toEqual({ code: "artifact_unrecoverable", errorClass: "ArtifactUnrecoverableError", reason: "blob_missing" });
+  expect(builds).toBe(0);
+});
+
+test.each([["the supervisor's host_preparation_not_built", () => new FactoryHostPreparationError("host_preparation_not_built", "not yet")], ["a runner store's artifact_missing", () => new RunnerError("artifact_missing", "not in this store")]] as const)("a builder with no build of the release yet builds it: %s (W4H-26 path, W4H-32)", async (_name, notYet) => {
+  {
+    const notBuilt = notYet();
+    const context = await packageContext();
+    let built = false;
+    const runner: Pick<Runner, "build" | "collectArtifacts"> = {
+      async build(input) { built = true; return { operationId: input.operationId, state: "succeeded", sourceDigest: input.sourceDigest, artifactDigest: context.artifactDigest, imageDigest: context.current.imageDigest, manifest: context.current.manifest, evidence: context.current.evidence, diagnostics: [] }; },
+      async collectArtifacts() { if (!built) throw notBuilt; return structuredClone(context.artifacts); },
+    };
+    const preparations = context.preparations(runner);
+    await preparations.bind(admin, { projectId, reference, installationId: context.current.installationId, releaseId: context.current.id }, `bind-${notBuilt.name}`);
+    await context.trusts.publish(admin, { projectId, reference, expectedRevision: 0 }, `trust-${notBuilt.name}`);
+    expect(await preparations.prepare(projectId, reference)).toMatchObject({ reference, artifactDigest: context.artifactDigest });
+    expect(built).toBe(true);
+  }
 });
 
 test("a package whose preparation failed waits before its next try, doubling to a minute, and a success clears the wait", async () => {
@@ -281,7 +335,7 @@ test("prepares an exact active v4 release outside the factory transaction and fe
       hydrated = true;
       return { operationId: input.operationId, state: "succeeded", sourceDigest, artifactDigest, imageDigest: current.imageDigest, manifest: current.manifest, diagnostics: [], evidence: current.evidence };
     },
-    async collectArtifacts(digest) { if (!hydrated || digest !== artifactDigest) throw new Error("artifact absent"); return structuredClone(artifacts); },
+    async collectArtifacts(digest) { if (!hydrated || digest !== artifactDigest) throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store"); return structuredClone(artifacts); },
   };
   const preparations = context.preparations(runner);
   const binding = await preparations.bind(admin, { projectId, reference, installationId: current.installationId, releaseId: current.id }, "bind-package");
