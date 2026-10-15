@@ -398,15 +398,17 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
     });
 
     test("P-F3b: a database error on the OAuth-row read alone is a readiness error, at readiness, in the record and at the call", async () => {
-      await withOAuthRowReadFailing(async () => {
-        const readiness = await factoryProviderReadiness(LUNA, { now: () => NOW });
-        expect(readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
-        expect(factoryProviderReadinessRecord(readiness)).toMatchObject({ failures: ["provider_readiness_error"] });
-        const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
-        const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
-        await expect(broker.stream(request({ model: model(LUNA.provider, LUNA.model) }))).rejects.toThrow(/provider_readiness_error/);
-        expect(sent).toHaveLength(0);
-      });
+      const sent: Array<{ model: Model<Api>; options: { apiKey?: string } }> = [];
+      const broker = createFactoryProviderBroker({ pin: LUNA, stream: capturing(sent) });
+      const { readiness, callError } = await withOAuthRowReadFailing(async () => ({
+        readiness: await factoryProviderReadiness(LUNA, { now: () => NOW }),
+        callError: await broker.stream(request({ model: model(LUNA.provider, LUNA.model) })).then(() => undefined, (e: unknown) => e),
+      }));
+      expect(readiness).toMatchObject({ failures: ["provider_readiness_error"], readinessFailure: { errorClass: "PostgresError", code: "ERR_POSTGRES_CONNECTION_CLOSED" } });
+      expect(factoryProviderReadinessRecord(readiness)).toMatchObject({ failures: ["provider_readiness_error"] });
+      expect(callError).toBeInstanceOf(FactoryProviderReadinessError);
+      expect((callError as Error).message).toMatch(/provider_readiness_error/);
+      expect(sent).toHaveLength(0);
     });
 
     test("an unreadable OAuth row with a valid key: ready on the key, with the broken login as one warning", async () => {
@@ -421,9 +423,8 @@ describe("the openai pin under a ChatGPT-plan OAuth login (C10 revision, W10c)",
 
     test("a database error on the OAuth-row read with a valid key refuses at once; the key is not consulted", async () => {
       await upsertSetting(API_KEY_SETTING, encrypt(API_KEY));
-      await withOAuthRowReadFailing(async () => {
-        expect(await factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true })).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"] });
-      });
+      const readiness = await withOAuthRowReadFailing(() => factoryProviderReadiness(KEY_PIN, { now: () => NOW, isAvailableModel: () => true }));
+      expect(readiness).toMatchObject({ ready: false, credentialKind: null, failures: ["provider_readiness_error"] });
     });
 
     describe("Google discovery and a stored API-key row are broken logins too (C10, S)", () => {
