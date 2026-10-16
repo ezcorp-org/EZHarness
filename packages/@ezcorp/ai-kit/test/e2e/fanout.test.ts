@@ -2,6 +2,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../src/client";
 import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard";
+import { spawnedSubConversations } from "./_poll";
 
 /** Validates that all four fan-out mechanisms work end-to-end against a live
  *  server. The server must already hold what three of them need (the agents
@@ -31,16 +32,6 @@ describe.skipIf(!configured)("e2e: four fan-out mechanisms", () => {
   beforeAll(requireE2eReady);
 
   const client = () => new EzcorpClient({ baseUrl: E2E_BASE_URL!, apiKey: E2E_API_KEY! });
-
-  /** The sub-conversations of `conversationId` once at least one exists: polls the observed rows, never a fixed wait. */
-  async function spawnedSubConversations(c: EzcorpClient, conversationId: string) {
-    const deadline = Date.now() + 30_000;
-    for (;;) {
-      const subs = await c.getSubConversations(conversationId);
-      if (subs.length > 0 || Date.now() > deadline) return subs;
-      await Bun.sleep(100);
-    }
-  }
 
   test("(d) spawn_chats — batch of 3 independent root conversations", async () => {
     const res = await client().spawnChats({
