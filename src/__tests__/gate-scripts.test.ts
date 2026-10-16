@@ -1584,7 +1584,8 @@ function mergeLcovFixture(inputs: Record<string, string>, sources: Record<string
       writeFileSync(join(dir, "in", name), text.replaceAll("@ROOT@", dir));
     }
     const out = join(dir, "merged.info");
-    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out], {
+    // The fixture sources live in the sandbox, outside the repository: declare it a source root.
+    const proc = Bun.spawnSync(["bun", "scripts/merge-lcov.ts", join(dir, "in", "*.lcov"), out, "--source-root", dir], {
       cwd: MERGE_REPO_ROOT,
     });
     expect(proc.exitCode).toBe(0);
