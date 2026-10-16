@@ -48,9 +48,14 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
   re-drive and a restarted sender add nothing; inbox actions keep authority and uncertainty (2 pass, 32 expects).
   EVIDENCE: proof/delivery-test.log, proof/delivery-received.json. try1 passed both tests and failed only its 5 s
   afterAll (container stop grace); fixed in the bound test.
-- [ ] G11 the orchestrator commit and its Node coverage leg. EVIDENCE: proof/commit4-status.log, proof/node-coverage.log.
-- [x] G12 static: Biome clean, tsc clean on every changed file, factory boundaries PASS, gate integrity PASS, new-file
-  and patch coverage PASS at each commit.
+- [x] G11 the in-lock commit 1d3a1b8ed (gated-flock w4h34-commit4): its hook ran the orchestrator package (102 pass),
+  the lane test (44), both bound tests again (delivery 2, evaluator 4), deployment (51) and Kubernetes (19), all green;
+  then the Node coverage leg (102 pass). EVIDENCE: proof/commit4-status.log, proof/node-coverage.log,
+  logs/commit-20261016T032527Z.log.
+- [x] G12 static at 1d3a1b8ed: `bun run lint` clean (6275 files); tsc clean on all 63 changed TypeScript files;
+  factory boundaries PASS; gate integrity PASS; C11 lane inventory PASS; new-file coverage PASS (10 files) and patch
+  coverage PASS (33 files) over 390c49a90..1d3a1b8ed, with 27 Bun suites and the Node orchestrator coverage merged.
+  EVIDENCE: cov/final/. The repository-wide `bun run typecheck` is queued under gated-flock (w4h34-typecheck).
 
 ## Named gaps
 
