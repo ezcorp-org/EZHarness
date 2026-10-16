@@ -108,11 +108,25 @@ describe("fan-out (C11 N1)", () => {
   });
 
   test("the fan-out finds existing sends through the index on (tenant, project, notification, destination) (F5)", async () => {
-    const plan = await fixture.db.transaction(async (transaction) => {
-      await transaction.execute(sql`SET LOCAL enable_seqscan = off`);
-      return rows<Record<string, string>>(await transaction.execute(sql`EXPLAIN ${factoryNotificationFanOutQuery(TENANT, "operators", NOW)}`)).map((row) => Object.values(row)[0]).join("\n");
-    });
-    expect(plan).toContain("idx_factory_notification_sends_notification");
+    // A table the size a long-lived installation reaches, analyzed, so the plan is the one production gets. The
+    // transaction rolls back: the bulk rows exist only for this plan (foreign keys off, as the metric fixtures do).
+    const rollback = new Error("rollback");
+    let plan = "";
+    await fixture.db.transaction(async (transaction) => {
+      await transaction.execute(sql`SET LOCAL session_replication_role = replica`);
+      await transaction.execute(sql`INSERT INTO factory_notification_sends (tenant_id,project_id,send_id,notification_id,destination,deduplication_id,input_hash,state,max_attempts,available_at,expires_at,payload,created_at)
+        SELECT ${TENANT}, ${PROJECT}, 'bulk-' || i, 'bulk-' || i, 'operators', 'bulk-' || i, ${`sha256:${"e".repeat(64)}`}, 'delivered', 8, 0, 0, '{}', 0 FROM generate_series(1, 20000) AS i`);
+      await transaction.execute(sql`ANALYZE factory_notification_sends`);
+      plan = rows<Record<string, string>>(await transaction.execute(sql`EXPLAIN ${factoryNotificationFanOutQuery(TENANT, "operators", NOW)}`)).map((row) => Object.values(row)[0]).join("\n");
+      throw rollback;
+    }).catch((error: unknown) => { if (error !== rollback) throw error; });
+    // All four columns are index conditions: an index used on its tenant and project prefix alone still reads
+    // every send of the project on each pass.
+    const lines = plan.split("\n");
+    const scan = lines.findIndex((line) => line.includes("idx_factory_notification_sends_notification"));
+    expect(scan).toBeGreaterThanOrEqual(0);
+    const condition = lines.slice(scan + 1).find((line) => line.trim().startsWith("Index Cond:")) ?? "";
+    for (const column of ["tenant_id", "project_id", "notification_id", "destination"]) expect(condition).toContain(`(${column} = `);
   });
 
   test("a notification that cannot be sent is recorded as a dead-letter send once, and the fan-out moves on", async () => {
