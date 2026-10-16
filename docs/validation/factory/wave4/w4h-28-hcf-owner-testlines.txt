@@ -1,0 +1,2 @@
+src/__tests__/coverage-outside-repo.test.ts instrumented 78 at 0: []
+src/__tests__/quality-report-producers.test.ts instrumented 47 at 0: []

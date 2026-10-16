@@ -1,0 +1,16 @@
+# W4H-28 follow-up (integrator-5; the coordinator's word 2026-10-16): the hosted coverage fix, 4 commits, 8 files (scripts/merge-lcov.ts,
+# .github/workflows/ci.yml, .github/actionlint.yaml, 5 tests). hold-w4f.sh runs: the hook suites (5), unit 56 (hook 5 + the 51 invariant
+# tests), the guard set, the web server leg, the Bun canonical producers (R4), the coverage merge with lcov-foreign-sources (R7: the class
+# the hosted run found; its leg log is a receipt), CRAP, actionlint (ci.yml and actionlint.yaml change) and the merge gates with the
+# folder's expected sets on both legs (R1). Beyond those, sourced by hold-w4f.sh: the static legs in the W4H-28 form.
+NOTEST=1 leg build-packages bun run build:packages
+tc_leg typecheck-all bun run typecheck
+NOTEST=1 leg lint bun run lint
+NOTEST=1 leg check-boundaries bun scripts/check-boundaries.ts
+NOTEST=1 leg factory-boundaries bun scripts/check-factory-boundaries.ts
+NOTEST=1 leg schema-drift bun scripts/check-schema-generate-drift.ts
+# - red-first cases BY NAME (case-check v9, package form; validator-8 Addendum BG): the 9 names in warn-cases.txt (the 5 tests of
+#   coverage-outside-repo.test.ts; quality-report-producers.test.ts's template names as they resolve) must PASS at the merge, and every
+#   changed test line must be covered; whole-files.txt names the 3 changed test files whose cases are judged whole. The red is the
+#   owner's per-fix logs (w4h-28/hcf/), by assertion, and the validator's mutants (no red-on-base list for this follow-up).
+NOTEST=1 leg w4h28hcf-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" "$D"

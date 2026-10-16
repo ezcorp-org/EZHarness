@@ -1,0 +1,58 @@
+{
+ "package": "w4h-28-hcf",
+ "kind": "package merge: the W4H-28 hosted coverage fix (a test's /tmp bundle never enters coverage; the coverage merge keeps repository sources only; the expected-report steps run whenever the merged lcov exists)",
+ "branch": "wp/w4h-28-hosted-coverage-fix",
+ "head": "38ec686d8c10ff5f2d3835251f6cd1b13dd0ff06",
+ "base": "fef0d7d2acf26343df14990f87bd4a3e39ab2ccf",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "ec092aa7598687702e3367c7a7b42b055876d903",
+ "treeEquality": {
+  "trialTree": "540b8f098af025c261702604cc94b1bc92e1493e",
+  "mergeTree": "540b8f098af025c261702604cc94b1bc92e1493e",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 ACCEPT (aae05843c1ddfff2) and OK to publish on the hold record (verdict-w4h-28.txt sha256 6c56008a5c4cc8770c5777700b56381e6d7fe4b3469dec943b0e72102defa3c4; copied as w4h-28-hcf-validation.txt)",
+ "ownerReport": {
+  "w4h-28/proof/report.txt": "c4a3cd0a74771505",
+  "w4h-28/legs/final-hcf-38ec686d8/summary.txt": "bfb9a5d7729259d9",
+  "w4h-28/legs/gi-expected.txt": "99b27c40bff33e55",
+  "w4h-28/legs/final-hcf-38ec686d8/testlines.txt": "659e45d86562bde5",
+  "w4h-28/legs/final-hcf-38ec686d8/lcov.info": "bc055846473ca408",
+  "w4h-28/pending-lesson.md": "b9e737c40259e244"
+ },
+ "gateChange": "RULED: gate-integrity flags exactly 'coverage gate tool changed (M): scripts/merge-lcov.ts' on both legs; the folder's expected sets (99c49be48fbf9679) name it; both legs PASS by the expected set; the hosted label stays the user's decision",
+ "commit": {
+  "form": "detached merge, the full-run hook form, EZ_PRECOMMIT_TEST_MAX=5, PG_HOOK=0, in the heavy lock; rerere off; no skip variable; archy noreply",
+  "try1": "2026-10-16T14:57:54-15:02:06Z exit 1: fast checks red only at web-check, refused by the in-lock tc-gate (MemAvailable 10.7 GiB < 12 GiB; another project's test batch on the host); nothing committed; kept as the .try1 files",
+  "try2": "launched 15:21:54Z after MemAvailable >= 15 GiB on two reads 60 s apart (15:20:42, 15:21:42Z); exit 0 at 15:25:10Z; hook 5 files: 18+5+254+18+4 tests, 0 fail; fast checks status 0"
+ },
+ "hold": {
+  "run": "2026-10-16T15:29:00-15:34:57Z on ec092aa75, own pg15 w4h-28hcf-hold-pg: HEAVY DONE status=0 dirty=0; 79/79 legs exit 0 (56 unit legs, guard 518/0, the static legs, actionlint 0, the Bun canonical producers, the case leg 9/9 CASE PASS)",
+  "gates": "origin/main and base legs PASS against the folder expected sets (raw gate-integrity exit 1 on both, by the ruled change); new-file and patch PASSED",
+  "lcovForeignSources": "0 foreign of 1270 SF record(s) in coverage/lcov.info"
+ },
+ "identity": "publish identity step: identity-check commits fef0d7d2a..ec092aa75, 5 commits, clean",
+ "published": "integ/w00 fef0d7d2a -> ec092aa75 at 2026-10-16T15:39:10Z by publish-if-main.sh (remote main 934531e2e = expected; SSH agent bypass per ruling a')",
+ "tools": {
+  "gated-flock.sh": "7f17dfdd9684c41c",
+  "heavy-lib.sh": "e9ab2c05a91d7a45",
+  "bun-pin.sh": "cf1aad7852b8afdc",
+  "w4f-merge/hold-w4f.sh": "adc86f1bf7d8325e",
+  "merge-commit-gates.sh": "7c449267be86c11c",
+  "lcov-foreign-sources.py": "853340d4a2d00c42",
+  "identity-check.sh": "ef09124c9d7360ed",
+  "detached-merge/commit.sh": "22db59d4e7eb94e0",
+  "detached-merge/publish.sh": "f55db31d526c443a",
+  "w4g-merge/prep.sh": "33840f938827ec95",
+  "merge-receipt-sources.sh": "0cffdbb100e7de24",
+  "merge-receipts.sh": "56c108f4ec5796b1",
+  "w4h-merge/w4h-24-web-shard-timeout/case-check.sh": "a69bd85aacdd87eb",
+  "integrator-5/publish-if-main.sh": "8a658ea7fff5fc34",
+  "note": "the hold ran on gated-flock.sh 50d35065e3e0bcae and hold-w4f.sh 6da567de911b4896; the margin and label-check versions were installed at 15:37Z, after the hold"
+ },
+ "pushed": false,
+ "excludedFromReceipts": [],
+ "deviations": [
+  "commit try 1 refused by a memory gate before any commit (recorded as .try1 receipts)"
+ ]
+}

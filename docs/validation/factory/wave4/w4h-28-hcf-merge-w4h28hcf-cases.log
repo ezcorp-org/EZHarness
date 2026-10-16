@@ -1,0 +1,22 @@
+src/__tests__/coverage-gate.test.ts: Ran 18 tests across 1 file. [2.04s]
+src/__tests__/coverage-outside-repo.test.ts: Ran 5 tests across 1 file. [1468.00ms]
+src/__tests__/gate-scripts.test.ts: Ran 254 tests across 1 file. [3.74s]
+src/__tests__/merge-lcov-shard-vote.test.ts: Ran 18 tests across 1 file. [3.68s]
+src/__tests__/quality-report-producers.test.ts: Ran 4 tests across 1 file. [477.00ms]
+case-web-junit: no web red-first file
+CASE PASS: a bundle a test wrote to a temporary folder is dropped, by absolute or by climbing path; the repository source stays
+CASE PASS: a declared --source-root keeps its own files and nothing else outside the repository
+CASE PASS: a declared --source-root matches only paths under it as a folder, never a sibling that shares its name as a prefix
+CASE PASS: --source-root without a folder is refused with the usage line, and writes nothing
+CASE PASS: end to end: the bundled credential-store test's lcov merges with no path outside the repository, and keeps the repository's
+CASE PASS: ci.yml has a coverage-merging job with a quality summary that expects gates
+CASE PASS: the merged lcov comes from a merge-only step with an id
+CASE PASS: every step that writes the "coverage" report runs once the merge succeeded
+CASE PASS: every step that writes the "crap" report runs once the merge succeeded
+src/__tests__/coverage-gate.test.ts: file 488/488 lines hit; added lines 2, instrumented 1, uncovered 0
+src/__tests__/coverage-outside-repo.test.ts: file 78/78 lines hit; added lines 119, instrumented 78, uncovered 0
+src/__tests__/gate-scripts.test.ts: file 2596/2597 lines hit; added lines 2, instrumented 1, uncovered 0
+src/__tests__/merge-lcov-shard-vote.test.ts: file 436/436 lines hit; added lines 2, instrumented 1, uncovered 0
+src/__tests__/quality-report-producers.test.ts: file 47/47 lines hit; added lines 77, instrumented 47, uncovered 0
+bash line cover: merge ec092aa75 vs base fef0d7d2a; trace /tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-hcf-38ec686d8-on-fef0d7d2a/case-check/bash-trace.txt
+no changed *.sh file
