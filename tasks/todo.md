@@ -6014,6 +6014,28 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       sockets in 66/66 samples, head 0 in 66/66: ACCEPT at 5ee55026a 10b22f97bb0b4ea1, addendum c846a474b6d9fe57;
       merge 560dbe2a7 / receipts b80a00f47. Hold 1 red from the harness modes (cp -p), hold 2 stopped at the disk floor,
       hold 3 in the no-proof form status 0 (ruled; risk line recorded).
+- [x] W4H-28 (the reference.code.v1 run through the product with the real model): one real run PASSED on this box.
+      run 82c88790-77c4-407d-9ea2-a45fddbf1bbf (real-9, 2026-10-15 15:01:36-15:02:56Z under the heavy lock): pin
+      openai/gpt-6-luna (reasoningEffort low) through the deployment's ChatGPT-plan login; 2 model operations: generate
+      1,318 + 92 tokens, 178 micro-USD, 2,122 ms; supervised review 334 + 57 tokens, 62 micro-USD, 2,173 ms; envelope
+      1,801 tokens, 240 micro-USD; usage equal across journal, receipts, settlement and inspection; protected claims
+      10/10 PASS; release succeeded to S3 (bucket tenant-01, ordinary/releases/w4h28/real-9/run1: candidate.json
+      6,231 B, manifest.json 540 B whose digest equals the effectDigest), outcome confirmed; productRefusals []. Record
+      real-9.json ae7a2fba9035010a. Built: a guest reads its own run's sealed material (P0); the in-guest model adapter
+      through the broker, budget_exceeded before the claim (P1); a token-free repository read of one declared commit (P2);
+      the toolchain claims lane on the pinned runner image with the validator package's locked set (P3); real pins (model
+      configuration digest; the S3 adapter digest rebuilt and locked) and fleet profiles (P4). Product defects the real
+      run found and fixed, each red first: per-node cost bounds in the definition (generate 250,000; other task nodes
+      50,000 micro-USD; before, freeze refused factory_budget_exhausted at the first non-zero cost); the built web server
+      registers pi-ai's OAuth flows statically; readiness codes provider_credential_unusable and provider_readiness_error
+      with a non-blocking warnings entry, the credential ladder classified by type (C10 rows first); the runner answers
+      runner_internal_error (500) and artifact_missing by name; setup selects the staged release by the expected digest;
+      the preparation reply has its own named 64 MiB bound; the freeze node answers two ports; the inspection's known cost
+      counts reservations settled on completion (C09 row first); a Codex-login import tool with named refusals and
+      --dry-run. The coordinator ran the user's import on the user's explicit words (a disclosed exception; outputs masked).
+      Cleanup: both product databases, both deployment directories and all runner stores removed by name; the proof
+      PostgreSQL admin password rotated and checked. validator-8 plan-w4h-28.md Addenda A to AN: ACCEPT at 5deb91a25 and OK to publish on the hold record (verdict 7cfd6fe2571297c9; hold 246/246 legs status=0, 2026-10-16 09:33-10:12Z); merge
+      7e5365696 / receipts cc6bfe54b.
 
 ## Leftover after wave 4i — 2026-10-05
 
