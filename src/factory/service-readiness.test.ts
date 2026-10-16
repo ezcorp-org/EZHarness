@@ -6,8 +6,10 @@ import {
   FACTORY_SUPERVISOR_READINESS_SCHEMA,
   FactoryServiceReadinessError,
   createFactoryServiceReadinessWriter,
+  factorySupervisorReadinessExpectation,
   factorySupervisorReadinessOptions,
   readFactoryServiceReadiness,
+  verifyFactoryServiceReadiness,
   type FactoryServiceReadinessOptions,
 } from "./service-readiness";
 import { makeFactoryTempPrivateRoot } from "../__tests__/helpers/factory-private-root";
@@ -173,5 +175,31 @@ describe("owned and shared services", () => {
     const published = await createFactoryServiceReadinessWriter(scope, () => 5_000).write(ready);
     expect("installationId" in published).toBe(false);
     await expect(readFactoryServiceReadiness({ ...scope, installationId: "installation-01" }, () => 5_000)).rejects.toBeInstanceOf(FactoryServiceReadinessError);
+  });
+});
+
+describe("verifyFactoryServiceReadiness (a record from the network, W4H-35)", () => {
+  const expectation = factorySupervisorReadinessExpectation({ hostId: "host-01", readinessHeartbeatMs: 1_000 });
+  const record = { schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA, service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: 10_000, facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } };
+
+  test("the expectation is the file options without a path", () => {
+    const { readinessFilePath, ...rest } = factorySupervisorReadinessOptions({ hostId: "host-01", readinessFilePath: "/run/s.json", readinessHeartbeatMs: 1_000 });
+    expect(readinessFilePath).toBe("/run/s.json");
+    expect(rest).toEqual(expectation);
+    expect(factorySupervisorReadinessExpectation({ hostId: "h" }).readinessHeartbeatMs).toBeUndefined();
+  });
+
+  test("accepts exactly a fresh ready record for the exact host, as the file reader does", () => {
+    expect(verifyFactoryServiceReadiness(record, expectation, 12_000)).toEqual(record as never);
+    expect(Object.isFrozen(verifyFactoryServiceReadiness(record, expectation, 12_000))).toBe(true);
+    for (const [value, now] of [
+      [record, 13_001], [record, 9_999], [{ ...record, instanceId: "host-02" }, 12_000], [{ ...record, lifecycle: "degraded", errorCode: "x" }, 12_000],
+      [{ ...record, installationId: "inst-1" }, 12_000], [{ ...record, facts: { hostKeyReady: true } }, 12_000], ["ready", 12_000], [null, 12_000], [record, Number.NaN],
+    ] as const) {
+      const error = (() => { try { verifyFactoryServiceReadiness(value, expectation, now); } catch (thrown) { return thrown as FactoryServiceReadinessError; } throw new Error("expected a refusal"); })();
+      expect(error).toBeInstanceOf(FactoryServiceReadinessError);
+      expect(error.code).toBe("host-supervisor");
+    }
+    expect(() => verifyFactoryServiceReadiness(record, { ...expectation, factNames: [] }, 12_000)).toThrow(FactoryServiceReadinessError);
   });
 });

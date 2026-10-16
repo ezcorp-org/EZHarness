@@ -84,6 +84,8 @@ const MAX_KEY_BYTES = 64 * 1024;
  */
 export interface FactorySupervisorEndpoint {
   readonly baseUrl: string;
+  /** The name the endpoint's certificate is verified as, when it is dialled by another (a hosted service name, W4H-35). */
+  readonly serverName?: string;
   readonly serviceTokenPath: string;
   readonly tls: { readonly caPath: string; readonly certificatePath: string; readonly privateKeyPath: string };
 }
@@ -178,7 +180,8 @@ export interface FactorySupervisorProcessDependencies {
    * lifecycle — bind after the first good probe, degrade when the bind fails,
    * release on stop — without a real certificate and a real port.
    */
-  readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner) => Promise<{ stop(): void }>;
+  /** `readiness` is this host's latest published record, which the listener serves on its readiness path (W4H-35). */
+  readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner, readiness: () => unknown) => Promise<{ stop(): void }>;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
 }
@@ -247,8 +250,8 @@ function guestBrokersSection(value: unknown): boolean {
 function endpointSection(value: unknown): boolean {
   if (!record(value)) return false;
   const required = ["baseUrl", "serviceTokenPath", "tls"];
-  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key))) return false;
-  return text(value.baseUrl) && text(value.serviceTokenPath) && tlsSection(value.tls);
+  if (required.some((key) => !Object.hasOwn(value, key)) || Object.keys(value).some((key) => !required.includes(key) && key !== "serverName")) return false;
+  return text(value.baseUrl) && text(value.serviceTokenPath) && tlsSection(value.tls) && (value.serverName === undefined || text(value.serverName));
 }
 
 /** Strict parser. The document names paths and identities, never a key value. */
@@ -387,6 +390,7 @@ export function factoryHostRunnerProbe(loadRunner: FactoryHostRunnerLoader = loa
 export async function startFactoryConfiguredHostServices(
   config: FactorySupervisorProcessConfig,
   runner: FactoryHostRunner,
+  readiness: () => unknown = () => undefined,
 ): Promise<{ stop(): void }> {
   const services = config.services;
   if (services === undefined) throw new Error("factory supervisor host services are not configured");
@@ -420,6 +424,7 @@ export async function startFactoryConfiguredHostServices(
     tls: { ca: utf8(ca), cert: utf8(cert), key: utf8(key) },
     hostname: services.hostname,
     port: services.port,
+    readiness,
     ...(pool === undefined ? {} : { pool }),
     broker,
   });
@@ -476,7 +481,7 @@ export async function createFactoryConfiguredGuestBroker(endpoints: Readonly<Rec
 }
 
 function endpointTransport(endpoint: FactorySupervisorEndpoint) {
-  return { baseUrl: endpoint.baseUrl, tls: { ...endpoint.tls, serviceTokenPath: endpoint.serviceTokenPath } };
+  return { baseUrl: endpoint.baseUrl, ...(endpoint.serverName === undefined ? {} : { serverName: endpoint.serverName }), tls: { ...endpoint.tls, serviceTokenPath: endpoint.serviceTokenPath } };
 }
 
 export const factorySupervisorProductionDependencies: FactorySupervisorProcessDependencies = {
@@ -610,7 +615,10 @@ export async function runConfiguredFactorySupervisor(
   const observation: SupervisorObservation = { attempted: false, hostKeyReady: false, runnerReady: false, hostServicesReady: false, servicesConfigured, observedAtMs: 0 };
   const runnerProbe = dependencies.createRunnerProbe();
   let services: { stop(): void } | undefined;
-  await readiness.write({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+  // The latest record, served on the host services' readiness path to installations that cannot mount its file (W4H-35).
+  let latest: unknown;
+  const publish = async (update: FactoryServiceReadinessUpdate) => { latest = await readiness.write(update); };
+  await publish({ lifecycle: "starting", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
 
   const observing = (async () => {
     while (!signal.aborted) {
@@ -627,7 +635,7 @@ export async function runConfiguredFactorySupervisor(
       const runner = runnerProbe.instance();
       if (servicesConfigured && services === undefined && seen.runnerReady && runner !== undefined) {
         try {
-          services = await dependencies.startServices(config, runner);
+          services = await dependencies.startServices(config, runner, () => latest);
         } catch {
           // Named, not swallowed: the record degrades with this code and the
           // next heartbeat tries again, because a port held by a dying sibling
@@ -643,7 +651,7 @@ export async function runConfiguredFactorySupervisor(
 
   const publishing = (async () => {
     while (!signal.aborted) {
-      await readiness.write(factorySupervisorRecord(observation, dependencies.now(), stalenessMs));
+      await publish(factorySupervisorRecord(observation, dependencies.now(), stalenessMs));
       await dependencies.wait(heartbeatMs, signal);
     }
   })();
@@ -660,7 +668,7 @@ export async function runConfiguredFactorySupervisor(
     services?.stop();
     services = undefined;
     await runnerProbe.close();
-    await readiness.write({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
+    await publish({ lifecycle: "stopped", facts: { hostKeyReady: false, runnerReady: false, hostServicesReady: false } });
   }
 }
 

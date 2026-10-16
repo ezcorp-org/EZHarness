@@ -9,7 +9,7 @@ import { factoryAttemptLaunchIntentToWire, type FactoryAttemptLaunchIntent } fro
 import { factoryHostLaunchIntent } from "../../__tests__/helpers/factory-host-launch-intent";
 import { certificates } from "../../__tests__/helpers/factory-certificates";
 import { factoryLaunchCompletedResult } from "../../__tests__/helpers/factory-attempt-launch-fixture";
-import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
+import { FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_READINESS_PATH, FACTORY_HOST_RESULT_PATH } from "./host-launch-service";
 import { FACTORY_HOST_STOP_PATH } from "./host-stop-service";
 import { FACTORY_HOST_TOMBSTONES_FILE, FactoryHostTombstones } from "./host-tombstones";
 import {
@@ -213,6 +213,22 @@ describe("createFactoryHostServiceRouter", () => {
       expect(response.status).toBe(400);
       expect(body(response)).toEqual({ error: "invalid_intent" });
     }
+  });
+
+  test("the readiness path answers this host's own latest record to an admitted peer only (W4H-35)", async () => {
+    const record = { schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: hostId, lifecycle: "ready", observedAtMs: 1, facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } };
+    let current: unknown;
+    const handle = createFactoryHostServiceRouter({ hostId, peerTenants: { [peer]: peer }, runner: fakeRunner(new Map()), signingKey: await keyMaterial(), readiness: () => current });
+    const get = (overrides: Partial<FactoryPrivateRequest> = {}) => handle(request({ method: "GET", path: FACTORY_HOST_READINESS_PATH, body: Buffer.alloc(0), headers: { "x-ezcorp-factory-version": "1" }, ...overrides }));
+    expect([(await get()).status, body(await get())]).toEqual([503, { error: "unavailable" }]);
+    current = record;
+    expect([(await get()).status, body(await get())]).toEqual([200, record]);
+    expect([(await get({ peerIdentity: "tenant-b" })).status, body(await get({ peerIdentity: "tenant-b" }))]).toEqual([401, { error: "unauthorized" }]);
+    expect((await get({ headers: {} })).status).toBe(400);
+    expect((await get({ body: Buffer.from("{}") })).status).toBe(400);
+    expect((await get({ method: "POST" })).status).toBe(404);
+    const without = await router();
+    expect((await without(request({ method: "GET", path: FACTORY_HOST_READINESS_PATH, body: Buffer.alloc(0) }))).status).toBe(503);
   });
 
   test("an unknown path answers 404 to an authorized peer", async () => {

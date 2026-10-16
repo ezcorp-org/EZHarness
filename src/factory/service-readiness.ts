@@ -56,6 +56,9 @@ export interface FactoryServiceReadinessOptions {
   readonly factNames: readonly string[];
 }
 
+/** What a reader expects of a record, wherever it is read from: the options without the file. */
+export type FactoryServiceReadinessExpectation = Omit<FactoryServiceReadinessOptions, "readinessFilePath">;
+
 export type FactoryServiceReadinessUpdate = Pick<FactoryServiceReadinessRecord, "lifecycle" | "facts"> & { readonly errorCode?: string };
 
 export interface FactoryServiceReadinessWriter {
@@ -81,17 +84,23 @@ function heartbeat(value: unknown): value is number {
   return Number.isSafeInteger(value) && (value as number) >= 1_000 && (value as number) <= 60_000;
 }
 
-type ReadinessExpectation = Omit<Required<FactoryServiceReadinessOptions>, "installationId"> & { readonly installationId?: string };
+type ReadinessExpectation = Omit<Required<FactoryServiceReadinessExpectation>, "installationId"> & { readonly installationId?: string };
 
-function snapshotOptions(options: FactoryServiceReadinessOptions): ReadinessExpectation {
+function snapshotExpectation(options: FactoryServiceReadinessExpectation): ReadinessExpectation {
   const result = { ...options, readinessHeartbeatMs: options.readinessHeartbeatMs ?? 5_000 };
   if (!text(result.schemaVersion) || !SERVICE_NAME.test(result.service) || (result.installationId !== undefined && !text(result.installationId)) || !text(result.instanceId)
-    || !pathText(result.readinessFilePath) || !heartbeat(result.readinessHeartbeatMs)
+    || !heartbeat(result.readinessHeartbeatMs)
     || !Array.isArray(result.factNames) || result.factNames.length < 1 || result.factNames.length > 32
     || result.factNames.some((name) => !FACT_NAME.test(name)) || new Set(result.factNames).size !== result.factNames.length) {
     throw new FactoryServiceReadinessError(options.service ?? "unknown");
   }
   return result;
+}
+
+function snapshotOptions(options: FactoryServiceReadinessOptions): ReadinessExpectation & { readonly readinessFilePath: string } {
+  const expected = snapshotExpectation(options);
+  if (!pathText(options.readinessFilePath)) throw new FactoryServiceReadinessError(expected.service);
+  return { ...expected, readinessFilePath: options.readinessFilePath };
 }
 
 function validRecord(value: unknown, expected: ReadinessExpectation): value is FactoryServiceReadinessRecord {
@@ -158,18 +167,26 @@ export async function readFactoryServiceReadiness(
     } finally {
       await directory.close();
     }
-    const record: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    const now = clock();
-    if (!validRecord(record, expected) || record.lifecycle !== "ready"
-      || record.installationId !== expected.installationId || record.instanceId !== expected.instanceId
-      || !Number.isSafeInteger(now) || now < record.observedAtMs
-      || now - record.observedAtMs > expected.readinessHeartbeatMs * 3) {
-      throw new FactoryServiceReadinessError(expected.service);
-    }
-    return Object.freeze(record);
+    return verifyFactoryServiceReadiness(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)), expected, clock());
   } catch {
     throw new FactoryServiceReadinessError(expected.service);
   }
+}
+
+/**
+ * Judges one record, read from the file or from the service's own readiness
+ * route (the hosted profile, W4H-35): only a fresh `ready` record for the
+ * exact identity passes, and every other case is the one error.
+ */
+export function verifyFactoryServiceReadiness(record: unknown, options: FactoryServiceReadinessExpectation, now: number): FactoryServiceReadinessRecord {
+  const expected = snapshotExpectation(options);
+  if (!validRecord(record, expected) || record.lifecycle !== "ready"
+    || record.installationId !== expected.installationId || record.instanceId !== expected.instanceId
+    || !Number.isSafeInteger(now) || now < record.observedAtMs
+    || now - record.observedAtMs > expected.readinessHeartbeatMs * 3) {
+    throw new FactoryServiceReadinessError(expected.service);
+  }
+  return Object.freeze(record);
 }
 
 export const FACTORY_SUPERVISOR_READINESS_SCHEMA = "factory.supervisor-readiness.v1";
@@ -191,17 +208,20 @@ export const FACTORY_SUPERVISOR_FACTS = Object.freeze(["hostKeyReady", "runnerRe
  * record names its own host id and no installation; each installation's
  * startup document names the hostId it relies on.
  */
+export function factorySupervisorReadinessExpectation(input: { readonly hostId: string; readonly readinessHeartbeatMs?: number }): FactoryServiceReadinessExpectation {
+  return {
+    schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA,
+    service: "host-supervisor",
+    instanceId: input.hostId,
+    ...(input.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: input.readinessHeartbeatMs }),
+    factNames: [...FACTORY_SUPERVISOR_FACTS],
+  };
+}
+
 export function factorySupervisorReadinessOptions(input: {
   readonly hostId: string;
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
 }): FactoryServiceReadinessOptions {
-  return {
-    schemaVersion: FACTORY_SUPERVISOR_READINESS_SCHEMA,
-    service: "host-supervisor",
-    instanceId: input.hostId,
-    readinessFilePath: input.readinessFilePath,
-    ...(input.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: input.readinessHeartbeatMs }),
-    factNames: [...FACTORY_SUPERVISOR_FACTS],
-  };
+  return { ...factorySupervisorReadinessExpectation(input), readinessFilePath: input.readinessFilePath };
 }

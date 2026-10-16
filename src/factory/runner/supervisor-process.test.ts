@@ -684,6 +684,11 @@ describe("the host services this supervisor publishes", () => {
     for (const broken of [{ ...endpoint, baseUrl: "" }, { ...endpoint, serviceTokenPath: "" }, { ...endpoint, tls: { caPath: "a", certificatePath: "b" } }, { ...endpoint, extra: "x" }, "not a record"]) {
       refused({ guestBrokers: { ...brokers, "tenant-03": broken } });
     }
+    // A hosted endpoint is dialled by its service name and names the certificate it verifies (W4H-35).
+    const named = { ...endpoint, baseUrl: "https://harness.ezcorp-factory-w16-tenant-01.svc.cluster.local:8701", serverName: "localhost" };
+    expect(parseFactorySupervisorProcessConfig(config(root, { services: { ...complete, pool: named, guestBrokers: { "tenant-01": named } } } as never)).services).toMatchObject({ pool: named, guestBrokers: { "tenant-01": named } });
+    refused({ pool: { ...named, serverName: "" } });
+    refused({ guestBrokers: { "tenant-01": { ...named, serverName: 7 } } });
   });
 
   test("binds once after the first good probe, publishes the fact, and releases on stop", async () => {
@@ -694,11 +699,12 @@ describe("the host services this supervisor publishes", () => {
     const published: Array<{ lifecycle: string; hostServicesReady: boolean }> = [];
     let started = 0;
     let stopped = 0;
+    let served: (() => unknown) | undefined;
     const runner = { async initialize() {}, async close() {} } as never;
 
     await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
       createRunnerProbe: () => ({ probe: async () => {}, instance: () => runner, close: async () => {} }),
-      startServices: async () => { started += 1; return { stop: () => { stopped += 1; } }; },
+      startServices: async (_config, _runner, readiness) => { started += 1; served = readiness; return { stop: () => { stopped += 1; } }; },
       // Stop on the fact under test, not on a heartbeat count: the observer does
       // real file I/O and the publisher does not, so a count shared by both
       // loops can run out before the observer has bound anything. Three ready
@@ -716,6 +722,8 @@ describe("the host services this supervisor publishes", () => {
     expect(stopped).toBe(1);
     expect(published.some((entry) => entry.lifecycle === "ready" && entry.hostServicesReady)).toBe(true);
     expect(published.at(-1)).toEqual({ lifecycle: "stopped", hostServicesReady: false });
+    // The listener serves this host's own latest record: the hosted profile's readiness route (W4H-35).
+    expect(served?.()).toMatchObject({ lifecycle: "stopped", facts: { hostServicesReady: false } });
   });
 
   test("a bind that fails degrades by name and is retried on the next heartbeat", async () => {

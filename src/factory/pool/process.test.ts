@@ -70,12 +70,13 @@ class ProcessDatabase {
   async close(): Promise<void> { this.closed = true; if (this.failClose) throw new Error("secret close failure"); }
 }
 
+let served: (() => unknown) | undefined;
 function dependencies(database: ProcessDatabase, controller: AbortController, updates: FactoryPoolReadinessUpdate[], options: { startError?: boolean; stopError?: boolean; heartbeatError?: boolean; heartbeatSuccess?: boolean } = {}): FactoryPoolProcessDependencies {
   if (options.heartbeatError) database.failCheckAfter = 1;
   return {
     connect: () => database,
     readiness: () => ({ async write(update) { updates.push(update); return { schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...update }; } }),
-    start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
+    start: async input => { expect(input).toMatchObject({ hostname: "127.0.0.1", port: 8443 }); served = input.readiness; if (options.startError) throw new Error("secret listener error"); if (options.heartbeatSuccess) setTimeout(() => controller.abort(), 1_010); else if (!options.heartbeatError) controller.abort(); return { url: "https://127.0.0.1:8443", stop() { if (options.stopError) throw new Error("secret listener close failure"); updates.push({ lifecycle: "stopped", databaseReady: false, schemaReady: false, listenerReady: false }); } }; },
     ...(options.heartbeatSuccess ? {} : { wait: async (_milliseconds: number, signal: AbortSignal) => { if (!signal.aborted && !options.heartbeatError) controller.abort(); } }),
   };
 }
@@ -160,6 +161,8 @@ describe("factory pool process lifecycle", () => {
     expect(database.closed).toBe(true);
     expect(updates.some(value => value.lifecycle === "ready" && value.listenerReady)).toBe(true);
     expect(updates.at(-1)).toMatchObject({ lifecycle: "stopped", databaseReady: false });
+    // The listener serves the pool's own latest record: the hosted profile's readiness route (W4H-35).
+    expect(served?.()).toEqual({ schemaVersion: "factory.pool-readiness.v2", poolId: "p", observedAtMs: 1, ...updates.at(-1) });
   });
 
   test("accepts Bun row objects and publishes a successful production heartbeat before shutdown", async () => {

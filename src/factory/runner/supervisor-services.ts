@@ -31,10 +31,10 @@
  */
 import type { Runner } from "@ezcorp/extension-contract";
 import { startFactoryPrivateHttps, type FactoryPrivateRequest, type FactoryPrivateResponse } from "../private-https";
-import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_PREPARATION_REPLY_BYTES, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
+import { FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_PREPARATION_PATH, FACTORY_HOST_PREPARATION_REPLY_BYTES, FACTORY_HOST_READINESS_PATH, FACTORY_HOST_RESULT_PATH, createFactoryHostLaunchRouteHandler } from "./host-launch-service";
 import { createFactoryHostLaunchSupervisor, type FactoryHostPreparationRecords } from "./host-launch-supervisor";
 import type { FactoryHostTombstoneInput, FactoryHostTombstones } from "./host-tombstones";
-import { FactoryHostGuestTenants, type FactoryHostPeerTenants } from "./host-peer-tenants";
+import { FactoryHostGuestTenants, factoryHostPeerTenantLookup, type FactoryHostPeerTenants } from "./host-peer-tenants";
 import type { FactoryGuestBroker } from "./guest-model-broker";
 import type { FactorySupervisorPoolClient } from "./supervisor-pool-client";
 import {
@@ -175,6 +175,8 @@ export function factoryHostStopSupervisor(
 
 export interface FactoryHostServiceOptions {
   readonly hostId: string;
+  /** This host's latest readiness record, served on the readiness path; absent or before the first record, 503 (W4H-35). */
+  readonly readiness?: () => unknown;
   /** Each mTLS peer allowed to drive or stop attempts on this host, bound to the one tenant it acts for. */
   readonly peerTenants: FactoryHostPeerTenants;
   readonly runner: Runner;
@@ -254,7 +256,9 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
     signingKey: options.signingKey,
   });
   const launchPaths = new Set<string>([FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]);
+  const peers = factoryHostPeerTenantLookup(options.peerTenants);
   return async (request) => {
+    if (request.path === FACTORY_HOST_READINESS_PATH) return readinessRoute(request, peers, options.readiness);
     if (request.path === FACTORY_HOST_STOP_PATH) return presentStop(await stop(request), options.pool);
     if (launchPaths.has(request.path)) return launch(request);
     // An unknown path reaches the launch handler, which authenticates the peer
@@ -262,6 +266,17 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
     // about which paths this host serves.
     return launch(request);
   };
+}
+
+const reply = (status: number, value: unknown): FactoryPrivateResponse => Object.freeze({ status, headers: { "content-type": "application/json" }, body: new TextEncoder().encode(JSON.stringify(value)) });
+
+/** Only a peer of an admitted installation reads the record, and only with an empty GET; an unknown peer learns nothing else. */
+function readinessRoute(request: FactoryPrivateRequest, peers: ReadonlyMap<string, string>, readiness: (() => unknown) | undefined): FactoryPrivateResponse {
+  if (!peers.has(request.peerIdentity)) return reply(401, { error: "unauthorized" });
+  if (request.headers["x-ezcorp-factory-version"] !== "1" || request.body.byteLength !== 0) return reply(400, { error: "invalid_request" });
+  if (request.method !== "GET") return reply(404, { error: "not_found" });
+  const record = readiness?.();
+  return record === undefined ? reply(503, { error: "unavailable" }) : reply(200, record);
 }
 
 /**
