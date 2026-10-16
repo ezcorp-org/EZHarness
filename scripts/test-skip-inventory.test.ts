@@ -2,6 +2,7 @@ import { afterAll, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 import {
   assignsVariable,
   FIXTURE_TREE,
@@ -283,8 +284,7 @@ describe("fixture addresses (identity-check.sh files mode in the repository)", (
 describe("the repository", () => {
   test("lists tracked test files only: no vendored node_modules, no deleted file", () => {
     const root = fixtureRepository({ "a.test.ts": "x", "node_modules/b.test.ts": "x", "c.spec.ts": "x", "d.ts": "x", "tests/fixture.ts": "y" });
-    const { GIT_DIR: _dir, GIT_INDEX_FILE: _index, GIT_WORK_TREE: _tree, ...inherited } = process.env;
-    const env = { ...inherited, GIT_CONFIG_NOSYSTEM: "1" };
+    const env = { ...withoutGitContext(process.env), GIT_CONFIG_NOSYSTEM: "1" };
     for (const argv of [["git", "init", "-q"], ["git", "add", "-f", "."]]) expect(Bun.spawnSync(argv, { cwd: root, env }).exitCode).toBe(0);
     rmSync(join(root, "c.spec.ts"));
     expect([...repositoryTestFiles(root).keys()]).toEqual(["a.test.ts"]);

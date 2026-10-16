@@ -29,6 +29,7 @@
  */
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { withoutGitContext } from "@ezcorp/sdk/git";
 import { codeMask, forbiddenTestAdditions } from "./gate-integrity.ts";
 
 export type SkipInventoryKind = "env" | "capability" | "tracked";
@@ -296,9 +297,9 @@ export const FIXTURE_TREE: readonly string[] = [...TEST_FILES, "web/e2e/**", "te
 
 /** Every tracked text file matching `patterns` (no vendored node_modules, no binary file). */
 export function repositoryTestFiles(root: string, patterns: readonly string[] = TEST_FILES): Map<string, string> {
-  // A caller inside a git hook exports GIT_DIR and friends; they would point ls-files at the hook's repository.
-  const { GIT_DIR: _dir, GIT_INDEX_FILE: _index, GIT_WORK_TREE: _tree, ...env } = process.env;
-  const listed = Bun.spawnSync(["git", "ls-files", "-z", "--", ...patterns], { cwd: root, env });
+  // An explicit-target spawn: `root` is the repository to list, so no inherited GIT_* (a hook exports GIT_DIR and
+  // GIT_INDEX_FILE) may point ls-files at another one. The shared helper strips them (git-spawn-context-guard).
+  const listed = Bun.spawnSync(["git", "ls-files", "-z", "--", ...patterns], { cwd: root, env: withoutGitContext(process.env) });
   if (listed.exitCode !== 0) throw new Error(`git ls-files failed: ${listed.stderr.toString()}`);
   const files = new Map<string, string>();
   for (const path of listed.stdout.toString().split("\0")) {
