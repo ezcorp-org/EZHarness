@@ -1386,6 +1386,26 @@ describe("sub-conversation handlers", () => {
 		expect(state.loadMessagesCalls).toBe(1);
 	});
 
+	test("handleSubConvoReturn: the summary is the LAST assistant message, not the first or a later user turn", async () => {
+		// Was the placeholder "return to main inserts last agent message as summary" in sub-conversation.test.ts (W4H-33).
+		subConversationStoreState.active = {
+			id: "sub-1",
+			agentConfigId: "ac-1",
+			agentName: "researcher",
+			parentConversationId: "conv-1",
+			parentMessageId: "u-anchor",
+		};
+		subConversationStoreState.messages = [
+			{ id: "a1", role: "assistant", content: "first draft", createdAt: new Date() },
+			{ id: "a2", role: "assistant", content: "final answer", createdAt: new Date() },
+			{ id: "u1", role: "user", content: "thanks", createdAt: new Date() },
+		];
+		const { host } = makeHost({ activeLeafId: "leaf-id" });
+		await makeSendMessage(host).handleSubConvoReturn();
+		expect(sendMessageMock).toHaveBeenCalledTimes(1);
+		expect(sendMessageMock.mock.calls[0]![1].content).toBe("[Sub-conversation summary]: final answer");
+	});
+
 	test("startSubConvo: registers record + starts store conversation", async () => {
 		subConversationStoreState.active = null;
 		const { host, state } = makeHost();
