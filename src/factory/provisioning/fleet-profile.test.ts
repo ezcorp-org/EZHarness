@@ -4,7 +4,7 @@ import { makeFactoryTestFleetSettings, makeFactoryTestInstallation } from "../..
 import { FactoryComposeHostTarget, FactoryComposeTarget, type FactoryCommandExecutor } from "./compose-profile";
 import type { FactoryInstallationBundle } from "./deployment";
 import type { FactoryFleetSettings } from "./fleet";
-import { factoryFleetKubernetesSettings, factoryFleetProfile } from "./fleet-profile";
+import { factoryFleetHostSettings, factoryFleetKubernetesSettings, factoryFleetProfile } from "./fleet-profile";
 import { factoryFleetHostIdentity } from "./host";
 import { FactoryKubernetesHostTarget, FactoryKubernetesIngressReloader, FactoryKubernetesTarget } from "./kubernetes-target";
 import { factoryPlatformServices } from "./platform";
@@ -13,7 +13,7 @@ import { factoryInstallationPorts } from "./ports";
 const REPOSITORY = join(import.meta.dir, "..", "..", "..");
 const KUBERNETES = {
   kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a",
-  runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", nodeSelector: { "kubernetes.io/os": "linux" }, ingress: { listenPort: 8443, nodePort: 30443 },
+  runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: { "kubernetes.io/os": "linux" }, ingress: { listenPort: 8443, nodePort: 30443 },
   egressCidrs: ["10.89.0.0/24"], egressPorts: [5432, 8333, 32001],
   services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
 };
@@ -47,7 +47,7 @@ describe("factoryFleetProfile", () => {
     const profile = await factoryFleetProfile(hosted, options);
     expect(profile.target).toBeInstanceOf(FactoryKubernetesTarget);
     expect(profile.hostTarget).toBeInstanceOf(FactoryKubernetesHostTarget);
-    expect(profile.hosted).toEqual({ systemNamespace: "ezcorp-factory-fleet-a" });
+    expect(profile.hosted).toEqual({ systemNamespace: "ezcorp-factory-fleet-a", runnerRoot: "/srv/ezcorp-runner" });
     const ports = factoryFleetHostIdentity("fleet-a", base.installations.portBase).ports;
     expect(profile.network).toEqual({
       ...KUBERNETES.services,
@@ -74,6 +74,17 @@ describe("factoryFleetProfile", () => {
 test("factoryFleetKubernetesSettings is the renderer's view of the fleet's kubernetes block", () => {
   expect(factoryFleetKubernetesSettings(hosted)).toEqual({
     fleetId: "fleet-a", systemNamespace: KUBERNETES.systemNamespace, egressCidrs: KUBERNETES.egressCidrs, egressPorts: KUBERNETES.egressPorts,
-    runAsUser: KUBERNETES.runAsUser, runtimeSocketPath: KUBERNETES.runtimeSocketPath, nodeSelector: KUBERNETES.nodeSelector,
+    runAsUser: KUBERNETES.runAsUser, runtimeSocketPath: KUBERNETES.runtimeSocketPath, runnerRoot: KUBERNETES.runnerRoot, nodeCidrs: KUBERNETES.nodeCidrs, nodeSelector: KUBERNETES.nodeSelector,
   });
+});
+
+test("the fleet host's pool dials the database as the profile's services see it: loopback for Compose, the pods' own address hosted (W4H-35 C3)", async () => {
+  const composeHost = factoryFleetHostSettings(compose, await factoryFleetProfile(compose, options));
+  expect(composeHost.database).toEqual({ host: base.database.serviceHost, port: base.database.servicePort });
+  expect(composeHost.hosted).toBeUndefined();
+  const hostedHost = factoryFleetHostSettings(hosted, await factoryFleetProfile(hosted, options));
+  expect(hostedHost.database).toEqual({ host: KUBERNETES.services.databaseHost, port: KUBERNETES.services.databasePort });
+  expect(hostedHost.hosted).toEqual({ systemNamespace: KUBERNETES.systemNamespace, runnerRoot: KUBERNETES.runnerRoot });
+  expect(hostedHost).toMatchObject({ fleetId: "fleet-a", secretsRoot: base.roots.secrets, operatorRoot: base.roots.operator, runtimeRoot: base.roots.runtime, portBase: base.installations.portBase, resources: base.resources });
+  expect(hostedHost.build).toEqual({ image: base.image.reference, revision: base.image.revision, release: REPOSITORY });
 });

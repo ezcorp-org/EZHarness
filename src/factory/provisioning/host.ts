@@ -177,7 +177,7 @@ export interface FactoryFleetHostSettings {
    * the pool and each installation's harness by service name, verifying the
    * certificate as `localhost`. Absent: the Compose host's unit and loopback.
    */
-  readonly hosted?: { readonly systemNamespace: string };
+  readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string };
   /** How the pool reaches the database cluster, from inside its container. */
   readonly database: { readonly host: string; readonly port: number };
   /** The fleet's default build, until an upgrade moves the host. */
@@ -413,7 +413,7 @@ export class FactoryFleetHost {
     const supervisor = parseFactorySupervisorProcessConfig({
       schemaVersion: "factory.supervisor-process.v1", installationId: this.paths.context.installationId, hostId: this.identity.hostId,
       hostKeyPath: hostSecret(FACTORY_HOST_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
-      runnerRoot: hosted === undefined ? this.paths.runnerRoot : FACTORY_KUBERNETES_SUPERVISOR_PATHS.runnerRoot,
+      runnerRoot: hosted === undefined ? this.paths.runnerRoot : hosted.runnerRoot,
       readinessFilePath: hosted === undefined ? resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json") : `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`,
       readinessHeartbeatMs: 4_000,
       services: {

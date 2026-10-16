@@ -24,7 +24,7 @@ import {
 const SETTINGS: FactoryKubernetesSettings = {
   fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system",
   egressCidrs: ["10.0.0.0/24", "10.0.1.0/24"], egressPorts: [5432, 7233, 9000], runAsUser: 10_001,
-  runtimeSocketPath: "/run/containerd/containerd.sock", nodeSelector: { "ezcorp.io/runner": "true" },
+  runtimeSocketPath: "/run/containerd/containerd.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["172.18.0.0/16"], nodeSelector: { "ezcorp.io/runner": "true" },
 };
 
 interface Container { name: string; image: string; command: string[]; env: { name: string; value: string }[]; securityContext: Record<string, unknown>; volumeMounts: { name: string; mountPath: string; subPath?: string; readOnly?: boolean }[] }
@@ -165,7 +165,8 @@ describe("renderFactoryKubernetesInstallation", () => {
     const policies = kind(objects, "NetworkPolicy");
     expect(policies.map((policy) => (policy.metadata as { name: string }).name)).toEqual(["default-deny", "installation"]);
     const policy = policies[1]!.spec as { ingress: unknown[]; egress: { to: unknown[]; ports: { port: number }[] }[] };
-    expect(policy.ingress).toEqual([
+    // The node-address rule (W4H-35 C3) is the third entry, tested on its own below.
+    expect(policy.ingress.slice(0, 2)).toEqual([
       { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } }, podSelector: { matchLabels: { "app.kubernetes.io/name": "factory-ingress" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
       // Only the fleet host's supervisor, in the system namespace, reaches W01g's guest-broker route.
       { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
@@ -173,6 +174,16 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(policy.egress[1]).toEqual({ to: [{ ipBlock: { cidr: "10.0.0.0/24" } }, { ipBlock: { cidr: "10.0.1.0/24" } }], ports: [5432, 7233, 9000].map((port) => ({ protocol: "TCP", port })) });
     // The fleet host's shared pool and supervisor, both in the system namespace.
     expect(policy.egress[2]).toEqual({ to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: 41_002 }, { protocol: "TCP", port: 41_003 }] } as never);
+  });
+
+  test("the supervisor runs on the host network, so the nodes' addresses reach the guest-broker route and are reached on the supervisor port (W4H-35 C3)", () => {
+    const policy = kind(objects, "NetworkPolicy")[1]!.spec as { ingress: unknown[]; egress: unknown[] };
+    expect(policy.ingress[2]).toEqual({ from: [{ ipBlock: { cidr: "172.18.0.0/16" } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] });
+    expect(policy.egress[3]).toEqual({ to: [{ ipBlock: { cidr: "172.18.0.0/16" } }], ports: [{ protocol: "TCP", port: 41_003 }] });
+    // No node addresses declared: no rule (an empty peer list would admit everything).
+    const none = renderFactoryKubernetesInstallation(bundle, { ...SETTINGS, nodeCidrs: [] });
+    const bare = kind(none, "NetworkPolicy")[1]!.spec as { ingress: unknown[]; egress: unknown[] };
+    expect([bare.ingress.length, bare.egress.length]).toEqual([2, 3]);
   });
 
   test("the rendered list is frozen", () => {
@@ -238,6 +249,12 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(spec.volumes).toContainEqual({ name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } });
     const service = kind(system, "Service").find((object) => (object.metadata as { name: string }).name === "factory-supervisor")!;
     expect(service.spec).toEqual({ selector: { "app.kubernetes.io/name": "factory-supervisor" }, internalTrafficPolicy: "Local", ports: [{ name: "supervisor", port: 41_003, targetPort: 41_003 }] });
+  });
+
+  test("the runner root is the setting, at the same path on the node and in the pod, because guests resolve bind mounts by the node's path (W4H-35 C3)", () => {
+    const spec = podSpec(kind(system, "DaemonSet")[0]!);
+    expect(spec.volumes).toContainEqual({ name: "runner-root", hostPath: { path: "/srv/ezcorp-runner", type: "DirectoryOrCreate" } });
+    expect(spec.containers[0]!.volumeMounts).toContainEqual({ name: "runner-root", mountPath: "/srv/ezcorp-runner" });
   });
 
   test("nothing tenant-scoped is rendered into the system namespace", () => {

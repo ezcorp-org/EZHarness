@@ -24,7 +24,7 @@ import {
 import type { FactoryDeploymentHandle, FactoryDeploymentNetwork, FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
 import type { FactoryFleetSettings } from "./fleet";
 import type { FactoryUpgradeDeployer } from "./fleet-upgrade";
-import { factoryFleetHostIdentity, type FactoryFleetHostRuntime } from "./host";
+import { factoryFleetHostIdentity, type FactoryFleetHostRuntime, type FactoryFleetHostSettings } from "./host";
 import type { FactoryIngressReloader } from "./ingress";
 import type { FactoryInstallationContext } from "./installation";
 import { factoryKubernetesServiceUrl } from "./kubernetes-paths";
@@ -52,7 +52,7 @@ export interface FactoryFleetProfile {
   readonly target: FactoryProfileTarget;
   readonly hostTarget: FactoryFleetHostRuntime;
   /** Present for the hosted profile: the fleet host renders the supervisor DaemonSet's documents. */
-  readonly hosted?: { readonly systemNamespace: string };
+  readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string };
   /** How a service sees the fleet's shared infrastructure. */
   readonly network: Omit<FactoryDeploymentNetwork, "publicOrigin" | "portBase" | "temporalServerName">;
   readonly platform: Pick<FactoryPlatformSettings, "ingressAddress" | "ingressPort" | "hostedIngress">;
@@ -71,7 +71,21 @@ export function factoryFleetKubernetesSettings(settings: FactoryFleetSettings): 
   const kubernetes = settings.kubernetes!;
   return Object.freeze({
     fleetId: settings.fleetId, systemNamespace: kubernetes.systemNamespace, egressCidrs: kubernetes.egressCidrs, egressPorts: kubernetes.egressPorts,
-    runAsUser: kubernetes.runAsUser, runtimeSocketPath: kubernetes.runtimeSocketPath, nodeSelector: kubernetes.nodeSelector,
+    runAsUser: kubernetes.runAsUser, runtimeSocketPath: kubernetes.runtimeSocketPath, runnerRoot: kubernetes.runnerRoot, nodeCidrs: kubernetes.nodeCidrs, nodeSelector: kubernetes.nodeSelector,
+  });
+}
+
+/**
+ * The fleet host's settings. Its pool runs where the profile's services run,
+ * so it dials the database as they do (`profile.network`): loopback for
+ * Compose, the pods' own address hosted, never the provisioner's.
+ */
+export function factoryFleetHostSettings(settings: FactoryFleetSettings, profile: Pick<FactoryFleetProfile, "network" | "hosted">): FactoryFleetHostSettings {
+  return Object.freeze({
+    fleetId: settings.fleetId, secretsRoot: settings.roots.secrets, operatorRoot: settings.roots.operator, runtimeRoot: settings.roots.runtime,
+    portBase: settings.installations.portBase, resources: settings.resources, ...(profile.hosted === undefined ? {} : { hosted: profile.hosted }),
+    database: { host: profile.network.databaseHost, port: profile.network.databasePort },
+    build: { image: settings.image.reference, revision: settings.image.revision, release: settings.release.directory },
   });
 }
 
@@ -115,7 +129,7 @@ async function kubernetesProfile(settings: FactoryFleetSettings, options: Factor
   const profile: FactoryFleetProfile = {
     target,
     hostTarget: new FactoryKubernetesHostTarget({ ...cluster, settings: rendered }),
-    hosted: { systemNamespace: kubernetes.systemNamespace },
+    hosted: { systemNamespace: kubernetes.systemNamespace, runnerRoot: kubernetes.runnerRoot },
     network: {
       ...kubernetes.services,
       hostAddresses: { pool: factoryKubernetesServiceUrl("factory-pool", kubernetes.systemNamespace, ports.pool), supervisor: factoryKubernetesServiceUrl("factory-supervisor", kubernetes.systemNamespace, ports.supervisor) },

@@ -71,7 +71,7 @@ function processLock() {
   };
 }
 
-function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: { readonly systemNamespace: string } } = {}): FactoryFleetHost {
+function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: { readonly systemNamespace: string; readonly runnerRoot: string } } = {}): FactoryFleetHost {
   return new FactoryFleetHost({
     settings: {
       fleetId: "w16", secretsRoot: join(root, "secrets"), operatorRoot: join(root, "operator"), runtimeRoot: join(root, "runtime"),
@@ -257,13 +257,13 @@ describe("resource profile", () => {
 
 describe("the hosted supervisor document (W4H-35)", () => {
   test("names the DaemonSet's container paths, listens on every address, and dials the pool and each harness by service name, verified as localhost", async () => {
-    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16" } });
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
     await hosted.admit(await installation("tenant-01"));
     const supervisor = runtime.bundles.at(-1)!.supervisor as {
       hostKeyPath: string; readinessFilePath: string; runnerRoot: string;
       services: { hostname: string; hostKeyIdPath: string; tls: Record<string, string>; pool: { baseUrl: string; serverName: string; serviceTokenPath: string }; guestBrokers: Record<string, { baseUrl: string; serverName: string; tls: Record<string, string> }> };
     };
-    expect([supervisor.hostKeyPath, supervisor.readinessFilePath, supervisor.runnerRoot]).toEqual([`/run/ezcorp/host-identity/${FACTORY_HOST_FILES.hostKey}`, "/run/ezcorp/readiness/supervisor/supervisor.json", "/var/lib/ezcorp-factory/runner"]);
+    expect([supervisor.hostKeyPath, supervisor.readinessFilePath, supervisor.runnerRoot]).toEqual([`/run/ezcorp/host-identity/${FACTORY_HOST_FILES.hostKey}`, "/run/ezcorp/readiness/supervisor/supervisor.json", "/srv/ezcorp-runner"]);
     expect(supervisor.services.hostname).toBe("0.0.0.0");
     expect(Object.values(supervisor.services.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
     expect([supervisor.services.pool.baseUrl, supervisor.services.pool.serverName]).toEqual(["https://factory-pool.ezcorp-factory-w16.svc.cluster.local:32002", "localhost"]);

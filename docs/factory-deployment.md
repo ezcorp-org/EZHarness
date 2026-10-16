@@ -38,11 +38,16 @@ the ingress differ (`src/factory/provisioning/fleet-profile.ts`):
 A hosted fleet's settings carry `profile: "kubernetes"` and a `kubernetes`
 block: `kubectl` and `kubeconfigPath` (absolute paths; the kubeconfig is never
 read by the provisioner), `systemNamespace`, `runAsUser`, `runtimeSocketPath`,
-`nodeSelector` (required to be non-empty under the `gpu` resource profile: the
+`runnerRoot` (the supervisor's runner root, mounted at the same path on the
+node, because the node's Podman resolves a guest's bind mounts by the node's
+paths), `nodeCidrs` (the nodes' addresses: the supervisor runs on the host
+network, so the tenant network policy admits them on the guest-broker route and
+toward the supervisor port), `nodeSelector` (required to be non-empty under the `gpu` resource profile: the
 supervisor runs only there), `ingress` (`listenPort`, `nodePort` 30000-32767),
 `egressCidrs` and `egressPorts` for the tenant network policy, and `services`:
-how a pod reaches the database, both object stores and Temporal. A pod does not
-see the provisioner's own addresses.
+how a pod reaches the database, both object stores and Temporal. The fleet
+host's pool uses the same addresses. A pod does not see the provisioner's own
+addresses.
 
 One named gap stays open: the supervisor DaemonSet and the Compose fleet host
 both hold one fleet-wide host identity (`hosted-host-identity-shared`).

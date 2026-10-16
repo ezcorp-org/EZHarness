@@ -16,7 +16,7 @@ import { resolve } from "node:path";
 import { parseFactoryStartupConfig, type FactoryStartupConfig, type FactoryStartupRunnerProfile } from "../startup-config";
 import { openBunSql } from "../../db/bun-sql-pipelining";
 import { factorySpawnExecutor, type FactoryCommandExecutor, type FactoryComposeCommand } from "./compose-profile";
-import { factoryFleetProfile } from "./fleet-profile";
+import { factoryFleetHostSettings, factoryFleetProfile } from "./fleet-profile";
 import { FactoryFleetUpgrades, FactoryProfileUpgradeTarget, type FactoryBuild } from "./fleet-upgrade";
 import { FactoryDatabaseStep } from "./database";
 import { FactoryDeploymentStep, factoryDeploymentHandle, factoryInstallationReleaseBlock, type FactoryDeploymentRelease, type FactoryDeploymentSettings, type FactoryDeploymentTarget } from "./deployment";
@@ -65,6 +65,10 @@ export interface FactoryFleetKubernetes {
   readonly systemNamespace: string;
   readonly runAsUser: number;
   readonly runtimeSocketPath: string;
+  /** The supervisor's runner root: the same path on the node and in the pod (its guests' bind mounts resolve on the node). */
+  readonly runnerRoot: string;
+  /** The nodes' addresses, for the tenant network policy: the supervisor runs on the host network. */
+  readonly nodeCidrs: readonly string[];
   /** Where the supervisor DaemonSet runs; under a `gpu` resource profile, the GPU nodes, so it may not be empty. */
   readonly nodeSelector: Readonly<Record<string, string>>;
   readonly ingress: { readonly listenPort: number; readonly nodePort: number };
@@ -127,8 +131,9 @@ function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSetting
   if (profile !== "kubernetes") return kubernetes === undefined;
   const k = kubernetes as FactoryFleetKubernetes | undefined;
   const nodeSelector = k?.nodeSelector as unknown;
-  return keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeSelector,runAsUser,runtimeSocketPath,services,systemNamespace")
-    && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && NAMESPACE.test(k!.systemNamespace)
+  return keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
+    && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
+    && Array.isArray(k!.nodeCidrs) && k!.nodeCidrs.every((cidr) => typeof cidr === "string" && CIDR.test(cidr))
     && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0
     && typeof nodeSelector === "object" && nodeSelector !== null && !Array.isArray(nodeSelector) && Object.values(nodeSelector).every((value) => typeof value === "string")
     && (resources?.profile !== "gpu" || Object.keys(nodeSelector).length > 0)
@@ -342,12 +347,7 @@ export async function composeFactoryProvisioner(settings: FactoryFleetSettings, 
   const profile = await factoryFleetProfile(settings, { execute, compose: runtime.compose, uid: runtime.uid, gid: runtime.gid, ingressRoot: platform.ingress.root });
   const hostTarget = runtime.hostTarget ?? profile.hostTarget;
   host = new FactoryFleetHost({
-    settings: {
-      fleetId: settings.fleetId, secretsRoot: settings.roots.secrets, operatorRoot: settings.roots.operator, runtimeRoot: settings.roots.runtime,
-      portBase: settings.installations.portBase, resources: settings.resources, ...(profile.hosted === undefined ? {} : { hosted: profile.hosted }),
-      database: { host: settings.database.serviceHost, port: settings.database.servicePort },
-      build: { image: settings.image.reference, revision: settings.image.revision, release: settings.release.directory },
-    },
+    settings: factoryFleetHostSettings(settings, profile),
     runtime: hostTarget, database: hostDatabase,
     locked: (work) => provisioner!.ledger.lockedOn(`factory-host:${settings.fleetId}`, work),
   });

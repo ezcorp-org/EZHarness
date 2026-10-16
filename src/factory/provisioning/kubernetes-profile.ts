@@ -51,6 +51,18 @@ export interface FactoryKubernetesSettings {
   /** The uid every tenant container runs as and owns its copied secrets under. */
   readonly runAsUser: number;
   readonly runtimeSocketPath: string;
+  /**
+   * The supervisor's runner root. Its guests run on the node's container
+   * runtime, which resolves bind mounts by the node's own path, so the
+   * DaemonSet mounts it at the same path in the pod.
+   */
+  readonly runnerRoot: string;
+  /**
+   * The nodes' addresses. The supervisor runs on the host network, so its
+   * traffic to a guest-broker route, and a pod's traffic to it, carry node
+   * addresses that no namespace selector matches.
+   */
+  readonly nodeCidrs: readonly string[];
   readonly nodeSelector: Readonly<Record<string, string>>;
 }
 
@@ -183,12 +195,16 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
           { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } }, podSelector: { matchLabels: { "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
           // W01g's guest-broker route: only the fleet host's supervisor, in the system namespace, reaches it.
           { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
+          // The same route from the supervisor on the host network. No addresses, no rule: an empty peer list admits everything.
+          ...(settings.nodeCidrs.length === 0 ? [] : [{ from: settings.nodeCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] }]),
         ],
         egress: [
           { to: [{ namespaceSelector: {}, podSelector: { matchLabels: { "k8s-app": "kube-dns" } } }], ports: [{ protocol: "UDP", port: 53 }, { protocol: "TCP", port: 53 }] },
           { to: settings.egressCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: settings.egressPorts.map((port) => ({ protocol: "TCP", port })) },
           // The fleet host's shared pool and supervisor, in the system namespace.
           { to: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.host.ports.pool }, { protocol: "TCP", port: bundle.host.ports.supervisor }] },
+          // The node-local supervisor Service resolves to the node's own address.
+          ...(settings.nodeCidrs.length === 0 ? [] : [{ to: settings.nodeCidrs.map((cidr) => ({ ipBlock: { cidr } })), ports: [{ protocol: "TCP", port: bundle.host.ports.supervisor }] }]),
         ],
       },
     },
@@ -269,14 +285,14 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
               readinessProbe: { exec: { command: ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`] }, periodSeconds: 5 },
               volumeMounts: [
                 { name: "runtime-socket", mountPath: settings.runtimeSocketPath },
-                { name: "runner-root", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.runnerRoot },
+                { name: "runner-root", mountPath: settings.runnerRoot },
                 { name: "supervisor-secrets", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, readOnly: true },
                 { name: "readiness", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory },
               ],
             }],
             volumes: [
               { name: "runtime-socket", hostPath: { path: settings.runtimeSocketPath, type: "Socket" } },
-              { name: "runner-root", hostPath: { path: FACTORY_KUBERNETES_SUPERVISOR_PATHS.runnerRoot, type: "DirectoryOrCreate" } },
+              { name: "runner-root", hostPath: { path: settings.runnerRoot, type: "DirectoryOrCreate" } },
               { name: "supervisor-secret-source", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } },
               { name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } },
               { name: "readiness", emptyDir: { medium: "Memory", sizeLimit: "1Mi" } },

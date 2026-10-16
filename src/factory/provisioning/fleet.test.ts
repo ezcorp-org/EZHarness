@@ -108,7 +108,7 @@ describe("parseFactoryFleetSettings", () => {
   test("the hosted profile names its cluster by reference and how its pods see the fleet's services (W4H-35)", () => {
     const kubernetes = {
       kubectl: "/nix/store/kubectl/bin/kubectl", kubeconfigPath: "/srv/operator/kubeconfig", systemNamespace: "ezcorp-factory-fleet-a",
-      runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
+      runAsUser: 10_001, runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: ["10.89.1.0/24"], nodeSelector: {}, ingress: { listenPort: 8443, nodePort: 30443 },
       egressCidrs: ["10.89.0.0/24"], egressPorts: [5432, 8333, 32001],
       services: { databaseHost: "10.89.0.2", databasePort: 5432, ordinaryEndpoint: "http://10.89.0.3:8333", archiveEndpoint: "http://10.89.0.4:8333", temporalAddress: "10.89.0.5:7233", temporalHttpEndpoint: "https://10.89.0.5:7244" },
     };
@@ -117,6 +117,7 @@ describe("parseFactoryFleetSettings", () => {
     expect(refusal({ ...VALID, profile: "kubernetes" }).message).toBe("Fleet settings are invalid: kubernetes.");
     expect(refusal({ ...VALID, kubernetes }).message).toBe("Fleet settings are invalid: kubernetes.");
     for (const [field, value] of [
+      ["runnerRoot", "runner"], ["nodeCidrs", ["10.89.1.0"]], ["nodeCidrs", "10.89.1.0/24"],
       ["kubectl", "kubectl"], ["kubeconfigPath", ""], ["systemNamespace", "Bad_Name"], ["runAsUser", 0], ["runtimeSocketPath", "podman.sock"], ["nodeSelector", []],
       ["ingress", { listenPort: 80, nodePort: 30443 }], ["ingress", { listenPort: 8443, nodePort: 1 }], ["egressCidrs", ["10.0.0.0"]], ["egressPorts", [0]],
       ["services", { ...kubernetes.services, databasePort: "5432" }], ["services", { ...kubernetes.services, ordinaryEndpoint: "s3://x" }], ["extra", 1],

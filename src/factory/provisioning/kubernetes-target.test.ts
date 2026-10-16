@@ -18,7 +18,7 @@ import { factoryFleetHostIdentity, factoryFleetHostPaths, type FactoryFleetHostB
 
 const SETTINGS: FactoryKubernetesSettings = {
   fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system",
-  egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001, runtimeSocketPath: "/run/containerd/containerd.sock", nodeSelector: {},
+  egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001, runtimeSocketPath: "/run/containerd/containerd.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
 };
 const KUBECTL = "/nix/store/kubectl/bin/kubectl";
 const KUBECONFIG = "/srv/operator/kubeconfig";
