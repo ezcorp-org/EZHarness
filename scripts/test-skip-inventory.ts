@@ -294,6 +294,12 @@ export function readSkipRegistry(root: string): SkipRegistryRow[] {
 export const TEST_FILES: readonly string[] = ["*.test.ts", "*.spec.ts", "*.test.js"];
 /** The test tree the fixture-address rule reads: the test files and the fixture folders around them. */
 export const FIXTURE_TREE: readonly string[] = [...TEST_FILES, "web/e2e/**", "tests/**", "src/__tests__/**"];
+/**
+ * Where a fixture account is created or checked outside the test tree: seed and proof scripts, Compose and deploy
+ * files, CI workflows. The fixture-address rule reads them too, so a fixture identity moved to a reserved domain in
+ * the test tree cannot stay on its old domain where it is made (W4H-33b: the hosted 401).
+ */
+export const FIXTURE_ACCOUNT_SOURCES: readonly string[] = ["scripts/**", "docker-compose*.yml", "deploy/**", ".github/**"];
 
 /** Every tracked text file matching `patterns` (no vendored node_modules, no binary file). */
 export function repositoryTestFiles(root: string, patterns: readonly string[] = TEST_FILES): Map<string, string> {

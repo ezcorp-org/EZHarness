@@ -89,8 +89,8 @@
       "directory": "docs/extensions/examples/file-organizer",
       "entrypoint": "extension.ts",
       "files": 26,
-      "bytes": 205533,
-      "sourceDigest": "31b8d5a5eea0aa048b68a9a5f1c7b2d6a041b604f66a477f3ed2c57e7e33ff23"
+      "bytes": 205537,
+      "sourceDigest": "f0564814f5d87cbf14c968be5129e9c6b0b4fa65f12ca2ccd3aa49fcd315bf48"
     },
     "file-refactor": {
       "directory": "docs/extensions/examples/file-refactor",
