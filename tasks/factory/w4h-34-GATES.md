@@ -55,7 +55,9 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
 - [x] G12 static at 1d3a1b8ed: `bun run lint` clean (6275 files); tsc clean on all 63 changed TypeScript files;
   factory boundaries PASS; gate integrity PASS; C11 lane inventory PASS; new-file coverage PASS (10 files) and patch
   coverage PASS (33 files) over 390c49a90..1d3a1b8ed, with 27 Bun suites and the Node orchestrator coverage merged.
-  EVIDENCE: cov/final/. The repository-wide `bun run typecheck` is queued under gated-flock (w4h34-typecheck).
+  EVIDENCE: cov/final/. The repository-wide `bun run typecheck` first found one error in the orchestrator test (a
+  lifecycle the readiness type does not name; proof/typecheck.log); fixed in a27d92fe4, committed under gated-flock
+  (its hook ran the orchestrator package), then `bun run typecheck` exit 0, 0 errors (proof/typecheck2.log).
 
 ## Named gaps
 
