@@ -7,7 +7,7 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard
  *  create conversation → send message → stream → run:complete recipe against
  *  a real bun --hot server. */
 
-const NEEDS_MODEL_PIN = "skip: precondition EZCORP_E2E_MODEL missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
+const NEEDS_MODEL_PIN = "skip: precondition EZCORP_E2E_MODEL missing; tracked: ai-kit-deployed-lane";
 /** The deterministic model the lane pins, as "<provider>/<model>" (e.g. "ezcorp-mock/mock:<script key>"). */
 const MODEL_PIN = process.env.EZCORP_E2E_MODEL;
 

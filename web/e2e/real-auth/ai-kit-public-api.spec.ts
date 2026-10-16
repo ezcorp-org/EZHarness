@@ -68,12 +68,12 @@ test("AI-kit deployed-service suites run here and skip by name what this lane ca
       EZCORP_E2E_API_KEY: key,
     }, 130_000);
     // This lane does not yet install ai-kit, pin the mock model or seed the fan-out agents and team (leftover
-    // ai-kit-deployed-lane). Until it does, each missing precondition skips by its tracked name, nothing fails, and
+    // ai-kit-deployed-lane, scripts/test-skip-registry.json). Until it does, each missing precondition skips by its tracked name, nothing fails, and
     // spawn_chats, which needs nothing seeded, passes.
     expect(output).toMatch(/\b0 fail\b/);
     expect(output).toMatch(/\b1 pass\b/);
     for (const precondition of ["ai-kit installed", "EZCORP_E2E_MODEL", "agents researcher and writer", "autoSpinUp team", "an agent"]) {
-      expect(output).toContain(`skip: precondition ${precondition} missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane`);
+      expect(output).toContain(`skip: precondition ${precondition} missing; tracked: ai-kit-deployed-lane`);
     }
   } finally {
     const revoked = await request.delete("/api/settings/developer/api-keys", { data: { keyId } });

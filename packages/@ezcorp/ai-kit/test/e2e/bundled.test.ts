@@ -9,7 +9,7 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard
  * extension; an unset target leaves this optional deployed-service suite out.
  */
 
-const NEEDS_AI_KIT = "skip: precondition ai-kit installed missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
+const NEEDS_AI_KIT = "skip: precondition ai-kit installed missing; tracked: ai-kit-deployed-lane";
 
 /** The configured server's installed extensions (the precondition probe). */
 async function installedExtensions(): Promise<string[]> {

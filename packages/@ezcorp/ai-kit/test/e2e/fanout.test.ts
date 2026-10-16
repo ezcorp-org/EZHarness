@@ -9,9 +9,9 @@ import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard
  *  those cases probes its precondition and skips by name when it is missing.
  *  spawn_chats needs nothing seeded. */
 
-const NEEDS_AGENTS = "skip: precondition agents researcher and writer missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
-const NEEDS_TEAM = "skip: precondition autoSpinUp team missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
-const NEEDS_AGENT = "skip: precondition an agent missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
+const NEEDS_AGENTS = "skip: precondition agents researcher and writer missing; tracked: ai-kit-deployed-lane";
+const NEEDS_TEAM = "skip: precondition autoSpinUp team missing; tracked: ai-kit-deployed-lane";
+const NEEDS_AGENT = "skip: precondition an agent missing; tracked: ai-kit-deployed-lane";
 
 const configured = Boolean(E2E_BASE_URL && E2E_API_KEY);
 type Agent = Awaited<ReturnType<EzcorpClient["listAgents"]>>[number];
