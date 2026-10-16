@@ -7,7 +7,8 @@
  *   "Quality summary" (`--expect coverage,crap`, `if: always()`) reported "MISSING REPORT: crap". The summary
  *   failed closed, as it should; the defect was upstream: a gate the summary expects must not depend on an
  *   unrelated sibling gate passing. Each expected report reads only the merged lcov, so each producer step runs
- *   `always()` once the merge itself succeeded — a failing floor, patch or per-file gate still fails the job.
+ *   `!cancelled()` once the merge itself succeeded — a failing floor, patch or per-file gate still fails the job,
+ *   and a cancelled run stops (`always()` would run them on a cancelled run too; validator-8 N2).
  *
  * The producers are found, not listed: a step runs the script that writes the gate's report file
  * (scripts/quality-gates.ts GATE_REPORT_FILE; the script calls writeReport("<file>")).
@@ -66,7 +67,8 @@ describe("the quality summary's expected reports are produced whenever the merge
         expect(producers.length).toBeGreaterThan(0);
         const mergeId = steps.find(step => (step.run ?? "").includes("scripts/merge-lcov.ts"))?.id;
         for (const step of producers) {
-          expect({ step: step.name, if: step.if ?? "" }).toEqual({ step: step.name, if: expect.stringContaining("always()") });
+          expect({ step: step.name, if: step.if ?? "" }).toEqual({ step: step.name, if: expect.stringContaining("!cancelled()") });
+          expect({ step: step.name, if: step.if ?? "" }).not.toEqual({ step: step.name, if: expect.stringContaining("always()") });
           expect({ step: step.name, if: step.if ?? "" }).toEqual({ step: step.name, if: expect.stringContaining(`steps.${mergeId}.outcome == 'success'`) });
         }
       });

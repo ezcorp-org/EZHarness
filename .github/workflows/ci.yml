@@ -1407,12 +1407,12 @@ jobs:
       # They live in THIS job because it is the one place the merged
       # coverage/lcov.info exists. Both read that artifact and re-run nothing.
       - name: Global coverage floor
-        if: always() && steps.merge-lcov.outcome == 'success'
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' }}
         run: bun scripts/check-global-coverage.ts
       # Scored against the functions this PR TOUCHED, not the whole tree — the
       # full-repo CRAP ratchet is the main-push-only step right below.
       - name: CRAP gate (touched functions)
-        if: always() && steps.merge-lcov.outcome == 'success'
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' }}
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
@@ -1425,7 +1425,7 @@ jobs:
       # The violation count may fall, never rise — crap.maxFullRepoViolations
       # in scripts/quality-gates.json.
       - name: CRAP ratchet (full repo, main only)
-        if: always() && steps.merge-lcov.outcome == 'success' && github.event_name == 'push'
+        if: ${{ !cancelled() && steps.merge-lcov.outcome == 'success' && github.event_name == 'push' }}
         run: bun scripts/crap-score.ts
       # Runs even when a gate above FAILED — that is when the summary is most
       # useful. But it must not run when the job never got a bun: the
