@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { BuildResult, Runner } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, filesDigest, PodmanRunner, provisionToolchain } from "@ezcorp/extension-runner";
+import { factorySdkSourceDirectory } from "../guest-package-build";
 import { S3_RELEASE_ADAPTER_ENTRYPOINT, s3ReleaseAdapterFiles, s3ReleaseAdapterProvidedDigests, type S3ReleaseAdapterLock } from "./package";
 
 /**
@@ -10,7 +11,8 @@ import { S3_RELEASE_ADAPTER_ENTRYPOINT, s3ReleaseAdapterFiles, s3ReleaseAdapterP
  * and writes every digest the lock records into `lock.json` and the one SDK literal that names the artifact.
  */
 export const S3_RELEASE_ADAPTER_LOCK_PATH = "src/factory/s3-release-adapter/lock.json";
-export const S3_RELEASE_ADAPTER_SDK_PATH = "packages/@ezcorp/factory-sdk/src/references.ts";
+/** The SDK module whose literal names the adapter artifact, repository-relative, in the directory the SDK closure stages from. */
+export const S3_RELEASE_ADAPTER_SDK_PATH = join(factorySdkSourceDirectory(""), "references.ts");
 
 export class S3ReleaseAdapterRelockError extends Error {
   constructor(readonly code: "relock_dirty_tree" | "relock_sdk_literal_not_found", message: string) {
