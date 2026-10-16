@@ -116,6 +116,41 @@ describe("a service's declared metrics endpoint", () => {
       await expect(serveFactoryMetrics({ hostname: "127.0.0.1", port: 0, scrapeTokenPath: join(root, "missing") }, "pool", async () => [])).rejects.toMatchObject({ code: "factory_metrics_token_unreadable" });
     } finally { await rm(root, { recursive: true, force: true }); }
   });
+
+  test("concurrent scrapes share one collection and one body; the next scrape collects again (F9)", async () => {
+    const root = await makeFactoryTempPrivateRoot("w4h-34-single-flight-");
+    try {
+      await writeFile(join(root, "token"), TOKEN, { mode: 0o600 });
+      let collections = 0;
+      const waiting: Array<() => void> = [];
+      const release = () => { for (const settle of waiting.splice(0)) settle(); };
+      let failing = false;
+      const served = await serveFactoryMetrics({ hostname: "127.0.0.1", port: 0, scrapeTokenPath: join(root, "token") }, "pool", async () => {
+        collections += 1;
+        await new Promise<void>((settle) => { waiting.push(settle); });
+        if (failing) throw new Error("database down");
+        return [{ name: "factory_pool_requests", labels: { state: "queued" }, value: collections }];
+      });
+      try {
+        const scrape = () => fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } });
+        const waitForCollection = async (count: number) => { while (collections < count) await Bun.sleep(5); };
+        const pair = [scrape(), scrape()];
+        await waitForCollection(1);
+        await Bun.sleep(50);
+        release();
+        const bodies = await Promise.all(pair.map(async (response) => (await response).text()));
+        expect(collections).toBe(1);
+        expect(bodies[1]).toBe(bodies[0]!);
+        failing = true;
+        const failed = [scrape(), scrape()];
+        await waitForCollection(2);
+        await Bun.sleep(50);
+        release();
+        expect(await Promise.all(failed.map(async (response) => (await response).status))).toEqual([503, 503]);
+        expect(collections).toBe(2);
+      } finally { await served.stop(); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
 });
 
 describe("a service's ready gauge", () => {
@@ -130,6 +165,26 @@ describe("a service's ready gauge", () => {
         const scrape = async () => (await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
         expect(await scrape()).toContain("factory_service_ready 0");
         ready = true;
+        expect(await scrape()).toContain("factory_service_ready 1");
+      } finally { await served.stop(); }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
+
+  test("a readiness probe that fails or hangs reads as not ready, and the endpoint stays up (F7)", async () => {
+    const root = await makeFactoryTempPrivateRoot("ezcorp-metrics-ready-probe-");
+    try {
+      await writeFile(join(root, "token"), TOKEN, { mode: 0o600 });
+      let probe: () => Promise<boolean> = async () => { throw new Error("connection refused"); };
+      const served = await serveFactoryReadyMetrics({ hostname: "127.0.0.1", port: 0, scrapeTokenPath: join(root, "token") }, "gateway", () => probe(), 50);
+      try {
+        const scrape = async () => (await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` } })).text();
+        expect(await scrape()).toContain("factory_service_ready 0");
+        probe = () => new Promise<boolean>(() => undefined);
+        // A hung probe must not hang the scrape: it answers well inside one second.
+        const bounded = await fetch(`${served.url}/metrics`, { headers: { authorization: `Bearer ${TOKEN}` }, signal: AbortSignal.timeout(1_000) })
+          .then((response) => response.text(), () => "the scrape hung");
+        expect(bounded).toContain("factory_service_ready 0");
+        probe = async () => true;
         expect(await scrape()).toContain("factory_service_ready 1");
       } finally { await served.stop(); }
     } finally { await rm(root, { recursive: true, force: true }); }

@@ -102,6 +102,8 @@ export function wellFormedFactoryMetricsEndpoint(value: unknown): value is Facto
  * Loads the token and serves `service`'s families from `collect`, through the
  * production renderer: a refused series is dropped and counted, never thrown.
  * `registered` is read per scrape; a scrape that cannot be rendered is a 503.
+ * Scrapes that arrive while one collection runs share it and its body (F9), so
+ * two scrapers cost one set of queries; the next scrape after it collects again.
  */
 export async function serveFactoryMetrics(
   endpoint: FactoryMetricsEndpoint,
@@ -112,17 +114,28 @@ export async function serveFactoryMetrics(
   const scrapeToken = await loadFactoryMetricsToken(endpoint.scrapeTokenPath);
   const production = factoryMetricRenderer(service, { strict: false });
   const current = typeof registered === "function" ? registered : async () => registered;
-  return startFactoryMetricsListener({
-    hostname: endpoint.hostname,
-    port: endpoint.port,
-    scrapeToken,
-    scrape: async () => production.render(await collect(), await current()),
-  });
+  let inFlight: Promise<string> | undefined;
+  const scrape = () => inFlight ??= (async () => production.render(await collect(), await current()))().finally(() => { inFlight = undefined; });
+  return startFactoryMetricsListener({ hostname: endpoint.hostname, port: endpoint.port, scrapeToken, scrape });
 }
 
-/** A service whose only family is its own readiness: the gateway, the orchestrator, the supervisor. */
-export function serveFactoryReadyMetrics(endpoint: FactoryMetricsEndpoint, service: FactoryMetricService, ready: () => boolean): Promise<FactoryMetricsListener> {
-  return serveFactoryMetrics(endpoint, service, async () => [{ name: "factory_service_ready", value: ready() ? 1 : 0 }]);
+/** How long a readiness probe may take before the gauge reads not ready: well inside a scrape's timeout. */
+export const FACTORY_READY_PROBE_TIMEOUT_MS = 2_000;
+
+/**
+ * A service whose only family is its own readiness: the gateway, the orchestrator, the supervisor.
+ * A probe that fails or does not answer in time reads as not ready; the endpoint itself stays up (F7).
+ */
+export function serveFactoryReadyMetrics(endpoint: FactoryMetricsEndpoint, service: FactoryMetricService, ready: () => boolean | Promise<boolean>, probeTimeoutMs = FACTORY_READY_PROBE_TIMEOUT_MS): Promise<FactoryMetricsListener> {
+  return serveFactoryMetrics(endpoint, service, async () => [{ name: "factory_service_ready", value: await probeReady(ready, probeTimeoutMs) ? 1 : 0 }]);
+}
+
+async function probeReady(ready: () => boolean | Promise<boolean>, timeoutMs: number): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<boolean>((settle) => { timer = setTimeout(() => settle(false), timeoutMs); });
+  try { return await Promise.race([Promise.resolve().then(ready), expired]); }
+  catch { return false; }
+  finally { clearTimeout(timer); }
 }
 
 /** The code of a metrics start failure, never its message (which can quote a path). */

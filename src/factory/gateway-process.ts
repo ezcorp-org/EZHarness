@@ -16,6 +16,7 @@
  */
 import { basename, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sql } from "drizzle-orm";
 import { privateDirectory, readPrivateBounded } from "./private-files";
 import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "./observability/metrics-listener";
 
@@ -67,10 +68,14 @@ export interface FactoryGatewayListener { readonly url: string; stop(): void }
 export interface FactoryGatewayProcessDependencies {
   readonly readText: (path: string) => Promise<string>;
   /** Opens the product database the way the product does, and composes the journal over it. */
-  readonly start: (config: FactoryGatewayProcessConfig, material: { readonly databaseUrl: string; readonly attemptTokenSecret: string; readonly tls: { key: string; cert: string; ca: string } }) => Promise<FactoryGatewayListener & { close(): Promise<void> }>;
+  readonly start: (config: FactoryGatewayProcessConfig, material: { readonly databaseUrl: string; readonly attemptTokenSecret: string; readonly tls: { key: string; cert: string; ca: string } }) => Promise<FactoryGatewayListener & {
+    close(): Promise<void>;
+    /** Settles when the product database answers; the ready gauge reads it (F7). */
+    healthy(): Promise<void>;
+  }>;
   readonly wait: (signal: AbortSignal) => Promise<void>;
   /** Serves the ready gauge on a declared endpoint (C11 M4). */
-  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => Promise<boolean>) => Promise<FactoryMetricsListener>;
   /** Names a fault the gateway survives, by code only. */
   readonly report?: (code: string) => void;
 }
@@ -83,8 +88,11 @@ export async function runFactoryGatewayProcess(configPath: string, signal: Abort
   ]);
   const listener = await dependencies.start(config, { databaseUrl: databaseUrl.trim(), attemptTokenSecret: attemptTokenSecret.trim(), tls: { key, cert, ca } });
   let ready = true;
+  // Ready only while the listener is up and the database answers: a gateway that
+  // cannot reach its database serves no attempt, so the gauge must not say it can.
+  const probe = async () => ready && await listener.healthy().then(() => true, () => false);
   const metrics = await startDeclaredFactoryMetrics(config.metrics,
-    (endpoint) => (dependencies.metrics ?? factoryGatewayProductionDependencies.metrics!)(endpoint, () => ready),
+    (endpoint) => (dependencies.metrics ?? factoryGatewayProductionDependencies.metrics!)(endpoint, probe),
     dependencies.report ?? factoryGatewayProductionDependencies.report!);
   try { await dependencies.wait(signal); }
   finally { ready = false; await metrics?.stop(); listener.stop(); await listener.close(); }
@@ -118,7 +126,10 @@ export const factoryGatewayProductionDependencies: FactoryGatewayProcessDependen
       jwtSecret: material.attemptTokenSecret, installationId: config.installationId,
       tls: material.tls, hostname: config.hostname, port: config.port,
     });
-    return { url: listener.url, stop: () => listener.stop(), close: () => connection.closeDb() };
+    return {
+      url: listener.url, stop: () => listener.stop(), close: () => connection.closeDb(),
+      healthy: async () => { await database.execute(sql`SELECT 1`); },
+    };
   },
   wait: (signal) => new Promise<void>((settle) => { if (signal.aborted) settle(); else signal.addEventListener("abort", () => settle(), { once: true }); }),
   metrics: (endpoint, ready) => serveFactoryReadyMetrics(endpoint, "gateway", ready),
