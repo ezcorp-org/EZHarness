@@ -46,6 +46,8 @@ export interface TestWebhookReceiverOptions {
   readonly port?: number;
   /** Extra certificate names, for a receiver reached by a container name. */
   readonly dnsNames?: readonly string[];
+  /** Serve this certificate instead of issuing one: a container without the openssl tool is given its pair. */
+  readonly tls?: { readonly cert: string; readonly key: string; readonly ca: string };
 }
 
 function verify(secret: Uint8Array | undefined, timestamp: string | null, body: string, signature: string | null): boolean | null {
@@ -56,7 +58,8 @@ function verify(secret: Uint8Array | undefined, timestamp: string | null, body: 
   return expected.length === given.length && timingSafeEqual(expected, given);
 }
 
-export async function startTestWebhookReceiver(options: TestWebhookReceiverOptions = {}): Promise<TestWebhookReceiver> {
+/** A test CA and a server certificate for 127.0.0.1 and localhost, from the provisioner's own issuer. */
+export async function issueTestWebhookReceiverTls(dnsNames: readonly string[] = []): Promise<{ readonly cert: string; readonly key: string; readonly ca: string }> {
   const directory = await mkdtemp(join(process.env.XDG_RUNTIME_DIR ?? tmpdir(), "factory-webhook-receiver-"));
   try {
     const authority = await createFactoryCertificateAuthority("factory-webhook-test-ca");
@@ -64,45 +67,50 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
     await writeFile(caPath, authority.certificatePem, { mode: 0o600 });
     await writeFile(caKeyPath, authority.privateKeyPem, { mode: 0o600 });
     const leaf = await issueFactoryCertificate({ certificatePath: caPath, keyPath: caKeyPath }, {
-      subject: "factory-webhook-receiver", usage: "server", dnsNames: ["localhost", ...(options.dnsNames ?? [])], ipAddresses: ["127.0.0.1"],
+      subject: "factory-webhook-receiver", usage: "server", dnsNames: ["localhost", ...dnsNames], ipAddresses: ["127.0.0.1"],
     });
-    const requests: ReceivedNotification[] = [];
-    const delivered = new Set<string>();
-    let status = 200;
-    let hook: ((request: ReceivedNotification) => Promise<void>) | null = null;
-    const server = Bun.serve({
-      hostname: options.hostname ?? "127.0.0.1",
-      port: options.port ?? 0,
-      tls: { cert: leaf.certificatePem, key: leaf.privateKeyPem },
-      async fetch(request) {
-        const body = await request.text();
-        const header = (name: string) => request.headers.get(name);
-        const received: ReceivedNotification = {
-          body,
-          idempotencyKey: header("idempotency-key"),
-          deliveryId: header("x-ezcorp-delivery-id"),
-          timestamp: header("x-ezcorp-timestamp"),
-          signature: header("x-ezcorp-signature"),
-          signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
-        };
-        requests.push(received);
-        if (hook) await hook(received);
-        if (received.signatureValid === false) return new Response(null, { status: 401 });
-        if (status >= 200 && status < 300 && received.idempotencyKey !== null) delivered.add(received.idempotencyKey);
-        return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
-      },
-    });
-    return {
-      url: `https://${options.hostname === "0.0.0.0" ? "127.0.0.1" : options.hostname ?? "127.0.0.1"}:${server.port}/factory/notifications`,
-      ca: authority.certificatePem,
-      requests,
-      logical: () => delivered,
-      answer(next) { status = next; },
-      onRequest(next) { hook = next; },
-      reset() { requests.length = 0; delivered.clear(); status = 200; hook = null; },
-      async stop() { server.stop(true); },
-    };
+    return { cert: leaf.certificatePem, key: leaf.privateKeyPem, ca: authority.certificatePem };
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
+}
+
+export async function startTestWebhookReceiver(options: TestWebhookReceiverOptions = {}): Promise<TestWebhookReceiver> {
+  const tls = options.tls ?? await issueTestWebhookReceiverTls(options.dnsNames);
+  const requests: ReceivedNotification[] = [];
+  const delivered = new Set<string>();
+  let status = 200;
+  let hook: ((request: ReceivedNotification) => Promise<void>) | null = null;
+  const server = Bun.serve({
+    hostname: options.hostname ?? "127.0.0.1",
+    port: options.port ?? 0,
+    tls: { cert: tls.cert, key: tls.key },
+    async fetch(request) {
+      const body = await request.text();
+      const header = (name: string) => request.headers.get(name);
+      const received: ReceivedNotification = {
+        body,
+        idempotencyKey: header("idempotency-key"),
+        deliveryId: header("x-ezcorp-delivery-id"),
+        timestamp: header("x-ezcorp-timestamp"),
+        signature: header("x-ezcorp-signature"),
+        signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
+      };
+      requests.push(received);
+      if (hook) await hook(received);
+      if (received.signatureValid === false) return new Response(null, { status: 401 });
+      if (status >= 200 && status < 300 && received.idempotencyKey !== null) delivered.add(received.idempotencyKey);
+      return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
+    },
+  });
+  return {
+    url: `https://${options.hostname === "0.0.0.0" ? "127.0.0.1" : options.hostname ?? "127.0.0.1"}:${server.port}/factory/notifications`,
+    ca: tls.ca,
+    requests,
+    logical: () => delivered,
+    answer(next) { status = next; },
+    onRequest(next) { hook = next; },
+    reset() { requests.length = 0; delivered.clear(); status = 200; hook = null; },
+    async stop() { server.stop(true); },
+  };
 }

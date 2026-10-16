@@ -1,0 +1,412 @@
+# Generated from src/factory/observability/alert-rules.ts (W4H-34, C11). Do not edit; the drift test pins it.
+rule_files:
+  - factory-alerts.yml
+evaluation_interval: 15s
+tests:
+  - name: "FactoryReadyWorkStalled: ready work waiting 31 s"
+    interval: 15s
+    input_series:
+      - series: factory_ready_work_oldest_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 31x8
+      - series: factory_runs_without_progress{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryReadyWorkStalled
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Ready work age over 30 seconds or no progress for 60 seconds with no declared wait
+              action: Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryReadyWorkStalled: a run with no progress"
+    interval: 15s
+    input_series:
+      - series: factory_ready_work_oldest_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+      - series: factory_runs_without_progress{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryReadyWorkStalled
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Ready work age over 30 seconds or no progress for 60 seconds with no declared wait
+              action: Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryReadyWorkStalled: at the 30 s threshold"
+    interval: 15s
+    input_series:
+      - series: factory_ready_work_oldest_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 30x8
+      - series: factory_runs_without_progress{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryReadyWorkStalled
+        exp_alerts: []
+  - name: "FactoryProjectionLagging: lag 11 s held for 2 minutes"
+    interval: 15s
+    input_series:
+      - series: factory_projection_lag_seconds{job="factory-harness",instance="harness:9464"}
+        values: 11x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryProjectionLagging
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Projection gap/lag over 10 seconds for 60 seconds
+              action: Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryProjectionLagging: lag 11 s held for 45 s only"
+    interval: 15s
+    input_series:
+      - series: factory_projection_lag_seconds{job="factory-harness",instance="harness:9464"}
+        values: 11x3
+    alert_rule_test:
+      - eval_time: 45s
+        alertname: FactoryProjectionLagging
+        exp_alerts: []
+  - name: "FactoryProjectionLagging: at the 10 s threshold"
+    interval: 15s
+    input_series:
+      - series: factory_projection_lag_seconds{job="factory-harness",instance="harness:9464"}
+        values: 10x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryProjectionLagging
+        exp_alerts: []
+  - name: "FactoryValidatorDigestErroring: one digest erroring"
+    interval: 15s
+    input_series:
+      - series: factory_validator_digests_erroring{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryValidatorDigestErroring
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Three consecutive validator errors for one digest
+              action: Quarantine that evaluator for new acceptance; repair/revalidate explicitly
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryValidatorDigestErroring: none erroring"
+    interval: 15s
+    input_series:
+      - series: factory_validator_digests_erroring{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryValidatorDigestErroring
+        exp_alerts: []
+  - name: "FactoryUsageUnknownOrBudgetExhausted: unknown usage"
+    interval: 15s
+    input_series:
+      - series: factory_usage_unknown_reservations{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+      - series: factory_budget_exhausted_envelopes{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryUsageUnknownOrBudgetExhausted
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Unknown spend or exhausted budget
+              action: Stop paid dispatch; reconcile usage or obtain a new explicit allocation within authority
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryUsageUnknownOrBudgetExhausted: exhausted budget"
+    interval: 15s
+    input_series:
+      - series: factory_usage_unknown_reservations{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+      - series: factory_budget_exhausted_envelopes{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryUsageUnknownOrBudgetExhausted
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Unknown spend or exhausted budget
+              action: Stop paid dispatch; reconcile usage or obtain a new explicit allocation within authority
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryUsageUnknownOrBudgetExhausted: neither"
+    interval: 15s
+    input_series:
+      - series: factory_usage_unknown_reservations{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+      - series: factory_budget_exhausted_envelopes{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryUsageUnknownOrBudgetExhausted
+        exp_alerts: []
+  - name: "FactoryReleaseUncertain: uncertain for 61 s"
+    interval: 15s
+    input_series:
+      - series: factory_release_uncertain_oldest_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 61x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryReleaseUncertain
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Uncertain release for over 60 seconds
+              action: Open the operator inbox with the exact request/receipt lookup; do not auto-retry
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryReleaseUncertain: at the 60 s threshold"
+    interval: 15s
+    input_series:
+      - series: factory_release_uncertain_oldest_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 60x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryReleaseUncertain
+        exp_alerts: []
+  - name: "FactoryRequiredRunnerUnavailable: an interpreter build unavailable for 2 minutes"
+    interval: 15s
+    input_series:
+      - series: factory_interpreter_builds_unavailable{job="factory-harness",instance="harness:9464"}
+        values: 1x12
+      - series: factory_runner_package_not_ready_attempts{job="factory-harness",instance="harness:9464"}
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryRequiredRunnerUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Referenced interpreter/package runner unavailable for 60 seconds
+              action: Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryRequiredRunnerUnavailable: a package not ready for 2 minutes"
+    interval: 15s
+    input_series:
+      - series: factory_interpreter_builds_unavailable{job="factory-harness",instance="harness:9464"}
+        values: "0x12"
+      - series: factory_runner_package_not_ready_attempts{job="factory-harness",instance="harness:9464"}
+        values: 2x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryRequiredRunnerUnavailable
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Referenced interpreter/package runner unavailable for 60 seconds
+              action: Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryRequiredRunnerUnavailable: unavailable for 30 s only"
+    interval: 15s
+    input_series:
+      - series: factory_interpreter_builds_unavailable{job="factory-harness",instance="harness:9464"}
+        values: 1x2
+      - series: factory_runner_package_not_ready_attempts{job="factory-harness",instance="harness:9464"}
+        values: "0x2"
+    alert_rule_test:
+      - eval_time: 30s
+        alertname: FactoryRequiredRunnerUnavailable
+        exp_alerts: []
+  - name: "FactoryCheckpointStale: no sealed checkpoint"
+    interval: 15s
+    input_series:
+      - series: factory_checkpoint_sealed{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+      - series: factory_checkpoint_verified_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryCheckpointStale
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Verified recovery checkpoint older than 15 minutes
+              action: Stop new external effect claims; repair backup/barrier/archive before enabling them
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryCheckpointStale: sealed 901 s ago"
+    interval: 15s
+    input_series:
+      - series: factory_checkpoint_sealed{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+      - series: factory_checkpoint_verified_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 901x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryCheckpointStale
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Verified recovery checkpoint older than 15 minutes
+              action: Stop new external effect claims; repair backup/barrier/archive before enabling them
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryCheckpointStale: sealed exactly 900 s ago"
+    interval: 15s
+    input_series:
+      - series: factory_checkpoint_sealed{job="factory-harness",instance="harness:9464"}
+        values: 1x8
+      - series: factory_checkpoint_verified_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 900x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryCheckpointStale
+        exp_alerts: []
+  - name: "FactorySecurityDenial: one denial counted"
+    interval: 15s
+    input_series:
+      - series: factory_security_denials_total{job="factory-harness",instance="harness:9464",kind="cross_tenant_broker"}
+        values: 0 0 0 1 1 1 1 1 1
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactorySecurityDenial
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              kind: cross_tenant_broker
+              severity: page
+            exp_annotations:
+              summary: Any denied cross-tenant broker attempt or detected sandbox escape
+              action: Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactorySecurityDenial: no denial"
+    interval: 15s
+    input_series:
+      - series: factory_security_denials_total{job="factory-harness",instance="harness:9464",kind="cross_tenant_broker"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactorySecurityDenial
+        exp_alerts: []
+  - name: "FactoryNotificationSendStuck: a send in dead letter"
+    interval: 15s
+    input_series:
+      - series: factory_notification_sends{job="factory-harness",instance="harness:9464",state="dead_letter"}
+        values: 1x8
+      - series: factory_notification_send_oldest_queued_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: "0x8"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryNotificationSendStuck
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              state: dead_letter
+              severity: ticket
+            exp_annotations:
+              summary: An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes
+              action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryNotificationSendStuck: a send queued 301 s"
+    interval: 15s
+    input_series:
+      - series: factory_notification_sends{job="factory-harness",instance="harness:9464",state="dead_letter"}
+        values: "0x8"
+      - series: factory_notification_send_oldest_queued_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 301x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryNotificationSendStuck
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: ticket
+            exp_annotations:
+              summary: An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes
+              action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryNotificationSendStuck: a send queued exactly 300 s, and delivered ones"
+    interval: 15s
+    input_series:
+      - series: factory_notification_sends{job="factory-harness",instance="harness:9464",state="delivered"}
+        values: 5x8
+      - series: factory_notification_send_oldest_queued_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: 300x8
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: FactoryNotificationSendStuck
+        exp_alerts: []
+  - name: "FactoryMetricsTargetDown: a target that cannot be scraped"
+    interval: 15s
+    input_series:
+      - series: up{job="factory-pool",instance="pool:9465"}
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryMetricsTargetDown
+        exp_alerts:
+          - exp_labels:
+              job: factory-pool
+              instance: pool:9465
+              severity: page
+            exp_annotations:
+              summary: A factory service's /metrics cannot be scraped, or the service reports itself not ready
+              action: Restore the service or its metrics endpoint; until then every alert above is blind for that service
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryMetricsTargetDown: a service not ready"
+    interval: 15s
+    input_series:
+      - series: up{job="factory-gateway",instance="gateway:9466"}
+        values: 1x12
+      - series: factory_service_ready{job="factory-gateway",instance="gateway:9466"}
+        values: "0x12"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryMetricsTargetDown
+        exp_alerts:
+          - exp_labels:
+              job: factory-gateway
+              instance: gateway:9466
+              severity: page
+            exp_annotations:
+              summary: A factory service's /metrics cannot be scraped, or the service reports itself not ready
+              action: Restore the service or its metrics endpoint; until then every alert above is blind for that service
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryMetricsTargetDown: a target up and ready"
+    interval: 15s
+    input_series:
+      - series: up{job="factory-gateway",instance="gateway:9466"}
+        values: 1x12
+      - series: factory_service_ready{job="factory-gateway",instance="gateway:9466"}
+        values: 1x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryMetricsTargetDown
+        exp_alerts: []

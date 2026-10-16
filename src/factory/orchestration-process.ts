@@ -14,6 +14,7 @@ import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileCo
 import { wellFormedFactoryKeyManagement } from "./key-composition.ts";
 import { createFactoryOrchestrationReadinessWriter } from "./orchestration-readiness-writer.ts";
 import { privateDirectory, readPrivateBounded } from "./private-files.ts";
+import { wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint } from "./observability/metrics-listener.ts";
 
 const CONFIG_SCHEMA = "factory.orchestrator-process.v1";
 const MAX_CONFIG_BYTES = 32 * 1024;
@@ -29,6 +30,8 @@ export interface FactoryOrchestratorProcessConfig {
   readonly readinessFilePath: string;
   readonly readinessHeartbeatMs?: number;
   readonly dispatchEmptyDelayMs?: number;
+  /** Where this process serves `/metrics` (C11 M4); absent, it serves none. */
+  readonly metrics?: FactoryMetricsEndpoint;
 }
 
 export interface FactoryOrchestratorLauncherDependencies {
@@ -72,7 +75,8 @@ function optionalInteger(value: unknown, minimum: number, maximum: number): bool
 
 function validRoot(value: unknown): value is Record<string, unknown> {
   const rootRequired = ["schemaVersion", "installationId", "tenantId", "temporal", "gateway", "codec", "readinessFilePath"];
-  return record(value) && optionalKeys(value, rootRequired, ["readinessHeartbeatMs", "dispatchEmptyDelayMs"])
+  return record(value) && optionalKeys(value, rootRequired, ["readinessHeartbeatMs", "dispatchEmptyDelayMs", "metrics"])
+    && (value.metrics === undefined || wellFormedFactoryMetricsEndpoint(value.metrics))
     && value.schemaVersion === CONFIG_SCHEMA && text(value.installationId) && text(value.tenantId) && text(value.readinessFilePath)
     && optionalInteger(value.readinessHeartbeatMs, 1_000, 60_000)
     && optionalInteger(value.dispatchEmptyDelayMs, 10, 5_000);

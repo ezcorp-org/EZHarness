@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { access, readFile, stat } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import {
   factoryRejection,
   makeFactoryPrivateRoot,
@@ -158,6 +158,10 @@ describe("factoryComposeEnvironment", () => {
       EZCORP_FACTORY_HARNESS_PORT: "40010",
       // W01g's guest-broker route, published on loopback for the fleet host's supervisor.
       EZCORP_FACTORY_GUEST_BROKER_PORT: "40013",
+      // C11 M4: each tenant process's /metrics, published on loopback for the fleet's evaluator.
+      EZCORP_FACTORY_HARNESS_METRICS_PORT: "40014",
+      EZCORP_FACTORY_GATEWAY_METRICS_PORT: "40015",
+      EZCORP_FACTORY_ORCHESTRATOR_METRICS_PORT: "40016",
       EZCORP_FACTORY_GATEWAY_NETWORK: "pasta:-T,55432",
       // The harness reaches its gateway, the database, both stores, the fleet host's shared pool and supervisor, and the gateway's read-only Temporal HTTP route.
       EZCORP_FACTORY_HARNESS_NETWORK: "pasta:-T,40012,-T,41002,-T,41003,-T,55432,-T,57244,-T,59000,-T,59001",
@@ -439,6 +443,11 @@ describe("FactoryComposeHostTarget", () => {
       EZCORP_FACTORY_UID: "1001", EZCORP_FACTORY_GID: "1001", EZCORP_FACTORY_FLEET: "fleet-a", EZCORP_FACTORY_POOL_PORT: "41002",
       EZCORP_FACTORY_POOL_NETWORK: "pasta:-T,55432", EZCORP_FACTORY_DELIVER_POOL: hostBundle.paths.poolDelivery,
       EZCORP_FACTORY_READINESS_POOL: join(hostBundle.paths.readinessDirectory, "pool"), EZCORP_FACTORY_POOL_ENV: join(hostBundle.paths.runtimeDirectory, "pool.env"),
+      // C11: the pool's /metrics on loopback, and the fleet's evaluator: its config directory, the shipped rules, its loopback port.
+      EZCORP_FACTORY_POOL_METRICS_PORT: "41006",
+      EZCORP_FACTORY_PROMETHEUS_DIR: hostBundle.paths.prometheusDirectory,
+      EZCORP_FACTORY_PROMETHEUS_RULES: join(dirname(HOST_TEMPLATE), "..", "prometheus"),
+      EZCORP_FACTORY_PROMETHEUS_PORT: "41008",
     });
     // Exactly the variables the host template interpolates.
     expect(Object.keys(env).sort()).toEqual(await interpolated(HOST_TEMPLATE));
@@ -646,9 +655,23 @@ describe("the Compose templates parse and hold the hardening", () => {
 
   test("the host template runs the one shared pool, hardened the same way", async () => {
     const { services } = await parse("host.yml");
-    expect(Object.keys(services)).toEqual(["pool"]);
+    expect(Object.keys(services)).toEqual(["pool", "prometheus"]);
     hardened("pool", services.pool!);
     expect(services.pool!.userns_mode).toBe("keep-id");
+  });
+
+  test("the host template runs the fleet's evaluator from the pinned image, hardened, reading its config and the shipped rules read-only (C11)", async () => {
+    const prometheus = (await parse("host.yml")).services.prometheus!;
+    const pinned = (JSON.parse(await readFile(join(REPOSITORY, "scripts/test-images.json"), "utf8")) as { prometheus: string }).prometheus;
+    expect(prometheus.image).toBe(pinned);
+    expect({ readOnly: prometheus.read_only, capDrop: prometheus.cap_drop, privileged: prometheus.privileged, devices: prometheus.devices, network: prometheus.network_mode })
+      .toEqual({ readOnly: true, capDrop: ["ALL"], privileged: undefined, devices: undefined, network: "host" });
+    expect(prometheus.healthcheck).toBeDefined();
+    for (const limit of ["mem_limit", "cpus", "pids_limit"]) expect(prometheus[limit]).toBeDefined();
+    expect(JSON.stringify(prometheus.volumes)).not.toMatch(/\.sock/);
+    const binds = (prometheus.volumes as Array<{ target?: string; read_only?: boolean } | string>).filter((volume): volume is { target: string; read_only: boolean } => typeof volume === "object");
+    expect(binds.map((volume) => [volume.target, volume.read_only])).toEqual([["/etc/ezcorp-prometheus", true], ["/etc/ezcorp-prometheus-rules", true]]);
+    expect(prometheus.command).toContain("--web.listen-address=127.0.0.1:${EZCORP_FACTORY_PROMETHEUS_PORT:?}");
   });
 
   test("the orchestrator writes only its own readiness directory; the harness reads its own and the host's three, read-only; the pool writes only its own", async () => {
