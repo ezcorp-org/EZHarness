@@ -98,6 +98,8 @@ describe("a live Prometheus over a real installation (C11 A1-A10)", () => {
   beforeAll(async () => {
     fixture = await setupFactoryPostgres();
     await seedMetricInstallation(fixture.db as never);
+    // An old dead letter, present before the first scrape: the stuck-send alert fires on a new one only (F4).
+    await forceSend(fixture.db as never, Date.now(), "dead_letter", 3_600_000);
     directory = await mkdtemp(join(tmpdir(), "w4h-34-prometheus-"));
     await chmod(directory, 0o755);
     const token = randomBytes(24).toString("hex");

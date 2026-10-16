@@ -6,7 +6,8 @@
  * loopback with every request it received, so the proof reads what crossed the
  * container boundary rather than what the sender believes it sent.
  * Environment: RECEIVER_PORT, RECEIVER_INSPECT_PORT, RECEIVER_SECRET (hex),
- * RECEIVER_TLS_DIR (holding cert.pem, key.pem, ca.pem).
+ * RECEIVER_TLS_DIR (holding cert.pem, key.pem, ca.pem), and optionally RECEIVER_TOLERANCE_S (default 300,
+ * the contract's; a proof shortens it to replay past it without waiting five minutes).
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -17,6 +18,7 @@ const receiver = await startTestWebhookReceiver({
   hostname: "127.0.0.1",
   port: Number(process.env.RECEIVER_PORT),
   secret: Buffer.from(process.env.RECEIVER_SECRET ?? "", "hex"),
+  ...(process.env.RECEIVER_TOLERANCE_S === undefined ? {} : { toleranceS: Number(process.env.RECEIVER_TOLERANCE_S) }),
   tls: { cert: readFileSync(join(tlsDirectory, "cert.pem"), "utf8"), key: readFileSync(join(tlsDirectory, "key.pem"), "utf8"), ca: readFileSync(join(tlsDirectory, "ca.pem"), "utf8") },
 });
 Bun.serve({

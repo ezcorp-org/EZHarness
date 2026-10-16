@@ -21,7 +21,7 @@ import { issueTestWebhookReceiverTls, type ReceivedNotification } from "../__tes
 import { releaseRows as rows } from "../db/queries/extension-releases";
 import type { FactoryPrincipal } from "./grants";
 import { FactoryNotificationDelivery } from "./notification-delivery";
-import { FactoryNotificationSender } from "./notification-sender";
+import { FACTORY_NOTIFICATION_HEADERS, FactoryNotificationSender, fetchFactoryWebhook } from "./notification-sender";
 import { FactoryReleaseApplication } from "./release-application";
 
 const ROOT = join(import.meta.dir, "..", "..");
@@ -32,6 +32,8 @@ const admin: FactoryPrincipal = { kind: "user", id: "delivery-admin", authentica
 const reviewer: FactoryPrincipal = { kind: "user", id: "delivery-reviewer", authentication: "session" };
 const SECRET = randomBytes(32);
 const never = new AbortController().signal;
+/** The proof's receiver tolerance; the contract's is 300 s (N3), shortened so a replay can pass it in seconds. */
+const TOLERANCE_S = 5;
 
 /** The Bun image the product's own Dockerfile pins, so the proof adds no image. */
 async function bunImage(): Promise<string> {
@@ -89,7 +91,7 @@ beforeAll(async () => {
   inspect = `http://127.0.0.1:${inspectPort}/`;
   const started = await podman(["run", "-d", "--rm", "--name", container, "--network=host", "--pull=never",
     "-v", `${ROOT}:/app:ro`, "-v", `${directory}:/tls:ro`, "-w", "/app",
-    "-e", `RECEIVER_PORT=${port}`, "-e", `RECEIVER_INSPECT_PORT=${inspectPort}`, "-e", `RECEIVER_SECRET=${SECRET.toString("hex")}`, "-e", "RECEIVER_TLS_DIR=/tls",
+    "-e", `RECEIVER_PORT=${port}`, "-e", `RECEIVER_INSPECT_PORT=${inspectPort}`, "-e", `RECEIVER_SECRET=${SECRET.toString("hex")}`, "-e", "RECEIVER_TLS_DIR=/tls", "-e", `RECEIVER_TOLERANCE_S=${TOLERANCE_S}`,
     await bunImage(), "bun", "src/__tests__/helpers/factory-webhook-receiver-main.ts"]);
   if (started.code !== 0) throw new Error(`the receiver container did not start: ${started.out}`);
   for (let tries = 0; tries < 60; tries += 1) {
@@ -149,9 +151,28 @@ describe("an approval request and an uncertain release reach a receiver in a con
     expect(await restarted.step(never)).toBe(false);
     expect(restarted.confirmed()).toBe(true);
     expect((await received()).requests).toHaveLength(2);
+
+    // Replay (N3): the captured approval request, byte for byte. Inside the tolerance the receiver answers it but
+    // deduplicates it on its Idempotency-Key; past the tolerance it refuses it. Neither adds a logical delivery.
+    const captured = seen.requests.find((request) => (JSON.parse(request.body) as { kind: string }).kind === "approval_requested")!;
+    const replay = () => fetchFactoryWebhook({ url: receiverUrl, ca: receiverCa, body: captured.body, signal: AbortSignal.timeout(5_000), headers: {
+      "content-type": "application/json",
+      [FACTORY_NOTIFICATION_HEADERS.signature]: captured.signature!, [FACTORY_NOTIFICATION_HEADERS.timestamp]: captured.timestamp!,
+      [FACTORY_NOTIFICATION_HEADERS.delivery]: captured.deliveryId!, [FACTORY_NOTIFICATION_HEADERS.idempotency]: captured.idempotencyKey!,
+    } });
+    const signedAtMs = Number(captured.timestamp) * 1000;
+    expect(Date.now() - signedAtMs).toBeLessThan(TOLERANCE_S * 1000);
+    expect(await replay()).toEqual({ status: 200 });
+    expect((await received()).logical).toHaveLength(2);
+    await Bun.sleep(Math.max(0, signedAtMs + (TOLERANCE_S + 1) * 1000 - Date.now()));
+    expect(await replay()).toEqual({ status: 401 });
+    const after = await received();
+    expect(after.logical).toHaveLength(2);
+    expect(after.requests.at(-1)).toMatchObject({ signatureValid: true, timestampValid: false });
   }, 120_000);
 
   test("inbox actions through the public seam keep authority and uncertainty", async () => {
+    const before = (await received()).requests.length;
     const kinds = async (actor: FactoryPrincipal) => (await application.listNotifications(actor, PROJECT, { limit: 50 })).items.map((item) => item.kind).sort();
     // Authority: the approver sees both items; a member without factory.approve sees only the uncertain release.
     expect(await kinds(admin)).toEqual(["approval_requested", "release_uncertain"]);
@@ -180,7 +201,7 @@ describe("an approval request and an uncertain release reach a receiver in a con
     while (await inbox.deliverNext(PROJECT)) { /* drain */ }
     const sender = new FactoryNotificationSender({ database: fixture.db as never, tenantId: TENANT, destinations: [{ name: "operators", url: receiverUrl, ca: receiverCa, secret: SECRET }] });
     while (await sender.step(never)) { /* drain */ }
-    expect((await received()).requests).toHaveLength(2);
+    expect((await received()).requests).toHaveLength(before);
     if (process.env.W4H34_EVIDENCE_DIR) await writeFile(join(process.env.W4H34_EVIDENCE_DIR, "delivery-received.json"), JSON.stringify(await received(), null, 2));
   }, 120_000);
 });
