@@ -2197,6 +2197,105 @@ smokes under the lock, detached-job wake-ups) are not repeated.
 - Coordinator: when a validator finds a personal address in commits of a public repository, redact the verdict first, then re-author with equal
   trees, then add the check that refuses it everywhere (W4H-27).
 
+#### Owners, validator, integrator and coordinator of the W4H-28…31 round and the first real run (pending-lesson.md files and the coordinator log, 2026-10-14 to 2026-10-16; condensed)
+- Owner: when a change moves a pattern from some files into others, run the repository's inventory and registration tests,
+  not only the importers of the touched files. W4H-26 moved the SDK staging into one builder; the content-scanning
+  inventory test (src/factory/guest-sdk-closure.test.ts) imports none of the files and no hook maps it, so only hosted
+  Coverage shard 0 found the stale list. Before a freeze, search the test tree for the moved names and run every hit (W4H-29).
+- Owner: when a client polls with long gaps or calls a local socket now and then, do not reuse a pooled keep-alive
+  connection. Send "Connection: close" (agent: false; keepalive: false). The second case of this class in one day: the
+  RunnerClient pool kept idle sockets to runner.sock for about 5 s (W4H-30), and the proof's 30 s readiness poll reused a
+  socket the server had closed (W4H-28 real-2). A wait that a person depends on retries a transport error and ends by
+  name only after ten failures in a row (W4H-28 real-3).
+- Owner: when a descriptor count flakes, find the owner of each socket, not a tolerance. Record every socket per sample
+  with its peer, and the requests in flight. A red test for a keep-alive pool asserts the request header; it does not
+  wait out the idle timeout (W4H-30).
+- Owner: when the patch gate names a comment line as uncovered, look for a comment inside an object literal: Bun's lcov
+  can give it a 0-hit record. Put the reason above the statement (W4H-30).
+- Owner: when a worktree is installed with --ignore-scripts, run `svelte-kit sync` (and build:packages when typecheck
+  needs it) before any web or root test that imports web server modules. Build env.sh and the setup from one checked
+  template, and make each gated script check its own preconditions first. Two late failures under the lock came from
+  this (W4H-29, W4H-31; validator-8's setup_tree does the same).
+- Owner: when a merge adds an optional field that a runtime refuses without, typecheck finds no missing site. Find every
+  call site by search, put a test at each site you own, and check that test with a mutant (W4H-31, processSpawn).
+- Owner: before you write a helper, search the repository for one. scripts/merge-lcov.ts already existed (W4H-31).
+- Owner: an ordinary commit keeps the pre-commit cap; a sync merge of main maps more files than the cap, so its commit
+  runs EVERY mapped file inside the heavy lock (EZ_PRECOMMIT_TEST_MAX = the mapped count); the cap is never raised to run
+  fewer tests. W4H-31's merge commit ran all 153 mapped files (W4H-31; coordinator's ruling 2026-10-16).
+- Owner: a cleanup list holds only the exact results of mkdtemp, one per case, never a parent of a temporary
+  directory. A test put /tmp itself on its list; the removal failed at /tmp before it touched anything (W4H-28).
+- Owner: when a pass has an outer timeout, the timeout wraps the pass AND its cleanup. Derive it from the inner waits,
+  the run and a cleanup margin, so every inner bound ends first (W4H-28 real-1).
+- Owner: when a pass waits for a person, it waits lock-free and takes the shared lock only for the work. One marker
+  path, "<pid> <label>", written atomically (temporary file and mv), removed only by its owner. The lock wrapper yields
+  only to a live pid; a dead pid, a malformed marker and pid 0 are stale (W4H-28; rulings 2026-10-14 and 2026-10-15).
+- Owner: when a provider path works with the mock, prove it on the BUILT server too. The built web server could not load
+  pi-ai's OAuth flow modules (a dynamic import relative to the bundle chunk), so every ChatGPT-plan login read as "not
+  configured". The built server now registers the flows statically, with a red-first bundle test (W4H-28 real-4).
+- Owner: "not configured" is a positive answer, never the catch-all of a failed read; and a catch-all never chooses a 4xx.
+  Three masking cases in one package: the Codex import tool answered one generic code; the readiness turned a database
+  error into provider_not_configured; the runner answered every unknown error with "Runner request was invalid" (400).
+  Each step names its cause by type (class and code, never a message). A tool a person runs once says why it failed in
+  its first answer (W4H-28; validator-8).
+- Owner: when an installation is kept between passes, keep every store its database points into. The proof kept the
+  product database but made a new runner store each pass, so the one built release lost its artifact. List every store
+  an installation references before you call it "the same installation" (W4H-28 real-8).
+- Owner: a secret never goes in argv or through a shell eval. A tool reads a secret file by path in its own process.
+  With podman, pass `-e NAME` with the value in the environment, never `NAME=value` in argv (W4H-28; validator-8).
+- Owner: when you rotate a credential, write the new value to a 0600 pending file BEFORE you change the server, and
+  verify on the path that really checks it. A loopback that pg_hba trusts accepts any password (W4H-28).
+- Owner: an assertion inside a helper's callback is vacuous to gate-integrity and to a reader. A helper that scopes a
+  fault returns the values, and the test body asserts them. The "helper skips its callback" mutant must turn the test red
+  (W4H-28 Addendum AG).
+- Owner: a harness behaviour without a test is a claim. Move it into a module that a fake-product test can reach. A test
+  that spawns a waiting process stops it on every path, and the process ends by itself when its directory is gone
+  (W4H-28 AB-3, AB3-1).
+- Owner: a zero-cost test provider hides every cost defect. The reference definition declared no node resources, so the
+  first real, non-zero cost made freeze refuse factory_budget_exhausted; and the inspection's "known cost" read 0 for every
+  completed run. Name a summary figure for what it counts, and check each displayed number against the ledger it sums
+  (W4H-28 budget fix, AC-3).
+- Owner: when a product page fails, read the database's own log and the journal (user@<uid>.service KILL) before you
+  suspect the product. The 503s of real-5 came from a host OOM kill of the user manager (W4H-28).
+- Validator: compute a hash, read it, and only then send it. Never put the write-and-hash command and the message in the
+  same parallel step (validator-8, a recurrence with a mechanism now).
+- Validator: a path parser keeps a token only when git knows the path, and prints every other token as IGNORED. A fixed
+  root list cut "docs/extensions/…" and read "absent at both revisions" as main's own (sync-base-leg.py v1).
+- Validator and integrator: every variable that a tracer or wrapper injects into another shell uses a default (${X-}),
+  and its test runs under `set -eu` in a script and in a `bash -c` shell. The PS4 trace aborted main's own tests.
+- Validator: for a merge, compute the lines that differ from BOTH parents before you measure coverage; a clean union has
+  none (resolution-lines.py; W4H-31).
+- Validator: a hold step is `step <leg> <kind> <command...>`. A missing kind runs the command as the kind (exit 127), so
+  read every exit=127 at once (validator-8, W4H-31).
+- Validator: when the host stays under 16 GiB, move the typecheck into the lock (12 GiB or more) instead of waiting for
+  hours (validator-8, W4H-31).
+- Integrator: copy a harness with its modes (cp -p) and check the modes after the copy. The W4H-18 lesson recurred in the
+  W4H-30 hold (0600 scripts, "Permission denied" in the runner container); copy-harness.sh now does both, with a test.
+- Integrator: an informational leg records its raw exit and never sets the hold status. A not-runnable test file is
+  list-bound by path with its reason: every argument of the leg is listed, it exits 97 ("zero tests ran"), and it is
+  byte-identical at integ, main and the merge (leg-judge.sh; W4H-31).
+- Integrator: when the host is not settled, the gate waits: the user manager is inactive, it started less than 300 s ago,
+  or a global OOM kill is less than 300 s old. A HOST-FAULT line classifies a failed leg; the exit stands, and a relaunch
+  is by hand on the coordinator's word (resource-gate.sh, gated-flock.sh; 2026-10-14).
+- Integrator: the identity check refuses by pattern, with no stored address. Reserved-domain fixtures, URL and scp
+  user@host forms and package scopes pass; any other address, other noreply ones too, is refused and printed only as
+  "<a non-noreply address>". Under W-SYNC the content mode judges only lines that are not main's own (identity-check.sh
+  final; the user dropped the deny file, 2026-10-15).
+- Coordinator: the W-SYNC form (ruling 2026-10-14, binding). For a sync merge M of main A into integ B: the main leg A..M is
+  exactly 0 with an empty expected file; the base leg B..M is clean only when every named file is byte-identical at M and A;
+  coverage is informational for main's own lines and binding on the resolution lines; the identity check excludes A.
+- Coordinator: rulings belong to the coordinator and are recorded as such. A validator's addendum carries a ruling only
+  with the coordinator's word (the AC-2 validator bound: ratified by team-lead at 22:44Z, then written to the gate file).
+- Coordinator: when the user needs a port from the tailnet, use Tailscale Serve on the loopback port, never a wide bind.
+  Read the host firewall (read-only) before you promise a bind; this host does not trust tailscale0.
+- Coordinator: verify a line reference against the file before you hand it to the user (a fixture line was 160, not 159).
+- Coordinator: when the permission system refuses an action, do not try another route to the same effect; hand the
+  exact command to the user (Credential Exploration, Secret-Store Writes, Interfere With Workloads, Auto-Mode Bypass).
+- Coordinator: do not serialise independent owner work behind the critical path. The user asked why the work waited for
+  one publish; five owner packages then started in parallel from the accepted merge (2026-10-15 23:22Z).
+- Recurrences of earlier rules (text not repeated): guard evasion by rename (v9: a named, tested exemption only); a
+  dependency bump re-runs every proof that runs those bytes (v9, W4H-27); a CI cap is a hang guard, not a performance
+  budget (v8, W4H-24); cp -p and modes (W4H-18; recurred above).
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.

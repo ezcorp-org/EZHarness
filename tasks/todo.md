@@ -5624,6 +5624,14 @@ order, error code or message. The existing suites cover every changed line, so n
       70b9c8bc9 (full hold: 73 root suites, the whole web vitest pool 8035/8035, installs with no drift, typecheck with main's new per-package
       legs, main leg 0 findings; the hook ran all 96 mapped suites; receipts f87fee8c6); origin/main 1981febd2 (the PR 338 merge) merged at
       1b68d4493 (0 files; receipts bea35538d). The publish now goes through a compare-and-stop guard (publish-if-main.sh).
+- [x] Post-merge main sync (W-SYNC-9 = W4H-31): origin/main 934531e2e (#339: processSpawn and capabilities() on every
+      runner.start caller, the extension-runner spawn guard) merged at 390c49a90 (b80a00f47 + 9cc6fed78; 2 text conflicts,
+      both unions; processSpawn at every factory start site incl. W4H-26's; 8/8 D6 and R6 mutants red; resolution checks
+      PASS). validator-8 ACCEPT at 9cc6fed78 (verdict 8ed9d677f804b3f0). Main's own ci 38591921239 on 934531e2e: 54
+      success / 3 skipped / 1 failure (the precheck). Hold 1 status=1 only from informational and list-bound legs and a
+      tracer defect (all fixed red first); the case-check re-run status 0; full hold re-run status=0 (2026-10-16 00:39-02:45Z; 906/906 legs; validator-8 OK 2ed52d08e6bfabbe); receipts
+      b8ca14a60. Binding from here: the W-SYNC form in tasks/lessons.md.
+
 
 
 
@@ -5987,6 +5995,25 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       9bd32cc3b / receipts 4ce0e2392. Proof: on the composed application over public HTTP, snapshot-repository was admitted,
       prepared through the supervisor, dispatched and executed in the pinned guest on the shipped fixture repository; the sealed snapshot
       equals the product's own recompute; the run then stops at generate-private-candidate (W4H-28).
+- [x] W4H-29 (the SDK-closure inventory test follows the shared builder): hosted run 38518989878 on PR 341 found one real
+      red, "Coverage shard 0", src/factory/guest-sdk-closure.test.ts:127; W4H-26's builder consolidation had left the
+      test's source list stale (the invariant itself held: guest-package-build.ts calls factorySdkClosure). One-line fix;
+      red on 486e6a558 (7/1), green at 6c15783d9 (8/0); two mutants red: validator-8 ACCEPT at 6c15783d9 b7ff54c47e081ce7,
+      after the report df2fd4a8a101b63a; merge 4cd37332c / receipts d2add3048. Standing rule since then: every hold runs
+      the 51 repository inventory and registration tests (w00/invariant-tests.txt).
+- [x] PR 341 (follow-up 3) hosted runs: attempt 1 (486e6a558, ci 38518989878) 52 success / 4 failure / 3 skipped, the
+      W4H-29 red and its cascades; attempt 2 (d2add3048, ci 38525604869) Coverage shard 0 and the new "Factory image under
+      shipped isolation" job GREEN, one red in "Production proof (resources)" (a socket count at cycle 9), classified E,
+      pre-existing (4 of 41 earlier attempts, also before W4H-26); attempt 3 (the one re-run of the failed jobs) green
+      except the runner readiness precheck. Receipts 0e305073a, 5c73aa860 and the correction 6571f8d5f (local; they land
+      with the next PR).
+- [x] W4H-30 (the resources-proof socket count no longer depends on timing): the cause was not a leak. The runner client's
+      keep-alive pool kept 1 or 2 idle connections to runner.sock for about 5 s, and a boot-time HTTPS keep-alive to the
+      Kilo catalog stayed open. Fix: RunnerClient agent: false and the Kilo fetch keepalive: false, both red first; the
+      check and the proof unchanged; about +0.1 ms per runner call. validator-8 two arms 6 × 10 cycles: main 1-2 runner
+      sockets in 66/66 samples, head 0 in 66/66: ACCEPT at 5ee55026a 10b22f97bb0b4ea1, addendum c846a474b6d9fe57;
+      merge 560dbe2a7 / receipts b80a00f47. Hold 1 red from the harness modes (cp -p), hold 2 stopped at the disk floor,
+      hold 3 in the no-proof form status 0 (ruled; risk line recorded).
 
 ## Leftover after wave 4i — 2026-10-05
 
@@ -6104,6 +6131,41 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
       purge (administrator approval).
 - [ ] Hosted runner image: ubuntu-latest moves to Ubuntu 26 on 2026-10-19; re-measure the web shard wall-time medians (35 s install, 198 s vitest)
       afterwards and restate them in ci.yml's comment (W4H-24 O2).
+- [ ] Runner store resilience: a runner whose store lost a release's artifact refuses artifact_missing; rehydrate the
+      artifact from the product's blob copy (W4H-28 real-8; W4H-32 in progress).
+- [ ] main: a fixture address on a real domain (test.com) in web/e2e/reliability.spec.ts:355; move it to a reserved domain
+      (example.com, .test, .invalid). In progress, W4H-33 (W4H-31 rulings; leftovers-pending.txt d40e1bd6321bf38a).
+- [ ] main: a test that can never run (describe.skip in source): src/__tests__/task-stack-sdk-integration.test.ts. A test that
+      never runs is a gate weakness. In progress, W4H-33 (same source).
+- [ ] main: a test that can never run (describe.skip in source): src/__tests__/todo-tracker-sdk-integration.test.ts. In
+      progress, W4H-33 (same source).
+- [ ] main: a Docker-only test (DOCKER_TEST=1): src/__tests__/preview-dynamic-e2e.docker.test.ts needs a Podman form or a
+      CI-only marking. In progress, W4H-33 (same source).
+- [ ] main: a Docker-only test (DOCKER_TEST=1): src/__tests__/preview-uid-keystone.docker.test.ts needs a Podman form or a
+      CI-only marking. In progress, W4H-33 (same source).
+- [ ] Two supervisor-services tests time out under Bun's 5 s default (green at 30 s; also before the W4H-31 merge). In
+      progress, W4H-33 (W4H-31 owner).
+- [ ] Two tests that need rg on PATH never run on hosted: src/__tests__/runtime-tools-grep.test.ts:246 and :259 (no
+      workflow installs ripgrep). They must run on hosted. In progress, W4H-33 (W4H-33 inventory D2; coordinator's ruling).
+- [ ] The product CLI scripts/import-codex-login.ts imports a proof-harness module
+      (scripts/factory-graph-proof/codex-import-deployment.ts); move the shared part into the product or a neutral module
+      (a layering note, W4H-28 F2).
+- [ ] The live-pid run marker yields to an unrelated live process that reuses the pid: the job only waits, which is the safe
+      side. A stated limit of gated-flock.sh (validator-8, plan-w4h-28 F1).
+- [ ] A product-readable content-addressed artifact store would remove the preparation reply's artifact transfer and
+      its 64 MiB bound (W4H-28 ruling B).
+- [ ] The production image calls a third-party API (api.kilo.ai, warmKiloCatalog) at boot; this belongs to the W02/W16
+      network policy question (W4H-30; maintainer).
+- [ ] The live GPU probe script names no processSpawn policy (also on main) (W4H-31).
+- [ ] The shared proof PostgreSQL and every rootless podman container run under user@1001.service: an OOM kill of the
+      user manager kills them all, and no restart policy runs (W4H-28; host owner).
+- [ ] An unknown agent or script ran `sudo -n systemctl start user@1001.service` from session-3.scope at 2026-10-14
+      23:38:20Z. Not the team. Find the caller; an agent on this host has passwordless sudo (user).
+- [ ] Validator node bounds are operator material (C03 row, W4H-28 AC-2); a fleet that declares validator runtimes must
+      size them to fit the run's cap beside the task nodes.
+- [ ] The W4H-28 proof objects stay in bucket tenant-01 (818 object versions listed in objects-written.json, plus real-9's
+      release); purge them with the other test tenants on an approved purge (administrator approval).
+
 
 
 
