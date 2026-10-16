@@ -671,7 +671,7 @@ describe("the Compose templates parse and hold the hardening", () => {
     expect(JSON.stringify(prometheus.volumes)).not.toMatch(/\.sock/);
     const binds = (prometheus.volumes as Array<{ target?: string; read_only?: boolean } | string>).filter((volume): volume is { target: string; read_only: boolean } => typeof volume === "object");
     expect(binds.map((volume) => [volume.target, volume.read_only])).toEqual([["/etc/ezcorp-prometheus", true], ["/etc/ezcorp-prometheus-rules", true]]);
-    expect(prometheus.command).toContain("--web.listen-address=127.0.0.1:${EZCORP_FACTORY_PROMETHEUS_PORT:?}");
+    expect(prometheus.command).toContain(`--web.listen-address=127.0.0.1:\${EZCORP_FACTORY_PROMETHEUS_PORT:?}`);
   });
 
   test("the orchestrator writes only its own readiness directory; the harness reads its own and the host's three, read-only; the pool writes only its own", async () => {

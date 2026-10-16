@@ -25,6 +25,7 @@ import {
   DurableDeliveryQueue, dispatchDurableDelivery, durableInputHash, intervalHeartbeat,
   type DurableDeadLetter, type DurableDeliveryRecord, type DurableDeliveryStore, type LeaseHeartbeat,
 } from "../delivery-queue/durable-delivery-queue";
+import { assertFactoryIdentity } from "./factory-identity";
 import { readPrivatePath, readPrivateText } from "./private-files";
 import { decodeNotification, type FactoryNotification, type NotificationRow } from "./releases";
 import type { FactoryRoleConfirmation, FactoryRoleDriver } from "./runtime-seams";
@@ -49,7 +50,7 @@ export const FACTORY_NOTIFICATION_SEND_BOUNDS = Object.freeze({
 /** C11 N6, by the settlement each code leads to. */
 export const FACTORY_NOTIFICATION_SEND_CODES = Object.freeze({
   retry: Object.freeze(["webhook_unreachable", "webhook_timeout", "webhook_status_429", "webhook_status_5xx"] as const),
-  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted"] as const),
+  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted", "notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt"] as const),
   cancelled: Object.freeze(["notification_expired", "destination_removed"] as const),
 });
 
@@ -135,7 +136,6 @@ export const fetchFactoryWebhook: FactoryWebhookTransport = async (request) => {
   return { status: response.status };
 };
 
-const IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/;
 const OUTCOME_CODE = /^[a-z0-9_]{1,64}$/;
 
 /** Stable for one notification and destination, across every attempt and every sender. */
@@ -147,9 +147,10 @@ export function signFactoryNotification(secret: Uint8Array, timestamp: number, b
   return `v1=${createHmac("sha256", secret).update(`${timestamp}.${body}`).digest("hex")}`;
 }
 
+/** The release store's own identity rule (`assertFactoryIdentity`), so every identifier it stored can be sent. */
 function identifier(value: unknown): string {
-  if (typeof value !== "string" || !IDENTIFIER.test(value)) throw new FactoryNotificationSendError("notification_payload_invalid", true);
-  return value;
+  try { assertFactoryIdentity(value as string); } catch { throw new FactoryNotificationSendError("notification_payload_invalid", true); }
+  return value as string;
 }
 
 function isSentKind(kind: string): kind is FactoryNotificationSentKind {
@@ -198,9 +199,30 @@ export function factoryNotificationPayload(
     ...(subject.outcomeCode === undefined ? {} : { outcomeCode: subject.outcomeCode }),
     inboxPath: `/api/factories/projects/${encodeURIComponent(projectId)}/release/notifications`,
   };
-  // At most 4 KiB by construction: every field is a bounded identifier or a
-  // fixed string, and the table's CHECK refuses anything larger.
+  // Identifiers of up to 512 characters each can, escaped, pass 4 KiB together; such a
+  // notification is refused rather than truncated, and the fan-out records the refusal.
+  if (Buffer.byteLength(canonicalJson(payload)) > FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes) throw new FactoryNotificationSendError("notification_payload_too_large", true);
   return { payload, expiresAt };
+}
+
+/** The keys a send is recorded under; a decoded notification has them, and so does a refused row. */
+type RefusedNotification = Pick<FactoryNotification, "tenantId" | "projectId" | "id" | "createdAt"> & { readonly kind: FactoryNotification["kind"] };
+
+/**
+ * What a refused notification's dead-letter send records: the keys an operator
+ * looks it up by, never sent anywhere. The kind is the stored one, which the
+ * fan-out's filter has already limited to the kinds that leave this host.
+ */
+function refusedPayload(notification: RefusedNotification, destination: string): FactoryNotificationPayload {
+  return {
+    schema: FACTORY_NOTIFICATION_SCHEMA,
+    idempotencyKey: factoryNotificationIdempotencyKey(notification.tenantId, notification.projectId, notification.id, destination),
+    kind: notification.kind as FactoryNotificationSentKind,
+    projectId: notification.projectId,
+    notificationId: notification.id,
+    createdAt: new Date(notification.createdAt).toISOString(),
+    inboxPath: "",
+  };
 }
 
 /** The settlement a webhook answer leads to; null means delivered. */
@@ -265,7 +287,7 @@ export function factoryNotificationSendStore(database: MigrationDb, tenantId: st
 
 const sendQueue = new DurableDeliveryQueue<FactoryNotificationSend>((code) => new FactoryNotificationSendError(code), randomUUID);
 
-type FanOutRow = NotificationRow & { project_id: string; deadline_at_ms: number | string | null };
+type FanOutRow = NotificationRow & { project_id: string; notification_id: string; kind: FactoryNotificationSentKind; created_ms: number | string; deadline_at_ms: number | string | null };
 
 export interface FactoryNotificationSenderOptions {
   readonly database: TransactionalDb;
@@ -351,7 +373,8 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
     for (const destination of this.destinations.keys()) {
       signal.throwIfAborted();
       const found = rows<FanOutRow>(await this.database.execute(sql`
-        SELECT n.project_id,n.payload,n.state,n.input_hash,ca.deadline_at_ms
+        SELECT n.project_id,n.notification_id,n.payload,n.state,n.input_hash,(n.payload::jsonb->>'kind') AS kind,
+          (EXTRACT(EPOCH FROM n.created_at) * 1000)::bigint AS created_ms,ca.deadline_at_ms
         FROM factory_notifications n
         LEFT JOIN factory_command_approvals ca ON (n.payload::jsonb->>'kind')='command_approval_requested'
           AND ca.tenant_id=n.tenant_id AND ca.project_id=n.project_id AND ca.approval_id=(n.payload::jsonb->>'approvalId')
@@ -360,8 +383,23 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
           AND NOT EXISTS (SELECT 1 FROM factory_notification_sends s WHERE s.tenant_id=n.tenant_id AND s.project_id=n.project_id AND s.notification_id=n.notification_id AND s.destination=${destination})
         ORDER BY n.available_at,n.notification_id LIMIT ${FACTORY_NOTIFICATION_SEND_BOUNDS.fanOutBatch}`));
       for (const row of found) {
-        const notification = decodeNotification(row, this.tenantId, row.project_id);
-        const built = factoryNotificationPayload(notification, destination, row.deadline_at_ms === null ? undefined : Number(row.deadline_at_ms));
+        // The keys a refusal is recorded under come from the row itself, so a
+        // stored notification that no longer decodes is recorded too.
+        const keys: RefusedNotification = { tenantId: this.tenantId, projectId: row.project_id, id: row.notification_id, kind: row.kind, createdAt: Number(row.created_ms) };
+        let notification: FactoryNotification;
+        let built: ReturnType<typeof factoryNotificationPayload>;
+        try {
+          notification = decodeNotification(row, this.tenantId, row.project_id);
+          built = factoryNotificationPayload(notification, destination, row.deadline_at_ms === null ? undefined : Number(row.deadline_at_ms));
+        } catch (error) {
+          const code = (error as { code?: unknown }).code;
+          if (!(error instanceof FactoryNotificationSendError) && code !== "factory_notification_corrupt") throw error;
+          // Recorded once, in dead letter, so one unsendable notification never
+          // occupies the fan-out's batch again and the ones behind it still go.
+          await this.enqueue(keys, destination, refusedPayload(keys, destination), keys.createdAt, code as string);
+          added = true;
+          continue;
+        }
         if (built === null) continue;
         await this.enqueue(notification, destination, built.payload, built.expiresAt);
         added = true;
@@ -370,10 +408,12 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
     return added;
   }
 
-  private async enqueue(notification: FactoryNotification, destination: string, payload: FactoryNotificationPayload, expiresAt: number): Promise<void> {
+  private async enqueue(notification: RefusedNotification, destination: string, payload: FactoryNotificationPayload, expiresAt: number, refused?: string): Promise<void> {
     const now = this.now();
     const inputHash = durableInputHash(payload);
     const expired = expiresAt <= now;
+    const settled = refused !== undefined ? { state: "dead_letter" as const, failureCode: refused }
+      : expired ? { state: "cancelled" as const, failureCode: "notification_expired" } : { state: "queued" as const };
     await this.database.transaction((transaction) => sendQueue.enqueue(factoryNotificationSendStore(transaction, this.tenantId), {
       scope: this.tenantId,
       deduplicationId: `${notification.projectId}:${notification.id}:${destination}`,
@@ -382,9 +422,9 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
       create: () => ({
         id: randomUUID(), tenantId: this.tenantId, projectId: notification.projectId, notificationId: notification.id, destination,
         deduplicationId: `${notification.projectId}:${notification.id}:${destination}`, inputHash, payload, expiresAt,
-        // A notification that expired before it could be sent is recorded as
-        // cancelled, so the fan-out never visits it again and nothing sends it.
-        state: expired ? "cancelled" : "queued", ...(expired ? { failureCode: "notification_expired" } : {}),
+        // One that cannot be sent is recorded in dead letter, and one that expired
+        // before it could be sent as cancelled: the fan-out never visits either again.
+        ...settled,
         attempts: 0, maxAttempts: FACTORY_NOTIFICATION_SEND_BOUNDS.maxAttempts, availableAt: now, leaseUntil: 0, createdAt: now,
       }),
     }));

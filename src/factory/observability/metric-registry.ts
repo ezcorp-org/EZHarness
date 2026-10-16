@@ -79,7 +79,7 @@ export const FACTORY_METRIC_FAMILIES: readonly FactoryMetricFamily[] = Object.fr
   { name: "factory_projection_lag_seconds", type: "gauge", services: INSTALLATION, labels: {},
     help: "Age of the oldest audit batch the run projector has not applied, 0 when none." },
   { name: "factory_validator_digests_erroring", type: "gauge", services: INSTALLATION, labels: {},
-    help: "Validator runner digests whose last three validator attempts all failed or ended uncertain." },
+    help: "Validator runner digests whose last three validator attempts in the past 7 days all failed or ended uncertain." },
   { name: "factory_release_operations", type: "gauge", services: INSTALLATION, labels: { state: RELEASE_STATES },
     help: "Release operations by state." },
   { name: "factory_release_uncertain_oldest_age_seconds", type: "gauge", services: INSTALLATION, labels: {},

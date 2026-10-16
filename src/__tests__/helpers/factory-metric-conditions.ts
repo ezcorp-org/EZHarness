@@ -89,6 +89,8 @@ export async function forceProjection(database: TransactionalDb, now: number, ru
       await execute(sql`INSERT INTO factory_audit_batches (tenant_id,project_id,run_id,interpreter_id,source_sequence,sequence,digest,payload,created_at)
         VALUES (${METRIC_TENANT},${METRIC_PROJECT},${runId},'root',${sequence},${sequence},${DIGEST},'{}',${at(now, options.ageMs - (sequence - 1))})`);
     }
+    // The run's counter, as the records store keeps it: the next sequence to allocate.
+    await execute(sql`UPDATE factory_runs SET next_sequence=${options.sequence + 1} WHERE tenant_id=${METRIC_TENANT} AND project_id=${METRIC_PROJECT} AND run_id=${runId}`);
     if (options.projected > 0) {
       await execute(sql`INSERT INTO factory_run_projections (tenant_id,project_id,run_id,consumer_id,sequence,digest,payload)
         VALUES (${METRIC_TENANT},${METRIC_PROJECT},${runId},${options.consumerId},${options.projected},${DIGEST},'{}')`);
@@ -97,10 +99,10 @@ export async function forceProjection(database: TransactionalDb, now: number, ru
 }
 
 /** `outcomes` validator attempts for one runner digest, oldest first, each `failed`, `uncertain` or `completed`. */
-export async function forceValidatorOutcomes(database: TransactionalDb, now: number, runnerDigestHex: string, outcomes: readonly string[]): Promise<void> {
+export async function forceValidatorOutcomes(database: TransactionalDb, now: number, runnerDigestHex: string, outcomes: readonly string[], olderByMs = 0): Promise<void> {
   for (const [index, outcome] of outcomes.entries()) {
     const attemptId = randomUUID();
-    await forceAttempt(database, now, "run-v", outcome === "uncertain" ? "uncertain" : "terminal", { attemptId, ageMs: (outcomes.length - index) * 1_000, ...(outcome === "uncertain" ? {} : { terminalStatus: outcome }) });
+    await forceAttempt(database, now, "run-v", outcome === "uncertain" ? "uncertain" : "terminal", { attemptId, ageMs: olderByMs + (outcomes.length - index) * 1_000, ...(outcome === "uncertain" ? {} : { terminalStatus: outcome }) });
     await unguarded(database, (execute) => execute(sql`INSERT INTO factory_validator_assignments (tenant_id,project_id,run_id,candidate_node_instance_id,candidate_generation,validator_id,validator_attempt_id,validator_authority_json,definition_digest,validator_lock_digest,candidate_digest,candidate_artifact_id,candidate_artifact_digest,candidate_artifact_bytes,runner_json,runner_digest,environment_digest,configuration_digest,freshness_ms,trust_revision,issuer_grant_revision,assignment_digest)
       VALUES (${METRIC_TENANT},${METRIC_PROJECT},'run-v',${randomUUID()},0,'validator-1',${attemptId},'{}',${DIGEST},${DIGEST},${DIGEST},'artifact-1',${DIGEST},1,'{}',${`sha256:${runnerDigestHex}`},${DIGEST},${DIGEST},1000,1,1,${DIGEST})`).then(() => undefined));
   }

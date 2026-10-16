@@ -78,17 +78,22 @@ describe("the notification payload (C11 N4, N9)", () => {
     expect(factoryNotificationPayload(notification({ kind: "release_settled", payload: {} }), "operators")).toBeNull();
   });
 
-  test("a malformed identifier is a terminal refusal, and the largest payload stays within 4 KiB", () => {
+  test("accepts every identifier the release store accepts, refuses a missing one, and refuses a payload over 4 KiB", () => {
+    // The release store's own identity rule: non-empty, at most 512 characters, no NUL.
+    const unusual = notification({ kind: "approval_requested", projectId: "project with spaces/and-slash", payload: { approvalId: "approval:ü 1" } });
+    expect(factoryNotificationPayload(unusual, "operators")?.payload).toMatchObject({ projectId: "project with spaces/and-slash", approvalId: "approval:ü 1", inboxPath: "/api/factories/projects/project%20with%20spaces%2Fand-slash/release/notifications" });
     for (const broken of [
-      notification({ kind: "approval_requested", payload: { approvalId: "has space" } }),
       notification({ kind: "approval_requested", payload: {} }),
+      notification({ kind: "approval_requested", payload: { approvalId: "" } }),
+      notification({ kind: "approval_requested", payload: { approvalId: "a\0b" } }),
+      notification({ kind: "approval_requested", payload: { approvalId: "a".repeat(513) } }),
       notification({ kind: "release_uncertain", operationId: "", payload: {} }),
     ]) {
       expect(() => factoryNotificationPayload(broken, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_invalid", deadLetter: true }));
     }
-    const huge = notification({ kind: "release_uncertain", projectId: "p".repeat(255), operationId: "o".repeat(255), id: "n".repeat(255), payload: {} });
-    const hugeBuilt = factoryNotificationPayload(huge, "d".repeat(255))!;
-    expect(Buffer.byteLength(canonicalJson(hugeBuilt.payload))).toBeLessThanOrEqual(FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes);
+    const quotes = '"'.repeat(512);
+    const huge = notification({ kind: "approval_requested", projectId: quotes, operationId: quotes, payload: { approvalId: quotes } });
+    expect(() => factoryNotificationPayload(huge, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_too_large", deadLetter: true }));
   });
 
   test("the idempotency key is stable per notification and destination, and differs across them", () => {
@@ -130,6 +135,7 @@ describe("the settlement of a webhook answer (C11 N6)", () => {
       const error = classifyFactoryWebhookStatus(status);
       if (error) expect(declared.has(error.code)).toBe(true);
     }
+    for (const code of ["notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt"]) expect(declared.has(code)).toBe(true);
     expect(new FactoryNotificationSendError("webhook_unreachable").message).not.toContain("https://");
   });
 });

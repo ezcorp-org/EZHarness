@@ -78,16 +78,20 @@ export async function collectFactoryInstallationMetrics(sources: FactoryInstalla
     ...await byState(database, "factory_attempts", sql`SELECT state, count(*) AS value FROM factory_attempt_launches WHERE tenant_id=${tenantId} GROUP BY state`),
     { name: "factory_usage_unknown_reservations", value: await count(sql`SELECT count(*) AS value FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND state='uncertain'`) },
     { name: "factory_budget_exhausted_envelopes", value: await count(sql`SELECT count(*) AS value FROM factory_budget_envelopes WHERE tenant_id=${tenantId} AND state='open' AND admission_blocked`) },
-    { name: "factory_projection_lag_seconds", value: await age(sql`SELECT EXTRACT(EPOCH FROM ${at} - min(b.created_at)) * 1000 AS value FROM factory_audit_batches b
-      LEFT JOIN factory_run_projections p ON p.tenant_id=b.tenant_id AND p.project_id=b.project_id AND p.run_id=b.run_id AND p.consumer_id=${FACTORY_RUN_STATUS_CONSUMER_ID}
-      WHERE b.tenant_id=${tenantId} AND b.sequence > COALESCE(p.sequence, 0)`) },
+    // Per run, not per batch: a run is behind when its next sequence is past the
+    // projector's cursor, and its oldest unapplied batch is the one at cursor + 1.
+    // Retention removes old batches but keeps the counter, so this stays bounded by runs.
+    { name: "factory_projection_lag_seconds", value: await age(sql`SELECT EXTRACT(EPOCH FROM ${at} - min(b.created_at)) * 1000 AS value FROM factory_runs r
+      LEFT JOIN factory_run_projections p ON p.tenant_id=r.tenant_id AND p.project_id=r.project_id AND p.run_id=r.run_id AND p.consumer_id=${FACTORY_RUN_STATUS_CONSUMER_ID}
+      JOIN factory_audit_batches b ON b.tenant_id=r.tenant_id AND b.project_id=r.project_id AND b.run_id=r.run_id AND b.sequence = COALESCE(p.sequence, 0) + 1
+      WHERE r.tenant_id=${tenantId} AND r.next_sequence > COALESCE(p.sequence, 0) + 1`) },
     // Per runner digest, its three most recent finished validator attempts, all failed or uncertain.
     { name: "factory_validator_digests_erroring", value: await count(sql`SELECT count(*) AS value FROM (
         SELECT runner_digest FROM (
           SELECT a.runner_digest, (l.state='uncertain' OR l.terminal_result_json->>'status' IN ('failed','uncertain')) AS errored,
             row_number() OVER (PARTITION BY a.runner_digest ORDER BY l.updated_at DESC, l.attempt_id DESC) AS position
           FROM factory_validator_assignments a JOIN factory_attempt_launches l ON l.tenant_id=a.tenant_id AND l.attempt_id=a.validator_attempt_id
-          WHERE a.tenant_id=${tenantId} AND l.state IN ('terminal','uncertain')
+          WHERE a.tenant_id=${tenantId} AND l.state IN ('terminal','uncertain') AND l.updated_at >= ${at} - interval '7 days'
         ) recent WHERE position <= 3 GROUP BY runner_digest HAVING count(*) = 3 AND bool_and(errored)
       ) erroring`) },
     ...await byState(database, "factory_release_operations", sql`SELECT state, count(*) AS value FROM factory_release_operations WHERE tenant_id=${tenantId} GROUP BY state`),

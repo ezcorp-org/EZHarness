@@ -100,6 +100,8 @@ describe("the installation collector (C11 M3)", () => {
     await forceValidatorOutcomes(fixture.db as never, NOW, "1".repeat(64), ["completed", "failed", "uncertain", "failed"]);
     await forceValidatorOutcomes(fixture.db as never, NOW, "2".repeat(64), ["failed", "failed", "completed"]);
     await forceValidatorOutcomes(fixture.db as never, NOW, "3".repeat(64), ["failed", "failed"]);
+    // Three failures more than 7 days old are history, not a digest erroring now.
+    await forceValidatorOutcomes(fixture.db as never, NOW, "4".repeat(64), ["failed", "failed", "failed"], 8 * 86_400_000);
     expect(value(await collect(), "factory_validator_digests_erroring")).toBe(1);
   });
 

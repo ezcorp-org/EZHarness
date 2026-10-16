@@ -42,15 +42,16 @@ beforeEach(async () => {
 afterEach(() => { receiver.onRequest(null); });
 
 /** Stores a notification exactly as `FactoryReleases` does, so the sender's decoder accepts it. */
-async function notification(kind: Kind, payload: Record<string, unknown>, options: { state?: string; createdAt?: number; subject?: string } = {}): Promise<string> {
+async function notification(kind: Kind, payload: Record<string, unknown>, options: { state?: string; createdAt?: number; subject?: string; project?: string } = {}): Promise<string> {
+  const project = options.project ?? PROJECT;
   const id = randomUUID();
   const subjectId = options.subject ?? `subject-${id.slice(0, 8)}`;
   const subject = kind === "command_approval_requested" ? { approvalId: subjectId } : { operationId: subjectId };
   const inputHash = durableInputHash({ kind, ...subject, payload });
   const createdAt = options.createdAt ?? NOW;
-  const record = { id, tenantId: TENANT, projectId: PROJECT, deduplicationId: `${kind}:${subjectId}`, inputHash, kind, ...subject, payload, state: "queued", attempts: 1, maxAttempts: 5, availableAt: createdAt, leaseUntil: 0, createdAt };
+  const record = { id, tenantId: TENANT, projectId: project, deduplicationId: `${kind}:${subjectId}`, inputHash, kind, ...subject, payload, state: "queued", attempts: 1, maxAttempts: 5, availableAt: createdAt, leaseUntil: 0, createdAt };
   await fixture.db.execute(sql`INSERT INTO factory_notifications (tenant_id,project_id,notification_id,deduplication_id,input_hash,state,available_at,lease_until,payload)
-    VALUES (${TENANT},${PROJECT},${id},${record.deduplicationId},${inputHash},${options.state ?? "delivered"},${createdAt},0,${canonicalJson(record)})`);
+    VALUES (${TENANT},${project},${id},${record.deduplicationId},${inputHash},${options.state ?? "delivered"},${createdAt},0,${canonicalJson(record)})`);
   return id;
 }
 
@@ -89,6 +90,32 @@ describe("fan-out (C11 N1)", () => {
     expect(await sends()).toMatchObject([{ state: "cancelled", failure_code: "notification_expired" }]);
     expect(receiver.requests).toHaveLength(0);
     expect(await one.step(never)).toBe(false);
+  });
+
+  test("a notification that cannot be sent is recorded as a dead-letter send once, and the fan-out moves on", async () => {
+    const quotes = '"'.repeat(512);
+    await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${quotes},'Quoted','/tmp/quoted') ON CONFLICT DO NOTHING`);
+    await fixture.db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${TENANT},${quotes}) ON CONFLICT DO NOTHING`);
+    // The longest identifiers the release store accepts: its deduplication ID, `<kind>:<operation>`, stays within 512.
+    const refused = await notification("approval_requested", { approvalId: quotes, expiresAtMs: NOW + 3_600_000 }, { subject: '"'.repeat(490), project: quotes });
+    const sendable = await notification("release_uncertain", { code: "provider_response_unknown" });
+    // A stored notification that no longer matches its own input hash is recorded too, never re-read every pass.
+    const corrupt = await notification("release_uncertain", { code: "provider_response_unknown" });
+    await fixture.db.execute(sql`UPDATE factory_notifications SET input_hash=${`sha256:${"0".repeat(64)}`} WHERE notification_id=${corrupt}`);
+    const one = sender();
+    expect(await one.fanOut(never)).toBe(true);
+    const found = rows<{ notification_id: string; state: string; failure_code: string | null }>(await fixture.db.execute(sql`SELECT notification_id,state,failure_code FROM factory_notification_sends ORDER BY state`));
+    expect([...found].sort((left, right) => `${left.state}${left.failure_code}`.localeCompare(`${right.state}${right.failure_code}`))).toEqual([
+      { notification_id: corrupt, state: "dead_letter", failure_code: "factory_notification_corrupt" },
+      { notification_id: refused, state: "dead_letter", failure_code: "notification_payload_too_large" },
+      { notification_id: sendable, state: "queued", failure_code: null },
+    ]);
+    expect(await one.fanOut(never)).toBe(false);
+    expect(await one.step(never)).toBe(true);
+    expect(receiver.requests).toHaveLength(1);
+    expect(receiver.requests[0]!.body).not.toContain(quotes);
+    await fixture.db.execute(sql`DELETE FROM factory_notification_sends`);
+    await fixture.db.execute(sql`DELETE FROM factory_notifications WHERE project_id=${quotes} OR notification_id=${corrupt}`);
   });
 
   test("a command approval expires at its own deadline", async () => {
