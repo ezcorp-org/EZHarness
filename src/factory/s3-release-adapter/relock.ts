@@ -1,7 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Runner } from "@ezcorp/extension-contract";
+import type { BuildResult, Runner } from "@ezcorp/extension-contract";
 import { buildLimits, DEFAULT_IMAGE, filesDigest, PodmanRunner, provisionToolchain } from "@ezcorp/extension-runner";
 import { S3_RELEASE_ADAPTER_ENTRYPOINT, s3ReleaseAdapterFiles, s3ReleaseAdapterProvidedDigests, type S3ReleaseAdapterLock } from "./package";
 
@@ -29,22 +29,28 @@ export interface S3ReleaseAdapterRelockDependencies {
 
 /** What builds the adapter: the product's Podman runner by default (a test may pass another). */
 export type S3ReleaseAdapterBuilder = Pick<Runner, "build"> & { close(): Promise<void> };
-const podmanBuilder = async (root: string): Promise<S3ReleaseAdapterBuilder> => new PodmanRunner({ root, ...await provisionToolchain() });
+export const podmanBuilder = async (root: string): Promise<S3ReleaseAdapterBuilder> => new PodmanRunner({ root, ...await provisionToolchain() });
 
-/** The lock a build in the pinned image gives now: the source, the provided SDK and toolchain, and the artifact. */
-export async function buildS3ReleaseAdapterLock(open: (root: string) => Promise<S3ReleaseAdapterBuilder> = podmanBuilder): Promise<S3ReleaseAdapterLock> {
+/**
+ * Builds the adapter in the pinned image and gives the build result and the lock it implies: the source, the provided
+ * SDK and toolchain, and the artifact. A build that does not succeed is an error, named, never a lock.
+ */
+export async function buildS3ReleaseAdapter(open: (root: string) => Promise<S3ReleaseAdapterBuilder> = podmanBuilder): Promise<{ result: BuildResult; lock: S3ReleaseAdapterLock }> {
   const root = await mkdtemp(join(tmpdir(), "s3-release-adapter-"));
   const runner = await open(root);
   try {
     const files = await s3ReleaseAdapterFiles();
     const build = await runner.build({ operationId: "s3-release-adapter-build", sourceDigest: filesDigest(files), files, entrypoint: S3_RELEASE_ADAPTER_ENTRYPOINT, limits: buildLimits });
     if (build.state !== "succeeded") throw new Error(`the S3 release adapter did not build: ${JSON.stringify(build.diagnostics)}`);
-    return { sourceDigest: `sha256:${filesDigest(files)}`, ...await s3ReleaseAdapterProvidedDigests(), artifactDigest: `sha256:${build.artifactDigest}`, image: DEFAULT_IMAGE };
+    return { result: build, lock: { sourceDigest: `sha256:${filesDigest(files)}`, ...await s3ReleaseAdapterProvidedDigests(), artifactDigest: `sha256:${build.artifactDigest}`, image: DEFAULT_IMAGE } };
   } finally {
     await runner.close();
     await rm(root, { recursive: true, force: true });
   }
 }
+
+/** The lock alone (the re-lock script's build). */
+export const buildS3ReleaseAdapterLock = async (open?: (root: string) => Promise<S3ReleaseAdapterBuilder>): Promise<S3ReleaseAdapterLock> => (await buildS3ReleaseAdapter(open)).lock;
 
 /** Rebuilds, then writes the lock and the SDK literal; returns the old and the new lock. A dirty tree is refused first. */
 export async function relockS3ReleaseAdapter(dependencies: S3ReleaseAdapterRelockDependencies): Promise<{ old: S3ReleaseAdapterLock; next: S3ReleaseAdapterLock }> {
