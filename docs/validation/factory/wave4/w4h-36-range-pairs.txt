@@ -1,0 +1,4 @@
+W4H-36 rebase check (old -> new; sha256 of the commit's changed lines '^[+-][^+-]' and of its message), 2026-10-16
+a083585e5 -> df92f4339 lines 3f992434a8800167 3f992434a8800167 SAME; message dd5a4948bed74a1f dd5a4948bed74a1f SAME
+b4cee07c0 -> 3099fc3af lines 9a011e08570e3350 9a011e08570e3350 SAME; message 0b958a0d2b0915c0 0b958a0d2b0915c0 SAME
+7e4dbaae0 -> 425196fbe lines 49c04d266e3e6a59 49c04d266e3e6a59 SAME; message ca54c5e907b9c124 ca54c5e907b9c124 SAME

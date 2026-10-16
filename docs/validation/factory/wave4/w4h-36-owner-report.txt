@@ -1,0 +1,64 @@
+W4H-36 report (w4h-36): the docs line v10, the contracts rows, the dated leftovers ledger, the tasks text blocks and the
+follow-up PR bodies. FROZEN at 7cac5837c on wp/w4h-36-docs-v10. Written 2026-10-16 for the W4H-36 receipts.
+Append-only from here: a later change is a new dated section at the end; nothing above it is edited.
+
+== Branch (documents only; the one changed file is docs/plans/2026-09-12-composable-factory-platform-contracts.md)
+Base: integ/w00 c8ae394ca (the W4H-28 publish with its addendum receipts). Rebased onto it by the coordinator's ruling of
+2026-10-16 with `git -c rerere.enabled=false rebase --onto c8ae394ca 390c49a90`; no conflict.
+Pre-rebase ref: proof/w4h-36-pre-rebase = 7e4dbaae0 (keeps the accepted commits a083585e5, b4cee07c0, 7e4dbaae0).
+Commits (oldest first; author and committer = the archy noreply address):
+  df92f4339 (was a083585e5) C05 row: the extension runner's refusal codes and statuses
+  3099fc3af (was b4cee07c0) C10 row: the provider readiness document and its four base codes
+  425196fbe (was 7e4dbaae0) C10 row widened: all six codes, the details and the warnings entry (ruling 2)
+  7cac5837c                 the AB-1/AB-2 note removed (ruling 1); the C03 memoryBytes clause (ruling 3); the gateway
+                            transport response ceiling row (validator-8 Addendum AW); +2 -3
+The hook ran on every commit and mapped no test file (one docs file staged each time).
+Rebase evidence: final/range-diff-3.txt dfbe2081a2b0782a (git range-diff 390c49a90..7e4dbaae0 c8ae394ca..425196fbe);
+final/range-pairs.txt c2ea6c7b2d36332c (per pair: the changed lines and the message are sha-equal, old and new).
+
+== Verdict
+validator-8: verdict-w4h-36.txt b03894938839f588, FINAL ACCEPT for the four commits and the documents (findings F1 to F8,
+all fixed). The merge comes after the W4H-33 publish (docs-only; a detached merge of 7cac5837c, the standard hold plus an
+identity leg on the contracts file).
+
+== Documents (sha256, first 16 hex; the list below is SHAS.txt bfddd5717e71dff2, copied verbatim before this report)
+b10f1292a1ea2d1e w00/wave4i/docs-draft-v10.md
+2837a8e79add335d w00/leftovers-2026-10-16.md
+50c6c177a21f2ee9 w00/wave4i/followup4-pr-body-draft.md
+d6405a63fc0fa149 w4h-36/tasks-lessons-block.md
+cad0ac6d848f6756 w4h-36/tasks-todo-landing-block.md
+316c8349aaa641e2 w4h-36/tasks-todo-wsync-block.md
+5584faf6c0d3fb93 w4h-36/tasks-todo-leftover-block.md
+88217c3545d0a26e w4h-36/tasks-lessons-block-2.md
+e91e4ac1b725097d w4h-36/tasks-todo-leftover-block-2.md
+798c09260467ea29 w4h-36/tasks-todo-correction-block.md
+1d1a6a4573ccc3ff w4h-36/extract-blocks.py
+7fbd551da17a310a w4h-36/final/contracts-edit.py
+dfbe2081a2b0782a w4h-36/final/range-diff-3.txt
+c2ea6c7b2d36332c w4h-36/final/range-pairs.txt
+334d1c7e127aa9ec w00/wave4i/followup5-pr-body-draft.md
+fe743741e2c7ca07 w4h-36/tasks-landing-w4h-33.staged.md
+What they are:
+- docs-draft-v10.md: the docs line v10. Part 1 (sections 1, 2, 3) is on integ: ff8331a70 (the W4H-31 part) and 99b9c9630
+  (the W4H-28 landing record). Part 2 (sections 1b, 3b) and section 4 (one correction of landed text: "Addenda A to AN"
+  becomes "A to BE") land with the next push. 52 lessons and rules in the round plus one line of recurrences.
+- leftovers-2026-10-16.md: the dated leftovers ledger; it replaces leftovers-2026-10-13.md as the current list (that file is
+  unchanged). All 75 earlier item numbers are accounted for.
+- tasks-*-block.md: byte copies of the v10 sections, written by extract-blocks.py. The part-1 blocks equal integ's text;
+  tasks-lessons-block-2.md (16 bullets), tasks-todo-leftover-block-2.md (8 bullets) and tasks-todo-correction-block.md
+  (1 correction) are for the next push. extract-blocks.py checks at the integ head that part 1 is present, part 2 absent,
+  and each correction's OLD text present once and its NEW text absent; at c8ae394ca: pass, exit 0.
+- final/contracts-edit.py: the script that made 7cac5837c's edit, trialled on the merged tree before the commit.
+- followup4-pr-body-draft.md: the body applied to PR 341 with the W4H-28 push (live body 68bfbd174fbeee23); the draft
+  carries the later "Addenda A to BE" correction.
+- Drafts for the next push: followup5-pr-body-draft.md (adds W4H-33 and W4H-36; placeholders <PENDING-HOLD>,
+  <HOSTED-COMPARISON>, <HOSTED-COMPARISON-2>) and tasks-landing-w4h-33.staged.md (the W4H-33 landing record; placeholders
+  <W4H-33-VERDICT>, <W4H-33-MERGE> (expected 15d71f83b), <W4H-33-RECEIPTS>).
+
+== Checks (run at the freeze)
+- identity-check.sh commits c8ae394ca..7cac5837c: 4 commits, clean.
+- identity-check.sh files on the 16 listed files and the contracts file: 17 files, clean (no personal address).
+- Secret sweep (JWT-like, Bearer, sk-, gh*_, URL passwords, long key=value) on the same files: 0 hits.
+- Mirror: /home/dev/work/EZCorp/factory-evidence-mirror/w4h-36/ holds a cp -p copy of every listed file; every sha matches
+  at the mirror (0 drift).
+- No docs check script and no markdown lint exist in the repository; validator-8's reads replace that leg.
