@@ -1385,11 +1385,16 @@ jobs:
           cp browser-route-coverage-artifact/lcov.info coverage-artifacts/lcov_browser_routes.info
       - name: Require V8 coverage for every executable shared web source
         run: bun scripts/check-web-vitest-coverage.ts coverage-artifacts/lcov_web_vitest_*.info
-      - name: Merge lcov + enforce thresholds
+      # The merge has its own step, so its outcome says whether coverage/lcov.info exists: the report
+      # producers below run on it even when a sibling gate failed (W4H-28, ci 38887660827: a failed floor
+      # skipped the CRAP gate and the summary found no crap.json).
+      - name: Merge lcov
+        id: merge-lcov
         run: |
           mkdir -p coverage
           bun scripts/merge-lcov.ts "coverage-artifacts/*.info" coverage/lcov.info
-          bun scripts/check-coverage.ts
+      - name: Enforce per-file thresholds
+        run: bun scripts/check-coverage.ts
       - name: New-file coverage gate
         env:
           BASE_REF: origin/main
@@ -1402,10 +1407,12 @@ jobs:
       # They live in THIS job because it is the one place the merged
       # coverage/lcov.info exists. Both read that artifact and re-run nothing.
       - name: Global coverage floor
+        if: always() && steps.merge-lcov.outcome == 'success'
         run: bun scripts/check-global-coverage.ts
       # Scored against the functions this PR TOUCHED, not the whole tree — the
       # full-repo CRAP ratchet is the main-push-only step right below.
       - name: CRAP gate (touched functions)
+        if: always() && steps.merge-lcov.outcome == 'success'
         env:
           BASE_REF: origin/main
         run: bun scripts/crap-score.ts --changed
@@ -1418,7 +1425,7 @@ jobs:
       # The violation count may fall, never rise — crap.maxFullRepoViolations
       # in scripts/quality-gates.json.
       - name: CRAP ratchet (full repo, main only)
-        if: github.event_name == 'push'
+        if: always() && steps.merge-lcov.outcome == 'success' && github.event_name == 'push'
         run: bun scripts/crap-score.ts
       # Runs even when a gate above FAILED — that is when the summary is most
       # useful. But it must not run when the job never got a bun: the
