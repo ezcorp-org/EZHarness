@@ -80,6 +80,18 @@ describe("merge-lcov: no path outside the repository root", () => {
     expect(paths.sort()).toEqual([bundle, SOURCE].sort());
   });
 
+  test("a declared --source-root matches only paths under it as a folder, never a sibling that shares its name as a prefix", async () => {
+    const { dir, bundle } = sandbox("prefix");
+    // <dir>/credential-store-bundle-x is declared; <dir>/credential-store-bundle-xy is a sibling whose name starts with it.
+    mkdirSync(join(dir, "credential-store-bundle-xy"), { recursive: true });
+    const sibling = join(dir, "credential-store-bundle-xy", "bundled-oauth-entry.js");
+    writeFileSync(sibling, "export const d = 4;\n");
+    writeFileSync(join(dir, "in", "a.info"), record(bundle) + record(sibling) + record(SOURCE));
+    const { code, paths } = await merge(dir, "--source-root", join(dir, "credential-store-bundle-x"));
+    expect(code).toBe(0);
+    expect(paths.sort()).toEqual([bundle, SOURCE].sort());
+  });
+
   test("--source-root without a folder is refused with the usage line, and writes nothing", async () => {
     const { dir, bundle } = sandbox("refused");
     writeFileSync(join(dir, "in", "a.info"), record(bundle) + record(SOURCE));
