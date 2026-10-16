@@ -61,7 +61,7 @@ export async function forceAttempt(database: TransactionalDb, now: number, runId
   const attemptId = options.attemptId ?? randomUUID();
   const terminal = options.terminalStatus === undefined ? null : JSON.stringify({ status: options.terminalStatus });
   await unguarded(database, (execute) => execute(sql`INSERT INTO factory_attempt_launches (attempt_id,tenant_id,project_id,run_id,request_digest,request_json,reservation_id,grant_revision,allocation_generation,holder_generation,allocation_token,host_id,package_receipt_digest,package_receipt_json,artifact_digest,worker_id,invocation_id,state,terminal_result_json,terminal_result_digest,created_at,updated_at)
-    VALUES (${attemptId},${METRIC_TENANT},${METRIC_PROJECT},${runId},${HEX},'{}'::jsonb,${randomUUID()},1,1,1,'token','host-1',${DIGEST},'{}'::jsonb,${HEX},${randomUUID()},${randomUUID()},${state},${terminal}::jsonb,${terminal === null ? null : DIGEST},${at(now, options.ageMs ?? 0)},${at(now, options.ageMs ?? 0)})`).then(() => undefined));
+    VALUES (${attemptId},${METRIC_TENANT},${METRIC_PROJECT},${runId},${HEX},'{}'::jsonb,${randomUUID()},1,1,1,'token','host-1',${DIGEST},'{}'::jsonb,${HEX},${randomUUID()},${randomUUID()},${state},${terminal}::text::jsonb,${terminal === null ? null : DIGEST},${at(now, options.ageMs ?? 0)},${at(now, options.ageMs ?? 0)})`).then(() => undefined));
   return attemptId;
 }
 

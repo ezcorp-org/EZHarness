@@ -88,7 +88,7 @@ export async function collectFactoryInstallationMetrics(sources: FactoryInstalla
     // Per runner digest, its three most recent finished validator attempts, all failed or uncertain.
     { name: "factory_validator_digests_erroring", value: await count(sql`SELECT count(*) AS value FROM (
         SELECT runner_digest FROM (
-          SELECT a.runner_digest, (l.state='uncertain' OR l.terminal_result_json->>'status' IN ('failed','uncertain')) AS errored,
+          SELECT a.runner_digest, COALESCE(l.state='uncertain' OR l.terminal_result_json->>'status' IN ('failed','uncertain'), false) AS errored,
             row_number() OVER (PARTITION BY a.runner_digest ORDER BY l.updated_at DESC, l.attempt_id DESC) AS position
           FROM factory_validator_assignments a JOIN factory_attempt_launches l ON l.tenant_id=a.tenant_id AND l.attempt_id=a.validator_attempt_id
           WHERE a.tenant_id=${tenantId} AND l.state IN ('terminal','uncertain') AND l.updated_at >= ${at} - interval '7 days'
