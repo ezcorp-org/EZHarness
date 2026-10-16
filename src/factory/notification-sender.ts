@@ -50,7 +50,7 @@ export const FACTORY_NOTIFICATION_SEND_BOUNDS = Object.freeze({
 /** C11 N6, by the settlement each code leads to. */
 export const FACTORY_NOTIFICATION_SEND_CODES = Object.freeze({
   retry: Object.freeze(["webhook_unreachable", "webhook_timeout", "webhook_status_429", "webhook_status_5xx"] as const),
-  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted", "notification_payload_invalid", "notification_send_corrupt"] as const),
+  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted", "notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt", "notification_send_corrupt"] as const),
   cancelled: Object.freeze(["notification_expired", "destination_removed"] as const),
 });
 
@@ -204,7 +204,7 @@ export function factoryNotificationPayload(
   };
   // Identifiers of up to 512 characters each can, escaped, pass 4 KiB together; such a
   // notification is refused rather than truncated, and the fan-out records the refusal.
-  if (Buffer.byteLength(canonicalJson(payload)) > FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes) throw new FactoryNotificationSendError("notification_payload_invalid", true);
+  if (Buffer.byteLength(canonicalJson(payload)) > FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes) throw new FactoryNotificationSendError("notification_payload_too_large", true);
   return { payload, expiresAt };
 }
 
@@ -429,10 +429,11 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
         } catch (error) {
           const code = (error as { code?: unknown }).code;
           if (!(error instanceof FactoryNotificationSendError) && code !== "factory_notification_corrupt") throw error;
-          // One code for both: the payload cannot be built, or the stored notification no longer decodes (N6).
+          // One code per cause (N6): the payload's own code, or the stored notification no longer decodes.
           // Recorded once, in dead letter, so one unsendable notification never
           // occupies the fan-out's batch again and the ones behind it still go.
-          await this.enqueue(keys, destination, refusedPayload(keys, destination), keys.createdAt, "notification_payload_invalid");
+          const refusal = error instanceof FactoryNotificationSendError ? error.code : "factory_notification_corrupt";
+          await this.enqueue(keys, destination, refusedPayload(keys, destination), keys.createdAt, refusal);
           added = true;
           continue;
         }

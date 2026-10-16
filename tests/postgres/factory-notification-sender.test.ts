@@ -144,8 +144,8 @@ describe("fan-out (C11 N1)", () => {
     const found = rows<{ notification_id: string; state: string; failure_code: string | null }>(await fixture.db.execute(sql`SELECT notification_id,state,failure_code FROM factory_notification_sends ORDER BY state`));
     const byJson = (left: unknown, right: unknown) => JSON.stringify(left).localeCompare(JSON.stringify(right));
     expect([...found].sort(byJson)).toEqual([
-      { notification_id: corrupt, state: "dead_letter", failure_code: "notification_payload_invalid" },
-      { notification_id: refused, state: "dead_letter", failure_code: "notification_payload_invalid" },
+      { notification_id: corrupt, state: "dead_letter", failure_code: "factory_notification_corrupt" },
+      { notification_id: refused, state: "dead_letter", failure_code: "notification_payload_too_large" },
       { notification_id: sendable, state: "queued", failure_code: null },
     ].sort(byJson));
     expect(await one.fanOut(never)).toBe(false);

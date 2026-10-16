@@ -93,7 +93,7 @@ describe("the notification payload (C11 N4, N9)", () => {
     }
     const quotes = '"'.repeat(512);
     const huge = notification({ kind: "approval_requested", projectId: quotes, operationId: quotes, payload: { approvalId: quotes } });
-    expect(() => factoryNotificationPayload(huge, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_invalid", deadLetter: true }));
+    expect(() => factoryNotificationPayload(huge, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_too_large", deadLetter: true }));
   });
 
   test("the idempotency key is stable per notification and destination, and differs across them", () => {
@@ -135,9 +135,17 @@ describe("the settlement of a webhook answer (C11 N6)", () => {
       const error = classifyFactoryWebhookStatus(status);
       if (error) expect(declared.has(error.code)).toBe(true);
     }
-    for (const code of ["attempts_exhausted", "notification_payload_invalid", "notification_send_corrupt"]) expect(declared.has(code)).toBe(true);
+    for (const code of ["attempts_exhausted", "notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt", "notification_send_corrupt"]) expect(declared.has(code)).toBe(true);
     expect(new FactoryNotificationSendError("webhook_unreachable").message).not.toContain("https://");
   });
+});
+
+test("the dead-letter codes are exactly the ones the C11 N6 row names (team-lead ruling: three causes, three codes)", async () => {
+  const contract = await Bun.file(new URL("../../docs/plans/2026-09-12-composable-factory-platform-contracts.md", import.meta.url)).text();
+  const row = contract.split("\n").find((line) => line.startsWith("| N6 Settlement codes |")) ?? "";
+  const deadLetter = row.slice(row.indexOf("Dead letter:"), row.indexOf("Cancelled:"));
+  const named = [...deadLetter.matchAll(/`([a-z0-9_]+)` \(/g)].map((match) => match[1]);
+  expect(named.sort()).toEqual([...FACTORY_NOTIFICATION_SEND_CODES.deadLetter].sort());
 });
 
 describe("the HTTPS transport", () => {
