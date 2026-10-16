@@ -9,6 +9,9 @@
 # keeps the image's low ids (root, the bun user) and moves the helper's preview
 # range 90000-99000 (build/preview-spawn.c) onto the rest. Bun's report is the
 # receipt; scripts/verify-shipping-production-results.ts checks it test by test.
+# The image ships no tests: the plan's files are staged world-readable in a
+# temporary folder (a checkout made under umask 077 is unreadable to the
+# image's bun user), mounted read-only, and removed afterwards.
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -19,6 +22,10 @@ cd "$repo_root"
 
 mapfile -t files < <(bun scripts/production-proof-plan.ts bound-tests preview-isolation)
 mkdir -p "$EZ_PRODUCTION_RECEIPT_DIR"
+stage="$(mktemp -d)"
+trap 'rm -rf "$stage"' EXIT
+for file in "${files[@]}"; do install -m 0644 "$file" "$stage/"; done
+chmod 0755 "$stage"
 report="$EZ_PRODUCTION_RECEIPT_DIR/bun-report.txt"
 
 status=0
@@ -26,7 +33,7 @@ podman run --rm \
   --uidmap=0:0:56536 --uidmap=90000:56536:9001 --gidmap=0:0:56536 --gidmap=90000:56536:9001 \
   --network=none \
   --env="EZCORP_PREVIEW_ISOLATION_PROOF=1" \
-  --volume="$repo_root/src/__tests__:/app/src/__tests__:ro" \
+  --volume="$stage:/app/src/__tests__:ro" \
   --entrypoint=bun \
   "$EZ_PRODUCTION_IMAGE" test --timeout 60000 "${files[@]/#/./}" 2>&1 | tee "$report" || status=$?
 
