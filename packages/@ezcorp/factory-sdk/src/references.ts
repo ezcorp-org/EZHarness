@@ -120,16 +120,18 @@ function runner(packageName: string, exportName: string, hex: string, model?: st
  * The reference S3 immutable publication adapter: a real, built v4 package (W4H-28 P4).
  *
  * The digest is the artifact the product's isolated build produces from the committed adapter
- * source in the pinned runner image. It is locked in `src/factory/s3-release-adapter/lock.json`,
- * whose unit test recomputes the source digest and whose Podman test rebuilds the artifact, so this
- * literal cannot drift from the bytes it names. It replaced the one-hex-character placeholder no
+ * source in the pinned runner image. The artifact also embeds the provided SDK bundle (the sdk and
+ * extension-contract packages) and toolchain, so a change there moves it. It is locked in
+ * `src/factory/s3-release-adapter/lock.json`, whose unit test recomputes the source, SDK and
+ * toolchain digests and whose Podman test rebuilds the artifact; `bun scripts/relock-s3-release-adapter.ts`
+ * re-locks the file and this literal. It replaced the one-hex-character placeholder no
  * fleet could declare a release profile for (W4H-27 N3).
  */
 export const referenceS3ReleaseAdapter: RunnerReference = Object.freeze({
   package: "@ezcorp/s3-immutable-publish",
   manifestName: "s3-immutable-publish",
   version: "1.0.0",
-  digest: "sha256:a2d61ff1aa1bb56f346c8d9edd64d9af2fefe1f3586cc7fcaeba5d000ddd2a6c",
+  digest: "sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc",
   export: "publish",
 });
 
