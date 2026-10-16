@@ -1,3 +1,4 @@
+import { errorShape } from "@ezcorp/extension-contract";
 import { mkdir, mkdtemp, writeFile, readFile, rename, rm, chmod, lstat, open, type FileHandle } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { Readable, Writable } from "node:stream";
@@ -8,7 +9,7 @@ import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
 import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
-import { fetchLockedDependencies } from "./dependencies";
+import { fetchLockedDependencies, toolchainBesideDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
 import { BUN_SHIM_UNDUMPABLE, BUN_SPAWN_GUARD, BUN_SPAWN_GUARD_PATH, bunWorkerArgs } from "./spawn-guard";
 
@@ -631,7 +632,7 @@ export class PodmanRunner implements Runner {
       const sdk = this.options.sdkFiles ?? {};
       const toolchain = this.options.toolchainFiles ?? {};
       this.assertProvisionedPaths(input.files, sdk, toolchain);
-      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchain });
+      staged = await this.stage({ ...input.files, ...dependencies.text, ...sdk, ...toolchainBesideDependencies(toolchain, Object.keys(dependencies.binary)) });
       for (const [path, bytes] of Object.entries(dependencies.binary)) {
         await this.writeStaged(staged, path, bytes, dependencies.executable.includes(path));
       }
@@ -683,7 +684,12 @@ export class PodmanRunner implements Runner {
     if (this.operations.get(id)?.state !== "building") throw new RunnerError("cancelled", "Build was cancelled");
   }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
-    const files = JSON.parse(await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8"));
+    // A release built into another store (a store a previous boot removed) is named, never a raw file error (real-8).
+    const text = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8").catch((error: unknown) => {
+      if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+      throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, errorShape(error));
+    });
+    const files = JSON.parse(text);
     validateFiles(files, 160 * 1024 ** 2, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
     return files;

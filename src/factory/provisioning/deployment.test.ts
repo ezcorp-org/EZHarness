@@ -375,6 +375,24 @@ describe("every rendered startup document declares the recovery sections W15's b
   }
 });
 
+describe("the installation's model pin (W4H-28)", () => {
+  let root: string;
+  let installation: FactoryInstallationContext;
+  beforeAll(async () => {
+    root = await makeFactoryPrivateRoot();
+    installation = makeFactoryTestInstallation(root);
+    await seedInstallationFiles(installation, { mesh: true, runtimeRoot: join(root, "runtime") });
+  });
+  afterAll(async () => { await removeFactoryPrivateRoot(root); });
+  const startupOf = (bundle: FactoryInstallationBundle) => (bundle.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> }).document;
+
+  test("the deployer writes the fleet's model pin into the startup document, and writes none when the fleet declares none", async () => {
+    const pin = { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" as const };
+    expect(startupOf(await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime"), { modelProvider: pin }))).modelProvider).toEqual(pin);
+    expect(startupOf(await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")))).modelProvider).toBeUndefined();
+  });
+});
+
 describe("the startup release block (W4H-27 D3): what the deployer writes, the release reader resolves", () => {
   const ADAPTER = { package: "@ezcorp/s3-immutable-publish", manifestName: "s3-immutable-publish", version: "1.0.0", digest: `sha256:${"e".repeat(64)}`, export: "publish" };
   const PROFILE = { adapter: ADAPTER, action: "factory.release.publish", destination: FACTORY_INSTALLATION_S3_RELEASE_DESTINATION, estimatedSpendMicros: 1_000 };

@@ -1,13 +1,13 @@
-import { digestObject } from "../../extensions/v4/blobs";
 import { digestBytes } from "../../extensions/v4/digest";
 import { factoryGitCommitId, factoryGitTreeId, type FactoryGitIdentity } from "../git-objects";
 import {
   assertFactoryGitHubPublicationRequest,
   FACTORY_GITHUB_PUBLICATION_SCHEMA_VERSION,
   FactoryGitHubError,
+  factoryGitHubTitleBodyDigest,
   type FactoryGitHubPublicationPlan,
   type FactoryGitHubPublicationRequest,
-} from "../release-github";
+} from "../release-github-request";
 import { referenceCodeChangedPaths, referenceCodeFilesDigest, referenceCodeFilesToWire, type ReferenceCodeFile, type ReferenceCodeSnapshot } from "./snapshot";
 
 /**
@@ -112,6 +112,13 @@ export function referenceCodePullRequestBody(input: {
  * nothing is not a candidate, a tree that dropped the dependency lock is not complete, and a
  * generation outside the declared bound is not a candidate this contract authorized.
  */
+/** A pull request's title: the request's first sentence, bounded. A recorded input, so the commit SHA is reproducible. */
+export function referenceCodePullRequestTitle(request: string): string {
+  const first = request.trim().split(/(?<=[.!?])\s|\n/)[0] ?? "";
+  const title = first.length > 0 ? first : "Reference code candidate";
+  return title.length <= 72 ? title : `${title.slice(0, 71).trimEnd()}…`;
+}
+
 export function freezeReferenceCodeCandidate(input: ReferenceCodeFreezeInput): ReferenceCodeCandidate {
   const { snapshot } = input;
   if (input.files.length < 1) throw new ReferenceCodeFreezeError("reference_code_candidate_incomplete", "empty tree");
@@ -155,7 +162,7 @@ export function freezeReferenceCodeCandidate(input: ReferenceCodeFreezeInput): R
     committer: author,
     title: input.title,
     body,
-    titleBodyDigest: `sha256:${digestObject({ title: input.title, body })}`,
+    titleBodyDigest: factoryGitHubTitleBodyDigest(input.title, body),
     dependencyLockPath: snapshot.dependencyLockPath,
     dependencyLockDigest: `sha256:${digestBytes(lock.content)}`,
     protectedPaths: [...input.protectedPaths],

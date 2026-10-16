@@ -30,6 +30,13 @@ export type FactoryService = (typeof FACTORY_REQUIRED_SERVICES)[number];
 export const FACTORY_ORPHAN_DETECTION_BOUND_MS = 30_000;
 
 /**
+ * The most one run may spend, held as the run's root budget envelope. Every task and validator attempt
+ * holds its own bound from it while it runs, so a definition's declared task costs must fit beside what
+ * the run has already spent.
+ */
+export const FACTORY_HOST_RUN_LIMITS = Object.freeze({ maxCostMicros: "1000000", maxTokens: 1_000_000, maxComputeMs: 3_600_000 });
+
+/**
  * The reason C09 promises when the flag is off, in one place.
  *
  * The contract's spelling is dashed. The API emitted an underscored variant,

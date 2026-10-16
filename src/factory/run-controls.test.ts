@@ -34,6 +34,8 @@ function widest(definition: DraftDefinition): void {
   definition.effects = ["none", "read", "write"];
   definition.bounds = { ...definition.bounds, runDeadlineMs: RUN_DEADLINE_MS, maxExpandedNodes: 64, maxScopeDepth: 8 };
   (nodeIn(definition, "github-pr-release") as { effects: unknown }).effects = ["write"];
+  // The checks node holds the only declared demand, so one unit more on any dimension is a widening of the ceiling.
+  for (const node of definition.graph.nodes) if (node.kind === "task") delete (node as { resources?: unknown }).resources;
   (nodeIn(definition, "protected-checks") as { resources: unknown }).resources = { maxCostMicros: "500", maxTokens: 10, maxComputeMs: 20, memoryBytes: 64, resourceClass: "cpu" };
 }
 

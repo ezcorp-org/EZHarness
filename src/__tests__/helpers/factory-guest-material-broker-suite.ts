@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { sql } from "drizzle-orm";
 import { canonicalizeJson, sha256Hex, type FactoryGuestMaterialResponse, type FactoryRunnerRequest, type JsonValue } from "@ezcorp/factory-sdk";
-import { createFactoryGuestStaging, FactoryGuestMaterialError } from "@ezcorp/factory-sdk/guest-materials";
+import { createFactoryGuestStaging, factoryGuestPortAddress, FactoryGuestMaterialError, readFactoryGuestMaterial, type FactoryGuestMaterialAddress } from "@ezcorp/factory-sdk/guest-materials";
 import { factoryRunnerRequestDigest } from "@ezcorp/factory-sdk/compiler";
 import { encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { TransactionalDb } from "../../db/migrations/types";
@@ -100,13 +100,20 @@ async function setup(options: { deadlineMs?: number } = {}) {
     return { request, operationId: `${run}:node-a:0:0` };
   };
 
-  const admit = async (nodeInstanceId = "node-a", deadlineMs = options.deadlineMs ?? 600_000) => {
+  /** Another run of the same project, so a read can be refused across runs (W4H-28). */
+  const addRun = async () => {
+    const other = `broker-run-${randomUUID()}`;
+    await db.execute(sql`INSERT INTO factory_runs(tenant_id, project_id, run_id, definition_digest, interpreter_build, execution_epoch, request_digest, request_payload) VALUES (${TENANT}, ${projectId}, ${other}, ${`sha256:${"a".repeat(64)}`}, 'test', 6, 'request', '{}')`);
+    return other;
+  };
+
+  const admit = async (nodeInstanceId = "node-a", deadlineMs = options.deadlineMs ?? 600_000, run = runId) => {
     const attemptId = `broker-attempt-${randomUUID()}`;
-    const request = runnerRequest({ attemptId, projectId, runId, nodeInstanceId, deadlineAtMs: Date.now() + deadlineMs });
+    const request = runnerRequest({ attemptId, projectId, runId: run, nodeInstanceId, deadlineAtMs: Date.now() + deadlineMs });
     const authority = factoryRunnerRequestAuthority(request);
     await db.execute(sql`INSERT INTO factory_executions(attempt_id,tenant_id,project_id,run_id,node_instance_id,candidate_generation,attempt_number,grant_revision,reservation_generation,execution_epoch,cancellation_epoch,deadline_at,request_hash,request_json,status)
-      VALUES (${attemptId},${TENANT},${projectId},${runId},${nodeInstanceId},0,1,1,1,6,0,${authority.deadlineAt},${authority.requestDigest},'{}'::jsonb,'admitted')`);
-    return { request, authority, attemptId, operationId: `${runId}:${nodeInstanceId}:0:0` };
+      VALUES (${attemptId},${TENANT},${projectId},${run},${nodeInstanceId},0,1,1,1,6,0,${authority.deadlineAt},${authority.requestDigest},'{}'::jsonb,'admitted')`);
+    return { request, authority, attemptId, operationId: `${run}:${nodeInstanceId}:0:0` };
   };
 
   /** A fresh broker every time, so a "restart" is a real rebuild of every object. */
@@ -124,7 +131,7 @@ async function setup(options: { deadlineMs?: number } = {}) {
 
   const materials = (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ database: db, artifacts, blobs, journal, authority });
   const checkpoints = new FactoryWorkspaceCheckpoints({ database: db, artifacts, blobs, journal });
-  return { db, artifacts, blobs, journal, reader, projectId, runId, admit, unadmitted, broker, guest, output, materials, checkpoints };
+  return { db, artifacts, blobs, journal, reader, projectId, runId, admit, addRun, unadmitted, broker, guest, output, materials, checkpoints };
 }
 
 async function refusalOf(action: Promise<unknown>): Promise<string> {
@@ -479,6 +486,7 @@ test("a host with no material service for the attempt refuses by name", async ()
     services: {
       materials: () => { throw new Error("this host serves no attempt-scoped material service"); },
       reader: () => fixture.reader,
+      content: () => fixture.reader,
       output: fixture.output,
     },
   });
@@ -547,6 +555,92 @@ test("the request digest the journal matches on is the token-free identity", asy
   const staged = await fixture.guest(reissued, operationId).stageOutput("reissued.bin", new TextEncoder().encode("same attempt"));
   expect(staged.totalBytes).toBe(12);
   expect(staged.digest).toBe(`sha256:${sha256Hex(new TextEncoder().encode("same attempt"))}`);
+});
+
+describe("W4H-28 a guest reads its own run's materials", () => {
+  /** A guest's read client over one broker instance, as the shipped SDK drives it. */
+  const reader = (fixture: Awaited<ReturnType<typeof setup>>, request: FactoryRunnerRequest, instance = fixture.broker()) =>
+    (address: FactoryGuestMaterialAddress) => readFactoryGuestMaterial(async (payload: JsonValue) => instance.invoke(request, payload), address);
+  const pattern = (length: number) => Uint8Array.from({ length }, (_, index) => (index * 31) % 251);
+
+  test("another attempt of the run reads a sealed material by its port value, across pages", async () => {
+    const fixture = await setup();
+    const producer = await fixture.admit("snapshot-repository");
+    const bytes = pattern(70_000);
+    const staged = await fixture.guest(producer.request, producer.operationId).stageOutput("snapshot.json", bytes, "application/json");
+    const consumer = await fixture.admit("generate-private-candidate");
+    const read = await reader(fixture, consumer.request)(factoryGuestPortAddress({ digest: staged.digest, mediaType: "application/json", storage: staged.material.artifactId }));
+    expect(read.mediaType).toBe("application/json");
+    expect(sha256Hex(read.content)).toBe(sha256Hex(bytes));
+  });
+
+  test("a validator reads the candidate output it is handed by reference", async () => {
+    const fixture = await setup();
+    const producer = await fixture.admit("freeze-complete-git-tree");
+    const value = { candidate: { digest: `sha256:${"c".repeat(64)}`, mediaType: "application/json", storage: "material-x" } } as unknown as JsonValue;
+    const promoted = await fixture.guest(producer.request, producer.operationId).stageResult("result.json", value);
+    const validator = await fixture.admit("acceptance:validator");
+    const read = await reader(fixture, validator.request)({ artifactId: promoted.output.artifactId, digest: promoted.output.digest });
+    expect(new TextDecoder().decode(read.content)).toBe(canonicalizeJson(value));
+    expect(read.mediaType).toBe("application/json");
+  });
+
+  test("another run's material is refused by name, and the refusal does not say it exists", async () => {
+    const fixture = await setup();
+    const otherRun = await fixture.addRun();
+    const foreign = await fixture.admit("snapshot-repository", 600_000, otherRun);
+    const staged = await fixture.guest(foreign.request, foreign.operationId).stageOutput("snapshot.json", pattern(64), "application/json");
+    const promoted = await fixture.guest(foreign.request, foreign.operationId).stageResult("result.json", { other: true } as unknown as JsonValue);
+    const reading = await fixture.admit("generate-private-candidate");
+    const read = reader(fixture, reading.request);
+    expect(await refusalOf(read({ artifactId: staged.material.artifactId, digest: staged.digest }))).toBe("unknown_material");
+    expect(await refusalOf(read({ artifactId: promoted.output.artifactId, digest: promoted.output.digest }))).toBe("unknown_material");
+    expect(await refusalOf(read({ artifactId: "no-such-artifact", digest: staged.digest }))).toBe("unknown_material");
+    // The material's manifest handle is not content a guest may read either.
+    expect(await refusalOf(reader(fixture, foreign.request)({ artifactId: staged.material.artifactId, digest: staged.material.digest }))).toBe("digest_mismatch");
+  });
+
+  test("a read names the content it expects; other bytes are refused before any page", async () => {
+    const fixture = await setup();
+    const producer = await fixture.admit("snapshot-repository");
+    const staged = await fixture.guest(producer.request, producer.operationId).stageOutput("snapshot.json", pattern(10), "application/json");
+    const promoted = await fixture.guest(producer.request, producer.operationId).stageResult("result.json", { ok: true } as unknown as JsonValue);
+    const read = reader(fixture, (await fixture.admit("generate-private-candidate")).request);
+    expect(await refusalOf(read({ artifactId: staged.material.artifactId, digest: `sha256:${"0".repeat(64)}` }))).toBe("digest_mismatch");
+    expect(await refusalOf(read({ artifactId: promoted.output.artifactId, digest: `sha256:${"0".repeat(64)}` }))).toBe("digest_mismatch");
+    // The host refuses on its own, not only the guest client after the bytes arrived.
+    const raw = (artifactId: string) => fixture.broker().invoke(producer.request, { schemaVersion: "factory.guest-material-read.v1", artifactId, digest: `sha256:${"0".repeat(64)}`, page: 0 });
+    expect(await raw(staged.material.artifactId)).toMatchObject({ status: "refused", refusal: { code: "digest_mismatch" } });
+    expect(await raw(promoted.output.artifactId)).toMatchObject({ status: "refused", refusal: { code: "digest_mismatch" } });
+  });
+
+  test("a frame the contract refuses, a page past the end, and an expired attempt are refused by name", async () => {
+    const fixture = await setup();
+    const producer = await fixture.admit("snapshot-repository");
+    const staged = await fixture.guest(producer.request, producer.operationId).stageOutput("snapshot.json", pattern(10), "application/json");
+    const consumer = await fixture.admit("generate-private-candidate");
+    const invoke = (payload: unknown, instance = fixture.broker()) => instance.invoke(consumer.request, payload) as Promise<{ status: string; refusal?: { code: string } }>;
+    const frame = { schemaVersion: "factory.guest-material-read.v1", artifactId: staged.material.artifactId, digest: staged.digest, page: 0 };
+    expect(await invoke({ ...frame, runId: fixture.runId })).toMatchObject({ status: "refused", refusal: { code: "invalid_request" }, artifactId: frame.artifactId });
+    expect(await invoke({ ...frame, artifactId: "", digest: "x", page: -1 })).toMatchObject({ status: "refused", refusal: { code: "invalid_request" }, artifactId: "unknown", page: 0 });
+    expect(await invoke({ ...frame, page: 1 })).toMatchObject({ status: "refused", refusal: { code: "invalid_request" } });
+    expect(await invoke(frame, fixture.broker(undefined, () => Date.now() + 3_600_000))).toMatchObject({ status: "refused", refusal: { code: "deadline_expired" } });
+    expect(await invoke(frame)).toMatchObject({ status: "page", totalBytes: 10, pageCount: 1 });
+  });
+
+  test("the run reader refuses a whole above its bound, another tenant, and a store fault by name", async () => {
+    const fixture = await setup();
+    const producer = await fixture.admit("snapshot-repository");
+    const staged = await fixture.guest(producer.request, producer.operationId).stageOutput("snapshot.json", pattern(10), "application/json");
+    const promoted = await fixture.guest(producer.request, producer.operationId).stageResult("result.json", { ok: true } as unknown as JsonValue);
+    const run = { tenantId: TENANT, projectId: fixture.projectId, runId: fixture.runId };
+    await expect(fixture.reader.readInRun(run, staged.material.artifactId, staged.digest, 4)).rejects.toMatchObject({ code: "factory_material_bytes_invalid" });
+    await expect(fixture.reader.readInRun(run, promoted.output.artifactId, promoted.output.digest, 4)).rejects.toMatchObject({ code: "factory_material_bytes_invalid" });
+    await expect(fixture.reader.readInRun({ ...run, tenantId: "tenant-b" }, staged.material.artifactId, staged.digest, 1_024)).rejects.toMatchObject({ code: "factory_artifact_unavailable" });
+    const failing = createFactoryGuestMaterialBroker({ services: { ...createFactoryGuestMaterialServices({ database: fixture.db, artifacts: fixture.artifacts, blobs: fixture.blobs, journal: fixture.journal }), content: () => ({ readInRun: async () => { throw new Error("store offline"); } }) } });
+    const answer = await failing.invoke((await fixture.admit("x")).request, { schemaVersion: "factory.guest-material-read.v1", artifactId: staged.material.artifactId, digest: staged.digest, page: 0 });
+    expect(answer).toMatchObject({ status: "refused", refusal: { code: "unavailable", message: "store offline" } });
+  });
 });
 });
 }

@@ -29,7 +29,7 @@ export class RunnerClient implements Runner {
         incoming.on("end", () => {
           try {
             const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-            if (incoming.statusCode !== 200 || result.error) reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable));
+            if (incoming.statusCode !== 200 || result.error) reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable, typeof result.error?.errorClass === "string" ? { errorClass: result.error.errorClass, ...(typeof result.error.errorCode === "string" ? { errorCode: result.error.errorCode } : {}) } : undefined));
             else resolve(result);
           } catch { reject(new RunnerError("runner_protocol", "Runner returned invalid JSON")); }
         });

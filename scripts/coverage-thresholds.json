@@ -1343,5 +1343,20 @@
   "src/db/migrations/add-factory-usage-epoch-stale.ts": 100,
   "src/factory/attempt-supersessions.ts": 100,
   "src/db/migrations/add-factory-attempt-supersessions.ts": 100,
-  "scripts/lib/bundled-bootstrap-progress.ts": 100
+  "scripts/lib/bundled-bootstrap-progress.ts": 100,
+  "src/factory/reference-code/candidate-rules.ts": 100,
+  "src/factory/reference-code/guest-generate.ts": 100,
+  "src/factory/reference-code/review-rules.ts": 100,
+  "src/factory/release-github-request.ts": 100,
+  "src/factory/release-s3-accepted-publication.ts": 100,
+  "src/factory/runner/guest-repository-read.ts": 100,
+  "src/factory/s3-release-adapter/guest.ts": 100,
+  "src/factory/s3-release-adapter/package.ts": 100,
+  "src/factory/s3-release-adapter/relock.ts": 100,
+  "scripts/relock-s3-release-adapter.ts": 100,
+  "src/providers/codex-login-import.ts": 100,
+  "src/providers/error-shape.ts": 100,
+  "scripts/factory-graph-proof/codex-import-deployment.ts": 100,
+  "packages/@ezcorp/extension-contract/src/error-shape.ts": 100,
+  "scripts/factory-graph-proof/release-selection.ts": 100
 }

@@ -1,0 +1,7 @@
+{
+  "sourceDigest": "sha256:d982310251572b9b600532a38fcc169df500d4d8031e70d33301338e94368f45",
+  "sdkDigest": "sha256:f3c4fba229fcaed6c10fb60f79785e566aaae8b26923bd832d7246b8f169dc26",
+  "toolchainDigest": "sha256:6095bbe3725f4d14a676e502a3723b94e172beeb7864bbb9c773a461f2ad4969",
+  "artifactDigest": "sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc",
+  "image": "docker.io/oven/bun@sha256:9114c058aeae42162ee16dd5084b95fe9473970bb6bcb5b232ab1630f0546895"
+}

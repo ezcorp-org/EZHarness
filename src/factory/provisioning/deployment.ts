@@ -140,6 +140,11 @@ export interface FactoryDeploymentSettings {
   readonly runnerProfiles: { readonly brokerAudience: string; readonly profiles: readonly FactoryStartupRunnerProfile[] };
   /** Where this installation may release. Absent or without profiles, the startup document declares no release block. */
   readonly release?: FactoryDeploymentRelease;
+  /**
+   * The installation's pinned model (W4H-28): the one provider and model a guest's model call is served
+   * by, which a pinned runner profile must name. Absent, no profile may pin a model.
+   */
+  readonly modelProvider?: FactoryStartupConfig["modelProvider"];
   /** The fleet host's shared pool and supervisor, as every installation names them. */
   readonly host: FactoryFleetHostFacts;
   readonly interpreterCompatibility: string;
@@ -284,6 +289,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     },
     hostStopKeys: [{ hostId: host.hostId, hostKeyId: FACTORY_HOST_KEY_ID, publicKeyPath: secretPath(FACTORY_HOST_FILES.hostPublicKey) }],
     runnerProfiles: settings.runnerProfiles,
+    ...(settings.modelProvider === undefined ? {} : { modelProvider: settings.modelProvider }),
     storage: {
       ordinary: { endpoint: settings.network.ordinaryEndpoint, bucket: installation.tenantId, prefix: "ordinary", credentialSet: "ordinary", credentialsPath: secretPath("ordinary-storage.json") },
       archive: { endpoint: settings.network.archiveEndpoint, bucket: installation.tenantId, prefix: "archive", credentialSet: "archive", credentialsPath: secretPath("archive-storage.json") },

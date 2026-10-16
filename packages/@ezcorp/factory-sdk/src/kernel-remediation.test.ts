@@ -62,7 +62,7 @@ function outputFor(command: Extract<KernelCommand, { kind: "dispatch-node" }>): 
   const input = command.input as Record<string, JsonValue>;
   if (command.nodeId === "snapshot-repository") return { snapshot: artifactOf(1) };
   if (command.nodeId === "generate-private-candidate") return { candidate: artifactOf(10 + command.candidateGeneration) };
-  if (command.nodeId === "freeze-complete-git-tree") return { candidate: input.candidate! };
+  if (command.nodeId === "freeze-complete-git-tree") return { candidate: input.candidate!, frozen: input.candidate! };
   if (command.nodeId === "protected-checks") return { evidence: [artifactOf(30 + command.candidateGeneration)] };
   if (command.nodeId === "candidate") return { candidate: `candidate-${command.candidateGeneration}` };
   throw new Error(`no fixture output for ${command.nodeId}`);

@@ -11,28 +11,27 @@
  * reconfigures them.
  */
 import { resolve } from "node:path";
-import { referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { referenceCodeModelPin, referenceCodeV1, referenceImageV1, referenceModelPin } from "@ezcorp/factory-sdk";
 import { fileURLToPath } from "node:url";
-import { referenceImageV1 } from "@ezcorp/factory-sdk";
 import { FACTORY_INSTALLATION_S3_RELEASE_DESTINATION } from "../src/factory/provisioning/deployment";
 import { writeFactoryLocalFleet, type FactoryLocalFleetOptions } from "../src/factory/provisioning/fleet-cli";
 
 /**
  * The runners this local fleet declares, all in the one `cpu` class, so they share one allocation (the
  * startup parser refuses a class whose profiles disagree). The budget is sized for the reference-code
- * slugify task (W4H-26): the W09b guest the full-stack proof built and pinned, and the two
- * reference.code.v1 task runners a guest executes today, named exactly as the definition names them.
+ * slugify task: the W09b guest the full-stack proof built and pinned, and every reference.code.v1 task
+ * runner, named exactly as the definition names them (W4H-26, W4H-28). generateCandidate pins the C10
+ * model with tokens 50,000; the installation's `modelProvider` is that same pin.
  */
 const CPU_ALLOCATION = { resources: { cpu: 1 }, memoryBytes: 1_073_741_824, budget: { costMicros: "1000000", tokens: 50_000, computeMs: 600_000 } };
-/** The reference.code.v1 task runners a guest executes today (W4H-26 D7); the others wait for the later package. */
-const REFERENCE_GUEST_EXPORTS: readonly string[] = ["snapshotRepository", "freezeGitTree"];
-const referenceRunners = referenceCodeV1.graph.nodes.flatMap((node) => node.kind === "task" && REFERENCE_GUEST_EXPORTS.includes(node.runner.export) ? [{ ...node.runner }] : []);
+const referenceRunners = referenceCodeV1.graph.nodes.flatMap((node) => node.kind === "task" ? [{ ...node.runner }] : []);
+export const LOCAL_MODEL_PROVIDER = Object.freeze({ ...referenceModelPin });
 export const LOCAL_RUNNER_PROFILES: FactoryLocalFleetOptions["runnerProfiles"] = Object.freeze({
   brokerAudience: "factory-gateway",
   profiles: [
     { package: "@ezcorp/w09b-guest", manifestName: "w09b-guest", version: "1.0.0", digest: "sha256:c429b84ec4dbed709188115598db538a06f07887d9b900bd8cdc7c188c531121", export: "run" },
     ...referenceRunners,
-  ].map((runner) => ({ runner, resourceClass: "cpu", allocation: CPU_ALLOCATION, allowedCapabilities: [] })),
+  ].map((runner) => ({ runner, resourceClass: "cpu", allocation: CPU_ALLOCATION, allowedCapabilities: [], ...(runner.model === undefined ? {} : { model: referenceCodeModelPin }) })),
 });
 
 type ReleaseAdapter = NonNullable<FactoryLocalFleetOptions["release"]>["profiles"][number]["adapter"];
@@ -72,7 +71,7 @@ export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<R
   return {
     fleetId: flag("--fleet"), root: resolve(flag("--root")), image: flag("--image"), revision: flag("--revision"), portBase: Number(flag("--port-base", "31000")),
     adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR,
-    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, ...(LOCAL_RELEASE.release === undefined ? {} : { release: LOCAL_RELEASE.release }),
+    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, modelProvider: LOCAL_MODEL_PROVIDER, ...(LOCAL_RELEASE.release === undefined ? {} : { release: LOCAL_RELEASE.release }),
   };
 }
 

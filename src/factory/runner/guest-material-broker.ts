@@ -1,13 +1,20 @@
 import {
+  FACTORY_GUEST_MATERIAL_LIMITS,
+  FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION,
   isFactoryGuestMaterialFrame,
+  isFactoryGuestMaterialRead,
+  validateFactoryGuestMaterialReadRequest,
   validateFactoryGuestMaterialRequest,
   type FactoryArtifactReference,
+  type FactoryGuestMaterialRead,
+  type FactoryGuestMaterialReadRefusal,
+  type FactoryGuestMaterialReadResponse,
   type FactoryGuestMaterialRefusal,
   type FactoryGuestMaterialRequest,
   type FactoryGuestMaterialResponse,
   type FactoryRunnerRequest,
 } from "@ezcorp/factory-sdk";
-import { decodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
+import { decodeFactoryPageBase64, encodeFactoryPageBase64 } from "@ezcorp/factory-sdk/page-bytes";
 import type { MigrationDb, TransactionalDb } from "../../db/migrations/types";
 import { artifactJson, type FactoryArtifacts } from "../artifacts";
 import {
@@ -60,6 +67,8 @@ export interface FactoryGuestMaterialServices {
   reader(authority: FactoryAttemptAuthority): FactoryScopedArtifactReader;
   /** Promotes verified sealed bytes to this attempt's candidate output. */
   output(authority: FactoryAttemptAuthority, content: Uint8Array): Promise<FactoryArtifactReference>;
+  /** Reads one sealed material or candidate output of the attempt's own run (W4H-28). */
+  content(authority: FactoryAttemptAuthority): Pick<FactoryScopedMaterials, "readInRun">;
 }
 
 export interface FactoryGuestMaterialBrokerOptions {
@@ -220,6 +229,29 @@ function refused(identity: FactoryGuestMaterialFrameIdentity, code: FactoryGuest
  */
 export interface FactoryGuestMaterialFrameBroker {
   frame(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialResponse>;
+  /** One page of a read (W4H-28): the run is the verified attempt's, never the frame's. */
+  read(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialReadResponse>;
+}
+
+/** The read refusals; anything the material service raises outside them is a fault, so `unavailable`. */
+const READ_REFUSALS: ReadonlySet<FactoryGuestMaterialReadRefusal> = new Set(["unknown_attempt", "unknown_material", "digest_mismatch", "oversize"]);
+
+type FactoryGuestMaterialReadAddress = Pick<FactoryGuestMaterialRead, "artifactId" | "digest" | "page">;
+
+/** The address a read refusal echoes, clamped to shapes the response schema accepts, as {@link frameIdentity}. */
+function readAddress(payload: unknown): FactoryGuestMaterialReadAddress {
+  const value = (payload ?? {}) as Partial<FactoryGuestMaterialReadAddress>;
+  return {
+    artifactId: typeof value.artifactId === "string" && value.artifactId.length > 0 && value.artifactId.length <= 512 ? value.artifactId : "unknown",
+    digest: typeof value.digest === "string" && /^sha256:[0-9a-f]{64}$/.test(value.digest) ? value.digest : `sha256:${"0".repeat(64)}`,
+    page: Number.isSafeInteger(value.page) && (value.page as number) >= 0 && (value.page as number) < READ_MAX_PAGES ? value.page as number : 0,
+  };
+}
+
+const READ_MAX_PAGES = Math.ceil(FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes / FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes);
+
+function readRefused(address: FactoryGuestMaterialReadAddress, code: FactoryGuestMaterialReadRefusal, message: string): FactoryGuestMaterialReadResponse {
+  return Object.freeze({ schemaVersion: FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION, ...address, status: "refused", refusal: Object.freeze({ code, message }) });
 }
 
 export function createFactoryGuestMaterialFrameBroker(options: Omit<FactoryGuestMaterialBrokerOptions, "delegate">): FactoryGuestMaterialFrameBroker {
@@ -266,6 +298,28 @@ export function createFactoryGuestMaterialFrameBroker(options: Omit<FactoryGuest
   };
 
   return Object.freeze({
+    async read(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialReadResponse> {
+      const address = readAddress(payload);
+      const validation = validateFactoryGuestMaterialReadRequest(payload);
+      if (!validation.ok) return readRefused(address, "invalid_request", validation.issues[0]?.message ?? "A guest read frame is invalid.");
+      if (authority.deadlineAt.getTime() <= now()) return readRefused(address, "deadline_expired", "This attempt's deadline has passed; it may read nothing more.");
+      try {
+        // The run is the verified attempt's. The frame names no scope, so it cannot name another run's bytes.
+        const read = await options.services.content(authority).readInRun({ tenantId: authority.tenantId, projectId: authority.projectId, runId: authority.runId }, address.artifactId, address.digest, FACTORY_GUEST_MATERIAL_LIMITS.maxTotalBytes);
+        const page = FACTORY_GUEST_MATERIAL_LIMITS.maxChunkBytes;
+        const pageCount = Math.max(1, Math.ceil(read.content.byteLength / page));
+        if (address.page >= pageCount) return readRefused(address, "invalid_request", `This content has ${pageCount} page(s).`);
+        const slice = read.content.subarray(address.page * page, Math.min((address.page + 1) * page, read.content.byteLength));
+        return Object.freeze({
+          schemaVersion: FACTORY_GUEST_MATERIAL_READ_RESPONSE_SCHEMA_VERSION, ...address, status: "page",
+          mediaType: read.mediaType, totalBytes: read.content.byteLength, pageCount, encodedBytes: slice.byteLength, contentBase64: encodeFactoryPageBase64(slice),
+        });
+      } catch (error) {
+        const code = factoryGuestMaterialRefusal(error) as FactoryGuestMaterialReadRefusal;
+        return readRefused(address, READ_REFUSALS.has(code) ? code : "unavailable", detail(error, "The material service refused this read."));
+      }
+    },
+
     async frame(authority: FactoryAttemptAuthority, payload: unknown): Promise<FactoryGuestMaterialResponse> {
       const validation = validateFactoryGuestMaterialRequest(payload);
       if (!validation.ok) {
@@ -299,6 +353,7 @@ export function createFactoryGuestMaterialBroker(options: FactoryGuestMaterialBr
   return Object.freeze({
     async invoke(request: FactoryRunnerRequest, payload: unknown): Promise<unknown> {
       if (isFactoryGuestMaterialFrame(payload)) return frames.frame(factoryRunnerRequestAuthority(request), payload);
+      if (isFactoryGuestMaterialRead(payload)) return frames.read(factoryRunnerRequestAuthority(request), payload);
       if (options.delegate) return options.delegate.invoke(request, payload);
       throw new FactoryGuestFrameError("frame_invalid", "Factory guest reverse payload is not a staging frame and this broker has no other route.");
     },
@@ -360,6 +415,7 @@ export function createFactoryGuestMaterialServices(options: FactoryMaterialStore
   return Object.freeze({
     materials: (authority: FactoryAttemptAuthority) => new FactoryAttemptMaterials({ ...options, authority }),
     reader: () => reader,
+    content: () => reader,
     output: createFactoryCandidateOutputWriter(options),
   });
 }

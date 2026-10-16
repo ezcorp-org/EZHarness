@@ -1,3 +1,4 @@
+import { errorShape } from "@ezcorp/extension-contract";
 import { chmod, lstat, mkdir, mkdtemp, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID, timingSafeEqual } from "node:crypto";
@@ -12,7 +13,19 @@ type Event = { id?: string; method: string; params: unknown };
  */
 type RunnerRequestBody = ReturnType<typeof JSON.parse>;
 interface Session { execution: RunnerExecution; events: Event[]; pending: Map<string, { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }>; timer: ReturnType<typeof setTimeout>; wake?: () => void; attached: boolean; startClaim?: boolean; delivered: Set<string>; lease?: ReturnType<typeof setTimeout>; leaseDeadline: number; inFlight: number }
-export interface RunnerServiceOptions { socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number }
+export interface RunnerServiceOptions {
+  socketPath: string; token: string; runner: Runner; allowedUid: number; python?: string; eventPollTimeoutMs?: number; attachmentLeaseMs?: number;
+  /** Where an error that is not a RunnerError is reported; the client only ever sees the generic refusal. Default: one JSON line on stderr. */
+  onUnclassifiedError?: (error: unknown) => void;
+}
+
+/** The runner's own record of an unclassified error: its class, code and message (bounded), so the cause is never lost. */
+function reportUnclassifiedError(error: unknown): void {
+  console.error(JSON.stringify({
+    level: "error", msg: "runner request failed with an unclassified error", ...errorShape(error),
+    message: (error instanceof Error ? error.message : String(error)).slice(0, 500),
+  }));
+}
 export interface RunnerService {
   close(): Promise<void>;
   /** Worker IDs whose event stream a host holds right now. Observation only; no endpoint exposes it. */
@@ -53,9 +66,11 @@ async function readRequestBody(request: Request): Promise<RunnerRequestBody> {
     if (bytes > MAXIMUM_REQUEST_BYTES) { await reader.cancel(); throw new RunnerError("request_limit", "Runner request exceeds policy"); }
     chunks.push(chunk.value);
   }
-  const data = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+  // A body that is not JSON is the caller's error (400), never the runner's (500).
+  let data: unknown;
+  try { data = JSON.parse(Buffer.concat(chunks).toString("utf8")); } catch { throw new RunnerError("invalid_request", "Expected a JSON object body"); }
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new RunnerError("invalid_request", "Expected object");
-  return data;
+  return data as RunnerRequestBody;
 }
 
 /** One bounded JSON answer. */
@@ -302,7 +317,13 @@ export async function startRunnerService(options: RunnerServiceOptions): Promise
       // Bun's unix listener takes no idle timeout. The slow-client bound stays
       // where the untrusted peer connects: peer-gateway.py times out every
       // relay read at 360 s and admits at most 32 connections.
-      fetch: request => handle(request).catch(error => respond(400, { error: (error instanceof RunnerError ? error : new RunnerError("invalid_request", "Runner request was invalid")).diagnostic() })),
+      // A RunnerError is the runner's own refusal: 400 with its text. Anything else is the runner's fault, never the
+      // caller's: 500 runner_internal_error with the cause's class and code, and the runner's own log keeps the message.
+      fetch: request => handle(request).catch(error => {
+        if (error instanceof RunnerError) return respond(400, { error: { ...error.diagnostic(), ...error.detail } });
+        (options.onUnclassifiedError ?? reportUnclassifiedError)(error);
+        return respond(500, { error: { ...new RunnerError("runner_internal_error", "Runner failed with an internal error").diagnostic(), ...errorShape(error) } });
+      }),
     });
     await chmod(privatePath, 0o600);
     const gateway = processSpawn(options.python ?? "python3", [new URL("./peer-gateway.py", import.meta.url).pathname, options.socketPath, privatePath, String(options.allowedUid)]);

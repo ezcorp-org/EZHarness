@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { writeFile, chmod, mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-import { referenceCodeV1 } from "@ezcorp/factory-sdk";
+import { referenceCodeModelPin, referenceCodeV1 } from "@ezcorp/factory-sdk";
 import { digestObject } from "../extensions/v4/blobs";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 import {
@@ -359,9 +359,9 @@ describe("the runner profiles this installation dispatches to", () => {
     expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles: [profile, other] } })).runnerProfiles?.profiles).toHaveLength(2);
   });
 
-  test("accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26)", () => {
+  test("accepts reference.code.v1's unpinned task runners, which carry a configuration digest and no model (W4H-26, W4H-28)", () => {
     const unpinned = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && node.runner.model === undefined ? [node.runner] : []);
-    expect(unpinned.map(runner => runner.export)).toEqual(["snapshotRepository", "freezeGitTree"]);
+    expect(unpinned.map(runner => runner.export)).toEqual(["snapshotRepository", "freezeGitTree", "protectedChecks"]);
     const profiles = unpinned.map(runner => ({ ...profile, runner }));
     expect(parseFactoryStartupConfig(valid({ runnerProfiles: { ...section, profiles } })).runnerProfiles?.profiles.map(entry => entry.runner)).toEqual(unpinned);
   });
@@ -369,6 +369,25 @@ describe("the runner profiles this installation dispatches to", () => {
   test("refuses an unpinned runner whose configuration digest is not a sha256", () => {
     const broken = { ...profile, runner: { ...profile.runner, configurationDigest: "not-a-digest" } };
     expect(reject(valid({ runnerProfiles: { ...section, profiles: [broken] } })).invalid).toContain("runnerProfiles.profiles[0]");
+  });
+});
+
+describe("the repository sources a guest may read (W4H-28)", () => {
+  const source = { name: "launch", url: "https://github.com/ezcorp-org/factory-platform-publication-tests.git", tokenPath: "/run/secrets/github.token" };
+  const repositories = { cachePath: "/var/lib/ezcorp/repository-cache", sources: [source, { name: "local", url: "file:///srv/repositories/launch.git" }] };
+
+  test("accepts declared sources, by handle, URL and token reference, and keeps them", () => {
+    expect(parseFactoryStartupConfig(valid({ repositories })).repositories).toEqual(repositories);
+    expect(parseFactoryStartupConfig(valid()).repositories).toBeUndefined();
+  });
+
+  test("refuses a section without its cache, an empty or duplicate list, and each malformed source by index", () => {
+    expect(reject(valid({ repositories: { sources: [source] } })).missing).toContain("repositories.cachePath");
+    expect(reject(valid({ repositories: { ...repositories, sources: [] } })).invalid).toContain("repositories.sources");
+    expect(reject(valid({ repositories: { ...repositories, sources: [source, source] } })).invalid).toContain("repositories.sources");
+    for (const broken of [{ ...source, url: "http://example.com/plain.git" }, { ...source, url: "https://user:secret@example.com/r.git" }, { ...source, url: "file://relative/path" }, { ...source, name: "" }, { ...source, extra: 1 }, { ...source, tokenPath: 7 }, "launch"]) {
+      expect(reject(valid({ repositories: { ...repositories, sources: [broken] } })).invalid).toContain("repositories.sources[0]");
+    }
   });
 });
 
@@ -390,6 +409,13 @@ describe("a runner profile that pins a model", () => {
   /** `null` declares no installation pin at all. */
   const pinned = (profiles: unknown[], modelProvider: unknown = { provider: pin.provider, model: pin.model }) =>
     valid({ runnerProfiles: { brokerAudience: "factory-gateway", profiles }, ...(modelProvider === null ? {} : { modelProvider }) });
+
+  test("accepts reference.code.v1's generateCandidate pinned to the C10 model, whose digest is now a real configuration's (W4H-28)", () => {
+    const generate = referenceCodeV1.graph.nodes.flatMap(node => node.kind === "task" && node.runner.export === "generateCandidate" ? [node.runner] : [])[0]!;
+    const generateProfile = { ...profile, runner: generate, allocation: { ...profile.allocation, budget: { ...profile.allocation.budget, tokens: 50_000 } }, model: referenceCodeModelPin };
+    const parsed = parseFactoryStartupConfig(pinned([generateProfile], { provider: referenceCodeModelPin.provider, model: referenceCodeModelPin.model }));
+    expect(parsed.runnerProfiles?.profiles[0]?.model).toEqual(referenceCodeModelPin);
+  });
 
   test("accepts a pin that matches its runner and names the installation's provider, and keeps it", () => {
     expect(parseFactoryStartupConfig(pinned([profile])).runnerProfiles?.profiles[0]?.model).toEqual(pin);

@@ -58,6 +58,11 @@ export function stageFactoryGuestSource(
   return staged;
 }
 
+/** Where a repository keeps the factory SDK's sources: the one directory the closure stages SDK modules from. */
+export function factorySdkSourceDirectory(repositoryRoot: string): string {
+  return join(repositoryRoot, "packages/@ezcorp/factory-sdk/src");
+}
+
 /** The exact files one guest package is built from: its staged sources, the SDK closure, and its generated files. */
 export async function stageFactoryGuestPackage(
   repositoryRoot: string,
@@ -69,7 +74,7 @@ export async function stageFactoryGuestPackage(
     files[name] = stageFactoryGuestSource(name, await readFile(join(repositoryRoot, path), "utf8"), layout, fail);
   }
   Object.assign(files, layout.generated ?? {});
-  return { ...await factorySdkClosure(join(repositoryRoot, "packages/@ezcorp/factory-sdk/src"), files), ...files };
+  return { ...await factorySdkClosure(factorySdkSourceDirectory(repositoryRoot), files), ...files };
 }
 
 /** What one successful guest build produced, as a release record names it. */

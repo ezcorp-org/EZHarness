@@ -1,0 +1,102 @@
+{
+  "$id": "urn:ezcorp:factory:guest-repository-read-response:v1",
+  "$ref": "#/definitions/FactoryGuestRepositoryReadResponse",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "FactoryGuestRepositoryReadRefusal": {
+      "enum": [
+        "invalid_request",
+        "repository_source_unknown",
+        "repository_commit_unknown",
+        "repository_unavailable",
+        "repository_too_large",
+        "deadline_expired",
+        "unavailable"
+      ],
+      "type": "string"
+    },
+    "FactoryGuestRepositoryReadResponse": {
+      "anyOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "material": {
+              "additionalProperties": false,
+              "description": "The sealed tree: its material id and the digest of its content.",
+              "properties": {
+                "artifactId": {
+                  "type": "string"
+                },
+                "digest": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "artifactId",
+                "digest"
+              ],
+              "type": "object"
+            },
+            "operationId": {
+              "type": "string"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-repository-read-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "read",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "status",
+            "operationId",
+            "material"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "operationId": {
+              "type": "string"
+            },
+            "refusal": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "$ref": "#/definitions/FactoryGuestRepositoryReadRefusal"
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "schemaVersion": {
+              "const": "factory.guest-repository-read-response.v1",
+              "type": "string"
+            },
+            "status": {
+              "const": "refused",
+              "type": "string"
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "status",
+            "operationId",
+            "refusal"
+          ],
+          "type": "object"
+        }
+      ]
+    }
+  }
+}

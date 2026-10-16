@@ -162,3 +162,74 @@ test("capabilities: a runner advertises process-spawn enforcement, and a runner 
     await expect(new RunnerClient({ socketPath: join(directory, "absent.sock"), token }).capabilities()).rejects.toThrow();
   } finally { await old.stop(true); await rm(directory, { recursive: true, force: true }); }
 });
+
+test("an unclassified error answers 500 runner_internal_error with its class and code, is reported once, and is never retried", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-unclassified-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const missing = Object.assign(new Error("ENOENT: no such file or directory, open '/store/artifacts/x'"), { code: "ENOENT" });
+  let calls = 0;
+  const runner = { inspect: async () => { calls += 1; throw missing; } } as unknown as Runner;
+  const reported: unknown[] = [];
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!(), onUnclassifiedError: error => { reported.push(error); } });
+  try {
+    const raw = await fetch("http://runner/v4/inspect", { unix: socketPath, method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ id: "worker" }) });
+    expect(raw.status).toBe(500);
+    expect(await raw.json()).toEqual({ error: { code: "runner_internal_error", stage: "runner", message: "Runner failed with an internal error", retryable: false, errorClass: "Error", errorCode: "ENOENT" } });
+    const error = await new RunnerClient({ socketPath, token }).inspect("worker").then(() => undefined, (e: unknown) => e);
+    expect(error).toMatchObject({ code: "runner_internal_error", detail: { errorClass: "Error", errorCode: "ENOENT" } });
+    expect(String((error as Error).message)).not.toContain("/store");
+    expect(calls).toBe(2);
+    expect(reported).toEqual([missing, missing]);
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});
+
+test("a genuine validation refusal keeps HTTP 400 and its own text", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-validation-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const runner = { inspect: async () => ({ id: "w", state: "running", diagnostics: [] }) } as unknown as Runner;
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+  try {
+    const raw = await fetch("http://runner/v4/inspect", { unix: socketPath, method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: "[]" });
+    expect(raw.status).toBe(400);
+    expect(((await raw.json()) as { error: unknown }).error).toMatchObject({ code: "invalid_request" });
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});
+
+test("by default an unclassified error goes to the runner's stderr as one JSON line with its class, code and bounded message", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-unclassified-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  let thrown: unknown = Object.assign(new TypeError("x".repeat(600)), { code: "E_FIXTURE" });
+  const runner = { inspect: async () => { throw thrown; } } as unknown as Runner;
+  const lines: string[] = [];
+  const original = console.error;
+  console.error = (line: unknown) => { lines.push(String(line)); };
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+  try {
+    await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toMatchObject({ code: "runner_internal_error", detail: { errorClass: "TypeError", errorCode: "E_FIXTURE" } });
+    const line = JSON.parse(lines.at(-1)!);
+    expect(line).toMatchObject({ level: "error", msg: "runner request failed with an unclassified error", errorClass: "TypeError", errorCode: "E_FIXTURE" });
+    expect(line.message).toHaveLength(500);
+    thrown = "not an error";
+    await expect(new RunnerClient({ socketPath, token }).inspect("worker")).rejects.toMatchObject({ code: "runner_internal_error", detail: { errorClass: "string" } });
+    expect(JSON.parse(lines.at(-1)!)).toEqual({ level: "error", msg: "runner request failed with an unclassified error", errorClass: "string", message: "not an error" });
+  } finally { console.error = original; await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});
+
+test("a 500 on a non-idempotent start reaches the runner exactly once: the client never retries it", async () => {
+  const temporaryRoot = await mkdtemp("/tmp/ez-runner-start-once-");
+  const socketPath = join(temporaryRoot, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  let starts = 0;
+  const runner = { start: async () => { starts += 1; throw Object.assign(new Error("state file vanished"), { code: "ENOENT" }); } } as unknown as Runner;
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!(), onUnclassifiedError: () => {} });
+  try {
+    const context = { workerId: "worker", invocationId: "invocation", releaseId: "release", principalId: "user", scopeId: "scope", token: "capability", deadline: Date.now() + 30_000 };
+    await expect(new RunnerClient({ socketPath, token }).start({ workerId: "worker", artifactDigest: "a".repeat(64), context, limits: executionLimits }, async () => null))
+      .rejects.toMatchObject({ code: "runner_internal_error", detail: { errorClass: "Error", errorCode: "ENOENT" } });
+    await Bun.sleep(200);
+    expect(starts).toBe(1);
+  } finally { await server.close(); await rm(temporaryRoot, { recursive: true, force: true }); }
+});

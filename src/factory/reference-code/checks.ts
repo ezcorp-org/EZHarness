@@ -1,3 +1,4 @@
+import { join } from "node:path";
 import {
   FACTORY_VALIDATOR_CLAIMS_SCHEMA_VERSION,
   type FactoryValidatorClaimOutcome,
@@ -60,6 +61,11 @@ export interface ReferenceCodeChecksInput {
   readonly runner?: ReferenceCodeCommandRunner;
   readonly now?: () => number;
   readonly workspacePrefix?: string;
+  /**
+   * The pinned toolchain a sandboxed validator links instead of installing from a registry
+   * (W4H-28). With it the frozen install runs `--offline` against exactly that set.
+   */
+  readonly toolchain?: string;
 }
 
 export interface ReferenceCodeChecksReport {
@@ -101,7 +107,6 @@ function unmeasured(ids: readonly ReferenceCodeClaimId[], reason: string, measur
 export async function referenceCodeProtectedChecks(input: ReferenceCodeChecksInput): Promise<ReferenceCodeChecksReport> {
   const now = input.now ?? Date.now;
   const advisories = input.advisories ?? REFERENCE_CODE_ADVISORY_SNAPSHOT;
-  const runner = input.runner ?? new ReferenceCodeProcessRunner();
   const measuredAtMs = now();
   const statics = referenceCodeStaticClaims({
     changedPaths: input.candidate.changedPaths,
@@ -125,6 +130,7 @@ export async function referenceCodeProtectedChecks(input: ReferenceCodeChecksInp
       expectedDigest: input.candidate.filesDigest,
       protectedPaths: input.protectedPaths,
       prefix: input.workspacePrefix,
+      ...(input.toolchain === undefined ? {} : { toolchain: input.toolchain }),
     });
   } catch (error) {
     if (!(error instanceof ReferenceCodeWorkspaceError)) throw error;
@@ -143,7 +149,10 @@ export async function referenceCodeProtectedChecks(input: ReferenceCodeChecksInp
   try {
     verifiedWorkspaceDigest = workspace.verifiedDigest;
     const cwd = workspace.root;
-    const install = await runner.run(["bun", "install", "--frozen-lockfile", "--no-progress"], { cwd, timeoutMs: REFERENCE_CODE_CHECK_TIMEOUTS.install });
+    // With a pinned toolchain the install cache is an empty directory of this copy, so an offline
+    // frozen install can succeed only from the linked set, never from a cache the host happens to hold.
+    const runner = input.runner ?? new ReferenceCodeProcessRunner(input.toolchain === undefined ? {} : { BUN_INSTALL_CACHE_DIR: join(cwd, ".offline-install-cache") });
+    const install = await runner.run(["bun", "install", "--frozen-lockfile", "--no-progress", ...(input.toolchain === undefined ? [] : ["--offline"])], { cwd, timeoutMs: REFERENCE_CODE_CHECK_TIMEOUTS.install });
     commands.push(install);
     const installClaim = commandOutcome("frozen-install", install, now());
     if (installClaim.verdict !== "PASS") {

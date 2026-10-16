@@ -4,7 +4,11 @@ import type { Diagnostic, ResourceLimits, WorkspaceFiles } from "@ezcorp/extensi
 import { canonicalJson, workspaceFileByteLength, workspaceText } from "@ezcorp/extension-contract";
 
 export class RunnerError extends Error {
-  constructor(public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false) {
+  constructor(
+    public readonly code: string, message: string, public readonly stage = "runner", public readonly retryable = false,
+    /** For an internal error: the cause's class and code (never its message), e.g. {errorClass: "Error", errorCode: "ENOENT"}. */
+    public readonly detail?: Readonly<{ errorClass: string; errorCode?: string }>,
+  ) {
     super(message);
     this.name = "RunnerError";
   }

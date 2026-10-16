@@ -29,6 +29,12 @@ export interface GatewayTransport {
   request(method: "GET" | "POST" | "PUT", path: string, body?: unknown, responseLimit?: number, signal?: AbortSignal): Promise<GatewayResponse>;
 }
 
+/**
+ * The most one call may ask to receive (W4H-28). A caller still names its own limit; this is the
+ * ceiling for the one reply that carries a built package's artifacts (64 MiB, the host preparation bound).
+ */
+export const GATEWAY_MAX_RESPONSE_LIMIT_BYTES = 64 * 1024 * 1024;
+
 function encoded(value: unknown, limit: number): Buffer {
   const body = Buffer.from(JSON.stringify(value));
   if (body.byteLength > limit) throw new Error(`factory gateway request exceeds ${limit} bytes`);
@@ -178,7 +184,7 @@ export async function createGatewayTransport(options: GatewayTransportOptions): 
       if (typeof path !== "string" || !path.startsWith("/") || path.startsWith("//") || path.includes("\\") || path.includes("#") || [...path].some(character => character.charCodeAt(0) <= 32)) throw new Error("factory gateway request path is invalid");
       const target = new URL(path, endpoint);
       if (target.origin !== endpoint.origin) throw new Error("factory gateway request path is invalid");
-      if (!Number.isSafeInteger(responseLimit) || responseLimit < 1 || responseLimit > 16 * 1024 * 1024) throw new Error("factory gateway byte limit is invalid");
+      if (!Number.isSafeInteger(responseLimit) || responseLimit < 1 || responseLimit > GATEWAY_MAX_RESPONSE_LIMIT_BYTES) throw new Error("factory gateway byte limit is invalid");
       // Capture the caller's body before loading credentials or yielding.
       const requestBody = body === undefined ? undefined : encoded(body, responseLimit);
       signal?.throwIfAborted();

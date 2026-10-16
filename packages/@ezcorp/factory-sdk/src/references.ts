@@ -1,11 +1,14 @@
+import { canonicalizeJson, sha256Hex } from "./canonical.js";
 import { factoryChildAcceptancePortSchema } from "./child-acceptance.js";
 import type {
   AcceptanceClaim,
   AcceptanceGroup,
   FactoryDefinition,
   FactoryGraph,
+  FactoryModelPin,
   FactoryNode,
   FactoryReference,
+  JsonValue,
   PackageReference,
   PortSchema,
   RunnerReference,
@@ -64,10 +67,42 @@ const referenceModel = "gpt-6-luna";
  */
 export const referenceModelPin = Object.freeze({ provider: "openai", model: referenceModel, credentialKind: "oauth" } as const);
 
-function runner(packageName: string, exportName: string, hex: string, model?: string): RunnerReference {
+/**
+ * The sampling every reference model call runs under (W4H-28 P4).
+ *
+ * A pinned runner's `configurationDigest` must be the digest of a configuration the host can honour
+ * (`factoryModelSamplingOptions`), or no startup profile can pin it. Until W4H-28 it was a
+ * placeholder, so generateCandidate could never be admitted. The digest is computed here from the
+ * configuration itself, never typed, so the two cannot disagree.
+ */
+export const referenceModelConfiguration: Readonly<Record<string, JsonValue>> = Object.freeze({ reasoningEffort: "low" });
+/** The policy a reference model call runs under: a guest's model call carries text, never tools. */
+export const referenceModelPolicy: Readonly<Record<string, JsonValue>> = Object.freeze({ tools: false });
+
+const digestOf = (value: JsonValue): string => `sha256:${sha256Hex(canonicalizeJson(value))}`;
+
+/** The whole C10 pin for one provider and model, under the reference configuration and policy. */
+export function referenceFactoryModelPin(provider: string, model: string): FactoryModelPin {
+  return Object.freeze({
+    provider,
+    model,
+    configuration: referenceModelConfiguration,
+    configurationDigest: digestOf(referenceModelConfiguration),
+    policy: referenceModelPolicy,
+    policyDigest: digestOf(referenceModelPolicy),
+  });
+}
+
+/** reference.code.v1's pin: the C10 model, as a startup profile and the guest broker take it. */
+export const referenceCodeModelPin: FactoryModelPin = referenceFactoryModelPin(referenceModelPin.provider, referenceModelPin.model);
+
+function runner(packageName: string, exportName: string, hex: string, model?: string | FactoryModelPin): RunnerReference {
   let packageCode = 0;
   for (const character of packageName) packageCode = (packageCode + character.charCodeAt(0)) % 6;
   const packageHex = "abcdef"[packageCode] as string;
+  // A whole pin names its model and its real configuration digest; a bare model id keeps the placeholder.
+  const modelId = typeof model === "object" ? model.model : model;
+  const configurationDigest = typeof model === "object" ? model.configurationDigest : digest(hex);
   return {
     package: packageName,
     // The scoped distribution name is not a legal v4 manifest name, so the
@@ -76,10 +111,29 @@ function runner(packageName: string, exportName: string, hex: string, model?: st
     version: "1.0.0",
     digest: digest(packageHex),
     export: exportName,
-    ...(model === undefined ? {} : { model }),
-    configurationDigest: digest(hex),
+    ...(modelId === undefined ? {} : { model: modelId }),
+    configurationDigest,
   };
 }
+
+/**
+ * The reference S3 immutable publication adapter: a real, built v4 package (W4H-28 P4).
+ *
+ * The digest is the artifact the product's isolated build produces from the committed adapter
+ * source in the pinned runner image. The artifact also embeds the provided SDK bundle (the sdk and
+ * extension-contract packages) and toolchain, so a change there moves it. It is locked in
+ * `src/factory/s3-release-adapter/lock.json`, whose unit test recomputes the source, SDK and
+ * toolchain digests and whose Podman test rebuilds the artifact; `bun scripts/relock-s3-release-adapter.ts`
+ * re-locks the file and this literal. It replaced the one-hex-character placeholder no
+ * fleet could declare a release profile for (W4H-27 N3).
+ */
+export const referenceS3ReleaseAdapter: RunnerReference = Object.freeze({
+  package: "@ezcorp/s3-immutable-publish",
+  manifestName: "s3-immutable-publish",
+  version: "1.0.0",
+  digest: "sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc",
+  export: "publish",
+});
 
 /**
  * The v4 manifest name a scoped distribution name corresponds to.
@@ -109,9 +163,18 @@ function input(name: string): ValueReference {
   return { kind: "ref", root: "input", name };
 }
 
-function task(id: string, implementation: RunnerReference, dependsOn: readonly string[], outputPorts: Readonly<Record<string, PortSchema>>, effects: FactoryNode["effects"] = ["read"]): TaskNode {
-  return { id, kind: "task", runner: implementation, dependsOn, outputPorts, effects };
+function task(id: string, implementation: RunnerReference, dependsOn: readonly string[], outputPorts: Readonly<Record<string, PortSchema>>, effects: FactoryNode["effects"] = ["read"], maxCostMicros?: string): TaskNode {
+  return { id, kind: "task", runner: implementation, dependsOn, outputPorts, effects, ...(maxCostMicros === undefined ? {} : { resources: { maxCostMicros } }) };
 }
+
+/**
+ * What each reference.code.v1 task may spend, in cost micros. A task attempt holds its bound from the
+ * run's budget while it runs; a task that declared none would hold its allocation's whole cost, which a
+ * fleet may set to the run's whole cap, so any earlier spend (generate's model call) would refuse the
+ * next task. Generate makes the one model call; the other three make none. Together 400,000, well under
+ * the host's 1,000,000 run cap.
+ */
+const REFERENCE_CODE_TASK_COST_MICROS = Object.freeze({ snapshot: "50000", generate: "250000", freeze: "50000", checks: "50000" });
 
 function claim(id: string, validator: RunnerReference, freshnessMs?: number, required = true): AcceptanceClaim {
   return { id, validator, required, protected: true, ...(freshnessMs === undefined ? {} : { freshnessMs }) };
@@ -135,60 +198,108 @@ function baseDefinition(id: string, graph: FactoryGraph, inputPorts: Readonly<Re
   };
 }
 
-const codeSnapshot = runner("@ezcorp/reference-code", "snapshotRepository", "a");
-const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", referenceModel);
-const codeFreeze = runner("@ezcorp/reference-code", "freezeGitTree", "d");
-const codeChecks = runner("@ezcorp/reference-code-validator", "protectedChecks", "e", referenceModel);
-const githubRelease = runner("@ezcorp/github-release", "releasePullRequest", "f");
+/**
+ * A release node's adapter: the five fields a startup release profile declares (startup-config.ts,
+ * `release.profiles[].adapter`). The profile is found by the digest of exactly these fields, so an
+ * adapter that also carried a configuration digest could never match one.
+ */
+function releaseAdapter(packageName: string, exportName: string, hex: string): RunnerReference {
+  const { configurationDigest: _unused, ...adapter } = runner(packageName, exportName, hex);
+  return adapter;
+}
 
-export const referenceCodeV1: FactoryDefinition = baseDefinition(
-  "reference.code.v1",
-  {
-    nodes: [
-      {
-        ...task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }),
-        inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema },
-        bindings: { repositoryConnection: input("repositoryConnection"), baseCommitSha: input("baseCommitSha") },
-      },
-      {
-        // The one repairable node. A protected rejection replaces its remediation input, and the
-        // freeze, the checks and the decision below all re-run against the tree it then produces.
-        ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"]),
-        inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema, remediation: remediationSchema },
-        bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch"), remediation: noRemediation },
-        repairableInputs: ["remediation"],
-        maxIterations: 12,
-      },
-      { ...task("freeze-complete-git-tree", codeFreeze, ["generate-private-candidate"], { candidate: artifactSchema }), inputPorts: { candidate: artifactSchema, baseCommitSha: stringSchema }, bindings: { candidate: ref("generate-private-candidate", "candidate"), baseCommitSha: input("baseCommitSha") } },
-      { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "candidate") } },
-      { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: artifactSchema } },
-      { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
-      { id: "github-pr-release", kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: githubRelease, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destinationRepository"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
+const codeSnapshot = runner("@ezcorp/reference-code", "snapshotRepository", "a");
+const codeFreeze = runner("@ezcorp/reference-code", "freezeGitTree", "d");
+// protectedChecks runs commands and static scans; it calls no model, so it names none (W4H-28 Q4).
+const codeChecks = runner("@ezcorp/reference-code-validator", "protectedChecks", "e");
+const githubRelease = releaseAdapter("@ezcorp/github-release", "releasePullRequest", "f");
+
+/** Where a reference.code release publishes: a GitHub pull request, or the installation's S3 destination. */
+export type ReferenceCodeRelease = "github" | "s3";
+const releaseKindSchema: PortSchema = { type: "string", enum: ["github", "s3"] };
+/** A release resolves from a value its adapter defines (W07's request, W08's accepted publication). */
+const releaseCandidateSchema: PortSchema = { type: "object", additionalProperties: true };
+
+export interface ReferenceCodeDefinitionOptions {
+  /** The model generateCandidate and supervisedReview run on. Default: the C10 pin. */
+  readonly model?: FactoryModelPin;
+  /** The release adapter. Default: the GitHub pull request. The inputs do not change with it. */
+  readonly release?: ReferenceCodeRelease;
+}
+
+/**
+ * reference.code.v1's one graph, with its two declared parameters (W4H-28 Q1).
+ *
+ * The model pin and the release destination are parameters of the same graph, never a second copy
+ * of it: a test-provider run and a real run differ only in the model, and a local release differs
+ * from a pull request only in the release node's adapter.
+ */
+export function referenceCodeDefinition(options: ReferenceCodeDefinitionOptions = {}): FactoryDefinition {
+  const model = options.model ?? referenceCodeModelPin;
+  const codeGenerate = runner("@ezcorp/reference-code", "generateCandidate", "b", model);
+  const codeReview = runner("@ezcorp/reference-code-validator", "supervisedReview", "e", model);
+  const release = options.release === "s3" ? referenceS3ReleaseAdapter : githubRelease;
+  const releaseKind: ReferenceCodeRelease = options.release ?? "github";
+  const releaseNode = releaseKind === "s3" ? "s3-publication" : "github-pr-release";
+  return baseDefinition(
+    "reference.code.v1",
+    {
+      nodes: [
+        {
+          ...task("snapshot-repository", codeSnapshot, [], { snapshot: artifactSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.snapshot),
+          inputPorts: { repositoryConnection: { type: "object", additionalProperties: true }, baseCommitSha: stringSchema },
+          bindings: { repositoryConnection: input("repositoryConnection"), baseCommitSha: input("baseCommitSha") },
+        },
+        {
+          // The one repairable node. A protected rejection replaces its remediation input, and the
+          // freeze, the checks and the decision below all re-run against the tree it then produces.
+          ...task("generate-private-candidate", codeGenerate, ["snapshot-repository"], { candidate: artifactSchema }, ["write"], REFERENCE_CODE_TASK_COST_MICROS.generate),
+          inputPorts: { snapshot: artifactSchema, request: stringSchema, baseBranch: stringSchema, remediation: remediationSchema },
+          bindings: { snapshot: ref("snapshot-repository", "snapshot"), request: input("request"), baseBranch: input("baseBranch"), remediation: noRemediation },
+          repairableInputs: ["remediation"],
+          maxIterations: 12,
+        },
+        {
+          // The freeze reads the snapshot, the request and the base branch from the run, never from the
+          // generator's output, so a generated candidate cannot restate the policy it is checked against.
+          // Its `candidate` is what the declared release resolves from (the W07 publication request, or
+          // the S3 accepted publication); `frozen` is the sealed frozen record the validators read.
+          ...task("freeze-complete-git-tree", codeFreeze, ["snapshot-repository", "generate-private-candidate"], { candidate: releaseCandidateSchema, frozen: artifactSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.freeze),
+          inputPorts: { candidate: artifactSchema, snapshot: artifactSchema, baseCommitSha: stringSchema, request: stringSchema, baseBranch: stringSchema, release: releaseKindSchema },
+          bindings: { candidate: ref("generate-private-candidate", "candidate"), snapshot: ref("snapshot-repository", "snapshot"), baseCommitSha: input("baseCommitSha"), request: input("request"), baseBranch: input("baseBranch"), release: { kind: "literal", value: releaseKind } },
+        },
+        { ...task("protected-checks", codeChecks, ["freeze-complete-git-tree"], { evidence: evidenceSchema }, ["read"], REFERENCE_CODE_TASK_COST_MICROS.checks), inputPorts: { candidate: artifactSchema }, bindings: { candidate: ref("freeze-complete-git-tree", "frozen") } },
+        { id: "acceptance", kind: "acceptance", dependsOn: ["freeze-complete-git-tree", "protected-checks"], contract: "reference.code.v1.contract", candidate: ref("freeze-complete-git-tree", "candidate"), evidence: ref("protected-checks", "evidence"), maxRepairs: 2, outputPorts: { acceptedCandidate: releaseCandidateSchema } },
+        { id: "release-approval", kind: "approval", dependsOn: ["acceptance"], choices: ["approve", "deny"], context: ref("acceptance", "acceptedCandidate"), actorScope: "tenant-contract-admin", expiresInMs: 24 * 60 * 60 * 1_000, onDenied: "fail", onExpired: "escalate" },
+        { id: releaseNode, kind: "release", dependsOn: ["acceptance", "release-approval"], adapter: release, acceptedCandidate: ref("acceptance", "acceptedCandidate"), destination: input("destinationRepository"), effects: ["publish"], outputPorts: { receipt: receiptSchema } },
+      ],
+      outputs: { receipt: ref(releaseNode, "receipt") },
+    },
+    {
+      repositoryConnection: { type: "object", additionalProperties: true },
+      baseCommitSha: stringSchema,
+      request: stringSchema,
+      destinationRepository: { type: "object", additionalProperties: true },
+      baseBranch: stringSchema,
+    },
+    { receipt: receiptSchema },
+    [
+      claim("frozen-install", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("build", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("typecheck", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("declared-tests", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("protected-fixtures", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("dependency-advisory", codeChecks, 15 * 60 * 1_000),
+      claim("secret-scan", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("allowed-paths", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("protected-assets-unchanged", codeChecks, 24 * 60 * 60 * 1_000),
+      claim("supervised-review", codeReview, 15 * 60 * 1_000),
     ],
-    outputs: { receipt: ref("github-pr-release", "receipt") },
-  },
-  {
-    repositoryConnection: { type: "object", additionalProperties: true },
-    baseCommitSha: stringSchema,
-    request: stringSchema,
-    destinationRepository: { type: "object", additionalProperties: true },
-    baseBranch: stringSchema,
-  },
-  { receipt: receiptSchema },
-  [
-    claim("frozen-install", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("build", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("typecheck", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("declared-tests", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("protected-fixtures", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("dependency-advisory", codeChecks, 15 * 60 * 1_000),
-    claim("secret-scan", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("allowed-paths", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("protected-assets-unchanged", codeChecks, 24 * 60 * 60 * 1_000),
-    claim("supervised-review", runner("@ezcorp/reference-code-validator", "supervisedReview", "e", referenceModel), 15 * 60 * 1_000),
-  ],
-  [codeSnapshot, codeGenerate, codeFreeze, codeChecks, githubRelease].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
-);
+    [codeSnapshot, codeGenerate, codeFreeze, codeChecks, release].map(packageOf).filter((item, index, values) => values.findIndex((candidate) => candidate.name === item.name) === index),
+  );
+}
+
+export const referenceCodeV1: FactoryDefinition = referenceCodeDefinition();
 
 const imageGenerate = runner("@ezcorp/reference-image", "generateSdxl", "a");
 const imageNormalize = runner("@ezcorp/reference-image", "normalizePng", "b");
@@ -199,7 +310,7 @@ const imageVisionOne = runner("@ezcorp/reference-image-validator", "semanticEval
 const imageVisionTwo = runner("@ezcorp/reference-image-validator", "semanticEvaluationTwo", "b", referenceModel);
 const imageVisionThree = runner("@ezcorp/reference-image-validator", "semanticEvaluationThree", "c", referenceModel);
 const imageSelect = runner("@ezcorp/reference-image", "selectFirstAccepted", "d");
-const s3Release = runner("@ezcorp/s3-immutable-publish", "publish", "e");
+const s3Release = referenceS3ReleaseAdapter;
 const imageRoundResultSchema: PortSchema = {
   type: "object",
   properties: { accepted: booleanSchema, candidate: artifactSchema, evidence: evidenceSchema, revisedPrompt: stringSchema },

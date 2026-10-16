@@ -75,7 +75,8 @@ function fixtureOptions(overrides: { failImages?: boolean; missingEvidence?: boo
       switch (node.runner.export) {
         case "snapshotRepository": return { kind: "success", output: { snapshot: artifacts.repository } };
         case "generateCandidate": return { kind: "success", output: { candidate: artifacts.code } };
-        case "freezeGitTree": return { kind: "success", output: { candidate: field(input, "candidate") } };
+        // The release-shaped candidate (W07's request), and the sealed frozen record the checks read (W4H-28).
+        case "freezeGitTree": return { kind: "success", output: { candidate: { schemaVersion: "factory.github-publication.v1", frozenFrom: field(input, "candidate") }, frozen: field(input, "candidate") } };
         case "protectedChecks": return { kind: "success", output: overrides.missingEvidence ? {} : { evidence: evidence("checks") } };
         case "snapshotBrief": return { kind: "success", output: { brief: field(input, "brief") } };
         case "generateSdxl": return overrides.failImages ? { kind: "failure", error: "variant rejected" } : { kind: "success", output: { image: artifacts.image } };
@@ -144,7 +145,8 @@ describe("C10 reference execution", () => {
       "complete-run:run",
     ]);
     expect(codeOptions.inputs.get("generate-private-candidate")).toEqual({ snapshot: artifacts.repository, request: "slugify the input", baseBranch: "main", remediation: "" });
-    expect(codeOptions.inputs.get("freeze-complete-git-tree")).toEqual({ candidate: artifacts.code, baseCommitSha: "abc123" });
+    expect(codeOptions.inputs.get("freeze-complete-git-tree")).toEqual({ candidate: artifacts.code, snapshot: artifacts.repository, baseCommitSha: "abc123", request: "slugify the input", baseBranch: "main", release: "github" });
+    expect(codeOptions.inputs.get("protected-checks")).toEqual({ candidate: artifacts.code });
     expect(referenceCodeV1.graph.nodes.find((node): node is Extract<FactoryNode, { kind: "task" }> => node.id === "generate-private-candidate" && node.kind === "task")?.runner).toEqual(expect.objectContaining({ model: "gpt-6-luna", configurationDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) }));
     expect(code.commands.map((command) => command.id)).toEqual([
       "trace-code:run:start-timer:1",
@@ -225,7 +227,7 @@ describe("C10 reference execution", () => {
     expect(catalogOptions.childInputs.get("static-catalog-code")).toEqual({ repositoryConnection: { id: "repo" }, baseCommitSha: "abc123", request: "embed accepted data and image", destinationRepository: { id: "repo" }, baseBranch: "main" });
 
     for (const [result, acceptedCandidate, destination] of [
-      [code, artifacts.code, { id: "repo" }],
+      [code, { schemaVersion: "factory.github-publication.v1", frozenFrom: artifacts.code }, { id: "repo" }],
       [image, artifacts.image, { bucket: "accepted", prefix: "images" }],
       [data, artifacts.data, { bucket: "accepted", prefix: "data" }],
       [catalog, artifacts.catalog, { repository: { id: "repo" }, baseBranch: "main" }],

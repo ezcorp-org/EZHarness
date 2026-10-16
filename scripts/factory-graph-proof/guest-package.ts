@@ -32,6 +32,7 @@ const MANIFEST = {
 const SPECIFIERS = Object.freeze({
   "@ezcorp/factory-sdk/canonical": "./canonical.ts",
   "@ezcorp/factory-sdk/guest-materials": "./guest-materials.ts",
+  "@ezcorp/factory-sdk/guest-model": "./guest-model.ts",
   "@ezcorp/factory-sdk": "./types.ts",
 });
 

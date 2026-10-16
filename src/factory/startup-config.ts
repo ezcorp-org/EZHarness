@@ -213,6 +213,17 @@ export interface FactoryStartupConfig {
   readonly validators?: {
     readonly runtimes: readonly FactoryStartupValidatorRuntime[];
   };
+  /**
+   * The repositories a guest may read through the repository-read broker operation (W4H-28).
+   *
+   * A guest has no network and holds no credential; it names a source by this document's handle and
+   * one commit, and the host fetches it into `cachePath` with the source's token, by reference.
+   * Absent, every repository read is refused `repository_source_unknown`.
+   */
+  readonly repositories?: {
+    readonly cachePath: string;
+    readonly sources: readonly FactoryStartupRepositorySource[];
+  };
   readonly workers?: FactoryWorkerTuning;
   /**
    * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
@@ -231,6 +242,13 @@ export interface FactoryStartupConfig {
    * bounded reader reads at composition, never a value in this document.
    */
   readonly keyManagement?: FactoryStartupKeyManagement;
+}
+
+/** One repository source: a handle, an `https://` or `file://` URL, and optionally a token file by reference. */
+export interface FactoryStartupRepositorySource {
+  readonly name: string;
+  readonly url: string;
+  readonly tokenPath?: string;
 }
 
 /** The runtime kinds a declared validator may name. */
@@ -440,6 +458,7 @@ export const FACTORY_STARTUP_FIELDS: readonly FieldSpec[] = Object.freeze([
   { field: "workers.errorDelayMs", kind: "interval", optional: true },
   { field: "workers.maxErrorDelayMs", kind: "interval", optional: true },
   { field: "temporalHttp.endpoint", kind: "url", optional: true },
+  { field: "repositories.cachePath", kind: "path", optional: true },
   { field: "temporalHttp.tls.caPath", kind: "path", optional: true },
   { field: "temporalHttp.tls.certificatePath", kind: "path", optional: true },
   { field: "temporalHttp.tls.privateKeyPath", kind: "path", optional: true },
@@ -644,7 +663,7 @@ function wellFormedValidatorRuntime(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
-  "release.destinations", "release.profiles", "validators.runtimes", "keyManagement",
+  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -667,7 +686,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // — so recursing into them would name a value as a field. Each is checked
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
-      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "keyManagement") { found.push(field); continue; }
+      || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "repositories.sources" || field === "keyManagement") { found.push(field); continue; }
     found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -863,10 +882,30 @@ const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
   invalid.push(...invalidValidatorRuntimes(value));
 };
 
+/** A repository URL a host may fetch from: a secure remote, or an operator's local repository. */
+const REPOSITORY_URL = /^(?:https:\/\/[^\s@]+|file:\/\/\/[^\s]+)$/;
+
+// The repository sources, when the section is present: a cache path, and one or more uniquely named sources.
+const checkRepositories: StartupCheck = (value, { missing, invalid }) => {
+  if (!read(value, "repositories").present) return;
+  if (!read(value, "repositories.cachePath").present) missing.push("repositories.cachePath");
+  const sources = read(value, "repositories.sources").value;
+  if (!Array.isArray(sources) || sources.length === 0 || sources.length > 64) { invalid.push("repositories.sources"); return; }
+  sources.forEach((entry, index) => {
+    const keys = isPlainRecord(entry) && Object.hasOwn(entry, "tokenPath") ? ["name", "url", "tokenPath"] : ["name", "url"];
+    const valid = isPlainRecord(entry) && exactKeys(entry, keys) && wellFormed("identity", entry.name)
+      && typeof entry.url === "string" && entry.url.length <= 2_048 && REPOSITORY_URL.test(entry.url)
+      && (entry.tokenPath === undefined || wellFormed("path", entry.tokenPath));
+    if (!valid) invalid.push(`repositories.sources[${index}]`);
+  });
+  const names = sources.map((entry) => (entry as { name?: unknown }).name);
+  if (new Set(names).size !== names.length) invalid.push("repositories.sources");
+};
+
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
   checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
-  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories,
 ];
 
 /** Cross-field rules on a document whose every field is already well formed. */
