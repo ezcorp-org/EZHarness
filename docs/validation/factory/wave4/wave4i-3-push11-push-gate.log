@@ -1,0 +1,3 @@
+resource-gate 2026-10-16T03:34:59Z w4h-31-push11 outside-lock disk=110G memAvailable=15GiB swapFreeKiB=6346740/17173956 floors disk>=104G mem>=12GiB mem+swap>=15204352KiB (swap component 2621440KiB)
+gated-flock w4h-31-push11: gate green outside the lock, queue for the lock (try 1) 2026-10-16T03:34:59Z
+gated-flock w4h-31-push11: command exit 0 2026-10-16T04:23:24Z

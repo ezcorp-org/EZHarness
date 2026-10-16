@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# integrator-5: the single push of the W4H-31 round to PR 341 (team-lead 2026-10-16): fast-forward feat/factory-platform-followup-3 from
+# d2add3048 to integ/w00 ff8331a70d86e600c6d23dd4c9c664320a656dfe (the unpushed receipts 0e305073a 5c73aa860 6571f8d5f, the W4H-30 merge and receipts, the W4H-31 merge
+# 390c49a90, its receipts b8ca14a60 and the tasks text ff8331a70). Every remote read goes through w00/remote-read.sh (bounded; a stall is
+# UNREADABLE); the push is push_once (w00/push-lib.sh): bounded, no retry, a stall after the push STOPs without touching the local ref.
+# PUSH_TIMEOUT_S=3600 for this push (not the 300 s default): the pre-push hook runs typecheck + svelte-check, and tc_run may first wait at
+# its memory gate; a timeout still leaves the decision to the bounded read. Identity first. No force, no -u, no retry.
+set -u
+I=/home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration; P=/tmp/factory-platform-evidence/w00/wave4i-3/push11
+B=feat/factory-platform-followup-3; H=ff8331a70d86e600c6d23dd4c9c664320a656dfe; OLD=d2add3048f12369a5242052fdee54ce1c7ad1c37
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE
+# Ruling (a') (team-lead 2026-10-16): the SSH agent is unresponsive (ssh-add -l hangs); same transport, same remote URL, same key file
+# (from ~/.ssh/config), agent bypassed - for every remote read and the push. No .git/config edit; option names only, no credential in argv.
+export GIT_SSH_COMMAND='ssh -o IdentityAgent=none -o BatchMode=yes'
+cd "$I" || exit 2
+. /tmp/factory-platform-evidence/w00/bun-pin.sh; bun_pin "$I" || exit 95
+[ "$(git rev-parse HEAD)" = $H ] && [ "$(git rev-parse integ/w00)" = $H ] && [ -z "$(git status --porcelain)" ] && [ "$(git branch --show-current)" = integ/w00 ] || { echo "REFUSED: integ worktree not clean at $H on integ/w00"; exit 3; }
+python3 /tmp/factory-platform-evidence/w00/config-check.py --check-only || { echo "STOP: config"; exit 1; }
+# Identity first (W-SYNC environment: main's commits skip the per-commit email check; lines that are main's own are not judged).
+IDENTITY_EXCLUDE=934531e2e9e8fd0c3c97e48527d545ca3476eb5e SYNC_BASE_MAIN=934531e2e9e8fd0c3c97e48527d545ca3476eb5e IDENTITY_REPO=$I \
+  bash /tmp/factory-platform-evidence/w00/identity-check.sh commits $OLD $H > $P/identity-push.txt 2>&1 || { cat $P/identity-push.txt; echo "STOP: identity"; exit 1; }
+echo "identity: $(tail -1 $P/identity-push.txt)"
+. /tmp/factory-platform-evidence/w00/push-lib.sh
+PUSH_TIMEOUT_S=3600 push_once "$I" $B $OLD $H ezcorp-org/EZHarness 341 \
+  bash -c '. /tmp/factory-platform-evidence/w00/tc-gate.sh; TC_IN_LOCK=${PUSH_TC_IN_LOCK:-0} tc_run push "$1" git push origin "refs/heads/$2:refs/heads/$2"' _ $P/tc-gate.log $B; rc=$?
+python3 /tmp/factory-platform-evidence/w00/config-check.py --check-only
+exit $rc
