@@ -249,6 +249,19 @@ describe("startAssignment — sub-agent task prompt guardrails", () => {
     expect(msg).toMatch(/task_fail/);
     expect(msg).toMatch(/task_plan/);
   });
+
+  test("the sub-agent's first run is on its own sub-conversation, and its one input is the brief built from the task", async () => {
+    // Was the placeholder "only triggering message passes as initial context" in web sub-conversation.test.ts (W4H-33).
+    // The real behaviour: the run streams on the SUB-conversation (its history is the sub's own, never the parent's
+    // thread), and its first message is the task brief (the task and the plan), not a copy of the parent's messages.
+    const { executor, calls } = makeMockExecutor();
+    await startAssignment(baseOpts({ executor }));
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.conversationId).toBe("sub-fresh-created");
+    expect(calls[0]!.userMessage).toStartWith("## Your Task\nBuild a thing\n\ndetails\n\n## Full Plan Context\n");
+    expect(calls[0]!.userMessage).toContain("- [>> THIS TASK] Build a thing");
+  });
 });
 
 // ── 1. reuseSubConversationId — honored verbatim, skips DB lookup ──
