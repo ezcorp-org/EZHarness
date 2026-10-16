@@ -239,6 +239,8 @@ export interface SendMessageHandlers {
 	// `handleSend` and the standalone Send / Return buttons share one
 	// module.
 	handleSubConvoSend(text: string): Promise<void>;
+	/** Routes a saved assistant turn of the ACTIVE sub-conversation into its store; returns whether it took the turn. */
+	handleSubConvoTurnSaved(turn: { conversationId: string; messageId: string; content: string; final?: boolean }): boolean;
 	handleSubConvoReturn(): Promise<void>;
 	startSubConvo(
 		agentMention: { name: string },
