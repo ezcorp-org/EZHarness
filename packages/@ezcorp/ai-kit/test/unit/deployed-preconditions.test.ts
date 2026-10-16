@@ -1,3 +1,4 @@
+// @ezcorp-host-integration
 import { afterAll, describe, expect, test } from "bun:test";
 import { join } from "node:path";
 
@@ -7,6 +8,8 @@ import { join } from "node:path";
 // - precondition PRESENT and behaviour WRONG: the suite runs and FAILS, and prints no precondition skip;
 // - precondition MISSING: the suite skips with its tracked reason.
 // The shared skip path is _guard.ts skipUnless; these cases prove each call site's `present` line.
+// Host integration (the marker on line 1): it drives the test/e2e suites, which the release snapshot leaves out, so the
+// snapshot must leave this file out too; the isolated build cannot run it (W4H-33b). The ai-kit host leg still runs it.
 
 const ROOT = join(import.meta.dir, "..", "..");
 const TRACKED = "tracked: ai-kit-deployed-lane";
