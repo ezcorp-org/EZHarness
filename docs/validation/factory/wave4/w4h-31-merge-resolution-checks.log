@@ -1,0 +1,4 @@
+PASS N1 byte-equality assert in temporal-replay.test.ts
+PASS startRequest returns processSpawn: FACTORY_GUEST_PROCESS_SPAWN
+PASS runner.start calls found
+PASS runner.start(start) at offset 16731 passes a startRequest(...) value

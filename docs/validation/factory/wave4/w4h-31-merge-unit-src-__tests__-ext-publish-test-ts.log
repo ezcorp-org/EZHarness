@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:04:05.336Z","level":"info","msg":"Published extension","subsystem":"ext-sdk","name":"test-ext","version":"1.0.0"}
+
+ 16 pass
+ 0 fail
+ 38 expect() calls
+Ran 16 tests across 1 file. [598.00ms]

@@ -1,0 +1,8 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:23:08.527Z","level":"info","msg":"github-projects poll-now requested","subsystem":"ext.github-projects.daemon","projectId":"78a11ddf-0a51-4a3f-975e-cb9cccd9061f","linkId":"701f16b3-3005-4939-ae20-7b8206a4603a"}
+{"ts":"2026-10-16T01:23:08.532Z","level":"info","msg":"github-projects poll-now completed","subsystem":"ext.github-projects.daemon","projectId":"78a11ddf-0a51-4a3f-975e-cb9cccd9061f","linkId":"701f16b3-3005-4939-ae20-7b8206a4603a"}
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [925.00ms]

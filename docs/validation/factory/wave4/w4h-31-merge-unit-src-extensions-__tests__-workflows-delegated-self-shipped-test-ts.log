@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:55.832Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"delegated-ext","workflow":"delegated-ext:etl-factory","workflowRunId":"run-1","status":"success","delegationId":"a38f73ee-ddf8-4506-ab8d-13250e465cc3"}
+{"ts":"2026-10-16T01:18:55.852Z","level":"info","msg":"delegated workflow finished","subsystem":"ext.workflows.handler","extension":"delegated-ext","workflow":"delegated-ext:etl-factory","workflowRunId":"run-1","status":"success","delegationId":"102ac405-e0b6-496d-b97f-4f8e490c90fc"}
+{"ts":"2026-10-16T01:18:55.858Z","level":"warn","msg":"workflows.runFor failed","subsystem":"ext.7e78a224-f767-4fa4-b5a2-4afa34d8022e.capability","extensionId":"7e78a224-f767-4fa4-b5a2-4afa34d8022e","onBehalfOf":"515e3078-087d-4050-89e6-a17f15012f28","conversationId":null,"errorCode":"DELEGATION_OWNER_LOST_WORKFLOW_ACCESS","errorMessage":"This job stopped: Workflow release is no longer active. It ran before, so nothing you did is wrong — the workflow's access changed. Consent again to restart it.","provider":null,"model":null,"durationMs":2}
+
+ 6 pass
+ 0 fail
+ 24 expect() calls
+Ran 6 tests across 1 file. [1154.00ms]

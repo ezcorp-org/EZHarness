@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:04:47.955Z","level":"warn","msg":"tick: event receipt cleanup failed","subsystem":"perm-expiry.daemon","error":"Error: Failed query: DELETE FROM extension_event_receipts WHERE id IN (\n    SELECT r.id FROM extension_event_receipts r WHERE r.retain_until <= $1\n    AND NOT EXISTS (SELECT 1 FROM jsonb_array_elements_text(r.payload::jsonb -> 'deliveryIds') AS reference(id)\n      LEFT JOIN extension_release_deliveries d ON d.id = reference.id\n      WHERE d.id IS NULL OR d.state NOT IN ('delivered', 'cancelled', 'dead_letter'))\n    ORDER BY r.retain_until, r.id LIMIT 1000 FOR UPDATE OF r SKIP LOCKED\n  ) RETURNING id\nparams: 2592000000","tickCount":2}
+
+ 9 pass
+ 0 fail
+ 51 expect() calls
+Ran 9 tests across 1 file. [3.92s]

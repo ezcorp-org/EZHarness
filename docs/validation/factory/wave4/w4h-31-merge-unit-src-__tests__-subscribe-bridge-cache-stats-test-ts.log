@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:17.577Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"claude","hitRate":0.8,"cachedTokens":800,"cacheWriteTokens":100,"cacheWrite1hTokens":0,"promptTokens":1000}
+{"ts":"2026-10-16T01:15:17.578Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0.8,"cachedTokens":800,"promptTokens":1000,"segments":[{"provider":"anthropic","model":"claude","hitRate":0.8,"cachedTokens":800,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":90,"cacheWrite1hTokens":0,"promptTokens":100}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":100,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"claude","hitRate":0.6667,"cachedTokens":800,"cacheWriteTokens":300,"cacheWrite1hTokens":120,"promptTokens":1200}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0.6667,"cachedTokens":800,"promptTokens":1200,"segments":[{"provider":"anthropic","model":"claude","hitRate":0.6667,"cachedTokens":800,"cacheWrite1hTokens":120,"turns":1}]}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"openai","model":"gpt","hitRate":0,"cachedTokens":0,"cacheWriteTokens":90,"cacheWrite1hTokens":0,"promptTokens":100}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":100,"segments":[{"provider":"openai","model":"gpt","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"claude","hitRate":0,"cachedTokens":0,"cacheWriteTokens":900,"cacheWrite1hTokens":0,"promptTokens":1100}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"claude","hitRate":0.9474,"cachedTokens":900,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":950}
+{"ts":"2026-10-16T01:15:17.579Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":2,"overallHitRate":0.439,"cachedTokens":900,"promptTokens":2050,"segments":[{"provider":"anthropic","model":"claude","hitRate":0.439,"cachedTokens":900,"cacheWrite1hTokens":0,"turns":2}]}
+
+ 5 pass
+ 0 fail
+ 22 expect() calls
+Ran 5 tests across 1 file. [479.00ms]

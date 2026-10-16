@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:55:40.986Z","level":"error","msg":"Reverse-RPC request handler failed","subsystem":"extensions/subprocess","extensionId":"test-ext","error":"Error: host route blew up"}
+
+ 13 pass
+ 0 fail
+ 28 expect() calls
+Ran 13 tests across 1 file. [1303.00ms]

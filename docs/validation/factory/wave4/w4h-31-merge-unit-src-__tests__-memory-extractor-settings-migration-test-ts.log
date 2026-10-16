@@ -1,0 +1,24 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:10:17.147Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.157Z","level":"info","msg":"Migrated memoryEnabled=false to per-user extension settings","subsystem":"memory-extractor-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.162Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.169Z","level":"info","msg":"Migrated memoryEnabled=false to per-user extension settings","subsystem":"memory-extractor-settings-migration","userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.175Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.177Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.182Z","level":"info","msg":"Skipping migration write — legacy enabled=true matches manifest default","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.182Z","level":"info","msg":"Legacy compaction_interval_hours matches default (6h) — no per-user write","subsystem":"memory-extractor-settings-migration","legacyValue":6,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.186Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.188Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":4,"resolvedTo":3,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.192Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.194Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":48,"resolvedTo":24,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.197Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.198Z","level":"warn","msg":"Legacy compaction_interval_hours not a finite positive number — skipping migration","subsystem":"memory-extractor-settings-migration","legacyValue":"garbage","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.201Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.203Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":2,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.208Z","level":"info","msg":"Skipping migration write — legacy setting never set; defaults preserved","subsystem":"memory-extractor-settings-migration","extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+{"ts":"2026-10-16T01:10:17.210Z","level":"info","msg":"Migrated compaction_interval_hours to per-user extension settings","subsystem":"memory-extractor-settings-migration","legacyValue":12,"resolvedTo":12,"userCount":2,"migratedCount":1,"failureCount":0,"extensionId":"a984c87b-4309-4f1d-bd09-fcdb5e847b58"}
+
+ 13 pass
+ 0 fail
+ 35 expect() calls
+Ran 13 tests across 1 file. [1010.00ms]

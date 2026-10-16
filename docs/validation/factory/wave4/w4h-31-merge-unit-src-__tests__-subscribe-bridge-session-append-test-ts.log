@@ -1,0 +1,13 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:19.317Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+{"ts":"2026-10-16T01:15:19.318Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":1,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:19.743Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+{"ts":"2026-10-16T01:15:19.743Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":1,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+{"ts":"2026-10-16T01:15:19.781Z","level":"error","msg":"DB error","subsystem":"executor.streamChat.subscribe","error":"LifecycleError: Domain event queue capacity is exhausted; the state transaction was not committed."}
+{"ts":"2026-10-16T01:15:20.077Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":1}
+{"ts":"2026-10-16T01:15:20.077Z","level":"info","msg":"conversation cache summary","subsystem":"executor.streamChat.subscribe","turns":1,"overallHitRate":0,"cachedTokens":0,"promptTokens":1,"segments":[{"provider":"unknown","model":"unknown","hitRate":0,"cachedTokens":0,"cacheWrite1hTokens":0,"turns":1}]}
+
+ 4 pass
+ 0 fail
+ 13 expect() calls
+Ran 4 tests across 1 file. [2.19s]

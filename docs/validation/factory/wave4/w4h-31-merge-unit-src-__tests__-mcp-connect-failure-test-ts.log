@@ -1,0 +1,14 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:09:27.167Z","level":"warn","msg":"Refused MCP target (private-address) for lan-mcp at POST /api/mcp-servers: mcp.lan → 10.0.0.5","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.171Z","level":"warn","msg":"MCP connect failed for edited at PUT /api/mcp-servers/[id]: connect ECONNREFUSED 10.0.0.5:6379","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.174Z","level":"warn","msg":"MCP connect failed for unknown at POST /api/mcp-servers/[id]/refresh: boom","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.175Z","level":"warn","msg":"MCP connect failed for unknown at r: with-stack","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.176Z","level":"warn","msg":"MCP connect failed for unknown at r: no-stack","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.178Z","level":"warn","msg":"MCP connect failed for x at r: pipe closed","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.179Z","level":"warn","msg":"MCP connect failed for unknown at r: undefined","subsystem":"mcp-connect"}
+{"ts":"2026-10-16T01:09:27.179Z","level":"warn","msg":"Refused MCP target (scheme) for unknown at r: ftp:","subsystem":"mcp-connect"}
+
+ 11 pass
+ 0 fail
+ 38 expect() calls
+Ran 11 tests across 1 file. [942.00ms]

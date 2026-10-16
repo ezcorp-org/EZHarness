@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:47:57.329Z","level":"warn","msg":"ezcorp/drafts rejected: extension not in bundled allowlist","subsystem":"ext.extension-author.drafts-handler","extensionName":"evil-extension"}
+{"ts":"2026-10-16T00:47:57.330Z","level":"warn","msg":"ezcorp/drafts rejected: extension not in bundled allowlist","subsystem":"ext.extension-author.drafts-handler","extensionName":"Extension-Author"}
+{"ts":"2026-10-16T00:47:57.355Z","level":"error","msg":"ezcorp/drafts.create: failed to materialize draft files","subsystem":"ext.extension-author.drafts-handler","draftId":"411bf062-3f30-4e5e-852f-f8ac134dffff","userId":"user-drafts","error":"Error: file \"../escape.ts\" must be a flat relative basename"}
+{"ts":"2026-10-16T00:47:57.408Z","level":"warn","msg":"ezcorp/drafts.reopen rejected","subsystem":"ext.extension-author.drafts-handler","userId":"user-drafts","code":"NOT_FOUND_OR_NOT_MODIFIABLE","error":"no such extension"}
+{"ts":"2026-10-16T00:47:57.409Z","level":"error","msg":"ezcorp/drafts.reopen failed","subsystem":"ext.extension-author.drafts-handler","userId":"user-drafts","error":"Error: disk full"}
+
+ 44 pass
+ 0 fail
+ 113 expect() calls
+Ran 44 tests across 1 file. [1219.00ms]

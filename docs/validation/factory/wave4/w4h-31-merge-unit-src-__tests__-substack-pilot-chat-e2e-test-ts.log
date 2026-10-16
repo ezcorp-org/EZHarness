@@ -1,0 +1,12 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:22.838Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:15:22.846Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:15:22.847Z","level":"warn","msg":"ask-user extension not installed — did ensureBundledExtensions() run?","subsystem":"ask-user-host"}
+{"ts":"2026-10-16T01:15:22.847Z","level":"info","msg":"briefing chat tools wired for turn","subsystem":"briefing.chat-tools","conversationId":"001c5cf5-f359-4c1d-999e-d47c60db9ff0","userId":"9a31dc47-a900-4cde-b6af-79cca46aafd9","registered":4,"expected":4}
+{"ts":"2026-10-16T01:15:22.848Z","level":"info","msg":"run_workflow wired for turn","subsystem":"workflow-tools-host","conversationId":"001c5cf5-f359-4c1d-999e-d47c60db9ff0","userId":"9a31dc47-a900-4cde-b6af-79cca46aafd9"}
+{"ts":"2026-10-16T01:15:22.887Z","level":"info","msg":"turn cache","subsystem":"executor.streamChat.subscribe","provider":"anthropic","model":"test-model","hitRate":0,"cachedTokens":0,"cacheWriteTokens":0,"cacheWrite1hTokens":0,"promptTokens":20}
+
+ 1 pass
+ 0 fail
+ 20 expect() calls
+Ran 1 test across 1 file. [1231.00ms]

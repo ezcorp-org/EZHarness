@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:03:56.531Z","level":"info","msg":"skipped: model lacks image input capability","subsystem":"executor.loadHistory.rehydrate","branchLen":0}
+{"ts":"2026-10-16T01:03:56.542Z","level":"warn","msg":"Task-tracking wire failed — task tools unavailable this turn","subsystem":"executor.streamChat.setup","error":"TaskTrackingNotInstalledError: task-tracking extension not installed — did ensureBundledExtensions() run?"}
+{"ts":"2026-10-16T01:03:56.543Z","level":"warn","msg":"run_workflow wire skipped — the conversation row has no owner, so a run could not be authorized","subsystem":"executor.streamChat.setup","conversationId":"12dd1967-9696-46cc-9a09-8dc49e511fad"}
+{"ts":"2026-10-16T01:03:56.547Z","level":"info","msg":"Agent orchestration resolution","subsystem":"executor.streamChat.setup","userMessage":"![agent:scratchpad-autowire-test-agent] help me","agents":["scratchpad-autowire-test-agent"],"teams":[],"depth":0}
+{"ts":"2026-10-16T01:03:56.549Z","level":"info","msg":"Injected orchestration tools","subsystem":"executor.streamChat.setup","agents":["scratchpad-autowire-test-agent"],"toolCount":8}
+
+ 1 pass
+ 0 fail
+ 6 expect() calls
+Ran 1 test across 1 file. [974.00ms]

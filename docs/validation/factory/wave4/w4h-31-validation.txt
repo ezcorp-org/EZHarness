@@ -1,0 +1,83 @@
+# validator-8: W4H-31 hold re-run (try 2) VERIFIED (2026-10-16): OK TO PUBLISH 390c49a90 via launch.sh publish
+Record: w00/w4h-merge/w4h-31-sync-main-934531e2e/heavy-batch.log, section "=== heavy 2026-10-16T00:39:09Z" to the end (try 1,
+22:30Z, released the lock at 23:48Z with exit 75 on an in-lock gate red and re-queued; it is not judged).
+1. heavy.exit = 0; "HEAVY DONE status=0 dirty=0 2026-10-16T02:45:15Z"; HEAD 390c49a90 (index tree 9da7bea9c); config hash
+   8841afbedf4c59d8 = the accepted baseline at start and end; no .host-fault file; no RELEASE, GAVE UP or HOST-FAULT line.
+2. 906 legs started, 906 ended, none skipped. Exactly 5 non-zero: the four list-bound files (exit 97, "0 pass 0 fail",
+   "NOT RUNNABLE, list-bound") and crap-changed-base (exit 1, "INFORMATIONAL (W4H-31 W-SYNC ...)", raw exit kept).
+3. Each list-bound leg names one file (one leg per file); the four files are byte-identical at b80a00f47, 934531e2e and
+   390c49a90: preview-dynamic-e2e.docker.test.ts e74a941b5, preview-uid-keystone.docker.test.ts e96f02b05,
+   task-stack-sdk-integration.test.ts 9b1b06b0d, todo-tracker-sdk-integration.test.ts 78878b00c.
+4. case-check (w4h26-invariant-cases, exit 0): 5 CASE PASS; both coverage sub-checks INFORMATIONAL with "not main's own 0" per
+   file, the same files and lines as rerun2 (which I cross-checked by blob equality). container-engine.test.ts 29/0 and
+   installer-core.test.ts 81/0 under the fixed tracer.
+5. W-SYNC: sync-base-leg (v3 d44bbd55bb717c2c) "files named 41; not main's own 0", no NOT-MAIN line; the main leg: gate-integrity
+   PASSED (0 findings), matched against w00/expected-integ-findings-vs-main.txt with sha256 e3b0c442... (the EMPTY file):
+   found = expected = none. script-changes-main-own exit 0. merge-commit-gates exit 0.
+6. Tooling in place for the run (mtimes before 00:39Z): leg-judge 16c38d52cc01c97f, heavy-lib 000cb68ac789d36e,
+   sync-base-leg d44bbd55bb717c2c, bash-line-cover 08d2107533834b01, identity-check ef09124c9d7360ed.
+Gate change G8: all 907 gate lines in try 2 have the OLD form (no "mem+swap" term); the new resource-gate.sh
+6d494b2772241dea, its test 860d5dd474c0f972, gated-flock.sh ddafd0a2eba47f2d, its test 45fa8ddd3c8ea978 and own-pg.sh
+364ec5affe6bfa9a were installed at 02:46:17Z (file change time; mv keeps the old mtime), after the last gate line (02:45:11Z)
+and HEAVY DONE (02:45:15Z); the installed hashes are the ones I verified (plan-gate.md 864cb9a585df9e40).
+ACCEPT at 9cc6fed78 stands (below); the merge 390c49a90 may be published.
+
+# validator-8: W4H-31 verdict addendum (2026-10-15T15:3xZ): ACCEPT STANDS; my sync-base-leg.py v1 had a parsing defect
+Defect (mine): v1 took paths only under src/web/packages/scripts/tests/extensions/worker. It read the two findings
+docs/extensions/examples/{task-stack,todo-tracker}/sandbox-load.test.ts with the docs/ prefix cut off, so it checked paths
+that do not exist. Those read as main's own by accident. A changed file under docs/ (or any other folder) would have passed
+as clean (proved by test case 2 on v1).
+Re-judgment with v3 (w4h-27-tools/sync-base-leg.py d44bbd55bb717c2c; test sync-base-leg.test.sh cce5670c77bcd1f9: v3 14/0,
+v1 9/5, two mutants killed; log w4h-27-tools/sbl-v3-run.log): the W4H-31 base log at 9cc6fed78 and at the merge 390c49a90
+names 41 files, 0 not main's own. The two docs tests are deleted at main 934531e2e and at the merge: main's own deletions.
+The count 41 was right; two of the 41 names were wrong. ACCEPT at 9cc6fed78 stands. The text below is unchanged.
+
+ACCEPT wp/w4h-31-sync-main-934531e2e at 9cc6fed78 (merge 456802a02 of main 934531e2e (#339 processSpawn) into integ b80a00f47, plus one test commit)
+
+validator-8, 2026-10-14. Plan plan-w4h-31.md 1efd9978b9c288b2. Owner report w4h-31/report.txt 25e282f5dbc856e0.
+
+- Identity: commits mode for the owner's two commits (the merge 456802a02 and 9cc6fed78): author and committer the noreply address.
+  Content mode for main's: 934531e2e authored by the noreply address, committed by GitHub (squash); the personal address 0
+  times in the merged diff and the messages.
+- Tree equality: every file equals one parent except nine: extension-runner client.ts, the orchestrator temporal-replay test,
+  coverage-thresholds.json, bundled.ts, extension-lifecycle-service.ts, host-launch-supervisor.ts and its test, the trusted-local
+  test and the PostgreSQL provisioning test. In the four resolved SOURCE files no line differs from both parents: every line is one
+  side's, verbatim (w4h-27-tools/resolution-lines.py).
+- Each resolved file keeps both sides: client.ts W4H-30's `agent: false` and #339's capabilities(); the replay test W4H-27's
+  byte-equality assert; host-launch-supervisor.ts #339's `processSpawn: FACTORY_GUEST_PROCESS_SPAWN` in startRequest (the one
+  runner.start at :302 and the reattach path at :260 both build from startRequest) and W4H-26's prepare() (the join entry before
+  any await, succeeded-only records, the stored-source refusal, the refused entry removed); bundled.ts and
+  extension-lifecycle-service.ts W4H-26's staging and release-blob reader on main's file.
+- Mutants on the merged code, all red: processSpawn dropped from startRequest (host-launch-supervisor.test; the Podman e2e suite
+  stays green under it because the factory policy is "allow", so the unit test is its killer); W4H-26 D6 x4 (peer tenant,
+  supervisor source digest, client artifact digest, product binding artifact); R6 x4 (T1 stored source, N6 failed build
+  recorded, N7 entry after an await, T1 refused entry kept); W4H-27 N1 (the before hook fails "bundle differs from the built
+  bundle", all cases cancelled).
+- Suites: #339's guards (extension-runner spawn-guard, spawn-guard-probe, service, client-connections 22; contract process-spawn
+  7; runner-worker-isolation proof and gate-scripts 262); the extension-runner package 133; W4H-26's host-launch-service 23,
+  host-launch-supervisor 22, supervisor-process 45, host-preparation-client 5, package-preparation 27, runtime-workers 23,
+  installation-startup 57, bundled-bootstrap-v4 9, trusted-local 5; the orchestrator Node suite 202; the invariant list all
+  green; PostgreSQL provisioning 64, package-preparation 27, console 27, package-fence 17 (my own PostgreSQL and storage).
+- Podman (EZCORP_RUN_PODMAN_TESTS=1, in the lock): supervisor-process 3, host-launch-e2e 1, host-launch-lost-result 1,
+  package-preparation 1, extension-runner podman 19, binary-assets 1, native-network 1, applied-controls 5, python-guest 12,
+  runner-worker-isolation proof 8 — all pass.
+- Real restart at 9cc6fed78 (v8-h4-real.ts, separate OS processes): first 1 build (artifact 0d7e7b6d28f8283a), second 0 builds
+  same artifact, control 1 build; failed build: 1 build, a new process builds it again, no record for it.
+- Gates: gate-integrity main (origin/main 934531e2e) exit 0, 0 findings (log sha256 b1a0297506aab4a1). The leg against the integ
+  parent b80a00f47 lists 37 test files deleted or gutted: all 37 equal main's own #339 versions exactly (the retired host
+  sandbox, merged and gated on main), none the owner's. Lint 0 errors and 0 warnings; typecheck exit 0 (in the lock at >= 12
+  GiB under the tc rule: the host stayed under 16 GiB for the lock-free path; lowest MemAvailable 10.4 GiB).
+- Disclosed: my first light hold's #339 runner-guard leg had a missing step kind; it re-ran correctly in the heavy hold (22 pass).
+  The waiting light hold was stopped by pid before its typecheck (memory), and the typecheck ran in the lock.
+
+## Addendum (2026-10-14, after team-lead's W-SYNC ruling)
+- Correction: the processSpawn-dropped mutant stays green in the Podman e2e suite because a start with no policy is "deny"
+  (extension-runner podman.ts:735-736) and that suite's guest starts no process, so it still completes under "deny" — not, as
+  written above, because the policy is "allow". The killer is the owner's unit test in host-launch-supervisor.test.ts (a guest
+  this host starts or reattaches names the allow policy). The finding is unchanged.
+- W-SYNC binding items, as I read them: identity first (done); frozen installs with no drift (my setup's locks-byte-unchanged leg
+  green in every hold); main leg exactly 0 (yes); the N1 assert and processSpawn on every runner.start in host-launch-supervisor.ts
+  (yes); resolution lines covered (none exist: no line of a resolved source differs from both parents). "Gate-integrity base
+  clean": my leg against the integ parent b80a00f47 is NOT clean — it names 37 test files deleted or gutted, all 37 equal to main
+  934531e2e's own #339 versions (the retired host sandbox). For a sync of main that leg can only be clean if it excludes main's
+  own changes; I hold the ACCEPT on that reading and ask team-lead to confirm which base the binding leg means.

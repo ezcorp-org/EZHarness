@@ -1,0 +1,17 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/tool-executor-capability-handlers.test.ts:
+[ezcorp/fs] deprecated: extension "missing-ext" called the path-check shim. Migrate to ezcorp/fs.read | write | list | stat | exists | mkdir | unlink (host-mediated; SDK helpers in @ezcorp/sdk/runtime). This shim is removed in milestone v2.
+{"ts":"2026-10-16T01:16:33.955Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:16:33.955Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/memory","extensionId":"te-cap","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:16:33.957Z","level":"info","msg":"reverse-RPC from a background fire with no resolvable owner — capability call skipped","subsystem":"ext.tool-executor","method":"ezcorp/memory","extensionId":"te-cap","kind":"event"}
+{"ts":"2026-10-16T01:16:33.957Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/memory","extensionId":"te-cap","tokenActorExtensionId":"some-other-ext"}
+{"ts":"2026-10-16T01:16:33.959Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:16:33.959Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/fs.read","extensionId":"te-cap","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:16:33.959Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:16:33.959Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/fs.read","extensionId":"te-cap","tokenActorExtensionId":null}
+
+ 27 pass
+ 0 fail
+ 38 expect() calls
+Ran 27 tests across 1 file. [1037.00ms]

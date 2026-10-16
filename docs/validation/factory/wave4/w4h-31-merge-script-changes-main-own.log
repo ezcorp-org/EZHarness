@@ -1,0 +1,18 @@
+MAIN-OWN scripts/check-seccomp-bpf-fresh.sh
+MAIN-OWN scripts/lib/container-engine.sh
+MAIN-OWN scripts/mcp-conntrack-soak-24h.sh
+MAIN-OWN scripts/podman-compose.sh
+MAIN-OWN scripts/security-coverage.sh
+MAIN-OWN scripts/setup-podman.sh
+MAIN-OWN scripts/shipping-audit-vm.sh
+MAIN-OWN scripts/stage2-raw-network-proof.sh
+MAIN-OWN scripts/start-extension-runner-e2e.sh
+MAIN-OWN scripts/start-real-extension-preview.sh
+MAIN-OWN scripts/verify-docker-image.sh
+MAIN-OWN scripts/verify-docker-upgrade.sh
+MAIN-OWN scripts/verify-extension-container.sh
+MAIN-OWN scripts/verify-factory-local-gpu.sh
+MAIN-OWN scripts/verify-shipping-production-suite.sh
+MAIN-OWN scripts/verify-shipping-runtime.sh
+MAIN-OWN src/extensions/mcp-launcher.sh
+files named 17; not main's own 0

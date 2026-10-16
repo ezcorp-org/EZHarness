@@ -1,0 +1,15 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:43.439Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T01:18:43.439Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-1","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:43.440Z","level":"warn","msg":"call-provenance resolve called with no ezCallId on the reverse-RPC","subsystem":"ext.call-provenance"}
+{"ts":"2026-10-16T01:18:43.440Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-1","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:43.440Z","level":"info","msg":"reverse-RPC from a background fire with no resolvable owner — capability call skipped","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-1","kind":"schedule"}
+{"ts":"2026-10-16T01:18:43.440Z","level":"info","msg":"reverse-RPC from a background fire with no resolvable owner — capability call skipped","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-1","kind":"event"}
+{"ts":"2026-10-16T01:18:43.440Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+{"ts":"2026-10-16T01:18:43.440Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-1","tokenActorExtensionId":null}
+{"ts":"2026-10-16T01:18:43.440Z","level":"error","msg":"reverse-RPC provenance unresolved — no valid host-issued ezCallId; failing fast","subsystem":"ext.tool-executor","method":"ezcorp/llm-complete","extensionId":"ext-B","tokenActorExtensionId":"ext-A"}
+
+ 14 pass
+ 0 fail
+ 44 expect() calls
+Ran 14 tests across 1 file. [438.00ms]

@@ -1,0 +1,19 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:16:55.625Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":105000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":135000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":45000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","idleMs":330000,"reason":"Watchdog: no activity for 330s — the computer may have been asleep or suspended for about 5 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":295000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":585000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","idleMs":910000,"reason":"Watchdog: no activity for 910s — the computer may have been asleep or suspended for about 15 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":80000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","idleMs":95000,"reason":"Watchdog: no activity for 95s — the computer may have been asleep or suspended for about 1 min during this run, which can interrupt the model connection. Send your message again to retry."}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":185000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":235000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"warn","msg":"Watchdog: process may have been suspended","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","suspendedMs":45000}
+{"ts":"2026-10-16T01:16:55.626Z","level":"error","msg":"Watchdog tripped, interrupting run","subsystem":"executor.watchdog","runId":"run-reasoning-1","conversationId":"conv-reasoning-1","idleMs":310000,"reason":"Watchdog: no activity for 310s — the computer may have been asleep or suspended for about 5 min during this run, which can interrupt the model connection. Send your message again to retry."}
+
+ 4 pass
+ 0 fail
+ 12 expect() calls
+Ran 4 tests across 1 file. [499.00ms]

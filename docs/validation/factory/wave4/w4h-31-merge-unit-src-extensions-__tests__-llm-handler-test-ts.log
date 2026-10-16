@@ -1,0 +1,9 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:18:09.933Z","level":"warn","msg":"llm.complete failed","subsystem":"ext.llm-h-ext-1.capability","extensionId":"e00491e0-c4b5-480a-b46d-ad499f1a9b49","onBehalfOf":"3d9f4016-9ace-42b2-ac21-25329cab7d33","conversationId":"1fa1dd71-7897-4c5c-99a1-5196d961ae57","errorCode":"LLM_QUOTA_EXCEEDED","errorMessage":"calls-per-hour","provider":"anthropic","model":"claude-sonnet-4","durationMs":0}
+{"ts":"2026-10-16T01:18:09.938Z","level":"warn","msg":"llm.complete failed","subsystem":"ext.llm-h-ext-1.capability","extensionId":"e00491e0-c4b5-480a-b46d-ad499f1a9b49","onBehalfOf":"3d9f4016-9ace-42b2-ac21-25329cab7d33","conversationId":"1fa1dd71-7897-4c5c-99a1-5196d961ae57","errorCode":"LLM_CREDENTIAL_MISSING","errorMessage":"BYOK key missing","provider":"anthropic","model":"claude-sonnet-4","durationMs":0}
+{"ts":"2026-10-16T01:18:09.941Z","level":"warn","msg":"llm.complete failed","subsystem":"ext.llm-h-ext-1.capability","extensionId":"e00491e0-c4b5-480a-b46d-ad499f1a9b49","onBehalfOf":"3d9f4016-9ace-42b2-ac21-25329cab7d33","conversationId":"1fa1dd71-7897-4c5c-99a1-5196d961ae57","errorCode":"LLM_PROVIDER_ERROR","errorMessage":"upstream timeout","provider":"anthropic","model":"claude-sonnet-4","durationMs":0}
+
+ 20 pass
+ 0 fail
+ 63 expect() calls
+Ran 20 tests across 1 file. [954.00ms]

@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:08:28.939Z","level":"warn","msg":"call-provenance resolve miss — token unknown or already released","subsystem":"ext.call-provenance","liveEntries":0}
+
+ 5 pass
+ 0 fail
+ 10 expect() calls
+Ran 5 tests across 1 file. [462.00ms]

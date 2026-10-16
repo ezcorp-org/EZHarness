@@ -1,0 +1,30 @@
+CRAP: --changed against b80a00f4785628ec5f6017ae884aed32f225a2dd → 63 measured file(s) in diff
+
+CRAP: 218 functions in 63 files (max 30, warn 15)
+
+Worst 15:
+    156.0  cc= 12 cov=  0%  web/src/lib/server/security/openai-extension-creds.ts:67 resolveOpenAIAccessToken
+     48.3  cc=  7 cov=  6%  web/src/lib/server/security/internal-auth.ts:137 provisionInternalKey
+     44.7  cc=  7 cov=  8%  web/src/lib/server/security/internal-auth.ts:204 verifyInternalKey
+     26.0  cc= 26 cov=100%  src/extensions/release-process.ts:170 <anonymous@170>
+     25.0  cc= 25 cov=100%  src/startup/background-timers.ts:154 startBackgroundTimers
+     23.0  cc= 23 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:711 startExecution
+     23.0  cc= 23 cov=100%  src/factory/provisioning/local.ts:190 <anonymous@190>
+     22.0  cc= 22 cov= 98%  src/runtime/stream-chat/setup-tools.ts:1789 <anonymous@1789>
+     22.0  cc= 22 cov=100%  src/startup/background-timers.ts:716 stopBackgroundTimers
+     20.0  cc= 20 cov=100%  packages/@ezcorp/extension-runner/src/podman.ts:334 probeSecurity
+     20.0  cc= 20 cov=100%  packages/@ezcorp/extension-runner/src/python.ts:140 build
+     20.0  cc= 20 cov=100%  src/extensions/release-process.ts:106 execute
+     19.0  cc= 19 cov=100%  src/extensions/extension-lifecycle-service.ts:71 verifyExtensionCandidate
+     18.0  cc= 18 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:116 startRunnerService
+     18.0  cc= 18 cov=100%  packages/@ezcorp/extension-runner/src/service.ts:229 dispatch
+
+14 function(s) above the warn line (not failing).
+
+✗ 3 function(s) you touched are over CRAP 30:
+    156.0  cc= 12 cov=  0%  web/src/lib/server/security/openai-extension-creds.ts:67 resolveOpenAIAccessToken
+     48.3  cc=  7 cov=  6%  web/src/lib/server/security/internal-auth.ts:137 provisionInternalKey
+     44.7  cc=  7 cov=  8%  web/src/lib/server/security/internal-auth.ts:204 verifyInternalKey
+
+  fix: add tests for the uncovered lines (the (1-cov)^3 term falls fastest),
+       or split the function (lowers the comp^2 term). Report: coverage/quality/crap.json

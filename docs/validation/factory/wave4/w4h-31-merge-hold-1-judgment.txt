@@ -1,0 +1,37 @@
+W4H-31 hold judgment (integrator-5, 2026-10-15). Merge 390c49a90 = b80a00f47 + main 934531e2e (W-SYNC).
+Recorded logs: heavy-batch.log bf58dfc6db412973; heavy-w4h26-invariant-cases.log 72a361fc51445cc5; heavy.exit = 1 (raw, kept).
+Rulings: R1 = team-lead 2026-10-15 ruling 1 (four not-runnable files, list-bound by path); R2 = ruling 2 (case-check v7 coverage sub-checks INFORMATIONAL for main's own lines; by-name cases binding);
+  WS = standing W-SYNC form (MCG_COVERAGE_INFORMATIONAL: patch, new-file, CRAP informational; base leg by sync-base-leg.py).
+Line ownership: a line is main's own when it is NOT on the + side of `git diff -U0 934531e2e 390c49a90` for its file.
+
+RED LEGS (6), raw exits kept:
+- unit-src-__tests__-preview-dynamic-e2e-docker-test-ts exit=97 (zero tests ran) -> NOT RUNNABLE, list-bound [R1]: src/__tests__/preview-dynamic-e2e.docker.test.ts: Docker-only (DOCKER_TEST=1); Podman rule, not runnable here. Unchanged by the merge (same blob at b80a00f47, 934531e2e, 390c49a90). Does not set the status.
+- unit-src-__tests__-preview-uid-keystone-docker-test-ts exit=97 (zero tests ran) -> NOT RUNNABLE, list-bound [R1]: src/__tests__/preview-uid-keystone.docker.test.ts: Docker-only (DOCKER_TEST=1); Podman rule, not runnable here. Unchanged by the merge (same blob at b80a00f47, 934531e2e, 390c49a90). Does not set the status.
+- unit-src-__tests__-task-stack-sdk-integration-test-ts exit=97 (zero tests ran) -> NOT RUNNABLE, list-bound [R1]: src/__tests__/task-stack-sdk-integration.test.ts: describe.skip in source; never runs. Unchanged by the merge (same blob at b80a00f47, 934531e2e, 390c49a90). Does not set the status.
+- unit-src-__tests__-todo-tracker-sdk-integration-test-ts exit=97 (zero tests ran) -> NOT RUNNABLE, list-bound [R1]: src/__tests__/todo-tracker-sdk-integration.test.ts: describe.skip in source; never runs. Unchanged by the merge (same blob at b80a00f47, 934531e2e, 390c49a90). Does not set the status.
+- w4h26-invariant-cases exit=1 (case-check.sh d3fdc21d487a58b5, v7). Its exit has four sources:
+  a) by-name cases 5/5 PASS -> BINDING, GREEN [R2].
+  b) 'changed test lines NOT all covered' -> INFORMATIONAL only where every uncovered line is main's own [R2]:
+     packages/@ezcorp/extension-runner/tests/spawn-guard.test.ts: uncovered 1; not main's own 0 -> informational
+     src/__tests__/extension-lifecycle-service-trusted-local.test.ts: uncovered 1; not main's own 0 -> informational
+     src/__tests__/installer-core.test.ts: uncovered 2; not main's own 0 -> informational
+     src/__tests__/runner-worker-isolation.proof.test.ts: uncovered 69; not main's own 0 -> informational
+     src/extensions/__tests__/schedule-handler.test.ts: uncovered 4; not main's own 0 -> informational
+  c) 'changed bash lines NOT all executed' -> INFORMATIONAL only where every missed line is main's own [R2]:
+     scripts/start-extension-runner-e2e.sh: missed 2; not main's own 0 -> informational
+     scripts/start-real-extension-preview.sh: missed 2; not main's own 0 -> informational
+     scripts/verify-docker-upgrade.sh: missed 2; not main's own 0 -> informational
+     scripts/verify-extension-container.sh: missed 2; not main's own 0 -> informational
+     scripts/verify-factory-local-gpu.sh: missed 2; not main's own 0 -> informational
+     scripts/verify-shipping-runtime.sh: missed 3; not main's own 0 -> informational
+  d) 'RED:' test files under case-check's tracer: src/__tests__/container-engine.test.ts, src/__tests__/installer-core.test.ts -> RULING NEEDED. Root cause (reproduced): the tracer
+     w4h-24-web-shard-timeout/bash-trace-env.sh sets PS4='+i5|${BASH_SOURCE[0]}|${LINENO}| '; in a `bash -c` shell BASH_SOURCE[0] is unset, so a
+     script under `set -u` aborts ('BASH_SOURCE[0]: unbound variable', exit 1). The same files are GREEN in the hold's binding unit legs:
+     unit-src-__tests__-container-engine-test-ts: exit=0  29 pass 0 fail
+     unit-src-__tests__-installer-core-test-ts: exit=0  81 pass 0 fail
+     Re-run 2026-10-15 ~21:2xZ: plain 29 pass/0 fail and 81/0; under the tracer 28/1 and 22/59.
+- crap-changed-base exit=1 -> INFORMATIONAL [WS]; the hold already recorded it as not setting the status.
+
+BINDING legs green: resolution-checks, resolution-patch, script-changes-main-own, merge-commit-gates (main 0 vs EMPTY expected; base by sync-base-leg 41 files, 0 not main's own), by-name cases 5/5.
+Items not covered by a ruling: 2.
+JUDGMENT: PENDING: 2 item(s) need a ruling (see d). Not published.

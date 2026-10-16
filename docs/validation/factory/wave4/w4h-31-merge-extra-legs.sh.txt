@@ -1,0 +1,42 @@
+# W4H-31 (integrator-5; DRAFT plan form 2026-10-14, for the coordinator's word): the W-SYNC of origin/main 934531e2e (PR 339: processSpawn on
+# every runner.start caller incl. the factory sites via FACTORY_GUEST_PROCESS_SPAWN; a spawn guard in extension-runner's podman.ts,
+# python.ts and supervisor.ts; 344 files) into integ/w00, resolved by w4h-26 (text conflicts: src/factory/runner/host-launch-supervisor.ts
+# and packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts; W4H-26's runner files). hold-w4f.sh runs: the hook suites (the
+# full-run form), the importers of every changed source (reprep.sh --importers), unit.extra.txt (W4H-26's W09 startup set + the PR 339
+# spawn-guard suites that run without Podman), the 51 invariant tests, pg.extra.txt (W4H-26's PostgreSQL suites) on an own pg15, the guard
+# set, the orchestrator package test + Node producer (factory-orchestrator changed), the web lib vitest legs for changed web tests, CRAP and
+# the merge gates (origin/main leg = 0). Beyond those:
+# The coordinator's ruling (2026-10-14): patch, new-file and CRAP INFORMATIONAL over PR 339's 344 files (main's own merged content on a
+# partial lcov); BINDING: gate-integrity base clean, the origin/main (934531e2e) leg exactly 0, and the resolution-lines patch check below.
+export MCG_COVERAGE_INFORMATIONAL="W4H-31 W-SYNC of main 934531e2e (PR 339, 344 files): main's own content measured on a partial lcov; the resolution lines bind (resolution-patch leg)"
+# The W-SYNC base-leg ruling (team-lead 2026-10-14 22:46Z): merge-commit-gates.sh judges the gate-integrity base leg with validator-8's
+# sync-base-leg.py (w00 copy bef5b8e9007b1247): clean iff every named file is byte-identical at the merge and at main 934531e2e.
+export SYNC_BASE_MAIN=934531e2e9e8fd0c3c97e48527d545ca3476eb5e
+# Script changes (bash-line-cover rule): the 17 changed shell scripts (script-changes.txt) must all be main's own content (coverage over main's
+# files is INFORMATIONAL); the same tool on that list goes red if one differs from main, and then that script needs a bash-line-cover leg.
+NOTEST=1 leg script-changes-main-own python3 /tmp/factory-platform-evidence/w00/sync-base-leg.py /tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/script-changes.txt "$M" "$SYNC_BASE_MAIN"
+tc_leg typecheck-all bun run typecheck
+# - W4H-26's producers, switched on by the diff as CI runs them:
+touches '^src/factory/(package-preparation|runtime-workers)\.ts|^src/db/migrations/add-factory-package-preparations' && leg pkgprep-producer env COV_OUT=$REPO/$C/pkgprep bash scripts/factory-package-preparation-coverage.sh
+if touches '^src/factory/(runner/|reference-code/)'; then
+  NOTEST=1 leg runner-python-quality bash scripts/python-quality.sh all
+  leg runner-conformance bun test --timeout 120000 --coverage --coverage-reporter=lcov --coverage-dir=$C/runner-conformance ./src/factory/runner/native.integration.test.ts ./src/factory/runner/python-runner.integration.test.ts
+fi
+# - the Podman suites, EZCORP_RUN_PODMAN_TESTS=1 as cov-extras runs them (own containers, removed by the suites; one lcov leg each):
+#   W4H-26's supervisor, host-launch and package-preparation suites, and PR 339's spawn-guard suites that need Podman.
+for t in src/factory/runner/supervisor-process.podman.integration.test.ts src/factory/host-launch-e2e.podman.integration.test.ts src/factory/host-launch-lost-result.podman.integration.test.ts src/factory/package-preparation.podman.integration.test.ts \
+         packages/@ezcorp/extension-runner/tests/podman.integration.test.ts packages/@ezcorp/extension-runner/tests/binary-assets.integration.test.ts packages/@ezcorp/extension-runner/tests/native-network.integration.test.ts \
+         src/factory/runner/applied-controls.integration.test.ts src/factory/runner/python-guest.integration.test.ts src/__tests__/runner-worker-isolation.proof.test.ts; do
+  n=podman-$(basename $t .test.ts | tr '.' '-'); [ -f "$t" ] && leg "$n" env EZCORP_RUN_PODMAN_TESTS=1 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=$C/$n "./$t"
+done
+# - the extension-runner package suite via its own script (PR 339 changed podman.ts, python.ts, supervisor.ts):
+NOTEST=1 leg extension-runner-package-test bash -c 'cd packages/@ezcorp/extension-runner && exec bun run test'
+# - validator-8's binding asks (2026-10-14) on the two conflict-resolved files:
+#   (1) the temporal-replay N1 byte-equality assert survives; (2) every runner.start in host-launch-supervisor.ts passes a startRequest(...)
+#   value whose object carries processSpawn: FACTORY_GUEST_PROCESS_SPAWN (resolution-checks.py, tested on main's and integ's files and on
+#   three mutants); W4H-26's prepare() invariants BY NAME through case-check.sh (warn-cases.txt: the join test, T1, N6, N7).
+NOTEST=1 leg resolution-checks python3 /tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/resolution-checks.py "$REPO"
+NOTEST=1 leg w4h26-invariant-cases bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" /tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e
+# - LAST (after every lcov leg above, and the unit and pg legs before this file): the BINDING resolution-lines patch check: every
+#   instrumented line of the merge that is in NEITHER parent, in every file changed vs both parents, has hits > 0 (union of $C's lcov).
+NOTEST=1 leg resolution-patch python3 /tmp/factory-platform-evidence/w00/w4h-merge/w4h-31-sync-main-934531e2e/resolution-patch.py "$REPO" "$M" "$REPO/$C"

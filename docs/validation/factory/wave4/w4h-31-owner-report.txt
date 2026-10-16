@@ -1,0 +1,87 @@
+W4H-31 REPORT: merge main 934531e2e (#339 processSpawn) into integ/w00 (FROZEN)
+
+Branch wp/w4h-31-sync-main-934531e2e from integ/w00 b80a00f47. FROZEN head 9cc6fed78.
+- 456802a02: the merge commit. Its parents are b80a00f47 and 934531e2e.
+- 9cc6fed78: one test commit.
+Identity on both commits: archy 281643943+EZArchy@users.noreply.github.com, set with git config --worktree only.
+
+RESOLUTION (two text conflicts, each the union of both sides; logs/remerge-diff.txt shows only import lines)
+- src/factory/runner/host-launch-supervisor.ts: the W4H-26 preparation imports plus the #339
+  FACTORY_GUEST_PROCESS_SPAWN import. The one startRequest builder carries processSpawn: FACTORY_GUEST_PROCESS_SPAWN.
+  So the launch start and the reattach both name the factory guest policy.
+- packages/@ezcorp/factory-orchestrator/test/temporal-replay.test.ts: the #339 tracked createFactoryWorker wrapper
+  (import renamed createUntrackedFactoryWorker) plus the integ workflow-bundle import.
+- The W4H-26 behaviour is unchanged: digest checks, durable records, join and refusals. The D6 and R6 mutants show this below.
+
+START-SITE AUDIT (processSpawn is optional in the contract, so typecheck cannot find a missing site)
+- Every runner start and attach call in src, scripts and packages was found by search. Each names a policy:
+  attempt-runtime, supervisor.ts, host-launch-supervisor (start and attach), reference-data/pack, image-pack script,
+  extension-lifecycle-service (2), release-process.
+- integ/w00 added no runner start site of its own. Its new start() calls are deployment targets and hosts.
+- The supervisor preparation path calls runner.build, not start, so no process policy applies to it.
+- Leftover for the gate file, not changed here: scripts/__tests__/live/verify-factory-attempt-gpu.ts starts a guest
+  with no policy. Main has the same code. A runner that cannot enforce the guard refuses that start.
+
+RESULT
+- New test (9cc6fed78): a guest the host launch supervisor starts or reattaches sends processSpawn "allow". It passes at
+  the head (22/0). With the policy line removed from startRequest it goes red (21/1, logs/hls-mutant-no-policy.log).
+- D6 and R6 mutants of W4H-26 on the merged tree: 8 of 8 KILLED (mutants/d6-mutants.txt, mutants/r6-mutants.txt).
+- Merge commit hook, all mapped tests with the cap raised (EZ_PRECOMMIT_TEST_MAX=1000, nothing skipped), in the lock:
+  bun 123 files 0 fail; orchestrator node --test 101/0; vitest 29 files 480/0. Test commit hook 22/0.
+- extension-runner package (including the #339 spawn-guard, spawn-guard-probe and startup-probe tests): 133/0.
+- temporal-replay (node --test): 28/0. Supervisor units: host-launch-supervisor 22/0, host-launch-service 23/0,
+  supervisor-process 45/0, supervisor-services 29/0, supervisor-pool-client 10/0, attempt-runtime 18/0.
+- Final legs at 9cc6fed78, in one lock hold: supervisor.podman 2/0, supervisor-process.podman 3/0,
+  supervisor.integration 1/0, applied-controls.integration 5/0, python-guest.integration 12/0; guard set 518/0;
+  build:packages 0; typecheck 0 (tc_run in the lock).
+- Midpoint proof on the composed application at 9cc6fed78 (built web server, pool, host supervisor, Temporal, shared
+  PostgreSQL and S3, test provider): PASSED. The reference-code packages were staged, approved, activated and bound to
+  the project. snapshotRepository was bound and trusted, and the package-preparation role prepared it through the
+  supervisor. The receipt row's artifact and source digests equal the binding's. Product refusals: none.
+- Lint 0. Gate-integrity 0 on both legs: BASE_REF=origin/main (934531e2e) and the default.
+- Coverage: the merge resolution adds no executable line (imports only). The test commit changes only a test file:
+  patch and new-file gates at BASE_REF=456802a02 PASSED (vacuous).
+
+TRIES (disclosed)
+- Merge commit try 1 (19:38Z) exit 1: the worktree lacked web/.svelte-kit, because of the --ignore-scripts install
+  without `svelte-kit sync`. 3 web bun files could not resolve $lib, and vitest stopped with "Tsconfig not found".
+  The fix: sync. The gated scripts now sync before any test if the directory is missing. Try 2 was green.
+- Proof try 1 harness error at stack.ts:282: my env.sh lacked EZCORP_FACTORY_STORAGE_SECRETS_DIR. I added the line
+  from the W4H-26 env.sh without printing it. Try 2 passed.
+- Pre-existing note: 2 supervisor-services tests time out under Bun's 5 s default, before this merge too. They pass
+  at the project's 30 s timeout.
+
+EVIDENCE (sha256, first 16; under /tmp/factory-platform-evidence/w4h-31/)
+3fe2117669766d1e logs/remerge-diff.txt
+83d0d41c48317bc3 logs/hls-green.log
+35cbaae5f3abdd62 logs/hls-mutant-no-policy.log
+89806058bec23b03 mutants/d6-mutants.txt
+3d1b67746bd6cc6a mutants/r6-mutants.txt
+0bd9d036e09dc290 mutants/mutants.py
+9ed22157c5d7b667 mutants/r6-mutants.py
+bdc8bcccad254776 logs/commit-merge-try1.log
+419b1555ab414609 logs/commit-merge.log
+88346ba361caa32e logs/commit-test.log
+32eea1e374435bda logs/rerun-vitest.log
+c1d3f727d2783b1c logs/runner-pkg.log
+1b4119cfd9fef061 logs/temporal-replay.log
+d7829484ec3cf2e4 logs/final.log
+e44e6796f75f42c0 logs/guard.out
+cef17da655af2350 logs/typecheck.out
+a110260bf691328b logs/tc.log
+36d92af2a5d6649e logs/proof-midpoint.out
+91f1df245a04c141 logs/proof-midpoint-2.out
+1b296aa6bf02046e proof/midpoint-2.json
+dfa23bc4841f2c9b logs/lint.log
+b1a0297506aab4a1 logs/gi-origin_main.log
+b1a0297506aab4a1 logs/gi-default.log
+87af43374a7897e8 logs/check-patch-coverage-test-commit.log
+e28b0023d5751a32 logs/check-new-file-coverage-test-commit.log
+85c68671361c18ef commit-merge.sh
+3330ee4f60bcc2ac final.sh
+40c8b5e03b2d33c5 proof-only.sh
+14b5e4236e832407 chain.sh
+1c4f1a869710d0b3 merge-message.txt
+ce072b22e3199aa1 msg-test.txt
+a93b2f5b9c10dd9f journey.md
+e743067b4d1578fc pending-lesson.md

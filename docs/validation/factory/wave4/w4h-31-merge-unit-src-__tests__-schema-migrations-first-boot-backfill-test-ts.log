@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:13:28.862Z","level":"warn","msg":"runs.user_id ownership backfill failed (non-fatal, retried next boot)","subsystem":"db-migrate","error":"injected backfill failure"}
+
+ 6 pass
+ 0 fail
+ 12 expect() calls
+Ran 6 tests across 1 file. [3.73s]

@@ -1,0 +1,11 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:05:29.007Z","level":"warn","msg":"wire-authz: acting user not found — denying MCP wiring (fail-closed)","subsystem":"auth.extension-wire-authz","userId":"ghost"}
+{"ts":"2026-10-16T01:05:29.007Z","level":"warn","msg":"wire-authz: acting user is not active — denying MCP wiring (fail-closed)","subsystem":"auth.extension-wire-authz","userId":"frozen"}
+{"ts":"2026-10-16T01:05:29.007Z","level":"warn","msg":"wire-authz: user lookup failed — denying MCP wiring (fail-closed)","subsystem":"auth.extension-wire-authz","userId":"member-1","error":"users table unreachable"}
+{"ts":"2026-10-16T01:05:29.007Z","level":"warn","msg":"wire-authz: grant lookup failed — denying (fail-closed)","subsystem":"auth.extension-wire-authz","extension":"weather-mcp","error":"grants store unreachable"}
+{"ts":"2026-10-16T01:05:29.008Z","level":"warn","msg":"wire-authz: extension lookup failed — denying (fail-closed)","subsystem":"auth.extension-wire-authz","extensionId":"ext-mcp","error":"extensions table unreachable"}
+
+ 31 pass
+ 0 fail
+ 66 expect() calls
+Ran 31 tests across 1 file. [454.00ms]

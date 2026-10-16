@@ -1,0 +1,21 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T01:15:00.396Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-model","provider":"anthropic","model":"mode-opus-4"}
+{"ts":"2026-10-16T01:15:00.397Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-model","provider":"anthropic","model":"mode-opus-4"}
+{"ts":"2026-10-16T01:15:00.397Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-tier","tier":"powerful"}
+{"ts":"2026-10-16T01:15:00.397Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-tier","tier":"powerful"}
+{"ts":"2026-10-16T01:15:00.397Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-tier","tier":"fast"}
+{"ts":"2026-10-16T01:15:00.398Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"classifier","provider":"openai"}
+{"ts":"2026-10-16T01:15:00.399Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-tier","provider":"anthropic","tier":"balanced"}
+{"ts":"2026-10-16T01:15:00.400Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"classifier","provider":"anthropic"}
+{"ts":"2026-10-16T01:15:00.400Z","level":"warn","msg":"mode routing preference read failed — mode contributes no model or tier this turn","subsystem":"executor.streamChat.setup","modeId":"mode-1","err":"modes table unavailable"}
+{"ts":"2026-10-16T01:15:00.401Z","level":"warn","msg":"mode routing preference read failed — mode contributes no model or tier this turn","subsystem":"executor.streamChat.setup","modeId":"mode-1","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.401Z","level":"warn","msg":"exploration-rate read failed — exploration off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.401Z","level":"warn","msg":"routing-shadow read failed — shadow mode off this turn","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.401Z","level":"warn","msg":"routing-config provenance read failed — routing unaffected","subsystem":"executor.streamChat.setup","err":"settings table unavailable"}
+{"ts":"2026-10-16T01:15:00.401Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"mode-model","provider":"anthropic","model":"mode-opus-4"}
+{"ts":"2026-10-16T01:15:00.402Z","level":"info","msg":"mode routing binding applied","subsystem":"executor.streamChat.setup","modeId":"mode-1","source":"classifier"}
+
+ 15 pass
+ 0 fail
+ 40 expect() calls
+Ran 15 tests across 1 file. [503.00ms]
