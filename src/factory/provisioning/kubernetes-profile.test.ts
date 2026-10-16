@@ -19,6 +19,7 @@ import {
   type FactoryKubernetesSettings,
 } from "./kubernetes-profile";
 import { factoryPrometheusRuleResource } from "../observability/alert-rules";
+import { FACTORY_PROMETHEUS_JOBS } from "../observability/prometheus-config";
 
 const SETTINGS: FactoryKubernetesSettings = {
   fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system", ingressClassName: "nginx", ingressNamespace: "ingress-nginx",
@@ -284,5 +285,15 @@ describe("the hosted evaluator's objects (C11, W4H-34)", () => {
     const endpoint = (monitor!.spec as { podMetricsEndpoints: Array<{ port: string; bearerTokenSecret: unknown; relabelings: Array<{ targetLabel: string; replacement: string }> }> }).podMetricsEndpoints[0]!;
     expect([endpoint.port, endpoint.relabelings.find((label) => label.targetLabel === "job")!.replacement]).toEqual(["pool-metrics", "factory-pool"]);
     expect(kind(system, "Secret").map((object) => (object.metadata as { name: string }).name)).toContain("factory-metrics-scrape");
+  });
+
+  test("every factory service has exactly one scrape job, the supervisor included (F3)", () => {
+    const jobs = [...kind(objects, "PodMonitor"), ...kind(system, "PodMonitor")].flatMap((monitor) => (monitor.spec as { podMetricsEndpoints: Array<{ relabelings: Array<{ targetLabel: string; replacement: string }> }> }).podMetricsEndpoints
+      .map((endpoint) => endpoint.relabelings.find((label) => label.targetLabel === "job")!.replacement));
+    expect(jobs.sort()).toEqual([...FACTORY_PROMETHEUS_JOBS].sort());
+    const supervisor = kind(system, "PodMonitor").find((monitor) => (monitor.metadata as { name: string }).name === "factory-supervisor")!;
+    expect((supervisor.spec as { selector: unknown }).selector).toEqual({ matchLabels: { "app.kubernetes.io/name": "factory-supervisor" } });
+    const daemon = podSpec(kind(system, "DaemonSet")[0]!) as unknown as { containers: Array<{ ports?: Array<{ name: string; containerPort: number }> }> };
+    expect(daemon.containers[0]!.ports).toContainEqual({ name: "supervisor-metrics", containerPort: bundle.host.ports.supervisorMetrics });
   });
 });

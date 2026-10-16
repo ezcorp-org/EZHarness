@@ -91,7 +91,6 @@ const restrictedContainer = (runAsUser: number) => ({
   capabilities: { drop: ["ALL"] }, seccompProfile: { type: "RuntimeDefault" },
 });
 
-/** Every object one installation needs, in apply order. No Secret carries data: they are created from files. */
 /** The Secret every PodMonitor reads the fleet's scrape token from; created from the host's token file, like every Secret here. */
 export const FACTORY_KUBERNETES_METRICS_SECRET = "factory-metrics-scrape";
 
@@ -110,6 +109,7 @@ function metricsEndpoint(port: string, service: string, tenant?: string): Record
 /** Each tenant process's `/metrics` port name; at most 15 characters, as a container port name must be. */
 const METRICS_PORT_NAMES = Object.freeze({ harness: "harness-metrics", gateway: "gateway-metrics", orchestrator: "orch-metrics" } as const);
 
+/** Every object one installation needs, in apply order. No Secret carries data: they are created from files. */
 export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationBundle, settings: FactoryKubernetesSettings): readonly FactoryKubernetesObject[] {
   const namespace = factoryKubernetesNamespace(bundle);
   const metricsPorts = { harness: bundle.ports.harnessMetrics, gateway: bundle.ports.gatewayMetrics, orchestrator: bundle.ports.orchestratorMetrics } as const;
@@ -223,7 +223,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
 }
 
 /** The fleet's system namespace: the shared pool, the supervisor DaemonSet, and nothing tenant-scoped. */
-export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, ports: { readonly pool: number; readonly poolMetrics: number }): readonly FactoryKubernetesObject[] {
+export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, ports: { readonly pool: number; readonly poolMetrics: number; readonly supervisorMetrics: number }): readonly FactoryKubernetesObject[] {
   const namespace = settings.systemNamespace;
   const poolPort = ports.pool;
   const common = { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": settings.fleetId };
@@ -269,14 +269,18 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
       },
     },
     { apiVersion: "v1", kind: "Service", metadata: { name: "factory-pool", namespace, labels: common }, spec: { selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: poolPort, targetPort: poolPort }] } },
-    // C11: the alert rules for the platform's Prometheus operator, and the shared pool's scrape. The supervisor
-    // binds its /metrics on host loopback (gap hosted-supervisor-metrics-address, tasks/factory/w4h-34-GATES.md), so the
-    // target-down rule names it until the supervisor's address gap is closed.
+    // C11: the alert rules for the platform's Prometheus operator, and the scrapes of the shared pool and the
+    // supervisor. The supervisor binds its /metrics on host loopback today (gap hosted-supervisor-metrics-address,
+    // tasks/factory/w4h-34-GATES.md): its up series exists and reads 0, so FactoryMetricsTargetDown names it.
     factoryPrometheusRuleResource(namespace, common),
     { apiVersion: "v1", kind: "Secret", metadata: { name: FACTORY_KUBERNETES_METRICS_SECRET, namespace, labels: common }, type: "Opaque" },
     {
       apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-pool", namespace, labels: common },
       spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-pool" } }, podMetricsEndpoints: [metricsEndpoint("pool-metrics", "pool")] },
+    },
+    {
+      apiVersion: "monitoring.coreos.com/v1", kind: "PodMonitor", metadata: { name: "factory-supervisor", namespace, labels: common },
+      spec: { selector: { matchLabels: { "app.kubernetes.io/name": "factory-supervisor" } }, podMetricsEndpoints: [metricsEndpoint("supervisor-metrics", "supervisor")] },
     },
     {
       apiVersion: "apps/v1", kind: "DaemonSet", metadata: { name: "factory-supervisor", namespace, labels: common },
@@ -289,6 +293,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             serviceAccountName: "factory-supervisor", automountServiceAccountToken: false, hostNetwork: true, nodeSelector: { ...settings.nodeSelector },
             containers: [{
               name: "supervisor", image, imagePullPolicy: "IfNotPresent",
+              ports: [{ name: "supervisor-metrics", containerPort: ports.supervisorMetrics }],
               command: ["bun", "src/factory/runner/supervisor-process.ts", "/run/ezcorp/host-identity/supervisor.json"],
               env: [{ name: "CONTAINER_HOST", value: `unix://${settings.runtimeSocketPath}` }],
               // The ONE privileged workload: it alone reaches the container runtime.
