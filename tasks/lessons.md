@@ -2362,6 +2362,20 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   chain after a loss, sweep every source and call line of the chain's scripts for missing files; a precondition check
   of tree, config and pins is not enough (the 2026-10-16 07:55Z cleanup; ruled 2026-10-16).
 
+#### The docs round of 2026-10-16 (inbox before launch; W4H-33 pending-lesson 15 and the coordinator's ruling)
+- Owner: one gated job per tool call, waited for in the foreground. Read the inbox before the next launch: a message
+  that arrives during a job changes what the next launch is. Never launch on the lock from inside a tool call that
+  cannot read the inbox (a loop, a chained script). While a merge hold is pending, an owner launches nothing on the lock
+  without the coordinator's word. Stop your own jobs by pid, parent first (the pid-only lesson above), and kill a
+  process list only in bash, because zsh does not split "$LIST" into words; record the results of a withdrawn change as
+  withdrawn and discarded. A watcher that wakes a person is keyed on a file's existence, contents or exit value, never on
+  its modification time. Trigger: on 2026-10-16 (about 14:00Z to 14:37Z) W4H-33's owner launched a chain of gated jobs
+  inside one long tool call (four in the chain; the owner's record counts three launched after the withdrawal); the
+  coordinator's pause and the withdrawal of the change arrived after the chain was queued; the jobs reached the heavy
+  lock one after another for a change that no longer existed, and the last one stood in front of a merge chain; the
+  owner stopped every job by pid, parent first, and discarded all four results (W4H-33 pending-lesson 15; ruled
+  2026-10-16).
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
