@@ -6338,9 +6338,14 @@ Review: the brief's "move the registration" had no registration to move; the pro
 
 ## W4H-32 — a missing runner artifact is rehydrated from the product's own copy (branch `wp/w4h-32-runner-rehydrate` from integ/w00 390c49a90; gates `tasks/factory/w4h-32-GATES.md`)
 
-- [ ] Contract rows: C05 "Rehydrate a missing runner artifact (W4H-32)"; C10 amendment (activation recovers; a rebuild is never an error handler).
-- [ ] Runner: restoreArtifact (digest checked, atomic, idempotent) through the contract, the PodmanRunner, the service route and the client; a start refused for a missing artifact registers no worker.
-- [ ] Host: one rehydrating wrapper around the product runner (release record required, blob digest verified, one join per digest, exactly one retry, named refusal artifact_unrecoverable).
-- [ ] Readiness: non-blocking warnings {code, artifactDigest, count}.
-- [ ] Package preparation: build only on the supervisor's "not built yet"; any other artifact read error refuses by name.
-- [ ] Two-boot test on a kept store; mutants; static legs; heavy legs through gated-flock; freeze.
+- [x] Contract rows: C05 "Rehydrate a missing runner artifact (W4H-32)"; C10 amendment (activation recovers; a rebuild is never an error handler).
+- [x] Runner: restoreArtifact (digest checked, atomic, idempotent) through the contract, the PodmanRunner, the service route and the client; a start refused for a missing artifact registers no worker.
+- [x] Host: one rehydrating wrapper around the product runner (release record required, blob digest verified, one join per digest, exactly one retry, named refusal artifact_unrecoverable).
+- [x] Readiness: non-blocking warnings {code, artifactDigest, count}.
+- [x] Package preparation: build only on the supervisor's "not built yet"; any other artifact read error refuses by name.
+- [x] Two-boot test on a kept store; mutants; static legs; heavy legs through gated-flock; freeze.
+
+Review: the product now recovers real-8's failure by construction: one wrapped product runner restores a lost release artifact from the release
+blobs (release record named, digest checked twice, one join, one retry) and says so in readiness; package preparation no longer hides runner
+faults behind a rebuild. Rulings applied: no temp-store refusal; per-process warning count; only the supervisor's not-built answer builds; the
+restore route takes one store-bounded artifact (160 MiB). Leftover: the factory host supervisor's own store has no rehydration (team-lead list).
