@@ -425,6 +425,41 @@ describe("startFactoryInstallation", () => {
     });
   });
 
+  test("a hosted document reads the shared pool's and supervisor's records from their routes (W4H-35)", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const absent = join(root, "absent");
+    const hosted = {
+      hostReadiness: "network", poolReadinessFilePath: undefined, supervisorReadinessFilePath: undefined,
+      hostLaunch: { baseUrl: "https://127.0.0.1:1", serverName: "localhost", attemptTokenSecretPath: absent, tls: { caPath: absent, certificatePath: absent, privateKeyPath: absent, serviceTokenPath: absent } },
+    };
+    const workers = { projections: { projectPending: async () => ({ runs: [] }) } };
+    const reports: string[] = [];
+    // Its transports' material cannot be read: the sources are not composed, the failure is reported, and both are unavailable.
+    await expect(startFactoryInstallation({
+      host: host({ report: (role) => { reports.push(role); } }), blobs: memoryBlobs(), databaseUrl: "postgres://product", signal: new AbortController().signal,
+      configPath: await writeConfig(root, hosted), boot: bootConfig(root), dependencies: { gateway: { health: async () => true }, workers },
+    })).rejects.toThrow(/pool-admission.*host-supervisor|host-supervisor.*pool-admission/s);
+    expect(reports).toContain("host-readiness-sources");
+    const ready = (record: () => unknown) => ({ read: async () => record() });
+    const startup = await startFactoryInstallation({
+      host: host(), blobs: memoryBlobs(), databaseUrl: "postgres://product", signal: new AbortController().signal,
+      configPath: await writeConfig(root, hosted), boot: bootConfig(root),
+      dependencies: {
+        gateway: { health: async () => true }, workers,
+        hostReadiness: {
+          pool: ready(() => ({ schemaVersion: "factory.pool-readiness.v2", poolId: "pool-01", lifecycle: "ready", observedAtMs: Date.now(), databaseReady: true, schemaReady: true, listenerReady: true })),
+          supervisor: ready(() => ({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: Date.now(), facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } })),
+        },
+      },
+    });
+    started.push(startup);
+    expect(startup.runtime.report().probes.filter((probe) => probe.service === "pool-admission" || probe.service === "host-supervisor")).toEqual([
+      { service: "pool-admission", available: true, detail: "ready" },
+      { service: "host-supervisor", available: true, detail: "ready" },
+    ]);
+  });
+
   test("keeps admission closed when the supervisor stops publishing", async () => {
     const root = await privateRoot();
     await writeReadyRecords(root);

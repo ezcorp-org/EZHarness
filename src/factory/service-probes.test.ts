@@ -8,10 +8,12 @@ import {
   availableFactoryServices,
   factoryGatewayProbe,
   factoryOrchestrationProbes,
+  factoryPoolNetworkProbe,
   factoryPoolProbe,
   factoryProbeDetail,
   factorySandboxProbe,
   factoryStorageProbe,
+  factorySupervisorNetworkProbe,
   factorySupervisorProbe,
   factorySupervisorReadinessProbe,
   FactoryServiceProbeError,
@@ -33,7 +35,10 @@ async function privateRoot(): Promise<string> {
   return directory;
 }
 
-function identity(root: string): FactoryProbeIdentity {
+/** A Compose installation's identity: both shared host records are files. */
+type FileProbeIdentity = FactoryProbeIdentity & { readonly poolReadinessFilePath: string; readonly supervisorReadinessFilePath: string };
+
+function identity(root: string): FileProbeIdentity {
   return {
     installationId: "installation-01",
     tenantId: "tenant-01",
@@ -238,7 +243,7 @@ describe("a pool and a supervisor shared by two installations (C12, coordinator 
     const supervisor = createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({ hostId: "host-a", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000 }));
     return supervisor.write({ lifecycle: "ready", facts });
   }
-  const installation = (root: string, installationId: string, tenantId: string): FactoryProbeIdentity => ({ ...identity(root), installationId, tenantId, poolId: "pool.host-a", hostId: "host-a" });
+  const installation = (root: string, installationId: string, tenantId: string): FileProbeIdentity => ({ ...identity(root), installationId, tenantId, poolId: "pool.host-a", hostId: "host-a" });
 
   test("both installations reach ready on one pool record and one supervisor record, which name no installation", async () => {
     const root = await privateRoot();
@@ -260,6 +265,37 @@ describe("a pool and a supervisor shared by two installations (C12, coordinator 
       { service: "pool-admission", available: false, detail: "factory_pool_unavailable" },
       { service: "host-supervisor", available: false, detail: "host-supervisor" },
     ]);
+  });
+});
+
+describe("the hosted profile reads the shared records from their own routes (W4H-35)", () => {
+  const facts = { hostKeyReady: true, runnerReady: true, hostServicesReady: true };
+  const pool = (now: number, poolId = "pool.host-a") => ({ schemaVersion: "factory.pool-readiness.v2", poolId, lifecycle: "ready", observedAtMs: now, databaseReady: true, schemaReady: true, listenerReady: true });
+  const supervisor = (now: number, instanceId = "host-a") => ({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId, lifecycle: "ready", observedAtMs: now, facts });
+  const scope = { poolId: "pool.host-a", hostId: "host-a", readinessHeartbeatMs: 5_000 };
+  const source = (value: unknown) => ({ read: async (_signal: AbortSignal) => { if (value instanceof Error) throw value; return value; } });
+
+  test("a fresh ready record for the exact pool and host is available, judged as the files are", async () => {
+    const now = Date.now();
+    expect(await probeFactoryServices([factoryPoolNetworkProbe(scope, source(pool(now))), factorySupervisorNetworkProbe(scope, source(supervisor(now)))], open)).toEqual([
+      { service: "pool-admission", available: true, detail: "ready" },
+      { service: "host-supervisor", available: true, detail: "ready" },
+    ]);
+  });
+
+  test("a foreign, stale or unreadable record, or a route that fails, is the same refusal as the file probe's", async () => {
+    const now = Date.now();
+    for (const [poolSource, supervisorSource] of [
+      [source(pool(now, "pool.host-b")), source(supervisor(now, "host-b"))],
+      [source(pool(now - 60_000)), source(supervisor(now - 60_000))],
+      [source("not a record"), source(null)],
+      [source(new Error("connection refused")), source(new Error("503 unavailable"))],
+    ] as const) {
+      expect(await probeFactoryServices([factoryPoolNetworkProbe(scope, poolSource), factorySupervisorNetworkProbe(scope, supervisorSource)], open)).toEqual([
+        { service: "pool-admission", available: false, detail: "factory_pool_unavailable" },
+        { service: "host-supervisor", available: false, detail: "host-supervisor" },
+      ]);
+    }
   });
 });
 

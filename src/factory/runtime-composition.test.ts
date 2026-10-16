@@ -223,6 +223,45 @@ describe("startFactoryRuntime keeps admission closed until every probe passes", 
   });
 });
 
+describe("a hosted document reads the shared pool and supervisor from their routes (W4H-35)", () => {
+  const hostLaunch = { baseUrl: "https://127.0.0.1:8446", serverName: "localhost", attemptTokenSecretPath: "/run/secrets/attempt-token", tls: { ...tlsMaterial, serviceTokenPath: "/run/secrets/host-token" } };
+  const hosted = (root: string) => {
+    const value = document(root, { hostReadiness: "network", hostLaunch });
+    delete value.poolReadinessFilePath;
+    delete value.supervisorReadinessFilePath;
+    return value;
+  };
+  const pool = () => ({ schemaVersion: "factory.pool-readiness.v2", poolId: "pool-01", lifecycle: "ready", observedAtMs: Date.now(), databaseReady: true, schemaReady: true, listenerReady: true });
+  const supervisor = () => ({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: "host-01", lifecycle: "ready", observedAtMs: Date.now(), facts: { hostKeyReady: true, runnerReady: true, hostServicesReady: true } });
+  const unavailable = () => (getReadiness().detail as { unavailable?: string[] }).unavailable ?? [];
+
+  async function boot(root: string, sources: FactoryRuntimeDependencies["hostReadiness"]) {
+    const controller = new AbortController();
+    const starting = startFactoryRuntime(hosted(root), "postgres://product", dependencies({ ...(sources === undefined ? {} : { hostReadiness: sources }) }), controller.signal, bootConfig(root));
+    await starting.then((runtime) => { started.push(runtime); }, () => undefined);
+  }
+
+  test("ready records on both routes pass both probes, whatever the in-process supervisor says", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const reads: string[] = [];
+    await boot(root, { pool: { read: async () => { reads.push("pool"); return pool(); } }, supervisor: { read: async () => { reads.push("supervisor"); return supervisor(); } } });
+    expect(reads).toEqual(["pool", "supervisor"]);
+    expect(unavailable().filter((entry) => entry.startsWith("pool-admission") || entry.startsWith("host-supervisor"))).toEqual([]);
+  });
+
+  test("a route that fails is unavailable even though a ready pool file exists, and a missing source is too", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const failing = { read: async () => { throw new Error("connection refused"); } };
+    for (const sources of [{ pool: failing, supervisor: failing }, undefined]) {
+      await boot(root, sources);
+      expect(unavailable()).toContain("pool-admission: factory_pool_unavailable");
+      expect(unavailable()).toContain("host-supervisor: host-supervisor");
+    }
+  });
+});
+
 describe("startFactoryRuntime opens admission only after the probes pass", () => {
   test("configures the application, starts the roles, and reports ready", async () => {
     const root = await privateRoot();

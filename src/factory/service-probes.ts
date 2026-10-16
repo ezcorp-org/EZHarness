@@ -25,8 +25,8 @@
  */
 import { FACTORY_REQUIRED_SERVICES, type FactoryBootConfig, type FactoryService } from "./boot";
 import { readFactoryOrchestrationReadiness } from "./orchestration-readiness";
-import { readFactoryPoolReadiness } from "./pool/readiness";
-import { factorySupervisorReadinessOptions, readFactoryServiceReadiness } from "./service-readiness";
+import { FactoryPoolReadinessError, readFactoryPoolReadiness, verifyFactoryPoolReadiness } from "./pool/readiness";
+import { FactoryServiceReadinessError, factorySupervisorReadinessExpectation, factorySupervisorReadinessOptions, readFactoryServiceReadiness, verifyFactoryServiceReadiness } from "./service-readiness";
 
 export interface FactoryServiceProbe {
   readonly service: FactoryService;
@@ -147,10 +147,17 @@ export interface FactoryProbeIdentity {
   readonly poolId: string;
   readonly temporalNamespace: string;
   readonly orchestrationReadinessFilePath: string;
-  readonly poolReadinessFilePath: string;
-  readonly supervisorReadinessFilePath: string;
+  /** Absent in the hosted profile, which reads the record from the pool's route. */
+  readonly poolReadinessFilePath?: string;
+  /** Absent in the hosted profile, which reads the record from the supervisor's route. */
+  readonly supervisorReadinessFilePath?: string;
   readonly hostId: string;
   readonly readinessHeartbeatMs?: number;
+}
+
+/** A shared host service's readiness route (the hosted profile, W4H-35): it returns the record as published. */
+export interface FactoryReadinessSource {
+  read(signal: AbortSignal): Promise<unknown>;
 }
 
 /** A byte round-trip through the store the product will actually use. The signal aborts a request that never answers. */
@@ -199,7 +206,7 @@ export function factoryOrchestrationProbes(identity: FactoryProbeIdentity): read
   return Object.freeze([probeOf("orchestration", read), probeOf("temporal", read)]);
 }
 
-export function factoryPoolProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
+export function factoryPoolProbe(identity: FactoryProbeIdentity & { readonly poolReadinessFilePath: string }): FactoryServiceProbe {
   return probeOf("pool-admission", async () => {
     // The pool is shared by every installation on its host: match the pool this installation names.
     await readFactoryPoolReadiness({
@@ -243,7 +250,7 @@ export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): Fa
  * C01 forbids it holding host identity, so the only honest signal is the record
  * the supervisor publishes about itself.
  */
-export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity): FactoryServiceProbe {
+export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity & { readonly supervisorReadinessFilePath: string }): FactoryServiceProbe {
   return probeOf("host-supervisor", async () => {
     // The supervisor is shared by every installation on its host: match the host this installation names.
     await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
@@ -265,5 +272,27 @@ export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity):
 export function factorySandboxProbe(config: Pick<FactoryBootConfig, "requireSandbox">): FactoryServiceProbe {
   return probeOf("required-sandbox", async () => {
     if (config.requireSandbox !== true) throw new FactoryServiceProbeError("required_sandbox_not_enforced");
+  });
+}
+
+/**
+ * The hosted profile's pool probe: the record comes from the pool's own
+ * readiness route and is judged exactly as the file is. A route that fails is
+ * the same refusal as a record that is not ready.
+ */
+export function factoryPoolNetworkProbe(identity: Pick<FactoryProbeIdentity, "poolId" | "readinessHeartbeatMs">, source: FactoryReadinessSource, clock: () => number = Date.now): FactoryServiceProbe {
+  return probeOf("pool-admission", async (signal) => {
+    let record: unknown;
+    try { record = await source.read(signal); } catch { throw new FactoryPoolReadinessError(); }
+    verifyFactoryPoolReadiness(record, { poolId: identity.poolId, ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }), source: "the pool's readiness route" }, clock());
+  });
+}
+
+/** The hosted profile's supervisor probe: its record from its own route, over the host launch transport. */
+export function factorySupervisorNetworkProbe(identity: Pick<FactoryProbeIdentity, "hostId" | "readinessHeartbeatMs">, source: FactoryReadinessSource, clock: () => number = Date.now): FactoryServiceProbe {
+  return probeOf("host-supervisor", async (signal) => {
+    let record: unknown;
+    try { record = await source.read(signal); } catch { throw new FactoryServiceReadinessError("host-supervisor"); }
+    verifyFactoryServiceReadiness(record, factorySupervisorReadinessExpectation(identity), clock());
   });
 }

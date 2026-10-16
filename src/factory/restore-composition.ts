@@ -12,7 +12,7 @@ import { S3FactoryReleaseArchive } from "./release-adapters";
 import { loadFactoryStorageCredentials } from "./release-composition";
 import type { FactoryReleaseOperation } from "./releases";
 import { FactoryRestore, S3FactoryObjectVersionProbe, type FactoryRestoreFence, type FactoryRestoreOptions } from "./restore";
-import type { FactoryStartupConfig } from "./startup-config";
+import { factoryStartupPoolTransport, type FactoryStartupConfig } from "./startup-config";
 import { factoryStopHostKeyMap, type FactoryPhysicalStopper } from "./task-stops";
 
 /**
@@ -51,7 +51,7 @@ async function optional<Value>(part: string, report: FactoryRestoreCompositionIn
 
 function poolClients(config: FactoryStartupConfig): () => Promise<{ readonly checkpoints: PoolCheckpointClient; readonly admission: PoolAdmissionClient }> {
   return async () => {
-    const options = { tenantId: config.tenantId, baseUrl: config.pool.baseUrl, tls: { caPath: config.pool.tls.caPath, certificatePath: config.pool.tls.certificatePath, privateKeyPath: config.pool.tls.privateKeyPath, serviceTokenPath: config.pool.serviceTokenPath } };
+    const options = { tenantId: config.tenantId, ...factoryStartupPoolTransport(config.pool) };
     return { checkpoints: await createPoolCheckpointClient(options), admission: await createPoolAdmissionClient(options) };
   };
 }

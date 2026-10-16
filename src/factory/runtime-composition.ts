@@ -35,18 +35,22 @@ import {
   availableFactoryServices,
   factoryGatewayProbe,
   factoryOrchestrationProbes,
+  factoryPoolNetworkProbe,
   factoryPoolProbe,
   factorySandboxProbe,
   factoryStorageProbe,
+  factorySupervisorNetworkProbe,
   factorySupervisorProbe,
   factorySupervisorReadinessProbe,
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryListenerProbeTarget,
+  type FactoryReadinessSource,
   type FactoryServiceProbe,
   type FactoryServiceProbeResult,
   type FactoryStorageProbeTarget,
   type FactorySupervisorProbeTarget,
+  type FactoryProbeIdentity,
   type FactoryProbeTraceEvent,
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
@@ -100,6 +104,12 @@ export interface FactoryRuntimeDependencies {
   readonly gateway: FactoryListenerProbeTarget;
   /** Present only when this process holds the container runner. */
   readonly supervisor?: FactorySupervisorProbeTarget;
+  /**
+   * The shared pool's and supervisor's readiness routes, for a document whose
+   * `hostReadiness` is `network` (the hosted profile, W4H-35). Such a document
+   * reads neither record from a file; without these, both are unavailable.
+   */
+  readonly hostReadiness?: { readonly pool: FactoryReadinessSource; readonly supervisor: FactoryReadinessSource };
   readonly workers: Omit<FactoryRuntimeWorkerCollaborators, "service" | "seams" | "tuning" | "report">;
   readonly service: FactoryRuntimeWorkerCollaborators["service"];
   readonly seams?: FactoryRuntimeSeamInputs;
@@ -196,6 +206,23 @@ export class FactoryDisabledError extends Error {
   }
 }
 
+/** A source that never answers: a hosted document with no routes composed is unavailable, never read from a file. */
+const UNCOMPOSED_SOURCE: FactoryReadinessSource = Object.freeze({ read: async () => { throw new Error("factory_host_readiness_uncomposed"); } });
+
+/**
+ * The shared pool's and supervisor's probes. A hosted document reads both from
+ * their routes. Otherwise both are files, except that a deployment that holds
+ * the runner in this process preflights it instead of reading its record.
+ */
+function sharedHostProbes(config: FactoryStartupConfig, dependencies: FactoryRuntimeDependencies, identity: FactoryProbeIdentity): readonly [FactoryServiceProbe, FactoryServiceProbe] {
+  if (config.hostReadiness === "network") {
+    const sources = dependencies.hostReadiness ?? { pool: UNCOMPOSED_SOURCE, supervisor: UNCOMPOSED_SOURCE };
+    return [factoryPoolNetworkProbe(identity, sources.pool), factorySupervisorNetworkProbe(identity, sources.supervisor)];
+  }
+  const files = { ...identity, poolReadinessFilePath: config.poolReadinessFilePath!, supervisorReadinessFilePath: config.supervisorReadinessFilePath! };
+  return [factoryPoolProbe(files), dependencies.supervisor ? factorySupervisorProbe(dependencies.supervisor) : factorySupervisorReadinessProbe(files)];
+}
+
 function requiredProbes(config: FactoryStartupConfig, dependencies: FactoryRuntimeDependencies, boot: FactoryBootConfig): readonly FactoryServiceProbe[] {
   const identity = {
     installationId: config.installationId,
@@ -203,19 +230,16 @@ function requiredProbes(config: FactoryStartupConfig, dependencies: FactoryRunti
     poolId: config.poolId,
     temporalNamespace: config.temporalNamespace,
     orchestrationReadinessFilePath: config.orchestrationReadinessFilePath,
-    poolReadinessFilePath: config.poolReadinessFilePath,
-    supervisorReadinessFilePath: config.supervisorReadinessFilePath,
     hostId: config.hostId,
     ...(config.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: config.readinessHeartbeatMs }),
   };
+  const [pool, supervisor] = sharedHostProbes(config, dependencies, identity);
   return Object.freeze([
     ...factoryOrchestrationProbes(identity),
-    factoryPoolProbe(identity),
+    pool,
     factoryStorageProbe(dependencies.storage, `${config.storage.ordinary.prefix}/readiness/${config.installationId}`),
     factoryGatewayProbe(dependencies.gateway),
-    // A deployment that holds a runner in this process can preflight it; every
-    // other deployment reads the record the host supervisor publishes.
-    dependencies.supervisor ? factorySupervisorProbe(dependencies.supervisor) : factorySupervisorReadinessProbe(identity),
+    supervisor,
     factorySandboxProbe(boot),
     ...(dependencies.extraProbes ?? []),
   ]);
