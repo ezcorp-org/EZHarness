@@ -122,6 +122,7 @@ test("every source that names the SDK source directory stages SDK modules throug
     "scripts/check-factory-boundaries.ts", // scans the SDK's sources for boundary rules
     "scripts/check-schema-generate-drift.ts", // compares the generated schemas with their generator
     "scripts/coverage-config.ts", // names the SDK sources in the coverage source set
+    "src/factory/s3-release-adapter/relock.ts", // rewrites the one SDK literal that names the re-locked S3 adapter artifact
   ];
   const candidates = sources(["scripts", "src", "web/e2e", "web/src", "packages", "extensions", "worker"])
     .filter(path => SDK_SOURCE_DIRECTORY.test(readFileSync(join(REPO, path), "utf8")));

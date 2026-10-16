@@ -6,12 +6,13 @@
  */
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { currentRepositoryGitContext } from "@ezcorp/sdk/git";
 import { buildS3ReleaseAdapterLock, relockS3ReleaseAdapter, S3ReleaseAdapterRelockError, type S3ReleaseAdapterRelockDependencies } from "../src/factory/s3-release-adapter/relock";
 
 const ROOT = join(import.meta.dir, "..");
 
 export const relockDependencies: S3ReleaseAdapterRelockDependencies = {
-  clean: async () => (await new Response(Bun.spawn(["git", "status", "--porcelain"], { cwd: ROOT, stdout: "pipe" }).stdout).text()).trim() === "",
+  clean: async () => (await new Response(Bun.spawn(["git", "status", "--porcelain"], { cwd: ROOT, stdout: "pipe", env: currentRepositoryGitContext(process.env) }).stdout).text()).trim() === "",
   build: buildS3ReleaseAdapterLock,
   read: path => readFile(join(ROOT, path), "utf8"),
   write: (path, text) => writeFile(join(ROOT, path), text),
