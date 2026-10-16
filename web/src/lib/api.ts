@@ -694,22 +694,34 @@ export async function deleteMode(id: string): Promise<void> {
 
 // ── Sub-Conversations ───────────────────────────────────────────────
 
-export async function createSubConversation(parentConversationId: string, opts: {
+export interface SubConversationOptions {
 	parentMessageId: string;
-	agentConfigId: string;
+	/** An agent config id, or absent: POST /api/conversations validates it as a UUID and never resolves a name. */
+	agentConfigId?: string;
 	title?: string;
 	projectId: string;
-}): Promise<Conversation & { parentConversationId: string; parentMessageId: string }> {
+}
+
+/**
+ * The body POST /api/conversations receives for a sub-conversation. Its only
+ * judge is web/src/routes/api/conversations/schema.ts (createConversationSchema);
+ * the page-handler tests feed what startSubConvo sends through both (W4H-33).
+ */
+export function subConversationBody(parentConversationId: string, opts: SubConversationOptions) {
+	return {
+		projectId: opts.projectId,
+		parentConversationId,
+		parentMessageId: opts.parentMessageId,
+		agentConfigId: opts.agentConfigId,
+		title: opts.title,
+	};
+}
+
+export async function createSubConversation(parentConversationId: string, opts: SubConversationOptions): Promise<Conversation & { parentConversationId: string; parentMessageId: string }> {
 	const res = await fetch(`${BASE}/api/conversations`, {
 		method: "POST",
 		headers: { "content-type": "application/json" },
-		body: JSON.stringify({
-			projectId: opts.projectId,
-			parentConversationId,
-			parentMessageId: opts.parentMessageId,
-			agentConfigId: opts.agentConfigId,
-			title: opts.title,
-		}),
+		body: JSON.stringify(subConversationBody(parentConversationId, opts)),
 	});
 	await checkResponse(res);
 	return res.json();

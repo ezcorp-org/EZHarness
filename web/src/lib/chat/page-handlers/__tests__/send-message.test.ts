@@ -114,11 +114,11 @@ const h = vi.hoisted(() => {
 			_parent: string,
 			_opts: {
 				parentMessageId: string;
-				agentConfigId: string;
+				agentConfigId?: string;
 				title: string;
 				projectId: string;
 			},
-		) => ({ id: "sub-convo-1", agentConfigId: "agent-config-1" }),
+		) => ({ id: "sub-convo-1", agentConfigId: _opts.agentConfigId ?? null }), // the server echoes what it got
 	);
 
 	const startOAuthFlowMock = vi.fn(async (_provider: string) => ({
@@ -904,12 +904,11 @@ describe("handleSend (mention parsing)", () => {
 		const { host, state } = makeHost();
 		const handlers = makeSendMessage(host);
 		await handlers.handleSend("ping !researcher");
-		// Yield once for the fire-and-forget startSubConvo() to land.
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(createSubConversationMock).toHaveBeenCalledTimes(1);
+		// Wait for the fire-and-forget startSubConvo() to land.
+		await vi.waitFor(() => expect(createSubConversationMock).toHaveBeenCalledTimes(1));
 		const [parentArg, optsArg] = createSubConversationMock.mock.calls[0]!;
 		expect(parentArg).toBe("conv-1");
+		expect(optsArg).not.toHaveProperty("agentConfigId");
 		expect(optsArg.title).toContain("researcher");
 		expect(optsArg.parentMessageId).toBe("real-user-id");
 		expect(subConversationStoreState.startCalls.length).toBe(1);
@@ -1411,15 +1410,33 @@ describe("sub-conversation handlers", () => {
 		const { host, state } = makeHost();
 		const handlers = makeSendMessage(host);
 		await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
+		// An interactive sub-conversation carries no agent config id: the server
+		// refused "" as an invalid UUID (W4H-33), and the thread renders a block
+		// only for a record without one.
 		expect(createSubConversationMock).toHaveBeenCalledWith("conv-1", {
 			parentMessageId: "u-1",
-			agentConfigId: "",
 			title: "Sub-conversation with qa-bot",
 			projectId: "proj-1",
 		});
 		expect(state.subConversations.length).toBe(1);
 		expect(state.subConversations[0]!.agentName).toBe("qa-bot");
+		expect(state.subConversations[0]!.agentConfigId).toBe("");
 		expect(subConversationStoreState.startCalls.length).toBe(1);
+	});
+
+	test("startSubConvo's request passes the server's own schema (no mock hides a validation mismatch)", async () => {
+		// The contract: what startSubConvo hands createSubConversation, serialised by the real body builder,
+		// must pass the real POST /api/conversations schema. Before W4H-33 the page sent agentConfigId "" and the
+		// server answered 400 "Invalid UUID"; a mocked createSubConversation could not see it.
+		const { subConversationBody } = await vi.importActual<typeof import("$lib/api.js")>("$lib/api.js");
+		const { createConversationSchema } = await import("../../../../routes/api/conversations/schema");
+		subConversationStoreState.active = null;
+		const { host } = makeHost({ convId: "c0000000-0000-4000-8000-00000000000c", projectId: "global" });
+		await makeSendMessage(host).startSubConvo({ name: "researcher" }, "e0000000-0000-4000-8000-00000000000e");
+		expect(createSubConversationMock).toHaveBeenCalledTimes(1);
+		const [parent, opts] = createSubConversationMock.mock.calls[0]!;
+		const verdict = createConversationSchema.safeParse(subConversationBody(parent, opts));
+		expect(verdict.success ? [] : verdict.error.issues.map((issue) => issue.path.join("."))).toEqual([]);
 	});
 
 	test("startSubConvo: blocked when already in a sub-convo", async () => {

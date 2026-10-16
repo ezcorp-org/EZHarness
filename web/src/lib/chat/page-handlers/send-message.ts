@@ -1022,9 +1022,13 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		const projectId = host.projectId();
 
 		try {
+			// An interactive sub-conversation carries NO agent config id: that is
+			// how the thread tells it apart from an agent-run sub-conversation
+			// (ChatThread renders a block for records without one, a chip for
+			// records with one). POST /api/conversations never resolves a name,
+			// and it refuses "" as an invalid UUID, so the field is omitted.
 			const subConv = await createSubConversation(convId, {
 				parentMessageId,
-				agentConfigId: "", // resolved server-side by agent name
 				title: `Sub-conversation with ${agentMention.name}`,
 				projectId,
 			});
