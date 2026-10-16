@@ -75,6 +75,15 @@ describe("the one guest-package builder (W4H-26)", () => {
     expect([...stored.keys()]).not.toContain(digestObject(tampered));
   });
 
+  test("a release blob store that files the artifact copy under another digest is refused by name (W4H-32, validator-8 Addendum H mutant)", async () => {
+    const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
+    const { blobs } = memoryBlobs();
+    // The source is filed under its own digest; the artifact copy comes back under another one.
+    const skewed: BlobStore = { get: blobs.get, async put(bytes) { const digest = await blobs.put(bytes); return digest === digestObject(artifacts) ? "f".repeat(64) : digest; } };
+    await expect(buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return structuredClone(artifacts); } }, blobs: skewed, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" }))
+      .rejects.toThrow("factory_guest_package_artifact_mismatch: the stored artifact copy does not carry the build's digest");
+  });
+
   test("the generated entry serves each named export as a tool with only the broker capability", () => {
     const source = factoryGuestEntrySource({ manifest: { name: "m" }, module: "entry.ts", tools: ["a", "b"] });
     expect(source).toContain("import * as guest from './entry.ts';");
