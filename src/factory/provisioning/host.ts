@@ -200,8 +200,13 @@ const containerSecret = (name: string) => `/run/ezcorp/secrets/${name}`;
 /** The GPU host profile file's name in the pool's delivery. */
 export const FACTORY_HOST_GPU_PROFILES_FILE = "gpu-host-profiles.json";
 
-/** The pool's resources: CPU capacity always; under `gpu`, this host as the one GPU host and its delivered profile file. */
-function poolResources(resources: FactoryFleetResources, hostId: string) {
+/**
+ * The pool's resources for a fleet resource profile: CPU capacity always;
+ * under `gpu`, this host as the one GPU host and its delivered profile file.
+ * One function for every pool document that runs a profile (the fleet host,
+ * and the W19a graph proof's stack).
+ */
+export function factoryPoolResources(resources: FactoryFleetResources, hostId: string) {
   const capacities = { cpu: resources.cpuCapacity };
   return resources.profile === "gpu"
     ? { capacities, gpuHosts: [hostId], gpuProfilesPath: containerSecret(FACTORY_HOST_GPU_PROFILES_FILE) }
@@ -403,7 +408,7 @@ export class FactoryFleetHost {
         tenants: Object.fromEntries(admitted.map((entry) => [entry.harnessIdentity, { tenantId: entry.tenantId, tokenSubject: entry.tenantId }])),
         supervisors: { [this.identity.supervisor]: { supervisorId: this.identity.supervisor, tokenSubject: this.identity.supervisor, hostIds: [this.identity.hostId] } },
       },
-      resources: poolResources(this.options.settings.resources, this.identity.hostId),
+      resources: factoryPoolResources(this.options.settings.resources, this.identity.hostId),
       readinessFilePath: "/run/ezcorp/readiness/pool/pool.json", readinessHeartbeatMs: 4_000,
     });
     const hosted = this.options.settings.hosted;

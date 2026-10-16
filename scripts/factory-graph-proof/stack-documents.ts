@@ -10,6 +10,8 @@ import { FACTORY_GUEST_BROKER_AUDIENCE } from "../../src/factory/runner/guest-br
 import { join } from "node:path";
 import { isIP } from "node:net";
 import type { JsonValue } from "@ezcorp/factory-sdk";
+import type { FactoryFleetResources } from "../../src/factory/provisioning/fleet";
+import { factoryPoolResources } from "../../src/factory/provisioning/host";
 
 export const TENANT = "tenant-01";
 export const INSTALLATION = "installation-w19a";
@@ -66,7 +68,10 @@ export function wrapsDocument(wraps: ReadonlyArray<{ installationId: string; wra
   };
 }
 
-export function poolDocument(layout: StackLayout) {
+/** The resource profile the proof's pool runs: the fleet's `cpu-only` profile (W4H-35 G10), through the fleet host's own function. */
+export const GRAPH_PROOF_RESOURCES: FactoryFleetResources = Object.freeze({ profile: "cpu-only", cpuCapacity: 4 });
+
+export function poolDocument(layout: StackLayout, resources: FactoryFleetResources = GRAPH_PROOF_RESOURCES) {
   return {
     schemaVersion: "factory.pool-process.v1", poolId: POOL_ID,
     hostname: "127.0.0.1", port: layout.ports.pool,
@@ -77,7 +82,7 @@ export function poolDocument(layout: StackLayout) {
       tenants: { "tenant-a": { tenantId: TENANT, tokenSubject: TENANT } },
       supervisors: { [SUPERVISOR_SUBJECT]: { supervisorId: SUPERVISOR_SUBJECT, tokenSubject: SUPERVISOR_SUBJECT, hostIds: [HOST_ID] } },
     },
-    resources: { capacities: { cpu: 4 }, gpuHosts: [], hosts: [HOST_ID] },
+    resources: factoryPoolResources(resources, HOST_ID),
     readinessFilePath: readinessPath(layout, "pool.json"), readinessHeartbeatMs: 2_000,
   };
 }
