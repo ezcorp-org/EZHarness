@@ -247,3 +247,44 @@ describe("startFactoryGatewayMain", () => {
     }
   });
 });
+
+describe("the gateway's metrics endpoint (C11 M4)", () => {
+  const metrics = { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/run/ezcorp/secrets/gateway-metrics-token" };
+
+  test("accepts a declared endpoint and refuses a malformed one", () => {
+    expect(parseFactoryGatewayProcessConfig({ ...CONFIG, metrics }).metrics).toEqual(metrics);
+    expect(refused({ ...CONFIG, metrics: { ...metrics, port: 0 } })).toBe("factory gateway config is invalid");
+  });
+
+  test("serves ready while its listener is up and not after, and stops the listener on the way out", async () => {
+    const controller = new AbortController();
+    const readings: boolean[] = [];
+    let stopped = false;
+    let ready: () => boolean = () => false;
+    const dependencies = fakeDependencies({ ...FILES, "/etc/gateway.json": JSON.stringify({ ...CONFIG, metrics }) }, { onWait: () => { readings.push(ready()); controller.abort(); } });
+    await runFactoryGatewayProcess("/etc/gateway.json", controller.signal, {
+      ...dependencies,
+      metrics: async (endpoint, isReady) => {
+        expect(endpoint).toEqual(metrics);
+        ready = isReady;
+        return { url: "http://0.0.0.0:9466", stop: async () => { stopped = true; } };
+      },
+    });
+    readings.push(ready());
+    expect(readings).toEqual([true, false]);
+    expect(stopped).toBe(true);
+  });
+});
+
+test("a gateway whose metrics endpoint cannot start reports the code and keeps serving", async () => {
+  const controller = new AbortController();
+  const reports: string[] = [];
+  const dependencies = fakeDependencies({ ...FILES, "/etc/gateway.json": JSON.stringify({ ...CONFIG, metrics: { hostname: "0.0.0.0", port: 9466, scrapeTokenPath: "/x" } }) }, { onWait: () => controller.abort() });
+  await runFactoryGatewayProcess("/etc/gateway.json", controller.signal, {
+    ...dependencies,
+    metrics: async () => { throw Object.assign(new Error("cannot read /x"), { code: "factory_metrics_token_unreadable" }); },
+    report: (code) => { reports.push(code); },
+  });
+  expect(reports).toEqual(["factory_metrics_token_unreadable"]);
+  expect([dependencies.recorder.stops, dependencies.recorder.closes]).toEqual([1, 1]);
+});

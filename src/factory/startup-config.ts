@@ -23,6 +23,7 @@ import { factoryModelPinMatchesRunner } from "./native-runner-policy";
 import { wellFormedFactoryKeyManagement, type FactoryKeyManagement } from "./key-composition";
 import { isPlainRecord } from "./plain-values";
 import { readPrivatePath } from "./private-files";
+import { wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint } from "./observability/metrics-listener";
 import { exactKeys, httpsUrl, wellFormed, type FieldKind } from "./startup-values";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "./runner/guest-broker-contract";
 
@@ -233,6 +234,12 @@ export interface FactoryStartupConfig {
   readonly notifications?: {
     readonly destinations: readonly FactoryStartupNotificationDestination[];
   };
+  /**
+   * Where this installation serves `/metrics` (C11 M4): an internal address,
+   * and the scrape token by reference. Optional; absent, no metrics listener
+   * binds and the evaluator's target-down alert names this installation.
+   */
+  readonly metrics?: FactoryMetricsEndpoint;
   /**
    * The tenant namespace's Temporal HTTP API, for W15's checkpoint barrier.
    *
@@ -686,7 +693,7 @@ function wellFormedValidatorRuntime(value: unknown): boolean {
 /** The set of leaf fields a valid document may carry, derived from the table. */
 const KNOWN_FIELDS: ReadonlySet<string> = new Set([
   "schemaVersion", "hostStopKeys", "privateService.tokens.publicKeyPaths", "runnerProfiles", "guestBroker.hosts", "guestBroker.tokens.publicKeyPaths",
-  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement", "notifications.destinations",
+  "release.destinations", "release.profiles", "validators.runtimes", "repositories.sources", "keyManagement", "notifications.destinations", "metrics",
   ...FACTORY_STARTUP_FIELDS.map((spec) => spec.field),
 ]);
 
@@ -710,7 +717,7 @@ function leaves(value: unknown, prefix = ""): string[] {
     // by shape below instead.
     if (field === "hostStopKeys" || field === "runnerProfiles" || field === "privateService.tokens.publicKeyPaths" || field === "guestBroker.hosts" || field === "guestBroker.tokens.publicKeyPaths"
       || field === "release.destinations" || field === "release.profiles" || field === "validators.runtimes" || field === "repositories.sources" || field === "keyManagement"
-      || field === "notifications.destinations") { found.push(field); continue; }
+      || field === "notifications.destinations" || field === "metrics") { found.push(field); continue; }
     found.push(...(isPlainRecord(nested) ? leaves(nested, field) : [field]));
   }
   return found;
@@ -935,6 +942,12 @@ const checkNotifications: StartupCheck = (value, { missing, invalid }) => {
   if (new Set(names).size !== names.length) invalid.push("notifications.destinations");
 };
 
+// The metrics endpoint, when declared, is one shape shared with every factory process.
+const checkMetrics: StartupCheck = (value, { invalid }) => {
+  const section = read(value, "metrics");
+  if (section.present && !wellFormedFactoryMetricsEndpoint(section.value)) invalid.push("metrics");
+};
+
 // The trusted validator runtimes, when the section is present.
 const checkValidatorRuntimes: StartupCheck = (value, { invalid }) => {
   invalid.push(...invalidValidatorRuntimes(value));
@@ -963,7 +976,7 @@ const checkRepositories: StartupCheck = (value, { missing, invalid }) => {
 // Run in this order; the error lists keep the order the problems are found in.
 const STARTUP_CHECKS: readonly StartupCheck[] = [
   checkDeclaredFields, checkModelPin, checkHostLaunch, checkGuestBroker, checkHostStopKeys, checkReadinessRetry, checkRecoverySections,
-  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories, checkNotifications,
+  checkPrivateServiceTokens, checkRunnerProfiles, checkRelease, checkValidatorRuntimes, checkRepositories, checkNotifications, checkMetrics,
 ];
 
 /** Cross-field rules on a document whose every field is already well formed. */

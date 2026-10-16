@@ -1,9 +1,9 @@
 import { canonicalJson } from "@ezcorp/extension-contract";
 import { createHash } from "node:crypto";
 
-export const DELIVERY_STATES = ["queued", "leased", "delivered", "cancelled", "dead_letter", "outcome_unknown"] as const;
+import type { DurableDeliveryState } from "./delivery-states";
 
-export type DurableDeliveryState = typeof DELIVERY_STATES[number];
+export { DELIVERY_STATES, type DurableDeliveryState } from "./delivery-states";
 
 export interface DurableDeliveryRecord {
   id: string;

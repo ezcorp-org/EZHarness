@@ -43,6 +43,7 @@ import { FactoryPublicationOutputReader } from "./release-publication-set";
 import { FactoryReleases, type FactoryCommandApprovalCurrentAuthority } from "./releases";
 import { FactoryNotificationDelivery } from "./notification-delivery";
 import { composeFactoryNotificationSender } from "./notification-sender";
+import { FactoryMetricCounters, composeFactoryInstallationMetrics } from "./observability/installation-metrics";
 import { FactoryTrustedValidators, type FactoryTrustedValidatorRuntime } from "./validator-materials";
 import { loadFactoryValidatorRuntimes } from "./validator-declaration";
 import { composeFactoryValidators, factoryTrustedValidatorsFromDeclaration, type FactoryComposedValidators } from "./validator-composition";
@@ -897,7 +898,12 @@ async function installationCollaborators(
   // the process that holds the tenant database. Its own listener, beside the
   // private service rather than inside it: a different peer set (hosts, not
   // the orchestrator) and a different credential (the attempt token).
-  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report });
+  // One set of counters for this process: the guest broker counts, the metrics listener reads (C11 M3, A8).
+  const counters = new FactoryMetricCounters();
+  const guestBroker = await composeFactoryGuestBroker({ database: host.database, config, application, blobs, report: host.report, counters });
+  const metrics = await composeFactoryInstallationMetrics(config.metrics, {
+    database: host.database, tenantId: config.tenantId, interpreterBuild: host.runOptions.interpreterBuild, counters,
+  }, host.report);
   // ── end W01g ─────────────────────────────────────────────────────────
 
   return {
@@ -924,6 +930,7 @@ async function installationCollaborators(
     listeners: [
       ...(privateService === undefined ? [] : [privateService]),
       ...(guestBroker.listener === undefined ? [] : [guestBroker.listener]),
+      ...(metrics === undefined ? [] : [metrics]),
     ],
     application: release === undefined ? {} : {
       createReleaseOperations: factoryReleaseOperations(config.tenantId, release, resolver),

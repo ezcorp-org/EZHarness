@@ -752,3 +752,18 @@ describe("the outbound notification destinations (C11 N2)", () => {
     expect(reject(valid({ notifications: {} })).missing).toEqual(["notifications.destinations"]);
   });
 });
+
+describe("the installation's metrics endpoint (C11 M4)", () => {
+  const metrics = { hostname: "0.0.0.0", port: 9464, scrapeTokenPath: "/run/ezcorp/secrets/metrics-token" };
+
+  test("accepts a declared endpoint and an absent one", () => {
+    expect(parseFactoryStartupConfig(valid({ metrics })).metrics).toEqual(metrics);
+    expect(parseFactoryStartupConfig(valid()).metrics).toBeUndefined();
+  });
+
+  test("refuses a malformed endpoint as one field", () => {
+    for (const broken of [{ ...metrics, port: 0 }, { ...metrics, extra: 1 }, { hostname: "0.0.0.0", port: 9464 }, "metrics"]) {
+      expect(reject(valid({ metrics: broken })).invalid).toEqual(["metrics"]);
+    }
+  });
+});
