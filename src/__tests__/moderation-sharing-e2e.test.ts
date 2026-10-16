@@ -60,9 +60,9 @@ describe("E2E: Full moderation lifecycle via routes", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const a = await createUser({ email: "e2e-1-author@test.com", passwordHash: "h", name: "E2E1 Author", role: "member" });
-    const m = await createUser({ email: "e2e-1-member@test.com", passwordHash: "h", name: "E2E1 Member", role: "member" });
-    const ad = await createUser({ email: "e2e-1-admin@test.com", passwordHash: "h", name: "E2E1 Admin", role: "admin" });
+    const a = await createUser({ email: "e2e-1-author@test.example", passwordHash: "h", name: "E2E1 Author", role: "member" });
+    const m = await createUser({ email: "e2e-1-member@test.example", passwordHash: "h", name: "E2E1 Member", role: "member" });
+    const ad = await createUser({ email: "e2e-1-admin@test.example", passwordHash: "h", name: "E2E1 Admin", role: "admin" });
     author = makeUser(a);
     member = makeUser(m);
     admin = makeUser(ad);
@@ -132,9 +132,9 @@ describe("E2E: Flag → Remove → Verify hidden", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const a = await createUser({ email: "e2e-2-author@test.com", passwordHash: "h", name: "E2E2 Author", role: "member" });
-    const m = await createUser({ email: "e2e-2-member@test.com", passwordHash: "h", name: "E2E2 Member", role: "member" });
-    const ad = await createUser({ email: "e2e-2-admin@test.com", passwordHash: "h", name: "E2E2 Admin", role: "admin" });
+    const a = await createUser({ email: "e2e-2-author@test.example", passwordHash: "h", name: "E2E2 Author", role: "member" });
+    const m = await createUser({ email: "e2e-2-member@test.example", passwordHash: "h", name: "E2E2 Member", role: "member" });
+    const ad = await createUser({ email: "e2e-2-admin@test.example", passwordHash: "h", name: "E2E2 Admin", role: "admin" });
     author = makeUser(a);
     member = makeUser(m);
     admin = makeUser(ad);
@@ -209,10 +209,10 @@ describe("E2E: Share → Flag shared agent's listing → Moderate", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const a = await createUser({ email: "e2e-3-usera@test.com", passwordHash: "h", name: "E2E3 UserA", role: "member" });
-    const b = await createUser({ email: "e2e-3-userb@test.com", passwordHash: "h", name: "E2E3 UserB", role: "member" });
-    const c = await createUser({ email: "e2e-3-userc@test.com", passwordHash: "h", name: "E2E3 UserC", role: "member" });
-    const ad = await createUser({ email: "e2e-3-admin@test.com", passwordHash: "h", name: "E2E3 Admin", role: "admin" });
+    const a = await createUser({ email: "e2e-3-usera@test.example", passwordHash: "h", name: "E2E3 UserA", role: "member" });
+    const b = await createUser({ email: "e2e-3-userb@test.example", passwordHash: "h", name: "E2E3 UserB", role: "member" });
+    const c = await createUser({ email: "e2e-3-userc@test.example", passwordHash: "h", name: "E2E3 UserC", role: "member" });
+    const ad = await createUser({ email: "e2e-3-admin@test.example", passwordHash: "h", name: "E2E3 Admin", role: "admin" });
     userA = makeUser(a);
     userB = makeUser(b);
     userC = makeUser(c);
@@ -291,8 +291,8 @@ describe("E2E: Share lifecycle", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const o = await createUser({ email: "e2e-4-owner@test.com", passwordHash: "h", name: "E2E4 Owner", role: "member" });
-    const b = await createUser({ email: "e2e-4-userb@test.com", passwordHash: "h", name: "E2E4 UserB", role: "member" });
+    const o = await createUser({ email: "e2e-4-owner@test.example", passwordHash: "h", name: "E2E4 Owner", role: "member" });
+    const b = await createUser({ email: "e2e-4-userb@test.example", passwordHash: "h", name: "E2E4 UserB", role: "member" });
     owner = makeUser(o);
     userB = makeUser(b);
 
@@ -374,11 +374,11 @@ describe("E2E: Multiple flaggers then bulk dismiss", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const a = await createUser({ email: "e2e-5-author@test.com", passwordHash: "h", name: "E2E5 Author", role: "member" });
-    const f1 = await createUser({ email: "e2e-5-f1@test.com", passwordHash: "h", name: "E2E5 Flagger1", role: "member" });
-    const f2 = await createUser({ email: "e2e-5-f2@test.com", passwordHash: "h", name: "E2E5 Flagger2", role: "member" });
-    const f3 = await createUser({ email: "e2e-5-f3@test.com", passwordHash: "h", name: "E2E5 Flagger3", role: "member" });
-    const ad = await createUser({ email: "e2e-5-admin@test.com", passwordHash: "h", name: "E2E5 Admin", role: "admin" });
+    const a = await createUser({ email: "e2e-5-author@test.example", passwordHash: "h", name: "E2E5 Author", role: "member" });
+    const f1 = await createUser({ email: "e2e-5-f1@test.example", passwordHash: "h", name: "E2E5 Flagger1", role: "member" });
+    const f2 = await createUser({ email: "e2e-5-f2@test.example", passwordHash: "h", name: "E2E5 Flagger2", role: "member" });
+    const f3 = await createUser({ email: "e2e-5-f3@test.example", passwordHash: "h", name: "E2E5 Flagger3", role: "member" });
+    const ad = await createUser({ email: "e2e-5-admin@test.example", passwordHash: "h", name: "E2E5 Admin", role: "admin" });
     author = makeUser(a);
     flagger1 = makeUser(f1);
     flagger2 = makeUser(f2);
@@ -448,9 +448,9 @@ describe("E2E: Admin delete of flagged listing cleans up", () => {
 
   beforeAll(async () => {
     await setupTestDb();
-    const a = await createUser({ email: "e2e-6-author@test.com", passwordHash: "h", name: "E2E6 Author", role: "member" });
-    const m = await createUser({ email: "e2e-6-member@test.com", passwordHash: "h", name: "E2E6 Member", role: "member" });
-    const ad = await createUser({ email: "e2e-6-admin@test.com", passwordHash: "h", name: "E2E6 Admin", role: "admin" });
+    const a = await createUser({ email: "e2e-6-author@test.example", passwordHash: "h", name: "E2E6 Author", role: "member" });
+    const m = await createUser({ email: "e2e-6-member@test.example", passwordHash: "h", name: "E2E6 Member", role: "member" });
+    const ad = await createUser({ email: "e2e-6-admin@test.example", passwordHash: "h", name: "E2E6 Admin", role: "admin" });
     author = makeUser(a);
     member = makeUser(m);
     admin = makeUser(ad);

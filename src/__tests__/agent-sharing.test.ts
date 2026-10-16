@@ -23,10 +23,10 @@ let agentId: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const owner = await createUser({ email: "owner@test.com", passwordHash: "hash", name: "Owner User", role: "admin" });
+  const owner = await createUser({ email: "owner@test.example", passwordHash: "hash", name: "Owner User", role: "admin" });
   ownerId = owner.id;
 
-  const member = await createUser({ email: "member@test.com", passwordHash: "hash", name: "Member User", role: "member" });
+  const member = await createUser({ email: "member@test.example", passwordHash: "hash", name: "Member User", role: "member" });
   memberId = member.id;
 
   const team = await createTeam("Test Team");

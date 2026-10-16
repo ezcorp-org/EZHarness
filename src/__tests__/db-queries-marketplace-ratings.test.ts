@@ -36,8 +36,8 @@ describe("marketplace-ratings queries", () => {
 
   beforeEach(async () => {
     await setupTestDb();
-    authorId = (await createUser({ email: "author@test.com", passwordHash: "h", name: "A" })).id;
-    userId = (await createUser({ email: "rater@test.com", passwordHash: "h", name: "R" })).id;
+    authorId = (await createUser({ email: "author@test.example", passwordHash: "h", name: "A" })).id;
+    userId = (await createUser({ email: "rater@test.example", passwordHash: "h", name: "R" })).id;
   });
   afterAll(async () => await closeTestDb());
 
@@ -99,7 +99,7 @@ describe("marketplace-ratings queries", () => {
     const listing = await seedListing(authorId);
     await createFlag(listing.id, userId, "first", "other");
     // second flag needs a distinct user (PK isn't on (listing,user), but we keep variety)
-    const u2 = await createUser({ email: "u2@test.com", passwordHash: "h", name: "U2" });
+    const u2 = await createUser({ email: "u2@test.example", passwordHash: "h", name: "U2" });
     await new Promise((r) => setTimeout(r, 5));
     await createFlag(listing.id, u2.id, "second", "other");
 
@@ -147,7 +147,7 @@ describe("marketplace-ratings queries", () => {
     const listing = await seedListing(authorId);
     const f1 = await createFlag(listing.id, userId, "r1", "other");
     await resolveFlag(f1.id, authorId, "dismissed");
-    const u2 = await createUser({ email: "u2b@test.com", passwordHash: "h", name: "U2" });
+    const u2 = await createUser({ email: "u2b@test.example", passwordHash: "h", name: "U2" });
     await createFlag(listing.id, u2.id, "r2", "other"); // pending
 
     const pending = await listFlags({ status: "pending" });

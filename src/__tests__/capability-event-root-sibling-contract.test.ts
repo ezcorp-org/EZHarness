@@ -42,7 +42,7 @@ let extensionId = "";
 beforeAll(async () => {
 	await setupTestDb();
 	const u = await createUser({
-		email: "cap-sibling@test.com",
+		email: "cap-sibling@test.example",
 		passwordHash: "h",
 		name: "CAP-SIB",
 	});

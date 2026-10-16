@@ -58,8 +58,8 @@ async function mkStatic(over: Partial<Parameters<typeof preview.createPreviewSes
 
 beforeAll(async () => {
   await setupTestDb();
-  const a = await createUser({ email: "prev-a@test.com", passwordHash: "h", name: "A" });
-  const b = await createUser({ email: "prev-b@test.com", passwordHash: "h", name: "B" });
+  const a = await createUser({ email: "prev-a@test.example", passwordHash: "h", name: "A" });
+  const b = await createUser({ email: "prev-b@test.example", passwordHash: "h", name: "B" });
   userA = a.id;
   userB = b.id;
   const proj = await createProject({ name: "P", path: "/tmp/p" });
@@ -300,7 +300,7 @@ describe("reapPreviewsForConversation", () => {
 
 describe("countActivePreviewsForUser", () => {
   test("counts only active, unexpired rows", async () => {
-    const u = (await createUser({ email: "prev-count@test.com", passwordHash: "h", name: "C" })).id;
+    const u = (await createUser({ email: "prev-count@test.example", passwordHash: "h", name: "C" })).id;
     expect(await preview.countActivePreviewsForUser(u)).toBe(0);
     const live = await mkStatic({ userId: u });
     const exp = await mkStatic({ userId: u });
@@ -314,8 +314,8 @@ describe("countActivePreviewsForUser", () => {
 
 describe("listPreviewsForUser (management query — v1 floor)", () => {
   test("returns the user's rows newest-first, INCLUDING revoked + expired, scoped to the owner", async () => {
-    const owner = (await createUser({ email: "prev-list@test.com", passwordHash: "h", name: "L" })).id;
-    const other = (await createUser({ email: "prev-list-other@test.com", passwordHash: "h", name: "O" })).id;
+    const owner = (await createUser({ email: "prev-list@test.example", passwordHash: "h", name: "L" })).id;
+    const other = (await createUser({ email: "prev-list-other@test.example", passwordHash: "h", name: "O" })).id;
 
     // Three rows for `owner`, created in order so createdAt desc is testable.
     const first = await mkStatic({ userId: owner });

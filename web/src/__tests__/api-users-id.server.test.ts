@@ -58,7 +58,7 @@ describe("PUT /api/users/[id]", () => {
 	});
 
 	test("rejects 403 when caller is not admin", async () => {
-		const member = { id: "u1", email: "u@test.com", name: "U", role: "member" };
+		const member = { id: "u1", email: "u@test.example", name: "U", role: "member" };
 		await expectThrownResponse(
 			() => PUT(makeEvent({ body: { status: "inactive" }, locals: { user: member } })),
 			403,

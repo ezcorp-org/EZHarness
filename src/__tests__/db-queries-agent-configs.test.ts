@@ -41,7 +41,7 @@ describe("agent-configs queries", () => {
   });
 
   test("createAgentConfig accepts overrides", async () => {
-    const owner = await createUser({ email: "own1@test.com", passwordHash: "h", name: "Own1" });
+    const owner = await createUser({ email: "own1@test.example", passwordHash: "h", name: "Own1" });
     const cfg = await createAgentConfig({
       name: "analyst",
       description: "analyst",
@@ -97,8 +97,8 @@ describe("agent-configs queries", () => {
   });
 
   test("listAgentConfigs filtered by userId returns owned with shared=false", async () => {
-    const u1 = await createUser({ email: "u1@test.com", passwordHash: "h", name: "U1" });
-    const u2 = await createUser({ email: "u2@test.com", passwordHash: "h", name: "U2" });
+    const u1 = await createUser({ email: "u1@test.example", passwordHash: "h", name: "U1" });
+    const u2 = await createUser({ email: "u2@test.example", passwordHash: "h", name: "U2" });
     await createAgentConfig({ name: "owned-1", description: "d", prompt: "p", userId: u1.id } as any);
     await createAgentConfig({ name: "other-owned", description: "d", prompt: "p", userId: u2.id } as any);
     const rows = await listAgentConfigs(u1.id);

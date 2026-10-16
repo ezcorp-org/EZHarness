@@ -77,7 +77,7 @@ let emptyConvId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-summ@test.com", passwordHash: "h", name: "S" });
+  const u = await createUser({ email: "ez-summ@test.example", passwordHash: "h", name: "S" });
   userId = u.id;
   // The conversations FK requires a project — use the migrated 'global' row.
   await getDb().insert(projects).values({ id: "summ-proj", name: "summ", path: "/tmp/summ", description: "", userId }).onConflictDoNothing();

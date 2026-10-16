@@ -47,7 +47,7 @@ vi.mock("$server/auth/jwt", () => ({
   // Authenticated payload — gets written to event.locals.user at L302.
   verifyJWT: vi.fn(async () => ({
     id: "u-1",
-    email: "u@test.com",
+    email: "u@test.example",
     name: "U",
     role: "member",
   })),
@@ -96,7 +96,7 @@ function makeAuthedEvent(path: string) {
 
 const NOT_ONBOARDED = {
   id: "u-1",
-  email: "u@test.com",
+  email: "u@test.example",
   name: "U",
   role: "member" as const,
   status: "active" as const,
@@ -113,7 +113,7 @@ describe("hooks.server.ts — onboarding gate", () => {
     // Re-arm verifyJWT to default authenticated payload (each test may override).
     vi.mocked(verifyJWT).mockResolvedValue({
       id: "u-1",
-      email: "u@test.com",
+      email: "u@test.example",
       name: "U",
       role: "member",
     } as any);
@@ -224,7 +224,7 @@ describe("hooks.server.ts — onboarding gate", () => {
     // Simulate attachBearerAuth populating locals.user.
     const { attachBearerAuth } = await import("$lib/server/security/bearer-auth");
     vi.mocked(attachBearerAuth).mockImplementation(async ({ locals }: any) => {
-      locals.user = { id: "u-1", email: "u@test.com", name: "U", role: "member" };
+      locals.user = { id: "u-1", email: "u@test.example", name: "U", role: "member" };
       return true;
     });
 

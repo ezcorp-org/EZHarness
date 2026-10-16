@@ -48,7 +48,7 @@ describe("migrate(): tool_calls analytics backfill", () => {
     const MSG_ID = "msg-backfill-1";
     const TC_ID = "tc-backfill-1";
 
-    await db.insert(users).values({ id: USER_ID, email: "b@x.com", passwordHash: "x", name: "B", role: "member" } as any);
+    await db.insert(users).values({ id: USER_ID, email: "b@x.example", passwordHash: "x", name: "B", role: "member" } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "b", path: "/tmp/b" } as any);
     await db.insert(agentConfigs).values({ id: AGENT_ID, name: "BA", prompt: "t", userId: USER_ID } as any);
     await db.insert(extensions).values({
@@ -112,7 +112,7 @@ describe("migrate(): tool_calls analytics backfill", () => {
     const CONV_ID = "conv-backfill-2";
     const TC_ID = "tc-backfill-2";
 
-    await db.insert(users).values({ id: USER_ID, email: "c@x.com", passwordHash: "x", name: "C", role: "member" } as any);
+    await db.insert(users).values({ id: USER_ID, email: "c@x.example", passwordHash: "x", name: "C", role: "member" } as any);
     await db.insert(projects).values({ id: PROJECT_ID, name: "c", path: "/tmp/c" } as any);
     await db.insert(extensions).values({
       id: EXT_ID, name: "cx", version: "0.0.1", source: "local",

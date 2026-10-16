@@ -191,7 +191,7 @@ describe("git operations", () => {
     // Create a work tree to make commits
     const workDir = join(tempBase, "work");
     spawn(["git", "clone", bareRepoDir, workDir]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: workDir });
+    spawn(["git", "config", "user.email", "test@test.example"], { cwd: workDir });
     spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
 
     // Create an ezcorp.config.ts and commit

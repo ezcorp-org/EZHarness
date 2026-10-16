@@ -80,13 +80,13 @@ describe("POST /api/auth/invite", () => {
   });
 
   test("rejects 401 when locals.user is missing", async () => {
-    const res = await POST(makeEvent({ body: { email: "x@y.com" } }));
+    const res = await POST(makeEvent({ body: { email: "x@y.example" } }));
     expect(res.status).toBe(401);
   });
 
   test("rejects 403 when user is not admin", async () => {
     const res = await POST(
-      makeEvent({ locals: memberUser, body: { email: "x@y.com" } }),
+      makeEvent({ locals: memberUser, body: { email: "x@y.example" } }),
     );
     expect(res.status).toBe(403);
   });
@@ -109,7 +109,7 @@ describe("POST /api/auth/invite", () => {
     const res = await POST(
       makeEvent({
         locals: adminUser,
-        body: { email: "x@y.com", role: "god-mode" },
+        body: { email: "x@y.example", role: "god-mode" },
       }),
     );
     expect(res.status).toBe(400);
@@ -119,14 +119,14 @@ describe("POST /api/auth/invite", () => {
     vi.mocked(createInvite).mockResolvedValue({
       id: "inv-1",
       token: "tok",
-      email: "x@y.com",
+      email: "x@y.example",
       role: "member",
       expiresAt: new Date("2099-01-01"),
     } as any);
     const res = await POST(
       makeEvent({
         locals: adminUser,
-        body: { email: "x@y.com", role: "member" },
+        body: { email: "x@y.example", role: "member" },
       }),
     );
     expect(res.status).toBe(201);
@@ -134,7 +134,7 @@ describe("POST /api/auth/invite", () => {
       invite?: { id?: string; email?: string; role?: string };
     };
     expect(body.invite?.id).toBe("inv-1");
-    expect(body.invite?.email).toBe("x@y.com");
+    expect(body.invite?.email).toBe("x@y.example");
     expect(body.invite?.role).toBe("member");
     expect(insertAuditEntry).toHaveBeenCalled();
   });

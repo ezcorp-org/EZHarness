@@ -31,7 +31,7 @@ let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-create-agent@test.com", passwordHash: "h", name: "EZA" });
+  const u = await createUser({ email: "ez-create-agent@test.example", passwordHash: "h", name: "EZA" });
   userId = u.id;
 });
 

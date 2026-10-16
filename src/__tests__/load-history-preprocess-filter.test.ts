@@ -39,7 +39,7 @@ let projectId = "";
 beforeAll(async () => {
   await setupTestDb();
   const u = await createUser({
-    email: "loadhist-preprocess@test.com",
+    email: "loadhist-preprocess@test.example",
     passwordHash: "h",
     name: "LH-PP",
   });

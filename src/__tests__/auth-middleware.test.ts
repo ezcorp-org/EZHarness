@@ -26,8 +26,8 @@ function makeLocals(user?: AuthUser) {
   return { user } as App.Locals;
 }
 
-const adminUser: AuthUser = { id: "u-admin", email: "admin@test.com", name: "Admin", role: "admin" };
-const memberUser: AuthUser = { id: "u-member", email: "member@test.com", name: "Member", role: "member" };
+const adminUser: AuthUser = { id: "u-admin", email: "admin@test.example", name: "Admin", role: "admin" };
+const memberUser: AuthUser = { id: "u-member", email: "member@test.example", name: "Member", role: "member" };
 
 // ── requireAuth ─────────────────────────────────────────────────────
 
@@ -410,9 +410,9 @@ describe("requireTeamRole", () => {
     await getTestDb().delete(teams);
     await getTestDb().delete(users);
 
-    const dbUser = await createUser({ email: "member@test.com", passwordHash: "h", name: "Member" });
+    const dbUser = await createUser({ email: "member@test.example", passwordHash: "h", name: "Member" });
     dbUserId = dbUser.id;
-    const dbAdmin = await createUser({ email: "admin@test.com", passwordHash: "h", name: "Admin", role: "admin" });
+    const dbAdmin = await createUser({ email: "admin@test.example", passwordHash: "h", name: "Admin", role: "admin" });
     dbAdminId = dbAdmin.id;
 
     const team = await createTeam("Test Team");
@@ -421,21 +421,21 @@ describe("requireTeamRole", () => {
 
   test("returns user when membership role >= minRole", async () => {
     await addTeamMember(teamId, dbUserId, "editor");
-    const locals = makeLocals({ id: dbUserId, email: "member@test.com", name: "Member", role: "member" });
+    const locals = makeLocals({ id: dbUserId, email: "member@test.example", name: "Member", role: "member" });
     const result = await requireTeamRole(locals, teamId, "viewer");
     expect(result.id).toBe(dbUserId);
   });
 
   test("returns user when membership role equals minRole", async () => {
     await addTeamMember(teamId, dbUserId, "editor");
-    const locals = makeLocals({ id: dbUserId, email: "member@test.com", name: "Member", role: "member" });
+    const locals = makeLocals({ id: dbUserId, email: "member@test.example", name: "Member", role: "member" });
     const result = await requireTeamRole(locals, teamId, "editor");
     expect(result.id).toBe(dbUserId);
   });
 
   test("throws 403 when membership role < minRole", async () => {
     await addTeamMember(teamId, dbUserId, "viewer");
-    const locals = makeLocals({ id: dbUserId, email: "member@test.com", name: "Member", role: "member" });
+    const locals = makeLocals({ id: dbUserId, email: "member@test.example", name: "Member", role: "member" });
     try {
       await requireTeamRole(locals, teamId, "owner");
       expect(true).toBe(false);
@@ -447,13 +447,13 @@ describe("requireTeamRole", () => {
 
   test("instance admin bypasses team role check", async () => {
     // Admin user has no team membership at all, but should still pass
-    const locals = makeLocals({ id: dbAdminId, email: "admin@test.com", name: "Admin", role: "admin" });
+    const locals = makeLocals({ id: dbAdminId, email: "admin@test.example", name: "Admin", role: "admin" });
     const result = await requireTeamRole(locals, teamId, "owner");
     expect(result.id).toBe(dbAdminId);
   });
 
   test("throws 403 when user has no membership at all", async () => {
-    const locals = makeLocals({ id: dbUserId, email: "member@test.com", name: "Member", role: "member" });
+    const locals = makeLocals({ id: dbUserId, email: "member@test.example", name: "Member", role: "member" });
     try {
       await requireTeamRole(locals, teamId, "viewer");
       expect(true).toBe(false);

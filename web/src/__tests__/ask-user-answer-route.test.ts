@@ -77,7 +77,7 @@ beforeAll(() => {
     ...realAuthMiddleware,
     requireAuth: () => ({
       id: "user-1",
-      email: "t@t.com",
+      email: "t@t.example",
       name: "T",
       role: "member",
     }),
@@ -107,7 +107,7 @@ function makeEvent(body: unknown): RequestEventLike {
       body: typeof body === "string" ? body : JSON.stringify(body),
     },
     locals: {
-      user: { id: "user-1", email: "t@t.com", name: "T", role: "member" },
+      user: { id: "user-1", email: "t@t.example", name: "T", role: "member" },
     },
   });
 }

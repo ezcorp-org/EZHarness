@@ -5,7 +5,7 @@ import { FactoryProvisioningError } from "./steps";
 
 const settings = { fleetId: "w16", ingress: { domain: "w16.factory.test", port: 32005, address: "127.0.0.1" }, image: { reference: `localhost/f@sha256:${"a".repeat(64)}`, revision: "b".repeat(40) }, release: { directory: "/release" } } as unknown as FactoryFleetSettings;
 
-const checks = { census: { count: async () => ({ active: 0, uncertain: 0 }) }, approvals: { verify: async () => ({ approvedBy: "admin:a@b.co" }) } };
+const checks = { census: { count: async () => ({ active: 0, uncertain: 0 }) }, approvals: { verify: async () => ({ approvedBy: "admin:a@b.example" }) } };
 const WHO = { actor: "cli:operator" };
 const APPROVAL = "0f8b2f7a-1c1d-4a4e-9a0b-6d1f2e3c4b5a";
 

@@ -72,7 +72,7 @@ beforeEach(() => {
       { agentConfigId: "a1", agentName: "test-agent", toolName: "read_file", count: 12, successCount: 10, errorCount: 2 },
     ],
     toolUsageByUser: [
-      { userId: "u1", userName: "Alice", userEmail: "a@x.com", toolName: "read_file", count: 9, successCount: 8, errorCount: 1 },
+      { userId: "u1", userName: "Alice", userEmail: "a@x.example", toolName: "read_file", count: 9, successCount: 8, errorCount: 1 },
     ],
     toolUsageByModel: [
       { model: "claude-opus-4-7", provider: "anthropic", toolName: "read_file", count: 15, successCount: 14, errorCount: 1 },
@@ -130,7 +130,7 @@ describe("GET /api/admin/analytics", () => {
     expect(data.toolUsage.byTool[0].errorCount).toBe(2);
     expect(data.toolUsage.byAgent[0].agentName).toBe("test-agent");
     expect(data.toolUsage.byAgent[0].errorCount).toBe(2);
-    expect(data.toolUsage.byUser[0].userEmail).toBe("a@x.com");
+    expect(data.toolUsage.byUser[0].userEmail).toBe("a@x.example");
     expect(data.toolUsage.byUser[0].errorCount).toBe(1);
     expect(data.toolUsage.byModel[0].model).toBe("claude-opus-4-7");
     expect(data.toolUsage.byModel[0].errorCount).toBe(1);

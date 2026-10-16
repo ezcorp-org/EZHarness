@@ -43,9 +43,9 @@ beforeAll(async () => {
   installerId = crypto.randomUUID();
   adminId = crypto.randomUUID();
   await getDb().insert(users).values([
-    { id: authorId, email: "author@e2e.com", passwordHash: "h", name: "Author", role: "member" },
-    { id: installerId, email: "installer@e2e.com", passwordHash: "h", name: "Installer", role: "member" },
-    { id: adminId, email: "admin@e2e.com", passwordHash: "h", name: "Admin", role: "admin" },
+    { id: authorId, email: "author@e2e.example", passwordHash: "h", name: "Author", role: "member" },
+    { id: installerId, email: "installer@e2e.example", passwordHash: "h", name: "Installer", role: "member" },
+    { id: adminId, email: "admin@e2e.example", passwordHash: "h", name: "Admin", role: "admin" },
   ]);
 });
 

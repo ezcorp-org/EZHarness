@@ -16,7 +16,7 @@ let userId: string;
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "ez-lookup@test.com", passwordHash: "h", name: "EZ" });
+  const u = await createUser({ email: "ez-lookup@test.example", passwordHash: "h", name: "EZ" });
   userId = u.id;
 });
 
@@ -78,7 +78,7 @@ describe("getOrCreateEzConversation", () => {
   });
 
   test("two different users each get their own ez conversation", async () => {
-    const u2 = await createUser({ email: "ez-lookup-2@test.com", passwordHash: "h", name: "EZ2" });
+    const u2 = await createUser({ email: "ez-lookup-2@test.example", passwordHash: "h", name: "EZ2" });
     const a = await getOrCreateEzConversation(userId);
     const b = await getOrCreateEzConversation(u2.id);
     expect(a.id).not.toBe(b.id);

@@ -106,7 +106,7 @@ beforeAll(async () => {
   const db = getTestDb();
 
   await db.insert(users).values({
-    id: USER_ID, email: "r@x.com", passwordHash: "x", name: "R", role: "admin",
+    id: USER_ID, email: "r@x.example", passwordHash: "x", name: "R", role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "r", path: "/tmp/r" } as any);
   for (const id of [CONV_A, CONV_B]) {

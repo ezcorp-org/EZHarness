@@ -6,8 +6,8 @@
 import { describe, test, expect, vi, afterEach } from "vitest";
 import { canDeleteProject, requireAdmin, type CurrentUser } from "./admin-guard";
 
-const admin: CurrentUser = { id: "u1", email: "boss@corp.io", name: "Boss", role: "admin" };
-const member: CurrentUser = { id: "u2", email: "pleb@corp.io", name: "Pleb", role: "member" };
+const admin: CurrentUser = { id: "u1", email: "boss@corp.example", name: "Boss", role: "admin" };
+const member: CurrentUser = { id: "u2", email: "pleb@corp.example", name: "Pleb", role: "member" };
 
 afterEach(() => vi.unstubAllGlobals());
 

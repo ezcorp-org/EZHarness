@@ -18,13 +18,13 @@ let agent2Id: string;
 beforeAll(async () => {
   await setupTestDb();
 
-  const owner = await createUser({ email: "share-owner@test.com", passwordHash: "hash", name: "Share Owner", role: "admin" });
+  const owner = await createUser({ email: "share-owner@test.example", passwordHash: "hash", name: "Share Owner", role: "admin" });
   ownerId = owner.id;
 
-  const recipient = await createUser({ email: "share-recipient@test.com", passwordHash: "hash", name: "Share Recipient", role: "member" });
+  const recipient = await createUser({ email: "share-recipient@test.example", passwordHash: "hash", name: "Share Recipient", role: "member" });
   recipientId = recipient.id;
 
-  const teamMember = await createUser({ email: "share-team@test.com", passwordHash: "hash", name: "Team Member", role: "member" });
+  const teamMember = await createUser({ email: "share-team@test.example", passwordHash: "hash", name: "Team Member", role: "member" });
   teamMemberId = teamMember.id;
 
   const team = await createTeam("Share Test Team");
