@@ -257,6 +257,16 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(spec.containers[0]!.volumeMounts).toContainEqual({ name: "runner-root", mountPath: "/srv/ezcorp-runner" });
   });
 
+  test("each system workload has HOME on its own writable /tmp, because the image's user has no home (W4H-35 kind proof)", () => {
+    const pool = podSpec(kind(system, "Deployment")[0]!);
+    expect(pool.containers[0]!.env).toContainEqual({ name: "HOME", value: "/tmp" });
+    expect(pool.containers[0]!.volumeMounts).toContainEqual({ name: "tmp", mountPath: "/tmp" });
+    const supervisor = podSpec(kind(system, "DaemonSet")[0]!);
+    expect(supervisor.containers[0]!.env).toEqual([{ name: "HOME", value: "/tmp" }, { name: "CONTAINER_HOST", value: `unix://${SETTINGS.runtimeSocketPath}` }]);
+    expect(supervisor.containers[0]!.volumeMounts).toContainEqual({ name: "tmp", mountPath: "/tmp" });
+    expect(supervisor.volumes).toContainEqual({ name: "tmp", emptyDir: { sizeLimit: "64Mi" } });
+  });
+
   test("nothing tenant-scoped is rendered into the system namespace", () => {
     const text = JSON.stringify(system);
     expect(text).not.toContain("tenant-01");

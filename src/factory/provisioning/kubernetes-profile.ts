@@ -33,7 +33,7 @@
  */
 import { createHash } from "node:crypto";
 import type { FactoryInstallationBundle } from "./deployment";
-import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES } from "./deployment";
+import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
 import { factoryComposeProject } from "./compose-profile";
 import { FACTORY_KUBERNETES_SUPERVISOR_PATHS } from "./kubernetes-paths";
 import { FactoryProvisioningError } from "./steps";
@@ -96,6 +96,11 @@ const restrictedContainer = (runAsUser: number) => ({
   capabilities: { drop: ["ALL"] }, seccompProfile: { type: "RuntimeDefault" },
 });
 
+/** A container's `env` list from an environment record, in its order. */
+function environment(values: Readonly<Record<string, string>>): { name: string; value: string }[] {
+  return Object.entries(values).map(([name, value]) => ({ name, value }));
+}
+
 /** Every image a rendered object stream runs: the containers and init containers of each workload's pod template. */
 export function factoryKubernetesImages(objects: readonly FactoryKubernetesObject[]): readonly string[] {
   return objects.flatMap((object) => {
@@ -125,7 +130,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     command: [...COMMANDS[service]],
     // The harness checks host, installation header, and ingress proof in both profiles (C12 row "Trusted
     // ingress"); the proof file arrives with the harness's Secret, and only the fleet's ingress sets the header.
-    env: Object.entries(bundle.environment[service]).map(([name, value]) => ({ name, value })),
+    env: environment(bundle.environment[service]),
     securityContext: restrictedContainer(settings.runAsUser),
     resources: { requests: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu }, limits: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu } },
     volumeMounts: [
@@ -241,6 +246,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             containers: [{
               name: "pool", image, imagePullPolicy: "IfNotPresent",
               command: ["bun", "src/factory/pool/process.ts", `${FACTORY_CONTAINER_PATHS.secrets}/pool.json`],
+              env: environment(FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.pool),
               securityContext: restrictedContainer(settings.runAsUser),
               resources: { requests: { memory: "512Mi", cpu: "500m" }, limits: { memory: "512Mi", cpu: "1" } },
               ports: [{ name: "pool", containerPort: poolPort }],
@@ -277,7 +283,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
             containers: [{
               name: "supervisor", image, imagePullPolicy: "IfNotPresent",
               command: ["bun", "src/factory/runner/supervisor-process.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets}/supervisor.json`],
-              env: [{ name: "CONTAINER_HOST", value: `unix://${settings.runtimeSocketPath}` }],
+              env: environment({ ...FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.supervisor, CONTAINER_HOST: `unix://${settings.runtimeSocketPath}` }),
               // The ONE privileged workload: it alone reaches the container runtime.
               securityContext: { privileged: true },
               resources: { requests: { memory: "256Mi", cpu: "250m" }, limits: { memory: "2Gi", cpu: "2" } },
@@ -288,6 +294,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
                 { name: "runner-root", mountPath: settings.runnerRoot },
                 { name: "supervisor-secrets", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, readOnly: true },
                 { name: "readiness", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory },
+                { name: "tmp", mountPath: "/tmp" },
               ],
             }],
             volumes: [
@@ -296,6 +303,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
               { name: "supervisor-secret-source", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } },
               { name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } },
               { name: "readiness", emptyDir: { medium: "Memory", sizeLimit: "1Mi" } },
+              { name: "tmp", emptyDir: { sizeLimit: "64Mi" } },
             ],
           },
         },

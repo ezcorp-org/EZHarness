@@ -71,6 +71,18 @@ export const FACTORY_SERVICE_BASE_ENVIRONMENT: Readonly<Record<FactoryDeployedSe
   harness: Object.freeze({ HOME: `${FACTORY_CONTAINER_PATHS.data}/home` }),
 });
 
+/**
+ * The fleet host's shared services' environment before their own settings. The
+ * image's user has no home directory, so each one's HOME is its own writable
+ * /tmp; without it the podman-remote client the supervisor runs cannot start
+ * (C12 row "Supervisor container runtime (hosted)"). The Compose host's pool and
+ * both hosted system workloads read it here.
+ */
+export const FACTORY_HOST_SERVICE_BASE_ENVIRONMENT = Object.freeze({
+  pool: Object.freeze({ HOME: "/tmp" }),
+  supervisor: Object.freeze({ HOME: "/tmp" }),
+});
+
 /** How services reach the fleet's shared infrastructure, as seen from inside a service. */
 export interface FactoryDeploymentNetwork {
   readonly databaseHost: string;

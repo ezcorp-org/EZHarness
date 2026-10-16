@@ -14,6 +14,7 @@
  */
 import { resolve } from "node:path";
 import type { FactoryDeploymentHandle, FactoryDeploymentTarget, FactoryInstallationBundle } from "./deployment";
+import { FACTORY_HOST_SERVICE_BASE_ENVIRONMENT } from "./deployment";
 import type { FactoryFleetHostBundle, FactoryFleetHostPaths, FactoryFleetHostRuntime } from "./host";
 import type { FactoryInstallationContext, FactoryStepResources } from "./installation";
 import { factoryPrivatePath, removeFactoryPrivateDirectory, replaceFactoryPrivateFile } from "./secret-files";
@@ -290,7 +291,7 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
   async apply(bundle: FactoryFleetHostBundle): Promise<void> {
     const { paths } = bundle;
     const poolEnv = resolve(paths.runtimeDirectory, "pool.env");
-    await replaceFactoryPrivateFile(poolEnv, envFile({ HOME: "/tmp" }));
+    await replaceFactoryPrivateFile(poolEnv, envFile(FACTORY_HOST_SERVICE_BASE_ENVIRONMENT.pool));
     await replaceFactoryPrivateFile(resolve(paths.runtimeDirectory, "compose.env"), envFile({
       EZCORP_FACTORY_PROJECT: factoryComposeHostProject(paths.context.fleetId),
       EZCORP_FACTORY_POOL_IMAGE: bundle.build.image,
