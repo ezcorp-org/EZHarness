@@ -174,6 +174,9 @@ test("a rebuild is never an error handler: an artifact read error other than 'no
     [new RunnerError("runner_internal_error", "Runner failed at /srv/store/secret-path", "runner", false, { errorClass: "Error", errorCode: "EACCES" }), { code: "runner_internal_error", errorClass: "Error", errorCode: "EACCES" }],
     [Object.assign(new Error("ENOENT: open '/home/operator/private'"), { code: "ENOENT" }), { errorClass: "Error", errorCode: "ENOENT" }],
     [new TypeError("socket path /run/private.sock refused"), { errorClass: "TypeError" }],
+    // A raw runner's missing artifact is not "no build yet": the product's runner restores it first, so here it can
+    // only be a runner nothing wraps, and building would mask an unrecoverable artifact (team-lead ruling).
+    [new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, { errorClass: "Error", errorCode: "ENOENT" }), { code: "artifact_missing", errorClass: "Error", errorCode: "ENOENT" }],
   ];
   for (const [error, named] of cases) {
     const refusal = await context.preparations(reading(error)).prepare(projectId, reference).catch((caught: unknown) => caught);
@@ -200,9 +203,9 @@ test("an artifact the product runner cannot restore refuses by name with its rea
   expect(builds).toBe(0);
 });
 
-test.each([["the supervisor's host_preparation_not_built", () => new FactoryHostPreparationError("host_preparation_not_built", "not yet")], ["a runner store's artifact_missing", () => new RunnerError("artifact_missing", "not in this store")]] as const)("a builder with no build of the release yet builds it: %s (W4H-26 path, W4H-32)", async (_name, notYet) => {
+test("a builder with no build of the release yet builds it, and only the supervisor's host_preparation_not_built says so (W4H-26 path, W4H-32)", async () => {
   {
-    const notBuilt = notYet();
+    const notBuilt = new FactoryHostPreparationError("host_preparation_not_built", "not yet");
     const context = await packageContext();
     let built = false;
     const runner: Pick<Runner, "build" | "collectArtifacts"> = {
@@ -335,7 +338,7 @@ test("prepares an exact active v4 release outside the factory transaction and fe
       hydrated = true;
       return { operationId: input.operationId, state: "succeeded", sourceDigest, artifactDigest, imageDigest: current.imageDigest, manifest: current.manifest, diagnostics: [], evidence: current.evidence };
     },
-    async collectArtifacts(digest) { if (!hydrated || digest !== artifactDigest) throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store"); return structuredClone(artifacts); },
+    async collectArtifacts(digest) { if (!hydrated || digest !== artifactDigest) throw new FactoryHostPreparationError("host_preparation_not_built", "this process has no prepared build of that artifact yet"); return structuredClone(artifacts); },
   };
   const preparations = context.preparations(runner);
   const binding = await preparations.bind(admin, { projectId, reference, installationId: current.installationId, releaseId: current.id }, "bind-package");

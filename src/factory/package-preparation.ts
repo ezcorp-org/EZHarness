@@ -88,11 +88,12 @@ export class FactoryPackageBlockedError extends FactoryPackagePreparationError {
 }
 /**
  * The builder holds no build of the release yet, the one case a preparation builds (W4H-26 path): the supervisor's
- * answer before its first build, or a runner store without the artifact. The product's own runner never answers the
- * second: it restores a missing artifact from the release blobs first (W4H-32).
+ * answer before its first build. A runner's artifact_missing is not this answer: the product's runner restores a
+ * missing artifact from the release blobs first, so a raw one comes only from a runner nothing wraps, and building
+ * there would mask an unrecoverable artifact (team-lead ruling, W4H-32).
  */
 function builderHasNoBuild(error: unknown): boolean {
-  return (error instanceof FactoryHostPreparationError && error.code === "host_preparation_not_built") || (error instanceof RunnerError && error.code === "artifact_missing");
+  return error instanceof FactoryHostPreparationError && error.code === "host_preparation_not_built";
 }
 /** Any other artifact read error, by name: a named refusal's code, reason and cause class, or an error's class and code; never a message. */
 function artifactUnavailable(error: unknown): FactoryPackagePreparationError {
