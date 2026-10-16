@@ -270,7 +270,7 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
     },
     { apiVersion: "v1", kind: "Service", metadata: { name: "factory-pool", namespace, labels: common }, spec: { selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: poolPort, targetPort: poolPort }] } },
     // C11: the alert rules for the platform's Prometheus operator, and the shared pool's scrape. The supervisor
-    // binds its /metrics on host loopback (hosted-supervisor-metrics-address in the W16 gate file), so the
+    // binds its /metrics on host loopback (gap hosted-supervisor-metrics-address, tasks/factory/w4h-34-GATES.md), so the
     // target-down rule names it until the supervisor's address gap is closed.
     factoryPrometheusRuleResource(namespace, common),
     { apiVersion: "v1", kind: "Secret", metadata: { name: FACTORY_KUBERNETES_METRICS_SECRET, namespace, labels: common }, type: "Opaque" },

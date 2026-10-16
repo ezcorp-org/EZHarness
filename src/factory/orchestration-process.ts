@@ -14,7 +14,7 @@ import { loadFactoryTemporalPayloadCodec, type FactoryTemporalPayloadCodecFileCo
 import { wellFormedFactoryKeyManagement } from "./key-composition.ts";
 import { createFactoryOrchestrationReadinessWriter } from "./orchestration-readiness-writer.ts";
 import { privateDirectory, readPrivateBounded } from "./private-files.ts";
-import { wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint } from "./observability/metrics-listener.ts";
+import { serveFactoryReadyMetrics, startDeclaredFactoryMetrics, wellFormedFactoryMetricsEndpoint, type FactoryMetricsEndpoint, type FactoryMetricsListener } from "./observability/metrics-listener.ts";
 
 const CONFIG_SCHEMA = "factory.orchestrator-process.v1";
 const MAX_CONFIG_BYTES = 32 * 1024;
@@ -37,6 +37,10 @@ export interface FactoryOrchestratorProcessConfig {
 export interface FactoryOrchestratorLauncherDependencies {
   readonly loadCodec: (config: FactoryTemporalPayloadCodecFileConfig) => Promise<PayloadCodec>;
   readonly run: (options: FactoryOrchestratorProcessOptions) => Promise<void>;
+  /** Serves the ready gauge on a declared endpoint (C11 M4). */
+  readonly metrics?: (endpoint: FactoryMetricsEndpoint, ready: () => boolean) => Promise<FactoryMetricsListener>;
+  /** Names a fault the process survives, by code only. */
+  readonly report?: (code: string) => void;
 }
 
 export interface FactoryOrchestratorMainDependencies {
@@ -147,15 +151,26 @@ export async function runConfiguredFactoryOrchestrator(
   catch { throw new Error("factory orchestrator config is invalid"); }
   const config = parseFactoryOrchestratorProcessConfig(parsed);
   const payloadCodec = await dependencies.loadCodec({ installationId: config.installationId, tenantId: config.tenantId, ...config.codec });
-  const readiness = createFactoryOrchestrationReadinessWriter({
+  const writer = createFactoryOrchestrationReadinessWriter({
     installationId: config.installationId, tenantId: config.tenantId, namespace: config.temporal.namespace,
     taskQueue: "factory-orchestrator", readinessFilePath: config.readinessFilePath, readinessHeartbeatMs: config.readinessHeartbeatMs,
   });
-  await dependencies.run({
-    installationId: config.installationId, tenantId: config.tenantId, temporal: config.temporal, gateway: config.gateway,
-    payloadCodec, loadTemporalCredentials: () => loadFactoryTemporalCredentials(config.temporal), readiness,
-    readinessHeartbeatMs: config.readinessHeartbeatMs, dispatchEmptyDelayMs: config.dispatchEmptyDelayMs, signal,
-  });
+  // The ready gauge reads the lifecycle the process last published, so the
+  // scrape and the readiness file can never disagree.
+  let lifecycle: string = "starting";
+  const readiness: typeof writer = { write: async (update) => { const written = await writer.write(update); lifecycle = written.lifecycle; return written; } };
+  const metrics = await startDeclaredFactoryMetrics(config.metrics,
+    (endpoint) => (dependencies.metrics ?? ((declared, ready) => serveFactoryReadyMetrics(declared, "orchestrator", ready)))(endpoint, () => lifecycle === "ready"),
+    dependencies.report ?? ((code) => { console.error(`[factory-orchestrator] ${code}`); }));
+  try {
+    await dependencies.run({
+      installationId: config.installationId, tenantId: config.tenantId, temporal: config.temporal, gateway: config.gateway,
+      payloadCodec, loadTemporalCredentials: () => loadFactoryTemporalCredentials(config.temporal), readiness,
+      readinessHeartbeatMs: config.readinessHeartbeatMs, dispatchEmptyDelayMs: config.dispatchEmptyDelayMs, signal,
+    });
+  } finally {
+    await metrics?.stop();
+  }
 }
 
 /**
