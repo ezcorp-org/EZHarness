@@ -1,0 +1,31 @@
+# W4H-28 (integrator-5; the coordinator's word 2026-10-16, frozen 6c0b99d37): the reference.code.v1 run with the real model; 125 files
+# (src/factory 56, packages/@ezcorp 29, src/__tests__ 10, scripts/factory-graph-proof 9, src/providers 7, web/src 1, scripts 2,
+# the factory-orchestrator package 1). A PACKAGE merge: patch, new-file and CRAP bind (no W-SYNC form). hold-w4f.sh runs: the hook suites
+# (full-run form), unit 206 (hook 58 + the 51 invariant tests + 156 importers), pg 9 on an own pg15, the guard set, the orchestrator
+# package test + Node producer, the web server leg, CRAP and the merge gates (main leg = the default invocation, against the EMPTY
+# expected set; base leg against b7dbd9210). Beyond those, the owner's proof legs (legs/final.sh form) at the MERGE:
+# - static (owner's static.sh: build:packages, typecheck, lint, check-boundaries, factory-boundaries, schema drift):
+NOTEST=1 leg build-packages bun run build:packages
+tc_leg typecheck-all bun run typecheck
+NOTEST=1 leg lint bun run lint
+NOTEST=1 leg check-boundaries bun scripts/check-boundaries.ts
+NOTEST=1 leg factory-boundaries bun scripts/check-factory-boundaries.ts
+NOTEST=1 leg schema-drift bun scripts/check-schema-generate-drift.ts
+# - focused: the owner's Node V8 producer with the hosted runner's Node 24.14.1 (owner's "test:factory-orchestrator-v8"), its lcov joins;
+#   gateway-activities' case by name from that log (the orchestrator package runs under node --test; case-check reads bun junit only).
+leg orchestrator-v8-node24141 env PATH="/tmp/factory-tools/node-24.14.1/bin:$PATH" COV_OUT=$REPO/$C/orch-v8 bash scripts/factory-orchestrator-coverage.sh
+NOTEST=1 leg gateway-activities-case grep -F "✔ shares a bounded credential-reloading HTTP transport without Temporal imports" "$D/heavy-orchestrator-v8-node24141.log"
+# - the product-defect suites by name beyond the unit and pg lists: the extension-runner package suite (service, store-reuse,
+#   provision-determinism inside) and the Podman suites the run needs, each as cov-extras runs them:
+NOTEST=1 leg extension-runner-package-test bash -c 'cd packages/@ezcorp/extension-runner && exec bun run test'
+for t in src/factory/s3-release-adapter/package.podman.integration.test.ts src/factory/reference-code/runner-guest.podman.integration.test.ts; do
+  n=podman-$(basename $t .test.ts | tr '.' '-'); file_leg "$n" "$t" env EZCORP_RUN_PODMAN_TESTS=1 bun test --timeout 300000 --coverage --coverage-reporter=lcov --coverage-dir=$C/$n "./$t"   # a missing listed file fails by name (ruling 2026-10-16)
+done
+# - the owner's harness tests (evidence folder; they test the proof harness, not the tree):
+NOTEST=1 leg owner-legs-test bash /tmp/factory-platform-evidence/w4h-28/legs/legs.test.sh
+leg owner-pass-kit-test bash -c 'cd /tmp/factory-platform-evidence/w4h-28/proof && exec bun test ./pass-kit.test.ts'
+NOTEST=1 leg owner-run-marker-test bash /tmp/factory-platform-evidence/w4h-28/proof/run-marker.test.sh
+# - red-first cases BY NAME (case-check v8, package form: the by-name cases AND the coverage sub-checks bind): the owner's 37 red-on-base
+#   files (145 new names) + the coordinator's named cases (provision-determinism both; package.test "the provided SDK bundle and toolchain";
+#   package.podman both; the console suite case; factory-broker's two P-F3b) in warn-cases.txt; Podman on for the Podman case files.
+NOTEST=1 leg w4h28-red-first-cases env EZCORP_RUN_PODMAN_TESTS=1 bash /tmp/factory-platform-evidence/w00/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" /tmp/factory-platform-evidence/w00/w4h-merge/w4h-28-reference-run

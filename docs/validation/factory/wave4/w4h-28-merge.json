@@ -1,0 +1,60 @@
+{
+ "package": "w4h-28",
+ "kind": "package merge: the reference.code.v1 run passes through the product with the real model (one real run PASSED, real-9)",
+ "branch": "wp/w4h-28-reference-run",
+ "head": "5deb91a25c7dcba0a4d87230cfe282f6f7e53d0f",
+ "base": "b7dbd9210c31676e1e7ec67ef608c1510e840016",
+ "main": "934531e2e9e8fd0c3c97e48527d545ca3476eb5e",
+ "mergeSha": "7e5365696fc1d376e2eedd14f245af865a3a910a",
+ "treeEquality": {
+  "trialTree": "36fe098c612395005d8c12622ff5b552b23dac5d",
+  "mergeTree": "36fe098c612395005d8c12622ff5b552b23dac5d",
+  "equal": true
+ },
+ "validatorVerdict": "validator-8 OK to publish on the hold record (verdict-w4h-28.txt sha256 7cfd6fe2571297c940229803aee5240127dc8c5c8a3606048b0ba124dc7b94b1; copied as w4h-28-validation.txt): HEAVY DONE status=0, 246 legs; re-prep at 5deb91a25 judged SOUND",
+ "ownerReport": {
+  "w4h-28/proof/report.txt": "5323ae2e6f4fcf38",
+  "w4h-28/pending-lesson.md": "d420c86888578b24",
+  "w4h-28/legs/final-5deb91a25/summary.txt": "4ad2ccd51bf84785",
+  "factory-evidence-mirror/w4h-28.sha256sums": "ce7496ecee88e501"
+ },
+ "commit": {
+  "form": "the full-run hook form, EZ_PRECOMMIT_TEST_MAX=59, PG_HOOK=0, in the heavy lock; no skip variable; archy noreply",
+  "try1": "2026-10-16T09:15:47-09:15:48Z exit 1: w00/installs-lib.sh deleted by the systemd-tmpfiles /tmp sweep; nothing committed; restored byte-exact from the repository receipt 8ea96b0ed (36e14c55cd666ed0) on validator-8's OK",
+  "try2": "2026-10-16T09:22:13-09:28:48Z exit 0; hook: 58 bun files 722 tests 0 fail + the factory-orchestrator package (node --test) 101/101"
+ },
+ "hold": {
+  "run1": "2026-10-16T07:17:17-07:52:59Z on the EARLIER merge 74f91675c (head 028f71efa): HEAVY DONE status=1 - a Node-canonical node:test file under bun (RULED: the node-canonical filter) and a changed-test-lines sub-check; re-prep at 5deb91a25 followed; kept as w4h-28-merge-hold-1-batch.log",
+  "run2": "2026-10-16T09:33:21-10:12:11Z on 7e5365696, own pg15 (w4h-28-hold-pg): HEAVY DONE status=0 dirty=0; 246 legs, all exit 0; no side files; heavy-batch.log lines 755-1505 sha256_16 59b270a1395e941a; two container OOM kills mapped to the asserted 128 MiB memory-limit case of the extension-runner Podman suite; no image or actionlint leg (0 of 126 changed files match)"
+ },
+ "identity": "publish identity step: identity-check commits b7dbd9210..7e5365696, 41 commits, clean",
+ "published": "integ/w00 b7dbd9210 -> 7e5365696 at 2026-10-16T10:18:44Z by publish-if-main.sh (remote main 934531e2e = expected; SSH agent bypass per ruling a')",
+ "tools": {
+  "gated-flock.sh": "50d35065e3e0bcae",
+  "heavy-lib.sh": "e9ab2c05a91d7a45",
+  "bun-pin.sh": "cf1aad7852b8afdc",
+  "resource-gate.sh": "6d494b2772241dea",
+  "leg-judge.sh": "16c38d52cc01c97f",
+  "case-check.sh": "79eb4acad3c2b062",
+  "identity-check.sh": "ef09124c9d7360ed",
+  "installs-lib.sh": "36e14c55cd666ed0",
+  "test-count.sh": "c70294f528decb8c",
+  "guard-suites.sh": "ad5060a9d8573bbd",
+  "web-server-tests.sh": "cbf6225df533ebb1",
+  "node-canonical-filter.sh": "60ce02f03d52889c",
+  "detached-merge/commit.sh": "22db59d4e7eb94e0",
+  "detached-merge/publish.sh": "f55db31d526c443a",
+  "w4g-merge/prep.sh": "33840f938827ec95",
+  "merge-receipt-sources.sh": "0cffdbb100e7de24",
+  "merge-receipts.sh": "56c108f4ec5796b1",
+  "integrator-5/publish-if-main.sh": "8a658ea7fff5fc34",
+  "integrator-5/red-first-cases.py": "df05e10a769965b8"
+ },
+ "pushed": false,
+ "excludedFromReceipts": [],
+ "deviations": [
+  "commit try 1 exit 1 on the deleted installs-lib.sh (tmpfiles); restored, then try 2 green",
+  "w00/tools/ (actionlint 1.7.7, labels, boot-smoke.sh) and image-leg.sh were deleted by the same sweep; restored on validator-8's OKs before any hold that needs them; not used by this merge",
+  "heavy-batch.log is appended across both hold runs; the receipts carry the two sections as separate files"
+ ]
+}

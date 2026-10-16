@@ -1,0 +1,154 @@
+W4H-28 proof report: the reference.code.v1 run on the composed application, through public HTTP, with ONE bounded
+gpt-6-luna run, to a release at the local S3 destination.
+
+Branch wp/w4h-28-reference-run, head f21e7619a (archy noreply for author and committer on every commit).
+
+Test-provider proof (G3): proof/full-10.json 1012a2477dd05c6c (first pass full-9 755cb865be6a4d5b).
+
+Real-model proof (G4): proof/real-9.json ae7a2fba9035010a
+  pass:         real-9, fresh persistent deployment (product DB w19a_product_1792075777983_561d99), loopback 39323,
+                tailnet origin http://100.77.117.56:39323; provider connected by the Codex-login import (team-lead,
+                on the user's words); readiness openai/gpt-6-luna ready, credentialKind oauth (14:51:22Z)
+  lock:         15:01:36Z - 15:02:56Z (gated-flock w4h28-real-9); done 15:03:18Z, outcome passed
+  run id:       82c88790-77c4-407d-9ea2-a45fddbf1bbf (reference.code.v1 1.0.0, definition sha256:6989a9a4c2ac79d5...5ba4)
+  model ops:    generate-private-candidate  1,318 in / 92 out tokens, 178 cost micros, 2,122 ms (measured)
+                supervised review             334 in / 57 out tokens,  62 cost micros, 2,173 ms (measured)
+  envelope:     spent 1,801 tokens, 240 cost micros, 4,295 ms of 1,000,000 / 1,000,000 / 3,600,000; reservations settled
+  claims:       10 of 10 PASS; acceptance on candidate sha256:cc918f7f6ffbd61b...5960
+  approvals:    command approval and release approval decided over HTTP
+  release:      s3, bucket tenant-01, ordinary/releases/w4h28/real-9/run1, outcome confirmed,
+                effect sha256:96b8b3691c0779dd...e224, candidate.json sha256:2565dfa65009ecde...6974 (6,231 bytes),
+                manifest by manifestKey (as full-9/full-10)
+
+Passes that made no model call: real-1..real-7 (no connect within the window; real-2/3 transport; real-4 the bundled
+OAuth defect d0a862546); real-8 (extension activation on a reused deployment: the release had been built into a
+runner store a previous pass removed; runner masked ENOENT; fixed 445c41a09, 2a0c65e74, harness store kept).
+
+Harness and tools (evidence): full.ts fb3a8166bc325048, real.sh 3b1594d1986a313e, run-marker.sh 38a81207ca4234ea
+(tests cba88d30d286d5c8 18/18), run-pending-watch.sh 40b143642f9f74b0, import-codex-login.sh 6c816f47d14f65b2
+(tests 4e1f7e46bd247f3c 4/4), cleanup/rotate-pg-password.ts 78ff8f519be360df.
+
+Cleanup (Z4, 15:05-15:07Z): proof PostgreSQL admin password rotated (old file kept for validator-8:
+/tmp/factory-platform-evidence/postgres.env.old-20261015T150527Z); dropped w19a_product_1792008529240_92ad97 and
+w19a_product_1792075777983_561d99; removed /run/user/1001/w4h28-real-deployment, /run/user/1001/w4h28-real-deployment-2,
+/home/dev/.w4h28-runner-store-w4h28-real-deployment-2. Shared-store objects stay in place, listed in proof/objects-written.json b7903ea67f91960c (898 versions; real-9 65,
+real-8 15; real passes counted from their lock.held step).
+
+Static legs at f21e7619a: build:packages, typecheck (tc-gate in-lock), lint, boundaries, factory-boundaries,
+schema-drift all rc 0 (legs/static-f21e7619a.log). Final legs: legs/final-f21e7619a/summary.txt.
+
+== Addendum 2026-10-15/16 (w4h-28b, after the weekly-limit pause): the freeze ==
+Head 6c0b99d37 on integ/w00 390c49a90 (archy noreply author and committer on every commit). No model call since real-9.
+Commit ids after the rebase (pre-rebase id in brackets).
+
+Real-9 follow-ups (validator-8 Addenda AB-AG):
+AG  vacuous tests: 0252b3b5d [3f3ae1ca4]. The two P-F3b database-error tests assert in the test body. Red on the
+    6b43ce6e5 sources: 28/10, both by assertion (red/vacuous-fix-red.log). Mutant "helper never calls its callback":
+    both red (mutants/vacuous-helper-skips-callback.log).
+AB-3 harness fail-fast: proof/pass-kit.ts a1a6bd4511f1e6a0, proof/pass-kit.test.ts e6c4227549fa162a (6/0): a fake
+    product refuses activation; the pass ends by name in < 5 s; marker, stops, paths cleaned; the lock holder ends.
+    Red first without the early end (red/ab3-fail-fast-red.log); mutant red (mutants/ab3-no-early-end-2.log).
+    AB3-1: the holder is one process on its own descriptor and ends when its folder is gone; red 4/2
+    (red/ab3-1-holder-red.log); four orphan holders of my earlier runs stopped by pid. Limit: the fake sits at the
+    product control API; full.ts (b389056f1571089d) has had no run since the move.
+AC-1 provider receipts of run 82c88790, read back from the ordinary store (proof/real-9-receipt-scan.json
+    237ab67a0743409e; tool proof/receipt-scan.ts 1e7dedfd8a66b81d):
+      generate  ordinary/1dc394c2...b313  providerReceiptDigest 39f920e43e426751...120d  1,318/92 tokens, 178 micros, 2,122 ms
+      review    ordinary/72dd0d8c...afba  providerReceiptDigest 9a21abb6391ba627...8b43    334/57 tokens,  62 micros, 2,173 ms
+    Equal to the journal usage_json, the reservation actuals and the envelope (1,801 tokens, 240 micros). The product
+    has no usage.json: the journal column usage_json is the record (src/factory/executions.ts:363).
+AC-2 RULED (team-lead): validator node bounds are operator material; the proof uses 400,000 cost micros / 20,000
+    tokens / 300,000 ms for review (proof/full.ts:122) and 100,000 / 1,000 / 600,000 for checks (:121); read at
+    src/factory/validator-composition.ts:112-114, capped at :117-118. Contracts leftover row C03 f38ba9f39 [ef3b44213].
+AC-3 DEFECT fixed: a run inspection's knownCostMicros summed only stop/reconciliation settlements; a completed run showed
+    Known 0 (real-9: spent 240). Row 35b8166bf [dde345730] (C09), code e9995f70b [045b5c078] (run-inspection.ts),
+    test df1ff3373 [a1290b31a] (a stop-settled and a completion-settled reservation in one run, 428). Red first: 250 vs
+    428 (red/ac3-known-cost-red.log); validator's NOT EXISTS mutant: 678 vs 428 (red/ac3-both-kinds-red.log).
+    Console suite PGlite 27/0, PostgreSQL 27/0.
+AD-2 no defect: the receipt lists member files; the manifest is named by manifestKey, version and effectDigest
+    (src/factory/release-s3-publication.ts:115-127, 343-360). Read-only listing of ordinary/releases/w4h28/real-9/run1
+    (proof/real-9-release-listing.json e2cedb16c0e30e22): candidate.json 6,231 B, manifest.json 540 B; manifest digest
+    = effectDigest sha256:96b8b369...e224; no delete markers. full-10 same shape (18f6c00499cefcd6).
+AB-1/AB-2 leftover row C05 f38ba9f39 [ef3b44213]: the runner wire error codes.
+
+Rebase onto integ/w00 390c49a90 (W4H-31 published 02:51:51Z): 33 commits, conflicts in
+packages/@ezcorp/extension-contract/src/index.ts (both exports kept) and packages/@ezcorp/extension-runner/tests/
+service.test.ts (#339's capabilities test plus the runner tests); the change set equals the pre-rebase one (118 files,
+identical added/removed lines); backup branch backup/w4h-28-pre-rebase-a1290b31a.
+
+Found at the first freeze attempt (df1ff3373): legs/focused.sh always exited 0, so the focused leg's reds were masked at
+61deb0323, f21e7619a and df1ff3373 (earlier "final legs green" reports were wrong for this leg). Reds and causes:
+- s3-release-adapter Podman test red since f21e7619a: the artifact embeds the provided SDK bundle (my extension-contract
+  change moved it) and the builder's NODE_ENV. Ruling A+B:
+  B 978293379: the trusted SDK bundle keeps process.env.NODE_ENV/BUN_ENV as runtime reads (no builder value inlined;
+    accepted deviation from "fixed production"). Red: a marker NODE_ENV reached the bundle; three envs, three digests
+    (red/b-sdk-bundle-env-red.log). Green: tests/provision-determinism.test.ts 2/0.
+  A b6c3f846d: artifactDigest sha256:a2d61ff1aa1bb56f...2a6c -> sha256:54dcd1fd33774934dc1a5a2ec4d4adb19daa059b355856f168d6ee1468d8f0bc
+    (lock.json and referenceS3ReleaseAdapter.digest); lock.json adds sdkDigest sha256:f3c4fba229fcaed6...dc26 and
+    toolchainDigest sha256:6095bbe3725f4d14...4969, recomputed by a fast unit test (red first: red/a-provided-digests-red.log);
+    scripts/relock-s3-release-adapter.ts (clean tree: all unchanged; dirty: refused rc 2). No other pinned digest moved.
+  AS 8d9234f24: the Podman test asserts the build state apart from the lock; a forced failure in the pinned image is
+    refused by name (red: the mutant helper's lock was mis-reported as a digest mismatch; red/as-forced-failure.log).
+- Patch-coverage reds were tests missing from the focused list; each line now covered by:
+    src/factory/runner/supervisor-services.ts 60, 306 ............ src/factory/runner/supervisor-services.test.ts
+    src/factory/host-preparation-client.ts (no lcov before) ...... src/factory/host-preparation-client.integration.test.ts
+    packages/@ezcorp/factory-transport/src/index.ts 36, 187 ....... the same integration test
+    src/factory/task-admission.ts 72, 77, 80 (and the CRAP fn) ... src/__tests__/factory-stop-epoch.test.ts
+    web/src/lib/server/factory-boot.ts 16, 63 ...................... web/src/__tests__/factory-boot.server.test.ts (vitest)
+- Leg scripts: legs/lib.sh 58b88edd997803b7; every leg's rc feeds its script's exit (merge included); final.sh's exit
+  (gated-flock exit file) is the worst leg. legs/legs.test.sh e14290da8689897c: planted failure per leg, 30/0; mutant
+  "focused exits 0": 7 red. red/red.sh covers the 37 branch test files; 3 green on base by design, listed with reasons.
+- Gateway ceiling (found at the run at 8d9234f24, focused patch gate red on packages/@ezcorp/factory-transport/src/
+  index.ts lines 36 and 187, "NO lcov data"): the file is Node/V8-canonical, so Bun records are refused at the merge;
+  its own producer (scripts/factory-orchestrator-coverage.sh) was red 100/101: gateway-activities.test.ts:192 still
+  refused a 16 MiB + 1 limit after ruling B (8910cfd8f) raised the ceiling to 64 MiB. Fix 6c0b99d37 (test only): the
+  ceiling plus one is refused, 64 MiB is accepted. Red first on the pre-ruling transport ("byte limit is invalid",
+  red/gateway-ceiling-red.log); Node suite 101/101; its V8 lcov covers lines 36 (1) and 187 (26). focused.sh runs the
+  producer as its own leg (test:factory-orchestrator-v8); planted checks 31/0.
+
+Final legs at 6c0b99d37: ALL GREEN, worst rc=0 (exit file 0; 05:13:15Z-05:24:09Z, gated-flock w4h28-final-6c0b99d37): static 0 (build:packages, typecheck, lint, check-boundaries, factory-boundaries, schema-drift 0), focused 0 (73/73 legs; patch PASSED 61 files, new-file PASSED 13 files, CRAP: no touched function over 30), guard 0, gate-integrity default/main/base 0, red 0 (37 files; 3 listed green-by-design) (legs/final-6c0b99d37/summary.txt; exit file legs/final-6c0b99d37.exit).
+Lessons: pending-lesson.md 4bc39479ef2fe7ee.
+Raw outputs: legs/final-6c0b99d37/summary.txt 1c5bd3ff9731b7a5, focused.out d8a31e1fe0b7a080, focused-dir/patch.log f6e47b5a7d5fb64a, Node V8 lcov focused-dir/l69/lcov.info (TN:ezcorp-node-v8), red-on-base.txt, guard.out, gi-*.log.
+FROZEN at 6c0b99d37.
+
+== Re-freeze 2026-10-16 (w4h-28b): the 6c0b99d37 freeze is superseded ==
+validator-8's hold at 6c0b99d37 ran the 51 repository invariant tests; two were red (my guard leg ran only the 41-file
+guard set, which excludes them):
+F1 src/__tests__/git-spawn-context-guard.test.ts: "Unguarded git spawn in: scripts/relock-s3-release-adapter.ts (env:
+   <absent>)". Fix 6a01d36a5: the clean-tree check (a current-repository spawn; ROOT = join(import.meta.dir, "..") is
+   always the script's own repository, no explicit-target mode) passes env: currentRepositoryGitContext(process.env).
+F2 src/factory/guest-sdk-closure.test.ts:128: relock.ts named the SDK source directory. Fix 028f71efa (team-lead's
+   ruling: the code, not the invariant's list): guest-package-build.ts exports factorySdkSourceDirectory(root), the one
+   place that names it (the closure uses it); relock.ts derives references.ts from it. The invariant file is
+   byte-identical to 6c0b99d37. Red first: red/invariants-red.log (both), red/f2-closure-red.log (F2 after the
+   6a01d36a5 list entry was removed). Green: 43/0.
+Legs: focused.sh (702e99498c9d8a77) runs every path of w00/invariant-tests.txt as its own leg (an absent path or an empty
+list is red); legs/legs.test.sh (fd08b1f0c3a2b4f2) plants an invariant leg: 32/0.
+Final legs at 028f71efa: ALL GREEN, worst rc=0 (exit file 0; 06:48:53Z-07:00:29Z, gated-flock w4h28-final-028f71efa):
+static 0 (build:packages, typecheck, lint, check-boundaries, factory-boundaries, schema-drift 0), focused 0 (124/124
+legs incl. 51 invariants; patch PASSED 62 files, new-file PASSED 13, CRAP: no touched function over 30), guard 0,
+gate-integrity default/main/base 0, red 0.
+Raw outputs: legs/final-028f71efa/summary.txt 46e2fcb5157eddee, focused.out 93194bc01d060ca5, focused-dir/patch.log
+5aa025a74073b1e8, Node V8 lcov focused-dir/l69/lcov.info, red-on-base.txt, guard.out, gi-*.log.
+Lessons: pending-lesson.md 9772992488863506.
+FROZEN at 028f71efa.
+
+== Re-freeze 2026-10-16 (w4h-28b): 5deb91a25 supersedes 028f71efa ==
+The W4H-28 integration hold (merge 74f91675c) found one red of mine: case-check "changed test lines NOT all covered",
+src/__tests__/credential-store-bundled.test.ts lines 21-22 (the fake store's read() and list()). Reproduced at 028f71efa
+with test files in Bun's lcov (repro/cs-cover/before: DA 21,0 and 22,0). Counting the bundled getAuth("openai-codex")
+with the test's exact fake (repro/bundled-store-calls*.ts, under bun test and outside it): read once, never list() or
+modify(). Fix 5deb91a25 (test only): list() and modify() removed (dead); read() on its own lines with only the branch the
+product takes, recording the requested id; assertions through the real bundled path: requested = ["openai-codex"], the
+derived key = the stored access token. No cover-only call. After: no 0-hit line (repro/cs-cover/after); 1/0.
+validator-8 ACCEPTED the delta (its read()-returns-nothing mutant red).
+Host event: systemd-tmpfiles-clean (07:55:48Z) deleted the pinned Bun and w00 tools; restored by team-lead/integrator-5.
+My evidence lost nothing (35/35 hashes, 56 cited paths); it is now mirrored (see below).
+Final legs at 5deb91a25: ALL GREEN, worst rc=0 (exit file 0; 08:19:35Z-08:31:27Z, gated-flock w4h28-final-5deb91a25):
+static 0 (build:packages, typecheck, lint, check-boundaries, factory-boundaries, schema-drift 0), focused 0 (124/124
+legs incl. 51 invariants; patch PASSED 62 files, new-file PASSED 13, CRAP: no touched function over 30), guard 0,
+gate-integrity default/main/base 0, red 0.
+Raw outputs: legs/final-5deb91a25/summary.txt 4ad2ccd51bf84785, focused.out 93194bc01d060ca5, focused-dir/patch.log
+5aa025a74073b1e8, Node V8 lcov focused-dir/l69/lcov.info, red-on-base.txt, guard.out, gi-*.log.
+Lessons: pending-lesson.md d420c86888578b24.
+FROZEN at 5deb91a25.
