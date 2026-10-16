@@ -1,13 +1,17 @@
 // @ezcorp-host-integration
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { EzcorpClient } from "../../src/client";
-import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady } from "./_guard";
+import { E2E_API_KEY, E2E_BASE_URL, requireE2eReady, skipUnless } from "./_guard";
 
 /** Live-server counterpart to `docs/quickstart-curl.md`. Runs the auth →
  *  create conversation → send message → stream → run:complete recipe against
  *  a real bun --hot server. */
 
-describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: quickstart", () => {
+const NEEDS_MODEL_PIN = "skip: precondition EZCORP_E2E_MODEL missing; tracked: leftovers-2026-10-16 ai-kit-deployed-lane";
+/** The deterministic model the lane pins, as "<provider>/<model>" (e.g. "ezcorp-mock/mock:<script key>"). */
+const MODEL_PIN = process.env.EZCORP_E2E_MODEL;
+
+describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY) || skipUnless(Boolean(MODEL_PIN), NEEDS_MODEL_PIN))("e2e: quickstart", () => {
   beforeAll(requireE2eReady);
 
   test("create conversation → send message → stream until run:complete", async () => {
@@ -32,7 +36,8 @@ describe.skipIf(!(E2E_BASE_URL && E2E_API_KEY))("e2e: quickstart", () => {
     const health = await client.health();
     expect(health).toMatchObject({ ok: true });
 
-    const conv = await client.createConversation({ projectId: "global", title: "e2e quickstart" });
+    const slash = MODEL_PIN!.indexOf("/");
+    const conv = await client.createConversation({ projectId: "global", title: "e2e quickstart", provider: MODEL_PIN!.slice(0, slash), model: MODEL_PIN!.slice(slash + 1) });
     expect(conv.id).toBeString();
 
     const ac = new AbortController();

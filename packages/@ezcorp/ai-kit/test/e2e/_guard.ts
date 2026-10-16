@@ -31,3 +31,15 @@ export async function requireE2eReady(): Promise<void> {
     throw new Error(`AI-kit E2E server is not healthy: ${E2E_BASE_URL}`);
   }
 }
+
+/**
+ * A deployed-service suite whose lane lacks one of its preconditions SKIPS, by name, never passes silently and never
+ * fails on the missing precondition (team-lead's ruling, W4H-33). `reason` is one literal in each suite, in the form
+ * "skip: precondition <name> missing; tracked: <ledger id>", which scripts/test-skip-inventory.ts checks against the
+ * repository's ledger. Prints the reason when it skips; returns whether to skip. With the precondition present the
+ * suite runs, and wrong behaviour fails.
+ */
+export function skipUnless(present: boolean, reason: string): boolean {
+  if (!present) console.log(reason);
+  return !present;
+}
