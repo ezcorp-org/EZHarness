@@ -82,6 +82,18 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
   fold2/status.log: new trees checked, unchanged trees matched to green results). 29f2d60dc (test only) ran its
   suite in its hook (18 pass) and the repository typecheck at it is clean.
 
+- [x] G15 refusal codes (team-lead ruling: three causes, three codes): row 1af14f9f8 (N6) amended first, then 4d0afe1cf.
+  notification_payload_invalid (cannot be built), notification_payload_too_large (over 4 KiB), factory_notification_corrupt
+  (stored notification no longer decodes); a test holds the declared dead-letter codes equal to the N6 row's.
+  Red: red/codes-unit.log (3 fail), red/codes-pg.log (1 fail). Green: green/codes-*.log. Mutants red:
+  mutant-codes-one-for-all, mutant-codes-size-as-invalid.
+- [x] G16 validator-8 Addendum G at the frozen head:
+  G1 F-manifest: G13 and G15. G2 fold range-diffs: fold/range-diff.txt, fold2/range-diff.txt (only the folded commits
+  differ; a27d92fe4 is dropped); stand-alone per commit: G14. G3 typecheck in the lock: exit 0, 0 errors at 4d0afe1cf
+  (proof/typecheck-4d0afe1cf.log). G4 legs: delivery re-run at 4d0afe1cf (gated-flock w4h34-delivery3, 2 pass); the
+  evaluator ran at 6033ff283, and none of its 189 bundled inputs changed since (scratch/closure/). Coverage at
+  4d0afe1cf: new-file PASS (10), patch PASS (33) (cov/refreeze/).
+
 ## Named gaps
 
 - `hosted-supervisor-metrics-address`: on the hosted profile the supervisor binds `/metrics` on host loopback, so the
