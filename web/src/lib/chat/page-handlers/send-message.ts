@@ -989,6 +989,33 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		}
 	}
 
+	/**
+	 * A saved assistant turn (`run:turn_saved`, re-dispatched as `ez:turn_saved`)
+	 * of the ACTIVE sub-conversation goes to the sub-conversation store, so the
+	 * block shows the reply and "Return to main" finds it. The main thread drops
+	 * a turn of any other conversation, so before W4H-33 nothing ever wrote an
+	 * assistant message here. One writer: this module. Returns whether the turn
+	 * belonged to the active sub-conversation.
+	 */
+	function handleSubConvoTurnSaved(turn: {
+		conversationId: string;
+		messageId: string;
+		content: string;
+		final?: boolean;
+	}): boolean {
+		if (turn.conversationId !== subConversationStore.activeSubConversation?.id) return false;
+		if (!subConversationStore.subConvoMessages.some((m) => m.id === turn.messageId)) {
+			subConversationStore.addMessage({
+				id: turn.messageId,
+				role: "assistant",
+				content: turn.content,
+				createdAt: new Date(),
+			});
+		}
+		if (turn.final) subConversationStore.setStreaming(false);
+		return true;
+	}
+
 	async function handleSubConvoReturn(): Promise<void> {
 		const msgs = subConversationStore.endSubConversation();
 		// Insert last agent message as summary in parent conversation.
@@ -1066,6 +1093,7 @@ export function makeSendMessage(host: SendMessageHost): SendMessageHandlers {
 		handleRetry,
 		handleFallback,
 		handleSubConvoSend,
+		handleSubConvoTurnSaved,
 		handleSubConvoReturn,
 		startSubConvo,
 	};

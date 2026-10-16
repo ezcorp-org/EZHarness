@@ -1,6 +1,6 @@
 /**
- * An `![agent:Name]` mention opens a sub-conversation with that agent, and a
- * message sent in it is answered inside the sub-conversation.
+ * An `![agent:Name]` mention opens a sub-conversation with that agent, and
+ * "Return to main" posts the sub-conversation's last answer into the parent.
  *
  * Real server, real routes, real PGlite: the request the chat page sends to
  * create the sub-conversation is validated by the server's own schema
@@ -8,7 +8,10 @@
  * `agentConfigId: ""`, the server answered 400 "Invalid UUID", and the
  * sub-conversation never opened; the handler tests could not see it because
  * they mock `createSubConversation`. An interactive sub-conversation carries no
- * agent config id (the thread renders a block only for such a record).
+ * agent config id (the thread renders a block only for such a record). Its
+ * reply reaches the block through the saved-turn event (also W4H-33: before,
+ * nothing wrote assistant messages to the sub-conversation store, so "Return
+ * to main" had nothing to post).
  *
  * The only test-only step is the deterministic model: both conversations are
  * pinned to a scripted ezcorp-mock model (the isolated harness refuses real
@@ -16,9 +19,9 @@
  * return all go through the real page and routes.
  */
 import { test, expect } from "../fixtures/hydration.js";
-import { sendComposerMessage } from "../fixtures/composer.js";
+import { sendComposerMessage, threadMessages } from "../fixtures/composer.js";
 
-test("an agent mention opens a sub-conversation, and the agent answers inside it", async ({ page, request }) => {
+test("an agent mention opens a sub-conversation, and Return to main posts its last answer to the parent", async ({ page, request }) => {
   test.setTimeout(180_000);
   const agentName = `subconvo-agent-${crypto.randomUUID().slice(0, 8)}`;
   const agent = await request.post("/api/agent-configs", {
@@ -56,7 +59,7 @@ test("an agent mention opens a sub-conversation, and the agent answers inside it
   const block = page.locator(".sub-convo-block").filter({ has: page.getByTestId("sub-convo-agent-name") });
   await expect(block.getByTestId("sub-convo-agent-name")).toHaveText(`@${agentName}`);
 
-  // One exchange inside the sub-conversation.
+  // One exchange inside the sub-conversation gives it an answer to return.
   const input = block.locator(".sub-convo-input textarea");
   await input.fill("summarise it");
   await input.press("Enter");
@@ -67,4 +70,9 @@ test("an agent mention opens a sub-conversation, and the agent answers inside it
     const messages = Array.isArray(body) ? body : body.messages ?? [];
     return messages.filter((message) => message.role === "assistant").map((message) => message.content);
   }, { timeout: 90_000 }).toContain("Sub answer ready.");
+  const answers = block.locator(".sub-convo-messages > div").filter({ hasText: `${agentName}:` });
+  await expect(answers.first()).toBeVisible({ timeout: 90_000 });
+
+  await block.getByRole("button", { name: "Return to main" }).click();
+  await expect(threadMessages(page).getByText("[Sub-conversation summary]: Sub answer ready.", { exact: false })).toBeVisible({ timeout: 30_000 });
 });

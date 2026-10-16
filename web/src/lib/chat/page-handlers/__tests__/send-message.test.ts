@@ -247,6 +247,9 @@ vi.mock("$lib/sub-conversation-store.svelte.js", () => ({
 		get isInSubConversation() {
 			return h.subConversationStoreState.active !== null;
 		},
+		get subConvoMessages() {
+			return h.subConversationStoreState.messages;
+		},
 		startSubConversation(opts: SubConvoRecord) {
 			h.subConversationStoreState.active = opts;
 			h.subConversationStoreState.startCalls.push(opts);
@@ -1403,6 +1406,44 @@ describe("sub-conversation handlers", () => {
 		await makeSendMessage(host).handleSubConvoReturn();
 		expect(sendMessageMock).toHaveBeenCalledTimes(1);
 		expect(sendMessageMock.mock.calls[0]![1].content).toBe("[Sub-conversation summary]: final answer");
+	});
+
+	test("handleSubConvoTurnSaved: a saved turn of the active sub-conversation goes to the sub-conversation store, once", () => {
+		// The run of a sub-conversation message saves its assistant turn like any run (run:turn_saved). The main thread
+		// drops a turn of another conversation, so without this routing the reply never reached the block (W4H-33).
+		subConversationStoreState.active = {
+			id: "sub-1",
+			agentConfigId: "",
+			agentName: "researcher",
+			parentConversationId: "conv-1",
+			parentMessageId: "u-anchor",
+		};
+		subConversationStoreState.messages = [{ id: "user-1", role: "user", content: "summarise it", createdAt: new Date() }];
+		subConversationStoreState.streaming = true;
+		const { host } = makeHost();
+		const handlers = makeSendMessage(host);
+		const turn = { conversationId: "sub-1", messageId: "a-1", content: "Sub answer ready.", final: true };
+		expect(handlers.handleSubConvoTurnSaved(turn)).toBe(true);
+		expect(handlers.handleSubConvoTurnSaved(turn)).toBe(true);
+		expect(subConversationStoreState.messages.map((m) => [m.id, m.role, m.content])).toEqual([
+			["user-1", "user", "summarise it"],
+			["a-1", "assistant", "Sub answer ready."],
+		]);
+		expect(subConversationStoreState.streaming).toBe(false);
+		// A turn of any other conversation is not the sub-conversation's: the main thread handles it.
+		expect(handlers.handleSubConvoTurnSaved({ ...turn, conversationId: "conv-1", messageId: "a-2" })).toBe(false);
+		subConversationStoreState.active = null;
+		expect(handlers.handleSubConvoTurnSaved({ ...turn, messageId: "a-3" })).toBe(false);
+		expect(subConversationStoreState.messages).toHaveLength(2);
+	});
+
+	test("handleSubConvoTurnSaved: a non-final turn keeps the sub-conversation streaming", () => {
+		subConversationStoreState.active = { id: "sub-1", agentConfigId: "", agentName: "r", parentConversationId: "conv-1", parentMessageId: "u" };
+		subConversationStoreState.messages = [];
+		subConversationStoreState.streaming = true;
+		const { host } = makeHost();
+		expect(makeSendMessage(host).handleSubConvoTurnSaved({ conversationId: "sub-1", messageId: "a-1", content: "step", final: false })).toBe(true);
+		expect(subConversationStoreState.streaming).toBe(true);
 	});
 
 	test("startSubConvo: registers record + starts store conversation", async () => {
