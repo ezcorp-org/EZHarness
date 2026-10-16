@@ -103,9 +103,10 @@ export async function buildGraphGuest(repo: string, runnerRoot: string, operatio
  * Every write goes through the production class that owns it, under the
  * administrator the proof created over HTTP. No product route binds or trusts
  * a runner package yet (W02), which the record states as a harness-supplied
- * deployment fact. The preparation rebuilds the package and refuses unless the
- * artifact digest matches the binding; the second and third references reuse
- * the first one's verified artifacts.
+ * deployment fact. The preparation goes through the product runner, which
+ * restores the release's artifact copy from the release blobs into the fresh
+ * preparation store (C05 "Prepare a release built outside the lifecycle",
+ * W4H-32), and refuses unless the artifact digest matches the binding.
  */
 export async function installGraphGuest(options: {
   readonly repo: string;
@@ -125,6 +126,7 @@ export async function installGraphGuest(options: {
   const { FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } = await import(join(repo, "src/factory/package-preparation.ts"));
   const { PodmanRunner, buildLimits } = await import(join(repo, "packages/@ezcorp/extension-runner/src/index.ts"));
   const { provisionToolchain } = await import(join(repo, "packages/@ezcorp/extension-runner/src/provision.ts"));
+  const { productExtensionRunner } = await import(join(repo, "src/extensions/runner-rehydration.ts"));
 
   const db = options.database as never;
   const admin = { kind: "user" as const, id: options.adminId, authentication: "session" as const };
@@ -141,7 +143,8 @@ export async function installGraphGuest(options: {
       workspaces: {}, revisions: {}, operations: {}, releases: { [release.id]: build.release }, approvals: {},
     });
     const trusts = new FactoryPackageTrusts(db, options.tenantId, grants);
-    const preparations = new FactoryPackagePreparations(db, options.tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, new FileBlobStore(options.releaseBlobRoot)), runner, buildLimits);
+    const blobs = new FileBlobStore(options.releaseBlobRoot);
+    const preparations = new FactoryPackagePreparations(db, options.tenantId, grants, trusts, new FactoryV4PackageCatalog(repository, blobs), productExtensionRunner(blobs, db, runner), buildLimits);
     const installed: Array<{ reference: Record<string, unknown>; trustRevision: number; receiptDigest: string }> = [];
     for (const [index, reference] of options.references.entries()) {
       await preparations.bind(admin, { projectId: options.projectId, reference, installationId: release.installationId, releaseId: release.id }, `w19a-bind-${index}`);
