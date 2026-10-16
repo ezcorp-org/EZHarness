@@ -2,7 +2,7 @@
 /** Verify isolated production-proof artifacts before publishing one receipt. */
 import { copyFile, lstat, mkdir, readdir, readFile, chmod } from "node:fs/promises";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { PRODUCTION_PROOF_SHARDS } from "./production-proof-plan.ts";
+import { PRODUCTION_PROOF_SHARDS, proofBoundTests } from "./production-proof-plan.ts";
 
 type SummaryRow = { proof: string; exit: number; startedAt: string; finishedAt: string; durationMs: number; receipt: string };
 type VerifiedShard = { shard: string; rows: SummaryRow[]; artifact: string };
@@ -12,7 +12,7 @@ const CLEANUP_RECEIPTS: Readonly<Record<string, readonly string[]>> = {
   "file-organizer": ["runtime"], embeddings: ["runtime"], runtime: ["runtime"], delivery: ["runtime"],
   revocation: ["runtime"], "runtime-resources": ["runtime"],
   "historical-upgrade": ["upgrade/seed-previous", "upgrade/assert-candidate", "upgrade/assert-restore"],
-  "legacy-adoption": ["legacy/seed", "legacy/adopt"], namespace: [],
+  "legacy-adoption": ["legacy/seed", "legacy/adopt"], namespace: [], "preview-isolation": [],
 };
 /** The `namespace` proof: the extension runner's worker isolation, run live on the candidate image. */
 export const RUNNER_ISOLATION_PROOF_FILE = "src/__tests__/runner-worker-isolation.proof.test.ts";
@@ -37,6 +37,23 @@ export const RUNNER_ISOLATION_PROOF_TESTS: readonly string[] = Object.freeze([
   `${OFFLINE}startup refuses a seccomp profile that is not deny-by-default`,
   `${OFFLINE}startup refuses when the worker probe does not match the secure profile`,
 ]);
+const KEYSTONE = "uid keystone — LIVE (production image) > ";
+const DYNAMIC = "dynamic preview — LIVE e2e (production image) > ";
+/** The `preview-isolation` proof: the uid-based preview isolation tests, run inside the candidate image. */
+export const PREVIEW_ISOLATION_PROOF_TESTS: readonly string[] = Object.freeze([
+  `${KEYSTONE}setuid helper present + 4755 root-owned in the image`,
+  `${KEYSTONE}preview uid CANNOT read .ezcorp/data (chmod 0700) — keystone`,
+  `${KEYSTONE}helper refuses an out-of-range uid even invoked directly`,
+  `${KEYSTONE}ProcPortSource attributes a live listener by its preview uid`,
+  `${DYNAMIC}spawn as preview uid → ProcPortSource detects → loopback fetch 200`,
+  `${DYNAMIC}reapPreviewConversation: REAL helper --kill actually reaps the tree + confirms`,
+  `${DYNAMIC}WS upstream (ws://127.0.0.1:<port>) connects + echoes a frame`,
+]);
+/** Proofs whose receipt is Bun's own report: the named files, every declared test passed exactly once. */
+const BUN_REPORT_PROOFS: Readonly<Record<string, { readonly files: readonly string[]; readonly tests: readonly string[] }>> = {
+  namespace: { files: [RUNNER_ISOLATION_PROOF_FILE], tests: RUNNER_ISOLATION_PROOF_TESTS },
+  "preview-isolation": { files: proofBoundTests("preview-isolation"), tests: PREVIEW_ISOLATION_PROOF_TESTS },
+};
 /** What the retired host Stage 2 proof left in a receipt. Its presence means the wrong proof ran. */
 const STAGE2_MARKERS = [/EZCORP_STAGE2_PROOF/, /stage2-raw-network-proof/, /mcp-netns-raw-socket-blocked/, /removing only nft makes the deny assertion fail/];
 
@@ -119,25 +136,27 @@ function isCandidateLauncher(proof: string, nested: string): boolean {
   return !(proof === "historical-upgrade" && nested === "upgrade/seed-previous") && !(proof === "legacy-adoption" && nested === "legacy/seed");
 }
 /**
- * The namespace receipt is Bun's own report of the runner isolation proof. It
- * must name that one file, list every declared test exactly once as passed
- * (so a skipped live arm, a failure, or an extra test rejects), and end with
- * the exact summary for that count.
+ * A Bun-report receipt (namespace, preview-isolation) is Bun's own report of
+ * the proof's test files. It must name exactly those files, list every
+ * declared test exactly once as passed (so a skipped live arm, a failure, or
+ * an extra test rejects), and end with the exact summary for that count.
  */
-async function assertNamespaceEvidence(controllerLog: string): Promise<void> {
+async function assertBunReportEvidence(proof: string, controllerLog: string): Promise<void> {
+  const { files: expectedFiles, tests } = BUN_REPORT_PROOFS[proof]!;
   const output = Bun.stripANSI(await readFile(controllerLog, "utf8"));
-  if (STAGE2_MARKERS.some(marker => marker.test(output))) fail("namespace controller is a retired Stage 2 receipt");
-  const files = [...output.matchAll(/^(?:::group::)?(\S+\.test\.ts):$/gm)].map(match => match[1]);
-  if (files.length !== 1 || files[0] !== RUNNER_ISOLATION_PROOF_FILE) fail(`namespace controller must report exactly ${RUNNER_ISOLATION_PROOF_FILE}`);
+  if (STAGE2_MARKERS.some(marker => marker.test(output))) fail(`${proof} controller is a retired Stage 2 receipt`);
+  const files = [...output.matchAll(/^(?:::group::)?(\S+\.test\.ts):$/gm)].map(match => match[1]!).sort();
+  if (files.join("\n") !== [...expectedFiles].sort().join("\n")) fail(`${proof} controller must report exactly ${expectedFiles.join(", ")}`);
   const reported = [...output.matchAll(/^\((\w+)\) (.+?)(?: \[[\d.]+m?s\])?$/gm)].map(([, status, name]) => ({ status, name: name! }));
   for (const { status, name } of reported) {
-    if (!RUNNER_ISOLATION_PROOF_TESTS.includes(name)) fail(`namespace controller reports an unexpected test: ${name}`);
-    if (status !== "pass") fail(`namespace controller test did not pass (${status}): ${name}`);
+    if (!tests.includes(name)) fail(`${proof} controller reports an unexpected test: ${name}`);
+    if (status !== "pass") fail(`${proof} controller test did not pass (${status}): ${name}`);
   }
-  for (const name of RUNNER_ISOLATION_PROOF_TESTS) if (reported.filter(entry => entry.name === name).length !== 1) fail(`namespace controller is missing test: ${name}`);
-  const count = RUNNER_ISOLATION_PROOF_TESTS.length;
+  for (const name of tests) if (reported.filter(entry => entry.name === name).length !== 1) fail(`${proof} controller is missing test: ${name}`);
+  const count = tests.length;
+  const across = expectedFiles.length === 1 ? "1 file." : `${expectedFiles.length} files.`;
   const summary = [...output.matchAll(/^\s*(\d+) (pass|fail|skip|todo)$/gm)].map(([, value, kind]) => `${value} ${kind}`).join(",");
-  if (summary !== `${count} pass,0 fail` || !output.includes(`Ran ${count} tests across 1 file.`)) fail(`namespace controller summary is not exactly ${count} pass and 0 fail`);
+  if (summary !== `${count} pass,0 fail` || !output.includes(`Ran ${count} tests across ${across}`)) fail(`${proof} controller summary is not exactly ${count} pass and 0 fail`);
 }
 async function assertLauncherReceipts(artifact: string, row: SummaryRow, revision: string, expectedImageId: string): Promise<void> {
   for (const nested of CLEANUP_RECEIPTS[row.proof] ?? fail(`no cleanup declaration for ${row.proof}`)) {
@@ -196,7 +215,7 @@ export async function verifyShippingProductionResults(inputRoot: string, revisio
       await assertRegularTree(join(artifact, row.receipt), `${shard}/${row.receipt}`);
       const controllerLog = join(artifact, row.receipt, "controller.log");
       await assertRegularFile(controllerLog, `${shard}/${row.receipt}/controller.log`);
-      if (row.proof === "namespace") await assertNamespaceEvidence(controllerLog);
+      if (row.proof in BUN_REPORT_PROOFS) await assertBunReportEvidence(row.proof, controllerLog);
       await assertLauncherReceipts(artifact, row, revision, expectedCanonical);
     }
     verified.push({ shard, rows, artifact });
