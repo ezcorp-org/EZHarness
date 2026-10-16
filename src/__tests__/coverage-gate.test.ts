@@ -187,7 +187,8 @@ async function runMerge(
   globPat: string,
   outPath: string,
 ): Promise<RunResult> {
-  const proc = Bun.spawn(["bun", MERGE_SCRIPT, globPat, outPath], {
+  // The fixture sources live in the sandbox (cwd), outside the repository: declare it a source root.
+  const proc = Bun.spawn(["bun", MERGE_SCRIPT, globPat, outPath, "--source-root", cwd], {
     cwd,
     stdout: "pipe",
     stderr: "pipe",
