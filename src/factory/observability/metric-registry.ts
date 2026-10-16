@@ -142,11 +142,23 @@ export function factoryMetricRenderer(
   options: { readonly strict: boolean; readonly registered?: FactoryRegisteredValues },
 ): FactoryMetricRenderer {
   let refusedTotal = 0;
-  const line = (sample: FactoryMetricSample, registered: FactoryRegisteredValues): { family: FactoryMetricFamily; text: string } => {
-    const allowed = (family: FactoryMetricFamily, label: string): ReadonlySet<string> => {
-      const values = family.labels[label]!;
-      return new Set(Array.isArray(values) ? values : registered[values as FactoryRegisteredLabel] ?? []);
+  type Allowed = (family: FactoryMetricFamily, label: string) => ReadonlySet<string>;
+  // One render's allowed sets, built on first use and kept for that render only:
+  // `registered` can change between scrapes, never within one (F10).
+  const allowedFor = (registered: FactoryRegisteredValues): Allowed => {
+    const sets = new Map<string, ReadonlySet<string>>();
+    return (family, label) => {
+      const key = `${family.name}\0${label}`;
+      let set = sets.get(key);
+      if (!set) {
+        const values = family.labels[label]!;
+        set = new Set(Array.isArray(values) ? values : registered[values as FactoryRegisteredLabel] ?? []);
+        sets.set(key, set);
+      }
+      return set;
     };
+  };
+  const line = (sample: FactoryMetricSample, allowed: Allowed): { family: FactoryMetricFamily; text: string } => {
     const family = factoryMetricFamily(sample.name);
     if (!family.services.includes(service)) throw new FactoryMetricRefusedError(sample.name, `not served by ${service}`);
     if (!Number.isFinite(sample.value)) throw new FactoryMetricRefusedError(sample.name, "value is not finite");
@@ -165,17 +177,20 @@ export function factoryMetricRenderer(
       for (const [label, values] of Object.entries(registered) as Array<[FactoryRegisteredLabel, readonly string[]]>) {
         if (values.length > REGISTERED_MAX[label]) throw new FactoryMetricRefusedError(label, `more than ${REGISTERED_MAX[label]} registered values`);
       }
+      const allowed = allowedFor(registered);
       const lines = new Map<FactoryMetricFamily, string[]>();
       for (const sample of samples) {
         let rendered: { family: FactoryMetricFamily; text: string };
         try {
-          rendered = line(sample, registered);
+          rendered = line(sample, allowed);
         } catch (error) {
           if (options.strict) throw error;
           refusedTotal += 1;
           continue;
         }
-        lines.set(rendered.family, [...(lines.get(rendered.family) ?? []), rendered.text]);
+        const body = lines.get(rendered.family);
+        if (body) body.push(rendered.text);
+        else lines.set(rendered.family, [rendered.text]);
       }
       const refused = factoryMetricFamily("factory_metrics_label_refused_total");
       lines.set(refused, [`${refused.name} ${refusedTotal}`]);

@@ -129,6 +129,25 @@ describe("the exposition", () => {
     expect(renderer.render([{ name: "factory_pool_tenant_holds", labels: { tenant: 'a"b\\c' }, value: 1 }])).toContain('factory_pool_tenant_holds{tenant="a\\"b\\\\c"} 1');
   });
 
+  test("a render of 1,024 series builds each family's allowed set once per label (F10)", () => {
+    const requests = factoryMetricFamily("factory_pool_requests");
+    const [state, resourceClass] = [requests.labels.state as readonly string[], requests.labels.resource_class as readonly string[]];
+    const tenants = Array.from({ length: 100 }, (_, index) => `tenant-${index}`);
+    const samples: FactoryMetricSample[] = Array.from({ length: 1_024 }, (_, index): FactoryMetricSample => index % 2 === 0
+      ? { name: "factory_pool_tenant_holds", labels: { tenant: tenants[index % tenants.length]! }, value: index }
+      : { name: "factory_pool_requests", labels: { state: state[index % state.length]!, resource_class: resourceClass[index % resourceClass.length]! }, value: index });
+    const renderer = factoryMetricRenderer("pool", { strict: true, registered: { tenant: tenants } });
+    const NativeSet = globalThis.Set;
+    let built = 0;
+    globalThis.Set = class extends NativeSet<unknown> { constructor(values?: Iterable<unknown> | null) { super(values); built += 1; } } as SetConstructor;
+    let text: string;
+    try { text = renderer.render(samples); }
+    finally { globalThis.Set = NativeSet; }
+    // One set for the holds' tenant label, two for the requests' state and resource class.
+    expect(built).toBe(3);
+    expect(text.split("\n").filter((each) => each.startsWith("factory_pool_")).length).toBe(1_024);
+  });
+
   test("an unknown family name has no definition", () => {
     expect(() => factoryMetricFamily("factory_unknown")).toThrow(FactoryMetricRefusedError);
   });
