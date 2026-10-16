@@ -307,6 +307,7 @@ export class FactoryComposeHostTarget implements FactoryFleetHostRuntime {
       EZCORP_FACTORY_POOL_METRICS_PORT: String(bundle.identity.ports.poolMetrics),
       // The fleet's evaluator (C11): its config directory the host writes, the shipped rules beside this template, its loopback port.
       EZCORP_FACTORY_PROMETHEUS_DIR: paths.prometheusDirectory,
+      EZCORP_FACTORY_PROMETHEUS_DATA: paths.prometheusDataDirectory,
       EZCORP_FACTORY_PROMETHEUS_RULES: resolve(this.options.templatePath, "..", "..", "prometheus"),
       EZCORP_FACTORY_PROMETHEUS_PORT: String(bundle.identity.ports.prometheus),
     }));

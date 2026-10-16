@@ -126,7 +126,7 @@ describe("identity and paths", () => {
   test("the host is one more context under the fleet's roots, with its own pool database names", () => {
     const paths = factoryFleetHostPaths("w16", { secretsRoot: "/s", operatorRoot: "/o", runtimeRoot: "/r" });
     expect(paths.context).toMatchObject({ tenantId: "host", fleetId: "w16", installationId: "host:w16", secretDirectory: "/s/host", operatorDirectory: "/o/host" });
-    expect(paths).toMatchObject({ runtimeDirectory: "/r/host", readinessDirectory: "/r/host/readiness", runnerRoot: "/r/host/runner", poolDelivery: "/s/host/deliver/pool", supervisorDelivery: "/s/host/deliver/supervisor", prometheusDirectory: "/o/prometheus" });
+    expect(paths).toMatchObject({ runtimeDirectory: "/r/host", readinessDirectory: "/r/host/readiness", runnerRoot: "/r/host/runner", poolDelivery: "/s/host/deliver/pool", supervisorDelivery: "/s/host/deliver/supervisor", prometheusDirectory: "/o/prometheus", prometheusDataDirectory: "/r/host/prometheus-data" });
     const [, pool] = factoryDatabasePairs(paths.context);
     expect(pool!.database).toMatch(/^factory_pool_[0-9a-f]{20}$/);
     expect(pool!.role).toMatch(/^factory_poolrole_[0-9a-f]{20}$/);
@@ -276,11 +276,11 @@ describe("admission", () => {
     const token = await text(hostSecret(FACTORY_HOST_FILES.metricsScrapeToken));
     expect(token.trim()).toMatch(/^[0-9a-f]{64}$/);
     for (const delivery of [host.paths.poolDelivery, host.paths.supervisorDelivery]) expect(await text(join(delivery, FACTORY_HOST_FILES.metricsScrapeToken))).toBe(token);
-    // The evaluator's directory: readable by the Prometheus container's own user, under the 0700 operator root.
+    // The evaluator runs as the fleet's own user (keep-id), so its directory, its token and its data stay private.
     const prometheus = host.paths.prometheusDirectory;
-    expect((await stat(prometheus)).mode & 0o777).toBe(0o755);
+    for (const directory of [prometheus, join(prometheus, "targets"), host.paths.prometheusDataDirectory]) expect((await stat(directory)).mode & 0o777).toBe(0o700);
     expect(await text(join(prometheus, "scrape-token"))).toBe(token);
-    expect((await stat(join(prometheus, "scrape-token"))).mode & 0o777).toBe(0o644);
+    for (const name of ["scrape-token", "prometheus.yml", "targets/factory-harness.json"]) expect((await stat(join(prometheus, name))).mode & 0o777).toBe(0o600);
     expect(await text(join(prometheus, "prometheus.yml"))).toContain("credentials_file: /etc/ezcorp-prometheus/scrape-token");
     const targets = async (job: string) => JSON.parse(await text(join(prometheus, "targets", `${job}.json`))) as Array<{ targets: string[]; labels: Record<string, string> }>;
     const ports = (tenant: string) => factoryInstallationPorts(tenant, 31_000);

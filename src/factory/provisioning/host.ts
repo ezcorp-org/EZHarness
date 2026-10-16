@@ -28,7 +28,6 @@
  * other's admission.
  */
 import { createPrivateKey, createPublicKey, generateKeyPairSync, randomBytes } from "node:crypto";
-import { chmod, mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { FACTORY_PROMETHEUS_CONTAINER_CONFIG, FACTORY_PROMETHEUS_CONTAINER_RULES, factoryPrometheusTargetFiles, renderFactoryPrometheusConfig, type FactoryPrometheusTarget } from "../observability/prometheus-config";
 import { parseFactoryPoolProcessConfig } from "../pool/process";
@@ -92,12 +91,12 @@ export interface FactoryFleetHostPaths {
   readonly supervisorDelivery: string;
   /**
    * The self-hosted evaluator's directory (C11): its config, the scrape token,
-   * and one target list per job. 0755 with 0644 files, because the Prometheus
-   * container reads it as its own unprivileged user; it sits under the 0700
-   * operator root, so no other host user can reach it (the Temporal server
-   * directory's rule, `platform.ts`).
+   * and one target list per job. Private like every other host directory: the
+   * Prometheus container runs as the fleet's own user (keep-id), as the pool does.
    */
   readonly prometheusDirectory: string;
+  /** The evaluator's time-series data: a host directory it owns, not a named volume its keep-id user could not write. */
+  readonly prometheusDataDirectory: string;
 }
 
 export function factoryFleetHostPaths(fleetId: string, roots: { readonly secretsRoot: string; readonly operatorRoot: string; readonly runtimeRoot: string }): FactoryFleetHostPaths {
@@ -113,6 +112,7 @@ export function factoryFleetHostPaths(fleetId: string, roots: { readonly secrets
     runtimeDirectory, readinessDirectory: resolve(runtimeDirectory, "readiness"), runnerRoot: resolve(runtimeDirectory, "runner"),
     poolDelivery: resolve(secretDirectory, "deliver", "pool"), supervisorDelivery: resolve(secretDirectory, "deliver", "supervisor"),
     prometheusDirectory: resolve(roots.operatorRoot, "prometheus"),
+    prometheusDataDirectory: resolve(runtimeDirectory, "prometheus-data"),
   });
 }
 
@@ -490,11 +490,8 @@ export class FactoryFleetHost {
    */
   private async writeEvaluator(bundle: FactoryFleetHostBundle): Promise<void> {
     const directory = this.paths.prometheusDirectory;
-    for (const path of [directory, resolve(directory, "targets")]) {
-      await mkdir(path, { recursive: true, mode: 0o755 });
-      await chmod(path, 0o755);
-    }
-    const write = async (path: string, text: string) => { await writeFile(path, text, { mode: 0o644 }); await chmod(path, 0o644); };
+    for (const path of [directory, resolve(directory, "targets"), this.paths.prometheusDataDirectory]) await openFactoryPrivateDirectory(path).then((handle) => handle.close());
+    const write = (path: string, text: string) => replaceFactoryPrivateFile(path, text);
     await write(resolve(directory, "scrape-token"), new TextDecoder().decode(await readFactoryPrivatePath(factoryPrivatePath(this.paths.context.secretDirectory, FACTORY_HOST_FILES.metricsScrapeToken))));
     await write(resolve(directory, "prometheus.yml"), renderFactoryPrometheusConfig({
       ruleFile: `${FACTORY_PROMETHEUS_CONTAINER_RULES}/factory-alerts.yml`, tokenFile: `${FACTORY_PROMETHEUS_CONTAINER_CONFIG}/scrape-token`, targetsDirectory: `${FACTORY_PROMETHEUS_CONTAINER_CONFIG}/targets`,

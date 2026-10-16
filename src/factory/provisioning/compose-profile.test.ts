@@ -446,6 +446,7 @@ describe("FactoryComposeHostTarget", () => {
       // C11: the pool's /metrics on loopback, and the fleet's evaluator: its config directory, the shipped rules, its loopback port.
       EZCORP_FACTORY_POOL_METRICS_PORT: "41006",
       EZCORP_FACTORY_PROMETHEUS_DIR: hostBundle.paths.prometheusDirectory,
+      EZCORP_FACTORY_PROMETHEUS_DATA: hostBundle.paths.prometheusDataDirectory,
       EZCORP_FACTORY_PROMETHEUS_RULES: join(dirname(HOST_TEMPLATE), "..", "prometheus"),
       EZCORP_FACTORY_PROMETHEUS_PORT: "41008",
     });
@@ -666,11 +667,13 @@ describe("the Compose templates parse and hold the hardening", () => {
     expect(prometheus.image).toBe(pinned);
     expect({ readOnly: prometheus.read_only, capDrop: prometheus.cap_drop, privileged: prometheus.privileged, devices: prometheus.devices, network: prometheus.network_mode })
       .toEqual({ readOnly: true, capDrop: ["ALL"], privileged: undefined, devices: undefined, network: "host" });
+    // As the fleet's own user, like the pool: it reads the private config, token and checkout, and owns its data directory.
+    expect([prometheus.userns_mode, prometheus.user]).toEqual(["keep-id", `\${EZCORP_FACTORY_UID:?}:\${EZCORP_FACTORY_GID:?}`]);
     expect(prometheus.healthcheck).toBeDefined();
     for (const limit of ["mem_limit", "cpus", "pids_limit"]) expect(prometheus[limit]).toBeDefined();
     expect(JSON.stringify(prometheus.volumes)).not.toMatch(/\.sock/);
     const binds = (prometheus.volumes as Array<{ target?: string; read_only?: boolean } | string>).filter((volume): volume is { target: string; read_only: boolean } => typeof volume === "object");
-    expect(binds.map((volume) => [volume.target, volume.read_only])).toEqual([["/etc/ezcorp-prometheus", true], ["/etc/ezcorp-prometheus-rules", true]]);
+    expect(binds.map((volume) => [volume.target, volume.read_only ?? false])).toEqual([["/etc/ezcorp-prometheus", true], ["/etc/ezcorp-prometheus-rules", true], ["/prometheus", false]]);
     expect(prometheus.command).toContain(`--web.listen-address=127.0.0.1:\${EZCORP_FACTORY_PROMETHEUS_PORT:?}`);
   });
 
