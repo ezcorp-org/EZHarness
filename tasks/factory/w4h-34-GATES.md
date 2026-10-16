@@ -51,7 +51,8 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
 - [x] G11 in-lock commits: 3b78c6415 (old 1d3a1b8ed) and 2f35dbd35 (old 6033ff283) were committed under gated-flock;
   their hooks ran the orchestrator package (102 pass) and both bound tests (delivery 2, evaluator 4).
   EVIDENCE: proof/commit4-status.log, proof/final-status.log, fold2/status.log.
-- [x] G12 static at 2f35dbd35: `bun run typecheck` exit 0, 0 errors (fold2/typecheck.log); biome clean on the 17 files
+- [x] G12 static at 2f35dbd35: `bun run typecheck` exit 0, 0 errors (fold2/typecheck.log; again at 29f2d60dc,
+  proof/typecheck-29f2d60dc.log); biome clean on the 17 files
   changed by the review fixes; factory boundaries, boundaries, C11 lane inventory and gate integrity PASS
   (proof/static-refreeze.log); new-file coverage PASS (10 files) and patch coverage PASS (33 files) over
   390c49a90..2f35dbd35, 28 Bun suites and the Node orchestrator lcov merged (cov/refreeze/).
@@ -63,7 +64,7 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
   | F2 a corrupt send row is quarantined | 5d01bf658 | red/F-sender-pg.log | mutant-F2-no-quarantine |
   | F3 the hosted supervisor has a PodMonitor | a699cf3fa | red/F3-supervisor-scrape.log | mutant-F3-no-supervisor-podmonitor |
   | F4 SendStuck fires on growth, resolves by itself | 45b34dcae (row), 2d4c81d52, 2f35dbd35 (live) | red/F4-F6-rules.log | mutant-F4-presence-rule |
-  | F5 the fan-out probe uses the index | 5d01bf658 | red/F-sender-pg.log | (EXPLAIN assertion) |
+  | F5 the fan-out probe uses the index on all four columns | 5d01bf658, 29f2d60dc (analyzed 20,000-row plan) | red/F-sender-pg.log | mutant-F5-unindexed-probe, mutant-F5-prefix-only-probe |
   | F6 projection lag past a missing batch, gap gauge | 47326a99b (row), 2d4c81d52 | red/F4-F6-rules.log, red/F6-collector.log | mutant-F6-no-gap-term, mutant-F6-lag-at-cursor-only |
   | F7 the gateway's ready gauge reads its database | 7d5bf129a | red/F7-ready-probe.log | mutant-F7-ignore-health, mutant-F7-no-probe-timeout |
   | F8 shutdown releases without an attempt | 5d01bf658 | red/F8-queue-release.log, red/F-sender-pg.log | mutant-F8-abort-as-unreachable |
@@ -78,7 +79,8 @@ Evidence: /tmp/factory-platform-evidence/w4h-34/ (red/, logs/, cov/, proof/). Ro
   type error; fold 2 put both where the defects were: 1d3a1b8ed -> 3b78c6415, F10 -> cbf5270ec, a27d92fe4 dropped
   as empty; old head 6033ff283 kept on proof/w4h-34-prefold2 (fold2/sha-map.txt). Each commit of 390c49a90..2f35dbd35
   passes the backend, tests and orchestrator-package typechecks and its own changed suites (proof/percommit/,
-  fold2/status.log: new trees checked, unchanged trees matched to green results).
+  fold2/status.log: new trees checked, unchanged trees matched to green results). 29f2d60dc (test only) ran its
+  suite in its hook (18 pass) and the repository typecheck at it is clean.
 
 ## Named gaps
 
