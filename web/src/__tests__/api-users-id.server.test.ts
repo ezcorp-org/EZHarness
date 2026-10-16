@@ -63,6 +63,9 @@ describe("PUT /api/users/[id]", () => {
 			() => PUT(makeEvent({ body: { status: "inactive" }, locals: { user: member } })),
 			403,
 		);
+		// The refused caller changes nothing.
+		expect(vi.mocked(updateUserStatus)).not.toHaveBeenCalled();
+		expect(vi.mocked(deactivateUserAndTransferAgents)).not.toHaveBeenCalled();
 	});
 
 	test("rejects 403 when API-key lacks 'admin' scope", async () => {
