@@ -1437,6 +1437,17 @@ describe("sub-conversation handlers", () => {
 		expect(subConversationStoreState.messages).toHaveLength(2);
 	});
 
+	test("handleSubConvoTurnSaved: a turn of an INACTIVE sub-conversation is not taken into the active one", () => {
+		// Dropped by design: an inactive sub-conversation's block lazy-loads its saved messages from the server when it is
+		// opened, and a sub-conversation only becomes active through startSubConversation, which empties the store, so a
+		// buffered turn would be thrown away there anyway.
+		subConversationStoreState.active = { id: "sub-active", agentConfigId: "", agentName: "r", parentConversationId: "conv-1", parentMessageId: "u" };
+		subConversationStoreState.messages = [];
+		const { host } = makeHost();
+		expect(makeSendMessage(host).handleSubConvoTurnSaved({ conversationId: "sub-inactive", messageId: "i-1", content: "other", final: true })).toBe(false);
+		expect(subConversationStoreState.messages).toEqual([]);
+	});
+
 	test("handleSubConvoTurnSaved: a non-final turn keeps the sub-conversation streaming", () => {
 		subConversationStoreState.active = { id: "sub-1", agentConfigId: "", agentName: "r", parentConversationId: "conv-1", parentMessageId: "u" };
 		subConversationStoreState.messages = [];
