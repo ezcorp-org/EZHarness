@@ -6034,7 +6034,7 @@ wrong; the leg built to prove it disproved it, and the change it motivated was r
       counts reservations settled on completion (C09 row first); a Codex-login import tool with named refusals and
       --dry-run. The coordinator ran the user's import on the user's explicit words (a disclosed exception; outputs masked).
       Cleanup: both product databases, both deployment directories and all runner stores removed by name; the proof
-      PostgreSQL admin password rotated and checked. validator-8 plan-w4h-28.md Addenda A to AN: ACCEPT at 5deb91a25 and OK to publish on the hold record (verdict 7cfd6fe2571297c9; hold 246/246 legs status=0, 2026-10-16 09:33-10:12Z); merge
+      PostgreSQL admin password rotated and checked. validator-8 plan-w4h-28.md Addenda A to BE: ACCEPT at 5deb91a25 and OK to publish on the hold record (verdict 7cfd6fe2571297c9; hold 246/246 legs status=0, 2026-10-16 09:33-10:12Z); merge
       7e5365696 / receipts cc6bfe54b.
 
 ## Leftover after wave 4i — 2026-10-05
@@ -6187,6 +6187,30 @@ Added after wave4i-2 (coordinator, 2026-10-06…08; details in w00/wave4h/leftov
       size them to fit the run's cap beside the task nodes.
 - [ ] The W4H-28 proof objects stay in bucket tenant-01 (818 object versions listed in objects-written.json, plus real-9's
       release); purge them with the other test tenants on an approved purge (administrator approval).
+- [ ] main: gitleaks generic-api-key fires on the product's tokenActorExtensionId log field in test logs (seen in
+      src/extensions/__tests__/workflows-delegated-seam.test.ts's log, a random id per run); allowlist by exact field regex
+      on main through the gate-change route. The W4H-31 receipts left that one log out by ruling (a); merge.json names it.
+- [ ] ai-kit-deployed-lane: ai-kit deployed-service lane: a real-auth spec that installs ai-kit through the bundled
+      lifecycle, pins the mock model by env and seeds the agents + autoSpinUp team; the three suites
+      (packages/@ezcorp/ai-kit/test/e2e/bundled.test.ts, quickstart.test.ts, fanout.test.ts) then run there. Until then
+      each suite skips with one exact tracked line (scripts/test-skip-registry.json) (W4H-33; ruling (c)).
+- [ ] The product has no producer for sandbox-escape detection; alert A8 covers broker denials (forbidden_host /
+      cross_tenant_broker) only; a detector is a separate isolation package (W4H-34).
+- [ ] The header comment of workflow-bundle-build.ts says build:packages runs the bundle build; it does not
+      (deploy/factory/Dockerfile:43 at c8ae394ca runs it as a separate step). Fix the comment or the script (W4H-35 G10 try 1).
+- [ ] The W4H-28 proof harness (proof/run.sh) starts the stack with no bundle preflight, so a missing workflow bundle
+      took 10 orchestrator restarts and 5 minutes; add a preflight refusal (W4H-35 G10 try 1; W4H-28 frozen, not reopened).
+- [ ] Six proof/*trial* branches from earlier waves remain in the shared repository (proof/v5-w03g-w03f-trial-dca1308c6,
+      proof/w02d-merge-ad22592da-trial, proof/w09c-trial-1-2, proof/w09c-trial-3, proof/w18-hygiene-c2-trial-dbb2c71d2,
+      proof/w4h-4-trial-merge-5bdbecd3c); the team removes no ref it did not create; removal by name on the user's word.
+- [ ] Bun 1.3.14: the /tmp/factory-tools/bun-1.3.14 folder no longer exists. The coordinator's listing at 08:43Z already
+      lacked it, so by all evidence the 07:55Z tmpfiles sweep removed the broken empty binary and then its empty parent
+      directories; nobody on the team removed it. A gated job from a tree pinned 1.3.14 is refused by name (exit 95); the
+      team's trees pin 1.4.2. Install Bun 1.3.14 fresh with its published checksum, on the user's word.
+- [ ] The host's daily systemd-tmpfiles cleanup deletes /tmp files older than about 10 days (2026-10-16 07:55Z: the pinned
+      Bun 1.4.2 binary, shared w00 scripts and tools, older evidence; all reachable losses restored). A tmpfiles.d exclusion
+      for /tmp/factory-platform-evidence and /tmp/factory-tools, or a relocation, is the user's decision.
+
 
 
 

@@ -2296,6 +2296,72 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   dependency bump re-runs every proof that runs those bytes (v9, W4H-27); a CI cap is a hang guard, not a performance
   budget (v8, W4H-24); cp -p and modes (W4H-18; recurred above).
 
+#### Rulings and lessons of 2026-10-16 (the W4H-31 publish, the W4H-28 landing and the /tmp loss; coordinator rulings and pending-lesson.md files; condensed)
+- Owner: an owner's final legs run every repository invariant test (w00/invariant-tests.txt) as single-file legs before
+  a freeze; a hook maps only the files a commit touches, so an invariant that a new script breaks is unmapped there. On
+  2026-10-16 W4H-28 froze with two invariant tests red (a bare git spawn in its new re-lock script; a source naming the
+  SDK source directory outside the closure helper) and W4H-33 with one, each found only by the validator's hold
+  (ruled 2026-10-16; the owner side of the W4H-29 inventory lesson above).
+- Validator: a repository invariant test that no hook maps still runs in every validation hold's light legs; on
+  2026-10-16 W4H-33 froze with the git-spawn-context guard red (a new script spawned git with a hand-stripped environment
+  instead of the shared @ezcorp/sdk/git helper), unseen because the owner's hook did not map the guard and the
+  validator's first light hold omitted the invariant legs; the follow-up ran them (51 legs) and found it (ruled 2026-10-16).
+- Owner: build every artifact a proof needs from the head inside the driver, the workflow bundle included. Never trust
+  worktree state built by hand. A check that fails when the artifact is missing runs before any stack starts. Trigger:
+  W4H-35's G10 try 1, where the orchestrator refused factory_workflow_bundle_missing because the worktree never built
+  the bundle (w4h-35 pending-lesson 6; ruled 2026-10-16).
+- Owner: every script that runs Bun sources w00/bun-pin.sh and calls bun_pin; a hand-set PATH bypasses the SQL
+  pipelining flag for Bun 1.4.0–1.4.2 and a PostgreSQL suite then runs no test (three incidents on 2026-10-16: W4H-32
+  twice, W4H-35 once); gated-flock now exports the pin for every job (ruled 2026-10-16).
+- Rule (coordinator): red first for a commit that adds the module or export its tests import: the load failure on the
+  parent tree counts as the file-level red (the behaviour did not exist), proven on the base, PLUS every named case
+  passing at the merge in the case-check leg, PLUS at least one planted mutant per commit that turns its tests red by
+  assertion (the v9 rule's mutant requirement stands); a stub-built assertion red is not required (ruled 2026-10-16 for
+  W4H-28's eleven new-module commits).
+- Validator: a surviving mutant is a finding only after equivalence is excluded: on 2026-10-16 two one-byte mutants that
+  added comments survived the fast digest test because the bundler drops comments and only declaration files are copied
+  as text; the test was right. Check what the build consumes before calling a survivor a defect (ruled 2026-10-16).
+- Validator: before a verdict names another leg as carrying a proof, read that leg's code: on 2026-10-16 an ACCEPT text
+  said the case-check leg shows cases red on base; the leg runs only at the merge, and the correction had to be appended
+  (validator-8; ruled 2026-10-16).
+- Integrator: a shared tool goes into its installed path only on the validator's OK message for that exact file hash.
+  Trigger: the installer's own test is green and the fix is urgent. The installer's green test is never an OK. Stage as
+  .new, send the hashes computed in a separate step, wait for the OK, then mv, then mirror. Keep the previous file as a
+  named backup so a rejection is one mv. The tool's test defaults to the installed file, falls back to the staged .new
+  only when no installed file exists, and a path argument always wins (the guard-suites.test.sh form); after the install,
+  run the test with no argument. Trigger of the repeat: five tests rebuilt on 2026-10-16 before this rule landed
+  defaulted to .new, and after each install a no-arg run failed every case (exit 127 or 2) (integrator-5's findings at
+  08:28Z and 09:11Z; ruled 2026-10-16).
+- Integrator: a helper call inside a hold is a leg or it does not exist: a non-leg call whose failure sets no status is a
+  masked step. On 2026-10-16 the shared hold library called a removed database-dump script after every graph mock pass;
+  it failed with "No such file or directory" in both W4H-31 hold runs while the pass read "passed"; nothing was lost
+  because the stack already dropped its databases, and the call was removed with a test that every helper path exists
+  and that a missing helper fails by name (w4h-35's finding, integrator-5's fix; ruled 2026-10-16).
+- Integrator: when ending a process, end it by pid only, never by pattern (pkill -f 'sleep 300' matched the integrator's
+  own shell on 2026-10-16; a pattern can hit a lock holder) (ruled 2026-10-16).
+- Integrator: every merge, rebase or cherry-pick carries `-c rerere.enabled=false` on the command line, never a config
+  edit; a rerere replay is not a reviewed resolution; only saved resolution scripts decide. Trigger: a rebase stop that
+  resolves itself; in W4H-32's re-trial, rerere silently replayed an old resolution from the repository's shared
+  rr-cache, which other sessions write (ruled 2026-10-16).
+- Integrator: every remote read is bounded and a stall is named UNREADABLE; a stall is never read as "moved" before a push
+  or "did not land" after one (w00/remote-read.sh, push-lib.sh; the W4H-31 publish's stalled ls-remote, 2026-10-16)
+  (integrator-5's finding, ruled 2026-10-16).
+- Integrator: when a receipt claims a PR body is live, read the live body back and hash it in the same step as the
+  claim; on 2026-10-16 the W4H-31 push receipts named an applied body that had been replaced minutes earlier
+  (validator-8's finding; integrator-5's correction b7dbd9210; ruled 2026-10-16).
+- Coordinator: a "remote stall" is diagnosed before any transport change: on 2026-10-16 GitHub SSH "stalled" because the
+  host's SSH agent hung (ssh-add -l hung); the same key without the agent authenticated in 1 s; the fix was
+  IdentityAgent=none in the command environment, not HTTPS (ruled 2026-10-16).
+- Coordinator: combined headroom (the user's decision 2026-10-16): the resource gate requires MemAvailable >= 6 GiB AND
+  MemAvailable + SwapFree >= 8 GiB (the swap component is raise-only: 2 GiB floor, 2.5 GiB under gated-flock's start
+  margin). Trigger: on 2026-10-15 23:5xZ every heavy job waited on swap free 1.8 GiB < 2.5 GiB while 16 GiB of memory sat
+  free, because swap fills with stale pages that nothing releases. An independent swap floor blocks without protecting;
+  the combined floor keeps the protection.
+- All roles: evidence and tools under /tmp are subject to the host's age cleanup; keep a copy of every shared script
+  outside /tmp (or in the repository) and verify the pinned binaries by checksum at every launch. Before relaunching a
+  chain after a loss, sweep every source and call line of the chain's scripts for missing files; a precondition check
+  of tree, config and pins is not enough (the 2026-10-16 07:55Z cleanup; ruled 2026-10-16).
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
