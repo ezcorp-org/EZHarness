@@ -17,11 +17,15 @@ test("a bundled credential store derives a ChatGPT-subscription key from a store
   expect(built.success).toBe(true);
   const { builtinModels } = await import(join(outdir, "bundled-oauth-entry.js"));
   const fixture = { type: "oauth", access: "fixture-access-token", refresh: "fixture-refresh-token", expires: Date.now() + 3_600_000 };
+  // The store holds exactly what the bundled getAuth reads: one stored credential, asked for by its provider id.
+  const requested: string[] = [];
   const store = {
-    async read(id: string) { return id === "openai-codex" ? fixture : undefined; },
-    async list() { return [{ providerId: "openai-codex", type: "oauth" }]; },
-    async modify(id: string, fn: (current: unknown) => Promise<unknown>) { return (await fn(await this.read(id))) ?? fixture; },
+    async read(id: string) {
+      requested.push(id);
+      return fixture;
+    },
   };
   const result = await builtinModels({ credentials: store }).getAuth("openai-codex", { minOAuthValidityMs: 60_000 });
+  expect(requested).toEqual(["openai-codex"]);
   expect(result?.auth?.apiKey).toBe(fixture.access);
 }, 120_000);
