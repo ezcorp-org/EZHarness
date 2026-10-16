@@ -2376,6 +2376,48 @@ smokes under the lock, detached-job wake-ups) are not repeated.
   owner stopped every job by pid, parent first, and discarded all four results (W4H-33 pending-lesson 15; ruled
   2026-10-16).
 
+#### Rulings of 2026-10-16, later (push bodies, resource floors, launch discipline; coordinator log 14:40Z to 17:00Z)
+- Coordinator: a PR body is named for a push by exact path and hash only after its owner's line "FINAL <hash>, no further
+  edit"; after the naming the file does not move; a change is announced to the validator and the coordinator first and
+  written as a new version with its own FINAL line. Trigger: three true wordings of one line crossed the validator's
+  naming within about ninety seconds and held a push (ruled 2026-10-16).
+- Coordinator: a lock launch asks for the floor plus a margin for the measured swing (3 GiB; a typecheck dipped 5.4 GiB)
+  or does not start. The margin is a start-gate rule in the shared lock tool, default off, never a change of an in-lock
+  floor. Trigger: two refusals in twenty minutes from another project's load (ruled 2026-10-16).
+- Coordinator: a resource refusal from foreign load is recorded as a refusal, not a red. The retry runs on a measured
+  condition (free memory at or above 15 GiB on two reads a minute apart), once; a second refusal stops the chain for a
+  word. Trigger: the W4H-36 push try 1 and the follow-up's merge commit try 1 (ruled 2026-10-16).
+- Coordinator: one gated launch per turn when a word may be pending, because messages arrive at turn boundaries.
+  Trigger: the W4H-33 chain and the integrator's note on its inbox (ruled 2026-10-16).
+- Coordinator: before a chain is relaunched, sweep its launch chain's source lines for missing paths; a shared tool
+  changed under a running hold is a new chain. Trigger: the hold script's new call line, installed only after the
+  follow-up's hold was judged (ruled 2026-10-16).
+- Coordinator: disk is a floor like memory. The team removes only what it built, by identifier, after a second reader
+  has verified each match; never a prune; other sessions' trees are the user's. Trigger: 98 GB free against the 104 GB
+  floor held a push gate; the space was freed outside the team (ruled 2026-10-16).
+- Coordinator: a coordinator's recorded hash is re-read from disk before a word; a stale note is a correction in the
+  log, not a finding. Trigger: the hold-script hash, and the false alarm from git's %B, which appends one newline to a
+  commit message (ruled 2026-10-16).
+
+#### The kind-proof round of 2026-10-16 (W4H-35's HOME defect, proof cleanup, the commit form; verdict-w4h-35.txt d3db5b9eeda308d7)
+- Owner: probe the shipped image as its own user before any cluster exists. W4H-35's proof ran the image's podman-remote
+  version probe as the image user without HOME and found a product defect: the Kubernetes system render gave the hosted
+  pool and the supervisor no HOME, so podman-remote fell back to /nonexistent. The fix, C6 at 3f5af02e1: the C12 row
+  first (031cb1207), one host-service base environment map read by the Compose pool and both Kubernetes workloads, a
+  bounded /tmp on the supervisor; red 24/1, then green 184/0; two mutants red (W4H-35; validator-8).
+- Owner: a proof probes the shipped image with the deployment's own environment, read from the same map the deployment
+  uses, never with the proof's own. W4H-27's shipped-isolation check passes HOME itself, so it could not see the missing
+  HOME (W4H-35; the leftover: the check uses the rendered environment).
+- Owner: a proof's cleanup trap is set before its first artefact step. W4H-35's first run set it after the image step and
+  left a 6.5 GB image until the owner removed it by name. Every poller and sampler a proof starts is a global pid that the
+  cleanup stops on every path, not only on the normal path (W4H-35; validator-8 K4).
+- Coordinator: the commit form for an owner's fix: a commit whose mapped tests are under the cap runs the normal hook,
+  lock-free; the freeze legs (typecheck, changed-line coverage) run in one short locked window on the priority rule; the
+  proof run is separate and takes the next idle gap of the lock (ruled 2026-10-16, W4H-35 C6).
+- Owner: a test's child process must not outlive the test. A runner service process that ended without calling close()
+  left its peer-gateway child (ppid 1); the gateway now ends when its stdin pipe closes, so it cannot outlive the service
+  (W4H-28 follow-up 2, c3affbfd5); a worktree removal check found the orphan a day later.
+
 #### Owners (from w4h-5/pending-lesson.md)
 - Read the inbox before each report and before each new leg of work; when an order changes the plan (a split, a hold, a start word), stop
   and follow it.
