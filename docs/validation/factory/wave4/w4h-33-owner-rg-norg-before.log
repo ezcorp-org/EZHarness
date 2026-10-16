@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/runtime-tools-grep.test.ts:
+(pass) createGrepTool > finds matches across files and reports a positive matchCount [2.50ms]
+(pass) createGrepTool > returns 'No matches found.' when nothing matches [1.79ms]
+(pass) createGrepTool > case-insensitive search finds more hits than case-sensitive [3.30ms]
+(pass) createGrepTool > rejects path traversal [0.28ms]
+(pass) createGrepTool > truncates output exceeding the grep cap and flags details.truncated [2.13ms]
+(pass) createGrepTool > marks an exact-cap first stdout chunk as truncated without mocking grep [2.10ms]
+(pass) createGrepTool > does not mark an exact-cap EOF as truncated [1.86ms]
+(pass) createGrepTool > keeps a valid UTF-8 prefix when truncation splits a code point [1.93ms]
+(pass) createGrepTool > surfaces a real search error (invalid regex) instead of masking it as no-match [1.63ms]
+(pass) createGrepTool > reports the backend used in details [1.65ms]
+(skip) createGrepTool — ignore handling > ripgrep skips ignored dirs by default
+(skip) createGrepTool — ignore handling > ripgrep noIgnore:true also searches ignored dirs
+(pass) createGrepTool — ignore handling > GNU grep fallback skips node_modules via --exclude-dir [1.83ms]
+(pass) createGrepTool — ignore handling > GNU grep noIgnore:true drops the excludes and finds node_modules [1.68ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > AbortSignal → graceful 'Search aborted.' instead of a wedged run [100.44ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > soft timeout → graceful timeout message, not a watchdog kill [1002.96ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > callTimeoutMs sits a margin above the soft timeout [0.09ms]
+
+ 15 pass
+ 2 skip
+ 0 fail
+ 42 expect() calls
+Ran 17 tests across 1 file. [1.51s]

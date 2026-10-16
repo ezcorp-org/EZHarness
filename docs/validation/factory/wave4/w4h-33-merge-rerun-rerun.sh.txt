@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# W4H-33 partial re-run (integrator-5; team-lead's ruling 2026-10-16 ~20:49Z, pre-authorized on the installs, a free lock and 15 GiB twice):
+# at the SAME merge b6414ec0b, ONLY the case leg (case-check v9 with case-web-junit v3) and the new leg web-bunleg-changed, in a FRESH folder
+# rerun/ (copies of case-check's inputs and of extra-legs.sh; childcov/ linked to the hold's real child run of this merge), so case-check
+# writes a fresh rerun/case-check/ and the original heavy-batch.log and case-check/ stay untouched. Called by gated-flock (label w4h-33-rerun).
+# The new leg's block is read at run time from the INSTALLED hold-w4f.sh (the same block a full hold runs). A header records the content hash
+# of every hold tool at start (validator-8, 2026-10-16).
+set -u
+D=/tmp/factory-platform-evidence/w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1/rerun; E=/tmp/factory-platform-evidence/w00
+. $E/heavy-lib.sh
+{ echo "=== hold-tool content hashes at re-run start (sha256, first 16)"
+  for t in heavy-lib.sh leg-judge.sh resource-gate.sh test-count.sh lock-veto.sh own-pg.sh bun-pin.sh config-check.py findings-match.py \
+           lcov-foreign-sources.py child-cov-bun.sh guard-suites.sh prune-scan.sh attestation-check.py gated-flock.sh merge-commit-gates.sh \
+           image-leg.sh tc-gate.sh tracked-skip-lines.py case-web-junit.sh bun-junit-lib.sh web-bunleg-changed.sh w4f-merge/hold-w4f.sh \
+           w4h-merge/w4h-24-web-shard-timeout/case-check.sh w4h-merge/w4h-24-web-shard-timeout/bash-line-cover.py \
+           w4h-merge/w4h-24-web-shard-timeout/bunfig-testfiles.toml w4h-merge/w4h-24-web-shard-timeout/bash-trace-env.sh; do
+    printf '%s %s\n' "$( [ -f $E/$t ] && sha256sum $E/$t | cut -c1-16 || echo MISSING)" "$t"; done
+  echo "=== end of tool hashes"; } >> "$S"
+M=$(cat $D/merge-sha.txt)
+[ "$(git rev-parse HEAD)" = "$M" ] && [ -z "$(git branch --show-current)" ] && [ -z "$(git status --porcelain)" ] || { echo "REFUSED: not at the clean detached merge $M" >> "$S"; exit 3; }
+B=$(git rev-parse HEAD^1); git diff --name-only $B HEAD > $D/diff-files.txt
+NOTEST=1 leg w4h33-red-first-cases bash $E/w4h-merge/w4h-24-web-shard-timeout/case-check.sh "$M" "$D"
+BLK=$(awk '/^# web-bunleg-changed \(team-lead/{f=1} f{print} f&&/; fi$/{exit}' $E/w4f-merge/hold-w4f.sh)
+[ -n "$BLK" ] || { echo "STOP: the web-bunleg-changed block is not in the installed hold-w4f.sh" >> "$S"; st=1; heavy_done; }
+printf '%s\n' "$BLK" > $D/web-bunleg-block.sh; echo "web-bunleg-changed block from hold-w4f.sh $(sha256sum $E/w4f-merge/hold-w4f.sh | cut -c1-16): $(sha256sum $D/web-bunleg-block.sh | cut -c1-16)" >> "$S"
+. $D/web-bunleg-block.sh
+heavy_done

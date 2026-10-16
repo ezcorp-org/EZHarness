@@ -1,0 +1,10 @@
+W4H-33 prep notes (integrator-5, 2026-10-16)
+- Gate-integrity check at the prep (validator-8's condition): a dangling trial merge commit dd241531a40a3a69ed910f121364652d87703ede
+  (git commit-tree of TREE ba1726d73, parents b0b7bedf1 and e50aedefd, archy noreply, NO ref) checked out in the scratch detached
+  worktree /tmp/i5-w4h33-gi-prep (node_modules symlinked from the integ worktree); both legs run there with the pinned bun; the
+  worktree was removed by name (git worktree remove). Logs: gate-integrity-prep*. Both legs PASS by the folder's expected sets.
+- R2: team-lead ruled path (a) (~19:4xZ): tracked-skip-lines.txt is written from the REAL child lcov of a short in-lock pre-run
+  (label w4h-33-r2-prerun: child-cov wrapper + real-auth specs only) after the commit, with the worktree detached at the merge commit.
+  The earlier lock-free derivation (validator-8's interim method) is kept as a record only: r2-derive/ (its list moved to
+  r2-derive/tracked-skip-lines.lockfree-dropped.txt, 107921f30993854b).
+- List-bound word: full-run hook, EZ_PRECOMMIT_TEST_MAX=154 (team-lead ~19:4xZ).

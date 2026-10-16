@@ -1,0 +1,26 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-16T00:22:45.718Z","level":"info","msg":"assignment_update emit","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","status":"running","hasStructured":false}
+{"ts":"2026-10-16T00:22:45.719Z","level":"info","msg":"Started assignment","subsystem":"start-assignment","conversationId":"conv-parent","taskId":"task-1","assignmentId":"assign-1","agentConfigId":"cfg-test","agentName":"alice","subConversationId":"sub-fresh-created","agentRunId":"ebe1ec9c-0b38-4c31-bba3-a0c6b17e0271"}
+
+src/__tests__/start-assignment-plumbing.test.ts:
+256 |     // thread), and its first message is the task brief (the task and the plan), not a copy of the parent's messages.
+257 |     const { executor, calls } = makeMockExecutor();
+258 |     await startAssignment(baseOpts({ executor }));
+259 | 
+260 |     expect(calls).toHaveLength(1);
+261 |     expect(calls[0]!.conversationId).toBe("sub-fresh-created");
+                                           ^
+error: expect(received).toBe(expected)
+
+Expected: "sub-fresh-created"
+Received: "conv-parent"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/start-assignment-plumbing.test.ts:261:38)
+(fail) startAssignment — sub-agent task prompt guardrails > the sub-agent's first run is on its own sub-conversation, and its one input is the brief built from the task [1.92ms]
+
+ 0 pass
+ 96 filtered out
+ 1 fail
+ 2 expect() calls
+Ran 1 test across 1 file. [395.00ms]
+exit=1

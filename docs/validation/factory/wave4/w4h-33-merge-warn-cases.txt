@@ -1,0 +1,25 @@
+present, behaviour wrong: the suite FAILS and does not skip
+missing: the suite skips with the tracked reason and nothing fails
+present, behaviour wrong: the suite runs and FAILS, and does not skip
+missing: the suite skips with the tracked reason and nothing fails
+present, behaviour wrong: each of the three cases runs and FAILS, and none skips
+missing: each of the three cases skips with its tracked reason
+the shared action installs ripgrep and proves it is on PATH
+every job that runs the backend suites uses the action before that step
+no workflow repeats the install command instead of using the action
+pgvector is pinned to the linux/amd64 platform manifest of pg15
+the three PostgreSQL service lines run exactly that pin, and no workflow image line or pin is a tag
+a tag back in one workflow line, or a tag in the pin file, is refused by name
+records the URL the extension asked for from the pinned request's host header, and refuses an unstubbed path
+routes the host's own path (default DNS, global fetch) for the market hosts only, and restores both
+ripgrep is on PATH, so the ripgrep backend cases run
+runs the plan's preview files inside the candidate image with the preview uid range mapped and the lane variable set
+a run where the in-image tests skipped, failed or ran nothing is a failed proof
+refuses to start without the candidate image or a receipt directory
+the sub-agent's first run is on its own sub-conversation, and its one input is the brief built from the task
+handleSubConvoReturn: the summary is the LAST assistant message, not the first or a later user turn
+handleSubConvoTurnSaved: a saved turn of the active sub-conversation goes to the sub-conversation store, once
+handleSubConvoTurnSaved: a turn of an INACTIVE sub-conversation is not taken into the active one
+handleSubConvoTurnSaved: a non-final turn keeps the sub-conversation streaming
+startSubConvo's request passes the server's own schema (no mock hides a validation mismatch)
+ez:turn_saved: the active sub-conversation's turn enters its block, not the thread; an inactive sub's turn enters neither

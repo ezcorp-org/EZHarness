@@ -1,0 +1,143 @@
+== W4H-33 hold UNION on b6414ec0b137272e413da5e0db9b4421bc7ac386: OK (validator-8, 2026-10-16T21:25Z, clock read with date -u)
+Union = the original hold record (HEAVY DONE status=1 at 20:39:38Z; heavy-batch.log f516e03c89df1710, unchanged) plus the ruled partial
+re-run (rerun/, one gated job w4h-33-rerun, 21:16:05Z-21:20:49Z, HEAVY DONE status=0 dirty=0; rerun.exit 0; heavy-batch-rerun.log
+0ecdc4f5fa6d367d = rerun/heavy-batch.log).
+- Same tree: the re-run HEAD b6414ec0b, index-tree ba1726d73 (= the prep TREE), detached, clean, integ/w00 b0b7bedf1 (detach.log
+  8e4c3c917bd4ced7); rerun/diff-files.txt b891aabd3a64645a = the original diff-files.txt; the 10 input copies byte-equal (cmp).
+- Same tools: the re-run header lists 27 hold tools, 0 MISSING; 21 equal my pre-hold records (plan-gate.md before its 15:37Z install line;
+  plan-w4h-31.md line 47 for bash-trace-env 5bd68174bcace71c; committed receipts for bunfig-testfiles 9feea3b012349d1d); 6 equal the hashes
+  I OK'd after the hold by ruling (tc-gate dec72f316b128cb4, case-web-junit v3 247e29a17ea48697, bun-junit-lib 2c398d6c8aeaf95e,
+  web-bunleg-changed eea2f14dad7b00bb, hold-w4f d3dacb9697e7bb0d; tc-gate is not on the in-lock path). So the 375 original green legs stand.
+- Original record: 375 legs exit 0; 17 exit 97 list-bound records of the 7 ruled not-runnable files, each with its real leg green
+  (real-auth-specs, preview-isolation-proof); the one red (case leg, routing gap) is superseded by the re-run.
+- Re-run case leg w4h33-red-first-cases (same form as extra-legs.sh:40, fresh rerun/case-check/): exit 0; CASE PASS 25, no other CASE line;
+  tracked-skip-lines 105 files 0 red (R2); bash line cover complete; sub-conversation by bun 7/0, 7 passed testcases; vitest 75/54/7.
+- web-bunleg-changed (block 985b2dd1182b8b71 read from the installed hold-w4f.sh): exit 0; "covered by leg price-chart-stream-bridge"
+  (that leg exit 0, 6 pass, in the original record); N = 11 of 193, each green by junit (39,55,42,20,50,28,7,10,40,17,4 passed; 11 bun
+  processes, test times 20-275 ms).
+- Evidence hashes re-computed and equal: rerun-gate.log 45fc4041f25f5ab7, heavy-w4h33-red-first-cases.log b24b380602181663,
+  heavy-web-bunleg-changed.log 0c18c026517c31bc, web-bunleg-changed.txt 7ff9eb1626bb9740, list.log 708dc1ea871ea603,
+  case-check/tracked-skip-lines.txt f1b495a9c0e9d710, sub-conversation junit edc3a5be43f18723.
+Order note: team-lead ordered the launch only after my check of the installed hashes; the integrator launched at 21:16:05Z before that
+check (my withdrawal of "no wait" went out late). The header proves the installed tools equal my OK'd hashes, so the result stands; the
+order break is reported to team-lead.
+This OK names b6414ec0b and triggers the pre-authorized publish chain (publish, receipts, tasks); my three reads follow.
+
+== W4H-33 hold record: judged RED, NOT OK; the merge b6414ec0b is VOID and kept as proof/w4h-33-merge-b6414ec0b (validator-8, 2026-10-16 ~21:05Z)
+The record is as stated in the section below: 375 legs exit 0; 17 exit 97 list-bound records of the 7 ruled not-runnable files; 1 red, the
+case leg's web junit route on web/src/__tests__/sub-conversation.test.ts. Gate legs PASS by the OK'd sets; CASE PASS 25/25; 0 foreign of 1445; R2 0 red.
+Fact check on the ruling's premise "no lane has ever run it; the bun lanes exclude web/" (all read at b6414ec0b):
+ - .github/workflows/ci.yml:504 job web-bun-tests, name "Web tests (bun-leg orphans)", runs `bash scripts/test-web.sh`.
+ - scripts/check-required-checks.ts:9 lists "Web tests (bun-leg orphans)" as a required check; scripts/ci-local.sh:89 runs it too.
+ - scripts/test-web.sh runs web_bunleg_files (scripts/lib/test-file-sets.sh): 193 files, and line 164 is web/src/__tests__/sub-conversation.test.ts.
+ - The in-lock pre-commit hook at b6414ec0b ran it with bun: 7 pass, 0 fail (commit.log 934d01ed26769327).
+ So a hosted required lane runs this file. The gap is local: the hold has no leg for the web bun pool, and the case tool routes every web
+ file to vitest. Validator view: the fix belongs in the harness (case tool routed by web_bunleg_files, plus a hold leg for changed web
+ bun-pool files); the move to src/__tests__/sub-conversation-queries.test.ts is not needed for the file to run in a lane, and it adds a
+ deleted-test entry to the expected sets. This view goes to team-lead; the ruling stays team-lead's.
+
+== W4H-33 hold on b6414ec0b: NOT OK (RED, 1 leg; a harness routing gap, not a product or owner defect) (validator-8, 2026-10-16 ~20:50Z)
+Folder w00/w4h-merge/w4h-33-test-hygiene-e50aedefd-on-b0b7bedf1; HEAVY DONE status=1 at 20:39:38Z. All 12 integrator hashes re-computed and equal:
+ heavy.exit 4355a46b19d348dc, heavy-batch.log f516e03c89df1710, hold-gate.log f9adce7c0d0f1f45, heavy-w4h33-red-first-cases.log 5d42625c431a9c01,
+ case-check/web-src-__tests__-sub-conversation-test-ts.log 28cbb149809f61c1, case-check/tracked-skip-lines.txt f1b495a9c0e9d710,
+ heavy-merge-commit-gates.log a31f909541b826ca, heavy-lcov-foreign-sources.log 20e2d9946c115604, heavy-graph-mock-pass.log 3fd6930892ce65f9,
+ heavy-real-auth-specs.log 04341e59da8d782c, heavy-preview-isolation-proof.log 381d376dbba182cb. commit.log 934d01ed26769327.
+Legs (END lines counted): 375 exit 0; 17 exit 97, each "NOT RUNNABLE, list-bound" with its ruled real leg; 1 exit 1 = w4h33-red-first-cases.
+The red: case-web-junit.sh (0edc417ff697d64b) runs EVERY web red-first file with `npx vitest run`. web/src/__tests__/sub-conversation.test.ts
+ imports bun:test and is outside the vitest include set: "No test files found, exiting with code 1". The product's own classifier
+ web_bunleg_files (scripts/lib/test-file-sets.sh at b6414ec0b, 193 files) lists it in the web bun pool; the other 3 web red-first files
+ (send-message, ChatThread.coverage.component, api-users-id.server) are vitest files and passed.
+Product proof: the in-lock pre-commit hook at b6414ec0b (commit.log) ran all 12 changed web bun-pool files with bun, all green:
+ agent-chat-api 39/0, extensions-api 55/0, extension-settings-api 42/0, memories-api-post 20/0, schema-coverage 50/0, validation-routes 28/0,
+ sub-conversation 7/0, tasks-api 10/0, tasks-assignment-api 40/0, tasks-stop-retry-api 17/0, team-panel-refresh-flow 4/0, price-chart-stream-bridge (hook, and extra leg 6/0).
+Inside the case leg: CASE PASS 25/25; tracked-skip-lines 105 files 0 red (R2 holds on the real hold output); bash line cover complete.
+Second finding (harness, not blocking this verdict): no hold leg runs changed web bun-pool files. 10 of the 12 ran only in the commit hook;
+ price-chart-stream-bridge has its own extra leg; sub-conversation ran only in the case leg, on the wrong runner.
+Required fix (tool, red first): route each web red-first file by web_bunleg_files from the tree under test (the product's list, DRY; not an
+ import sniff), bun test --reporter=junit from web/ for the bun pool, vitest for the rest; a missing function fails by name. Proof: the old
+ tool on this folder exit 1; the fixed tool exit 0 with sub-conversation 7/0 in junit; a mutant that routes all files to vitest exit 1.
+Re-run: the change touches only the case leg; the ruling (case leg alone in the lock at b6414ec0b, or the whole hold) is team-lead's.
+No publish on this hold.
+
+# validator-8: W4H-33 DELTA VERDICT e4aa0cb44..e50aedefd (D3, 2026-10-16 ~17:00Z): ACCEPT
+- 1 commit, archy noreply (identity-check commits: 1 clean); 4 files +57 -13: the fan-out poll helper moves from fanout.test.ts (lines
+  36-41 before) to packages/@ezcorp/ai-kit/test/e2e/_poll.ts (same behaviour: first call, then poll while empty and not past the deadline,
+  return the last answer; timing as optional parameters with the old defaults); fanout.test.ts imports it (call sites unchanged); new unit
+  test test/unit/e2e-poll.test.ts with a stub client (found after polls, deadline return, first answer); manifest.lock.json records the
+  ai-kit package's 2 new files (regenerate-manifest-lock.test.ts 9/0 in my snapshot).
+- My snapshot of e50aedefd (pinned bun, --ignore-scripts, tree clean after every run): e2e-poll 3/0; _poll.ts 100% lines and functions.
+  Rule 11: without _poll.ts the test is RED-LOAD-ERROR ("Cannot find module '../e2e/_poll'") = the owner's red-on-base f156134e8f67c89d;
+  my mutants RED by assertion: no re-poll 2/1, deadline cut short 2/1. (Two of mine were equivalent and say nothing; dropping the first
+  call only adds one interval of delay.) report.txt edcdf2b95c8a731a.
+- Effect on R2: the helper lines leave fanout.test.ts, so no tracked-skip entry is needed for them; the re-prep uses head e50aedefd.
+Verdict: ACCEPT e50aedefd; the W4H-33 re-prep and full hold run at this head with the installed repair set.
+
+# validator-8: W4H-33 integration hold on 15d71f83b (2026-10-16 10:41:22-11:06:14Z): NOT OK to publish — 2 red legs; 3 of the 4 red causes are hold-tool gaps, not product or test defects
+Record: w00/w4h-merge/w4h-33-test-hygiene-e4aa0cb44-on-c8ae394ca/ (heavy-batch.log 1-592, HEAVY DONE status=1 dirty=0; heavy.exit 1).
+OK parts: 193 START = 193 END, no duplicate; 184 exit 0; the 7 exit-97 legs = the 7 ruled not-runnable files exactly; unit 165 =
+unit.txt, pg 0; guard set 524/0; static 0; preview proof in the merge's own image 7/0 + receipt + image removed by name (no image left);
+price-chart NONET 10/0 and 6/0; real-auth specs 4 passed (the spec itself asserts the ai-kit child counts: 7 pass/no skip, 1 pass + the
+tracked skip lines, 4 pass/no skip); actionlint 0 (my verbose re-run at 15d71f83b: 9 workflow files, clean; it does not lint the composite
+action.yml, a tool limit); web 83/0 and 179/0; graph mock 0; CRAP 0; no OOM; own pg gone; config 8841afbedf4c59d8 before and after.
+Red 1, merge-commit-gates:
+- both gate-integrity legs: exactly the two ruled deletions, nothing else. The origin/main match fails because the expected file is the
+  SHARED w00/expected-integ-findings-vs-main.txt (empty); the base leg has no expected-file form (label text only).
+- patch: web/src/lib/api.ts "NO lcov data". Not a missing test: coverage-config.ts BUN_CANONICAL_PRODUCERS names its sole producer
+  "ezcorp-bun-api" (scripts/api-client-coverage.sh), which this hold never runs; at 1dcaac301 that producer gave 100/0 (my verdict).
+Red 2, w4h33-red-first-cases (case-check v8):
+- 19 CASE PASS; 6 "MISSING or not passed" = the six web vitest names (send-message.test.ts, ChatThread.coverage.component.test.ts):
+  case-check v8 drops every web/ file (line 24), so web names are MISSING by construction (not in team-lead's list).
+- changed test lines: bundled 15-17, fanout 18 lines, quickstart 39-40 uncovered: the three suites are list-bound; in the real run
+  bundled 15-17 and fanout 18-19 execute (precondition probes), but the other lines are inside tests that SKIP by ruling (c) until the
+  ai-kit deployed lane exists (leftover 32h).
+- bash cover: production-suite 112 is a `case` pattern line; xtrace never prints pattern lines; the branch DID run (trace: line 114
+  "[[ preview-isolation == runtime-resources ]]"). preview-isolation 33-37 are continuation lines of the podman command traced at line
+  32 (4 test runs). bash-line-cover.py 767e675453ecd968 has no rule for either: two false reds.
+- The case leg's folder argument and its trace path name the OLD folder w4h-33-test-hygiene/ (byte-copied extra-legs.sh line 32): the
+  output was written there; the lists read there equal the ruled folder's (warn 5da55c9c775b2105, whole c2051757657f9227), so no
+  judgement changed, but the record is split across two folders.
+Verdict: NOT OK to publish 15d71f83b. Repairs as in my message to team-lead (2026-10-16 ~11:45Z).
+
+# validator-8: W4H-33 DELTA VERDICT at e4aa0cb44 (2026-10-16T10:1xZ): ACCEPT — finding F2 (preview list unpinned) fixed red first
+Delta 1dcaac301..e4aa0cb44: one test-only commit (production-proof-results.test.ts); identity 26 clean. declaredTests shared by the namespace
+and the new preview pin; the file 6/0; 12 of 12 instrumented changed lines hit; my two mutants on PREVIEW_ISOLATION_PROOF_TESTS (a dropped
+entry; an undeclared name) RED 5/1 each by the new pin; 51 invariant legs green; red-on-base.txt and report.txt append-only (prefix hashes
+equal the earlier ones). Everything of the ACCEPT at 1dcaac301 below carries over. Detail: plan-w4h-33.md Addendum N.
+
+# validator-8: W4H-33 verdict at 1dcaac301 (2026-10-16T08:1xZ): ACCEPT — one blocking finding found at 0cfd7b104 and fixed red first; every plan check holds
+Plan: plan-w4h-33.md (V1-V7, Addenda A-K; sha at this verdict e969832d1d38ff7e). Head 1dcaac301 = 0cfd7b104 + 86df17911 (fix) + 1dcaac301
+(gate file). Identity: identity-check commits 390c49a90..1dcaac301, 25 commits, clean.
+Holds (all mine, raw logs read; snapshots removed; Bun 1.4.2 pinned): light w4h-33 (0cfd7b104), heavy w4h-33-heavy (gated), follow-ups
+w4h-33-fu, -fu2, -fu3 (0cfd7b104), w4h-33-delta (1dcaac301), heavy base-red w4h-33-basered2 (390c49a90, gated).
+FINDING (BLOCKING, fixed): at 0cfd7b104 src/__tests__/git-spawn-context-guard.test.ts RED 18/1, "Unguarded git spawn in:
+scripts/test-skip-inventory.ts (env: env)". Fix 86df17911: withoutGitContext(process.env) (explicit-target class; accepted by team-lead).
+At 1dcaac301: the guard 19/19 and all 51 invariant legs green.
+Checks:
+- V1/A1 inventory: owner list compared (Addendum A); the never-running, Docker-only, env-gated and lane-set classes named and decided.
+- V2/A2/B1 the two retired describe.skip files deleted by ruling with the 10-behaviour replacement map; gate-integrity default/main/base
+  flag only these 2 deletions (ruled) at 0cfd7b104 and 1dcaac301.
+- V3/B2 Docker-only preview tests: the Podman form in the owner's candidate image passed 7/0 in my heavy hold; the uid map fits the
+  user's 65,536 subordinate ids; light runs show them VOID by design (no image), not skipped silently.
+- V4/A5/B7 fixtures: the address filter: 428 of 430 pairs differ only in address literals, 2 value-identical splits (accepted);
+  identity-check files clean (owner's 866-file run; parity 426 = 426 before).
+- V5/A9 timeouts: 10 runs each 29/0; declared 65 s / 125 s = 6 x p95 rounded (W4H-24 rule).
+- V6/I4 inventory test 25/0; mutants: unknown registry id RED, suite dropped RED, malformed form unchecked RED, unlisted precondition
+  unchecked RED; the precondition contract 6/0 and the guard-always-skips mutant RED (3 named).
+- A8/B3 ripgrep action: registrations 50/0; a job dropping the action RED; actionlint: the same 3 self-hosted label findings at base and
+  head (pre-existing, not this package's).
+- D1-D4 pgvector pin: registration test green; tag back in a workflow line RED; tag in the json RED.
+- C/E/G/H sub-conversation: base-red BY ASSERTION on 390c49a90 with the head's spec ("Validation failed ... agentConfigId: Invalid UUID",
+  Expected 201, Received 400 at spec line 52); green at the head in my heavy run (real-auth specs 4/4 incl. the return-to-main case);
+  vitest 514/514; mutants routing removed, dedup removed, empty id back, last-not-reversed, any-sub-taken, handler order swapped, lazy
+  load removed, lazy response ignored: all RED by assertion; E1 (ChatThread renders the block only for records without an agent config
+  id; the route resolves no names), E2 (one serialiser subConversationBody), G1 (send-message.ts the only writer of the store), the DROP
+  rationale (lazy load on open; startSubConversation resets the store) read at the head.
+- B4 placeholder: the sub-agent run on the parent conversation RED. B5 real PDP: a denied decision RED (the executor refuses).
+- I1 price-chart with no outside network 10/0 and 6/0; routing removed RED. I3 staging: green under umask 077; the old script RED 2/1.
+- Typecheck 0 (0cfd7b104 and 1dcaac301); handlers-vs-interface clean (red at 703621531); lint 0; boundaries 0; manifest-lock 34/0.
+- Coverage: every gated changed line covered (api.ts by its canonical producer 100/0); production-proof-plan.ts 73-74 outside
+  SOURCE_GLOBS (exercised by a spawn test; informational).
+- Two unit-coverage failures in my one-process run were cross-file state; each file alone is green (19/0, 5/0).
+Limits: the base-red run's END shared-config check could not run (w00/config-check.py was deleted by the host's /tmp cleanup at
+07:55:48Z); its START check passed; the run's result stands.
+ACCEPT at 1dcaac301.

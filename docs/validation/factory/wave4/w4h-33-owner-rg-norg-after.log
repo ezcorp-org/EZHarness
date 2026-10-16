@@ -1,0 +1,64 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/runtime-tools-grep.test.ts:
+(pass) createGrepTool > finds matches across files and reports a positive matchCount [2.48ms]
+(pass) createGrepTool > returns 'No matches found.' when nothing matches [1.70ms]
+(pass) createGrepTool > case-insensitive search finds more hits than case-sensitive [3.47ms]
+(pass) createGrepTool > rejects path traversal [0.30ms]
+(pass) createGrepTool > truncates output exceeding the grep cap and flags details.truncated [2.41ms]
+(pass) createGrepTool > marks an exact-cap first stdout chunk as truncated without mocking grep [2.07ms]
+(pass) createGrepTool > does not mark an exact-cap EOF as truncated [1.95ms]
+(pass) createGrepTool > keeps a valid UTF-8 prefix when truncation splits a code point [1.84ms]
+(pass) createGrepTool > surfaces a real search error (invalid regex) instead of masking it as no-match [1.65ms]
+(pass) createGrepTool > reports the backend used in details [1.78ms]
+244 | 
+245 |   // The ripgrep backend is the one grep.ts prefers. Every backend test host has
+246 |   // ripgrep (CI: .github/actions/ripgrep, held by scripts/ripgrep-registration.test.ts),
+247 |   // so a host without it fails here by name instead of skipping the cases below.
+248 |   test("ripgrep is on PATH, so the ripgrep backend cases run", () => {
+249 |     expect(Bun.which("rg"), "install ripgrep: the backend suites test both grep backends").not.toBeNull();
+                                                                                                     ^
+error: install ripgrep: the backend suites test both grep backends
+
+Received: null
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/runtime-tools-grep.test.ts:249:96)
+(fail) createGrepTool — ignore handling > ripgrep is on PATH, so the ripgrep backend cases run [0.10ms]
+254 |     async () => {
+255 |       process.env.EZCORP_GREP_BACKEND = "rg";
+256 |       const tool = createGrepTool(ignProject);
+257 |       const result = await tool.execute("1", { pattern: "NEEDLE_TOKEN", path: "." });
+258 |       const text = getText(result);
+259 |       expect(text).toContain("app.ts");
+                         ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "app.ts"
+Received: "Error: Executable not found in $PATH: \"null\""
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/runtime-tools-grep.test.ts:259:20)
+(fail) createGrepTool — ignore handling > ripgrep skips ignored dirs by default [0.16ms]
+270 |       const result = await tool.execute("1", {
+271 |         pattern: "NEEDLE_TOKEN",
+272 |         path: ".",
+273 |         noIgnore: true,
+274 |       });
+275 |       expect(getText(result)).toContain("node_modules");
+                                    ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "node_modules"
+Received: "Error: Executable not found in $PATH: \"null\""
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/__tests__/runtime-tools-grep.test.ts:275:31)
+(fail) createGrepTool — ignore handling > ripgrep noIgnore:true also searches ignored dirs [0.13ms]
+(pass) createGrepTool — ignore handling > GNU grep fallback skips node_modules via --exclude-dir [1.69ms]
+(pass) createGrepTool — ignore handling > GNU grep noIgnore:true drops the excludes and finds node_modules [1.76ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > AbortSignal → graceful 'Search aborted.' instead of a wedged run [100.54ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > soft timeout → graceful timeout message, not a watchdog kill [1000.84ms]
+(pass) createGrepTool — graceful early exit (no run-kill) > callTimeoutMs sits a margin above the soft timeout [0.13ms]
+
+ 15 pass
+ 3 fail
+ 45 expect() calls
+Ran 18 tests across 1 file. [1497.00ms]

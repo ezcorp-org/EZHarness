@@ -1,0 +1,23 @@
+bun test v1.4.2 (744846f84)
+
+src/__tests__/price-chart-stream-bridge.test.ts:
+308 |             ? redactForAudit(cause.detail, { truncate: false }).redacted
+309 |             : null,
+310 |         error: redactForAudit(String(err)).redacted,
+311 |       },
+312 |     });
+313 |     if (event || transaction) throw new LifecycleError("event_persist_failed", "Tool result and its extension event were not committed.");
+                                          ^
+LifecycleError: Tool result and its extension event were not committed.
+ code: "event_persist_failed"
+
+      at persistToolCall (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/db/queries/tool-calls.ts:313:37)
+      at async recordToolCall (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/extensions/tool-executor/executor.ts:1648:11)
+      at async recordToolOutcome (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/extensions/tool-executor/executor.ts:955:16)
+      at async runDispatch (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-33/src/extensions/tool-executor/executor.ts:933:18)
+(fail) price-chart stream-bridge — live executor → bus → reducer > executor emits bus events that drive the store to a renderable price-chart entry [273.55ms]
+
+ 5 pass
+ 1 fail
+ 16 expect() calls
+Ran 6 tests across 1 file. [277.00ms]
