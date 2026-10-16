@@ -39,7 +39,7 @@ export const FACTORY_ALERT_RULES: readonly FactoryAlertRule[] = Object.freeze([
   },
   {
     alert: "FactoryProjectionLagging", for: "1m", severity: "page",
-    expr: "factory_projection_lag_seconds > 10",
+    expr: "factory_projection_lag_seconds > 10 or factory_projection_gap_runs > 0",
     condition: "Projection gap/lag over 10 seconds for 60 seconds",
     action: "Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor",
   },
@@ -81,8 +81,10 @@ export const FACTORY_ALERT_RULES: readonly FactoryAlertRule[] = Object.freeze([
   },
   {
     alert: "FactoryNotificationSendStuck", for: "0s", severity: "ticket",
-    expr: "factory_notification_sends{state=~\"dead_letter|outcome_unknown\"} > 0 or factory_notification_send_oldest_queued_age_seconds > 300",
-    condition: "An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes",
+    // On growth, not on presence: an old dead letter has no acknowledgement path, so the alert resolves by itself
+    // 15 minutes after the last new one (F4).
+    expr: "delta(factory_notification_sends{state=~\"dead_letter|outcome_unknown\"}[15m]) > 0 or factory_notification_send_oldest_queued_age_seconds > 300",
+    condition: "A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes",
     action: "Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key",
   },
   {
@@ -156,6 +158,7 @@ export const FACTORY_ALERT_CASES: readonly FactoryAlertCase[] = Object.freeze([
   { alert: "FactoryProjectionLagging", name: "lag 11 s held for 2 minutes", series: [harness("factory_projection_lag_seconds", "11x12")], evalTime: "2m", firing: [harnessLabels] },
   { alert: "FactoryProjectionLagging", name: "lag 11 s held for 45 s only", series: [harness("factory_projection_lag_seconds", "11x3")], evalTime: "45s", firing: [] },
   { alert: "FactoryProjectionLagging", name: "at the 10 s threshold", series: [harness("factory_projection_lag_seconds", "10x12")], evalTime: "2m", firing: [] },
+  { alert: "FactoryProjectionLagging", name: "a missing batch held for 2 minutes", series: [harness("factory_projection_lag_seconds", "2x12"), harness("factory_projection_gap_runs", "1x12")], evalTime: "2m", firing: [harnessLabels] },
   { alert: "FactoryValidatorDigestErroring", name: "one digest erroring", series: [harness("factory_validator_digests_erroring", "1x8")], evalTime: "1m", firing: [harnessLabels] },
   { alert: "FactoryValidatorDigestErroring", name: "none erroring", series: [harness("factory_validator_digests_erroring", "0x8")], evalTime: "1m", firing: [] },
   { alert: "FactoryUsageUnknownOrBudgetExhausted", name: "unknown usage", series: [harness("factory_usage_unknown_reservations", "1x8"), harness("factory_budget_exhausted_envelopes", "0x8")], evalTime: "1m", firing: [harnessLabels] },
@@ -171,7 +174,8 @@ export const FACTORY_ALERT_CASES: readonly FactoryAlertCase[] = Object.freeze([
   { alert: "FactoryCheckpointStale", name: "sealed exactly 900 s ago", series: [harness("factory_checkpoint_sealed", "1x8"), harness("factory_checkpoint_verified_age_seconds", "900x8")], evalTime: "1m", firing: [] },
   { alert: "FactorySecurityDenial", name: "one denial counted", series: [harness("factory_security_denials_total", "0 0 0 1 1 1 1 1 1", ',kind="cross_tenant_broker"')], evalTime: "2m", firing: [{ ...harnessLabels, kind: "cross_tenant_broker" }] },
   { alert: "FactorySecurityDenial", name: "no denial", series: [harness("factory_security_denials_total", "0x8", ',kind="cross_tenant_broker"')], evalTime: "2m", firing: [] },
-  { alert: "FactoryNotificationSendStuck", name: "a send in dead letter", series: [harness("factory_notification_sends", "1x8", ',state="dead_letter"'), harness("factory_notification_send_oldest_queued_age_seconds", "0x8")], evalTime: "1m", firing: [{ ...harnessLabels, state: "dead_letter" }] },
+  { alert: "FactoryNotificationSendStuck", name: "a new dead letter", series: [harness("factory_notification_sends", "0 0 0 0 1 1 1 1 1", ',state="dead_letter"'), harness("factory_notification_send_oldest_queued_age_seconds", "0x8")], evalTime: "2m", firing: [{ ...harnessLabels, state: "dead_letter" }] },
+  { alert: "FactoryNotificationSendStuck", name: "an old dead letter, none new", series: [harness("factory_notification_sends", "1x80", ',state="dead_letter"'), harness("factory_notification_send_oldest_queued_age_seconds", "0x80")], evalTime: "20m", firing: [] },
   { alert: "FactoryNotificationSendStuck", name: "a send queued 301 s", series: [harness("factory_notification_sends", "0x8", ',state="dead_letter"'), harness("factory_notification_send_oldest_queued_age_seconds", "301x8")], evalTime: "1m", firing: [harnessLabels] },
   { alert: "FactoryNotificationSendStuck", name: "a send queued exactly 300 s, and delivered ones", series: [harness("factory_notification_sends", "5x8", ',state="delivered"'), harness("factory_notification_send_oldest_queued_age_seconds", "300x8")], evalTime: "1m", firing: [] },
   { alert: "FactoryMetricsTargetDown", name: "a target that cannot be scraped", series: [{ series: 'up{job="factory-pool",instance="pool:9465"}', values: "0x12" }], evalTime: "2m", firing: [{ job: "factory-pool", instance: "pool:9465" }] },

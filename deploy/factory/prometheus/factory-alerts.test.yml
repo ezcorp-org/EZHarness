@@ -87,6 +87,25 @@ tests:
       - eval_time: 2m
         alertname: FactoryProjectionLagging
         exp_alerts: []
+  - name: "FactoryProjectionLagging: a missing batch held for 2 minutes"
+    interval: 15s
+    input_series:
+      - series: factory_projection_lag_seconds{job="factory-harness",instance="harness:9464"}
+        values: 2x12
+      - series: factory_projection_gap_runs{job="factory-harness",instance="harness:9464"}
+        values: 1x12
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: FactoryProjectionLagging
+        exp_alerts:
+          - exp_labels:
+              job: factory-harness
+              instance: harness:9464
+              severity: page
+            exp_annotations:
+              summary: Projection gap/lag over 10 seconds for 60 seconds
+              action: Check audit/outbox consumer, recover missing sequence, rebuild from a verified cursor
+              runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
   - name: "FactoryValidatorDigestErroring: one digest erroring"
     interval: 15s
     input_series:
@@ -313,15 +332,15 @@ tests:
       - eval_time: 2m
         alertname: FactorySecurityDenial
         exp_alerts: []
-  - name: "FactoryNotificationSendStuck: a send in dead letter"
+  - name: "FactoryNotificationSendStuck: a new dead letter"
     interval: 15s
     input_series:
       - series: factory_notification_sends{job="factory-harness",instance="harness:9464",state="dead_letter"}
-        values: 1x8
+        values: 0 0 0 0 1 1 1 1 1
       - series: factory_notification_send_oldest_queued_age_seconds{job="factory-harness",instance="harness:9464"}
         values: "0x8"
     alert_rule_test:
-      - eval_time: 1m
+      - eval_time: 2m
         alertname: FactoryNotificationSendStuck
         exp_alerts:
           - exp_labels:
@@ -330,9 +349,20 @@ tests:
               state: dead_letter
               severity: ticket
             exp_annotations:
-              summary: An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes
+              summary: A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes
               action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
               runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
+  - name: "FactoryNotificationSendStuck: an old dead letter, none new"
+    interval: 15s
+    input_series:
+      - series: factory_notification_sends{job="factory-harness",instance="harness:9464",state="dead_letter"}
+        values: 1x80
+      - series: factory_notification_send_oldest_queued_age_seconds{job="factory-harness",instance="harness:9464"}
+        values: "0x80"
+    alert_rule_test:
+      - eval_time: 20m
+        alertname: FactoryNotificationSendStuck
+        exp_alerts: []
   - name: "FactoryNotificationSendStuck: a send queued 301 s"
     interval: 15s
     input_series:
@@ -349,7 +379,7 @@ tests:
               instance: harness:9464
               severity: ticket
             exp_annotations:
-              summary: An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes
+              summary: A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes
               action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
               runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
   - name: "FactoryNotificationSendStuck: a send queued exactly 300 s, and delivered ones"

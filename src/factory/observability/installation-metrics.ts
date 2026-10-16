@@ -61,6 +61,9 @@ export async function collectFactoryInstallationMetrics(sources: FactoryInstalla
   const age = async (query: ReturnType<typeof sql>) => seconds(scalar(await database.execute(query)));
   const count = async (query: ReturnType<typeof sql>) => scalar(await database.execute(query));
 
+  const behind = sql`(SELECT r.tenant_id, r.project_id, r.run_id, COALESCE(p.sequence, 0) AS cursor FROM factory_runs r
+      LEFT JOIN factory_run_projections p ON p.tenant_id=r.tenant_id AND p.project_id=r.project_id AND p.run_id=r.run_id AND p.consumer_id=${FACTORY_RUN_STATUS_CONSUMER_ID}
+      WHERE r.tenant_id=${tenantId} AND r.next_sequence > COALESCE(p.sequence, 0) + 1)`;
   const sealedAt = rows<{ value: number | string | null }>(await database.execute(sql`SELECT (EXTRACT(EPOCH FROM ${at} - max(sealed_at)) * 1000) AS value FROM factory_checkpoints WHERE tenant_id=${tenantId} AND state='sealed'`))[0]?.value ?? null;
 
   return [
@@ -79,12 +82,13 @@ export async function collectFactoryInstallationMetrics(sources: FactoryInstalla
     { name: "factory_usage_unknown_reservations", value: await count(sql`SELECT count(*) AS value FROM factory_budget_reservations WHERE tenant_id=${tenantId} AND state='uncertain'`) },
     { name: "factory_budget_exhausted_envelopes", value: await count(sql`SELECT count(*) AS value FROM factory_budget_envelopes WHERE tenant_id=${tenantId} AND state='open' AND admission_blocked`) },
     // Per run, not per batch: a run is behind when its next sequence is past the
-    // projector's cursor, and its oldest unapplied batch is the one at cursor + 1.
-    // Retention removes old batches but keeps the counter, so this stays bounded by runs.
-    { name: "factory_projection_lag_seconds", value: await age(sql`SELECT EXTRACT(EPOCH FROM ${at} - min(b.created_at)) * 1000 AS value FROM factory_runs r
-      LEFT JOIN factory_run_projections p ON p.tenant_id=r.tenant_id AND p.project_id=r.project_id AND p.run_id=r.run_id AND p.consumer_id=${FACTORY_RUN_STATUS_CONSUMER_ID}
-      JOIN factory_audit_batches b ON b.tenant_id=r.tenant_id AND b.project_id=r.project_id AND b.run_id=r.run_id AND b.sequence = COALESCE(p.sequence, 0) + 1
-      WHERE r.tenant_id=${tenantId} AND r.next_sequence > COALESCE(p.sequence, 0) + 1`) },
+    // projector's cursor. The lag is the age of its oldest batch past the cursor, so a
+    // missing batch at cursor + 1 does not hide the batches behind it; the gap count
+    // names that missing batch (F6). Retention keeps every unapplied batch.
+    { name: "factory_projection_lag_seconds", value: await age(sql`SELECT EXTRACT(EPOCH FROM ${at} - min(b.created_at)) * 1000 AS value FROM ${behind} r
+      JOIN factory_audit_batches b ON b.tenant_id=r.tenant_id AND b.project_id=r.project_id AND b.run_id=r.run_id AND b.sequence > r.cursor`) },
+    { name: "factory_projection_gap_runs", value: await count(sql`SELECT count(*) AS value FROM ${behind} r
+      WHERE NOT EXISTS (SELECT 1 FROM factory_audit_batches b WHERE b.tenant_id=r.tenant_id AND b.project_id=r.project_id AND b.run_id=r.run_id AND b.sequence = r.cursor + 1)`) },
     // Per runner digest, its three most recent finished validator attempts, all failed or uncertain.
     { name: "factory_validator_digests_erroring", value: await count(sql`SELECT count(*) AS value FROM (
         SELECT runner_digest FROM (

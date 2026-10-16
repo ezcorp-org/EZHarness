@@ -83,9 +83,10 @@ export async function forceBudget(database: TransactionalDb, options: { exhauste
 }
 
 /** Audit batches for `runId` up to `sequence`, the oldest `ageMs` old, and the projector's cursor at `projected`. */
-export async function forceProjection(database: TransactionalDb, now: number, runId: string, options: { sequence: number; projected: number; ageMs: number; consumerId: string }): Promise<void> {
+export async function forceProjection(database: TransactionalDb, now: number, runId: string, options: { sequence: number; projected: number; ageMs: number; consumerId: string; missing?: readonly number[] }): Promise<void> {
   await unguarded(database, async (execute) => {
     for (let sequence = 1; sequence <= options.sequence; sequence += 1) {
+      if (options.missing?.includes(sequence)) continue;
       await execute(sql`INSERT INTO factory_audit_batches (tenant_id,project_id,run_id,interpreter_id,source_sequence,sequence,digest,payload,created_at)
         VALUES (${METRIC_TENANT},${METRIC_PROJECT},${runId},'root',${sequence},${sequence},${DIGEST},'{}',${at(now, options.ageMs - (sequence - 1))})`);
     }

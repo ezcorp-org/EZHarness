@@ -32,6 +32,20 @@ describe("the C11 alert rules (W4H-34)", () => {
     for (const rule of FACTORY_ALERT_RULES) expect(runbook).toContain(`| \`${rule.alert}\` | ${rule.condition} | ${rule.action} |`);
   });
 
+  test("a stuck send alerts on a new dead letter and resolves by itself; an old one stays quiet (F4)", () => {
+    const rule = FACTORY_ALERT_RULES.find((candidate) => candidate.alert === "FactoryNotificationSendStuck")!;
+    expect(rule.expr).toContain("delta(factory_notification_sends{state=~\"dead_letter|outcome_unknown\"}[15m]) > 0");
+    const cases = FACTORY_ALERT_CASES.filter((each) => each.alert === rule.alert);
+    expect(cases.find((each) => each.name === "an old dead letter, none new")?.firing).toEqual([]);
+    expect(cases.find((each) => each.name === "a new dead letter")?.firing.length).toBe(1);
+  });
+
+  test("a projection gap alerts even when the lag reads low (F6)", () => {
+    const rule = FACTORY_ALERT_RULES.find((candidate) => candidate.alert === "FactoryProjectionLagging")!;
+    expect(rule.expr).toBe("factory_projection_lag_seconds > 10 or factory_projection_gap_runs > 0");
+    expect(FACTORY_ALERT_CASES.find((each) => each.alert === rule.alert && each.name === "a missing batch held for 2 minutes")?.firing.length).toBe(1);
+  });
+
   test("names are unique and every expression reads only registered families", () => {
     const names = FACTORY_ALERT_RULES.map((rule) => rule.alert);
     expect(new Set(names).size).toBe(names.length);

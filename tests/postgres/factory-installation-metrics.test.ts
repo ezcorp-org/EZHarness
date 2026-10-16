@@ -96,6 +96,17 @@ describe("the installation collector (C11 M3)", () => {
     expect(value(await collect(), "factory_projection_lag_seconds")).toBeCloseTo(19.999, 3);
   });
 
+  test("a missing batch past the cursor is a gap, and the lag is measured past it (F6)", async () => {
+    const gapped = await forceRun(fixture.db as never, NOW, { status: "running" });
+    await forceProjection(fixture.db as never, NOW, gapped, { sequence: 9, projected: 4, ageMs: 30_000, consumerId: FACTORY_RUN_STATUS_CONSUMER_ID, missing: [5] });
+    const caughtUp = await forceRun(fixture.db as never, NOW, { status: "running" });
+    await forceProjection(fixture.db as never, NOW, caughtUp, { sequence: 2, projected: 2, ageMs: 90_000, consumerId: FACTORY_RUN_STATUS_CONSUMER_ID });
+    const samples = await collect();
+    expect(value(samples, "factory_projection_gap_runs")).toBe(1);
+    // Batch 6 is the oldest present past the cursor: 30 s minus 5 ms.
+    expect(value(samples, "factory_projection_lag_seconds")).toBeCloseTo(29.995, 3);
+  });
+
   test("a validator digest erroring three times in a row, but not one that recovered or ran fewer times", async () => {
     await forceValidatorOutcomes(fixture.db as never, NOW, "1".repeat(64), ["completed", "failed", "uncertain", "failed"]);
     // Three plain failures count too; a streak broken by a completion does not.

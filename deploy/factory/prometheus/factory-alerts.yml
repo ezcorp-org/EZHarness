@@ -12,7 +12,7 @@ groups:
           action: Inspect blocking resource/lease, queue fairness, and healthy spare capacity; never force-release an uncertain holder
           runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
       - alert: FactoryProjectionLagging
-        expr: factory_projection_lag_seconds > 10
+        expr: factory_projection_lag_seconds > 10 or factory_projection_gap_runs > 0
         for: 1m
         labels:
           severity: page
@@ -75,12 +75,12 @@ groups:
           action: Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse
           runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
       - alert: FactoryNotificationSendStuck
-        expr: factory_notification_sends{state=~"dead_letter|outcome_unknown"} > 0 or factory_notification_send_oldest_queued_age_seconds > 300
+        expr: delta(factory_notification_sends{state=~"dead_letter|outcome_unknown"}[15m]) > 0 or factory_notification_send_oldest_queued_age_seconds > 300
         for: 0s
         labels:
           severity: ticket
         annotations:
-          summary: An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes
+          summary: A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes
           action: Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key
           runbook: docs/factory-deployment.md#c11-alerts-and-operator-actions
       - alert: FactoryMetricsTargetDown

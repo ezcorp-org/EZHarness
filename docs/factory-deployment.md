@@ -438,7 +438,7 @@ Each rule is verified by forcing its condition in a real evaluator:
 | `FactoryRequiredRunnerUnavailable` | Referenced interpreter/package runner unavailable for 60 seconds | Restore the pinned compatible deployment or fail/hold affected runs; never route to incompatible code |
 | `FactoryCheckpointStale` | Verified recovery checkpoint older than 15 minutes | Stop new external effect claims; repair backup/barrier/archive before enabling them |
 | `FactorySecurityDenial` | Any denied cross-tenant broker attempt or detected sandbox escape | Revoke affected attempt/host credentials, fence the host, investigate and recertify before reuse |
-| `FactoryNotificationSendStuck` | An outbound notification in dead letter or with an unknown outcome, or a queued send older than 5 minutes | Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key |
+| `FactoryNotificationSendStuck` | A send entered dead letter or an unknown outcome in the last 15 minutes, or a queued send is older than 5 minutes | Inspect the destination and its receiver; never re-drive a destination that does not deduplicate on the idempotency key |
 | `FactoryMetricsTargetDown` | A factory service's /metrics cannot be scraped, or the service reports itself not ready | Restore the service or its metrics endpoint; until then every alert above is blind for that service |
 
 For an uncertain release, the inbox lists it at
