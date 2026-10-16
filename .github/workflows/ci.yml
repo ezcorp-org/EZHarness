@@ -86,6 +86,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run factory schema, compiler, kernel, simulator, and reference fixtures
         env:
           FACTORY_ONLY: "1"
@@ -264,7 +266,7 @@ jobs:
     timeout-minutes: 90
     services:
       postgres:
-        image: pgvector/pgvector:pg15
+        image: docker.io/pgvector/pgvector@sha256:9a169499888c9d75ad14d0401be64839d2c325f32e399098261589faff93d65c
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -1123,6 +1125,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run shard (tests + coverage)
         env:
           SHARD_INDEX: ${{ matrix.shard }}
@@ -1157,6 +1161,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run coverage legs
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"
@@ -1219,6 +1225,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run curated critical set
         env:
           CRITICAL_ONLY: "1"
@@ -1281,6 +1289,8 @@ jobs:
       - uses: ./.github/actions/gate-integrity-deps
       # The backend suites spawn the pinned uv (uv-command.test.ts, python-runner.integration.test.ts); W4H-2.
       - uses: ./.github/actions/setup-python-toolchain
+      # The backend suites test the ripgrep backend of the grep tool (W4H-33).
+      - uses: ./.github/actions/ripgrep
       - name: Run residual pass/fail set
         env:
           EZCORP_RUN_PODMAN_TESTS: "1"

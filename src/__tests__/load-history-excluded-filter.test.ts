@@ -43,7 +43,7 @@ let projectId = "";
 
 beforeAll(async () => {
   await setupTestDb();
-  const u = await createUser({ email: "loadhist-excl@test.com", passwordHash: "h", name: "LH" });
+  const u = await createUser({ email: "loadhist-excl@test.example", passwordHash: "h", name: "LH" });
   userId = u.id;
   const p = await createProject({ name: "p", path: "/tmp" });
   projectId = p.id;

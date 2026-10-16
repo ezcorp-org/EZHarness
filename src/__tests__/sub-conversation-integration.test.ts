@@ -403,7 +403,7 @@ describe("resolveConversationOwnerUserId", () => {
   test("returns the conversation's own userId when set", async () => {
     const { createUser } = await import("../db/queries/users");
     const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
-    const owner = await createUser({ email: "walk-own@test.com", passwordHash: "hash", name: "Walk Own", role: "member" });
+    const owner = await createUser({ email: "walk-own@test.example", passwordHash: "hash", name: "Walk Own", role: "member" });
     const conv = await createConversation(projectId, { title: "Owned", userId: owner.id });
     expect(await resolveConversationOwnerUserId(conv.id)).toBe(owner.id);
   });
@@ -411,7 +411,7 @@ describe("resolveConversationOwnerUserId", () => {
   test("walks a null-owner chain up to the owning ancestor", async () => {
     const { createUser } = await import("../db/queries/users");
     const { resolveConversationOwnerUserId } = await import("../db/queries/conversations");
-    const owner = await createUser({ email: "walk-chain@test.com", passwordHash: "hash", name: "Walk Chain", role: "member" });
+    const owner = await createUser({ email: "walk-chain@test.example", passwordHash: "hash", name: "Walk Chain", role: "member" });
     const root = await createConversation(projectId, { title: "Root", userId: owner.id });
     const mid = await createSubConversation(projectId, { parentConversationId: root.id });
     const leaf = await createSubConversation(projectId, { parentConversationId: mid.id });

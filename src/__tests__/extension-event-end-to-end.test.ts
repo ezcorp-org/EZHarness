@@ -95,7 +95,7 @@ mock.module("$server/auth/middleware", () => ({
   checkProjectRole: async () => true,
   requireAuth: () => ({
     id: "user-1",
-    email: "u@x.com",
+    email: "u@x.example",
     name: "U",
     role: "member",
   }),
@@ -179,7 +179,7 @@ function makeRequest(body: unknown, name = FAKE_EXT_NAME, event = FAKE_EVENT) {
       },
     ),
     locals: {
-      user: { id: "user-1", email: "u@x.com", name: "U", role: "member" },
+      user: { id: "user-1", email: "u@x.example", name: "U", role: "member" },
     },
     params: { name, event },
   };

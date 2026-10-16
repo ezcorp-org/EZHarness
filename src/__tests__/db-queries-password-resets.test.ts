@@ -15,7 +15,7 @@ describe("password-resets queries", () => {
 
   beforeEach(async () => {
     await setupTestDb();
-    const u = await createUser({ email: "pr@test.com", passwordHash: "h", name: "PR" });
+    const u = await createUser({ email: "pr@test.example", passwordHash: "h", name: "PR" });
     userId = u.id;
   });
   afterAll(async () => await closeTestDb());

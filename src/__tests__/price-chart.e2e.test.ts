@@ -8,14 +8,15 @@
  * Layers exercised:
  *   1. Validation errors use the legacy direct subprocess because they do
  *      not request a capability.
- *   2. Network paths use a built v4 release and the host network broker.
+ *   2. Network paths use a built v4 release and the host network broker;
+ *      the broker's fetch goes to a loopback stub of the two market APIs
+ *      (helpers/price-chart-market-stub.ts), so no test reaches the internet.
  *   3. ToolExecutor runs the same release with a stub PDP.
  *   4. `extensionToAgentTool.execute` runs it with the real DB-backed
  *      PermissionEngine and proves the chat-flow path.
  *
- * Run: bun test src/__tests__/price-chart.e2e.test.ts
- * Live network: EZCORP_E2E_NETWORK=1 bun test ...
- * Real PDP:     EZCORP_E2E_NETWORK=1 EZCORP_E2E_REAL_PDP=1 bun test ...
+ * Run: bun test src/__tests__/price-chart.e2e.test.ts (needs rootless Podman
+ * for the isolated release build, like every first-party release suite).
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -26,6 +27,7 @@ import { extensionToAgentTool, ToolExecutor } from "../extensions/tool-executor"
 import { configureReleaseRuntime } from "../extensions/release-process";
 import { createStubPermissionEngine } from "./helpers/permission-engine-stub";
 import { buildFirstPartyRelease } from "./helpers/first-party-release";
+import { PRICE_CHART_HOSTS, routeHostMarketTraffic, startMarketStub } from "./helpers/price-chart-market-stub";
 import { closeTestDb, getTestDb, mockDbConnection, setupTestDb } from "./helpers/test-pglite";
 import { messages } from "../db/schema";
 
@@ -33,7 +35,6 @@ mockDbConnection();
 
 const ROOT = join(import.meta.dir, "..", "..");
 const EXT_ENTRY = join(ROOT, "docs", "extensions", "examples", "price-chart", "index.ts");
-const NETWORK_HOSTS = ["query1.finance.yahoo.com", "api.coingecko.com"];
 
 function buildEnv(): Record<string, string> {
   return {
@@ -41,10 +42,10 @@ function buildEnv(): Record<string, string> {
     HOME: process.env.HOME ?? "",
     EZCORP_PROJECT_ROOT: ROOT,
     EZCORP_NETWORK_ALLOWED: "1",
-    EZCORP_PERMITTED_HOSTS: NETWORK_HOSTS.join(","),
+    EZCORP_PERMITTED_HOSTS: PRICE_CHART_HOSTS.join(","),
     EZCORP_TOOL_NETWORK_CAPS: JSON.stringify({
-      get_stock_chart: NETWORK_HOSTS,
-      get_crypto_chart: NETWORK_HOSTS,
+      get_stock_chart: PRICE_CHART_HOSTS,
+      get_crypto_chart: PRICE_CHART_HOSTS,
     }),
   };
 }
@@ -109,32 +110,26 @@ describe("price-chart e2e — non-network paths", () => {
   });
 });
 
-const NETWORK = process.env.EZCORP_E2E_NETWORK === "1";
-const describeNetwork = NETWORK ? describe : describe.skip;
-
 let release: Awaited<ReturnType<typeof buildFirstPartyRelease>>;
+const market = startMarketStub();
+// The ToolExecutor cases use the host's own broker path (real DNS, global fetch): route it to the stub too.
+const restoreHostNetwork = routeHostMarketTraffic(market);
 
 beforeAll(async () => {
-  if (NETWORK) release = await buildFirstPartyRelease("price-chart");
+  release = await buildFirstPartyRelease("price-chart");
 }, 120_000);
 
 afterAll(async () => {
   ExtensionRegistry.getInstance().killAll();
-  if (release) await release.close();
+  await release.close();
+  restoreHostNetwork();
+  market.stop();
   await closeTestDb();
 });
 
 async function openInstalledSession() {
   await setupTestDb();
-  return release.session({
-    networkHosts: NETWORK_HOSTS,
-    fetchImpl: fetch,
-    resolveHost: async (hostname) => {
-      const records = await Bun.dns.lookup(hostname, { family: 0 });
-      return records.map((record) => record.address);
-    },
-    persistRelease: true,
-  });
+  return release.session({ networkHosts: PRICE_CHART_HOSTS, fetchImpl: market.fetchImpl, persistRelease: true });
 }
 
 function registerSessionTool(
@@ -161,7 +156,7 @@ async function seedMessage(conversationId: string) {
   return id;
 }
 
-describeNetwork("price-chart e2e — installed v4 release + live network", () => {
+describe("price-chart e2e — installed v4 release + network broker (loopback market stub)", () => {
   test(
     "get_stock_chart(AAPL) returns JSON with points + no iframeSrc",
     async () => {
@@ -179,6 +174,8 @@ describeNetwork("price-chart e2e — installed v4 release + live network", () =>
       expect(typeof payload.points![0]!.t).toBe("number");
       expect(typeof payload.points![0]!.v).toBe("number");
       expect(payload._assistant_note).toMatch(/do NOT call this tool again/);
+      // The extension asked for the production Yahoo URL; the broker carried it.
+      expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
       } finally { await session.close(); }
     },
     25_000,
@@ -197,13 +194,30 @@ describeNetwork("price-chart e2e — installed v4 release + live network", () =>
       expect(payload.points!.length).toBeGreaterThan(100);
       expect(typeof payload.logoUrl).toBe("string");
       expect(payload.logoUrl!.length).toBeGreaterThan(0);
+      expect(market.requests.slice(-2)).toEqual([
+        "https://api.coingecko.com/api/v3/coins/bitcoin?localization=false&tickers=false&community_data=false&developer_data=false&sparkline=false",
+        "https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=365&interval=daily",
+      ]);
+      } finally { await session.close(); }
+    },
+    25_000,
+  );
+
+  test(
+    "an upstream HTTP error comes back as a tool error that names the status",
+    async () => {
+      const session = await openInstalledSession();
+      try {
+        const result = await session.tool("get_crypto_chart", { symbol: "ETH" });
+        expect(result.isError).toBe(true);
+        expect(result.content[0]!.text).toContain("HTTP 404");
       } finally { await session.close(); }
     },
     25_000,
   );
 });
 
-describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
+describe("price-chart e2e — through ToolExecutor (stub PDP)", () => {
   test(
     "ToolExecutor.executeToolCall returns JSON payload",
     async () => {
@@ -222,6 +236,7 @@ describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
       );
 
       expect(result.isError).toBe(false);
+      expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
       const payload = parsePayload(result);
       expect(payload.symbol).toBe("AAPL");
       expect(payload.kind).toBe("stock");
@@ -235,10 +250,7 @@ describeNetwork("price-chart e2e — through ToolExecutor (stub PDP)", () => {
 
 // Drives the same path the chat flow uses (extensionToAgentTool +
 // real DB-backed PermissionEngine). The test owns a migrated PGlite DB.
-const REAL_PDP = process.env.EZCORP_E2E_REAL_PDP === "1" && NETWORK;
-const describeRealPdp = REAL_PDP ? describe : describe.skip;
-
-describeRealPdp("price-chart e2e — chat-flow path (real PDP)", () => {
+describe("price-chart e2e — chat-flow path (real PDP)", () => {
   test(
     "extensionToAgentTool.execute returns JSON payload (no sensitive-cap prompt)",
     async () => {
@@ -252,6 +264,13 @@ describeRealPdp("price-chart e2e — chat-flow path (real PDP)", () => {
 
         const bus = new EventBus<AgentEventsType>();
         const engine = createPermissionEngine({ registry: session.registry, bus, db: {} });
+        const decisions: string[] = [];
+        const authorize = engine.authorize.bind(engine);
+        engine.authorize = async (...args: Parameters<typeof authorize>) => {
+          const decision = await authorize(...args);
+          decisions.push(decision.decision);
+          return decision;
+        };
         const executor = new ToolExecutor(session.registry, engine, { bus });
         executor.setCurrentUserId(session.userId);
         const messageId = await seedMessage(session.conversationId);
@@ -267,17 +286,17 @@ describeRealPdp("price-chart e2e — chat-flow path (real PDP)", () => {
           messageId,
         );
 
-        const t0 = Date.now();
         const result = await agentTool.execute(
           "tc-test-001",
           { ticker: "AAPL" },
           new AbortController().signal,
         );
-        const elapsed = Date.now() - t0;
         // The chat flow used to hang 90s on a `fs.write` sensitive-cap
-        // prompt. Post-refactor the extension has no filesystem grant
-        // → PDP returns `allow` directly → no prompt → completes fast.
-        expect(elapsed).toBeLessThan(10_000);
+        // prompt. Post-refactor the extension has no filesystem grant, so
+        // the PDP answers `allow` and never `prompt`.
+        expect(decisions.length).toBeGreaterThan(0);
+        expect(decisions.every((decision) => decision === "allow")).toBe(true);
+        expect(market.requests.at(-1)).toStartWith("https://query1.finance.yahoo.com/v8/finance/chart/AAPL?");
 
         const payload = parsePayload(result as { content?: Array<{ text?: string }> });
         expect(payload.iframeSrc).toBeUndefined();

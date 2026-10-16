@@ -63,7 +63,7 @@ describe("teams queries", () => {
   });
 
   test("addTeamMember inserts membership row", async () => {
-    const u = await createUser({ email: "a@t.com", passwordHash: "h", name: "A" });
+    const u = await createUser({ email: "a@t.example", passwordHash: "h", name: "A" });
     const t = await createTeam("members-team");
     const m = await addTeamMember(t.id, u.id, "owner");
     expect(m.teamId).toBe(t.id);
@@ -72,8 +72,8 @@ describe("teams queries", () => {
   });
 
   test("getTeamMembers returns members with user details", async () => {
-    const u1 = await createUser({ email: "u1@t.com", passwordHash: "h", name: "User One" });
-    const u2 = await createUser({ email: "u2@t.com", passwordHash: "h", name: "User Two" });
+    const u1 = await createUser({ email: "u1@t.example", passwordHash: "h", name: "User One" });
+    const u2 = await createUser({ email: "u2@t.example", passwordHash: "h", name: "User Two" });
     const t = await createTeam("hydra");
     await addTeamMember(t.id, u1.id, "owner");
     await addTeamMember(t.id, u2.id, "viewer");
@@ -83,7 +83,7 @@ describe("teams queries", () => {
     const byUserId = Object.fromEntries(members.map((m) => [m.userId, m]));
     expect(byUserId[u1.id]!.userName).toBe("User One");
     expect(byUserId[u1.id]!.role).toBe("owner");
-    expect(byUserId[u2.id]!.userEmail).toBe("u2@t.com");
+    expect(byUserId[u2.id]!.userEmail).toBe("u2@t.example");
     expect(byUserId[u2.id]!.role).toBe("viewer");
   });
 
@@ -93,7 +93,7 @@ describe("teams queries", () => {
   });
 
   test("updateTeamMemberRole changes role, returns false for missing", async () => {
-    const u = await createUser({ email: "r@t.com", passwordHash: "h", name: "R" });
+    const u = await createUser({ email: "r@t.example", passwordHash: "h", name: "R" });
     const t = await createTeam("role-team");
     await addTeamMember(t.id, u.id, "viewer");
 
@@ -105,7 +105,7 @@ describe("teams queries", () => {
   });
 
   test("removeTeamMember deletes row, returns false on missing", async () => {
-    const u = await createUser({ email: "rm@t.com", passwordHash: "h", name: "Rm" });
+    const u = await createUser({ email: "rm@t.example", passwordHash: "h", name: "Rm" });
     const t = await createTeam("rm-team");
     await addTeamMember(t.id, u.id, "owner");
 
@@ -115,7 +115,7 @@ describe("teams queries", () => {
   });
 
   test("getUserTeams returns teams with role for a user", async () => {
-    const u = await createUser({ email: "ut@t.com", passwordHash: "h", name: "UT" });
+    const u = await createUser({ email: "ut@t.example", passwordHash: "h", name: "UT" });
     const t1 = await createTeam("alpha-team");
     const t2 = await createTeam("beta-team");
     await addTeamMember(t1.id, u.id, "editor");
@@ -129,12 +129,12 @@ describe("teams queries", () => {
   });
 
   test("getUserTeams returns empty for user with no memberships", async () => {
-    const u = await createUser({ email: "lone@t.com", passwordHash: "h", name: "Lone" });
+    const u = await createUser({ email: "lone@t.example", passwordHash: "h", name: "Lone" });
     expect(await getUserTeams(u.id)).toEqual([]);
   });
 
   test("getTeamMembership returns membership row, undefined when missing", async () => {
-    const u = await createUser({ email: "mem@t.com", passwordHash: "h", name: "Mem" });
+    const u = await createUser({ email: "mem@t.example", passwordHash: "h", name: "Mem" });
     const t = await createTeam("memship");
     await addTeamMember(t.id, u.id, "owner");
 

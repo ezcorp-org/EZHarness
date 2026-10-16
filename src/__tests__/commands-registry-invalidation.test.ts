@@ -30,7 +30,7 @@ describe("command registry invalidation across DB mutations", () => {
   beforeEach(async () => {
     await setupTestDb();
     const u = await createUser({
-      email: "reg@test.com",
+      email: "reg@test.example",
       passwordHash: "h",
       name: "Reg",
     });
@@ -259,7 +259,7 @@ describe("command registry invalidation across DB mutations", () => {
   test("invalidateUser is scoped to the target user — other users' caches survive", async () => {
     const registry = makeRegistry();
     const other = await createUser({
-      email: "other@test.com",
+      email: "other@test.example",
       passwordHash: "h",
       name: "Other",
     });

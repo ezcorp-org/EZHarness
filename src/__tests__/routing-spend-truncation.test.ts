@@ -102,7 +102,7 @@ beforeAll(async () => {
   const db = getTestDb();
 
   await db.insert(users).values({
-    id: USER_ID, email: "t@x.com", passwordHash: "x", name: "T", role: "admin",
+    id: USER_ID, email: "t@x.example", passwordHash: "x", name: "T", role: "admin",
   } as any);
   await db.insert(projects).values({ id: PROJECT_ID, name: "t", path: "/tmp/t" } as any);
   await db.insert(conversations).values({

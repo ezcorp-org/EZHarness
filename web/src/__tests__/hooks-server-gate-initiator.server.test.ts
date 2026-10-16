@@ -42,7 +42,7 @@ vi.mock("$server/db/queries/sessions", () => ({
 vi.mock("$server/auth/jwt", () => ({
   verifyJWT: vi.fn(async () => ({
     id: "u-1",
-    email: "u@test.com",
+    email: "u@test.example",
     name: "U",
     role: "member",
   })),
@@ -76,7 +76,7 @@ const { handle } = await import("../hooks.server");
 
 const ONBOARDED = {
   id: "u-1",
-  email: "u@test.com",
+  email: "u@test.example",
   name: "U",
   role: "member" as const,
   status: "active" as const,

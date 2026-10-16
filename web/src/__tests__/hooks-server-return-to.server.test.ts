@@ -31,7 +31,7 @@ vi.mock("$server/db/queries/users", () => ({
   getUserCount: vi.fn(async () => 1),
   getUserById: vi.fn(async () => ({
     id: "u-1",
-    email: "u@test.com",
+    email: "u@test.example",
     name: "U",
     role: "member",
     onboardedAt: new Date("2026-01-01"),
@@ -190,7 +190,7 @@ describe("hooks.server.ts — returnTo on /login redirects", () => {
     beforeEach(() => {
       vi.mocked(verifyJWT).mockResolvedValue({
         id: "u-1",
-        email: "u@test.com",
+        email: "u@test.example",
         name: "U",
         role: "member",
         iat: Math.floor(Date.now() / 1000),

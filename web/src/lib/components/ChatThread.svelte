@@ -1011,6 +1011,7 @@
 		sendApi.handleFallback(msg, provider, model);
 	const handleSubConvoSend = sendApi.handleSubConvoSend;
 	const handleSubConvoReturn = sendApi.handleSubConvoReturn;
+	const handleSubConvoTurnSaved = sendApi.handleSubConvoTurnSaved;
 	const submitEdit = (msg: Message) => sendApi.handleEditConfirm(msg);
 
 	// Sessions P4: learn the rewind/checkpoint flag from the feature's own
@@ -1572,6 +1573,8 @@
 				thinkingContent,
 				final,
 			} = (e as CustomEvent).detail;
+			// The active sub-conversation's reply goes to its block, not this thread.
+			if (handleSubConvoTurnSaved({ conversationId: evtConvId, messageId, content, final })) return;
 			if (evtConvId !== conversationId) return;
 
 			if (typeof runId === "string" && runId.startsWith("ext:")) {

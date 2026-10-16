@@ -27,7 +27,7 @@ describe("validationError helper", () => {
 
 describe("loginSchema", () => {
   test("accepts valid input", () => {
-    const result = loginSchema.safeParse({ email: "user@test.com", password: "secret" });
+    const result = loginSchema.safeParse({ email: "user@test.example", password: "secret" });
     expect(result.success).toBe(true);
   });
 
@@ -42,7 +42,7 @@ describe("loginSchema", () => {
   });
 
   test("rejects empty password", () => {
-    const result = loginSchema.safeParse({ email: "user@test.com", password: "" });
+    const result = loginSchema.safeParse({ email: "user@test.example", password: "" });
     expect(result.success).toBe(false);
   });
 });

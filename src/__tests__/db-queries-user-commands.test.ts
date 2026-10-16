@@ -18,9 +18,9 @@ describe("user-commands queries", () => {
 
   beforeEach(async () => {
     await setupTestDb();
-    const u = await createUser({ email: "uc@test.com", passwordHash: "h", name: "UC" });
+    const u = await createUser({ email: "uc@test.example", passwordHash: "h", name: "UC" });
     userId = u.id;
-    const o = await createUser({ email: "uc2@test.com", passwordHash: "h", name: "UC2" });
+    const o = await createUser({ email: "uc2@test.example", passwordHash: "h", name: "UC2" });
     otherUserId = o.id;
   });
   afterAll(async () => await closeTestDb());

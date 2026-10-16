@@ -130,7 +130,7 @@ describe("verifyFactoryBootstrapInvitation", () => {
 
   test("a different email is refused after the token checks pass", () => {
     expect(code(() => verifyFactoryBootstrapInvitation(record, { token: TOKEN, email: "other@example.com" }, NOW))).toBe("bootstrap_invitation_email_mismatch");
-    expect(code(() => verifyFactoryBootstrapInvitation(record, { token: TOKEN, email: "admin@example.com.evil" }, NOW))).toBe("bootstrap_invitation_email_mismatch");
+    expect(code(() => verifyFactoryBootstrapInvitation(record, { token: TOKEN, email: "admin@example.com.invalid" }, NOW))).toBe("bootstrap_invitation_email_mismatch");
   });
 
   test("refusal order: an invalid token wins over expiry and email", () => {

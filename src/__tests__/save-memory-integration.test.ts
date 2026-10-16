@@ -26,7 +26,7 @@ describe("Save memory from chat integration", () => {
 		const db = getTestDb();
 		await db.insert(users).values({
 			id: "user-chat-1",
-			email: "chatuser@test.com",
+			email: "chatuser@test.example",
 			name: "Chat User",
 			passwordHash: "fake-hash",
 		}).onConflictDoNothing();

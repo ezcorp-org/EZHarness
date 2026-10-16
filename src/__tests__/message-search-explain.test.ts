@@ -55,7 +55,7 @@ describe("searchMessages vector leg — EXPLAIN ANALYZE (SRCH-05)", () => {
     projectId2 = p2!.id;
     const [u] = await db
       .insert(users)
-      .values({ email: "explain@x.com", passwordHash: "h", name: "explain" })
+      .values({ email: "explain@x.example", passwordHash: "h", name: "explain" })
       .returning();
     userId = u!.id;
 

@@ -107,11 +107,11 @@ async function seed(): Promise<Seed> {
   const [pc] = await db.insert(projects).values({ name: "C", path: "/tmp/c" }).returning();
   const [ua] = await db
     .insert(users)
-    .values({ email: "ua@x.com", passwordHash: "h", name: "ua" })
+    .values({ email: "ua@x.example", passwordHash: "h", name: "ua" })
     .returning();
   const [ub] = await db
     .insert(users)
-    .values({ email: "ub@x.com", passwordHash: "h", name: "ub" })
+    .values({ email: "ub@x.example", passwordHash: "h", name: "ub" })
     .returning();
 
   const projectA = pa!.id;

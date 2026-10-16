@@ -59,9 +59,9 @@ beforeAll(async () => {
   testUser2Id = crypto.randomUUID();
   adminUserId = crypto.randomUUID();
   await getDb().insert(users).values([
-    { id: testUserId, email: "q1@test.com", passwordHash: "h", name: "User 1", role: "member" },
-    { id: testUser2Id, email: "q2@test.com", passwordHash: "h", name: "User 2", role: "member" },
-    { id: adminUserId, email: "admin@test.com", passwordHash: "h", name: "Admin", role: "admin" },
+    { id: testUserId, email: "q1@test.example", passwordHash: "h", name: "User 1", role: "member" },
+    { id: testUser2Id, email: "q2@test.example", passwordHash: "h", name: "User 2", role: "member" },
+    { id: adminUserId, email: "admin@test.example", passwordHash: "h", name: "Admin", role: "admin" },
   ]);
 });
 
@@ -214,7 +214,7 @@ describe("Listings", () => {
     const authorId = crypto.randomUUID();
     await getDb().insert(users).values({
       id: authorId,
-      email: `author-${authorId.slice(0, 8)}@test.com`,
+      email: `author-${authorId.slice(0, 8)}@test.example`,
       passwordHash: "h",
       name: "Author",
       role: "member",
@@ -264,7 +264,7 @@ describe("Browse", () => {
     const browseAuthor = crypto.randomUUID();
     await getDb().insert(users).values({
       id: browseAuthor,
-      email: `browse-author@test.com`,
+      email: `browse-author@test.example`,
       passwordHash: "h",
       name: "Browse Author",
       role: "member",

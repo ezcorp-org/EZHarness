@@ -158,7 +158,7 @@ describe("git.ts – coverage gaps", () => {
 
     const workDir = join(tempBase, "work");
     spawn(["git", "clone", bareRepoDir, workDir]);
-    spawn(["git", "config", "user.email", "test@test.com"], { cwd: workDir });
+    spawn(["git", "config", "user.email", "test@test.example"], { cwd: workDir });
     spawn(["git", "config", "user.name", "Test"], { cwd: workDir });
 
     await Bun.write(join(workDir, "file.txt"), "hello");
@@ -228,7 +228,7 @@ describe("git.ts – coverage gaps", () => {
 
     const noTagsWork = join(tempBase, "no-tags-work");
     spawn(["git", "clone", noTagsBare, noTagsWork]);
-    spawn(["git", "config", "user.email", "t@t.com"], { cwd: noTagsWork });
+    spawn(["git", "config", "user.email", "t@t.example"], { cwd: noTagsWork });
     spawn(["git", "config", "user.name", "T"], { cwd: noTagsWork });
     await Bun.write(join(noTagsWork, "a.txt"), "a");
     spawn(["git", "add", "."], { cwd: noTagsWork });
@@ -246,7 +246,7 @@ describe("git.ts – coverage gaps", () => {
 
     const annotatedWork = join(tempBase, "annotated-work");
     spawn(["git", "clone", annotatedBare, annotatedWork]);
-    spawn(["git", "config", "user.email", "t@t.com"], { cwd: annotatedWork });
+    spawn(["git", "config", "user.email", "t@t.example"], { cwd: annotatedWork });
     spawn(["git", "config", "user.name", "T"], { cwd: annotatedWork });
     await Bun.write(join(annotatedWork, "b.txt"), "b");
     spawn(["git", "add", "."], { cwd: annotatedWork });

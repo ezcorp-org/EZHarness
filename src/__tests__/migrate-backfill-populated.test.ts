@@ -82,10 +82,10 @@ describe("migrate(): backfills against POPULATED old-schema data (admin present)
     // Two admins with distinct created_at → prove "first admin by created_at".
     const insUser =
       "INSERT INTO users (id, email, password_hash, name, role, created_at) VALUES ($1, $2, 'x', $3, $4, $5)";
-    await pglite.query(insUser, [ADMIN_EARLY, "ae@x.com", "AdminEarly", "admin", "2020-01-01T00:00:00Z"]);
-    await pglite.query(insUser, [ADMIN_LATE, "al@x.com", "AdminLate", "admin", "2021-01-01T00:00:00Z"]);
-    await pglite.query(insUser, [USER_A, "alice@x.com", "Alice", "member", "2022-01-01T00:00:00Z"]);
-    await pglite.query(insUser, [USER_B, "bob@x.com", "Bob", "member", "2022-06-01T00:00:00Z"]);
+    await pglite.query(insUser, [ADMIN_EARLY, "ae@x.example", "AdminEarly", "admin", "2020-01-01T00:00:00Z"]);
+    await pglite.query(insUser, [ADMIN_LATE, "al@x.example", "AdminLate", "admin", "2021-01-01T00:00:00Z"]);
+    await pglite.query(insUser, [USER_A, "alice@x.example", "Alice", "member", "2022-01-01T00:00:00Z"]);
+    await pglite.query(insUser, [USER_B, "bob@x.example", "Bob", "member", "2022-06-01T00:00:00Z"]);
 
     // Conversations. Roots inserted before children (parent_conversation_id FK).
     const insConv =
@@ -232,7 +232,7 @@ describe("migrate(): backfills with NO admin present (fail-closed)", () => {
     await pglite.query("INSERT INTO projects (id, name, path) VALUES ($1, $2, $3)", [PROJECT, "NoAdmin", "/tmp/na"]);
     // Only a member — there is NO admin to fall back to.
     await pglite.query(
-      "INSERT INTO users (id, email, password_hash, name, role) VALUES ($1, 'm@x.com', 'x', 'M', 'member')",
+      "INSERT INTO users (id, email, password_hash, name, role) VALUES ($1, 'm@x.example', 'x', 'M', 'member')",
       [USER_M],
     );
     // Ownerless root + child, and a run on the child.

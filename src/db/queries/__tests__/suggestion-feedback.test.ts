@@ -16,7 +16,7 @@ describe("insertSuggestionFeedback", () => {
     await setupTestDb();
     await getTestDb().insert(users).values({
       id: "u1",
-      email: "u1@test.dev",
+      email: "u1@test.example",
       passwordHash: "x",
       name: "u1",
     });

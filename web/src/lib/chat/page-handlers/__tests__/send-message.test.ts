@@ -114,11 +114,11 @@ const h = vi.hoisted(() => {
 			_parent: string,
 			_opts: {
 				parentMessageId: string;
-				agentConfigId: string;
+				agentConfigId?: string;
 				title: string;
 				projectId: string;
 			},
-		) => ({ id: "sub-convo-1", agentConfigId: "agent-config-1" }),
+		) => ({ id: "sub-convo-1", agentConfigId: _opts.agentConfigId ?? null }), // the server echoes what it got
 	);
 
 	const startOAuthFlowMock = vi.fn(async (_provider: string) => ({
@@ -246,6 +246,9 @@ vi.mock("$lib/sub-conversation-store.svelte.js", () => ({
 		},
 		get isInSubConversation() {
 			return h.subConversationStoreState.active !== null;
+		},
+		get subConvoMessages() {
+			return h.subConversationStoreState.messages;
 		},
 		startSubConversation(opts: SubConvoRecord) {
 			h.subConversationStoreState.active = opts;
@@ -904,12 +907,11 @@ describe("handleSend (mention parsing)", () => {
 		const { host, state } = makeHost();
 		const handlers = makeSendMessage(host);
 		await handlers.handleSend("ping !researcher");
-		// Yield once for the fire-and-forget startSubConvo() to land.
-		await Promise.resolve();
-		await Promise.resolve();
-		expect(createSubConversationMock).toHaveBeenCalledTimes(1);
+		// Wait for the fire-and-forget startSubConvo() to land.
+		await vi.waitFor(() => expect(createSubConversationMock).toHaveBeenCalledTimes(1));
 		const [parentArg, optsArg] = createSubConversationMock.mock.calls[0]!;
 		expect(parentArg).toBe("conv-1");
+		expect(optsArg).not.toHaveProperty("agentConfigId");
 		expect(optsArg.title).toContain("researcher");
 		expect(optsArg.parentMessageId).toBe("real-user-id");
 		expect(subConversationStoreState.startCalls.length).toBe(1);
@@ -1386,20 +1388,107 @@ describe("sub-conversation handlers", () => {
 		expect(state.loadMessagesCalls).toBe(1);
 	});
 
+	test("handleSubConvoReturn: the summary is the LAST assistant message, not the first or a later user turn", async () => {
+		// Was the placeholder "return to main inserts last agent message as summary" in sub-conversation.test.ts (W4H-33).
+		subConversationStoreState.active = {
+			id: "sub-1",
+			agentConfigId: "ac-1",
+			agentName: "researcher",
+			parentConversationId: "conv-1",
+			parentMessageId: "u-anchor",
+		};
+		subConversationStoreState.messages = [
+			{ id: "a1", role: "assistant", content: "first draft", createdAt: new Date() },
+			{ id: "a2", role: "assistant", content: "final answer", createdAt: new Date() },
+			{ id: "u1", role: "user", content: "thanks", createdAt: new Date() },
+		];
+		const { host } = makeHost({ activeLeafId: "leaf-id" });
+		await makeSendMessage(host).handleSubConvoReturn();
+		expect(sendMessageMock).toHaveBeenCalledTimes(1);
+		expect(sendMessageMock.mock.calls[0]![1].content).toBe("[Sub-conversation summary]: final answer");
+	});
+
+	test("handleSubConvoTurnSaved: a saved turn of the active sub-conversation goes to the sub-conversation store, once", () => {
+		// The run of a sub-conversation message saves its assistant turn like any run (run:turn_saved). The main thread
+		// drops a turn of another conversation, so without this routing the reply never reached the block (W4H-33).
+		subConversationStoreState.active = {
+			id: "sub-1",
+			agentConfigId: "",
+			agentName: "researcher",
+			parentConversationId: "conv-1",
+			parentMessageId: "u-anchor",
+		};
+		subConversationStoreState.messages = [{ id: "user-1", role: "user", content: "summarise it", createdAt: new Date() }];
+		subConversationStoreState.streaming = true;
+		const { host } = makeHost();
+		const handlers = makeSendMessage(host);
+		const turn = { conversationId: "sub-1", messageId: "a-1", content: "Sub answer ready.", final: true };
+		expect(handlers.handleSubConvoTurnSaved(turn)).toBe(true);
+		expect(handlers.handleSubConvoTurnSaved(turn)).toBe(true);
+		expect(subConversationStoreState.messages.map((m) => [m.id, m.role, m.content])).toEqual([
+			["user-1", "user", "summarise it"],
+			["a-1", "assistant", "Sub answer ready."],
+		]);
+		expect(subConversationStoreState.streaming).toBe(false);
+		// A turn of any other conversation is not the sub-conversation's: the main thread handles it.
+		expect(handlers.handleSubConvoTurnSaved({ ...turn, conversationId: "conv-1", messageId: "a-2" })).toBe(false);
+		subConversationStoreState.active = null;
+		expect(handlers.handleSubConvoTurnSaved({ ...turn, messageId: "a-3" })).toBe(false);
+		expect(subConversationStoreState.messages).toHaveLength(2);
+	});
+
+	test("handleSubConvoTurnSaved: a turn of an INACTIVE sub-conversation is not taken into the active one", () => {
+		// Dropped by design: an inactive sub-conversation's block lazy-loads its saved messages from the server when it is
+		// opened, and a sub-conversation only becomes active through startSubConversation, which empties the store, so a
+		// buffered turn would be thrown away there anyway.
+		subConversationStoreState.active = { id: "sub-active", agentConfigId: "", agentName: "r", parentConversationId: "conv-1", parentMessageId: "u" };
+		subConversationStoreState.messages = [];
+		const { host } = makeHost();
+		expect(makeSendMessage(host).handleSubConvoTurnSaved({ conversationId: "sub-inactive", messageId: "i-1", content: "other", final: true })).toBe(false);
+		expect(subConversationStoreState.messages).toEqual([]);
+	});
+
+	test("handleSubConvoTurnSaved: a non-final turn keeps the sub-conversation streaming", () => {
+		subConversationStoreState.active = { id: "sub-1", agentConfigId: "", agentName: "r", parentConversationId: "conv-1", parentMessageId: "u" };
+		subConversationStoreState.messages = [];
+		subConversationStoreState.streaming = true;
+		const { host } = makeHost();
+		expect(makeSendMessage(host).handleSubConvoTurnSaved({ conversationId: "sub-1", messageId: "a-1", content: "step", final: false })).toBe(true);
+		expect(subConversationStoreState.streaming).toBe(true);
+	});
+
 	test("startSubConvo: registers record + starts store conversation", async () => {
 		subConversationStoreState.active = null;
 		const { host, state } = makeHost();
 		const handlers = makeSendMessage(host);
 		await handlers.startSubConvo({ name: "qa-bot" }, "u-1");
+		// An interactive sub-conversation carries no agent config id: the server
+		// refused "" as an invalid UUID (W4H-33), and the thread renders a block
+		// only for a record without one.
 		expect(createSubConversationMock).toHaveBeenCalledWith("conv-1", {
 			parentMessageId: "u-1",
-			agentConfigId: "",
 			title: "Sub-conversation with qa-bot",
 			projectId: "proj-1",
 		});
 		expect(state.subConversations.length).toBe(1);
 		expect(state.subConversations[0]!.agentName).toBe("qa-bot");
+		expect(state.subConversations[0]!.agentConfigId).toBe("");
 		expect(subConversationStoreState.startCalls.length).toBe(1);
+	});
+
+	test("startSubConvo's request passes the server's own schema (no mock hides a validation mismatch)", async () => {
+		// The contract: what startSubConvo hands createSubConversation, serialised by the real body builder,
+		// must pass the real POST /api/conversations schema. Before W4H-33 the page sent agentConfigId "" and the
+		// server answered 400 "Invalid UUID"; a mocked createSubConversation could not see it.
+		const { subConversationBody } = await vi.importActual<typeof import("$lib/api.js")>("$lib/api.js");
+		const { createConversationSchema } = await import("../../../../routes/api/conversations/schema");
+		subConversationStoreState.active = null;
+		const { host } = makeHost({ convId: "c0000000-0000-4000-8000-00000000000c", projectId: "global" });
+		await makeSendMessage(host).startSubConvo({ name: "researcher" }, "e0000000-0000-4000-8000-00000000000e");
+		expect(createSubConversationMock).toHaveBeenCalledTimes(1);
+		const [parent, opts] = createSubConversationMock.mock.calls[0]!;
+		const verdict = createConversationSchema.safeParse(subConversationBody(parent, opts));
+		expect(verdict.success ? [] : verdict.error.issues.map((issue) => issue.path.join("."))).toEqual([]);
 	});
 
 	test("startSubConvo: blocked when already in a sub-convo", async () => {

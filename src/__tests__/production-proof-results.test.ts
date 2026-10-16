@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PRODUCTION_PROOF_SHARDS } from "../../scripts/production-proof-plan.ts";
-import { RUNNER_ISOLATION_PROOF_FILE, RUNNER_ISOLATION_PROOF_TESTS, verifyShippingProductionResults } from "../../scripts/verify-shipping-production-results.ts";
+import { PREVIEW_ISOLATION_PROOF_TESTS, RUNNER_ISOLATION_PROOF_FILE, RUNNER_ISOLATION_PROOF_TESTS, verifyShippingProductionResults } from "../../scripts/verify-shipping-production-results.ts";
 
 const REVISION = "a".repeat(40);
 const IMAGE = `sha256:${"b".repeat(64)}`;
@@ -13,6 +13,15 @@ function namespaceController(lines: readonly string[] = RUNNER_ISOLATION_PROOF_T
   return `bun test v1.4.2 (744846f84)\n\n::group::${RUNNER_ISOLATION_PROOF_FILE}:\n\x1b[32m${lines.join("\n")}\x1b[0m\n\n::endgroup::\n${summary}`;
 }
 const NAMESPACE_CONTROLLER = namespaceController();
+const KEYSTONE_FILE = "src/__tests__/preview-uid-keystone.docker.test.ts";
+const DYNAMIC_FILE = "src/__tests__/preview-dynamic-e2e.docker.test.ts";
+/** The preview-isolation receipt: Bun's report of the two in-image preview files, each test under its own file. */
+function previewController(status = (_name: string) => "pass", count = PREVIEW_ISOLATION_PROOF_TESTS.length, files = [KEYSTONE_FILE, DYNAMIC_FILE]): string {
+  const of = (prefix: string) => PREVIEW_ISOLATION_PROOF_TESTS.filter(name => name.startsWith(prefix)).map(name => `(${status(name)}) ${name} [5.00ms]`).join("\n");
+  const groups = files.map(file => `::group::${file}:\n${of(file === DYNAMIC_FILE ? "dynamic preview" : "uid keystone")}\n::endgroup::`).join("\n");
+  return `bun test v1.4.2 (744846f84)\n\n${groups}\n\n ${count} pass\n 0 fail\n 21 expect() calls\nRan ${count} tests across ${files.length} files. [9.10s]\n`;
+}
+const PREVIEW_CONTROLLER = previewController();
 const LIVE_ARM = RUNNER_ISOLATION_PROOF_TESTS.find(name => name.startsWith("runner worker isolation (live) > "))!;
 const OLD_NAMESPACE_CONTROLLER = `(pass) the production namespace blocks direct TCP; removing only nft makes the deny assertion fail
 (pass) the launcher removes seeded IPv6 while IPv4 proxy traffic works; omitting only the disable writes fails
@@ -25,14 +34,15 @@ const OLD_NAMESPACE_CONTROLLER = `(pass) the production namespace blocks direct 
 function launchers(proof: string): string[] {
   if (proof === "historical-upgrade") return ["upgrade/seed-previous", "upgrade/assert-candidate", "upgrade/assert-restore"];
   if (proof === "legacy-adoption") return ["legacy/seed", "legacy/adopt"];
-  if (proof === "namespace") return [];
+  if (proof === "namespace" || proof === "preview-isolation") return [];
   return ["runtime"];
 }
 
 async function receipt(root: string, proof: string): Promise<void> {
   const proofRoot = join(root, proof);
   await mkdir(proofRoot, { recursive: true });
-  await writeFile(join(proofRoot, "controller.log"), proof === "namespace" ? NAMESPACE_CONTROLLER : `${proof} controller\n`);
+  const bunReports: Record<string, string> = { namespace: NAMESPACE_CONTROLLER, "preview-isolation": PREVIEW_CONTROLLER };
+  await writeFile(join(proofRoot, "controller.log"), bunReports[proof] ?? `${proof} controller\n`);
   for (const launcher of launchers(proof)) {
     const launcherRoot = join(proofRoot, launcher);
     await mkdir(launcherRoot, { recursive: true });
@@ -67,6 +77,10 @@ async function writeNamespace(root: string, text: string): Promise<void> {
   await writeFile(join(root, "production-proof-namespace", "namespace", "controller.log"), text);
 }
 
+async function writePreview(root: string, text: string): Promise<void> {
+  await writeFile(join(root, "production-proof-namespace", "preview-isolation", "controller.log"), text);
+}
+
 async function withFixture(assertion: (value: Awaited<ReturnType<typeof fixture>>) => Promise<void>): Promise<void> {
   const value = await fixture();
   try { await assertion(value); } finally { await rm(value.base, { recursive: true, force: true }); }
@@ -80,7 +94,7 @@ test("aggregate verifies all five artifacts, eleven launcher cleanups, and copie
     expect(await Bun.file(join(output, "historical-upgrade", "upgrade", "assert-restore", "command.log")).exists()).toBe(true);
     expect(await Bun.file(join(output, "legacy-adoption", "legacy", "adopt", "command.log")).exists()).toBe(true);
     expect(await readFile(join(output, "summary.tsv"), "utf8")).toContain("namespace\tnamespace\t0");
-    expect(JSON.parse(await readFile(join(output, "timing.json"), "utf8"))).toMatchObject({ totalProofDurationMs: 9000 });
+    expect(JSON.parse(await readFile(join(output, "timing.json"), "utf8"))).toMatchObject({ totalProofDurationMs: 10000 });
   });
 });
 
@@ -107,6 +121,9 @@ test("aggregate rejects missing, stale, wrong-image, malformed, failed, cancelle
     { name: "summary count mismatch", change: async ({ root }) => { await writeNamespace(root, NAMESPACE_CONTROLLER.replace(` ${RUNNER_ISOLATION_PROOF_TESTS.length} pass`, ` ${RUNNER_ISOLATION_PROOF_TESTS.length + 1} pass`)); }, message: "summary" },
     { name: "unknown extra test", change: async ({ root }) => { await writeNamespace(root, NAMESPACE_CONTROLLER.replace("::endgroup::", "(pass) an extra test [1.00ms]\n::endgroup::")); }, message: "unexpected test" },
     { name: "another test file", change: async ({ root }) => { await writeNamespace(root, NAMESPACE_CONTROLLER.replace(`::group::${RUNNER_ISOLATION_PROOF_FILE}:`, "::group::src/__tests__/other.proof.test.ts:")); }, message: RUNNER_ISOLATION_PROOF_FILE },
+    { name: "skipped preview test (the lane did not set its variable)", change: async ({ root }) => { await writePreview(root, previewController(() => "skip")); }, message: "preview-isolation controller test did not pass (skip)" },
+    { name: "preview receipt missing one file", change: async ({ root }) => { await writePreview(root, previewController(undefined, undefined, [KEYSTONE_FILE])); }, message: "preview-isolation controller must report exactly" },
+    { name: "preview summary count mismatch", change: async ({ root }) => { await writePreview(root, previewController(undefined, PREVIEW_ISOLATION_PROOF_TESTS.length - 1)); }, message: "preview-isolation controller summary" },
     { name: "old Stage 2 receipt", change: async ({ root }) => { await writeNamespace(root, OLD_NAMESPACE_CONTROLLER); }, message: "namespace controller" },
     { name: "Stage 2 environment in the receipt", change: async ({ root }) => { await writeNamespace(root, `EZCORP_STAGE2_PROOF=1\n${NAMESPACE_CONTROLLER}`); }, message: "Stage 2" },
     { name: "old Stage 2 file in the receipt", change: async ({ root }) => { await writeNamespace(root, `${NAMESPACE_CONTROLLER}src/__tests__/mcp-netns-raw-socket-blocked.test.ts:\n`); }, message: "Stage 2" },
@@ -146,17 +163,30 @@ test("aggregate rejects each failed cleanup stage and missing launcher receipts"
   });
 });
 
-test("the verifier's namespace test list is exactly the tests the runner isolation proof declares", async () => {
-  // Without EZCORP_RUNNER_ISOLATION_PROOF the live arms are skipped, and the
-  // JUnit report still lists every declared test, live or not.
-  const base = await mkdtemp(join(tmpdir(), "namespace-proof-names-"));
+/**
+ * Every test a set of files declares, as "<describe> > <name>", read from Bun's JUnit report. With the proof variable
+ * unset the live arms are skipped, and the report still lists every declared test, live or not.
+ */
+async function declaredTests(files: readonly string[], env: Record<string, string>): Promise<string[]> {
+  const base = await mkdtemp(join(tmpdir(), "proof-test-names-"));
   try {
     const report = join(base, "junit.xml");
-    const run = Bun.spawnSync([process.execPath, "test", `./${RUNNER_ISOLATION_PROOF_FILE}`, "--reporter=junit", `--reporter-outfile=${report}`], { env: { ...process.env, EZCORP_RUNNER_ISOLATION_PROOF: "" }, stdout: "ignore", stderr: "ignore" });
+    const run = Bun.spawnSync([process.execPath, "test", ...files.map((file) => `./${file}`), "--reporter=junit", `--reporter-outfile=${report}`], { env: { ...process.env, ...env }, stdout: "ignore", stderr: "ignore" });
     expect(run.exitCode).toBe(0);
-    const declared = [...(await readFile(report, "utf8")).matchAll(/<testcase name="([^"]*)" classname="([^"]*)"/g)]
+    return [...(await readFile(report, "utf8")).matchAll(/<testcase name="([^"]*)" classname="([^"]*)"/g)]
       .filter(([, name]) => name !== "(unnamed)")
-      .map(([, name, describe]) => `${describe} > ${name}`.replaceAll("&quot;", "\"").replaceAll("&amp;", "&"));
-    expect(declared.toSorted()).toEqual([...RUNNER_ISOLATION_PROOF_TESTS].toSorted());
+      .map(([, name, describe]) => `${describe} > ${name}`
+        .replaceAll("&quot;", "\"").replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&"))
+      .toSorted();
   } finally { await rm(base, { recursive: true, force: true }); }
+}
+
+test("the verifier's namespace test list is exactly the tests the runner isolation proof declares", async () => {
+  expect(await declaredTests([RUNNER_ISOLATION_PROOF_FILE], { EZCORP_RUNNER_ISOLATION_PROOF: "" })).toEqual([...RUNNER_ISOLATION_PROOF_TESTS].toSorted());
+});
+
+test("the verifier's preview-isolation test list is exactly the tests the two in-image preview files declare", async () => {
+  // A name dropped from PREVIEW_ISOLATION_PROOF_TESTS would let a receipt that never ran that test pass; a name no file
+  // declares could never be met (W4H-33, validator-8 F2).
+  expect(await declaredTests([KEYSTONE_FILE, DYNAMIC_FILE], { EZCORP_PREVIEW_ISOLATION_PROOF: "" })).toEqual([...PREVIEW_ISOLATION_PROOF_TESTS].toSorted());
 });

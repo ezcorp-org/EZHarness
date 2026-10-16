@@ -33,7 +33,7 @@ beforeAll(async () => {
   // Create 12 users whose names start with "Search" for limit testing
   for (let i = 0; i < 12; i++) {
     const u = await createUser({
-      email: `searchuser${i}@test.com`,
+      email: `searchuser${i}@test.example`,
       passwordHash: "h",
       name: `Search User ${i}`,
       role: "member",
@@ -52,7 +52,7 @@ beforeAll(async () => {
   AUTH_USER = { id: authBase.id, email: authBase.email, name: authBase.name, role: "member" };
 
   // Agent owner for sharing tests
-  const owner = await createUser({ email: "agentowner@test.com", passwordHash: "h", name: "Agent Owner", role: "admin" });
+  const owner = await createUser({ email: "agentowner@test.example", passwordHash: "h", name: "Agent Owner", role: "admin" });
   agentOwnerId = owner.id;
 });
 

@@ -170,7 +170,7 @@ describe("POST /api/auth/invite/[token]", () => {
     vi.mocked(getInviteByToken).mockResolvedValue({
       id: "inv-1",
       role: "member",
-      email: "locked@x.com",
+      email: "locked@x.example",
     } as any);
     const res = await POST(makeEvent({ body: validBody }));
     expect(res.status).toBe(400);

@@ -82,7 +82,7 @@ test("shipping suite attests the independent image ID, retains later proof recei
     expect(result.code).toBe(1);
     const summary = await readFile(join(receipt, "summary.tsv"), "utf8");
     expect(summary).toContain("runtime\t7\t");
-    for (const proof of ["embeddings", "delivery", "revocation", "runtime-resources", "historical-upgrade", "legacy-adoption"]) {
+    for (const proof of ["embeddings", "delivery", "revocation", "runtime-resources", "historical-upgrade", "legacy-adoption", "preview-isolation"]) {
       expect(summary).toContain(`${proof}\t0\t`);
       expect(await Bun.file(join(receipt, proof, "controller.log")).exists()).toBe(true);
     }
@@ -132,7 +132,7 @@ test("shipping suite rejects mismatched engine candidates and nonempty receipt r
 test("shipping suite runs each named shard with only its registered proofs and critical environment", async () => {
   const expected: Record<string, readonly string[]> = {
     recovery: ["runtime", "historical-upgrade"], content: ["file-organizer", "legacy-adoption"],
-    delivery: ["delivery", "revocation", "embeddings"], resources: ["runtime-resources"], namespace: ["namespace"],
+    delivery: ["delivery", "revocation", "embeddings"], resources: ["runtime-resources"], namespace: ["namespace", "preview-isolation"],
   };
   for (const [shard, proofs] of Object.entries(expected)) {
     const directory = await mkdtemp(join(tmpdir(), `shipping-suite-${shard}-`));
@@ -151,6 +151,8 @@ test("shipping suite runs each named shard with only its registered proofs and c
         expect(invocations).toContain("argv=-c");
         expect(invocations).toContain("runner_proof=1");
         expect(invocations).toContain("runner-worker-isolation.proof.test.ts");
+        expect(invocations).toContain("argv=scripts/verify-shipping-preview-isolation.sh");
+        expect(invocations).toContain("runtime_image=ezcorp:test-candidate");
       } else {
         expect(invocations).toContain("runtime_image=ezcorp:test-candidate");
         if (shard === "recovery" || shard === "content") expect(invocations).toContain("candidate_image=ezcorp:test-candidate");

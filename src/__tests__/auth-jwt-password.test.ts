@@ -15,7 +15,7 @@ const FOREIGN_SECRET = "other-installation-secret-please-do-not-use-in-prod";
 
 const SAMPLE_USER: AuthUser = {
 	id: "u-1",
-	email: "u@test.com",
+	email: "u@test.example",
 	name: "Tester",
 	role: "member",
 };
