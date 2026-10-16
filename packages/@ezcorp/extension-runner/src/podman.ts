@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { BuildResult, InvocationContext, ProcessSpawnPolicy, ResourceLimits, Runner, RunnerCapabilities, RunnerInspection, StartRequest, WorkspaceFiles } from "@ezcorp/extension-contract";
 import { canonicalJson, processSpawnPolicy, validateInvocationContext, validateManifest, workspaceFileBytes, workspaceText } from "@ezcorp/extension-contract";
-import { buildLimits, capture, command, digest, executionLimits, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
+import { buildLimits, capture, command, digest, executionLimits, MAXIMUM_ARTIFACT_BYTES, filesDigest, identifier, limitsWithin, processSpawn, relativePath, RunnerCommandError, RunnerError, sha256, validateFiles } from "./core";
 import { FramedExecution, type FramedTransport, type ReverseRpc } from "./protocol";
 import { fetchLockedDependencies, toolchainBesideDependencies } from "./dependencies";
 import { browserBuild, browserBuilderProgram } from "./browser";
@@ -685,7 +685,7 @@ export class PodmanRunner implements Runner {
   }
   /** The artifact bounds a stored release is read and restored under. */
   private static validateArtifact(files: WorkspaceFiles, artifactDigest: string): void {
-    validateFiles(files, 160 * 1024 ** 2, 4000);
+    validateFiles(files, MAXIMUM_ARTIFACT_BYTES, 4000);
     if (filesDigest(files) !== artifactDigest) throw new RunnerError("artifact_corrupt", "Stored artifact digest mismatch");
   }
   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {

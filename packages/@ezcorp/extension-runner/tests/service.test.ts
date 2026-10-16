@@ -257,3 +257,29 @@ test("restore: the client hands an artifact to the runner through the service, a
     await expect(restore(base, "legacy")).rejects.toMatchObject({ code: "unknown_method" });
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
+
+test("restore carries one store-bounded artifact: a 129 MiB artifact restores and a 161 MiB one refuses request_limit (W4H-32)", async () => {
+  const directory = await mkdtemp("/tmp/ez-runner-restore-limit-");
+  const socketPath = join(directory, "runner.sock");
+  const token = "test-service-credential-32-bytes-minimum";
+  const sizes: number[] = [];
+  const runner: Runner = {
+    build: async () => { throw new Error("unused"); },
+    start: async () => { throw new Error("unused"); },
+    cancel: async () => {},
+    inspect: async id => ({ id, state: "unknown", diagnostics: [] }),
+    collectArtifacts: async () => ({}),
+    restoreArtifact: async (_digest, files) => { sizes.push((files["extension.js"] as string).length); },
+  };
+  const server = await startRunnerService({ runner, socketPath, token, allowedUid: process.getuid!() });
+  const client = new RunnerClient({ socketPath, token });
+  const artifact = (mebibytes: number) => ({ "extension.js": "a".repeat(mebibytes * 1024 ** 2) });
+  try {
+    const within = artifact(129);
+    await client.restoreArtifact(filesDigest(within), within);
+    expect(sizes).toEqual([129 * 1024 ** 2]);
+    const over = artifact(161);
+    await expect(client.restoreArtifact(filesDigest(over), over)).rejects.toMatchObject({ code: "request_limit" });
+    expect(sizes).toHaveLength(1);
+  } finally { await server.close(); await rm(directory, { recursive: true, force: true }); }
+}, 120_000);
