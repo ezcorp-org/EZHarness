@@ -29,7 +29,11 @@ chmod 0755 "$stage"
 report="$EZ_PRODUCTION_RECEIPT_DIR/bun-report.txt"
 
 status=0
+# --log-driver=none: the proof job installs the extension runner's pinned static conmon, which is built without journald,
+# and Podman logs to journald by default ("conmon failed: exit status 1"). The runner passes the same flag; the report
+# still arrives on stdout.
 podman run --rm \
+  --log-driver=none \
   --uidmap=0:0:56536 --uidmap=90000:56536:9001 --gidmap=0:0:56536 --gidmap=90000:56536:9001 \
   --network=none \
   --env="EZCORP_PREVIEW_ISOLATION_PROOF=1" \
