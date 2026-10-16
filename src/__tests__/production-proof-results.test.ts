@@ -163,17 +163,30 @@ test("aggregate rejects each failed cleanup stage and missing launcher receipts"
   });
 });
 
-test("the verifier's namespace test list is exactly the tests the runner isolation proof declares", async () => {
-  // Without EZCORP_RUNNER_ISOLATION_PROOF the live arms are skipped, and the
-  // JUnit report still lists every declared test, live or not.
-  const base = await mkdtemp(join(tmpdir(), "namespace-proof-names-"));
+/**
+ * Every test a set of files declares, as "<describe> > <name>", read from Bun's JUnit report. With the proof variable
+ * unset the live arms are skipped, and the report still lists every declared test, live or not.
+ */
+async function declaredTests(files: readonly string[], env: Record<string, string>): Promise<string[]> {
+  const base = await mkdtemp(join(tmpdir(), "proof-test-names-"));
   try {
     const report = join(base, "junit.xml");
-    const run = Bun.spawnSync([process.execPath, "test", `./${RUNNER_ISOLATION_PROOF_FILE}`, "--reporter=junit", `--reporter-outfile=${report}`], { env: { ...process.env, EZCORP_RUNNER_ISOLATION_PROOF: "" }, stdout: "ignore", stderr: "ignore" });
+    const run = Bun.spawnSync([process.execPath, "test", ...files.map((file) => `./${file}`), "--reporter=junit", `--reporter-outfile=${report}`], { env: { ...process.env, ...env }, stdout: "ignore", stderr: "ignore" });
     expect(run.exitCode).toBe(0);
-    const declared = [...(await readFile(report, "utf8")).matchAll(/<testcase name="([^"]*)" classname="([^"]*)"/g)]
+    return [...(await readFile(report, "utf8")).matchAll(/<testcase name="([^"]*)" classname="([^"]*)"/g)]
       .filter(([, name]) => name !== "(unnamed)")
-      .map(([, name, describe]) => `${describe} > ${name}`.replaceAll("&quot;", "\"").replaceAll("&amp;", "&"));
-    expect(declared.toSorted()).toEqual([...RUNNER_ISOLATION_PROOF_TESTS].toSorted());
+      .map(([, name, describe]) => `${describe} > ${name}`
+        .replaceAll("&quot;", "\"").replaceAll("&apos;", "'").replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&amp;", "&"))
+      .toSorted();
   } finally { await rm(base, { recursive: true, force: true }); }
+}
+
+test("the verifier's namespace test list is exactly the tests the runner isolation proof declares", async () => {
+  expect(await declaredTests([RUNNER_ISOLATION_PROOF_FILE], { EZCORP_RUNNER_ISOLATION_PROOF: "" })).toEqual([...RUNNER_ISOLATION_PROOF_TESTS].toSorted());
+});
+
+test("the verifier's preview-isolation test list is exactly the tests the two in-image preview files declare", async () => {
+  // A name dropped from PREVIEW_ISOLATION_PROOF_TESTS would let a receipt that never ran that test pass; a name no file
+  // declares could never be met (W4H-33, validator-8 F2).
+  expect(await declaredTests([KEYSTONE_FILE, DYNAMIC_FILE], { EZCORP_PREVIEW_ISOLATION_PROOF: "" })).toEqual([...PREVIEW_ISOLATION_PROOF_TESTS].toSorted());
 });
