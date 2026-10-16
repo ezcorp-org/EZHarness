@@ -3429,7 +3429,7 @@ export const factoryNotificationSends = pgTable("factory_notification_sends", {
   leaseUntil: bigint("lease_until", { mode: "number" }).notNull().default(0), leaseToken: text("lease_token"), failureCode: text("failure_code"),
   expiresAt: bigint("expires_at", { mode: "number" }).notNull(), payload: text("payload").notNull(), createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [primaryKey({ columns: [table.tenantId, table.sendId] }), uniqueIndex("factory_notification_sends_tenant_id_deduplication_id_key").on(table.tenantId, table.deduplicationId), foreignKey({ columns: [table.tenantId, table.projectId, table.notificationId], foreignColumns: [factoryNotifications.tenantId, factoryNotifications.projectId, factoryNotifications.notificationId] }).onDelete("restrict")]);
+}, (table) => [primaryKey({ columns: [table.tenantId, table.sendId] }), uniqueIndex("factory_notification_sends_tenant_id_deduplication_id_key").on(table.tenantId, table.deduplicationId), uniqueIndex("idx_factory_notification_sends_notification").on(table.tenantId, table.projectId, table.notificationId, table.destination), foreignKey({ columns: [table.tenantId, table.projectId, table.notificationId], foreignColumns: [factoryNotifications.tenantId, factoryNotifications.projectId, factoryNotifications.notificationId] }).onDelete("restrict")]);
 
 export const factoryTaskCompletions = pgTable("factory_task_completions", {
   tenantId: text("tenant_id").notNull(), projectId: text("project_id").notNull(), runId: text("run_id").notNull(), interpreterId: text("interpreter_id").notNull(), commandId: text("command_id").notNull(),

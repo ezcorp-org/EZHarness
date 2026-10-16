@@ -265,3 +265,17 @@ describe("a terminal rejection settles as dead letter", () => {
     expect(settled).toEqual([["dead_letter", "webhook_rejected_4xx"]]);
   });
 });
+
+describe("releasing a lease without spending an attempt", () => {
+  test("the owner gets the record back queued and due now, its attempt returned", async () => {
+    const { store, current } = singleStore({ ...record, state: "leased", attempts: 2, leaseUntil: 1_000, leaseToken: "lease-token", availableAt: 0 });
+    const released = await queue.release(store, "scope", { ...record, leaseToken: "lease-token" }, 10);
+    expect(released).toMatchObject({ state: "queued", attempts: 1, availableAt: 10, leaseUntil: 0 });
+    expect(current().leaseToken).toBeUndefined();
+  });
+
+  test("is fenced like a settlement: a lost lease is refused", async () => {
+    const { store } = singleStore({ ...record, state: "leased", attempts: 2, leaseUntil: 1_000, leaseToken: "another" });
+    await expect(queue.release(store, "scope", { ...record, leaseToken: "lease-token" }, 10)).rejects.toMatchObject({ code: "delivery_lease_lost" });
+  });
+});

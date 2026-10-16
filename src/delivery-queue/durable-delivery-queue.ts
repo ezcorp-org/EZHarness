@@ -145,6 +145,21 @@ export class DurableDeliveryQueue<Record extends DurableDeliveryRecord> {
     return current;
   }
 
+  /**
+   * Give a lease back without spending its attempt: the work did not run to an
+   * answer because its own process is stopping. Fenced like `settle`.
+   */
+  async release(store: DurableDeliveryStore<Record>, scope: string, claimed: Record, now: number): Promise<Record> {
+    const current = await this.owned(store, scope, claimed, now);
+    current.state = "queued";
+    current.attempts = Math.max(0, current.attempts - 1);
+    current.availableAt = now;
+    current.leaseUntil = 0;
+    delete current.leaseToken;
+    await store.write(current);
+    return current;
+  }
+
   /** Cancel work that has not been leased. Leased work needs an owned settlement. */
   async cancel(store: DurableDeliveryStore<Record>, scope: string, id: string, failureCode?: string): Promise<Record> {
     const current = await store.findById(scope, id);

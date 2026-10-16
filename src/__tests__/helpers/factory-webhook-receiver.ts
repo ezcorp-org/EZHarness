@@ -12,6 +12,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S } from "../../factory/notification-sender";
 import { createFactoryCertificateAuthority, issueFactoryCertificate } from "../../factory/provisioning/certificates";
 
 export interface ReceivedNotification {
@@ -22,6 +23,8 @@ export interface ReceivedNotification {
   readonly signature: string | null;
   /** True when the receiver knows the secret and the signature matched; null when it has no secret. */
   readonly signatureValid: boolean | null;
+  /** True when the timestamp is within the tolerance of the receiver's clock (N3). */
+  readonly timestampValid: boolean;
 }
 
 export interface TestWebhookReceiver {
@@ -29,7 +32,7 @@ export interface TestWebhookReceiver {
   /** The CA certificate that signed the receiver's certificate, in PEM. */
   readonly ca: string;
   readonly requests: ReceivedNotification[];
-  /** Distinct idempotency keys whose request was answered 2xx. */
+  /** Logical deliveries answered 2xx: one per distinct idempotency key, and one per request that carries none. */
   logical(): ReadonlySet<string>;
   /** The status every later request is answered with. */
   answer(status: number): void;
@@ -46,6 +49,10 @@ export interface TestWebhookReceiverOptions {
   readonly port?: number;
   /** Extra certificate names, for a receiver reached by a container name. */
   readonly dnsNames?: readonly string[];
+  /** Seconds a timestamp may differ from `now`; the contract's 300 by default (N3). A proof may shorten it. */
+  readonly toleranceS?: number;
+  /** The receiver's clock, in milliseconds. */
+  readonly now?: () => number;
   /** Serve this certificate instead of issuing one: a container without the openssl tool is given its pair. */
   readonly tls?: { readonly cert: string; readonly key: string; readonly ca: string };
 }
@@ -95,11 +102,14 @@ export async function startTestWebhookReceiver(options: TestWebhookReceiverOptio
         timestamp: header("x-ezcorp-timestamp"),
         signature: header("x-ezcorp-signature"),
         signatureValid: verify(options.secret, header("x-ezcorp-timestamp"), body, header("x-ezcorp-signature")),
+        timestampValid: Math.abs((options.now ?? Date.now)() / 1000 - Number(header("x-ezcorp-timestamp"))) <= (options.toleranceS ?? FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S),
       };
       requests.push(received);
       if (hook) await hook(received);
-      if (received.signatureValid === false) return new Response(null, { status: 401 });
-      if (status >= 200 && status < 300 && received.idempotencyKey !== null) delivered.add(received.idempotencyKey);
+      // A bad signature or a stale timestamp is refused before deduplication: a replay never counts.
+      if (received.signatureValid === false || !received.timestampValid) return new Response(null, { status: 401 });
+      // Without a key a receiver cannot deduplicate, so every such request is its own logical delivery.
+      if (status >= 200 && status < 300) delivered.add(received.idempotencyKey ?? `no-key-${requests.length}`);
       return new Response(null, { status, ...(status >= 300 && status < 400 ? { headers: { location: "https://127.0.0.1:1/" } } : {}) });
     },
   });

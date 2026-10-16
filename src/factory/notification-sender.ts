@@ -50,9 +50,12 @@ export const FACTORY_NOTIFICATION_SEND_BOUNDS = Object.freeze({
 /** C11 N6, by the settlement each code leads to. */
 export const FACTORY_NOTIFICATION_SEND_CODES = Object.freeze({
   retry: Object.freeze(["webhook_unreachable", "webhook_timeout", "webhook_status_429", "webhook_status_5xx"] as const),
-  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted", "notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt"] as const),
+  deadLetter: Object.freeze(["webhook_rejected_4xx", "attempts_exhausted", "notification_payload_invalid", "notification_send_corrupt"] as const),
   cancelled: Object.freeze(["notification_expired", "destination_removed"] as const),
 });
+
+/** How far a request's timestamp may differ from the receiver's clock (N3); with deduplication it bounds replay. */
+export const FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S = 300;
 
 export const FACTORY_NOTIFICATION_HEADERS = Object.freeze({
   signature: "x-ezcorp-signature",
@@ -201,7 +204,7 @@ export function factoryNotificationPayload(
   };
   // Identifiers of up to 512 characters each can, escaped, pass 4 KiB together; such a
   // notification is refused rather than truncated, and the fan-out records the refusal.
-  if (Buffer.byteLength(canonicalJson(payload)) > FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes) throw new FactoryNotificationSendError("notification_payload_too_large", true);
+  if (Buffer.byteLength(canonicalJson(payload)) > FACTORY_NOTIFICATION_SEND_BOUNDS.payloadMaxBytes) throw new FactoryNotificationSendError("notification_payload_invalid", true);
   return { payload, expiresAt };
 }
 
@@ -259,9 +262,16 @@ function decodeSend(row: SendRow, tenantId: string): FactoryNotificationSend {
   };
 }
 
+export interface FactoryNotificationSendStore extends DurableDeliveryStore<FactoryNotificationSend> {
+  /** Dead-letters the row `claimCandidate` would return, without decoding it. */
+  quarantineCandidate(scope: string, now: number): Promise<boolean>;
+}
+
 /** The C02 store over `factory_notification_sends`, for one tenant (one scope). */
-export function factoryNotificationSendStore(database: MigrationDb, tenantId: string): DurableDeliveryStore<FactoryNotificationSend> {
+export function factoryNotificationSendStore(database: MigrationDb, tenantId: string): FactoryNotificationSendStore {
   const check = (scope: string | null): void => { if (scope !== tenantId) throw new FactoryNotificationSendError("notification_send_scope"); };
+  /** The one row a claim takes next: due, or leased with its lease run out. */
+  const candidate = (now: number) => sql`tenant_id=${tenantId} AND ((state='queued' AND available_at<=${now}) OR (state='leased' AND lease_until<=${now})) ORDER BY available_at,send_id LIMIT 1 FOR UPDATE SKIP LOCKED`;
   const one = async (query: ReturnType<typeof sql>): Promise<FactoryNotificationSend | null> => {
     const row = rows<SendRow>(await database.execute(query))[0];
     return row ? decodeSend(row, tenantId) : null;
@@ -275,17 +285,47 @@ export function factoryNotificationSendStore(database: MigrationDb, tenantId: st
     },
     async claimCandidate(scope, now) {
       check(scope);
-      return one(sql`SELECT ${SEND_COLUMNS} FROM factory_notification_sends WHERE tenant_id=${tenantId} AND ((state='queued' AND available_at<=${now}) OR (state='leased' AND lease_until<=${now})) ORDER BY available_at,send_id LIMIT 1 FOR UPDATE SKIP LOCKED`);
+      return one(sql`SELECT ${SEND_COLUMNS} FROM factory_notification_sends WHERE ${candidate(now)}`);
     },
     async findById(scope, id) { check(scope); return one(sql`SELECT ${SEND_COLUMNS} FROM factory_notification_sends WHERE tenant_id=${tenantId} AND send_id=${id} FOR UPDATE`); },
     async write(record) {
       await database.execute(sql`UPDATE factory_notification_sends SET state=${record.state},attempts=${record.attempts},available_at=${record.availableAt},lease_until=${record.leaseUntil},lease_token=${record.leaseToken ?? null},failure_code=${record.failureCode ?? null},updated_at=NOW() WHERE tenant_id=${tenantId} AND send_id=${record.id}`);
     },
     async inspect(scope, id) { check(scope); return one(sql`SELECT ${SEND_COLUMNS} FROM factory_notification_sends WHERE tenant_id=${tenantId} AND send_id=${id}`); },
+    async quarantineCandidate(scope, now) {
+      check(scope);
+      return rows(await database.execute(sql`UPDATE factory_notification_sends SET state='dead_letter',failure_code='notification_send_corrupt',lease_until=0,lease_token=NULL,updated_at=NOW()
+        WHERE tenant_id=${tenantId} AND send_id=(SELECT send_id FROM factory_notification_sends WHERE ${candidate(now)})
+        RETURNING send_id`)).length === 1;
+    },
   };
 }
 
+/** The code a shutdown-interrupted send carries to its settlement, which releases it instead. Never stored. */
+const SHUTDOWN_RELEASED = "shutdown_released";
+
 const sendQueue = new DurableDeliveryQueue<FactoryNotificationSend>((code) => new FactoryNotificationSendError(code), randomUUID);
+
+/** One fan-out page for one destination: delivered notifications of a sent kind that have no send to it yet. */
+export function factoryNotificationFanOutQuery(tenantId: string, destination: string, now: number) {
+  return sql`
+        SELECT n.project_id,n.notification_id,n.payload,n.state,n.input_hash,(n.payload::jsonb->>'kind') AS kind,
+          (EXTRACT(EPOCH FROM n.created_at) * 1000)::bigint AS created_ms,ca.deadline_at_ms
+        FROM factory_notifications n
+        LEFT JOIN factory_command_approvals ca ON (n.payload::jsonb->>'kind')='command_approval_requested'
+          AND ca.tenant_id=n.tenant_id AND ca.project_id=n.project_id AND ca.approval_id=(n.payload::jsonb->>'approvalId')
+        WHERE n.tenant_id=${tenantId} AND n.state='delivered'
+          AND (n.payload::jsonb->>'kind') IN ('approval_requested','command_approval_requested','release_uncertain')
+          AND NOT EXISTS (SELECT 1 FROM factory_notification_sends s WHERE s.tenant_id=n.tenant_id AND s.project_id=n.project_id AND s.notification_id=n.notification_id AND s.destination=${destination})
+          -- Past its expiry (N5), a notification is never sent, so it is not visited again. A field that is not a
+          -- number reads as no expiry rather than failing the page; the decoder refuses that row by name.
+          AND COALESCE(
+            CASE WHEN jsonb_typeof(n.payload::jsonb->'payload'->'expiresAtMs')='number' THEN (n.payload::jsonb->'payload'->>'expiresAtMs')::numeric END,
+            ca.deadline_at_ms,
+            CASE WHEN jsonb_typeof(n.payload::jsonb->'createdAt')='number' THEN (n.payload::jsonb->>'createdAt')::numeric + ${FACTORY_NOTIFICATION_SEND_BOUNDS.expiryMs} END,
+            ${now + 1}) > ${now}
+        ORDER BY n.available_at,n.notification_id LIMIT ${FACTORY_NOTIFICATION_SEND_BOUNDS.fanOutBatch}`;
+}
 
 type FanOutRow = NotificationRow & { project_id: string; notification_id: string; kind: FactoryNotificationSentKind; created_ms: number | string; deadline_at_ms: number | string | null };
 
@@ -360,10 +400,14 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
 
   /** One bounded pass: fan out new notifications, then send at most one. */
   async step(signal: AbortSignal): Promise<boolean> {
-    // The durable answer, so a restart does not forget an earlier delivery.
+    // The durable answer, so a restart does not forget an earlier delivery; once confirmed it is not asked again.
     if (!this.isConfirmed) await this.refreshConfirmation();
-    const fannedOut = await this.fanOut(signal);
+    // A fan-out fault never stops the sends already queued; it is reported after them.
+    let fault: { error: unknown } | undefined;
+    let fannedOut = false;
+    try { fannedOut = await this.fanOut(signal); } catch (error) { fault = { error }; }
     const sent = await this.sendOne(signal);
+    if (fault) throw fault.error;
     return fannedOut || sent;
   }
 
@@ -372,16 +416,7 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
     let added = false;
     for (const destination of this.destinations.keys()) {
       signal.throwIfAborted();
-      const found = rows<FanOutRow>(await this.database.execute(sql`
-        SELECT n.project_id,n.notification_id,n.payload,n.state,n.input_hash,(n.payload::jsonb->>'kind') AS kind,
-          (EXTRACT(EPOCH FROM n.created_at) * 1000)::bigint AS created_ms,ca.deadline_at_ms
-        FROM factory_notifications n
-        LEFT JOIN factory_command_approvals ca ON (n.payload::jsonb->>'kind')='command_approval_requested'
-          AND ca.tenant_id=n.tenant_id AND ca.project_id=n.project_id AND ca.approval_id=(n.payload::jsonb->>'approvalId')
-        WHERE n.tenant_id=${this.tenantId} AND n.state='delivered'
-          AND (n.payload::jsonb->>'kind') IN ('approval_requested','command_approval_requested','release_uncertain')
-          AND NOT EXISTS (SELECT 1 FROM factory_notification_sends s WHERE s.tenant_id=n.tenant_id AND s.project_id=n.project_id AND s.notification_id=n.notification_id AND s.destination=${destination})
-        ORDER BY n.available_at,n.notification_id LIMIT ${FACTORY_NOTIFICATION_SEND_BOUNDS.fanOutBatch}`));
+      const found = rows<FanOutRow>(await this.database.execute(factoryNotificationFanOutQuery(this.tenantId, destination, this.now())));
       for (const row of found) {
         // The keys a refusal is recorded under come from the row itself, so a
         // stored notification that no longer decodes is recorded too.
@@ -394,13 +429,14 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
         } catch (error) {
           const code = (error as { code?: unknown }).code;
           if (!(error instanceof FactoryNotificationSendError) && code !== "factory_notification_corrupt") throw error;
+          // One code for both: the payload cannot be built, or the stored notification no longer decodes (N6).
           // Recorded once, in dead letter, so one unsendable notification never
           // occupies the fan-out's batch again and the ones behind it still go.
-          await this.enqueue(keys, destination, refusedPayload(keys, destination), keys.createdAt, code as string);
+          await this.enqueue(keys, destination, refusedPayload(keys, destination), keys.createdAt, "notification_payload_invalid");
           added = true;
           continue;
         }
-        if (built === null) continue;
+        if (built === null || built.expiresAt <= this.now()) continue;
         await this.enqueue(notification, destination, built.payload, built.expiresAt);
         added = true;
       }
@@ -411,35 +447,46 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
   private async enqueue(notification: RefusedNotification, destination: string, payload: FactoryNotificationPayload, expiresAt: number, refused?: string): Promise<void> {
     const now = this.now();
     const inputHash = durableInputHash(payload);
-    const expired = expiresAt <= now;
-    const settled = refused !== undefined ? { state: "dead_letter" as const, failureCode: refused }
-      : expired ? { state: "cancelled" as const, failureCode: "notification_expired" } : { state: "queued" as const };
+    // The Idempotency-Key: a hash over parts joined by a byte no identifier may hold, so it cannot collide (F1).
+    const deduplicationId = factoryNotificationIdempotencyKey(this.tenantId, notification.projectId, notification.id, destination);
+    const settled = refused === undefined ? { state: "queued" as const } : { state: "dead_letter" as const, failureCode: refused };
     await this.database.transaction((transaction) => sendQueue.enqueue(factoryNotificationSendStore(transaction, this.tenantId), {
       scope: this.tenantId,
-      deduplicationId: `${notification.projectId}:${notification.id}:${destination}`,
+      deduplicationId,
       inputHash,
       hashExisting: (record) => record.inputHash,
       create: () => ({
         id: randomUUID(), tenantId: this.tenantId, projectId: notification.projectId, notificationId: notification.id, destination,
-        deduplicationId: `${notification.projectId}:${notification.id}:${destination}`, inputHash, payload, expiresAt,
-        // One that cannot be sent is recorded in dead letter, and one that expired
-        // before it could be sent as cancelled: the fan-out never visits either again.
+        deduplicationId, inputHash, payload, expiresAt,
+        // One that cannot be sent is recorded in dead letter, so the fan-out never visits it again.
         ...settled,
         attempts: 0, maxAttempts: FACTORY_NOTIFICATION_SEND_BOUNDS.maxAttempts, availableAt: now, leaseUntil: 0, createdAt: now,
       }),
     }));
   }
 
-  private transact<Result>(work: (store: DurableDeliveryStore<FactoryNotificationSend>) => Promise<Result>): Promise<Result> {
+  private transact<Result>(work: (store: FactoryNotificationSendStore) => Promise<Result>): Promise<Result> {
     return this.database.transaction((transaction) => work(factoryNotificationSendStore(transaction, this.tenantId)));
   }
 
-  /** Claims one send and settles it. True when a send was claimed, whatever its outcome. */
+  /** Claims one send and settles it. True when a claim changed any row, whatever its outcome. */
   async sendOne(signal: AbortSignal): Promise<boolean> {
     signal.throwIfAborted();
     let claimedAny = false;
     const claim = async (): Promise<FactoryNotificationSend | null> => {
-      const claimed = await this.transact((store) => sendQueue.claim(store, this.tenantId, this.now(), this.leaseMs, { expiredLease: "reclaim" }));
+      let claimed: FactoryNotificationSend | null;
+      try {
+        claimed = await this.transact((store) => sendQueue.claim({
+          ...store,
+          // A claim that dead-letters an exhausted row is progress too: the worker must not back off while due rows wait.
+          write: async (record) => { claimedAny = true; await store.write(record); },
+        }, this.tenantId, this.now(), this.leaseMs, { expiredLease: "reclaim" }));
+      } catch (error) {
+        if ((error as { code?: unknown }).code !== "notification_send_corrupt") throw error;
+        // A stored send that no longer decodes is dead-lettered once, so the sends behind it still go (F2).
+        claimedAny = await this.transact((store) => store.quarantineCandidate(this.tenantId, this.now()));
+        return null;
+      }
       if (claimed === null) return null;
       claimedAny = true;
       // Expired, or its destination is no longer declared: cancelled under the
@@ -451,7 +498,13 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
     };
     const settled = await dispatchDurableDelivery<FactoryNotificationSend, "dead_letter">(
       claim,
-      (record, outcome, code) => this.transact((store) => sendQueue.settle(store, this.tenantId, record, this.now(), outcome, code)),
+      (record, outcome, code) => this.transact((store) => {
+        // Interrupted by this process's own shutdown: released, and no attempt is spent (N5, F8).
+        if (code === SHUTDOWN_RELEASED) return sendQueue.release(store, this.tenantId, record, this.now());
+        // A retryable failure on the last allowed attempt names the exhaustion, not the last answer (N6).
+        if (outcome === "retry" && record.attempts >= record.maxAttempts) return sendQueue.settle(store, this.tenantId, record, this.now(), "dead_letter", "attempts_exhausted");
+        return sendQueue.settle(store, this.tenantId, record, this.now(), outcome, code);
+      }),
       (record) => this.deliver(record, signal),
       retryCode,
       { start: this.heartbeat, renew: (record) => this.transact((store) => sendQueue.renew(store, this.tenantId, record, this.now(), this.leaseMs)) },
@@ -482,7 +535,7 @@ export class FactoryNotificationSender implements FactoryRoleDriver {
       }));
     } catch {
       // The transport's own error can quote the URL; only the code leaves.
-      throw new FactoryNotificationSendError(timeout.aborted ? "webhook_timeout" : "webhook_unreachable");
+      throw new FactoryNotificationSendError(signal.aborted ? SHUTDOWN_RELEASED : timeout.aborted ? "webhook_timeout" : "webhook_unreachable");
     }
     const failure = classifyFactoryWebhookStatus(status);
     if (failure !== null) throw failure;

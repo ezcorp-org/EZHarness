@@ -6,7 +6,7 @@ import { sql } from "drizzle-orm";
 import { releaseRows as rows } from "../../src/db/queries/extension-releases";
 import { durableInputHash } from "../../src/delivery-queue/durable-delivery-queue";
 import {
-  FACTORY_NOTIFICATION_SEND_BOUNDS, FactoryNotificationSender, factoryNotificationSendStore, type FactoryNotificationDestinationRuntime,
+  FACTORY_NOTIFICATION_SEND_BOUNDS, FactoryNotificationSender, factoryNotificationFanOutQuery, factoryNotificationSendStore, type FactoryNotificationDestinationRuntime,
 } from "../../src/factory/notification-sender";
 import { startTestWebhookReceiver, type TestWebhookReceiver } from "../../src/__tests__/helpers/factory-webhook-receiver";
 import { setupFactoryPostgres } from "./helpers/factory-test-database";
@@ -28,7 +28,8 @@ beforeAll(async () => {
   fixture = await setupFactoryPostgres();
   await fixture.db.execute(sql`INSERT INTO factory_installation(singleton,tenant_id,execution_epoch) VALUES (1,${TENANT},1)`);
   await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${PROJECT},'Notify',${`/tmp/${PROJECT}`})`);
-  receiver = await startTestWebhookReceiver({ secret: SECRET });
+  // The receiver keeps the test's clock, as the sender does, so its replay bound (N3) judges the same time.
+  receiver = await startTestWebhookReceiver({ secret: SECRET, now: () => clock });
 }, 60_000);
 afterAll(async () => { await receiver.stop(); await fixture.close(); });
 
@@ -42,9 +43,9 @@ beforeEach(async () => {
 afterEach(() => { receiver.onRequest(null); });
 
 /** Stores a notification exactly as `FactoryReleases` does, so the sender's decoder accepts it. */
-async function notification(kind: Kind, payload: Record<string, unknown>, options: { state?: string; createdAt?: number; subject?: string; project?: string } = {}): Promise<string> {
+async function notification(kind: Kind, payload: Record<string, unknown>, options: { state?: string; createdAt?: number; subject?: string; project?: string; id?: string } = {}): Promise<string> {
   const project = options.project ?? PROJECT;
-  const id = randomUUID();
+  const id = options.id ?? randomUUID();
   const subjectId = options.subject ?? `subject-${id.slice(0, 8)}`;
   const subject = kind === "command_approval_requested" ? { approvalId: subjectId } : { operationId: subjectId };
   const inputHash = durableInputHash({ kind, ...subject, payload });
@@ -83,13 +84,35 @@ describe("fan-out (C11 N1)", () => {
     expect(await sends()).toHaveLength(4);
   });
 
-  test("records a notification that expired before it could be sent as cancelled, and never sends it", async () => {
+  test("skips a notification already past its expiry: no send row, nothing sent", async () => {
     await notification("approval_requested", { approvalId: "approval-1", expiresAtMs: NOW - 1 });
+    await notification("release_uncertain", { code: "provider_response_unknown" }, { createdAt: NOW - FACTORY_NOTIFICATION_SEND_BOUNDS.expiryMs });
     const one = sender();
-    expect(await one.step(never)).toBe(true);
-    expect(await sends()).toMatchObject([{ state: "cancelled", failure_code: "notification_expired" }]);
-    expect(receiver.requests).toHaveLength(0);
     expect(await one.step(never)).toBe(false);
+    expect(await sends()).toEqual([]);
+    expect(receiver.requests).toHaveLength(0);
+  });
+
+  test("two notifications whose identifiers share a joined form each get their own send (F1)", async () => {
+    for (const project of ["a:b", "a"]) {
+      await fixture.db.execute(sql`INSERT INTO projects(id,name,path) VALUES (${project},'Colon',${`/tmp/${project}`}) ON CONFLICT DO NOTHING`);
+      await fixture.db.execute(sql`INSERT INTO factory_projects(tenant_id,project_id) VALUES (${TENANT},${project}) ON CONFLICT DO NOTHING`);
+    }
+    // project "a:b" with notification "c", and project "a" with notification "b:c": both join to "a:b:c".
+    await notification("release_uncertain", { code: "provider_response_unknown" }, { project: "a:b", id: "c" });
+    await notification("release_uncertain", { code: "provider_response_unknown" }, { project: "a", id: "b:c" });
+    expect(await sender().fanOut(never)).toBe(true);
+    expect((await sends()).map((row) => row.notification_id).sort()).toEqual(["b:c", "c"]);
+    await fixture.db.execute(sql`DELETE FROM factory_notification_sends`);
+    await fixture.db.execute(sql`DELETE FROM factory_notifications WHERE project_id IN ('a:b','a')`);
+  });
+
+  test("the fan-out finds existing sends through the index on (tenant, project, notification, destination) (F5)", async () => {
+    const plan = await fixture.db.transaction(async (transaction) => {
+      await transaction.execute(sql`SET LOCAL enable_seqscan = off`);
+      return rows<Record<string, string>>(await transaction.execute(sql`EXPLAIN ${factoryNotificationFanOutQuery(TENANT, "operators", NOW)}`)).map((row) => Object.values(row)[0]).join("\n");
+    });
+    expect(plan).toContain("idx_factory_notification_sends_notification");
   });
 
   test("a notification that cannot be sent is recorded as a dead-letter send once, and the fan-out moves on", async () => {
@@ -105,11 +128,12 @@ describe("fan-out (C11 N1)", () => {
     const one = sender();
     expect(await one.fanOut(never)).toBe(true);
     const found = rows<{ notification_id: string; state: string; failure_code: string | null }>(await fixture.db.execute(sql`SELECT notification_id,state,failure_code FROM factory_notification_sends ORDER BY state`));
-    expect([...found].sort((left, right) => `${left.state}${left.failure_code}`.localeCompare(`${right.state}${right.failure_code}`))).toEqual([
-      { notification_id: corrupt, state: "dead_letter", failure_code: "factory_notification_corrupt" },
-      { notification_id: refused, state: "dead_letter", failure_code: "notification_payload_too_large" },
+    const byJson = (left: unknown, right: unknown) => JSON.stringify(left).localeCompare(JSON.stringify(right));
+    expect([...found].sort(byJson)).toEqual([
+      { notification_id: corrupt, state: "dead_letter", failure_code: "notification_payload_invalid" },
+      { notification_id: refused, state: "dead_letter", failure_code: "notification_payload_invalid" },
       { notification_id: sendable, state: "queued", failure_code: null },
-    ]);
+    ].sort(byJson));
     expect(await one.fanOut(never)).toBe(false);
     expect(await one.step(never)).toBe(true);
     expect(receiver.requests).toHaveLength(1);
@@ -181,9 +205,40 @@ describe("sending (C11 N3, N5, N6)", () => {
     await sender().fanOut(never);
     await fixture.db.execute(sql`UPDATE factory_notification_sends SET attempts=${FACTORY_NOTIFICATION_SEND_BOUNDS.maxAttempts}`);
     receiver.answer(200);
-    expect(await sender().sendOne(never)).toBe(false);
+    // A claim that dead-letters an exhausted row is progress: the worker does not back off while due rows wait.
+    expect(await sender().sendOne(never)).toBe(true);
     expect(await sends()).toMatchObject([{ state: "dead_letter", failure_code: "attempts_exhausted" }]);
     expect(receiver.requests).toHaveLength(1);
+  });
+
+  test("a retryable failure on the last allowed attempt settles attempts_exhausted, not its retry code", async () => {
+    await notification("release_uncertain", { code: "provider_response_unknown" });
+    await sender().fanOut(never);
+    await fixture.db.execute(sql`UPDATE factory_notification_sends SET attempts=${FACTORY_NOTIFICATION_SEND_BOUNDS.maxAttempts - 1}`);
+    receiver.answer(503);
+    expect(await sender().sendOne(never)).toBe(true);
+    expect(await sends()).toMatchObject([{ state: "dead_letter", attempts: FACTORY_NOTIFICATION_SEND_BOUNDS.maxAttempts, failure_code: "attempts_exhausted" }]);
+  });
+
+  test("a send interrupted by this process's shutdown is released without spending an attempt (F8)", async () => {
+    await notification("release_uncertain", { code: "provider_response_unknown" });
+    await sender().fanOut(never);
+    const stopping = new AbortController();
+    receiver.onRequest(async () => { stopping.abort(); await Bun.sleep(50); });
+    await sender().sendOne(stopping.signal);
+    receiver.onRequest(null);
+    expect(await sends()).toMatchObject([{ state: "queued", attempts: 0, available_at: String(NOW), lease_until: "0" }]);
+    expect(await sender().sendOne(never)).toBe(true);
+    expect(await sends()).toMatchObject([{ state: "delivered", attempts: 1 }]);
+  });
+
+  test("the send half still runs when the fan-out fails, and the fault is still reported", async () => {
+    await notification("release_uncertain", { code: "provider_response_unknown" });
+    await sender().fanOut(never);
+    const one = sender();
+    one.fanOut = async () => { throw new Error("fan-out fault"); };
+    await expect(one.step(never)).rejects.toThrow("fan-out fault");
+    expect(await sends()).toMatchObject([{ state: "delivered" }]);
   });
 
   test("cancels a send whose destination is no longer declared, and one that expired while queued", async () => {
@@ -199,16 +254,27 @@ describe("sending (C11 N3, N5, N6)", () => {
     expect(receiver.requests).toHaveLength(0);
   });
 
-  test("a corrupt send row is refused by name, not sent", async () => {
-    await notification("release_uncertain", { code: "provider_response_unknown" });
+  test("a corrupt send row is dead-lettered once and the sends behind it still go (F2)", async () => {
+    const first = await notification("release_uncertain", { code: "provider_response_unknown" }, { createdAt: NOW - 1 });
+    const second = await notification("release_uncertain", { code: "provider_response_unknown" });
     await sender().fanOut(never);
+    await fixture.db.execute(sql`UPDATE factory_notification_sends SET input_hash=${`sha256:${"0".repeat(64)}`} WHERE notification_id=${first}`);
+    const one = sender();
+    expect(await one.sendOne(never)).toBe(true);
+    expect(await one.sendOne(never)).toBe(true);
+    expect((await sends()).map((row) => [row.notification_id, row.state, row.failure_code]).sort()).toEqual([
+      [first, "dead_letter", "notification_send_corrupt"], [second, "delivered", null],
+    ].sort());
+    expect(receiver.requests).toHaveLength(1);
     await fixture.db.execute(sql`UPDATE factory_notification_sends SET payload=${"{\"schema\":\"forged\"}"}`);
-    await expect(sender().sendOne(never)).rejects.toMatchObject({ code: "notification_send_corrupt" });
-    expect(receiver.requests).toHaveLength(0);
     const store = factoryNotificationSendStore(fixture.db as never, TENANT);
     await expect(store.inspect("another-tenant", "x")).rejects.toMatchObject({ code: "notification_send_scope" });
-    await fixture.db.execute(sql`UPDATE factory_notification_sends SET payload='not json'`);
+    // A payload that is not JSON at all is refused by name at the store too, and the quarantine takes it.
+    await fixture.db.execute(sql`UPDATE factory_notification_sends SET payload='not json', state='queued', available_at=${clock}`);
     await expect(store.claimCandidate(TENANT, clock)).rejects.toMatchObject({ code: "notification_send_corrupt" });
+    expect(await store.quarantineCandidate(TENANT, clock)).toBe(true);
+    expect(await store.quarantineCandidate(TENANT, clock)).toBe(true);
+    expect(await store.quarantineCandidate(TENANT, clock)).toBe(false);
   });
 });
 
@@ -255,6 +321,8 @@ describe("re-drive after a lost settlement (C11 N7)", () => {
   });
 
   test("a sender process killed between the send and the settlement is re-driven once, logically", async () => {
+    // The child signs on the real clock; so does the receiver for this test.
+    clock = Date.now();
     await notification("approval_requested", { approvalId: "approval-1", expiresAtMs: Date.now() + 3_600_000 }, { createdAt: Date.now() });
     const leaseMs = 1_000;
     const child = Bun.spawn([process.execPath, join(import.meta.dir, "helpers", "notification-send-child.ts")], {
@@ -277,9 +345,10 @@ describe("re-drive after a lost settlement (C11 N7)", () => {
     expect(await realClock.sendOne(never)).toBe(true);
     expect(await sends()).toMatchObject([{ state: "delivered", attempts: 2 }]);
     expect(receiver.requests).toHaveLength(2);
+    // Two physical requests, one logical delivery: the receiver deduplicated on the key.
+    expect(receiver.logical().size).toBe(1);
     expect(receiver.requests[0]!.idempotencyKey).not.toBeNull();
     expect(receiver.requests[0]!.idempotencyKey).toBe(receiver.requests[1]!.idempotencyKey);
     expect(receiver.requests[0]!.deliveryId).toBe(receiver.requests[1]!.deliveryId);
-    expect(receiver.logical().size).toBe(1);
   });
 });

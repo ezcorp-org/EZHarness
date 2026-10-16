@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { canonicalJson } from "@ezcorp/extension-contract";
 import type { FactoryNotification } from "./releases";
 import {
-  FACTORY_NOTIFICATION_HEADERS, FACTORY_NOTIFICATION_SCHEMA, FACTORY_NOTIFICATION_SEND_BOUNDS, FACTORY_NOTIFICATION_SEND_CODES,
+  FACTORY_NOTIFICATION_HEADERS, FACTORY_NOTIFICATION_SCHEMA, FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S, FACTORY_NOTIFICATION_SEND_BOUNDS, FACTORY_NOTIFICATION_SEND_CODES,
   FactoryNotificationSendError, FactoryNotificationSender, classifyFactoryWebhookStatus, factoryNotificationIdempotencyKey,
   composeFactoryNotificationSender, factoryNotificationPayload, fetchFactoryWebhook, loadFactoryNotificationDestinations, signFactoryNotification,
 } from "./notification-sender";
@@ -93,7 +93,7 @@ describe("the notification payload (C11 N4, N9)", () => {
     }
     const quotes = '"'.repeat(512);
     const huge = notification({ kind: "approval_requested", projectId: quotes, operationId: quotes, payload: { approvalId: quotes } });
-    expect(() => factoryNotificationPayload(huge, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_too_large", deadLetter: true }));
+    expect(() => factoryNotificationPayload(huge, "operators")).toThrow(expect.objectContaining({ code: "notification_payload_invalid", deadLetter: true }));
   });
 
   test("the idempotency key is stable per notification and destination, and differs across them", () => {
@@ -135,7 +135,7 @@ describe("the settlement of a webhook answer (C11 N6)", () => {
       const error = classifyFactoryWebhookStatus(status);
       if (error) expect(declared.has(error.code)).toBe(true);
     }
-    for (const code of ["notification_payload_invalid", "notification_payload_too_large", "factory_notification_corrupt"]) expect(declared.has(code)).toBe(true);
+    for (const code of ["attempts_exhausted", "notification_payload_invalid", "notification_send_corrupt"]) expect(declared.has(code)).toBe(true);
     expect(new FactoryNotificationSendError("webhook_unreachable").message).not.toContain("https://");
   });
 });
@@ -147,7 +147,7 @@ describe("the HTTPS transport", () => {
 
   test("posts the body and headers over TLS with the declared CA, and answers the status", async () => {
     receiver.answer(202);
-    const answer = await fetchFactoryWebhook({ url: receiver.url, ca: receiver.ca, headers: { "content-type": "application/json", [FACTORY_NOTIFICATION_HEADERS.idempotency]: "fn1-x" }, body: "{\"a\":1}", signal: AbortSignal.timeout(5_000) });
+    const answer = await fetchFactoryWebhook({ url: receiver.url, ca: receiver.ca, headers: { "content-type": "application/json", [FACTORY_NOTIFICATION_HEADERS.idempotency]: "fn1-x", [FACTORY_NOTIFICATION_HEADERS.timestamp]: String(Math.floor(Date.now() / 1000)) }, body: "{\"a\":1}", signal: AbortSignal.timeout(5_000) });
     expect(answer).toEqual({ status: 202 });
     expect(receiver.requests.at(-1)).toMatchObject({ body: "{\"a\":1}", idempotencyKey: "fn1-x" });
   });
@@ -159,7 +159,7 @@ describe("the HTTPS transport", () => {
   test("does not follow a redirect", async () => {
     receiver.answer(302);
     const before = receiver.requests.length;
-    expect(await fetchFactoryWebhook({ url: receiver.url, ca: receiver.ca, headers: {}, body: "{}", signal: AbortSignal.timeout(5_000) })).toEqual({ status: 302 });
+    expect(await fetchFactoryWebhook({ url: receiver.url, ca: receiver.ca, headers: { [FACTORY_NOTIFICATION_HEADERS.timestamp]: String(Math.floor(Date.now() / 1000)) }, body: "{}", signal: AbortSignal.timeout(5_000) })).toEqual({ status: 302 });
     expect(receiver.requests.length).toBe(before + 1);
   });
 });
@@ -215,5 +215,35 @@ describe("loading the declared destinations (C11 N8, N9)", () => {
     expect(composed.held).toBeUndefined();
     expect(composed.sender?.confirmation.confirmed()).toBe(false);
     expect(composed.sender?.confirmation.pendingReason).toContain("no receiver has confirmed");
+  });
+});
+
+describe("the receiver's replay bound (C11 N3)", () => {
+  const secret = new TextEncoder().encode("r".repeat(32));
+  let clockS = 1_700_000_000;
+  let receiver: TestWebhookReceiver;
+  beforeAll(async () => { receiver = await startTestWebhookReceiver({ secret, now: () => clockS * 1000 }); });
+  afterAll(async () => { await receiver.stop(); });
+
+  const post = (timestamp: number, key: string) => {
+    const body = JSON.stringify({ key });
+    return fetchFactoryWebhook({ url: receiver.url, ca: receiver.ca, body, signal: AbortSignal.timeout(5_000), headers: {
+      [FACTORY_NOTIFICATION_HEADERS.signature]: signFactoryNotification(secret, timestamp, body),
+      [FACTORY_NOTIFICATION_HEADERS.timestamp]: String(timestamp),
+      [FACTORY_NOTIFICATION_HEADERS.idempotency]: key,
+    } });
+  };
+
+  test("accepts a fresh signed request once, deduplicates its replay, and rejects one older than the tolerance", async () => {
+    expect(FACTORY_NOTIFICATION_SIGNATURE_TOLERANCE_S).toBe(300);
+    expect(await post(clockS, "fn1-a")).toEqual({ status: 200 });
+    expect(await post(clockS, "fn1-a")).toEqual({ status: 200 });
+    expect([...receiver.logical()]).toEqual(["fn1-a"]);
+    // The same signed message replayed past the tolerance, or one dated in the future past it, is refused.
+    expect(await post(clockS - 301, "fn1-b")).toEqual({ status: 401 });
+    expect(await post(clockS + 301, "fn1-c")).toEqual({ status: 401 });
+    expect(await post(clockS - 300, "fn1-d")).toEqual({ status: 200 });
+    expect([...receiver.logical()].sort()).toEqual(["fn1-a", "fn1-d"]);
+    expect(receiver.requests.map((request) => request.timestampValid)).toEqual([true, true, false, false, true]);
   });
 });
