@@ -21,7 +21,7 @@ import type { SQL } from "bun";
 import { openBunSql } from "../../db/bun-sql-pipelining";
 import { FactoryProvisioningLedger, type FactoryInstallationRecord, type FactoryStepRecord } from "./ledger";
 import { assertFactoryInstallationRequest, factoryInstallationNames, type FactoryInstallationContext, type FactoryInstallationRequest, type FactoryProvisioningDriver, type FactoryStepResources } from "./installation";
-import { escrowFactoryArchiveKey } from "./secrets";
+import { escrowFactoryArchiveKey, type FactoryMasterKeyDriver } from "./secrets";
 import { FACTORY_PROVISIONING_STEPS, FactoryProvisioningError, factoryPhaseServesTraffic, factoryStepFailure, type FactoryInstallationPhase, type FactoryProvisioningStepName, type FactoryStepFailure } from "./steps";
 
 /** v1 names, kept so existing callers still compile against the extended provisioner. */
@@ -48,7 +48,7 @@ export interface FactoryProvisioningDrivers {
   readonly database: FactoryPurgeableDriver & { readonly step: "database" };
   readonly storage: FactoryPurgeableDriver & { readonly step: "storage" };
   readonly temporal: FactoryProvisioningDriver & { readonly step: "temporal" };
-  readonly secrets: FactoryProvisioningDriver & { readonly step: "secrets" };
+  readonly secrets: FactoryProvisioningDriver & FactoryMasterKeyDriver & { readonly step: "secrets" };
   readonly deployment: FactoryDeploymentDriver;
   readonly ingress: FactoryIngressDriver;
   readonly invitation: FactoryProvisioningDriver & { readonly step: "invitation" };
@@ -300,18 +300,52 @@ export class LocalFactoryProvisioner {
    * the old credential in force.
    */
   async rotate(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">, who?: FactoryOperationActor): Promise<LocalInstallation> {
+    const driver = this.driver(step);
+    if (!driver.rotate) throw new FactoryProvisioningError("provisioning_rotation_unsupported", `Step ${step} has no credential to rotate.`);
+    return this.rotateWith(tenantId, step, who, { step }, (installation, resources) => driver.rotate!(installation, resources));
+  }
+
+  /**
+   * Rotate the operator master key of step 4 (C12 "Key rotation and
+   * revocation"): the same guard, record and redelivery as any rotation, so
+   * the orchestrator receives the new key and wrap file and nothing else does.
+   * A rerun after an interruption completes the same rotation.
+   */
+  async rotateMasterKey(tenantId: string, who?: FactoryOperationActor): Promise<LocalInstallation> {
+    return this.rotateWith(tenantId, "secrets", who, { step: "secrets", key: "master" }, (installation, resources) => this.options.drivers.secrets.rotateMasterKey(installation, resources));
+  }
+
+  /** Revoke a superseded master key of step 4. Nothing is redelivered: the orchestrator holds only the current key. */
+  async revokeMasterKey(tenantId: string, version: number, who?: FactoryOperationActor): Promise<LocalInstallation> {
     return this.ledger.locked(tenantId, async () => {
-      const record = await this.ledger.installation(tenantId);
-      if (!record || PHASE_RANK[record.phase] < PHASE_RANK.resources_prepared || PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_phase_forbidden", `Credentials of ${tenantId} cannot be rotated in its current phase.`);
-      const installation = this.context(record);
-      const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
-      const driver = this.driver(step);
-      if (!driver.rotate) throw new FactoryProvisioningError("provisioning_rotation_unsupported", `Step ${step} has no credential to rotate.`);
-      if (steps.get(step)!.state !== "complete") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Step ${step} of ${tenantId} is not complete and cannot be rotated.`);
-      await this.attribute(tenantId, "rotate", who, { step });
+      const { installation, steps } = await this.rotatable(tenantId, "secrets");
+      await this.attribute(tenantId, "revoke-master-key", who, { step: "secrets", version: String(version) });
+      try { await this.options.drivers.secrets.revokeMasterKey(installation, steps.get("secrets")!.resources, version); }
+      catch (error) {
+        await this.ledger.event({ tenantId, step: "secrets", event: "step.revocation_failed", detail: { code: factoryStepFailure(error).code } });
+        throw error;
+      }
+      await this.ledger.event({ tenantId, step: "secrets", event: "step.master_key_revoked", detail: { version: String(version) } });
+      return this.summary(tenantId);
+    });
+  }
+
+  /** An installation whose credentials may change now, and its completed `step`. */
+  private async rotatable(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">) {
+    const record = await this.ledger.installation(tenantId);
+    if (!record || PHASE_RANK[record.phase] < PHASE_RANK.resources_prepared || PHASE_RANK[record.phase] >= PHASE_RANK.tearing_down) throw new FactoryProvisioningError("provisioning_phase_forbidden", `Credentials of ${tenantId} cannot be rotated in its current phase.`);
+    const steps = new Map((await this.ledger.steps(tenantId)).map((entry) => [entry.step, entry]));
+    if (steps.get(step)!.state !== "complete") throw new FactoryProvisioningError("provisioning_phase_forbidden", `Step ${step} of ${tenantId} is not complete and cannot be rotated.`);
+    return { installation: this.context(record), steps };
+  }
+
+  private async rotateWith(tenantId: string, step: Exclude<FactoryProvisioningStepName, "ingress">, who: FactoryOperationActor | undefined, detail: Readonly<Record<string, string>>, work: (installation: FactoryInstallationContext, resources: FactoryStepResources) => Promise<FactoryStepResources>): Promise<LocalInstallation> {
+    return this.ledger.locked(tenantId, async () => {
+      const { installation, steps } = await this.rotatable(tenantId, step);
+      await this.attribute(tenantId, "rotate", who, detail);
       const deployment = steps.get("deployment")!;
       try {
-        const rotated = await driver.rotate(installation, steps.get(step)!.resources);
+        const rotated = await work(installation, steps.get(step)!.resources);
         await this.ledger.stepCompleted(tenantId, step, rotated);
         if (step !== "deployment" && step !== "invitation" && deployment.state === "complete") await this.options.drivers.deployment.redeliver(installation, deployment.resources);
       } catch (error) {

@@ -17,6 +17,7 @@ import {
   FACTORY_SUPERVISOR_FACT_STALENESS_HEARTBEATS,
   FACTORY_SUPERVISOR_PROBE_TIMEOUT_HEARTBEATS,
   parseFactorySupervisorProcessConfig,
+  factoryContainerRuntimeSocketPresent,
   factoryHostRunnerProbe,
   factoryProvisionedRunnerLoader,
   runConfiguredFactorySupervisor,
@@ -339,6 +340,33 @@ describe("runConfiguredFactorySupervisor", () => {
       createReadiness: until("degraded:runner_unavailable"),
     }, BACKSTOP_CADENCE_WAITS));
     expect(published.some((entry) => entry === "degraded:runner_unavailable")).toBe(true);
+
+    // The hosted DaemonSet's node socket is absent (W4H-35, C12 row "Supervisor container runtime"): named, and the runner is never probed.
+    published.length = 0;
+    abortController = new AbortController();
+    let probed = false;
+    await runConfiguredFactorySupervisor(path, abortController.signal, dependencies({
+      loadHostKey: slowHostKey,
+      runtimeSocket: async () => false,
+      createRunnerProbe: () => ({ probe: async () => { probed = true; }, instance: () => undefined, close: async () => {} }),
+      createReadiness: until("degraded:container_runtime_socket_missing"),
+    }, BACKSTOP_CADENCE_WAITS));
+    expect(published.some((entry) => entry === "degraded:container_runtime_socket_missing")).toBe(true);
+    expect(probed).toBe(false);
+  });
+
+  test("a CONTAINER_HOST unix socket must exist and be a socket; no CONTAINER_HOST, or another scheme, is not this check's (W4H-35)", async () => {
+    const root = await privateRoot();
+    const socket = join(root, "podman.sock");
+    const listener = Bun.listen({ unix: socket, socket: { data() {} } });
+    try {
+      expect(await factoryContainerRuntimeSocketPresent({})).toBe(true);
+      expect(await factoryContainerRuntimeSocketPresent({ CONTAINER_HOST: "tcp://10.0.0.1:8080" })).toBe(true);
+      expect(await factoryContainerRuntimeSocketPresent({ CONTAINER_HOST: `unix://${socket}` })).toBe(true);
+      expect(await factoryContainerRuntimeSocketPresent({ CONTAINER_HOST: `unix://${join(root, "absent.sock")}` })).toBe(false);
+      await writeFile(join(root, "plain"), "x");
+      expect(await factoryContainerRuntimeSocketPresent({ CONTAINER_HOST: `unix://${join(root, "plain")}` })).toBe(false);
+    } finally { listener.stop(true); }
   });
 
   test("takes no observation at all when the signal has already aborted, and still records why", async () => {

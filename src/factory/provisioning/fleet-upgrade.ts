@@ -40,6 +40,7 @@ import type { FactoryInstallationContext } from "./installation";
 import { FactoryProvisioningLedger } from "./ledger";
 import type { FactoryWorkCensus } from "./local";
 import { FactoryProvisioningError, factoryStepFailure, type FactoryInstallationPhase, type FactoryStepFailure } from "./steps";
+import { factoryImagePinned } from "./image-pin";
 
 export const FACTORY_UPGRADE_COMPONENTS = ["host", "orchestrator", "harness"] as const;
 export type FactoryUpgradeComponent = typeof FACTORY_UPGRADE_COMPONENTS[number];
@@ -59,6 +60,33 @@ export type FactoryInstallationBuilds = Readonly<Record<FactoryUpgradeComponent,
 export interface FactoryUpgradeTarget {
   apply(installation: FactoryInstallationContext, component: FactoryUpgradeComponent, builds: FactoryInstallationBuilds): Promise<void>;
   ready(installation: FactoryInstallationContext): Promise<void>;
+}
+
+/** How one deployment profile moves an installation's own components and waits for them. */
+export interface FactoryUpgradeDeployer<Bundle> {
+  component(bundle: Bundle, component: Exclude<FactoryUpgradeComponent, "host">): Promise<void>;
+  ready(bundle: Bundle): Promise<void>;
+}
+
+/**
+ * The upgrade target of any deployment profile: the host component moves the
+ * fleet host (once per fleet), every other component is the profile's own.
+ */
+export class FactoryProfileUpgradeTarget<Bundle> implements FactoryUpgradeTarget {
+  constructor(
+    private readonly bundle: (installation: FactoryInstallationContext) => Promise<Bundle>,
+    private readonly deployer: FactoryUpgradeDeployer<Bundle>,
+    private readonly host: { useBuild(build: { readonly image: string; readonly revision: string; readonly release: string }): Promise<void> },
+  ) {}
+
+  async apply(installation: FactoryInstallationContext, component: FactoryUpgradeComponent, builds: FactoryInstallationBuilds): Promise<void> {
+    if (component === "host") { await this.host.useBuild({ image: builds.host.image, revision: builds.host.revision, release: builds.host.releaseDirectory }); return; }
+    await this.deployer.component(await this.bundle(installation), component);
+  }
+
+  async ready(installation: FactoryInstallationContext): Promise<void> {
+    await this.deployer.ready(await this.bundle(installation));
+  }
 }
 
 export interface FactoryUpgradeWaveResult {
@@ -122,7 +150,7 @@ export class FactoryFleetUpgrades {
   }
 
   async register(build: FactoryBuild): Promise<void> {
-    if (!BUILD_ID.test(build.buildId) || !/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(build.image) || !/^[a-f0-9]{40}$/.test(build.revision)) throw new FactoryProvisioningError("upgrade_build_invalid", "A build is a pinned image, a full revision, and a release directory.");
+    if (!BUILD_ID.test(build.buildId) || !factoryImagePinned(build.image) || !/^[a-f0-9]{40}$/.test(build.revision)) throw new FactoryProvisioningError("upgrade_build_invalid", "A build is a pinned image, a full revision, and a release directory.");
     await this.sql`INSERT INTO factory_fleet_builds(build_id, image, revision, release_directory) VALUES (${build.buildId}, ${build.image}, ${build.revision}, ${build.releaseDirectory}) ON CONFLICT (build_id) DO NOTHING`;
     const stored = await this.build(build.buildId);
     if (stored.image !== build.image || stored.revision !== build.revision || stored.releaseDirectory !== build.releaseDirectory) throw new FactoryProvisioningError("upgrade_build_conflict", `Build ${build.buildId} is already registered with different content.`);

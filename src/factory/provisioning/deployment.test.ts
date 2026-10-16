@@ -62,11 +62,17 @@ const MESH_FILE_NAMES = Object.values(FACTORY_MESH_FILES);
 
 const marker = (name: string) => `marker:${name}\n`;
 
+/** The wrap file as step 4 leaves it, under master-key `version`; its wrapped key is the marker, so a copy stays traceable. */
+const wrapsMarker = (installation: Pick<FactoryInstallationContext, "installationId">, version = 1) => `${JSON.stringify({
+  schemaVersion: "factory.key-wraps.v1", installationId: installation.installationId,
+  wraps: [{ installationId: installation.installationId, wrapVersion: version, masterKeyId: `master-${installation.installationId}-v${version}`, wrappedDataKey: Buffer.from(marker(FACTORY_KEY_FILES.wraps)).toString("base64") }],
+})}\n`;
+
 /** Seed every file a delivery copies, the way the earlier steps (and the fleet host) would have left them. */
 async function seedInstallationFiles(installation: FactoryInstallationContext, options: { readonly mesh: boolean; readonly runtimeRoot: string }): Promise<{ readonly product: string; readonly pool: string }> {
   const passwords = await writeFactoryTestDatabaseCredentials(installation);
   await writeFactoryTestHostMaterial(makeFactoryTestHostFacts(options.runtimeRoot));
-  for (const name of [...TENANT_SECRET_FILES, ...(options.mesh ? MESH_FILE_NAMES : [])]) await writeModeFile(join(installation.secretDirectory, name), marker(name));
+  for (const name of [...TENANT_SECRET_FILES, ...(options.mesh ? MESH_FILE_NAMES : [])]) await writeModeFile(join(installation.secretDirectory, name), name === FACTORY_KEY_FILES.wraps ? wrapsMarker(installation) : marker(name));
   await mkdir(installation.operatorDirectory, { recursive: true, mode: 0o700 });
   await chmod(installation.operatorDirectory, 0o700);
   await writeModeFile(join(installation.operatorDirectory, FACTORY_KEY_FILES.master), marker(FACTORY_KEY_FILES.master));
@@ -143,6 +149,37 @@ describe("renderFactoryInstallationBundle", () => {
     expect(holders(FACTORY_KEY_FILES.master)).toEqual(["orchestrator"]);
     expect(holders(FACTORY_KEY_FILES.wraps)).toEqual(["orchestrator"]);
     expect(bundle.deliveries.orchestrator.files[FACTORY_KEY_FILES.master]).toEqual({ source: join(installation.operatorDirectory, FACTORY_KEY_FILES.master) });
+  });
+
+  test("after a master-key rotation, the orchestrator receives the current key under the same name, and every document names its id", async () => {
+    const rotated = makeFactoryTestInstallation(root, { tenantId: "tenant-02" });
+    await seedInstallationFiles(rotated, { mesh: true, runtimeRoot: join(root, "runtime") });
+    await writeModeFile(join(rotated.secretDirectory, FACTORY_KEY_FILES.wraps), wrapsMarker(rotated, 2));
+    await writeModeFile(join(rotated.operatorDirectory, "master-v2.key"), marker("master-v2.key"));
+    const current = await renderFactoryInstallationBundle(rotated, makeFactoryTestDeploymentSettings(join(root, "runtime")));
+    expect(current.deliveries.orchestrator.files[FACTORY_KEY_FILES.master]).toEqual({ source: join(rotated.operatorDirectory, "master-v2.key") });
+    const startup = (current.deliveries.harness.files["factory-startup.json"] as { document: { keys: { masterKeyId: string } } }).document;
+    const orchestrator = (current.deliveries.orchestrator.files["orchestrator.json"] as { document: { codec: { masterKeyId: string; masterKeyFilePath: string } } }).document;
+    expect(startup.keys.masterKeyId).toBe(`master-${rotated.installationId}-v2`);
+    expect(orchestrator.codec.masterKeyId).toBe(`master-${rotated.installationId}-v2`);
+    expect(orchestrator.codec.masterKeyFilePath.endsWith(`/${FACTORY_KEY_FILES.master}`)).toBe(true);
+  });
+
+  test("hosted: the pool and supervisor are dialled at their service addresses, verified as the host certificate's name, and their readiness is read over the network (W4H-35)", async () => {
+    const hosted = makeFactoryTestInstallation(root, { tenantId: "tenant-04" });
+    await seedInstallationFiles(hosted, { mesh: true, runtimeRoot: join(root, "runtime") });
+    const base = makeFactoryTestDeploymentSettings(join(root, "runtime"));
+    const hostAddresses = { pool: "https://factory-pool.ezcorp-factory-system.svc.cluster.local:41002", supervisor: "https://factory-supervisor.ezcorp-factory-system.svc.cluster.local:41003" };
+    const rendered = await renderFactoryInstallationBundle(hosted, { ...base, network: { ...base.network, hostAddresses } });
+    const startup = (rendered.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> & { pool: Record<string, unknown>; hostLaunch: Record<string, unknown> } }).document;
+    expect(startup.hostReadiness).toBe("network");
+    expect(startup.poolReadinessFilePath).toBeUndefined();
+    expect(startup.supervisorReadinessFilePath).toBeUndefined();
+    expect([startup.pool.baseUrl, startup.pool.serverName]).toEqual([hostAddresses.pool, "localhost"]);
+    expect([startup.hostLaunch.baseUrl, startup.hostLaunch.serverName]).toEqual([hostAddresses.supervisor, "localhost"]);
+    // The Compose rendering is unchanged.
+    const compose = (bundle.deliveries.harness.files["factory-startup.json"] as { document: Record<string, unknown> & { pool: Record<string, unknown> } }).document;
+    expect([compose.hostReadiness, compose.pool.serverName, typeof compose.poolReadinessFilePath]).toEqual([undefined, undefined, "string"]);
   });
 
   test("no installation delivery holds a pool, a supervisor, or the host signing key; the harness gets the host's public material", () => {
@@ -512,7 +549,7 @@ describe("writeFactoryDeliveries", () => {
   test("source entries are copied byte for byte, documents as JSON, texts verbatim", async () => {
     const orchestrator = await filesIn(bundle.deliveries.orchestrator.directory);
     expect(orchestrator[FACTORY_KEY_FILES.master]).toBe(marker(FACTORY_KEY_FILES.master));
-    expect(orchestrator[FACTORY_KEY_FILES.wraps]).toBe(marker(FACTORY_KEY_FILES.wraps));
+    expect(orchestrator[FACTORY_KEY_FILES.wraps]).toBe(wrapsMarker(installation));
     const harness = await filesIn(bundle.deliveries.harness.directory);
     expect(JSON.parse(harness["factory-startup.json"]!)).toEqual(JSON.parse(JSON.stringify((bundle.deliveries.harness.files["factory-startup.json"] as { document: unknown }).document)));
     expect(harness[FACTORY_HOST_FILES.caCertificate]).toBe(`marker:${FACTORY_HOST_FILES.caCertificate}\n`);

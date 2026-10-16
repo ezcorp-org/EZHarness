@@ -4,7 +4,11 @@
  *
  *   FACTORY_TEST_POSTGRES_URL=... EZCORP_FACTORY_STORAGE_SECRETS_DIR=... \
  *     bun scripts/factory-fleet-init-local.ts --fleet w16 --root $HOME/.ezcorp-factory-w16 \
- *       --image localhost/ezcorp-factory@sha256:... --revision <40-hex> [--port-base 31000]
+ *       --image localhost/ezcorp-factory@sha256:... --revision <40-hex> [--port-base 31000] \
+ *       [--gpu-profiles <private gpu-host-profiles.json>]
+ *
+ * Without `--gpu-profiles` the fleet's resource profile is `cpu-only`; with it,
+ * `gpu`, and this host is the pool's one GPU host (the file must declare it).
  *
  * The work is `writeFactoryLocalFleet` in src/factory/provisioning/fleet-cli.ts.
  * The shared stores are used as they are: nothing here starts, stops, or
@@ -23,6 +27,8 @@ import { writeFactoryLocalFleet, type FactoryLocalFleetOptions } from "../src/fa
  * runner, named exactly as the definition names them (W4H-26, W4H-28). generateCandidate pins the C10
  * model with tokens 50,000; the installation's `modelProvider` is that same pin.
  */
+/** The CPU slots the local fleet's shared pool offers to all its installations. */
+const LOCAL_CPU_CAPACITY = 2;
 const CPU_ALLOCATION = { resources: { cpu: 1 }, memoryBytes: 1_073_741_824, budget: { costMicros: "1000000", tokens: 50_000, computeMs: 600_000 } };
 const referenceRunners = referenceCodeV1.graph.nodes.flatMap((node) => node.kind === "task" ? [{ ...node.runner }] : []);
 export const LOCAL_MODEL_PROVIDER = Object.freeze({ ...referenceModelPin });
@@ -67,11 +73,13 @@ export function factoryFleetInitOptions(argv: readonly string[], env: Readonly<R
     if (!value) throw new Error(`${name} is required`);
     return value;
   };
+  const gpuProfiles = argv.indexOf("--gpu-profiles") === -1 ? undefined : resolve(flag("--gpu-profiles"));
   if (!env.FACTORY_TEST_POSTGRES_URL || !env.EZCORP_FACTORY_STORAGE_SECRETS_DIR) throw new Error("FACTORY_TEST_POSTGRES_URL and EZCORP_FACTORY_STORAGE_SECRETS_DIR are required");
   return {
     fleetId: flag("--fleet"), root: resolve(flag("--root")), image: flag("--image"), revision: flag("--revision"), portBase: Number(flag("--port-base", "31000")),
     adminUrl: env.FACTORY_TEST_POSTGRES_URL, storageSecretsDirectory: env.EZCORP_FACTORY_STORAGE_SECRETS_DIR,
-    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, modelProvider: LOCAL_MODEL_PROVIDER, ...(LOCAL_RELEASE.release === undefined ? {} : { release: LOCAL_RELEASE.release }),
+    releaseDirectory: resolve(import.meta.dir, ".."), bun, runnerProfiles: LOCAL_RUNNER_PROFILES, modelProvider: LOCAL_MODEL_PROVIDER,
+    resources: gpuProfiles === undefined ? { profile: "cpu-only", cpuCapacity: LOCAL_CPU_CAPACITY } : { profile: "gpu", cpuCapacity: LOCAL_CPU_CAPACITY, gpuProfilesPath: gpuProfiles }, ...(LOCAL_RELEASE.release === undefined ? {} : { release: LOCAL_RELEASE.release }),
   };
 }
 

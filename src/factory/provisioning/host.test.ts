@@ -19,6 +19,7 @@ import type { FactoryInstallationContext, FactoryStepResources } from "./install
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_POOL_AUDIENCE } from "./mesh";
 import { factoryInstallationPorts } from "./ports";
+import type { FactoryFleetResources } from "./fleet";
 import { FactoryProvisioningError } from "./steps";
 
 const SLOW = 60_000;
@@ -70,11 +71,11 @@ function processLock() {
   };
 }
 
-function makeHost(overrides: { readonly now?: () => number } = {}): FactoryFleetHost {
+function makeHost(overrides: { readonly now?: () => number; readonly resources?: FactoryFleetResources; readonly hosted?: { readonly systemNamespace: string } } = {}): FactoryFleetHost {
   return new FactoryFleetHost({
     settings: {
       fleetId: "w16", secretsRoot: join(root, "secrets"), operatorRoot: join(root, "operator"), runtimeRoot: join(root, "runtime"),
-      portBase: 31_000, cpuCapacity: 3, database: { host: "127.0.0.1", port: 55_432 }, build: BUILD,
+      portBase: 31_000, resources: overrides.resources ?? { profile: "cpu-only", cpuCapacity: 3 }, ...(overrides.hosted === undefined ? {} : { hosted: overrides.hosted }), database: { host: "127.0.0.1", port: 55_432 }, build: BUILD,
     },
     runtime, database, locked: processLock(), ...(overrides.now ? { now: overrides.now } : { now: () => now }),
   });
@@ -203,6 +204,72 @@ describe("ensureMaterial", () => {
     const before = Math.floor(Date.now() / 1_000);
     await real.ensureMaterial();
     expect(claims(await text(hostSecret(FACTORY_HOST_FILES.supervisorPoolToken))).iat as number).toBeGreaterThanOrEqual(before);
+  }, SLOW);
+});
+
+describe("resource profile", () => {
+  const GPU_FILE = "gpu-host-profiles.json";
+  const gpuDocument = (hostId: string) => `${JSON.stringify({ schemaVersion: "factory.gpu-host-profiles.v1", hosts: [{ hostId, tier: "trusted-local", devices: ["/dev/kfd", "/dev/dri/renderD128"], cdiDevices: [] }] })}\n`;
+  async function gpuHost(hostId: string): Promise<{ readonly host: FactoryFleetHost; readonly source: string }> {
+    await mkdir(join(root, "operator"), { recursive: true, mode: 0o700 });
+    const source = join(root, "operator", GPU_FILE);
+    await writeModeFile(source, gpuDocument(hostId));
+    return { host: makeHost({ resources: { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: source } }), source };
+  }
+  const poolResources = (bundle: FactoryFleetHostBundle) => (bundle.pool as { resources: unknown }).resources;
+
+  test("cpu-only: the pool offers CPU only, no GPU host, no profile file, and the delivery carries none", async () => {
+    await host.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    expect(poolResources(bundle)).toEqual({ capacities: { cpu: 3 }, gpuHosts: [], hosts: ["host.w16"] });
+    expect(Object.keys(bundle.deliveries.pool)).not.toContain(GPU_FILE);
+    expect(await readdir(host.paths.poolDelivery)).not.toContain(GPU_FILE);
+  }, SLOW);
+
+  test("gpu: the fleet host is the one GPU host, and its validated profile file is delivered to the pool only, 0600", async () => {
+    const { host: gpu, source } = await gpuHost("host.w16");
+    await gpu.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    expect(poolResources(bundle)).toEqual({ capacities: { cpu: 2 }, gpuHosts: ["host.w16"], gpuProfilesPath: `/run/ezcorp/secrets/${GPU_FILE}` });
+    const delivered = join(gpu.paths.poolDelivery, GPU_FILE);
+    expect(await text(delivered)).toBe(await text(source));
+    expect((await stat(delivered)).mode & 0o777).toBe(0o600);
+    expect(await readdir(gpu.paths.supervisorDelivery)).not.toContain(GPU_FILE);
+    const supervisors = (bundle.pool as { identities: { supervisors: Record<string, { hostIds: string[] }> } }).identities.supervisors;
+    expect(supervisors["supervisor.w16"]!.hostIds).toEqual(["host.w16"]);
+  }, SLOW);
+
+  test("gpu: a profile file for another host is refused by name before anything is applied", async () => {
+    const { host: gpu } = await gpuHost("gpu-elsewhere");
+    const error = await factoryRejection(gpu.admit(await installation("tenant-01")));
+    expect(error.code).toBe("host_gpu_profiles_invalid");
+    expect(error.message).toContain("gpu_profile_unknown_host");
+    expect(runtime.calls.filter((call) => call.startsWith("apply:"))).toEqual([]);
+  }, SLOW);
+
+  test("gpu: a missing profile file is refused by name", async () => {
+    const gpu = makeHost({ resources: { profile: "gpu", cpuCapacity: 2, gpuProfilesPath: join(root, "operator", "absent.json") } });
+    const error = await factoryRejection(gpu.admit(await installation("tenant-01")));
+    expect(error.code).toBe("host_gpu_profiles_invalid");
+    expect(error.message).toContain("gpu_profiles_unreadable");
+  }, SLOW);
+});
+
+describe("the hosted supervisor document (W4H-35)", () => {
+  test("names the DaemonSet's container paths, listens on every address, and dials the pool and each harness by service name, verified as localhost", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16" } });
+    await hosted.admit(await installation("tenant-01"));
+    const supervisor = runtime.bundles.at(-1)!.supervisor as {
+      hostKeyPath: string; readinessFilePath: string; runnerRoot: string;
+      services: { hostname: string; hostKeyIdPath: string; tls: Record<string, string>; pool: { baseUrl: string; serverName: string; serviceTokenPath: string }; guestBrokers: Record<string, { baseUrl: string; serverName: string; tls: Record<string, string> }> };
+    };
+    expect([supervisor.hostKeyPath, supervisor.readinessFilePath, supervisor.runnerRoot]).toEqual([`/run/ezcorp/host-identity/${FACTORY_HOST_FILES.hostKey}`, "/run/ezcorp/readiness/supervisor/supervisor.json", "/var/lib/ezcorp-factory/runner"]);
+    expect(supervisor.services.hostname).toBe("0.0.0.0");
+    expect(Object.values(supervisor.services.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
+    expect([supervisor.services.pool.baseUrl, supervisor.services.pool.serverName]).toEqual(["https://factory-pool.ezcorp-factory-w16.svc.cluster.local:32002", "localhost"]);
+    const route = supervisor.services.guestBrokers["tenant-01"]!;
+    expect([route.baseUrl, route.serverName]).toEqual([`https://harness.ezcorp-factory-w16-tenant-01.svc.cluster.local:${factoryInstallationPorts("tenant-01", 31_000).guestBroker}`, "localhost"]);
+    expect(Object.values(route.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
   }, SLOW);
 });
 

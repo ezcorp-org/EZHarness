@@ -37,12 +37,13 @@ import { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports
 export { factoryInstallationPorts, type FactoryInstallationPorts } from "./ports";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_PRIVATE_SERVICE_AUDIENCE, ensureFactoryMesh, factoryMeshIdentities, rotateFactoryMesh } from "./mesh";
 import { FACTORY_GUEST_BROKER_AUDIENCE } from "../runner/guest-broker-contract";
-import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, factoryMasterKeyId } from "./secrets";
+import { FACTORY_APPLICATION_SECRET_FILES, FACTORY_KEY_FILES, readFactoryCurrentMasterKey } from "./secrets";
 import { factoryPrivatePath, openFactoryPrivateDirectory, readFactoryPrivateBytes, readFactoryPrivateJson, removeFactoryPrivateDirectory, removeFactoryPrivateFile, replaceFactoryPrivateFile } from "./secret-files";
 import { readdir } from "node:fs/promises";
 import { FactoryProvisioningError } from "./steps";
 import { factoryTemporalOwnerMarker } from "./temporal";
 import type { FactoryInstallationBuilds } from "./fleet-upgrade";
+import { factoryImagePinned } from "./image-pin";
 
 export const FACTORY_CONTAINER_SERVICES = ["gateway", "harness", "orchestrator"] as const;
 export const FACTORY_DEPLOYED_SERVICES = FACTORY_CONTAINER_SERVICES;
@@ -83,6 +84,14 @@ export interface FactoryDeploymentNetwork {
   /** The public origin a browser uses for this installation, e.g. `https://tenant-01.fleet.test:30443`. */
   readonly publicOrigin: (installation: FactoryInstallationContext) => string;
   readonly portBase: number;
+  /**
+   * The hosted profile (C12 row "Shared-service readiness and address"): the
+   * shared pool's and supervisor's service addresses as an installation pod
+   * dials them. Present, the startup document verifies both as the host
+   * certificate's name and reads their readiness from their routes, since a
+   * pod cannot mount the files they write. Absent: loopback and files (Compose).
+   */
+  readonly hostAddresses?: { readonly pool: string; readonly supervisor: string };
 }
 
 export interface FactoryDeploymentImage {
@@ -235,7 +244,7 @@ const readinessPath = (writer: "pool" | "orchestration" | "supervisor") => `${FA
  * build the URL the harness and the gateway connect with.
  */
 export async function renderFactoryInstallationBundle(installation: FactoryInstallationContext, settings: FactoryDeploymentSettings): Promise<FactoryInstallationBundle> {
-  if (!/^[^@\s]+@sha256:[a-f0-9]{64}$/.test(settings.image.reference)) throw new FactoryProvisioningError("deployment_image_unpinned", "The deployment image must be pinned by digest.");
+  if (!factoryImagePinned(settings.image.reference)) throw new FactoryProvisioningError("deployment_image_unpinned", "The deployment image must be pinned by digest.");
   const ports = factoryInstallationPorts(installation.tenantId, settings.network.portBase);
   const identities = factoryMeshIdentities(installation);
   const { runtimeDirectory, readinessDirectory } = factoryDeploymentHandle(installation, settings.runtimeRoot);
@@ -252,7 +261,10 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
   const harnessTls = clientTls(FACTORY_MESH_FILES.harnessCertificate, FACTORY_MESH_FILES.harnessKey);
   // The shared pool and supervisor present the host's server certificate; the harness trusts the host authority for them alone.
   const hostTls = { ...harnessTls, caPath: secretPath(FACTORY_HOST_FILES.caCertificate) };
-  const masterKeyId = factoryMasterKeyId(installation);
+  // The key the wrap file is under: after a rotation, the orchestrator receives that version under the same delivered name.
+  const masterKey = await readFactoryCurrentMasterKey(installation);
+  const masterKeyId = masterKey.id;
+  const hosted = settings.network.hostAddresses;
   const release = factoryInstallationReleaseBlock(settings.release, { tenantId: installation.tenantId, ordinaryEndpoint: settings.network.ordinaryEndpoint });
 
   const startup = parseFactoryStartupConfig({
@@ -261,8 +273,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     temporalNamespace: installation.temporalNamespace,
     orphanSweepIntervalMs: 30_000,
     orchestrationReadinessFilePath: readinessPath("orchestration"),
-    poolReadinessFilePath: readinessPath("pool"),
-    supervisorReadinessFilePath: readinessPath("supervisor"),
+    ...(hosted === undefined ? { poolReadinessFilePath: readinessPath("pool"), supervisorReadinessFilePath: readinessPath("supervisor") } : { hostReadiness: "network" }),
     readinessHeartbeatMs: 5_000,
     readinessRetry: { delayMs: 2_000, windowMs: 300_000 },
     gateway: { hostname: "127.0.0.1", port: ports.gateway, tls: harnessTls },
@@ -270,9 +281,9 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
       hostname: "0.0.0.0", port: ports.privateService, certificateIdentity: identities.orchestrator, tls: serverTls,
       tokens: { issuer: identities.issuer, audience: FACTORY_PRIVATE_SERVICE_AUDIENCE, publicKeyPaths: { [FACTORY_MESH_TOKEN_KEY_ID]: secretPath(FACTORY_MESH_FILES.tokenPublicKey) } },
     },
-    pool: { baseUrl: `https://127.0.0.1:${host.ports.pool}`, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: hostTls },
+    pool: { baseUrl: hosted?.pool ?? `https://127.0.0.1:${host.ports.pool}`, ...(hosted === undefined ? {} : { serverName: "localhost" }), serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken), tls: hostTls },
     hostLaunch: {
-      baseUrl: `https://127.0.0.1:${host.ports.supervisor}`, serverName: "localhost",
+      baseUrl: hosted?.supervisor ?? `https://127.0.0.1:${host.ports.supervisor}`, serverName: "localhost",
       attemptTokenSecretPath: secretPath(FACTORY_MESH_FILES.attemptTokenSecret),
       tls: { ...hostTls, serviceTokenPath: secretPath(FACTORY_MESH_FILES.harnessPoolToken) },
     },
@@ -366,7 +377,7 @@ export async function renderFactoryInstallationBundle(installation: FactoryInsta
     orchestrator: { service: "orchestrator", directory: factoryDeliveryDirectory(installation, "orchestrator"), files: {
       ...mesh(FACTORY_MESH_FILES.caCertificate, FACTORY_MESH_FILES.orchestratorCertificate, FACTORY_MESH_FILES.orchestratorKey, FACTORY_MESH_FILES.orchestratorToken,
         "temporal-ca.crt", "temporal-client.crt", "temporal-client.key", "temporal-token", FACTORY_KEY_FILES.wraps),
-      [FACTORY_KEY_FILES.master]: { source: factoryPrivatePath(installation.operatorDirectory, FACTORY_KEY_FILES.master) },
+      [FACTORY_KEY_FILES.master]: { source: masterKey.path },
       "orchestrator.json": { document: orchestrator },
     } },
   };

@@ -45,6 +45,7 @@
  * successful observation is older than the staleness bound, the published
  * record degrades.
  */
+import { stat } from "node:fs/promises";
 import { createPrivateKey } from "node:crypto";
 import { dirname, join, resolve } from "node:path";
 import { FACTORY_HOST_PREPARATIONS_FOLDER, factoryHostPreparationRecords } from "./host-launch-supervisor";
@@ -184,6 +185,25 @@ export interface FactorySupervisorProcessDependencies {
   readonly startServices: (config: FactorySupervisorProcessConfig, runner: FactoryHostRunner, readiness: () => unknown) => Promise<{ stop(): void }>;
   readonly wait: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly now: () => number;
+  /**
+   * Whether the container runtime socket this process is pointed at exists
+   * (`factoryContainerRuntimeSocketPresent` when absent). The hosted DaemonSet
+   * names the node's Podman API socket; without it the host degrades by name
+   * (`container_runtime_socket_missing`) and the runner is never probed.
+   */
+  readonly runtimeSocket?: () => Promise<boolean>;
+}
+
+/**
+ * C12 row "Supervisor container runtime" (W4H-35): a `CONTAINER_HOST` that
+ * names a unix socket must name an existing socket. No `CONTAINER_HOST` (the
+ * Compose host's local Podman) or another scheme is not this check's to judge.
+ */
+export async function factoryContainerRuntimeSocketPresent(env: Readonly<Record<string, string | undefined>> = process.env): Promise<boolean> {
+  const host = env.CONTAINER_HOST;
+  if (host === undefined || !host.startsWith("unix://")) return true;
+  try { return (await stat(host.slice("unix://".length))).isSocket(); }
+  catch { return false; }
 }
 
 export interface FactorySupervisorMainDependencies {
@@ -543,6 +563,7 @@ async function observeHost(
   try {
     await dependencies.loadHostKey(config.hostKeyPath);
     hostKeyReady = true;
+    if (!(await (dependencies.runtimeSocket ?? factoryContainerRuntimeSocketPresent)())) return { hostKeyReady, runnerReady: false, errorCode: "container_runtime_socket_missing" };
     const bounded = await Promise.race([
       runnerProbe.probe(config).then(() => "observed" as const),
       dependencies.wait(timeoutMs, controller.signal).then(() => "elapsed" as const),

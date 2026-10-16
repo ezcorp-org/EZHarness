@@ -105,7 +105,8 @@ export function makeFactoryTestFleetSettings(): FactoryFleetSettings {
     storage: { ordinary: testStorageDomain(59_000, "ordinary"), archive: testStorageDomain(59_001, "archive"), failureDomain: "host-a" },
     temporal: { port: 57_233, httpPort: 57_244, serverName: "temporal.test" },
     ingress: { address: "127.0.0.1", port: 30_443, domain: "factory.example" },
-    installations: { portBase: 40_000, cpuCapacity: 4, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
+    resources: { profile: "cpu-only", cpuCapacity: 4 },
+    installations: { portBase: 40_000, interpreterCompatibility: "factory-interpreter-1", runnerProfiles: FACTORY_TEST_RUNNER_PROFILES as never },
     image: { reference: FACTORY_TEST_IMAGE, revision: "c".repeat(40) },
     release: { directory: "/srv/release", bun: "/srv/bin/bun", path: "/usr/bin:/bin" },
   };

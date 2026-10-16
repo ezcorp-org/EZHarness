@@ -10,9 +10,11 @@ import {
 import { factoryComposeProject } from "./compose-profile";
 import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES, renderFactoryInstallationBundle, type FactoryInstallationBundle } from "./deployment";
 import {
+  factoryKubernetesImages,
   factoryKubernetesManifestStream,
   factoryKubernetesNamespace,
   factoryKubernetesSecretName,
+  renderFactoryKubernetesIngress,
   renderFactoryKubernetesInstallation,
   renderFactoryKubernetesSystem,
   type FactoryKubernetesObject,
@@ -20,7 +22,7 @@ import {
 } from "./kubernetes-profile";
 
 const SETTINGS: FactoryKubernetesSettings = {
-  fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system", ingressClassName: "nginx", ingressNamespace: "ingress-nginx",
+  fleetId: "fleet-a", systemNamespace: "ezcorp-factory-system",
   egressCidrs: ["10.0.0.0/24", "10.0.1.0/24"], egressPorts: [5432, 7233, 9000], runAsUser: 10_001,
   runtimeSocketPath: "/run/containerd/containerd.sock", nodeSelector: { "ezcorp.io/runner": "true" },
 };
@@ -42,7 +44,7 @@ beforeAll(async () => {
   await writeFactoryTestDatabaseCredentials(installation);
   bundle = await renderFactoryInstallationBundle(installation, makeFactoryTestDeploymentSettings(join(root, "runtime")));
   objects = renderFactoryKubernetesInstallation(bundle, SETTINGS);
-  system = renderFactoryKubernetesSystem(SETTINGS, bundle.image.reference, bundle.host.ports.pool);
+  system = renderFactoryKubernetesSystem(SETTINGS, bundle.image.reference, bundle.host.ports);
 });
 afterAll(async () => { await removeFactoryPrivateRoot(root); });
 
@@ -142,8 +144,7 @@ describe("renderFactoryKubernetesInstallation", () => {
     const [deployment] = kind(objects, "Deployment");
     const byName = Object.fromEntries(podSpec(deployment!).containers.map((container) => [container.name, container]));
     for (const service of FACTORY_CONTAINER_SERVICES) {
-      const { EZCORP_INGRESS_PROOF_FILE: _proof, ...expected } = bundle.environment[service] as Record<string, string>;
-      expect(Object.fromEntries(byName[service]!.env.map((entry) => [entry.name, entry.value]))).toEqual(expected);
+      expect(Object.fromEntries(byName[service]!.env.map((entry) => [entry.name, entry.value]))).toEqual(bundle.environment[service] as Record<string, string>);
     }
     expect(Object.keys(byName).sort()).toEqual(["gateway", "harness", "orchestrator"]);
     expect(byName.orchestrator!.command[0]).toBe("node");
@@ -154,19 +155,18 @@ describe("renderFactoryKubernetesInstallation", () => {
     expect(readiness("orchestrator")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/orchestration", subPath: "orchestration" });
     expect(readiness("harness")).toEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness", readOnly: true });
     expect(probe("harness")).toContain("/api/ready");
-    expect(byName.harness!.env.map((entry: { name: string }) => entry.name)).not.toContain("EZCORP_INGRESS_PROOF_FILE");
+    // The harness checks the ingress proof in this profile too (C12 row "Trusted ingress"): the proof file is named, and delivered with its Secret.
+    expect(byName.harness!.env.map((entry: { name: string }) => entry.name)).toContain("EZCORP_INGRESS_PROOF_FILE");
   });
 
-  test("the ingress overwrites the installation header, and network policy admits only the ingress controller and, on the guest-broker port, the system namespace", () => {
-    const [ingress] = kind(objects, "Ingress");
-    const snippet = (ingress!.metadata as { annotations: Record<string, string> }).annotations["nginx.ingress.kubernetes.io/configuration-snippet"]!;
-    expect(snippet).toBe('more_clear_input_headers "X-EZCorp-Installation"; proxy_set_header X-EZCorp-Installation "inst-tenant-01";');
-    expect(JSON.stringify(ingress!.spec)).toContain('"host":"tenant-01.factory.example"');
+  test("no annotation sets a header: there is no Ingress object, and network policy admits only the fleet's ingress pods and, on the guest-broker port, the system namespace", () => {
+    expect(kind(objects, "Ingress")).toEqual([]);
+    expect(JSON.stringify(objects)).not.toContain("configuration-snippet");
     const policies = kind(objects, "NetworkPolicy");
     expect(policies.map((policy) => (policy.metadata as { name: string }).name)).toEqual(["default-deny", "installation"]);
     const policy = policies[1]!.spec as { ingress: unknown[]; egress: { to: unknown[]; ports: { port: number }[] }[] };
     expect(policy.ingress).toEqual([
-      { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ingress-nginx" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
+      { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } }, podSelector: { matchLabels: { "app.kubernetes.io/name": "factory-ingress" } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
       // Only the fleet host's supervisor, in the system namespace, reaches W01g's guest-broker route.
       { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": "ezcorp-factory-system" } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
     ]);
@@ -221,10 +221,85 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(service!.spec).toEqual({ selector: { "app.kubernetes.io/name": "factory-pool" }, ports: [{ name: "pool", port: 41_002, targetPort: 41_002 }] });
   });
 
+  test("the supervisor reads its host identity from private copies, publishes readiness, and is reached on its own node (W4H-35)", () => {
+    const [daemonSet] = kind(system, "DaemonSet");
+    const spec = podSpec(daemonSet!) as PodSpec & { dnsPolicy: string };
+    // On the host network, and still able to resolve each installation's harness service for the guest-broker route.
+    expect(spec.dnsPolicy).toBe("ClusterFirstWithHostNet");
+    const [copy] = spec.initContainers!;
+    expect(copy!.command).toEqual(["sh", "-ec", "umask 077 && cp -L /source/supervisor/* /delivered/supervisor/ && chmod 0600 /delivered/supervisor/*"]);
+    expect(copy!.volumeMounts).toEqual([{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor" }]);
+    const [container] = spec.containers;
+    expect(container!.command).toEqual(["bun", "src/factory/runner/supervisor-process.ts", "/run/ezcorp/host-identity/supervisor.json"]);
+    expect(container!.volumeMounts).toContainEqual({ name: "supervisor-secrets", mountPath: "/run/ezcorp/host-identity", readOnly: true });
+    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/supervisor" });
+    expect(JSON.stringify((container as unknown as { readinessProbe: unknown }).readinessProbe)).toContain("/run/ezcorp/readiness/supervisor/supervisor.json");
+    expect(spec.volumes).toContainEqual({ name: "supervisor-secret-source", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } });
+    expect(spec.volumes).toContainEqual({ name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } });
+    const service = kind(system, "Service").find((object) => (object.metadata as { name: string }).name === "factory-supervisor")!;
+    expect(service.spec).toEqual({ selector: { "app.kubernetes.io/name": "factory-supervisor" }, internalTrafficPolicy: "Local", ports: [{ name: "supervisor", port: 41_003, targetPort: 41_003 }] });
+  });
+
   test("nothing tenant-scoped is rendered into the system namespace", () => {
     const text = JSON.stringify(system);
     expect(text).not.toContain("tenant-01");
     expect(text).not.toContain(bundle.installation.installationId);
+  });
+});
+
+describe("renderFactoryKubernetesIngress (C12 row \"Trusted ingress\")", () => {
+  const NGINX = `docker.io/library/nginx@sha256:${"2".repeat(64)}`;
+  const files = { "nginx.conf": "events {}\n", "conf/ezcorp-factory.conf": "server {}\n", "certs/tenant-01.crt": "crt", "certs/tenant-01.key": "key" };
+  const ingress = () => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files });
+
+  test("one pinned nginx in the system namespace, configured only from one Secret mounted read-only at the Compose path", () => {
+    const objects = ingress();
+    expect(objects.map((object) => object.kind)).toEqual(["Secret", "Deployment", "Service"]);
+    for (const object of objects) expect((object.metadata as { namespace: string }).namespace).toBe("ezcorp-factory-system");
+    const [secret, deployment, service] = objects;
+    expect(secret!.data).toEqual(Object.fromEntries(Object.entries(files).map(([path, value]) => [path.replaceAll("/", "--"), Buffer.from(value).toString("base64")])));
+    const pod = podSpec(deployment!);
+    const [container] = pod.containers;
+    expect(container!.image).toBe(NGINX);
+    expect(container!.command).toEqual(["nginx", "-c", "/etc/ezcorp-ingress/nginx.conf", "-g", "daemon off;"]);
+    expect(container!.securityContext).toMatchObject({ runAsNonRoot: true, runAsUser: 10_001, readOnlyRootFilesystem: true, allowPrivilegeEscalation: false, capabilities: { drop: ["ALL"] } });
+    expect(container!.volumeMounts).toEqual([{ name: "ingress", mountPath: "/etc/ezcorp-ingress", readOnly: true }, { name: "tmp", mountPath: "/tmp" }]);
+    expect(pod.volumes[0]).toEqual({ name: "ingress", secret: { secretName: "factory-ingress", defaultMode: 0o400, items: Object.keys(files).sort().map((path) => ({ key: path.replaceAll("/", "--"), path })) } });
+    expect(pod.automountServiceAccountToken).toBe(false);
+    expect(service!.spec).toEqual({ type: "NodePort", selector: { "app.kubernetes.io/name": "factory-ingress" }, ports: [{ name: "https", port: 8443, targetPort: 8443, nodePort: 30443 }] });
+  });
+
+  test("a new configuration rolls a new pod that must be ready before the serving one goes, so a bad configuration never replaces it", () => {
+    const deployment = ingress()[1]!;
+    const spec = deployment.spec as { strategy: unknown; template: { metadata: { annotations: Record<string, string> } } };
+    expect(spec.strategy).toEqual({ type: "RollingUpdate", rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } });
+    const digest = spec.template.metadata.annotations["ezcorp.io/ingress-digest"];
+    expect(digest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    const changed = renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files: { ...files, "certs/tenant-01.crt": "rotated" } })[1]!;
+    expect((changed.spec as typeof spec).template.metadata.annotations["ezcorp.io/ingress-digest"]).not.toBe(digest);
+    const probe = (podSpec(deployment).containers[0] as unknown as { readinessProbe: unknown }).readinessProbe;
+    expect(probe).toEqual({ tcpSocket: { port: 8443 }, periodSeconds: 2 });
+  });
+
+  test("refuses an unpinned image, a file outside the three ingress places, and a key that would collide", () => {
+    expect(() => renderFactoryKubernetesIngress(SETTINGS, { image: "nginx:latest", listenPort: 8443, nodePort: 30443, files })).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
+    for (const path of ["routes/tenant-01.json", "../nginx.conf", "conf/a/b.conf", "conf/--x.conf"]) {
+      expect(() => renderFactoryKubernetesIngress(SETTINGS, { image: NGINX, listenPort: 8443, nodePort: 30443, files: { ...files, [path]: "x" } })).toThrow(expect.objectContaining({ code: "ingress_files_invalid" }));
+    }
+  });
+});
+
+describe("image pins (deployment locks)", () => {
+  test("every rendered workload names only digest-pinned images", () => {
+    expect(factoryKubernetesImages([...objects, ...system]).every((image) => /^[^@\s]+@sha256:[a-f0-9]{64}$/.test(image))).toBe(true);
+    expect(new Set(factoryKubernetesImages(objects))).toEqual(new Set([bundle.image.reference]));
+  });
+
+  test("the renderer refuses an unpinned image instead of returning objects", () => {
+    for (const image of ["registry.test/ezcorp:latest", "registry.test/ezcorp@sha256:short", ""]) {
+      expect(() => renderFactoryKubernetesSystem(SETTINGS, image, { pool: 41_002, supervisor: 41_003 })).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
+      expect(() => renderFactoryKubernetesInstallation({ ...bundle, image: { ...bundle.image, reference: image } }, SETTINGS)).toThrow(expect.objectContaining({ code: "deployment_image_unpinned" }));
+    }
   });
 });
 

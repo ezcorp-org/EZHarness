@@ -134,8 +134,15 @@ async function fleetObserve(args: string[], context: FactoryFleetCommandContext,
 
 async function fleetRotate(args: string[], { fleet }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
   const [tenantId, step] = args;
-  if (!tenantId || !step || !["database", "storage", "temporal", "secrets", "deployment", "invitation"].includes(step)) throw new FactoryProvisioningError("cli_usage", "rotate <tenant> <database|storage|temporal|secrets|deployment|invitation>");
-  return { rotate: { tenantId, step, phase: (await fleet.provisioner.rotate(tenantId, step as "database", who)).phase } };
+  if (!tenantId || !step || !["database", "storage", "temporal", "secrets", "deployment", "invitation", "master-key"].includes(step)) throw new FactoryProvisioningError("cli_usage", "rotate <tenant> <database|storage|temporal|secrets|deployment|invitation|master-key>");
+  const rotated = step === "master-key" ? await fleet.provisioner.rotateMasterKey(tenantId, who) : await fleet.provisioner.rotate(tenantId, step as "database", who);
+  return { rotate: { tenantId, step, phase: rotated.phase } };
+}
+
+async function fleetRevokeMasterKey(args: string[], { fleet }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
+  const [tenantId, version] = args;
+  if (!tenantId || !version || !/^[1-9][0-9]{0,5}$/.test(version)) throw new FactoryProvisioningError("cli_usage", "revoke-master-key <tenant> <version>");
+  return { revoke: { tenantId, version: Number(version), phase: (await fleet.provisioner.revokeMasterKey(tenantId, Number(version), who)).phase } };
 }
 
 async function fleetTeardown(args: string[], { fleet }: FactoryFleetCommandContext, who: FactoryOperationActor): Promise<unknown> {
@@ -200,7 +207,7 @@ async function fleetStatus(args: string[], { fleet }: FactoryFleetCommandContext
 
 /** Every operator command by name; a name not here, prototype names included, is an unknown command. */
 const FLEET_COMMANDS: Readonly<Record<string, FactoryFleetCommandHandler>> = {
-  platform: fleetPlatform, stop: fleetStop, up: fleetUp, provision: fleetProvision, observe: fleetObserve, rotate: fleetRotate, teardown: fleetTeardown,
+  platform: fleetPlatform, stop: fleetStop, up: fleetUp, provision: fleetProvision, observe: fleetObserve, rotate: fleetRotate, "revoke-master-key": fleetRevokeMasterKey, teardown: fleetTeardown,
   purge: fleetPurge, upgrade: fleetUpgrade, host: fleetHost, status: fleetStatus,
 };
 
@@ -225,7 +232,7 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
   const [settingsPath, command, ...rest] = argv;
   let fleet: FactoryComposedFleet | undefined;
   try {
-    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|stop|up|provision|observe|rotate|teardown|purge|upgrade|host|status> ...");
+    if (!settingsPath || !command) throw new FactoryProvisioningError("cli_usage", "usage: factory-fleet.ts <fleet.json> <platform|stop|up|provision|observe|rotate|revoke-master-key|teardown|purge|upgrade|host|status> ...");
     const settings = await loadFactoryFleetSettings(settingsPath);
     fleet = await composeFactoryProvisioner(settings, { compose, uid: process.getuid!(), gid: process.getgid!() });
     const composed = fleet;
@@ -237,7 +244,7 @@ export async function runFactoryFleetMain(argv: readonly string[], compose: Fact
         return { census: factoryDatabaseCensus(adminUrl), approvals: factoryDatabasePurgeApprovals(adminUrl) };
       },
       observer: async () => factoryIngressBootstrapObserver(factoryHttpsIngressProbe(settings.ingress.address, settings.ingress.port, `${new TextDecoder().decode(await readFactoryPrivatePath(composed.platform.ingress.caCertificatePath)).trim()}\n`)),
-      startPlatform: () => startFactoryPlatform({ fleetId: settings.fleetId, operatorRoot: settings.roots.operator, repositoryRoot: settings.release.directory, temporalPort: settings.temporal.port, temporalHttpPort: settings.temporal.httpPort, ingressAddress: settings.ingress.address, ingressPort: settings.ingress.port }, composed.platform, compose, factorySpawnExecutor, () => composed.platformServes()),
+      startPlatform: () => startFactoryPlatform(composed.platformSettings, composed.platform, compose, factorySpawnExecutor, () => composed.platformServes()),
     }));
   } catch (error) { io.fail({ error: errorView(error) }); }
   finally { await fleet?.close(); }
@@ -254,6 +261,8 @@ export interface FactoryLocalFleetOptions {
   readonly releaseDirectory: string;
   readonly bun: string;
   readonly runnerProfiles: FactoryFleetSettings["installations"]["runnerProfiles"];
+  /** The fleet's attempt resource profile, inherited by every installation. */
+  readonly resources: FactoryFleetSettings["resources"];
   /** Where every installation may release; absent, the fleet declares no release block. */
   readonly release?: FactoryFleetSettings["installations"]["release"];
   /** Every installation's pinned model; a pinned runner profile must name it (W4H-28). */
@@ -302,7 +311,8 @@ export async function writeFactoryLocalFleet(options: FactoryLocalFleetOptions):
     },
     temporal: { port: options.portBase + 1_001, httpPort: options.portBase + 1_004, serverName: "temporal.local" },
     ingress: { address: "127.0.0.1", port: options.portBase + 1_005, domain: `${options.fleetId}.factory.test` },
-    installations: { portBase: options.portBase, cpuCapacity: 2, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }), ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }) },
+    resources: options.resources,
+    installations: { portBase: options.portBase, interpreterCompatibility: "factory-kernel.v1", runnerProfiles: options.runnerProfiles, ...(options.release === undefined ? {} : { release: options.release }), ...(options.modelProvider === undefined ? {} : { modelProvider: options.modelProvider }) },
     image: { reference: options.image, revision: options.revision },
     release: { directory: options.releaseDirectory, bun: options.bun, path: `${resolve(options.bun, "..")}:/run/current-system/sw/bin:/usr/bin:/bin` },
   });

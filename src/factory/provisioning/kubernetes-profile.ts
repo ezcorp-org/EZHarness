@@ -1,14 +1,8 @@
 /**
- * The hosted deployment profile: Kubernetes manifests rendered from the same
- * installation bundle the Compose profile runs.
- *
- * What this profile PROVES on this host, and what it does not, is stated in
- * docs/factory-deployment.md and the W16 gate file: the manifests are
- * schema-validated and admitted by a real API server in a local kind cluster,
- * and the admission layer is shown to enforce the supervisor separation. The
- * installations do not reach ready there, because this host's shared stores
- * listen on host loopback, which a kind pod cannot reach. That is a property
- * of the local infrastructure and is not claimed as a hosted pass.
+ * The hosted deployment profile: Kubernetes objects rendered from the same
+ * installation bundle the Compose profile runs. `kubernetes-target.ts` applies
+ * them (C12 row "Kubernetes deployment target"); what is proven where is in
+ * docs/factory-deployment.md and tasks/factory/w4h-35-GATES.md.
  *
  * Layout, one namespace per installation (C01's one installation per tenant):
  *
@@ -19,7 +13,10 @@
  *     secrets.
  *   - The pool and the supervisor are the fleet host's, shared by every
  *     installation (coordinator ruling 2026-09-22): a Deployment and a
- *     DaemonSet in the fleet's system namespace.
+ *     DaemonSet in the fleet's system namespace. A tenant pod cannot mount the
+ *     files they write, so it reads their readiness records from their own
+ *     routes (`hostReadiness: network` in the startup document), the
+ *     supervisor's through a node-local Service.
  *   - Secrets arrive as Kubernetes Secrets, one per service, created FROM the
  *     provisioner's delivery directories — never written into a manifest. A
  *     Secret volume is a tree of symbolic links owned by root, which the
@@ -30,25 +27,24 @@
  *     DaemonSet in the fleet's system namespace, the only namespace allowed
  *     `privileged`, and the only workload given the container runtime socket
  *     and the host identity.
- *
- * Known gap, named rather than hidden: the product reads the shared POOL's and
- * SUPERVISOR's readiness from files too, and a pod in a tenant namespace cannot
- * mount a file another namespace writes. The hosted profile therefore needs a
- * network readiness probe for both (`hosted-supervisor-readiness` in the gate
- * file); these manifests do not paper over it.
+ *   - The trusted ingress is the Compose platform's own nginx, in the system
+ *     namespace (`renderFactoryKubernetesIngress`): it sets the installation
+ *     and proof headers, and only its pods reach a harness.
  */
+import { createHash } from "node:crypto";
 import type { FactoryInstallationBundle } from "./deployment";
 import { FACTORY_CONTAINER_PATHS, FACTORY_CONTAINER_SERVICES } from "./deployment";
 import { factoryComposeProject } from "./compose-profile";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS } from "./kubernetes-paths";
+import { FactoryProvisioningError } from "./steps";
+import { factoryImagePinned } from "./image-pin";
 
 export type FactoryKubernetesObject = Readonly<Record<string, unknown>>;
 
 export interface FactoryKubernetesSettings {
   readonly fleetId: string;
+  /** The fleet's own namespace: the shared pool, the supervisor DaemonSet, and the trusted ingress. */
   readonly systemNamespace: string;
-  readonly ingressClassName: string;
-  /** Namespace of the ingress controller, the only source allowed to reach a harness. */
-  readonly ingressNamespace: string;
   /** Destinations a tenant pod may reach: database, stores, Temporal. */
   readonly egressCidrs: readonly string[];
   readonly egressPorts: readonly number[];
@@ -88,6 +84,21 @@ const restrictedContainer = (runAsUser: number) => ({
   capabilities: { drop: ["ALL"] }, seccompProfile: { type: "RuntimeDefault" },
 });
 
+/** Every image a rendered object stream runs: the containers and init containers of each workload's pod template. */
+export function factoryKubernetesImages(objects: readonly FactoryKubernetesObject[]): readonly string[] {
+  return objects.flatMap((object) => {
+    const pod = (object.spec as { template?: { spec?: { containers?: { image: string }[]; initContainers?: { image: string }[] } } } | undefined)?.template?.spec;
+    return [...(pod?.initContainers ?? []), ...(pod?.containers ?? [])].map((container) => container.image);
+  });
+}
+
+/** The deployment-lock rule at render time: a stream with any image not pinned by digest is never returned. */
+function pinned(objects: readonly FactoryKubernetesObject[]): readonly FactoryKubernetesObject[] {
+  const unpinned = factoryKubernetesImages(objects).filter((image) => !factoryImagePinned(image));
+  if (unpinned.length > 0) throw new FactoryProvisioningError("deployment_image_unpinned", `Every Kubernetes image must be pinned by digest; refused: ${[...new Set(unpinned)].join(", ") || "(empty)"}.`);
+  return objects;
+}
+
 /** Every object one installation needs, in apply order. No Secret carries data: they are created from files. */
 export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationBundle, settings: FactoryKubernetesSettings): readonly FactoryKubernetesObject[] {
   const namespace = factoryKubernetesNamespace(bundle);
@@ -100,11 +111,9 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     image,
     imagePullPolicy: "IfNotPresent",
     command: [...COMMANDS[service]],
-    // The ingress proof is a Compose-profile control: on a shared host it stops a
-    // local process that reaches the harness port from posing as the ingress.
-    // Here the NetworkPolicy admits only the ingress controller, and an
-    // annotation would publish the proof to anyone who can read the Ingress.
-    env: Object.entries(bundle.environment[service]).filter(([name]) => name !== "EZCORP_INGRESS_PROOF_FILE").map(([name, value]) => ({ name, value })),
+    // The harness checks host, installation header, and ingress proof in both profiles (C12 row "Trusted
+    // ingress"); the proof file arrives with the harness's Secret, and only the fleet's ingress sets the header.
+    env: Object.entries(bundle.environment[service]).map(([name, value]) => ({ name, value })),
     securityContext: restrictedContainer(settings.runAsUser),
     resources: { requests: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu }, limits: { memory: LIMITS[service].memory, cpu: LIMITS[service].cpu } },
     volumeMounts: [
@@ -125,7 +134,7 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
     }),
   }));
   const copy = FACTORY_CONTAINER_SERVICES.map((service) => `cp -L /source/${service}/* /delivered/${service}/ && chmod 0600 /delivered/${service}/*`).join(" && ");
-  return Object.freeze([
+  return pinned(Object.freeze([
     { apiVersion: "v1", kind: "Namespace", metadata: { name: namespace, labels: { ...labels(bundle), "pod-security.kubernetes.io/enforce": "restricted", "pod-security.kubernetes.io/enforce-version": "latest" } } },
     { apiVersion: "v1", kind: "ServiceAccount", metadata: metadata("installation"), automountServiceAccountToken: false },
     { apiVersion: "v1", kind: "ResourceQuota", metadata: metadata("installation"), spec: { hard: { "limits.memory": "3Gi", "limits.cpu": "3", pods: "4", "requests.storage": "10Gi" } } },
@@ -164,17 +173,14 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
       },
     },
     { apiVersion: "v1", kind: "Service", metadata: metadata("harness"), spec: { selector: { "ezcorp.io/installation": bundle.installation.installationId }, ports: [{ name: "http", port: 80, targetPort: bundle.ports.harness }, { name: "guest-broker", port: bundle.ports.guestBroker, targetPort: bundle.ports.guestBroker }] } },
-    {
-      apiVersion: "networking.k8s.io/v1", kind: "Ingress", metadata: { ...metadata("installation"), annotations: { "nginx.ingress.kubernetes.io/configuration-snippet": `more_clear_input_headers "X-EZCorp-Installation"; proxy_set_header X-EZCorp-Installation "${bundle.installation.installationId}";` } },
-      spec: { ingressClassName: settings.ingressClassName, tls: [{ hosts: [bundle.installation.hostname], secretName: "installation-tls" }], rules: [{ host: bundle.installation.hostname, http: { paths: [{ path: "/", pathType: "Prefix", backend: { service: { name: "harness", port: { number: 80 } } } }] } }] },
-    },
     { apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: metadata("default-deny"), spec: { podSelector: {}, policyTypes: ["Ingress", "Egress"] } },
     {
       apiVersion: "networking.k8s.io/v1", kind: "NetworkPolicy", metadata: metadata("installation"),
       spec: {
         podSelector: { matchLabels: { "ezcorp.io/installation": bundle.installation.installationId } }, policyTypes: ["Ingress", "Egress"],
         ingress: [
-          { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.ingressNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
+          // Only the fleet's own ingress pods, which overwrite the installation header and set the proof.
+          { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } }, podSelector: { matchLabels: { "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS } } }], ports: [{ protocol: "TCP", port: bundle.ports.harness }] },
           // W01g's guest-broker route: only the fleet host's supervisor, in the system namespace, reaches it.
           { from: [{ namespaceSelector: { matchLabels: { "kubernetes.io/metadata.name": settings.systemNamespace } } }], ports: [{ protocol: "TCP", port: bundle.ports.guestBroker }] },
         ],
@@ -186,14 +192,15 @@ export function renderFactoryKubernetesInstallation(bundle: FactoryInstallationB
         ],
       },
     },
-  ]);
+  ]));
 }
 
 /** The fleet's system namespace: the shared pool, the supervisor DaemonSet, and nothing tenant-scoped. */
-export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, poolPort: number): readonly FactoryKubernetesObject[] {
+export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSettings, image: string, ports: { readonly pool: number; readonly supervisor: number }): readonly FactoryKubernetesObject[] {
+  const poolPort = ports.pool;
   const namespace = settings.systemNamespace;
   const common = { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": settings.fleetId };
-  return Object.freeze([
+  return pinned(Object.freeze([
     { apiVersion: "v1", kind: "Namespace", metadata: { name: namespace, labels: { ...common, "pod-security.kubernetes.io/enforce": "privileged" } } },
     { apiVersion: "v1", kind: "ServiceAccount", metadata: { name: "factory-supervisor", namespace, labels: common }, automountServiceAccountToken: false },
     { apiVersion: "v1", kind: "Secret", metadata: { name: "factory-supervisor-host-identity", namespace, labels: common }, type: "Opaque" },
@@ -243,30 +250,111 @@ export function renderFactoryKubernetesSystem(settings: FactoryKubernetesSetting
         template: {
           metadata: { labels: { ...common, "app.kubernetes.io/name": "factory-supervisor" } },
           spec: {
-            serviceAccountName: "factory-supervisor", automountServiceAccountToken: false, hostNetwork: true, nodeSelector: { ...settings.nodeSelector },
+            // On the host network, and still resolving each installation's harness service for its guest-broker route.
+            serviceAccountName: "factory-supervisor", automountServiceAccountToken: false, hostNetwork: true, dnsPolicy: "ClusterFirstWithHostNet", nodeSelector: { ...settings.nodeSelector },
+            // A Secret volume is a tree of root-owned links the private reader refuses: copy it into private files first, as the pool does.
+            initContainers: [{
+              name: "deliver-secrets", image, imagePullPolicy: "IfNotPresent", command: ["sh", "-ec", "umask 077 && cp -L /source/supervisor/* /delivered/supervisor/ && chmod 0600 /delivered/supervisor/*"],
+              resources: { requests: { memory: "32Mi", cpu: "50m" }, limits: { memory: "64Mi", cpu: "100m" } },
+              volumeMounts: [{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor" }],
+            }],
             containers: [{
               name: "supervisor", image, imagePullPolicy: "IfNotPresent",
-              command: ["bun", "src/factory/runner/supervisor-process.ts", "/run/ezcorp/host-identity/supervisor.json"],
+              command: ["bun", "src/factory/runner/supervisor-process.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets}/supervisor.json`],
               env: [{ name: "CONTAINER_HOST", value: `unix://${settings.runtimeSocketPath}` }],
               // The ONE privileged workload: it alone reaches the container runtime.
               securityContext: { privileged: true },
               resources: { requests: { memory: "256Mi", cpu: "250m" }, limits: { memory: "2Gi", cpu: "2" } },
+              ports: [{ name: "supervisor", containerPort: ports.supervisor }],
+              readinessProbe: { exec: { command: ["bun", "src/factory/provisioning/readiness-check.ts", `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`] }, periodSeconds: 5 },
               volumeMounts: [
                 { name: "runtime-socket", mountPath: settings.runtimeSocketPath },
-                { name: "runner-root", mountPath: "/var/lib/ezcorp-factory/runner" },
-                { name: "host-identity", mountPath: "/run/ezcorp/host-identity", readOnly: true },
+                { name: "runner-root", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.runnerRoot },
+                { name: "supervisor-secrets", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, readOnly: true },
+                { name: "readiness", mountPath: FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory },
               ],
             }],
             volumes: [
               { name: "runtime-socket", hostPath: { path: settings.runtimeSocketPath, type: "Socket" } },
-              { name: "runner-root", hostPath: { path: "/var/lib/ezcorp-factory/runner", type: "DirectoryOrCreate" } },
-              { name: "host-identity", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } },
+              { name: "runner-root", hostPath: { path: FACTORY_KUBERNETES_SUPERVISOR_PATHS.runnerRoot, type: "DirectoryOrCreate" } },
+              { name: "supervisor-secret-source", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } },
+              { name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } },
+              { name: "readiness", emptyDir: { medium: "Memory", sizeLimit: "1Mi" } },
             ],
           },
         },
       },
     },
-  ]);
+    // Node-local: each installation reaches the supervisor of the node its pod runs on (C12 row "Shared-service readiness and address").
+    { apiVersion: "v1", kind: "Service", metadata: { name: "factory-supervisor", namespace, labels: common }, spec: { selector: { "app.kubernetes.io/name": "factory-supervisor" }, internalTrafficPolicy: "Local", ports: [{ name: "supervisor", port: ports.supervisor, targetPort: ports.supervisor }] } },
+  ]));
+}
+
+export const FACTORY_KUBERNETES_INGRESS = "factory-ingress";
+/** Where the Compose platform's ingress mounts its root; the hosted one mounts the same files there. */
+const INGRESS_ROOT = "/etc/ezcorp-ingress";
+/** The ingress files the nginx process reads: its main config, the rendered routes, and each hostname's certificate and key. */
+const INGRESS_FILE = /^(?:nginx\.conf|conf\/[A-Za-z0-9._][A-Za-z0-9._-]{0,127}|certs\/[A-Za-z0-9._][A-Za-z0-9._-]{0,127})$/;
+
+export interface FactoryKubernetesIngressSettings {
+  /** The same pinned nginx the Compose platform runs (its digest is read from `platform.yml`). */
+  readonly image: string;
+  readonly listenPort: number;
+  readonly nodePort: number;
+  /** Relative path under the ingress root -> content: `nginx.conf`, `conf/*`, and `certs/*`. Route files are not the ingress's. */
+  readonly files: Readonly<Record<string, string>>;
+}
+
+/**
+ * The fleet's trusted ingress (C12 row "Trusted ingress"): the Compose
+ * platform's nginx, with the same rendered configuration, in the system
+ * namespace. It overwrites the installation header and sets the ingress proof
+ * on every request, as the Compose ingress does; no annotation sets a header.
+ * Every file it reads arrives in one Secret, mounted where the Compose ingress
+ * mounts its root. A new configuration rolls a new pod that must be ready
+ * before the serving one goes, so a configuration nginx refuses never replaces
+ * the one that serves.
+ */
+export function renderFactoryKubernetesIngress(settings: FactoryKubernetesSettings, ingress: FactoryKubernetesIngressSettings): readonly FactoryKubernetesObject[] {
+  const paths = Object.keys(ingress.files).sort();
+  const key = (path: string) => path.replaceAll("/", "--");
+  if (paths.some((path) => !INGRESS_FILE.test(path) || path.slice(path.indexOf("/") + 1).includes("--"))) throw new FactoryProvisioningError("ingress_files_invalid", "The hosted ingress reads only nginx.conf, conf/*, and certs/*.");
+  const namespace = settings.systemNamespace;
+  const labels = { "app.kubernetes.io/part-of": "ezcorp-factory", "ezcorp.io/fleet": settings.fleetId, "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS };
+  const data = Object.fromEntries(paths.map((path) => [key(path), Buffer.from(ingress.files[path]!).toString("base64")]));
+  const digest = `sha256:${createHash("sha256").update(JSON.stringify(data)).digest("hex")}`;
+  return pinned(Object.freeze([
+    { apiVersion: "v1", kind: "Secret", metadata: { name: FACTORY_KUBERNETES_INGRESS, namespace, labels }, type: "Opaque", data },
+    {
+      apiVersion: "apps/v1", kind: "Deployment", metadata: { name: FACTORY_KUBERNETES_INGRESS, namespace, labels },
+      spec: {
+        replicas: 1, strategy: { type: "RollingUpdate", rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } },
+        selector: { matchLabels: { "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS } },
+        template: {
+          metadata: { labels, annotations: { "ezcorp.io/ingress-digest": digest } },
+          spec: {
+            automountServiceAccountToken: false, enableServiceLinks: false,
+            securityContext: { runAsNonRoot: true, runAsUser: settings.runAsUser, runAsGroup: settings.runAsUser, seccompProfile: { type: "RuntimeDefault" } },
+            containers: [{
+              name: "nginx", image: ingress.image, imagePullPolicy: "IfNotPresent",
+              command: ["nginx", "-c", `${INGRESS_ROOT}/nginx.conf`, "-g", "daemon off;"],
+              securityContext: restrictedContainer(settings.runAsUser),
+              // The Compose ingress's own bounds (platform.yml).
+              resources: { requests: { memory: "128Mi", cpu: "500m" }, limits: { memory: "128Mi", cpu: "500m" } },
+              ports: [{ name: "https", containerPort: ingress.listenPort }],
+              readinessProbe: { tcpSocket: { port: ingress.listenPort }, periodSeconds: 2 },
+              volumeMounts: [{ name: "ingress", mountPath: INGRESS_ROOT, readOnly: true }, { name: "tmp", mountPath: "/tmp" }],
+            }],
+            volumes: [
+              { name: "ingress", secret: { secretName: FACTORY_KUBERNETES_INGRESS, defaultMode: 0o400, items: paths.map((path) => ({ key: key(path), path })) } },
+              { name: "tmp", emptyDir: { medium: "Memory", sizeLimit: "64Mi" } },
+            ],
+          },
+        },
+      },
+    },
+    { apiVersion: "v1", kind: "Service", metadata: { name: FACTORY_KUBERNETES_INGRESS, namespace, labels }, spec: { type: "NodePort", selector: { "app.kubernetes.io/name": FACTORY_KUBERNETES_INGRESS }, ports: [{ name: "https", port: ingress.listenPort, targetPort: ingress.listenPort, nodePort: ingress.nodePort }] } },
+  ]));
 }
 
 /** YAML is a superset of JSON: one JSON document per `---` is a valid manifest stream. */
