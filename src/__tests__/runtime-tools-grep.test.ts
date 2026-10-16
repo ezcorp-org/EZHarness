@@ -13,7 +13,6 @@ function det(result: any): any {
   return result.details;
 }
 
-const HAS_RG = Bun.which("rg") !== null;
 const ORIGINAL_GREP_CAP = TOOL_OUTPUT_LIMITS.grep;
 
 /**
@@ -243,7 +242,14 @@ describe("createGrepTool — ignore handling", () => {
     await rm(ignProject, { recursive: true, force: true });
   });
 
-  test.skipIf(!HAS_RG)(
+  // The ripgrep backend is the one grep.ts prefers. Every backend test host has
+  // ripgrep (CI: .github/actions/ripgrep, held by scripts/ripgrep-registration.test.ts),
+  // so a host without it fails here by name instead of skipping the cases below.
+  test("ripgrep is on PATH, so the ripgrep backend cases run", () => {
+    expect(Bun.which("rg"), "install ripgrep: the backend suites test both grep backends").not.toBeNull();
+  });
+
+  test(
     "ripgrep skips ignored dirs by default",
     async () => {
       process.env.EZCORP_GREP_BACKEND = "rg";
@@ -256,7 +262,7 @@ describe("createGrepTool — ignore handling", () => {
     },
   );
 
-  test.skipIf(!HAS_RG)(
+  test(
     "ripgrep noIgnore:true also searches ignored dirs",
     async () => {
       process.env.EZCORP_GREP_BACKEND = "rg";
