@@ -485,7 +485,7 @@ Fault injection covers individual/all-worker loss, network partitions where old 
 | Rule | Condition (C11 row) |
 | --- | --- |
 | `FactoryReadyWorkStalled` | Oldest ready work over 30 seconds, or a run with no progress for 60 seconds and no declared wait |
-| `FactoryProjectionLagging` | Projection lag or gap over 10 seconds, for 60 seconds |
+| `FactoryProjectionLagging` | Projection lag over 10 seconds, measured past a missing batch, or a run whose next batch is missing; either for 60 seconds |
 | `FactoryValidatorDigestErroring` | A digest with three consecutive validator errors |
 | `FactoryUsageUnknownOrBudgetExhausted` | An operation with unknown usage, or an exhausted budget envelope |
 | `FactoryReleaseUncertain` | An uncertain release older than 60 seconds; the action is the inbox and the reconciliation route, never an automatic retry |
