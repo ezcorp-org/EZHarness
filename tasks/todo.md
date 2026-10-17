@@ -9061,3 +9061,28 @@ Independent review CLEAR: helper88feae6d5795b3f56ac9ef8b376c5ef61ed3ae5ae77c583e
 Review: real cold25%CPU baseline first service test RED1395ms; fresh real SDK readiness1892ms exceeded fixture request1000ms. Per-child IPC readiness now separates startup from the unchanged1000ms request deadline; startup still honors existing absolute context deadline. No warm worker, retries, product changes, or suppressed assertion. Cold coverage under same quota/cache-disabled PASS7tests/37assertions; adjacent sensitive protocol plus service PASS21tests/109assertions; strict runner package typecheck and Biome PASS. Startup crash/invalid-marker/abort cleanup and post-ready deadline controls pass. Owned scopes inactive; independent review and normal commit pending.
 
 Cross-review CLEAR on testSHAbe72b493763843b183d958a5f0ef6202d2bfc971ca9c1a2a4fd5591d4a5f05d9: independent pinnedBun/cache-disabled7tests37assertions0; startup boundary, unchanged request/context bounds, redaction and cleanup verified. Receipt incus-resources-ci-sol61-oct17/.cache/resource-ci-repair/sensitive-independent-clear.json. No production source changes; final combined-source gates and hosted CI remain root work.
+
+## Hosted resource proof FD lifecycle repair (2026-10-17)
+
+- [x] Preserve actual CI artifact and reproduce FD26 to23 failure through actual consumer.
+- [x] Determine the lifecycle invariant and test ranked hypotheses before editing.
+- [x] Add regression and negative leak/process/socket cases, then implement minimal fix.
+- [x] Run bounded focused tests and actual receipt replay; inspect diff and request independent review before commit.
+- [ ] Obtain independent CLEAR and make normal scoped commit.
+
+Ownership: shipping-runtime-resource-accounting.ts, verify-shipping-runtime-resources.ts and focused regression fixtures. No full gate, live deployment, push or CI rerun. Other workers own sensitive-service and staging.
+
+### Resource repair review results
+
+Actual source-statement replay reproduced hosted FD26 to23 with no new identities. Native owned Bun Unix HTTP fixture confirmed healthy accepted-socket close FD9 to8; replacing that socket restored count9 but the new identity was correctly rejected. Focused24/0/82 assertions; helper LCOV63/63; strict targeted helper/test compiler0, scoped Biome3files0, consumer syntax build0. No whole gate/production deployment/CI rerun. Full CLI strict compile and actual owned production resource lane remain integration checks; no claim of those passing. Source hashes and immutable RED/GREEN evidence: .cache/resource-ci-repair/review-ready.json.
+
+Final resource review: 27 tests pass, 93 assertions; helper LCOV63/63. Only baseline socket closure is allowed; missing anonymous/file/pipe/other handles remain fail-closed. Independent reviewer reproduced23 tests/76 assertions and cleared exact source hashes after the anonymous-handle regression correction. Full CLI compiler attempt encountered307 transitive dependency/setup diagnostics in this uninstalled tree; no full CLI typecheck pass is claimed. Normal scoped commit follows independent CLEAR.
+
+
+## Combined sensitive-service and resource-proof repair verification
+
+- [ ] Merge reviewed resource commit cb3ed9d55de847adfa9030fdc91769ad734331d1 into the sensitive repair branch, retaining both histories and task records.
+- [ ] Prepare exact isolated root/web/workspace/Python dependencies for the supported typecheck.
+- [ ] Run combined touched suites with pinned Bun under shared resource admission.
+- [ ] Run full supported typecheck (backend, web, test/e2e, packages, locked Python).
+- [ ] Preserve actual receipts and provide clean combined SHA for root FF and one canonical fast run.

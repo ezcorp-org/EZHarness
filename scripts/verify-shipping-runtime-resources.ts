@@ -64,10 +64,6 @@ async function runnerContainerCount(store: string): Promise<number> {
   return output ? output.split("\n").length : 0;
 }
 
-async function processFdCount(pid: string): Promise<number> {
-  return (await readdir(`/proc/${pid}/fd`)).length;
-}
-
 async function processFdSnapshot(pid: string): Promise<FdSnapshot> {
   const classes: FdClasses = { socket: 0, pipe: 0, anon: 0, path: 0, other: 0 };
   const pgliteRelationDescriptors: RelationDescriptor[] = [];
@@ -135,9 +131,11 @@ function resourceReport(sample: Sample): Omit<Sample, "pgliteRelationDescriptors
   return { ...safe, pgliteRelationDescriptorCount: pgliteRelationDescriptors.length };
 }
 
-async function runnerFdCount(pid: string): Promise<number> {
+async function runnerFdSnapshot(pid: string): Promise<OpenDescriptor[]> {
+  const snapshot = await processFdSnapshot(pid);
+  // An exit during /proc traversal must not look like closed baseline handles.
   if ((await readFile(`/proc/${pid}/comm`, "utf8")).trim() !== "bun") throw new Error("The supplied runner PID is not the Bun runner process.");
-  return processFdCount(pid);
+  return snapshot.descriptors;
 }
 
 async function appPid(container: string): Promise<string> {
@@ -158,12 +156,12 @@ async function appContainerMemoryBytes(container: string): Promise<number> {
   return bytes(await command("docker", ["stats", "--no-stream", "--format", "{{.MemUsage}}", container]));
 }
 
-async function sample(cycle: number, store: string, runnerPid: string, appProcessPid: string, appContainer: string): Promise<{ observed: Sample; fdSnapshot: FdSnapshot }> {
+async function sample(cycle: number, store: string, runnerDescriptors: OpenDescriptor[], appProcessPid: string, appContainer: string): Promise<{ observed: Sample; fdSnapshot: FdSnapshot }> {
   const fdSnapshot = await processFdSnapshot(appProcessPid);
   return { observed: {
     cycle,
     runnerContainers: await runnerContainerCount(store),
-    runnerFds: await runnerFdCount(runnerPid),
+    runnerFds: runnerDescriptors.length,
     appFds: fdSnapshot.descriptors.length,
     appEstablishedTcpConnections: await appEstablishedTcpConnections(appProcessPid),
     appContainerMemoryBytes: await appContainerMemoryBytes(appContainer),
@@ -234,9 +232,8 @@ const reconnectsPerCycle = 10;
 const start = Date.now();
 const requestedMinimumDurationMs = config.mode === "duration" ? config.requestedMinimumDurationMs : undefined;
 const store = join(runRoot, "store");
-const initialSample = await sample(0, store, runnerPid, appProcessPid, appContainer);
-// fd number -> readlink target of the runner at the baseline; a failed runner FD check names each extra descriptor's kind against it.
-const runnerBaselineDescriptors = (await processFdSnapshot(runnerPid)).descriptors;
+const runnerBaselineDescriptors = await runnerFdSnapshot(runnerPid);
+const initialSample = await sample(0, store, runnerBaselineDescriptors, appProcessPid, appContainer);
 const samples: Sample[] = [initialSample.observed];
 const baseline = samples[0]!;
 if (baseline.runnerContainers !== 0) throw new Error(`The owned runner began with ${baseline.runnerContainers} containers.`);
@@ -272,6 +269,7 @@ async function writeReceipt(completedCycles: number, failure?: FailureEvidence):
     actualDurationMs,
     durationMs: actualDurationMs,
     baseline,
+    runnerBaselineDescriptors,
     relationCacheWarmup,
     samples,
     ...(failure ? { failure } : {}),
@@ -331,16 +329,18 @@ for (let cycle = 1; cycle <= count; cycle++) {
   // open and still fails the strict checks below.
   await waitForAppConnections(appProcessPid, appConnectionsBeforeSse, 150);
   // The runner can close a finished cycle's socket or pipe a moment after the
-  // cycle ends. Wait for its FD count to EQUAL the baseline (bounded polls);
-  // a leak stays open and still fails the strict check below.
-  const runnerFdSettle = await settleRunnerFds(() => runnerFdCount(runnerPid), baseline.runnerFds);
-  const measured = await sample(cycle, store, runnerPid, appProcessPid, appContainer);
+  // cycle ends. Wait for identities absent from the baseline to close;
+  // a leak stays open and still fails the identity check below, even if a
+  // baseline connection closes and hides its count.
+  const runnerFdSettle = await settleRunnerFds(() => runnerFdSnapshot(runnerPid), runnerBaselineDescriptors);
+  const runnerFdEvidence = runnerFdFailureEvidence(runnerFdSettle, runnerBaselineDescriptors);
+  const measured = await sample(cycle, store, runnerFdSettle.descriptors, appProcessPid, appContainer);
   const after = { ...measured.observed, sseCleanup, runnerFdSettle };
   const fdSnapshot = measured.fdSnapshot;
   after.appFdClasses = fdSnapshot.classes;
   after.pgliteRelationDescriptors = fdSnapshot.pgliteRelationDescriptors;
   if (after.runnerContainers !== 0) await failResourceCheck(cycle, `Cycle ${cycle} retained ${after.runnerContainers} owned runner containers.`, after, fdSnapshot);
-  if (after.runnerFds !== baseline.runnerFds) await failResourceCheck(cycle, `Cycle ${cycle} runner FDs ${after.runnerFds} did not return to baseline ${baseline.runnerFds}.`, after, fdSnapshot, runnerFdFailureEvidence(runnerFdSettle, runnerBaselineDescriptors, (await processFdSnapshot(runnerPid)).descriptors));
+  if (runnerFdEvidence.extraDescriptors.length !== 0 || runnerFdEvidence.missingRequiredDescriptors.length !== 0) await failResourceCheck(cycle, `Cycle ${cycle} runner descriptor identities changed: ${runnerFdEvidence.extraDescriptors.length} new, ${runnerFdEvidence.missingRequiredDescriptors.length} missing non-socket baseline handles.`, after, fdSnapshot, runnerFdEvidence);
   if (after.appEstablishedTcpConnections > appConnectionsBeforeSse) await failResourceCheck(cycle, `Cycle ${cycle} app TCP connections ${after.appEstablishedTcpConnections} exceeded its pre-SSE count ${appConnectionsBeforeSse}.`, after, fdSnapshot);
   const relationProblems = relationDescriptorProblems(pgliteDataRoot, fdSnapshot.pgliteRelationDescriptors);
   if (relationProblems.length) await failResourceCheck(cycle, `Cycle ${cycle} invalid PGlite relation descriptor: ${relationProblems[0]}`, after, fdSnapshot);
