@@ -949,7 +949,8 @@ describe("the operator entry", () => {
     await writeModeFile(join(storage, "ordinary.json"), identities);
     await writeModeFile(join(storage, "archive.json"), identities);
     const localFleet = `lf${randomBytes(3).toString("hex")}`;
-    const options = { fleetId: localFleet, root: join(root, "local-fleet"), image: `localhost/ezcorp-factory@sha256:${"c".repeat(64)}`, revision: "d".repeat(40), portBase: 31000, adminUrl: url!, storageSecretsDirectory: storage, releaseDirectory: join(import.meta.dir, "../.."), bun: process.execPath, runnerProfiles: FACTORY_TEST_RUNNER_PROFILES };
+    const options = { fleetId: localFleet, root: join(root, "local-fleet"), image: `localhost/ezcorp-factory@sha256:${"c".repeat(64)}`, revision: "d".repeat(40), portBase: 31000, adminUrl: url!, storageSecretsDirectory: storage, releaseDirectory: join(import.meta.dir, "../.."), bun: process.execPath, runnerProfiles: FACTORY_TEST_RUNNER_PROFILES,
+      modelProvider: { provider: "openai", model: "gpt-6-luna", credentialKind: "oauth" } as const };
     const first = await writeFactoryLocalFleet(options);
     const second = await writeFactoryLocalFleet(options);
     expect(second.settings).toEqual(first.settings);
@@ -957,6 +958,9 @@ describe("the operator entry", () => {
     // The read-only Temporal HTTP route has its own port beside the gRPC one.
     expect(first.settings.temporal.httpPort).toBe(32004);
     expect(first.settings.ingress.port).toBe(32005);
+    // Every installation carries the fleet's model pin, in the settings and in the file the operator commands read (W4H-28).
+    expect(first.settings.installations.modelProvider).toEqual(options.modelProvider);
+    expect(JSON.parse(await Bun.file(first.settingsPath).text()).installations.modelProvider).toEqual(options.modelProvider);
     const controlDatabase = `factory_control_${localFleet}`;
     try {
       expect((await admin`SELECT pg_get_userbyid(datdba) AS owner FROM pg_database WHERE datname = ${controlDatabase}`)[0]).toEqual({ owner: `${controlDatabase}_role` });
