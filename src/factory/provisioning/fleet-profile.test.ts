@@ -78,6 +78,12 @@ test("factoryFleetKubernetesSettings is the renderer's view of the fleet's kuber
   });
 });
 
+test("factoryFleetKubernetesSettings carries the supervisor's runtime groups only when the fleet names them (W4H-35 run 12)", () => {
+  const withGroups = { ...hosted, kubernetes: { ...hosted.kubernetes!, runtimeGroups: [985] } };
+  expect(factoryFleetKubernetesSettings(withGroups).runtimeGroups).toEqual([985]);
+  expect("runtimeGroups" in factoryFleetKubernetesSettings(hosted)).toBe(false);
+});
+
 test("the fleet host's pool dials the database as the profile's services see it: loopback for Compose, the pods' own address hosted (W4H-35 C3)", async () => {
   const composeHost = factoryFleetHostSettings(compose, await factoryFleetProfile(compose, options));
   expect(composeHost.database).toEqual({ host: base.database.serviceHost, port: base.database.servicePort });

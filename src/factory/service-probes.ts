@@ -26,12 +26,13 @@
 import { FACTORY_REQUIRED_SERVICES, type FactoryBootConfig, type FactoryService } from "./boot";
 import { readFactoryOrchestrationReadiness } from "./orchestration-readiness";
 import { FactoryPoolReadinessError, readFactoryPoolReadiness, verifyFactoryPoolReadiness } from "./pool/readiness";
-import { FactoryServiceReadinessError, factorySupervisorReadinessExpectation, factorySupervisorReadinessOptions, readFactoryServiceReadiness, verifyFactoryServiceReadiness } from "./service-readiness";
+import { FactoryServiceReadinessError, type FactoryServiceReadinessRecord, factorySupervisorReadinessExpectation, factorySupervisorReadinessOptions, readFactoryServiceReadiness, verifyFactoryServiceReadiness } from "./service-readiness";
+import type { FactoryHeldRoleEntry } from "./runtime-workers";
 
 export interface FactoryServiceProbe {
   readonly service: FactoryService;
-  /** Resolves when the service is genuinely live. Throws or rejects otherwise. */
-  probe(signal: AbortSignal): Promise<void>;
+  /** Resolves when the service is genuinely live, with the roles it holds (if any). Throws or rejects otherwise. */
+  probe(signal: AbortSignal): Promise<void | readonly FactoryHeldRoleEntry[]>;
 }
 
 export interface FactoryServiceProbeResult {
@@ -39,6 +40,8 @@ export interface FactoryServiceProbeResult {
   readonly available: boolean;
   /** A code or short reason. Never a credential, a URL with a secret, or a stack. */
   readonly detail: string;
+  /** The roles a live shared service holds (C12 row "Container runtime readiness (hosted)"); absent when none. */
+  readonly held?: readonly FactoryHeldRoleEntry[];
 }
 
 export class FactoryServiceProbeError extends Error {
@@ -81,7 +84,7 @@ export interface FactoryProbeOptions {
 }
 
 /** Run one probe under its own deadline, abandoning it (and aborting its signal) when the deadline passes. */
-async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void> {
+async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, deadlineMs: number): Promise<void | readonly FactoryHeldRoleEntry[]> {
   const deadline = new AbortController();
   const timeout = new FactoryServiceProbeError(`${probe.service.replaceAll("-", "_")}_probe_timeout`);
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -89,7 +92,7 @@ async function probeWithin(probe: FactoryServiceProbe, signal: AbortSignal, dead
     timer = setTimeout(() => { deadline.abort(timeout); reject(timeout); }, deadlineMs);
   });
   try {
-    await Promise.race([probe.probe(AbortSignal.any([signal, deadline.signal])), expired]);
+    return await Promise.race([probe.probe(AbortSignal.any([signal, deadline.signal])), expired]);
   } finally {
     clearTimeout(timer);
   }
@@ -119,8 +122,8 @@ export async function probeFactoryServices(
     const started = performance.now();
     let result: FactoryServiceProbeResult;
     try {
-      await probeWithin(probe, signal, deadlineMs);
-      result = { service: probe.service, available: true, detail: "ready" };
+      const held = await probeWithin(probe, signal, deadlineMs);
+      result = { service: probe.service, available: true, detail: "ready", ...(held && held.length > 0 ? { held } : {}) };
     } catch (error) {
       result = { service: probe.service, available: false, detail: factoryProbeDetail(error) };
     }
@@ -134,6 +137,11 @@ export async function probeFactoryServices(
 export function availableFactoryServices(results: readonly FactoryServiceProbeResult[]): readonly FactoryService[] {
   const proven = new Set(results.filter((result) => result.available).map((result) => result.service));
   return FACTORY_REQUIRED_SERVICES.filter((service) => proven.has(service));
+}
+
+/** The roles the live required services hold, in probe order: they join the installation's own held roles. */
+export function heldFactoryServiceRoles(results: readonly FactoryServiceProbeResult[]): readonly FactoryHeldRoleEntry[] {
+  return results.flatMap((result) => (result.available ? result.held ?? [] : []));
 }
 
 /** The named reasons for every service that did not prove itself. */
@@ -176,7 +184,7 @@ export interface FactorySupervisorProbeTarget {
   preflight(signal: AbortSignal): Promise<void>;
 }
 
-function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void>): FactoryServiceProbe {
+function probeOf(service: FactoryService, run: (signal: AbortSignal) => Promise<void | readonly FactoryHeldRoleEntry[]>): FactoryServiceProbe {
   return Object.freeze({ service, probe: run });
 }
 
@@ -253,12 +261,22 @@ export function factorySupervisorProbe(target: FactorySupervisorProbeTarget): Fa
 export function factorySupervisorReadinessProbe(identity: FactoryProbeIdentity & { readonly supervisorReadinessFilePath: string }): FactoryServiceProbe {
   return probeOf("host-supervisor", async () => {
     // The supervisor is shared by every installation on its host: match the host this installation names.
-    await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
+    const record = await readFactoryServiceReadiness(factorySupervisorReadinessOptions({
       hostId: identity.hostId,
       readinessFilePath: identity.supervisorReadinessFilePath,
       ...(identity.readinessHeartbeatMs === undefined ? {} : { readinessHeartbeatMs: identity.readinessHeartbeatMs }),
     }));
+    return supervisorHeld(identity.hostId, record);
   });
+}
+
+/**
+ * C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): a ready supervisor record whose runtime role is held stays the
+ * available required service it is; its held entries, each naming this host, join the installation's `roles.held`. One place for
+ * both probes, the file's and the route's.
+ */
+function supervisorHeld(hostId: string, record: FactoryServiceReadinessRecord): readonly FactoryHeldRoleEntry[] {
+  return (record.held ?? []).map((entry) => ({ ...entry, host: hostId }));
 }
 
 /**
@@ -293,6 +311,6 @@ export function factorySupervisorNetworkProbe(identity: Pick<FactoryProbeIdentit
   return probeOf("host-supervisor", async (signal) => {
     let record: unknown;
     try { record = await source.read(signal); } catch { throw new FactoryServiceReadinessError("host-supervisor"); }
-    verifyFactoryServiceReadiness(record, factorySupervisorReadinessExpectation(identity), clock());
+    return supervisorHeld(identity.hostId, verifyFactoryServiceReadiness(record, factorySupervisorReadinessExpectation(identity), clock()));
   });
 }

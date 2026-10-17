@@ -89,11 +89,24 @@ export interface FactoryRuntimeWorkerCollaborators {
   readonly recovery?: FactoryRecoveryRoles;
 }
 
-export interface FactoryHeldWorker {
+/**
+ * A role this installation cannot perform now and why: the one held-role entry readiness publishes in `roles.held`. An entry
+ * merged from a required shared service's record (C12 row "Container runtime readiness (hosted)") also names its `host`.
+ */
+export interface FactoryHeldRoleEntry {
   readonly role: string;
-  readonly seam: string;
   readonly workPackage: string;
   readonly reason: string;
+  readonly host?: string;
+}
+
+export interface FactoryHeldWorker extends Omit<FactoryHeldRoleEntry, "host"> {
+  readonly seam: string;
+}
+
+/** The published entry of a held worker: its seam stays internal. */
+export function factoryHeldRoleEntry(worker: FactoryHeldWorker): FactoryHeldRoleEntry {
+  return { role: worker.role, workPackage: worker.workPackage, reason: worker.reason };
 }
 
 export interface FactoryRuntimeWorkerSet {

@@ -631,6 +631,20 @@ describe("startFactoryRuntime validates its own inputs", () => {
     expect(ran).toBe(true);
     expect(runtime.report().probes.filter((probe) => probe.service === "object-storage")).toHaveLength(2);
   });
+
+  // C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): a live required service's held entries join the installation's
+  // own roles.held, after its own, in the one shape; the installation stays ready and no readiness warning repeats the fact.
+  test("a required service's held role joins roles.held with its host, and nothing else says so", async () => {
+    const root = await privateRoot();
+    await writeReadyRecords(root);
+    const entry = { role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable", host: "host-01" };
+    await start(root, { extraProbes: [{ service: "host-supervisor", probe: async () => [entry] }] });
+    expect(getReadiness().state).toBe("ready");
+    const held = (getReadiness().detail as { factory: { held: unknown[] } }).factory.held;
+    expect(held.at(-1)).toEqual(entry);
+    expect(held.filter((value) => (value as { role: string }).role === "container-runtime")).toHaveLength(1);
+    expect(getReadiness()).not.toHaveProperty("warnings");
+  });
 });
 
 /**

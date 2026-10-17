@@ -3,6 +3,11 @@ import { createPrivateKey, createPublicKey, createVerify, X509Certificate } from
 import { chmod, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { factoryRejection, makeFactoryPrivateRoot, makeFactoryTestInstallation, removeFactoryPrivateRoot, writeModeFile } from "../../__tests__/helpers/factory-private-root";
+import { judgePrivatePaths, podTemplate, privatePathUses } from "../../__tests__/helpers/kubernetes-private-paths";
+import { FACTORY_CONTAINER_PATHS } from "./deployment";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS } from "./kubernetes-paths";
+import { renderFactoryKubernetesSystem } from "./kubernetes-profile";
+import { factorySupervisorStatePaths, parseFactorySupervisorProcessConfig } from "../runner/supervisor-process";
 import { factoryDatabasePairs } from "./database";
 import {
   FACTORY_HOST_FILES,
@@ -271,6 +276,47 @@ describe("the hosted supervisor document (W4H-35)", () => {
     expect([route.baseUrl, route.serverName]).toEqual([`https://harness.ezcorp-factory-w16-tenant-01.svc.cluster.local:${factoryInstallationPorts("tenant-01", 31_000).guestBroker}`, "localhost"]);
     expect(Object.values(route.tls).every((path) => path.startsWith("/run/ezcorp/host-identity/"))).toBe(true);
   }, SLOW);
+
+  // C12 row "Private paths of a hosted container (hosted)", kind proof run 11: the pool and the supervisor stopped writing their
+  // readiness records into the kubelet's root-owned emptyDir. Every path their own documents name is judged against the rendered
+  // DaemonSet and pool Deployment, with the product's own walk, after the pods' real init commands ran.
+  test("every path the pool and the supervisor read or write privately is reached through an owned private directory on their rendered mounts", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
+    await hosted.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    const roots = [FACTORY_CONTAINER_PATHS.secrets, FACTORY_CONTAINER_PATHS.readiness, FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory];
+    const system = renderFactoryKubernetesSystem({
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
+    }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
+    const uid = process.getuid!();
+    const pool = await judgePrivatePaths(podTemplate(system, "Deployment", "factory-pool"), { pool: privatePathUses(bundle.pool, roots) }, roots, uid);
+    const supervisor = await judgePrivatePaths(podTemplate(system, "DaemonSet", "factory-supervisor"), { supervisor: privatePathUses(bundle.supervisor, roots) }, roots, uid);
+    expect([...pool, ...supervisor].filter((line) => !line.endsWith(": ok"))).toEqual([]);
+    expect(pool).toContain("pool w /run/ezcorp/readiness/pool/pool.json: ok");
+    expect(supervisor).toContain("supervisor w /run/ezcorp/readiness/supervisor/supervisor.json: ok");
+    expect(pool.length + supervisor.length).toBeGreaterThan(12);
+  }, SLOW);
+
+  // C12 row "Supervisor durable state (hosted)" (item 7): the paths the supervisor WRITES at runtime and must keep across a restart
+  // (its tombstones, its preparation records) come from the process's own function on the hosted document, and are judged as durable
+  // writes against the rendered DaemonSet: never on a read-only mount, never on an in-memory volume.
+  test("the hosted supervisor's durable state sits in an owned, writable, durable directory under the runner root (item 7)", async () => {
+    const hosted = makeHost({ hosted: { systemNamespace: "ezcorp-factory-w16", runnerRoot: "/srv/ezcorp-runner" } });
+    await hosted.admit(await installation("tenant-01"));
+    const bundle = runtime.bundles.at(-1)!;
+    const state = factorySupervisorStatePaths(parseFactorySupervisorProcessConfig(bundle.supervisor));
+    const system = renderFactoryKubernetesSystem({
+      fleetId: "w16", systemNamespace: "ezcorp-factory-w16", egressCidrs: ["10.0.0.0/24"], egressPorts: [5432], runAsUser: 10_001,
+      runtimeSocketPath: "/run/podman/podman.sock", runnerRoot: "/srv/ezcorp-runner", nodeCidrs: [], nodeSelector: {},
+    }, `registry.test/ezcorp@sha256:${"a".repeat(64)}`, bundle.identity.ports);
+    const uses = [{ path: state.tombstones, write: true, durable: true }, { path: `${state.preparations}/host-preparation-x.json`, write: true, durable: true }];
+    const lines = await judgePrivatePaths(podTemplate(system, "DaemonSet", "factory-supervisor"), { supervisor: uses }, [], process.getuid!());
+    expect(lines).toEqual([
+      "supervisor w /srv/ezcorp-runner/supervisor-state/host-worker-tombstones.jsonl: ok",
+      "supervisor w /srv/ezcorp-runner/supervisor-state/host-preparations/host-preparation-x.json: ok",
+    ]);
+  }, SLOW);
 });
 
 describe("admission", () => {
@@ -303,6 +349,8 @@ describe("admission", () => {
     expect(supervisor.hostId).toBe("host.w16");
     expect(supervisor.services.peerTenants).toEqual({ "harness.tenant-01": "tenant-01", "harness.tenant-02": "tenant-02" });
     expect(Object.hasOwn(supervisor.services, "allowedPeers")).toBe(false);
+    // Compose keeps the durable state beside the host key (C12 row "Supervisor durable state (hosted)"): no state folder is named.
+    expect(Object.hasOwn(supervisor, "stateDirectory")).toBe(false);
     expect(supervisor.services.port).toBe(32_003);
     // One guest-broker route per admitted installation, keyed by its tenant, at its own port; the trust bundle holds each installation's authority.
     const brokerEndpoint = (port: number) => ({

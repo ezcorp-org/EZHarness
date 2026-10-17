@@ -237,7 +237,7 @@ describe("factory pool process lifecycle", () => {
     expect(stopDatabase.closed).toBe(true);
   });
 
-  // The read and the parse fail by different names (C12 row "Scoped secret delivery (hosted)", kind proof run 10: one message for
+  // The read and the parse fail by different names (C12 row "Private paths of a hosted container (hosted)", kind proof run 10: one message for
   // both hid that the pool could not read its delivered copy). The read names the private reader's own fixed reason, never a path.
   test("rejects inaccessible config without creating readiness, naming the private reader's reason", async () => {
     const { paths } = await fixture(); await chmod(paths.config, 0o644);

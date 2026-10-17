@@ -16,7 +16,7 @@ function privateError(message: string): Error { return new FactoryPrivatePathErr
 
 /**
  * Why a private read failed, safe to print: this module's fixed refusal text, or the bare errno code (ENOENT, EACCES), or
- * "unknown". Never a path or a cause (C12 row "Scoped secret delivery (hosted)": a service names why its config is unreadable).
+ * "unknown". Never a path or a cause (C12 row "Private paths of a hosted container (hosted)": a service names why its config is unreadable).
  */
 export function factoryPrivateReadReason(error: unknown): string {
   if (error instanceof FactoryPrivatePathError) return error.message;
@@ -51,6 +51,28 @@ export function privateComponentVerdict(
 }
 
 /**
+ * The private-path walk as one pure rule, step by step (privateDirectory's own walk, and the hosted profile's delivered-layout
+ * test, use it): each directory component's status in path order, then end(), which refuses a path with no owned directory.
+ */
+export interface PrivatePathWalk {
+  readonly reachedOwnedDirectory: boolean;
+  step(status: { readonly uid: number; readonly mode: number }, mayRepair: boolean): "foreign" | "owned" | "repair";
+  end(): void;
+}
+export function privatePathWalk(uid: number): PrivatePathWalk {
+  let reachedOwnedDirectory = false;
+  return {
+    get reachedOwnedDirectory() { return reachedOwnedDirectory; },
+    step(status, mayRepair) {
+      const verdict = privateComponentVerdict(status, uid, { reachedOwnedDirectory, mayRepair });
+      if (verdict !== "foreign") reachedOwnedDirectory = true;
+      return verdict;
+    },
+    end() { if (!reachedOwnedDirectory) throw privateError("Private path has no owned directory."); },
+  };
+}
+
+/**
  * Opens every directory component through its already-open parent. Foreign
  * ancestors may only be non-writable (or root-owned and sticky); the first
  * owned directory and all of its descendants must be private. The caller
@@ -58,16 +80,15 @@ export function privateComponentVerdict(
  */
 export interface PrivateDirectoryOptions { readonly createLeaf?: boolean; readonly repairOwnedLeaf?: boolean }
 export async function privateDirectory(path: string, options: PrivateDirectoryOptions = {}): Promise<FileHandle> {
-  const uid = owner();
+  const walk = privatePathWalk(owner());
   let directory = await open("/", constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
-  let reachedOwnedDirectory = false;
   try {
     const components = resolve(path).split("/").filter(Boolean);
     for (const [index, component] of components.entries()) {
       let child: FileHandle;
       try { child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW); }
       catch (error) {
-        if (!options.createLeaf || (error as NodeJS.ErrnoException).code !== "ENOENT" || !reachedOwnedDirectory) throw error;
+        if (!options.createLeaf || (error as NodeJS.ErrnoException).code !== "ENOENT" || !walk.reachedOwnedDirectory) throw error;
         // A concurrent writer may create the leaf first; the checks below still apply to it.
         await mkdir(`/proc/self/fd/${directory.fd}/${component}`, { mode: 0o700 }).catch((mkdirError: NodeJS.ErrnoException) => { if (mkdirError.code !== "EEXIST") throw mkdirError; });
         child = await open(`/proc/self/fd/${directory.fd}/${component}`, constants.O_RDONLY | constants.O_DIRECTORY | constants.O_NOFOLLOW);
@@ -75,14 +96,13 @@ export async function privateDirectory(path: string, options: PrivateDirectoryOp
       const status = await child.stat();
       if (!status.isDirectory()) { await child.close(); throw privateError("Private path component is not a directory."); }
       let verdict: ReturnType<typeof privateComponentVerdict>;
-      try { verdict = privateComponentVerdict(status, uid, { reachedOwnedDirectory, mayRepair: options.repairOwnedLeaf === true && index === components.length - 1 }); }
+      try { verdict = walk.step(status, options.repairOwnedLeaf === true && index === components.length - 1); }
       catch (error) { await child.close(); throw error; }
       if (verdict === "repair") await child.chmod(0o700);
-      if (verdict !== "foreign") reachedOwnedDirectory = true;
       await directory.close();
       directory = child;
     }
-    if (!reachedOwnedDirectory) throw privateError("Private path has no owned directory.");
+    walk.end();
     return directory;
   } catch (error) {
     await directory.close();

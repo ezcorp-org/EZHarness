@@ -236,8 +236,24 @@ export class FactoryKubernetesHostTarget implements FactoryFleetHostRuntime {
 
   async ready(_bundle: FactoryFleetHostBundle): Promise<void> {
     for (const workload of ["deployment/factory-pool", "daemonset/factory-supervisor"]) {
-      await this.kubectl.must(["rollout", "status", workload, "--namespace", this.namespace, "--timeout=180s"], `the ${workload} rollout`, undefined, "host_not_ready");
+      try { await this.kubectl.must(["rollout", "status", workload, "--namespace", this.namespace, "--timeout=180s"], `the ${workload} rollout`, undefined, "host_not_ready"); }
+      catch (error) { throw (await this.unpreparedRunnerRoot()) ?? error; }
     }
+  }
+
+  /**
+   * C12 row "Supervisor runner root and runtime socket (hosted prerequisites)": the runner root is an operator-prepared hostPath of
+   * type Directory, so a missing one stops the supervisor pod at its mount. A stalled rollout reads the namespace's FailedMount
+   * events once and HOLDs by name when one is the runner root's type check; anything else keeps the rollout's own refusal.
+   */
+  private async unpreparedRunnerRoot(): Promise<FactoryProvisioningError | undefined> {
+    const listed = await this.kubectl.run(["get", "events", "--namespace", this.namespace, "--field-selector", "reason=FailedMount", "--output", "json"]);
+    if (listed.code !== 0) return undefined;
+    let items: readonly { readonly message?: unknown }[];
+    try { items = (JSON.parse(listed.stdout) as { items?: readonly { readonly message?: unknown }[] }).items ?? []; } catch { return undefined; }
+    const root = this.options.settings.runnerRoot;
+    const named = items.some(({ message }) => typeof message === "string" && message.includes("hostPath type check failed") && message.includes(root));
+    return named ? new FactoryProvisioningError("runner_root_unprepared", `The runner root ${root} is not a prepared directory on a runner node; the operator prepares it, owned by runAsUser, mode 0700.`) : undefined;
   }
 
   async serving(_paths: FactoryFleetHostPaths): Promise<boolean> {

@@ -71,6 +71,11 @@ export interface FactoryFleetKubernetes {
   readonly nodeCidrs: readonly string[];
   /** Where the supervisor DaemonSet runs; under a `gpu` resource profile, the GPU nodes, so it may not be empty. */
   readonly nodeSelector: Readonly<Record<string, string>>;
+  /**
+   * The supervisor's runtime groups (C12 row "Supervisor runner root and runtime socket (hosted prerequisites)"): the node's
+   * container-runtime socket's group, given to the supervisor pod alone as supplementalGroups. Optional; 1 to 8 distinct positive ids.
+   */
+  readonly runtimeGroups?: readonly number[];
   readonly ingress: { readonly listenPort: number; readonly nodePort: number };
   readonly egressCidrs: readonly string[];
   readonly egressPorts: readonly number[];
@@ -126,12 +131,21 @@ function servicesValid(value: unknown): boolean {
     && port(services.databasePort) && url(services.ordinaryEndpoint) && url(services.archiveEndpoint) && /^[A-Za-z0-9.-]+:\d{2,5}$/.test(services.temporalAddress) && url(services.temporalHttpEndpoint);
 }
 
+/** 1 to 8 distinct positive group ids. */
+function runtimeGroupsValid(groups: unknown): boolean {
+  return Array.isArray(groups) && groups.length > 0 && groups.length <= 8 && new Set(groups).size === groups.length
+    && groups.every((group) => Number.isSafeInteger(group) && (group as number) > 0);
+}
+
 /** Present exactly for the hosted profile, every field well formed; a GPU fleet names the nodes its supervisor runs on. */
 function kubernetesValid({ profile, kubernetes, resources }: FactoryFleetSettings): boolean {
   if (profile !== "kubernetes") return kubernetes === undefined;
   const k = kubernetes as FactoryFleetKubernetes | undefined;
   const nodeSelector = k?.nodeSelector as unknown;
-  return keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
+  const runtimeGroups = k?.runtimeGroups as unknown;
+  return (runtimeGroups === undefined
+    ? keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeSocketPath,services,systemNamespace")
+    : keys(k, "egressCidrs,egressPorts,ingress,kubeconfigPath,kubectl,nodeCidrs,nodeSelector,runAsUser,runnerRoot,runtimeGroups,runtimeSocketPath,services,systemNamespace") && runtimeGroupsValid(runtimeGroups))
     && absolute(k!.kubectl) && absolute(k!.kubeconfigPath) && absolute(k!.runtimeSocketPath) && absolute(k!.runnerRoot) && NAMESPACE.test(k!.systemNamespace)
     && Array.isArray(k!.nodeCidrs)
     && Number.isSafeInteger(k!.runAsUser) && k!.runAsUser > 0

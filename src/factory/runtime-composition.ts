@@ -42,6 +42,7 @@ import {
   factorySupervisorNetworkProbe,
   factorySupervisorProbe,
   factorySupervisorReadinessProbe,
+  heldFactoryServiceRoles,
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryListenerProbeTarget,
@@ -54,7 +55,7 @@ import {
   type FactoryProbeTraceEvent,
 } from "./service-probes";
 import { factoryRuntimeSeams, factorySeamStates, type FactoryRuntimeSeamInputs, type FactoryRuntimeSeams, type FactorySeamState } from "./runtime-seams";
-import { registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
+import { factoryHeldRoleEntry, registerFactoryRuntimeWorkers, type FactoryHeldWorker, type FactoryRuntimeWorkerCollaborators } from "./runtime-workers";
 import type { FactoryBackgroundWorkers, FactoryBackgroundWorkerState, FactoryWorkerStopRecord } from "./background-workers";
 
 /** Why a held checkpoint barrier keeps readiness degraded. */
@@ -400,7 +401,8 @@ export async function startFactoryRuntime(
           running: workerSet.workers.names(),
           // The reason travels too: "held" alone cannot tell an operator whether
           // to declare something, repair something, or wait for a package.
-          held: workerSet.held.map((worker) => ({ role: worker.role, workPackage: worker.workPackage, reason: worker.reason })),
+          // A required shared service's held roles join this installation's own (C12 row "Container runtime readiness (hosted)").
+          held: [...workerSet.held.map(factoryHeldRoleEntry), ...heldFactoryServiceRoles(results)],
           ...(dependencies.providerReadiness === undefined ? {} : { providerReadiness: dependencies.providerReadiness }),
           ...(dependencies.guestBrokerReadiness === undefined ? {} : { guestBroker: dependencies.guestBrokerReadiness }),
         },

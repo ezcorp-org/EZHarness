@@ -37,7 +37,7 @@ import type { FactoryDatabaseCredential, FactoryDatabaseStep } from "./database"
 import { factoryDatabasePairs } from "./database";
 import { factoryComposeProject } from "./compose-profile";
 import type { FactoryFleetResources } from "./fleet";
-import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, factoryKubernetesServiceUrl } from "./kubernetes-paths";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS, FACTORY_KUBERNETES_SUPERVISOR_STATE, factoryKubernetesServiceUrl } from "./kubernetes-paths";
 import { factoryFleetResourceName, type FactoryInstallationContext, type FactoryStepResources } from "./installation";
 import { FACTORY_GUEST_BROKER_AUDIENCE, FACTORY_GUEST_BROKER_SCOPE } from "../runner/guest-broker-contract";
 import { FACTORY_HOST_KEY_ID, FACTORY_MESH_FILES, FACTORY_MESH_TOKEN_KEY_ID, FACTORY_POOL_AUDIENCE, factoryMeshIdentities, factoryMeshToken, factoryMeshTokenExpiry } from "./mesh";
@@ -419,6 +419,8 @@ export class FactoryFleetHost {
       schemaVersion: "factory.supervisor-process.v1", installationId: this.paths.context.installationId, hostId: this.identity.hostId,
       hostKeyPath: hostSecret(FACTORY_HOST_FILES.hostKey), hostKeyId: FACTORY_HOST_KEY_ID,
       runnerRoot: hosted === undefined ? this.paths.runnerRoot : hosted.runnerRoot,
+      // Hosted, the host key arrives read-only and in memory: the durable state lives under the runner root (item 7).
+      ...(hosted === undefined ? {} : { stateDirectory: resolve(hosted.runnerRoot, FACTORY_KUBERNETES_SUPERVISOR_STATE) }),
       readinessFilePath: hosted === undefined ? resolve(this.paths.readinessDirectory, "supervisor", "supervisor.json") : `${FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory}/supervisor.json`,
       readinessHeartbeatMs: 4_000,
       services: {

@@ -47,6 +47,19 @@ console.log(store.stopped(${JSON.stringify(tombstone.tenantId)}, ${JSON.stringif
   });
 });
 
+describe("a host tombstone in a named state folder (C12 row \"Supervisor durable state (hosted)\")", () => {
+  test("is written in that folder, not beside the key, and a restarted host reads it from there", async () => {
+    const key = await hostKey();
+    const state = join(key.directory, "state");
+    await mkdir(state, { mode: 0o700 });
+    const store = await FactoryHostTombstones.open(key, { directory: state });
+    await store.record(tombstone);
+    expect((await readFile(join(state, FACTORY_HOST_TOMBSTONES_FILE), "utf8")).trim().split("\n")).toHaveLength(1);
+    expect(await readFile(join(key.directory, FACTORY_HOST_TOMBSTONES_FILE), "utf8").catch(() => "absent")).toBe("absent");
+    expect((await FactoryHostTombstones.open(key, { directory: state })).stopped(tombstone.tenantId, tombstone.workerId)).toBe(true);
+  });
+});
+
 const fileOf = (key: { directory: string }) => join(key.directory, FACTORY_HOST_TOMBSTONES_FILE);
 
 /** One genuine line, recorded by a host with this key and host id. */

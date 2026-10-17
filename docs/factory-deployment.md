@@ -61,6 +61,24 @@ supervisor and every init container included, and the `fsGroup` of every pod.
 Kubernetes owns a Secret volume's files by root. With `fsGroup`, the kubelet
 shows them as root and that group, mode 0440, so only the pod's own containers
 read them (C12 row "Scoped secret delivery (hosted)").
+Every private directory a factory container uses (its delivered secrets and
+its readiness record) is an owned 0700 directory that the pod's init
+container prepares on an in-memory volume; the container mounts only that
+directory (C12 row "Private paths of a hosted container (hosted)").
+The runner root is not created for you. Prepare it on every runner node before
+the install: a directory at `runnerRoot`, owned by the user and group
+`runAsUser`, mode 0700. The supervisor mounts it as a directory that must
+exist; a missing one stops the install by name (`runner_root_unprepared`).
+The supervisor keeps its durable state (worker tombstones and preparation
+records) in `supervisor-state` under the runner root. Its init container makes
+that folder, owned by `runAsUser`, mode 0700. It survives a pod restart. Do not
+delete it on a drain or an upgrade (C12 row "Supervisor durable state
+(hosted)").
+`runtimeGroups` (optional, up to 8 group ids) names the node's
+container-runtime socket group. Only the supervisor pod gets it, as
+supplementary groups. A rootful socket owned by root and that group with mode
+0660 is the expected form. The supervisor never runs as root (C12 row
+"Supervisor runner root and runtime socket (hosted prerequisites)").
 
 One named gap stays open: the supervisor DaemonSet and the Compose fleet host
 both hold one fleet-wide host identity (`hosted-host-identity-shared`).

@@ -17,6 +17,7 @@ import {
   factorySupervisorProbe,
   factorySupervisorReadinessProbe,
   FactoryServiceProbeError,
+  heldFactoryServiceRoles,
   probeFactoryServices,
   unavailableFactoryServices,
   type FactoryProbeIdentity,
@@ -296,6 +297,41 @@ describe("the hosted profile reads the shared records from their own routes (W4H
         { service: "host-supervisor", available: false, detail: "host-supervisor" },
       ]);
     }
+  });
+});
+
+// C12 row "Container runtime readiness (hosted)" (W4H-35 run 12): a supervisor whose runtime role is held is still the ready required
+// service it is; its held entry, naming the host, rides the probe result into the installation's roles.held, and nothing else.
+describe("a supervisor's held runtime role is ready and joins the installation's held roles (W4H-35 run 12)", () => {
+  const entry = { role: "container-runtime", workPackage: "W16", reason: "container_runtime_unreachable" };
+  const facts = (runnerReady: boolean) => ({ hostKeyReady: true, runnerReady, hostServicesReady: true });
+  const update = (held: boolean) => (held ? { lifecycle: "ready" as const, facts: facts(false), held: [entry] } : { lifecycle: "ready" as const, facts: facts(true) });
+  const supervisor = (now: number, held: boolean) => ({ schemaVersion: "factory.supervisor-readiness.v1", service: "host-supervisor", instanceId: "host-a", observedAtMs: now, ...update(held) });
+  const source = (value: unknown) => ({ read: async () => value });
+  const merged = [{ ...entry, host: "host-a" }];
+
+  test("the network probe: held is available and carries the entry with its host; running carries none", async () => {
+    const scope = { hostId: "host-a", readinessHeartbeatMs: 5_000 };
+    const results = await probeFactoryServices([factorySupervisorNetworkProbe(scope, source(supervisor(Date.now(), true)))], open);
+    expect(results).toEqual([{ service: "host-supervisor", available: true, detail: "ready", held: merged }]);
+    expect(heldFactoryServiceRoles(results)).toEqual(merged);
+    const running = await probeFactoryServices([factorySupervisorNetworkProbe(scope, source(supervisor(Date.now(), false)))], open);
+    expect(running).toEqual([{ service: "host-supervisor", available: true, detail: "ready" }]);
+    expect(heldFactoryServiceRoles(running)).toEqual([]);
+  });
+
+  test("the file probe does the same from the supervisor's own record", async () => {
+    const root = await privateRoot();
+    const writer = createFactoryServiceReadinessWriter(factorySupervisorReadinessOptions({ hostId: "host-a", readinessFilePath: join(root, "supervisor.json"), readinessHeartbeatMs: 5_000 }));
+    const scope: FileProbeIdentity = { ...identity(root), hostId: "host-a" };
+    await writer.write(update(true));
+    expect(heldFactoryServiceRoles(await probeFactoryServices([factorySupervisorReadinessProbe(scope)], open))).toEqual(merged);
+    await writer.write(update(false));
+    expect(heldFactoryServiceRoles(await probeFactoryServices([factorySupervisorReadinessProbe(scope)], open))).toEqual([]);
+  });
+
+  test("a service that did not prove itself contributes no held role", () => {
+    expect(heldFactoryServiceRoles([{ service: "host-supervisor", available: false, detail: "x", held: merged }])).toEqual([]);
   });
 });
 

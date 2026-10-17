@@ -59,6 +59,8 @@ export interface FactoryHostTombstonesOptions {
   readonly maxFileBytes?: number;
   /** Syncs the folder that holds the file; the production one fsyncs it. */
   readonly syncDirectory?: (path: string) => Promise<void>;
+  /** The folder that holds the file (C12 row "Supervisor durable state (hosted)"); absent, the signing key's own folder. */
+  readonly directory?: string;
 }
 
 export interface FactoryHostTombstoneInput {
@@ -121,7 +123,7 @@ export class FactoryHostTombstones {
   static async open(source: FactoryHostSigningKeySource, options: FactoryHostTombstonesOptions = {}): Promise<FactoryHostTombstones> {
     const signing = await loadFactoryHostSigningKey(source);
     const trusted = factoryStopHostKeyMap([{ hostId: source.hostId, hostKeyId: signing.hostKeyId, publicKey: createPublicKey(signing.privateKey) }, ...(options.retainedKeys ?? [])]);
-    const store = new FactoryHostTombstones(source.hostId, join(dirname(source.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE), signing, trusted, options);
+    const store = new FactoryHostTombstones(source.hostId, join(options.directory ?? dirname(source.privateKeyPath), FACTORY_HOST_TOMBSTONES_FILE), signing, trusted, options);
     await store.load();
     return store;
   }

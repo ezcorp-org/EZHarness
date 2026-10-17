@@ -10,6 +10,9 @@ export const FACTORY_KUBERNETES_SUPERVISOR_PATHS = Object.freeze({
   readinessDirectory: "/run/ezcorp/readiness/supervisor",
 });
 
+/** The supervisor's durable state folder under the runner root (C12 row "Supervisor durable state (hosted)"), prepared by its init container. */
+export const FACTORY_KUBERNETES_SUPERVISOR_STATE = "supervisor-state";
+
 /** A cluster service's HTTPS address as a pod dials it. */
 export function factoryKubernetesServiceUrl(service: string, namespace: string, port: number): string {
   return `https://${service}.${namespace}.svc.cluster.local:${port}`;

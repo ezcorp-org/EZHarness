@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
-import { mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { privateComponentVerdict } from "../private-files";
+import { judgePrivatePaths, podTemplate, privatePathUses, type PrivatePathUse } from "../../__tests__/helpers/kubernetes-private-paths";
+import { FACTORY_KUBERNETES_SUPERVISOR_PATHS } from "./kubernetes-paths";
 import {
   makeFactoryPrivateRoot,
   makeFactoryTestDeploymentSettings,
@@ -132,7 +131,8 @@ describe("renderFactoryKubernetesInstallation", () => {
     // Only the copier sees the Secret sources, read-only.
     const copier = spec.initContainers![0]!;
     expect(copier.volumeMounts.filter((mount) => mount.name.endsWith("-secret-source")).every((mount) => mount.readOnly === true)).toBe(true);
-    expect(copier.command.join(" ")).toContain("umask 077 && mkdir -p -m 0700 /delivered/gateway/private && cp -L /source/gateway/* /delivered/gateway/private/ && chmod 0600 /delivered/gateway/private/*");
+    expect(copier.command.join(" ")).toContain("umask 077 && mkdir -p -m 0700 /delivered/gateway-secrets/private && cp -L /source/gateway/* /delivered/gateway-secrets/private/ && chmod 0600 /delivered/gateway-secrets/private/*");
+    expect(copier.command.join(" ")).toContain("mkdir -p -m 0700 /delivered/readiness/orchestration");
     expect(copier.command.join(" ")).not.toContain("/source/pool/");
   });
 
@@ -208,7 +208,9 @@ describe("renderFactoryKubernetesSystem", () => {
     const spec = podSpec(daemonSet!);
     expect(spec.hostNetwork).toBe(true);
     expect(spec.containers.map((container) => container.securityContext.privileged)).toEqual([true]);
-    expect(spec.volumes).toContainEqual({ name: "runtime-socket", hostPath: { path: SETTINGS.runtimeSocketPath, type: "Socket" } });
+    // No start-time type check (C12 row "Container runtime readiness (hosted)"): a node without the socket still starts the
+    // supervisor, whose connection probe holds the runtime role by name instead (W4H-35 run 12).
+    expect(spec.volumes).toContainEqual({ name: "runtime-socket", hostPath: { path: SETTINGS.runtimeSocketPath } });
     expect(spec.containers[0]!.volumeMounts).toContainEqual({ name: "runtime-socket", mountPath: SETTINGS.runtimeSocketPath });
     expect((spec as unknown as { nodeSelector: unknown }).nodeSelector).toEqual(SETTINGS.nodeSelector);
 
@@ -232,7 +234,7 @@ describe("renderFactoryKubernetesSystem", () => {
       expect(each.securityContext.privileged).toBeUndefined();
       expect(each.securityContext).toMatchObject({ runAsNonRoot: true, allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } });
     }
-    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/pool" });
+    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/pool", subPath: "pool" });
     expect(JSON.stringify((container as unknown as { readinessProbe: unknown }).readinessProbe)).toContain("/run/ezcorp/readiness/pool/pool.json");
     expect(spec.volumes).toContainEqual({ name: "pool-secret-source", secret: { secretName: factoryKubernetesSecretName("pool"), defaultMode: 0o400 } });
     expect(kind(system, "Secret").map((secret) => (secret.metadata as { name: string }).name)).toContain(factoryKubernetesSecretName("pool"));
@@ -246,12 +248,12 @@ describe("renderFactoryKubernetesSystem", () => {
     // On the host network, and still able to resolve each installation's harness service for the guest-broker route.
     expect(spec.dnsPolicy).toBe("ClusterFirstWithHostNet");
     const [copy] = spec.initContainers!;
-    expect(copy!.command).toEqual(["sh", "-ec", "umask 077 && mkdir -p -m 0700 /delivered/supervisor/private && cp -L /source/supervisor/* /delivered/supervisor/private/ && chmod 0600 /delivered/supervisor/private/*"]);
-    expect(copy!.volumeMounts).toEqual([{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor" }]);
+    expect(copy!.command).toEqual(["sh", "-ec", "umask 077 && mkdir -p -m 0700 /delivered/supervisor-secrets/private && cp -L /source/supervisor/* /delivered/supervisor-secrets/private/ && chmod 0600 /delivered/supervisor-secrets/private/* && mkdir -p -m 0700 /delivered/readiness/supervisor && mkdir -p -m 0700 /delivered/runner-root/supervisor-state"]);
+    expect(copy!.volumeMounts).toEqual([{ name: "supervisor-secret-source", mountPath: "/source/supervisor", readOnly: true }, { name: "supervisor-secrets", mountPath: "/delivered/supervisor-secrets" }, { name: "readiness", mountPath: "/delivered/readiness" }, { name: "runner-root", mountPath: "/delivered/runner-root" }]);
     const [container] = spec.containers;
     expect(container!.command).toEqual(["bun", "src/factory/runner/supervisor-process.ts", "/run/ezcorp/host-identity/supervisor.json"]);
     expect(container!.volumeMounts).toContainEqual({ name: "supervisor-secrets", mountPath: "/run/ezcorp/host-identity", subPath: "private", readOnly: true });
-    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/supervisor" });
+    expect(container!.volumeMounts).toContainEqual({ name: "readiness", mountPath: "/run/ezcorp/readiness/supervisor", subPath: "supervisor" });
     expect(JSON.stringify((container as unknown as { readinessProbe: unknown }).readinessProbe)).toContain("/run/ezcorp/readiness/supervisor/supervisor.json");
     expect(spec.volumes).toContainEqual({ name: "supervisor-secret-source", secret: { secretName: "factory-supervisor-host-identity", defaultMode: 0o400 } });
     expect(spec.volumes).toContainEqual({ name: "supervisor-secrets", emptyDir: { medium: "Memory", sizeLimit: "4Mi" } });
@@ -261,7 +263,9 @@ describe("renderFactoryKubernetesSystem", () => {
 
   test("the runner root is the setting, at the same path on the node and in the pod, because guests resolve bind mounts by the node's path (W4H-35 C3)", () => {
     const spec = podSpec(kind(system, "DaemonSet")[0]!);
-    expect(spec.volumes).toContainEqual({ name: "runner-root", hostPath: { path: "/srv/ezcorp-runner", type: "DirectoryOrCreate" } });
+    // An operator-prepared directory (C12 prerequisites row): type Directory, so a missing one stops the pod by name instead of
+    // the kubelet creating it root-owned (W4H-35 run 12).
+    expect(spec.volumes).toContainEqual({ name: "runner-root", hostPath: { path: "/srv/ezcorp-runner", type: "Directory" } });
     expect(spec.containers[0]!.volumeMounts).toContainEqual({ name: "runner-root", mountPath: "/srv/ezcorp-runner" });
   });
 
@@ -273,6 +277,15 @@ describe("renderFactoryKubernetesSystem", () => {
     expect(supervisor.containers[0]!.env).toEqual([{ name: "HOME", value: "/tmp" }, { name: "CONTAINER_HOST", value: `unix://${SETTINGS.runtimeSocketPath}` }]);
     expect(supervisor.containers[0]!.volumeMounts).toContainEqual({ name: "tmp", mountPath: "/tmp" });
     expect(supervisor.volumes).toContainEqual({ name: "tmp", emptyDir: { sizeLimit: "64Mi" } });
+  });
+
+  test("only the supervisor pod gets the runtime groups as supplementalGroups, and none without the setting (W4H-35 run 12)", () => {
+    const groups = renderFactoryKubernetesSystem({ ...SETTINGS, runtimeGroups: [985, 990] }, bundle.image.reference, bundle.host.ports);
+    const security = (stream: readonly FactoryKubernetesObject[], name: string) => (podSpec(kind(stream, name)[0]!) as PodSpec & { securityContext: Record<string, unknown> }).securityContext;
+    expect(security(groups, "DaemonSet").supplementalGroups).toEqual([985, 990]);
+    expect(security(groups, "Deployment").supplementalGroups).toBeUndefined();
+    expect(security(system, "DaemonSet").supplementalGroups).toBeUndefined();
+    expect(JSON.stringify(objects)).not.toContain("supplementalGroups");
   });
 
   test("nothing tenant-scoped is rendered into the system namespace", () => {
@@ -393,93 +406,40 @@ describe("scoped secret delivery (C12 row \"Scoped secret delivery (hosted)\")",
   });
 });
 
-describe("delivered secret directory (C12 row \"Scoped secret delivery (hosted)\", kind proof run 10)", () => {
-  interface Mount { name: string; mountPath: string; subPath?: string }
-  interface Pod { initContainers?: { name: string; command: string[]; volumeMounts: Mount[] }[]; containers: { name: string; volumeMounts: Mount[] }[] }
-  /** The kubelet's emptyDir root: root-owned; run 10's verdict on it was "no owned directory", so it is not writable by others. */
-  const EMPTY_DIR_ROOT = { uid: 0, mode: 0o40755 };
-  /** A directory of the image or of the runtime on a mount path (/run, /run/ezcorp): root-owned, 0755. */
-  const IMAGE_DIRECTORY = { uid: 0, mode: 0o40755 };
+describe("private paths of the installation pod (C12 row \"Private paths of a hosted container (hosted)\", kind proof run 11)", () => {
+  /** The product's private roots: the delivered secrets and the readiness records (the supervisor's live under them too). */
+  const ROOTS = [FACTORY_CONTAINER_PATHS.secrets, FACTORY_CONTAINER_PATHS.readiness, FACTORY_KUBERNETES_SUPERVISOR_PATHS.secrets, FACTORY_KUBERNETES_SUPERVISOR_PATHS.readinessDirectory];
+  let hosted: FactoryInstallationBundle;
+  beforeAll(async () => {
+    const base = makeFactoryTestDeploymentSettings(join(root, "runtime"));
+    const hostAddresses = { pool: "https://factory-pool.ezcorp-factory-system.svc.cluster.local:41002", supervisor: "https://factory-supervisor.ezcorp-factory-system.svc.cluster.local:41003" };
+    hosted = await renderFactoryInstallationBundle(bundle.installation, { ...base, network: { ...base.network, hostAddresses } });
+  });
+  /** Every private path each container's OWN delivery documents and environment name (the command arguments are added by the judge). */
+  const uses = (rendered: FactoryInstallationBundle): Record<string, PrivatePathUse[]> => Object.fromEntries(FACTORY_CONTAINER_SERVICES.map((service) => [service, [
+    ...Object.values(rendered.deliveries[service].files).flatMap((entry) => "document" in entry ? privatePathUses(entry.document, ROOTS) : []),
+    ...privatePathUses(rendered.environment[service], ROOTS),
+  ]]));
 
-  /**
-   * Runs each pod template's REAL rendered deliver-secrets command in a temporary root (its /source and /delivered paths moved
-   * there), then judges every reader's delivered mount with the private reader's own rule (privateComponentVerdict, the check
-   * privateDirectory makes) and the leaf rule of readPrivateBounded (owned, regular, no group or other bits). One line per
-   * reader mount: "<workload>/<container> <mountPath>: ok" or the reason the reader would refuse.
-   */
-  async function deliveredVerdicts(stream: readonly FactoryKubernetesObject[]): Promise<string[]> {
-    const uid = process.getuid!();
-    const lines: string[] = [];
-    for (const object of stream) {
-      const pod = (object.spec as { template?: { spec?: Pod } } | undefined)?.template?.spec;
-      const init = pod?.initContainers?.find((container) => container.name === "deliver-secrets");
-      if (!pod || !init) continue;
-      const workload = `${String(object.kind)}/${(object.metadata as { name: string }).name}`;
-      const root = await mkdtemp(join(tmpdir(), "w4h35-delivered-"));
-      try {
-        const delivered = new Map<string, string>();
-        for (const mount of init.volumeMounts) {
-          const directory = join(root, mount.mountPath);
-          await mkdir(directory, { recursive: true, mode: 0o755 });
-          if (mount.mountPath.startsWith("/source/")) for (const name of ["config.json", "client.key"]) await writeFile(join(directory, name), "x", { mode: 0o400 });
-          else delivered.set(mount.name, directory);
-        }
-        const script = init.command[2]!.replaceAll("/source/", `${root}/source/`).replaceAll("/delivered/", `${root}/delivered/`);
-        const run = Bun.spawnSync([init.command[0]!, init.command[1]!, script]);
-        if (run.exitCode !== 0) { lines.push(`${workload}: deliver-secrets failed`); continue; }
-        for (const container of pod.containers) {
-          for (const mount of container.volumeMounts) {
-            const base = delivered.get(mount.name);
-            if (base === undefined) continue;
-            let verdict = "ok";
-            try {
-              const components = mount.mountPath.split("/").filter(Boolean);
-              let reachedOwnedDirectory = false;
-              for (const [index] of components.entries()) {
-                const status = index < components.length - 1 ? IMAGE_DIRECTORY : mount.subPath === undefined ? EMPTY_DIR_ROOT : await stat(join(base, mount.subPath));
-                if (privateComponentVerdict(status, uid, { reachedOwnedDirectory, mayRepair: false }) !== "foreign") reachedOwnedDirectory = true;
-              }
-              if (!reachedOwnedDirectory) throw new Error("Private path has no owned directory.");
-              const directory = mount.subPath === undefined ? base : join(base, mount.subPath);
-              const names = await readdir(directory);
-              if (names.length === 0) throw new Error("no delivered file");
-              for (const name of names) {
-                const file = await stat(join(directory, name));
-                if (!file.isFile() || file.uid !== uid || (file.mode & 0o077) !== 0) throw new Error(`${name} is not an owned private file`);
-              }
-            } catch (error) { verdict = (error as Error).message; }
-            lines.push(`${workload}/${container.name} ${mount.mountPath}: ${verdict}`);
-          }
-        }
-      } finally { await rm(root, { recursive: true, force: true }); }
-    }
-    return lines;
-  }
-
-  const streams = () => [...objects, ...system];
-  const OK = [
-    "Deployment/installation/gateway /run/ezcorp/secrets: ok",
-    "Deployment/installation/harness /run/ezcorp/secrets: ok",
-    "Deployment/installation/orchestrator /run/ezcorp/secrets: ok",
-    "Deployment/factory-pool/pool /run/ezcorp/secrets: ok",
-    "DaemonSet/factory-supervisor/supervisor /run/ezcorp/host-identity: ok",
-  ];
-
-  test("every reader finds its delivered files in an owned private directory, by the private reader's own rule", async () => {
-    expect(await deliveredVerdicts(streams())).toEqual(OK);
+  test("every path a container reads or writes privately is reached through an owned private directory on its rendered mounts", async () => {
+    const lines = await judgePrivatePaths(podTemplate(renderFactoryKubernetesInstallation(hosted, SETTINGS), "Deployment", "installation"), uses(hosted), ROOTS, process.getuid!());
+    expect(lines.filter((line) => !line.endsWith(": ok"))).toEqual([]);
+    // The readiness record is judged as the orchestrator's write and the harness's read, and the secrets as reads.
+    expect(lines).toContain("orchestrator w /run/ezcorp/readiness/orchestration/orchestration.json: ok");
+    expect(lines).toContain("harness r /run/ezcorp/readiness/orchestration/orchestration.json: ok");
+    expect(lines).toContain("harness r /run/ezcorp/secrets/factory-startup.json: ok");
+    expect(lines.length).toBeGreaterThan(40);
   });
 
-  test("the check refuses a reader mounted on the emptyDir root, and a copy left outside the owned directory", async () => {
-    const mutate = (change: (pod: Pod) => void) => streams().map((object) => {
-      const copy = structuredClone(object) as FactoryKubernetesObject;
-      const pod = (copy.spec as { template?: { spec?: Pod } } | undefined)?.template?.spec;
-      if (pod?.initContainers && (copy.metadata as { name: string }).name === "factory-pool") change(pod);
-      return copy;
-    });
-    const noSubPath = await deliveredVerdicts(mutate((pod) => { for (const mount of pod.containers[0]!.volumeMounts) delete mount.subPath; }));
-    expect(noSubPath).toContain("Deployment/factory-pool/pool /run/ezcorp/secrets: Private path has no owned directory.");
-    const openDirectory = await deliveredVerdicts(mutate((pod) => { pod.initContainers![0]!.command[2] = pod.initContainers![0]!.command[2]!.replace("mkdir -p -m 0700", "mkdir -p -m 0750"); }));
-    expect(openDirectory).toContain("Deployment/factory-pool/pool /run/ezcorp/secrets: Private path has a non-private owned ancestor.");
+  test("the judge refuses a writer whose readiness directory the init step did not prepare, and a path no mount covers", async () => {
+    const pod = structuredClone(podTemplate(renderFactoryKubernetesInstallation(hosted, SETTINGS), "Deployment", "installation")) as unknown as { initContainers: { command: string[] }[]; containers: { name: string; volumeMounts: { name: string; mountPath: string; subPath?: string }[] }[] };
+    const unprepared = structuredClone(pod);
+    unprepared.initContainers[0]!.command[2] = unprepared.initContainers[0]!.command[2]!.replaceAll(/ && mkdir -p -m 0700 \/delivered\/readiness\/[a-z]+/g, "");
+    expect(await judgePrivatePaths(unprepared as never, uses(hosted), ROOTS, process.getuid!())).toContain("orchestrator w /run/ezcorp/readiness/orchestration/orchestration.json: Private path has no owned directory.");
+    const unmounted = structuredClone(pod);
+    const harness = unmounted.containers.find((container) => container.name === "harness")!;
+    harness.volumeMounts = harness.volumeMounts.filter((mount) => mount.name !== "readiness");
+    expect(await judgePrivatePaths(unmounted as never, uses(hosted), ROOTS, process.getuid!())).toContain("harness r /run/ezcorp/readiness/orchestration/orchestration.json: no mount covers it");
   });
 });
 

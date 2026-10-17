@@ -179,7 +179,13 @@ export interface FactoryHostServiceOptions {
   readonly readiness?: () => unknown;
   /** Each mTLS peer allowed to drive or stop attempts on this host, bound to the one tenant it acts for. */
   readonly peerTenants: FactoryHostPeerTenants;
-  readonly runner: Runner;
+  /**
+   * The container runner, or how to get it once it is ready (C12 row "Container runtime readiness (hosted)"): the listener
+   * binds before the runner probe answers, and the runner-backed routes are built from the runner the first time it exists.
+   */
+  readonly runner: Runner | (() => Runner | undefined);
+  /** The code the runtime role is held by, or undefined while it runs. A held role answers every runner-backed route 503 with it. */
+  readonly runtimeHeld?: () => string | undefined;
   readonly signingKey: FactoryHostSigningKeySource;
   readonly broker?: FactoryGuestBroker;
   /** Whether a granted device node exists on this host; the launch supervisor's own check unless a test replaces it. */
@@ -218,6 +224,26 @@ export interface FactoryHostServiceOptions {
  * would give.
  */
 export function createFactoryHostServiceRouter(options: FactoryHostServiceOptions): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
+  const peers = factoryHostPeerTenantLookup(options.peerTenants);
+  const current = typeof options.runner === "function" ? options.runner : (() => options.runner as Runner);
+  let routes: ((request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse>) | undefined;
+  return async (request) => {
+    if (request.path === FACTORY_HOST_READINESS_PATH) return readinessRoute(request, peers, options.readiness);
+    const held = options.runtimeHeld?.();
+    const runner = held === undefined ? current() : undefined;
+    if (runner === undefined) {
+      // Authenticated first, as every route is: an unknown peer learns nothing about this host's runtime.
+      if (!peers.has(request.peerIdentity)) return reply(401, { error: "unauthorized" });
+      return reply(503, { error: held ?? "container_runtime_unreachable" });
+    }
+    routes ??= runnerRoutes(options, runner);
+    return routes(request);
+  };
+}
+
+/** The runner-backed routes of one host, built once from its ready runner. */
+function runnerRoutes(options: FactoryHostServiceOptions, runner: Runner): (request: FactoryPrivateRequest) => Promise<FactoryPrivateResponse> {
+
   // The two routes share one fact as well as one runner: which guests this host
   // ran to a result and closed. The launch half is the only thing that knows
   // it, and the stop half is the only thing that needs it.
@@ -226,7 +252,7 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
   // peer's tenant matched the intent's, and the stop half checks a stop against it.
   const guestTenants = new FactoryHostGuestTenants();
   const launchSupervisor = createFactoryHostLaunchSupervisor({
-    runner: options.runner,
+    runner,
     hostId: options.hostId,
     broker: options.broker ?? factoryHostBrokerUnavailable,
     // Recorded when the guest settles, whether it answered or died: that is
@@ -252,13 +278,11 @@ export function createFactoryHostServiceRouter(options: FactoryHostServiceOption
     hostId: options.hostId,
     peerTenants: options.peerTenants,
     guestTenants,
-    supervisor: factoryHostStopSupervisor(options.runner, options.now, undefined, (workerId) => finished.has(workerId), tombstone),
+    supervisor: factoryHostStopSupervisor(runner, options.now, undefined, (workerId) => finished.has(workerId), tombstone),
     signingKey: options.signingKey,
   });
   const launchPaths = new Set<string>([FACTORY_HOST_LAUNCH_PATH, FACTORY_HOST_ATTACH_PATH, FACTORY_HOST_RESULT_PATH]);
-  const peers = factoryHostPeerTenantLookup(options.peerTenants);
   return async (request) => {
-    if (request.path === FACTORY_HOST_READINESS_PATH) return readinessRoute(request, peers, options.readiness);
     if (request.path === FACTORY_HOST_STOP_PATH) return presentStop(await stop(request), options.pool);
     if (launchPaths.has(request.path)) return launch(request);
     // An unknown path reaches the launch handler, which authenticates the peer

@@ -303,6 +303,35 @@ describe("FactoryKubernetesHostTarget (the shared pool and supervisor, W4H-35)",
     expect((await factoryRejection(host(stuck.execute).ready(bundle))).code).toBe("host_not_ready");
   });
 
+  // C12 row "Supervisor runner root and runtime socket (hosted prerequisites)": the runner root is a hostPath of type Directory the
+  // operator prepares; a missing one stops the supervisor pod at its mount, and the installer HOLDs by name, not as a bare timeout.
+  test("a supervisor rollout stopped by an unprepared runner root is runner_root_unprepared, named from the pod's events (W4H-35 run 12)", async () => {
+    const bundle = await hostBundle();
+    const events = { items: [
+      { reason: "FailedMount", involvedObject: { kind: "Pod", name: "factory-supervisor-abcde" }, message: `MountVolume.SetUp failed for volume "runner-root" : hostPath type check failed: ${SETTINGS.runnerRoot} is not a directory` },
+      { reason: "FailedMount", involvedObject: { kind: "Pod", name: "other" }, message: "MountVolume.SetUp failed for volume \"x\" : secret \"y\" not found" },
+    ] };
+    const unprepared = kubectl([
+      [(argv) => argv.includes("daemonset/factory-supervisor"), { code: 1, stdout: "", stderr: "timed out" }],
+      [(argv) => argv.includes("events"), { code: 0, stdout: JSON.stringify(events), stderr: "" }],
+    ]);
+    const error = await factoryRejection(host(unprepared.execute).ready(bundle));
+    expect(error.code).toBe("runner_root_unprepared");
+    expect(error.message).toContain(SETTINGS.runnerRoot);
+    expect(unprepared.calls.map((call) => call.argv).at(-1)).toEqual(run("get", "events", "--namespace", "ezcorp-factory-system", "--field-selector", "reason=FailedMount", "--output", "json"));
+    // Another mount failure, or events the cluster does not give, keep the rollout's own refusal.
+    const other = kubectl([
+      [(argv) => argv.includes("daemonset/factory-supervisor"), { code: 1, stdout: "", stderr: "timed out" }],
+      [(argv) => argv.includes("events"), { code: 0, stdout: JSON.stringify({ items: [events.items[1]] }), stderr: "" }],
+    ]);
+    expect((await factoryRejection(host(other.execute).ready(bundle))).code).toBe("host_not_ready");
+    const silent = kubectl([
+      [(argv) => argv.includes("daemonset/factory-supervisor"), { code: 1, stdout: "", stderr: "timed out" }],
+      [(argv) => argv.includes("events"), { code: 1, stdout: "", stderr: "forbidden" }],
+    ]);
+    expect((await factoryRejection(host(silent.execute).ready(bundle))).code).toBe("host_not_ready");
+  });
+
   test("serving means a ready pool and a ready supervisor; anything else, or no cluster answer, is not serving", async () => {
     const bundle = await hostBundle();
     const answer = (pool: unknown, supervisor: unknown) => kubectl([
