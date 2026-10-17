@@ -34,6 +34,11 @@ the ingress differ (`src/factory/provisioning/fleet-profile.ts`):
   routes, in the system namespace. It sets the installation and proof headers.
   The harness checks host, installation header, and proof in both profiles.
   Only the ingress pods may reach a harness.
+- The factory image runs as an unprivileged user with no home directory. The
+  pool and the supervisor get `HOME` on their own bounded, writable `/tmp`, from
+  one map (`FACTORY_HOST_SERVICE_BASE_ENVIRONMENT` in
+  `src/factory/provisioning/deployment.ts`). The Compose host's pool reads the
+  same map. Without it, the supervisor's podman-remote client cannot start.
 
 A hosted fleet's settings carry `profile: "kubernetes"` and a `kubernetes`
 block: `kubectl` and `kubeconfigPath` (absolute paths; the kubeconfig is never
@@ -67,7 +72,25 @@ The installation checklist. The provisioner verifies every item it can observe.
 | GPU (optional) | See "CPU-only availability" and `docs/factory-local-gpu.md` | Named readiness rows, all unmet on this host |
 | Runner availability | Runner profiles declared in the fleet settings | The startup parser admits them before any install |
 | Hosted cluster (hosted profile only) | Kubernetes with NetworkPolicy enforcement and Pod Security admission; kubectl; a private kubeconfig file named by path in the fleet settings | Step 5's apply and readiness wait |
+| Local kind proof (this host only) | kind v0.32.0 and kubectl v1.37.1, each pinned by its published sha256 under `/tmp/factory-tools/` with a `PIN.txt` record; the node image `kindest/node:v1.36.1` present by digest; a kernel modules directory (see below) | The proof's preflight, outside the heavy lock; it fails by name |
 | Podman API socket on every runner node (hosted profile only) | Podman 5.x with its API socket at `kubernetes.runtimeSocketPath`; the supervisor DaemonSet mounts it and drives guests through the image's pinned podman-remote client | The supervisor degrades by name (`container_runtime_socket_missing`) when the socket is absent |
+
+kind mounts the host's `/lib/modules` into its node, always and read-only
+(kind v0.32.0, `pkg/cluster/internal/providers/podman/provision.go`). A NixOS
+host has no `/lib/modules`. The running kernel's modules are under
+`/run/booted-system/kernel-modules/lib/modules`. Do not use
+`/run/current-system`: after a rebuild without a reboot it names the next
+kernel, not the running one. The local proof does not change the host. Its
+`kind create cluster` call runs through a podman shim that rewrites exactly that
+one mount to the running kernel's directory, still read-only, and passes every
+other argument through. An operator who prefers a host path can add
+`systemd.tmpfiles.rules = [ "L+ /lib/modules - - - - /run/booted-system/kernel-modules/lib/modules" ];`
+to the NixOS configuration instead.
+
+The proof's own PostgreSQL starts on the proof's bridge network. Rootless
+Podman cannot attach a bridge network to a running container in its default
+(`pasta`) network mode, so the network exists first and the container starts on
+it.
 
 Storage on this host: the installations use the two shared local stores
 read-only (`docs/factory-local-storage.md`). The provisioner reads the stores'
@@ -89,7 +112,8 @@ independent archive failure domain (W15, W19).
 | Every image in the Dockerfile, the Compose templates, and the Kubernetes templates, and every download in the Dockerfile | `scripts/check-factory-deployment-locks.ts`, run in CI | Refuses any image not pinned by digest and any download not pinned by sha256 |
 | Kubernetes objects | `src/factory/provisioning/kubernetes-profile.ts` | The renderer refuses to return an object stream with an unpinned image |
 | Hosted ingress | the `ingress` service of `deploy/factory/compose/platform.yml` | The same nginx digest in both profiles |
-| Local kind proof cluster | `deploy/factory/kubernetes/kind-proof.yml` | `kindest/node:v1.36.1` by digest, the default of kind v0.32.0 |
+| Local kind proof cluster | `deploy/factory/kubernetes/kind-proof.yml` | `kindest/node:v1.36.1` by digest, the default of kind v0.32.0. The kind project publishes its node images only on Docker Hub (`docker.io`), so this is a Docker Hub dependency. Pull it once by digest; without a team mirror, do not pull it again |
+| Local kind proof tools | `/tmp/factory-tools/kind-0.32.0/`, `/tmp/factory-tools/kubectl-1.37.1/` | Each binary pinned by the sha256 its project publishes, recorded in `PIN.txt`; the proof's preflight checks the hash before use and never looks on `PATH` |
 | Toolchain | `.bun-version`, `.node-version` | Bun 1.4.2, Node 24.14.1 |
 
 Build the image from a clean checkout and pin its digest in the fleet settings:
@@ -400,6 +424,11 @@ shared by the fleet. Every installation of the fleet inherits it.
 | --- | --- | --- |
 | `cpu-only` | `{ "profile": "cpu-only", "cpuCapacity": 2 }` | CPU slots only. A runner profile that asks for `gpu-host` is refused when the settings are read. No attempt receives a device. |
 | `gpu` | `{ "profile": "gpu", "cpuCapacity": 2, "gpuProfilesPath": "/abs/gpu-host-profiles.json" }` | CPU slots, and the fleet host as its one GPU host. The private profile file must declare exactly that host (`host.<fleet>`); the host refuses any other file before the pool starts (`host_gpu_profiles_invalid`) and delivers it to the pool only. |
+
+The W19a graph proof runs on the `cpu-only` profile (`GRAPH_PROOF_RESOURCES`
+in `scripts/factory-graph-proof/stack-documents.ts`, CPU capacity 4). With the
+test provider it runs the reference pack end to end: one model operation, by
+the test provider, at cost 0, and no device.
 
 `factory-fleet-init-local.ts --gpu-profiles <file>` writes a `gpu` fleet;
 without it, the fleet is `cpu-only`. A fleet cannot move from `gpu` to
