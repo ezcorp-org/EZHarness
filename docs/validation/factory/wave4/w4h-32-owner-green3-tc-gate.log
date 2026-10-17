@@ -1,0 +1,6 @@
+tc-gate 2026-10-16T19:12:03Z w4h32-fixB-typecheck GREEN: MemAvailable=16.4GiB >= 16GiB (in-lock=0); start
+tc-gate 2026-10-16T19:13:06Z w4h32-fixB-typecheck END: exit=1; MemAvailable before 16.4GiB, lowest during 12.6GiB, after 16.7GiB
+tc-gate 2026-10-16T19:13:22Z w4h32-fixB-typecheck RED: lock-free typecheck while 1 heavy holder(s) run; MemAvailable=16.5GiB; not run (exit 75)
+tc-gate 2026-10-16T19:13:31Z w4h32-fixB-typecheck RED: lock-free typecheck while 1 heavy holder(s) run; MemAvailable=16.6GiB; not run (exit 75)
+tc-gate 2026-10-16T19:15:31Z w4h32-fixB-typecheck GREEN: MemAvailable=16.7GiB >= 16GiB (in-lock=0); start
+tc-gate 2026-10-16T19:16:29Z w4h32-fixB-typecheck END: exit=0; MemAvailable before 16.7GiB, lowest during 13.0GiB, after 16.2GiB

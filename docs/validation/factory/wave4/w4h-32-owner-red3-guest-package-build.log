@@ -1,0 +1,38 @@
+# 2026-10-16T19:10:43Z head=9e733721206c256d08bc5bf7f988e937c626836b dirty=2 cmd: bun test --timeout 30000 ./src/factory/guest-package-build.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/guest-package-build.test.ts:
+19 | /** A content-addressed release blob store in memory: what the lifecycle's FileBlobStore promises. */
+20 | function memoryBlobs() {
+21 |   const stored = new Map<string, Uint8Array>();
+22 |   const blobs: BlobStore = {
+23 |     async put(bytes) { const digest = digestBytes(bytes); stored.set(digest, bytes); return digest; },
+24 |     async get(digest) { const bytes = stored.get(digest); if (!bytes) throw new LifecycleError("artifact_missing", "One stored extension release blob is missing."); return bytes; },
+                                                                                 ^
+LifecycleError: One stored extension release blob is missing.
+ code: "artifact_missing"
+
+      at get (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:24:77)
+      at getFiles (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/v4/blobs.ts:241:29)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:64:18)
+(fail) the one guest-package builder (W4H-26) > the harness release keeps its artifact copy in the release blobs beside its source, under the digest the release names (W4H-32) [0.38ms]
+68 |   test("collected files that do not digest to the build's artifact are refused by name, and no artifact copy is stored (W4H-32)", async () => {
+69 |     const manifest = factoryGuestManifest({ name: "m", version: "1.0.0", author: "a", description: "d", tools: {} });
+70 |     const { blobs, stored } = memoryBlobs();
+71 |     const tampered = { ...artifacts, "extension.ts": "export const tampered = 1;" };
+72 |     await expect(buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return tampered; } }, blobs, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" }))
+73 |       .rejects.toThrow("factory_guest_package_artifact_mismatch");
+                    ^
+error: expect(received).rejects.toThrow(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:73:16)
+(fail) the one guest-package builder (W4H-26) > collected files that do not digest to the build's artifact are refused by name, and no artifact copy is stored (W4H-32) [0.35ms]
+
+ 5 pass
+ 2 fail
+ 14 expect() calls
+Ran 7 tests across 1 file. [462.00ms]
+# exit=1

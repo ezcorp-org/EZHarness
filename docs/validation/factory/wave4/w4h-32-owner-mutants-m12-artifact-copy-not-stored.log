@@ -1,0 +1,42 @@
+# 2026-10-16T19:17:20.483547+00:00 mutant m12-artifact-copy-not-stored in src/factory/guest-package-build.ts
+# cmd: bun test --timeout 30000 ./src/factory/guest-package-build.test.ts ./src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/guest-package-build.test.ts:
+19 | /** A content-addressed release blob store in memory: what the lifecycle's FileBlobStore promises. */
+20 | function memoryBlobs() {
+21 |   const stored = new Map<string, Uint8Array>();
+22 |   const blobs: BlobStore = {
+23 |     async put(bytes) { const digest = digestBytes(bytes); stored.set(digest, bytes); return digest; },
+24 |     async get(digest) { const bytes = stored.get(digest); if (!bytes) throw new LifecycleError("artifact_missing", "One stored extension release blob is missing."); return bytes; },
+                                                                                 ^
+LifecycleError: One stored extension release blob is missing.
+ code: "artifact_missing"
+
+      at get (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:24:77)
+      at getFiles (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/v4/blobs.ts:241:29)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:64:18)
+(fail) the one guest-package builder (W4H-26) > the harness release keeps its artifact copy in the release blobs beside its source, under the digest the release names (W4H-32) [0.31ms]
+
+src/factory/guest-package-harness-install.test.ts:
+ 99 | function artifactUnavailable(error: unknown): FactoryPackagePreparationError {
+100 |   const reason = (error as { reason?: unknown } | null)?.reason;
+101 |   const named = error instanceof RunnerError || error instanceof LifecycleError
+102 |     ? { code: error.code, ...(error instanceof RunnerError && error.detail ? error.detail : { errorClass: error.name }), ...(typeof reason === "string" ? { reason } : {}) }
+103 |     : errorShape(error);
+104 |   return new FactoryPackagePreparationError("factory_package_artifact_unavailable", JSON.stringify(named));
+               ^
+FactoryPackagePreparationError: factory_package_artifact_unavailable: {"code":"artifact_unrecoverable","errorClass":"ArtifactUnrecoverableError","reason":"blob_missing"}
+ detail: "{\"code\":\"artifact_unrecoverable\",\"errorClass\":\"ArtifactUnrecoverableError\",\"reason\":\"blob_missing\"}",
+   code: "factory_package_artifact_unavailable"
+
+      at artifactUnavailable (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:104:10)
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/package-preparation.ts:292:262)
+(fail) the harness installation path: a fresh preparation store is restored from the release's artifact copy through the product runner, and never builds (W4H-32) [1571.06ms]
+
+ 7 pass
+ 2 fail
+ 20 expect() calls
+Ran 9 tests across 2 files. [3.31s]
+
+# exit=1

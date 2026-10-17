@@ -1,0 +1,95 @@
+# 2026-10-15T23:38:04Z cwd=/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner cmd: bun test --timeout 30000 ./tests/store-reuse.test.ts ./tests/service.test.ts
+bun test v1.4.2 (744846f84)
+
+tests/store-reuse.test.ts:
+685 |   }
+686 |   async collectArtifacts(artifactDigest: string): Promise<WorkspaceFiles> {
+687 |     // A release built into another store (a store a previous boot removed) is named, never a raw file error (real-8).
+688 |     const text = await readFile(join(this.root, "artifacts", digest(artifactDigest)), "utf8").catch((error: unknown) => {
+689 |       if ((error as { code?: unknown } | null)?.code !== "ENOENT") throw error;
+690 |       throw new RunnerError("artifact_missing", "The release's artifact is not in this runner's store", "runner", false, errorShape(error));
+                  ^
+RunnerError: The release's artifact is not in this runner's store
+     stage: "runner",
+ retryable: false,
+    detail: {
+  errorClass: "Error",
+  errorCode: "ENOENT",
+},
+      code: "artifact_missing"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/src/podman.ts:690:13)
+(fail) a kept installation whose runner store is fresh takes the release back through restoreArtifact, and the next boot serves it (W4H-32) [35.08ms]
+56 | 
+57 | test("restoring an artifact the store already holds is a no-op: the stored file is not rewritten (W4H-32)", async () => {
+58 |   const root = await store();
+59 |   const runner = boot(new StoreRunner({ root }));
+60 |   await runner.restoreArtifact(artifact, files);
+61 |   const before = await stat(join(root, "artifacts", artifact));
+                            ^
+ENOENT: no such file or directory, stat '/tmp/ez-runner-store-A9woSU/artifacts/2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c'
+    path: "/tmp/ez-runner-store-A9woSU/artifacts/2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c",
+ syscall: "stat",
+   errno: -2,
+    code: "ENOENT"
+
+      at async <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:61:24)
+(fail) restoring an artifact the store already holds is a no-op: the stored file is not rewritten (W4H-32) [0.22ms]
+65 |   expect(await runner.collectArtifacts(artifact)).toEqual(files);
+66 | });
+67 | 
+68 | test("restore refuses files that do not digest to the key, artifact_corrupt, and stores nothing (W4H-32)", async () => {
+69 |   const runner = boot(new StoreRunner({ root: await store() }));
+70 |   await expect(runner.restoreArtifact(artifact, { ...files, "extension.js": "export const changed = 1;" })).rejects.toMatchObject({ code: "artifact_corrupt" });
+                                                                                                                         ^
+error: expect(received).rejects.toMatchObject(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:70:117)
+(fail) restore refuses files that do not digest to the key, artifact_corrupt, and stores nothing (W4H-32) [0.19ms]
+74 | test("a start refused for a missing artifact registers no worker, so the same start goes past the artifact after a restore (W4H-32)", async () => {
+75 |   const runner = boot(new UnprobedRunner({ root: await store() }));
+76 |   await expect(runner.start(startRequest("worker-1"), noReverse)).rejects.toMatchObject({ code: "artifact_missing" });
+77 |   await runner.restoreArtifact(artifact, files);
+78 |   // The fixture's recipe names no image, so the retried start stops at the profile check: past the artifact, and not a duplicate.
+79 |   await expect(runner.start(startRequest("worker-1"), noReverse)).rejects.toMatchObject({ code: "runtime_profile_changed" });
+                                                                               ^
+error: expect(received).toMatchObject(expected)
+
+- {
+-   "code": "runtime_profile_changed",
+- }
++ [RunnerError: Worker ID is already used]
+
+- Expected  - 3
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/tests/store-reuse.test.ts:79:75)
+(fail) a start refused for a missing artifact registers no worker, so the same start goes past the artifact after a restore (W4H-32) [4.09ms]
+
+tests/service.test.ts:
+27 |         incoming.on("data", (chunk: Buffer) => { bytes += chunk.byteLength; if (bytes > 180 * 1024 ** 2) incoming.destroy(new RunnerError("response_limit", "Runner response exceeded policy")); else chunks.push(chunk); });
+28 |         incoming.on("error", reject);
+29 |         incoming.on("end", () => {
+30 |           try {
+31 |             const result = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+32 |             if (incoming.statusCode !== 200 || result.error) reject(new RunnerError(result.error?.code ?? "runner_failed", result.error?.message ?? "Runner request failed", result.error?.stage, result.error?.retryable, typeof result.error?.errorClass === "string" ? { errorClass: result.error.errorClass, ...(typeof result.error.errorCode === "string" ? { errorCode: result.error.errorCode } : {}) } : undefined));
+                                                                         ^
+RunnerError: Unknown runner endpoint
+     stage: "runner",
+ retryable: false,
+    detail: undefined,
+      code: "unknown_method"
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/packages/@ezcorp/extension-runner/src/client.ts:32:69)
+      at emit (node:events:118:23)
+      at endReadableNT (internal:streams/readable:901:50)
+(fail) restore: the client hands an artifact to the runner through the service, and a runner without restore answers unknown_method (W4H-32) [38.50ms]
+
+ 11 pass
+ 5 fail
+ 47 expect() calls
+Ran 16 tests across 2 files. [757.00ms]
+# exit=1 end=2026-10-15T23:38:04Z

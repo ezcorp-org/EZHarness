@@ -1,0 +1,24 @@
+# MUTANT on the declare form: the guard's throw removed
+bun test v1.4.2 (744846f84)
+
+src/factory/guest-package-harness-install.test.ts:
+127 | });
+128 | 
+129 | test("the fresh store's build guard is live: a build is counted and refused, so the cases above prove that no build ran (W4H-32)", async () => {
+130 |   const fresh = new FreshStore({ root: join(root, "guard") });
+131 |   stores.push(fresh);
+132 |   await expect(fresh.build()).rejects.toThrow("the preparation must not build");
+                                            ^
+error: expect(received).rejects.toThrow(expected)
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-harness-install.test.ts:132:39)
+(fail) the fresh store's build guard is live: a build is counted and refused, so the cases above prove that no build ran (W4H-32) [1235.89ms]
+
+ 2 pass
+ 1 fail
+ 9 expect() calls
+Ran 3 tests across 1 file. [4.64s]
+# exit=1

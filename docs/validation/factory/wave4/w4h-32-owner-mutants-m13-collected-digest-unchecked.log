@@ -1,0 +1,26 @@
+# 2026-10-16T19:17:23.891888+00:00 mutant m13-collected-digest-unchecked in src/factory/guest-package-build.ts
+# cmd: bun test --timeout 30000 ./src/factory/guest-package-build.test.ts
+bun test v1.4.2 (744846f84)
+
+src/factory/guest-package-build.test.ts:
+70 |     const { blobs, stored } = memoryBlobs();
+71 |     const tampered = { ...artifacts, "extension.ts": "export const tampered = 1;" };
+72 |     await expect(buildFactoryGuestHarnessRelease({ runner: { ...runner({ artifactDigest: digestObject(artifacts), manifest: manifest as never }), async collectArtifacts() { return tampered; } }, blobs, files, operationId: "op", limits: {} as never, installationId: "inst", releaseId: "rel" }))
+73 |       .rejects.toThrow("factory_guest_package_artifact_mismatch");
+74 |     expect([...stored.keys()]).not.toContain(digestObject(artifacts));
+75 |     expect([...stored.keys()]).not.toContain(digestObject(tampered));
+                                        ^
+error: expect(received).not.toContain(expected)
+
+Expected to not contain: "d599e2eb2779b6d64366deaffd847301d8b3c68310acf546f8dbdddc031f02d5"
+Received: [ "95cdecdc290466d192ebe5e0affdc404520add60f5ab3834ddbc283a9f2b9e7c", "d599e2eb2779b6d64366deaffd847301d8b3c68310acf546f8dbdddc031f02d5" ]
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/factory/guest-package-build.test.ts:75:36)
+(fail) the one guest-package builder (W4H-26) > collected files that do not digest to the build's artifact are refused by name, and no artifact copy is stored (W4H-32) [0.27ms]
+
+ 6 pass
+ 1 fail
+ 18 expect() calls
+Ran 7 tests across 1 file. [359.00ms]
+
+# exit=1

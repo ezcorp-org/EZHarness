@@ -1,0 +1,7 @@
+bun test v1.4.2 (744846f84)
+
+ 100 pass
+ 0 fail
+ 360 expect() calls
+Ran 100 tests across 2 files. [463.00ms]
+kept 1 requested LCOV source records → /home/dev/work/EZCorp/EZHarness-worktrees/composable-factory-platform/.worktrees/w00-integration/coverage/w4h-32-runner-rehydrate-13c439661-on-e8d996d72/bun-api-client/lcov.info

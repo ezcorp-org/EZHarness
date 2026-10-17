@@ -1,0 +1,37 @@
+src/factory/package-preparation.podman.integration.test.ts:19:8 lint/style/useImportType  FIXABLE  ━━━━━━━━━━
+
+  ! Some named imports are only used as types.
+  
+    17 │ import { digestObject, FileBlobStore, putFiles } from "../extensions/v4/blobs";
+    18 │ import { FactoryGrants, type FactoryPrincipal } from "./grants";
+  > 19 │ import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } from "./package-preparation";
+       │        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    20 │ import { productExtensionRunner } from "../extensions/runner-rehydration";
+    21 │ import { getReadiness, resetReadiness } from "../readiness";
+  
+  i This import is only used as a type.
+  
+    17 │ import { digestObject, FileBlobStore, putFiles } from "../extensions/v4/blobs";
+    18 │ import { FactoryGrants, type FactoryPrincipal } from "./grants";
+  > 19 │ import { FactoryPackagePreparationError, FactoryPackagePreparations, FactoryPackageTrusts, FactoryV4PackageCatalog } from "./package-preparation";
+       │          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    20 │ import { productExtensionRunner } from "../extensions/runner-rehydration";
+    21 │ import { getReadiness, resetReadiness } from "../readiness";
+  
+  i Importing the types with import type ensures that they are removed by the compilers and avoids loading unnecessary modules.
+  
+  i Safe fix: Add inline type keywords.
+  
+    19 │ import·{·type·FactoryPackagePreparationError,·FactoryPackagePreparations,·FactoryPackageTrusts,·FactoryV4PackageCatalog·}·from·"./package-preparation";
+       │          +++++                                                                                                                                         
+
+Checked 3 files in 16ms. No fixes applied.
+Found 1 warning.
+── Tests (staged) ─────────────────────────────────
+  bun: src/factory/package-preparation.podman.integration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 12 expect() calls
+Ran 1 test across 1 file. [12.71s]

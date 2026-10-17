@@ -1,0 +1,263 @@
+W4H-32 — runner store resilience: a missing release artifact is rehydrated from the product's own copy
+Owner w4h-32. Frozen 2026-10-16.
+
+HEAD AND BRANCH
+- Branch wp/w4h-32-runner-rehydrate, worktree /home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32, base 390c49a90 (accepted W4H-31 merge).
+- FROZEN HEAD 9418f9d5b. It differs from the tested head 22cacea4c only in tasks/factory/w4h-32-GATES.md and tasks/todo.md
+  (`git diff --stat 22cacea4c 9418f9d5b`). Every test, static, coverage, mutant and heavy leg ran at 22cacea4c with dirty 0.
+- Identity: author and committer archy <281643943+EZArchy@users.noreply.github.com>. No --no-verify, no skip variables.
+
+CHERRY-PICKS (for the integrator's reconcile; W4H-28 was not on integ/w00)
+Picked with -x from wp/w4h-28-reference-run:
+- 445c41a09 -> cff1ab863  runner reports an unclassified error's class, code, message
+- 2a0c65e74 -> 16830d1ec  runner_internal_error 500; artifact_missing named; errorShape moved to @ezcorp/extension-contract
+- f21e7619a -> 2c394a681  typecheck narrowing in service.test.ts
+Conflicts I resolved by hand:
+1. service.test.ts: both sides added a test at one place, so I kept both.
+2. extension-contract index.ts: I kept both exports (process-spawn, error-shape).
+3. scripts/coverage-thresholds.json: I kept the base and added only the contract error-shape key. W4H-28's other keys name files
+   that are not on this base.
+4. src/providers/error-shape.ts: DROPPED. It is not on the base (an earlier W4H-28 provider commit adds it), and nothing on the base
+   imports it.
+=> At merge after W4H-28, take W4H-28's versions of these files. The W4H-32 commits do not touch them, except that I added one
+   coverage key (src/extensions/runner-rehydration.ts).
+
+COMMITS (W4H-32, oldest first)
+97d31af81 docs: C05 row "Rehydrate a missing runner artifact", C10 amendment "a rebuild is never an error handler", gates file, todo
+91998a0d7 runner: restoreArtifact (contract, PodmanRunner, /v4/artifacts/restore, client); a missing-artifact start registers no worker
+770693dd2 host: runner-rehydration.ts wraps the one product runner (lifecycle service + factory default builder); readiness warnings;
+          releaseNamesArtifact
+23b3924bc test: the lifecycle-service test removes its own fixture rows
+24cb2ab0f fix(factory): hydrate refuses any artifact read error by name; FactoryHostPreparationError moves to package-preparation.ts
+5fd029f33 test: the real supervisor client's pre-build answer is host_preparation_not_built
+d0c3a868e test: the single-retry test stops a runaway retry by name
+cba86c540 docs: deploy/extension-runner/README.md — the runner store is durable installation storage
+86b33b7ce docs: C05 row states the restore request bound; C10 amendment builds only on the supervisor's not-built answer (ruling)
+c673a7264 fix(extension-runner): restore request bound = MAXIMUM_ARTIFACT_BYTES (160 MiB) + 1 MiB envelope (ruling)
+22cacea4c fix(factory): only host_preparation_not_built builds; a raw artifact_missing refuses by name; Podman test through the wrapper (ruling)
+9418f9d5b docs: gates checked with evidence, todo review
+
+RULINGS APPLIED (team-lead)
+- Contract rows approved as proposed.
+- Q1: no boot refusal for a temp store. The fix is lazy rehydration, the durable trusted-local path, and the README rule.
+- Q2: the warning carries artifactDigest, and the count is per process. No migration.
+- Scope widened: package-preparation hydrate must not mask errors.
+- Hydrate builds ONLY on host_preparation_not_built. A raw artifact_missing refuses by name.
+- The Podman test runs through the wrapper: it restores, it does not rebuild.
+- The restore route's bound matches the artifact bound (160 MiB): 129 MiB restores, 161 MiB refuses request_limit.
+- The fault-not-transient side effect stays.
+
+CLAIMS AND EVIDENCE (root /tmp/factory-platform-evidence/w4h-32/)
+C1. Rows come before code: 97d31af81 and 86b33b7ce precede the code commits they govern.
+C2. Red first.
+    - red/: runner 5 fail, host 17, preparation 2, wiring 2. Red tree = 97d31af81 + red/red-tree.diff (sha256 ba06491f67727c44…).
+    - red2/: preparation 1 fail (it built), runner-service 1 fail (129 MiB was reset at the 128 MiB backstop).
+      Red tree = cba86c540 + red2/red-tree.diff (sha256 2ba3afb7193169d5…).
+    - heavy/run1/heavy-podman-red.log: 0 pass 1 fail. This is the new Podman test at the red tree: the old hydrate built and answered
+      a receipt. The scratch worktree .worktrees/w4h-32-red was removed by name after this leg; its tree is reproducible from
+      cba86c540 + red2/red-tree.diff.
+    - Every red fail is an assertion. There are no load errors.
+C3. Behaviour (green at 22cacea4c):
+    - A missing artifact is restored from the blob copy, then the operation runs again exactly once, and the start succeeds.
+    - Refusals are artifact_unrecoverable with {expectedDigest, reason}:
+      no release record -> release_unknown (the blob is never read); blob missing -> blob_missing;
+      bytes do not hash, or the runner refuses -> digest_mismatch; no restore operation / unknown_method -> runner_unsupported.
+    - Concurrent starts join one rehydration (one lookup, one read, one restore, one warning).
+    - A failed rehydration is not remembered.
+    - Only the runner's own RunnerError artifact_missing triggers a restore. The blob store's LifecycleError artifact_missing does not.
+    - A second restore is a no-op (same inode and mtime).
+    - A start refused for a missing artifact registers no worker.
+    - Readiness gets a non-blocking warnings list [{code: runner_artifact_rehydrated, artifactDigest, count}] with no message text.
+    - Two boots on a kept installation: boot 1 builds; the store is removed; boot 2 restores lazily, warns count 1, and the start
+      goes past the artifact (runner-rehydration.test.ts, store-reuse.test.ts, and the real Podman preparation test).
+    - hydrate builds only on host_preparation_not_built. Every other read error refuses factory_package_artifact_unavailable with
+      code, reason and class/errorCode, never the message.
+    - The restore bound is 160 MiB + 1 MiB envelope: 129 MiB restores; 161 MiB refuses request_limit, typed. 5 of 5 repeats
+      (green/restore-limit-repeat.log).
+C4. Coverage, under bun_pin: coverage/checks.log (sha256 a8923eb44c15fbe8…).
+    - runner 17/0, host 50/0, lifecycle 6/0, preparation 30/0, client 1/0.
+    - New-file gate exit 0: 2 new files at 100% (src/extensions/runner-rehydration.ts and W4H-28's contract error-shape.ts).
+      The direct error-shape test is therefore not needed.
+    - Patch gate exit 0: 14 files, every changed executable line covered.
+C5. Mutants: mutants/summary.txt (sha256 49f2076899a97315…), 10/10 killed under bun_pin.
+    - The 8 planned: host digest check removed; runner digest check removed; unbounded retry; warning dropped; release check removed
+      (unverified source); hydrate rebuilds on any error; start registers before the artifact; join removed.
+    - Plus 2 for the rulings: restore bound reverted; raw artifact_missing builds.
+C6. Static, under bun_pin (bun 1.4.2, SQL flag 1): static/summary.txt (sha256 00663824f4e3fac6…).
+    build:packages, typecheck, lint, check-boundaries, check-factory-boundaries, schema-drift and gate-integrity all exit 0.
+    The earlier unpinned results are kept in static/pre-pin/.
+C7. Heavy, through gated-flock with GATED_FLOCK_YIELD_FILE set:
+    - run 1, heavy/run1/heavy-batch.log (sha256 d3625508f6ff39b6…):
+      runner-package (full extension-runner suite, real Podman) 144/0; preparation-podman 1/0; host-preparation-client 6/0;
+      trusted-local-in-process 3/0; podman-red 0/1 (expected).
+      postgres-preparation ran NO test: BunSqlPipeliningGuardError, because my heavy.sh set PATH by hand without bun_pin.
+    - Re-run after the fix, ONLY=postgres-preparation, relaunched 04:24:14Z after push11/push.exit:
+      heavy/heavy-batch.log (sha256 dd0a3e45d929aae0…) — 30 pass 0 fail, exit 0, 04:36:58Z.
+    - Hook runs: the commit hook ran 1 to 6 suites per commit. Of note, it ran package-preparation.podman.integration green at 22cacea4c.
+C8. Script hashes (script-hashes.txt, sha256 d9651d80bb1921e4…): heavy.sh c0eb162c8b6f59aa, run-static.sh dca587423430c30e,
+    run-coverage.sh 98098b5ffe27b530, run-mutants.py 3bfd2f9fc4f2cffd. All four use w00/bun-pin.sh bun_pin; none sets Bun's PATH by hand.
+C9. Digests: no fixture pins a literal artifact or SDK digest. The W4H-28 provision.ts NODE_ENV change moves digests through
+    unchanged. The code compares only against the release record's digest.
+
+FINDINGS / LEFTOVERS
+- The factory host supervisor keeps its own leased store. A release artifact lost there is not rehydrated (no product blobs on that
+  host), and a launch would fail there. Team-lead put this on the leftover list.
+- CLI publish (src/extensions/sdk/publish.ts) reads an artifact it has just built in its own runner. There is no release record or
+  product copy, so this path is not applicable. Not wrapped.
+- Side effect (accepted): a runner error on the preparation's artifact read is now a named fault, not transient backpressure.
+- The JSON envelope for restore is 1 MiB. An artifact near 160 MiB with heavy JSON escaping could exceed it. The runner's own read
+  and validation stay the bound.
+
+LESSONS
+1. One helper for the toolchain. Every script I write sources w00/bun-pin.sh bun_pin. I set Bun's PATH by hand in three scripts, so
+   the SQL pipelining flag was missing and a PostgreSQL leg ran no test (validator-8 Addendum C).
+2. My shell is zsh. ${PIPESTATUS[0]} is empty there, so I record an exit code without a pipe ($? of the command itself).
+3. A mutant that loops on microtasks starves the test timer. A retry test must stop a runaway loop by name, so the mutant fails fast
+   and does not hang.
+4. Fixture hygiene. A test that creates database rows that a later sweep reads (recovery) must delete exactly its own rows.
+5. Reds that need the heavy lock: keep the red tree as a diff on a reachable commit, and run the red leg first in the heavy batch in
+   a scratch worktree with a real install. Remove that worktree by name after its leg.
+6. Lock etiquette. Stop my own queued wrapper (parent first) when the coordinator orders another job first, and relaunch on its
+   signal file. Before calling a pid a job, check its children: a watcher shell whose command line names the label is not a wrapper.
+
+==== RE-FREEZE AFTER THE REBASE (2026-10-16) ====
+NEW HEAD f1efc92891270c5d027f08b590b21410b7325785 on wp/w4h-32-runner-rehydrate, rebased onto integ/w00 b0b7bedf1 (the follow-up
+publish chain's tasks commit; 38ec686d8 and 5deb91a25 inside). The frozen 9418f9d5b stays reachable as proof/w4h-32-frozen-9418f9d5b.
+One gated job, w4h32-rebase (team-lead word): queued 17:01:05Z, command exit 17:10:09Z. rebase-in-lock.sh 140bf2eba0d34e6c, with
+rerere off on every rebase command. Evidence: rebase/run-20261016T170105Z/ (hashes.txt lists every file's hash).
+- Cherry-picks dropped by the range (--onto b0b7bedf1 2c394a681): cff1ab863, 16830d1ec, 2c394a681. They arrive with W4H-28.
+- 5 stops, each by its saved resolver: 97d31af81 contracts.md (resolve-contracts.py); 91998a0d7 service.test.ts
+  (resolve-appended-tests.py); 770693dd2 coverage-thresholds.json (resolve-thresholds.py); 24cb2ab0f host-preparation-client.ts
+  (resolve-hpc-imports.py); 86b33b7ce contracts.md (resolve-contracts.py).
+- L1 fold: fold-l1.sh folded into eaf8f5aab (the counterpart of 22cacea4c). The amend's hook ran the Podman preparation test inside
+  the lock: 1 pass, 0 fail.
+- Identity 12/0. diff-equality against 9418f9d5b: 26 EQUAL. 2 DIFFERENT, both expected: coverage-thresholds.json (the comma) and
+  the podman test (the L1 import line only). Titles 12 and 6 ok.
+- Range-diff (range-diff.txt): 5 commits "=" and 7 "!". The "!" marks are context or resolution changes; the +/- lines are equal
+  per file (diff-equality.txt).
+- Static: build:packages, lint (0 warnings), check-boundaries, check-factory-boundaries and schema-drift all exit 0.
+  Typecheck through tc-gate in-lock: exit 0, lowest MemAvailable 13.0 GiB.
+- Coverage: runner 18/0, host 50/0, lifecycle 6/0, preparation 30/0, client 1/0. new-file exit 0; patch exit 0 (12 files).
+- Heavy: runner-package 148/0, preparation-podman 1/0, host-preparation-client 8/0, trusted-local 3/0, postgres-preparation 30/0.
+- gate-integrity: BASE_REF=b0b7bedf1 (binding) PASSED, exit 0. origin/main (informational): 1 finding, "coverage gate tool changed
+  (M): scripts/merge-lcov.ts". That change is the BASE's fc8894e71 (W4H-28 follow-up); my range has 0 changes to the file. The ruled
+  expectation was zero findings, so the job's status is 1 for this reason ONLY.
+- Script hashes: rebase-in-lock 140bf2eb, fold-l1 b4d022d9, resolve-stop 6f14a1e8, heavy c875154e, run-static 3d3d0709,
+  run-coverage 583081d5, run-mutants 57c831bb.
+- RULING (team-lead, 17:03Z ruling, confirmed after the run): under the new order the informational origin/main expectation is exactly
+  {scripts/merge-lcov.ts}, the W4H-28 follow-up's ruled change in the base. The run shows exactly that and nothing else
+  (gate-integrity-main.log c72679e077aef497), so the leg's result is the expected one, not a red. The job's status 1 is a label from
+  the script's stale zero expectation. f1efc9289 stands as the FROZEN HEAD; no rerun. The binding leg (BASE_REF=b0b7bedf1) is empty
+  (PASSED).
+- FROZEN: no further commit on wp/w4h-32-runner-rehydrate (f1efc92891270c5d027f08b590b21410b7325785); proof/w4h-32-frozen-9418f9d5b
+  kept. Merge expectation for the integrator: origin/main = {scripts/merge-lcov.ts}, base = empty.
+- LEFTOVER (W4H-32, later round): rebase-in-lock.sh's informational expectation becomes an argument or a file, so a base-owned ruled
+  finding is named in the launch, not hard-coded; red first.
+- VERDICT: validator-8 ACCEPT at f1efc9289 (validator-8/verdict-w4h-32.txt a4c1aaf2469cb289). All 28 evidence hashes are equal on
+  the validator's side; its mutants m3, m4 and m9 are red at the new head.
+- LEFTOVER 2 (validator-8 note, not blocking): mutant m9 (restore bound reverted) kills the restore-limit test by ECONNRESET at the
+  client, not by an expect() line. Later round: assert the refused upload's typed outcome by name, so the kill is explicit; red first.
+
+==== RE-FREEZE AFTER FIX B (graph mock pass, 2026-10-16) ====
+FROZEN HEAD 788a514c81a8fb9547d24508374863d9a2fef85e on wp/w4h-32-runner-rehydrate (14 commits on integ/w00 b0b7bedf1; identity
+archy noreply, author and committer, 14/0). No re-rebase is needed: the head sits on b0b7bedf1 (team-lead).
+Cause (integration hold of c28a965ce, graph-mock-pass red): installGraphGuest prepared through a RAW PodmanRunner on a fresh store,
+and the harness release kept only its source in the blobs. The base passed only through the masking rebuild this package removed.
+Ruling B (team-lead; validator-8 supported it): product and harness change together, red first, row first.
+- 9e7337212: the C05 row "Prepare a release built outside the lifecycle".
+- 788a514c8: buildFactoryGuestHarnessRelease collects the built files, refuses factory_guest_package_artifact_mismatch before
+  storing anything, and keeps the artifact copy (digest checked twice). scripts/factory-graph-proof/guest-package.ts: the builder is
+  productExtensionRunner(blobs, db, runner). This is the one harness line team-lead granted; w4h-28b reviews it.
+- Red first, lock-free: red3/ (T1 guest-package-build 2 fail; T2 guest-package-harness-install 1 fail; red tree = 9e7337212 +
+  red3/red-tree.diff 5dae42cf).
+- Green, lock-free: green3/focused.log 54/0; harness tests 9/0; lint 0; typecheck 0. The commit hook ran 3 mapped suites green.
+- Mutants (mutants/summary.txt): m11 raw artifact_missing builds, m12 artifact copy not stored, m13 collected digest unchecked:
+  all KILLED.
+- Gated mock job (one lock turn, mock-in-lock.sh 3d949515, GATED_FLOCK_MEM_MARGIN_GIB=3): rebase/mock-20261016T194958Z/,
+  19:49:58Z to 19:54:10Z, status 0.
+  - Mock pass at the parent 9e7337212: FAILED with "the runner package could not be installed: factory_package_artifact_unavailable
+    {artifact_missing, Error, ENOENT}", the hold's exact red.
+  - Mock pass at the fix 788a514c8: PASSED, 7 steps.
+  - Typecheck in-lock: 0 (lowest 12.3 GiB).
+  - Coverage: runner 18/0, host 50/0, lifecycle 6/0, preparation 30/0, client 1/0, harness 9/0. New-file 0; patch 0 (13 files).
+  - Run 1 (rebase/mock-20261016T191738Z/) is VOID: no workflow bundle in either tree (factory_workflow_bundle_missing). My driver
+    lacked the hold's bundle build; it was fixed in 3d949515.
+- Scratch worktree .worktrees/w4h-32-mockparent removed by name after the run.
+LESSONS (added)
+7. A change to a preparation, build, install or first-boot rule needs the graph mock pass among the owner's freeze legs (team rule).
+8. Before any repository typecheck, lint or hook-running commit, check read-only that no gated job is queued and the heavy lock is
+   free. My lock-free typecheck at 19:12:03Z to 19:13:06Z held the host typecheck slot when W4H-33's in-lock typecheck needed it.
+9. A watcher must never match itself: put its search in a script file, or anchor the pattern at the start of argv.
+10. A mock pass in a fresh tree needs the orchestrator's workflow bundle built first.
+- VERDICT: validator-8 ACCEPT at 788a514c8 (verdict-w4h-32.txt aa6fdcbdff3067f9; Addendum H met; gate-integrity vs b0b7bedf1 PASSED).
+- LEFTOVER 3 (w4h-28b's review note): restore the harness comment sentence "the second and third references reuse the first one's
+  restored, verified artifacts" in scripts/factory-graph-proof/guest-package.ts, in a later comment-only commit.
+- LEFTOVER 4, PENDING (team-lead ruling: close it at the coming re-rebase, not as a new head now). Surviving mutant (validator-8): in
+  buildFactoryGuestHarnessRelease, keep `await putFiles(blobs, artifacts, "artifact")` but drop its comparison with
+  build.artifactDigest. T1 stays green. It is defence in depth, not a product hole: getFiles re-hashes on read. Plan, on the word: one
+  T1 case first (a blob store whose put files the artifact copy under another digest must be refused by name,
+  "factory_guest_package_artifact_mismatch: the stored artifact copy does not carry the build's digest"), as one test-only commit on
+  788a514c8 with the normal hook, timed when no gated job is queued. Then the rebase job with REBASE_FROZEN=<that commit> and
+  REBASE_NCOMMITS=15. Draft and probe: leftover4/ (with the case: 8/0 at 788a514c8; the mutant plus the case: 7 pass, 1 fail).
+- Branch frozen at 788a514c8 until the word.
+
+==== RE-FREEZE AFTER THE REBASE ONTO W4H-33 (2026-10-16) ====
+FROZEN HEAD c586125ab4e18732efa22d89b7d2280ecc879386 (tree 577909d0cc5a), wp/w4h-32-runner-rehydrate on integ/w00 8fb4474e9 (W4H-33
+tasks head). 15 commits: the 14 accepted ones plus the leftover-4 test commit 9f636011f (word 1; hook lint ok, guest-package-build.test.ts 8/0,
+no typecheck). Frozen kept: proof/w4h-32-frozen-9f636011f.
+- Rebase job (word 2; rebase-in-lock.sh 6c0708a0 in REBASE_STOPS=report; launch-rebase2.sh a54b0df8):
+  rebase/run-20261016T221955Z/, 22:19:55Z to 22:29:23Z. 0 stops. Identity 15/0. diff-equality all EQUAL. Titles ok. Static 0.
+  gate-integrity binding (8fb4474e9) PASSED; informational = exactly expect-main 6e315f84 (merge-lcov.ts + W4H-33's two deletions).
+  Typecheck in-lock 0. Coverage: runner 18/0, host 50/0, lifecycle 6/0, preparation 30/0, client 1/0, harness 10/0; new-file 0,
+  patch 0. Heavy: runner-package 148/0, preparation-podman 1/0, host-preparation-client 8/0, trusted-local 3/0, postgres-preparation 30/0.
+  Status 1 ONLY because leg 6, the graph mock pass, did not start: run.sh refused because EZCORP_FACTORY_STORAGE_SECRETS_DIR was not
+  exported in that job (a driver gap).
+- Driver fix: mock-lib.sh 92de313a -> afd7f9a2 (rebase/mock-lib-secrets-dir.diff 1b8cf863). It is the secrets-directory lookup only:
+  when the variable is not a directory, it takes the first /run/user/1001/ezcorp-factory-storage.* and exports it. When none exists,
+  the variable is empty and run.sh refuses by name ("... is unset or not a directory; refusing to run"). No record is written, so the
+  outcome is not "passed" and the job's status is 1. Nothing falls back.
+- Mock-only job (team-lead word; mock-head-in-lock.sh 4222c9ad): rebase/mockhead-20261016T223323Z/, 22:33:23Z to 22:34:48Z,
+  status 0, at c586125ab (tree 577909d0cc5a, clean). Graph mock pass: PASSED, 7 steps (graph/w4h32-rebased-mock.json 7da550c41359d0b8).
+  The folder's hashes are in its hashes.txt (14 files).
+- Leftover 4: DONE (9f636011f). Leftover 3 (w4h-28b's comment sentence): still pending.
+- VERDICT: validator-8 ACCEPT at c586125ab on both records together (verdict-w4h-32.txt 6213480c1c43dbfb). The driver diff was
+  judged the lookup only.
+LESSON 11: a hashes.txt written by `... | tee hashes.txt` inside the hashed folder lists itself, with the empty-file hash e3b0c44298fc1c14
+  (rebase/mockhead-20261016T223323Z/hashes.txt). Write a hash list outside the hashed set, or exclude its own name.
+
+==== CASE-LEG FIX AND LEFTOVER 3 (2026-10-17) ====
+The hold on the merge 7de009ec4 went RED on one leg of 176, w4h32-cases ("changed test lines NOT all covered"):
+guest-package-harness-install.test.ts 100/101 lines hit, line 52 uncovered (the FreshStore build guard, a sentinel that never runs
+when the product behaves). The guard is kept.
+- b4f0661a6: one case calls the fresh store's build and asserts the refusal and the counter.
+  Red, by the hold's measure (bunfig-testfiles.toml, coverageSkipTestFiles = false): fix52/red/cover52.txt 100/101, uncovered [52].
+  Green: fix52/green/cover52.txt 107/107. Mutant (the guard's throw removed): the new case fails, 2 pass and 1 fail.
+  Hook: lint ok; the file 3/0.
+- 13c439661: leftover 3, applied from leftover3.patch a4565fd2 with commit-msg 079849e9 (comment-only). Hook: lint ok;
+  scripts/factory-graph-proof/guest-package.test.ts 1/0.
+- NEW HEAD 13c439661, on c586125ab, which is on 8fb4474e9. Identity archy/archy. The apply-when-merged watcher was stopped before it
+  acted (no log) and its script retired, because the merge is redone on the new head.
+LESSON 12: a test sentinel that only runs when the product misbehaves is an uncovered changed test line under the hold's
+  test-line coverage. Give it a case that proves the guard is live.
+- d48071834 (team-lead route A, from validator-8's Bun reproduction): the uncovered line 52 was the field initializer `builds = 0;`. It
+  runs, but Bun 1.4.2 does not attribute it in a class that extends an imported base (at b4f0661a6 the attribution happened to flip to
+  DA 30, which is fragile). FreshStore now has `declare builds?: number;`, the count is set in build(), and the restore-path asserts
+  read `fresh.builds ?? 0`.
+  Coverage with the hold's measure: 106/106 (fix52/declare/cover.txt). Without the guard case: 99/101 (build() body unhit), so the
+  guard case and the declare form belong together. Mutant (the throw removed): the guard case fails, 2/1. Hook: lint ok, 3/0.
+- NEW HEAD d48071834: c586125ab, then b4f0661a6 (guard case), 13c439661 (leftover 3), d48071834 (declare form). No reported commit was
+  rewritten.
+LESSON 13: a test class that extends an imported base carries no field initializer or constructor code. Use `declare` plus an
+  assignment in a method, or Bun 1.4.2 leaves the line unattributed under test-line coverage.
+- HEAD RULING (team-lead): the named head is 13c439661 (validator-8 ACCEPT, verdict 2a01aa6138258b52). Route A is withdrawn: Bun
+  credits the initializer line whenever a method of the class runs (validator-8 field5 repro, DA 30), so the guard case b4f0661a6
+  already gives 107/107. d48071834 (the declare form) is NOT taken: its comment states the disproven claim. It stays on the branch
+  above the named head; the integrator merges 13c439661.
+LESSON 12, added (team-lead): a DA 0 on a test-class member line means no method of that class ran in the test. The fix is a case
+  that exercises the class. Read the hold's own lcov line before deciding.
+LESSON 13, CORRECTED: the earlier text ("a test class that extends an imported base carries no field initializer") rested on a
+  withdrawn premise. The real rule is lesson 12: an initializer is credited once a method of the class runs.
+- BRANCH RESET (team-lead word, lock-free, 2026-10-17): d480718342a8d56dba72482ccd6351c35f98ef38 is kept under
+  proof/w4h-32-declare-d48071834. Then wp/w4h-32-runner-rehydrate was reset to 13c439661d3d1a414b0669943f29fa151267838f; the worktree
+  is clean at 13c439661, and the branch tip equals the merged head.
+  Reflog: "13c439661d3d1a414b0669943f29fa151267838f wp/w4h-32-runner-rehydrate@{0} reset: moving to 13c439661d3d1a414b0669943f29fa151267838f"

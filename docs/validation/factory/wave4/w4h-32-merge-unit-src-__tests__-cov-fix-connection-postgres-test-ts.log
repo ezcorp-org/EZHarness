@@ -1,0 +1,22 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:30:03.097Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.098Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.099Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.099Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.099Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.099Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.099Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.100Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+{"ts":"2026-10-17T04:30:03.100Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":2}
+{"ts":"2026-10-17T04:30:03.100Z","level":"warn","msg":"Bun.sql statement bookkeeping desynchronized; replacing the connection pool","subsystem":"db","causes":[{"message":"Failed query: SELECT audit.project_id"},{"message":"bind message supplies 2 parameters, but prepared statement \"Pselect $5\" requires 1","errno":"08P01","routine":"exec_bind_message","statement":"Pselect $5"}]}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Bun.sql connection pool replaced","subsystem":"db","generation":3}
+{"ts":"2026-10-17T04:30:03.100Z","level":"info","msg":"Database mode: external Postgres","subsystem":"db"}
+
+ 11 pass
+ 0 fail
+ 52 expect() calls
+Ran 11 tests across 1 file. [3.46s]

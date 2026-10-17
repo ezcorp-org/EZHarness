@@ -1,0 +1,87 @@
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [2]
+
++ @biomejs/biome@2.5.14
++ @types/bun@1.4.2
++ @types/js-yaml@4.0.9
++ @types/node@26.6.3 (v26.6.5 available)
++ drizzle-kit@0.31.11
++ @aws-sdk/client-kms@3.1131.0
++ @aws-sdk/client-s3@3.1131.0
++ @balena/dockerignore@1.0.2
++ @earendil-works/pi-agent-core@0.99.2
++ @earendil-works/pi-ai@0.99.2
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @modelcontextprotocol/sdk@1.31.0
++ @zxing/library@0.23.0
++ drizzle-orm@0.45.3
++ exceljs@4.4.0
++ fast-png@8.0.0
++ file-type@22.1.1
++ jpeg-js@0.4.4
++ pdf-parse@2.4.5
++ yaml@2.9.1
++ typescript@5.9.3 (v7.0.2 available)
+
+481 packages installed [250.00ms]
+bun install v1.4.2 (744846f84)
+Resolving dependencies
+Resolved, downloaded and extracted [1]
+
++ @axe-core/playwright@4.13.0
++ @playwright/test@1.63.0
++ @stryker-mutator/core@10.0.0
++ @stryker-mutator/vitest-runner@10.0.0
++ @sveltejs/kit@2.70.3
++ @sveltejs/vite-plugin-svelte@7.3.1
++ @tailwindcss/vite@4.3.3
++ @testing-library/jest-dom@7.0.1
++ @testing-library/svelte@5.4.2
++ @types/jsdom@30.0.0
++ @typescript/native@7.0.2
++ @vitest/coverage-v8@5.0.3
++ ast-v8-to-istanbul@1.0.7
++ istanbul-lib-coverage@3.2.2
++ jsdom@30.1.1
++ rollup-plugin-visualizer@7.1.1
++ svelte@5.57.1
++ svelte-check@4.7.6
++ tailwindcss@4.3.3
++ typescript@6.0.3
++ vite@8.3.2
++ vitest@5.0.3
++ @electric-sql/pglite@0.5.8
++ @electric-sql/pglite-pgvector@0.0.9
++ @huggingface/transformers@4.3.0
++ @xyflow/svelte@1.7.0
++ ansi_up@6.0.6
++ diff2html@3.4.56
++ elkjs@0.12.0
++ highlight.js@11.12.0
++ isomorphic-dompurify@4.4.0
++ kokoro-js@1.2.1
++ linkedom@0.18.13
++ lucide-svelte@1.0.1
++ marked@18.0.14
++ svelte-adapter-bun@1.0.1
++ svelte-dnd-action@0.9.79
++ zod@4.6.5
+
+495 packages installed [524.00ms]
+$ bun scripts/build-workspace-packages.ts
+build:packages: @ezcorp/extension-contract (packages/@ezcorp/extension-contract)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/sdk (packages/@ezcorp/sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-sdk (packages/@ezcorp/factory-sdk)
+$ bunx tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-transport (packages/@ezcorp/factory-transport)
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/factory-orchestrator (packages/@ezcorp/factory-orchestrator)
+$ bun run --cwd ../factory-transport build && tsc -b tsconfig.build.json
+$ tsc -b tsconfig.build.json
+build:packages: @ezcorp/harness-client (packages/@ezcorp/harness-client)
+$ bunx tsc -b tsconfig.build.json

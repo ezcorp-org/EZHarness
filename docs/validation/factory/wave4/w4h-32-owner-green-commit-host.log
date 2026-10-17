@@ -1,0 +1,53 @@
+Checked 12 files in 13ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: src/extensions/extension-lifecycle-service.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-15T23:43:37.622Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:37.622Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:37.622Z","level":"error","msg":"Deferred extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"installation","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:37.623Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-blocked","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:37.623Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"a-recover-fails","code":"recovery_failed"}
+
+ 10 pass
+ 0 fail
+ 21 expect() calls
+Ran 10 tests across 1 file. [351.00ms]
+  bun: src/extensions/runner-connection.test.ts
+bun test v1.4.2 (744846f84)
+
+ 9 pass
+ 0 fail
+ 51 expect() calls
+Ran 9 tests across 1 file. [349.00ms]
+  bun: src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 48 expect() calls
+Ran 15 tests across 1 file. [1.97s]
+  bun: src/factory/attempt-composition.test.ts
+bun test v1.4.2 (744846f84)
+
+ 15 pass
+ 0 fail
+ 37 expect() calls
+Ran 15 tests across 1 file. [3.59s]
+  bun: src/__tests__/extension-lifecycle-service-trusted-local.test.ts
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-15T23:43:44.823Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"d786434b-8fb7-4ce8-9514-f41f9372c07f","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:44.823Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"7ee7f4c2-bd02-4a5a-986c-6c27f3fe54b4","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:44.823Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","installationId":"w4h32-installation","code":"recovery_failed"}
+{"ts":"2026-10-15T23:43:44.823Z","level":"error","msg":"Extension recovery requires attention","subsystem":"ext.author.lifecycle","code":"recovery_failed"}
+
+ 6 pass
+ 0 fail
+ 19 expect() calls
+Ran 6 tests across 1 file. [1130.00ms]
+  bun: src/__tests__/readiness.test.ts
+bun test v1.4.2 (744846f84)
+
+ 11 pass
+ 0 fail
+ 29 expect() calls
+Ran 11 tests across 1 file. [367.00ms]

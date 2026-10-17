@@ -1,0 +1,2 @@
+$ tsc -b tsconfig.build.json
+error: Script not found "build"

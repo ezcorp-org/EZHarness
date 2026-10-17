@@ -1,0 +1,23 @@
+Checked 4 files in 5ms. No fixes applied.
+── Tests (staged) ─────────────────────────────────
+  bun: scripts/factory-graph-proof/guest-package.test.ts
+bun test v1.4.2 (744846f84)
+
+ 1 pass
+ 0 fail
+ 9 expect() calls
+Ran 1 test across 1 file. [368.00ms]
+  bun: src/factory/guest-package-build.test.ts
+bun test v1.4.2 (744846f84)
+
+ 7 pass
+ 0 fail
+ 18 expect() calls
+Ran 7 tests across 1 file. [368.00ms]
+  bun: src/factory/guest-package-harness-install.test.ts
+bun test v1.4.2 (744846f84)
+
+ 2 pass
+ 0 fail
+ 8 expect() calls
+Ran 2 tests across 1 file. [3.41s]

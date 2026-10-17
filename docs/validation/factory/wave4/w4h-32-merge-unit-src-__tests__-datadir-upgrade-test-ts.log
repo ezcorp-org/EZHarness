@@ -1,0 +1,18 @@
+bun test v1.4.2 (744846f84)
+{"ts":"2026-10-17T04:30:06.751Z","level":"error","msg":"Data directory is incompatible with this build — refusing to boot","subsystem":"db","message":"Refusing to boot: the database at /tmp/ez-datadir-readiness-bZbP67/ezcorp-db was written by PostgreSQL 17, but this build runs PostgreSQL 18, and it no longer ships the PostgreSQL 17 engine needed to read one. THE DATA DIRECTORY HAS NOT BEEN MODIFIED. To recover, either restore a PostgreSQL 18 backup of this directory, or run an EZCorp build that still carries the 17->18 upgrade bridge and let it convert the directory first.","dbPath":"/tmp/ez-datadir-readiness-bZbP67/ezcorp-db","expectedPgMajor":"18"}
+{"ts":"2026-10-17T04:30:06.753Z","level":"warn","msg":"Datadir upgrade marker found — an earlier build's upgrade did not finish","subsystem":"db","phase":"swapping","startedAt":"2026-08-08T00:00:00.000Z","plan":"refuse"}
+{"ts":"2026-10-17T04:30:06.754Z","level":"warn","msg":"Datadir upgrade marker found — an earlier build's upgrade did not finish","subsystem":"db","phase":"swapping","startedAt":"2026-08-08T00:00:00.000Z","plan":"clear-marker"}
+{"ts":"2026-10-17T04:30:06.754Z","level":"warn","msg":"Datadir upgrade marker found — an earlier build's upgrade did not finish","subsystem":"db","phase":"swapping","startedAt":"2026-08-08T00:00:00.000Z","plan":"finish-swap"}
+{"ts":"2026-10-17T04:30:06.754Z","level":"info","msg":"Completed an interrupted datadir swap","subsystem":"db","backupPath":"/tmp/ez-datadir-rec-finish-usJaqf/backup"}
+{"ts":"2026-10-17T04:30:06.755Z","level":"warn","msg":"Datadir upgrade marker found — an earlier build's upgrade did not finish","subsystem":"db","phase":"swapping","startedAt":"2026-08-08T00:00:00.000Z","plan":"roll-back"}
+{"ts":"2026-10-17T04:30:06.755Z","level":"warn","msg":"Rolled an interrupted datadir upgrade back to the original","subsystem":"db"}
+{"ts":"2026-10-17T04:30:06.755Z","level":"warn","msg":"Datadir upgrade marker found — an earlier build's upgrade did not finish","subsystem":"db","phase":"dumping","startedAt":"2026-08-08T00:00:00.000Z","plan":"retry"}
+{"ts":"2026-10-17T04:30:06.755Z","level":"info","msg":"Removed stale PGlite lock file","subsystem":"db","path":"/tmp/ez-datadir-locks-laF3ut/ezcorp-db/postmaster.pid"}
+{"ts":"2026-10-17T04:30:06.755Z","level":"info","msg":"Removed stale PGlite lock file","subsystem":"db","path":"/tmp/ez-datadir-locks-laF3ut/ezcorp-db/postmaster.opts"}
+{"ts":"2026-10-17T04:30:06.756Z","level":"warn","msg":"Failed to remove stale PGlite lock file","subsystem":"db","path":"/tmp/ez-datadir-locks-stuck-TpcQ7l/ezcorp-db/postmaster.pid","error":"Error: EISDIR: illegal operation on a directory, unlink '/tmp/ez-datadir-locks-stuck-TpcQ7l/ezcorp-db/postmaster.pid'"}
+{"ts":"2026-10-17T04:30:06.756Z","level":"info","msg":"Removed stale PGlite lock file","subsystem":"db","path":"/tmp/ez-datadir-locks-stuck-TpcQ7l/ezcorp-db/postmaster.opts"}
+
+ 30 pass
+ 0 fail
+ 78 expect() calls
+Ran 30 tests across 1 file. [572.00ms]

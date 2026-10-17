@@ -1,0 +1,58 @@
+# 2026-10-16T00:01:41.322793+00:00 mutant m4-warning-dropped in src/extensions/runner-rehydration.ts
+# cmd: bun test --timeout 30000 ./src/extensions/runner-rehydration.test.ts
+bun test v1.4.2 (744846f84)
+
+src/extensions/runner-rehydration.test.ts:
+103 |     await wrapped.collectArtifacts(artifact);
+104 |     held.clear();
+105 |     await wrapped.collectArtifacts(artifact);
+106 |     const readiness = getReadiness();
+107 |     expect(readiness.state).toBe("ready");
+108 |     expect(readiness.warnings).toEqual([{ code: RUNNER_ARTIFACT_REHYDRATED, artifactDigest: artifact, count: 2 }]);
+                                     ^
+error: expect(received).toEqual(expected)
+
+- [
+-   {
+-     "artifactDigest": "2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c",
+-     "code": "runner_artifact_rehydrated",
+-     "count": 2,
+-   },
+- ]
++ undefined
+
+- Expected  - 7
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:108:32)
+(fail) rehydration of a missing runner artifact (W4H-32) > by default a rehydration is a non-blocking readiness warning with its code, digest and count, never a message [0.29ms]
+263 |       const deadline = Date.now() + 60_000;
+264 |       const start = { workerId: "kept-worker", artifactDigest: artifact, context: { invocationId: "kept-call", workerId: "kept-worker", releaseId: "kept-release", principalId: "owner", scopeId: "scope", token: "token", deadline }, limits: executionLimits, processSpawn: "deny" as const };
+265 |       // The fixture's recipe names no image, so the retried start stops at the profile check: past the artifact.
+266 |       await expect(product.start(start, noReverse)).rejects.toMatchObject({ code: "runtime_profile_changed" });
+267 |       expect(await second.collectArtifacts(artifact)).toEqual(files);
+268 |       expect(getReadiness().warnings).toEqual([{ code: RUNNER_ARTIFACT_REHYDRATED, artifactDigest: artifact, count: 1 }]);
+                                            ^
+error: expect(received).toEqual(expected)
+
+- [
+-   {
+-     "artifactDigest": "2be18fa207bd1b3d3c2115183653329aa35d00f620b2c4a6b2b53812551de00c",
+-     "code": "runner_artifact_rehydrated",
+-     "count": 1,
+-   },
+- ]
++ undefined
+
+- Expected  - 7
++ Received  + 1
+
+      at <anonymous> (/home/dev/work/EZCorp/EZHarness/.worktrees/w4h-32/src/extensions/runner-rehydration.test.ts:268:39)
+(fail) two boots on a kept installation whose runner store is fresh (W4H-32) > boot 1 builds into the store; the store is lost; boot 2 rehydrates lazily from the product's copy, warns once, and starts the worker [39.36ms]
+
+ 13 pass
+ 2 fail
+ 47 expect() calls
+Ran 15 tests across 1 file. [2.04s]
+
+# exit=1
