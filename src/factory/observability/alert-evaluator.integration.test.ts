@@ -49,7 +49,7 @@ function promtool(directory: string, args: readonly string[]): Promise<{ code: n
 
 beforeAll(() => {
   // A precondition is named, never skipped.
-  if (!IMAGE || !/^docker\.io\/prom\/prometheus@sha256:[a-f0-9]{64}$/.test(IMAGE)) throw new Error("scripts/test-images.json has no pinned prometheus image");
+  if (!IMAGE || !/^quay\.io\/prometheus\/prometheus@sha256:[a-f0-9]{64}$/.test(IMAGE)) throw new Error("scripts/test-images.json has no pinned prometheus image");
 });
 
 describe("promtool evaluates every forced case (C11 A1-A10)", () => {
